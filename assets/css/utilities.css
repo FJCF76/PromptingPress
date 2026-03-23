@@ -1,0 +1,67 @@
+/* ==========================================================================
+   utilities.css — PromptingPress Utility Classes
+   Single-purpose helpers. BEM not required here — these are atomic utilities.
+   ========================================================================== */
+
+/* ==========================================================================
+   Layout
+   ========================================================================== */
+
+.container {
+  max-width: var(--max-width);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--space-md);
+  padding-right: var(--space-md);
+}
+
+@media (min-width: 768px) {
+  .container {
+    padding-left: var(--space-lg);
+    padding-right: var(--space-lg);
+  }
+}
+
+/* ==========================================================================
+   Screen Reader Only
+   Visually hidden but accessible to assistive technology.
+   (Also defined in base.css for the base layer — repeated here for portability.)
+   ========================================================================== */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* ==========================================================================
+   Spacing Utilities
+   ========================================================================== */
+
+.mt-sm  { margin-top: var(--space-sm); }
+.mt-md  { margin-top: var(--space-md); }
+.mt-lg  { margin-top: var(--space-lg); }
+
+.mb-sm  { margin-bottom: var(--space-sm); }
+.mb-md  { margin-bottom: var(--space-md); }
+.mb-lg  { margin-bottom: var(--space-lg); }
+
+/* ==========================================================================
+   Text Utilities
+   ========================================================================== */
+
+.text-muted  { color: var(--color-muted); }
+.text-center { text-align: center; }
+.text-sm     { font-size: 0.875rem; }
+
+/* ==========================================================================
+   Display Utilities
+   ========================================================================== */
+
+.hidden { display: none; }

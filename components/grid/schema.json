@@ -1,0 +1,26 @@
+{
+  "component": "grid",
+  "description": "Responsive card grid for discrete content objects — posts, features, team members. Not for decorative icon grids. Cards are 1-col mobile, 2-col tablet, 3-col desktop.",
+  "props": {
+    "title": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Section heading above the grid. Omit if the context makes it clear."
+    },
+    "items": {
+      "type": "array",
+      "required": true,
+      "description": "Array of card items. Each: { title, text, image_url, link_url, link_text }.",
+      "items": {
+        "title":     { "type": "string", "required": false },
+        "text":      { "type": "string", "required": false },
+        "image_url": { "type": "string", "required": false },
+        "link_url":  { "type": "string", "required": false },
+        "link_text": { "type": "string", "required": false, "default": "Read more" }
+      }
+    }
+  },
+  "safe_to_edit": ["grid.php", "../../assets/css/components.css (COMPONENT: grid section)"],
+  "do_not_touch": ["schema.json without updating README.md"]
+}

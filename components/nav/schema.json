@@ -1,0 +1,20 @@
+{
+  "component": "nav",
+  "description": "Site header with logo, primary navigation menu, and hamburger toggle on mobile. Reads a registered WP nav menu by theme location.",
+  "props": {
+    "location": {
+      "type": "string",
+      "required": false,
+      "default": "primary",
+      "description": "WP theme location slug for the nav menu."
+    },
+    "logo_text": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Logo text. Falls back to pp_site_title() when empty."
+    }
+  },
+  "safe_to_edit": ["nav.php", "../../assets/css/components.css (COMPONENT: nav section)"],
+  "do_not_touch": ["schema.json without updating README.md"]
+}

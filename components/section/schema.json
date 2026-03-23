@@ -1,0 +1,38 @@
+{
+  "component": "section",
+  "description": "Generic text section with an optional image. Supports three layout variants: text only, image left, image right.",
+  "props": {
+    "title": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Section heading. Omit to render the body without a heading."
+    },
+    "body": {
+      "type": "string",
+      "required": true,
+      "description": "HTML body content. Passed through wp_kses_post()."
+    },
+    "image_url": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Image URL. Required for image-left and image-right layouts; ignored in text-only."
+    },
+    "image_alt": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Alt text for the image. Use empty string for decorative images."
+    },
+    "layout": {
+      "type": "enum",
+      "values": ["text-only", "image-left", "image-right"],
+      "required": false,
+      "default": "text-only",
+      "description": "Column layout. Falls back to text-only if image_url is empty."
+    }
+  },
+  "safe_to_edit": ["section.php", "../../assets/css/components.css (COMPONENT: section section)"],
+  "do_not_touch": ["schema.json without updating README.md"]
+}

@@ -1,0 +1,44 @@
+{
+  "component": "hero",
+  "description": "Full-width hero section with headline, optional subtitle, optional CTA button, and optional image. Supports three layout variants.",
+  "props": {
+    "title": {
+      "type": "string",
+      "required": true,
+      "description": "Primary headline text."
+    },
+    "subtitle": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Supporting subheadline shown below the title."
+    },
+    "cta_text": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "CTA button label. Leave empty to hide the button."
+    },
+    "cta_url": {
+      "type": "string",
+      "required": false,
+      "default": "#",
+      "description": "CTA button URL."
+    },
+    "variant": {
+      "type": "enum",
+      "values": ["left", "centered", "split"],
+      "required": false,
+      "default": "centered",
+      "description": "Layout variant. 'centered' centers all content. 'left' aligns content left. 'split' places text left and image right at lg+."
+    },
+    "image_url": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Image URL. Only rendered in the 'split' variant."
+    }
+  },
+  "safe_to_edit": ["hero.php", "../../assets/css/components.css (COMPONENT: hero section)"],
+  "do_not_touch": ["schema.json without also updating README.md"]
+}

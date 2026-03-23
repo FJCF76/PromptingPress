@@ -1,0 +1,14 @@
+{
+  "component": "footer",
+  "description": "Site footer with an optional WP nav menu and a copyright line. Reads a registered WP nav menu by theme location slug.",
+  "props": {
+    "location": {
+      "type": "string",
+      "required": false,
+      "default": "footer",
+      "description": "WP theme location slug for the footer nav menu."
+    }
+  },
+  "safe_to_edit": ["footer.php", "../../assets/css/components.css (COMPONENT: footer section)"],
+  "do_not_touch": ["schema.json without updating README.md"]
+}

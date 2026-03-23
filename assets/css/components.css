@@ -1,0 +1,672 @@
+/* ==========================================================================
+   components.css — PromptingPress Component Styles
+
+   RULES:
+   - Only CSS variables from base.css. No raw hex values, ever.
+   - BEM naming: .block__element--modifier
+   - Each component section clearly labeled.
+   - To retheme: edit base.css tokens only. Do not add hex here.
+   ========================================================================== */
+
+/* ==========================================================================
+   SHARED: Button
+   .btn and .btn--outline used across hero, cta, and grid.
+   ========================================================================== */
+
+.btn {
+  display: inline-block;
+  padding: var(--space-sm) var(--space-lg);
+  background-color: var(--color-accent);
+  color: var(--color-bg);
+  font-weight: 600;
+  font-size: 1rem;
+  text-decoration: none;
+  border: 2px solid var(--color-accent);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition);
+  min-height: 44px; /* accessibility: 44px min touch target */
+  line-height: 1.4;
+}
+
+.btn:hover {
+  background-color: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  color: var(--color-bg);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+.btn--outline {
+  background-color: transparent;
+  color: var(--color-accent);
+}
+
+.btn--outline:hover {
+  background-color: var(--color-accent);
+  color: var(--color-bg);
+}
+
+/* ==========================================================================
+   COMPONENT: nav
+   Site header, logo, nav links, hamburger toggle.
+   ========================================================================== */
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background-color: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.nav__container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 64px;
+  gap: var(--space-md);
+}
+
+.nav__logo {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 1.25rem;
+  color: var(--color-text);
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.nav__logo:hover {
+  color: var(--color-accent);
+}
+
+/* Hamburger toggle button */
+.nav__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  background: none;
+  border: none;
+  border-radius: var(--radius);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: color var(--transition);
+}
+
+.nav__toggle:hover {
+  color: var(--color-accent);
+}
+
+/* Nav menu — mobile: hidden by default, toggled by JS */
+.nav__menu {
+  width: 100%;
+  padding: var(--space-sm) 0 var(--space-md);
+}
+
+/* Override 'hidden' attribute behavior: ensure menu shows as block, not inline */
+.nav__menu[hidden] {
+  display: none;
+}
+
+/* WP menu list */
+.nav__menu ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  list-style: none;
+}
+
+.nav__menu ul li a {
+  display: block;
+  padding: var(--space-sm) var(--space-sm);
+  color: var(--color-text);
+  text-decoration: none;
+  border-radius: var(--radius);
+  transition: color var(--transition);
+}
+
+.nav__menu ul li a:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.nav__menu ul li a[aria-current="page"] {
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+/* Desktop: hamburger hidden, menu always visible */
+@media (min-width: 768px) {
+  .nav__toggle {
+    display: none;
+  }
+
+  .nav__container {
+    flex-wrap: nowrap;
+  }
+
+  /* Override the 'hidden' attribute on desktop so menu is always shown */
+  .nav__menu[hidden] {
+    display: block;
+  }
+
+  .nav__menu {
+    width: auto;
+    padding: 0;
+    display: flex;
+    align-items: center;
+  }
+
+  .nav__menu ul {
+    flex-direction: row;
+    gap: var(--space-xs);
+    align-items: center;
+  }
+
+  .nav__menu ul li a {
+    padding: var(--space-xs) var(--space-sm);
+  }
+}
+
+/* ==========================================================================
+   COMPONENT: hero
+   Full-width hero section. Variants: centered, left, split.
+   ========================================================================== */
+
+.hero {
+  padding-top: var(--space-2xl);
+  padding-bottom: var(--space-2xl);
+  background-color: var(--color-bg);
+}
+
+.hero__inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.hero__content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.hero__title {
+  font-size: 2.5rem;
+  line-height: 1.15;
+}
+
+@media (min-width: 768px) {
+  .hero__title {
+    font-size: 3rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .hero__title {
+    font-size: 3.5rem;
+  }
+}
+
+.hero__subtitle {
+  font-size: 1.125rem;
+  color: var(--color-muted);
+  max-width: 52ch;
+  line-height: 1.6;
+}
+
+.hero__cta {
+  align-self: flex-start;
+}
+
+/* Centered variant */
+.hero--centered .hero__inner {
+  align-items: center;
+  text-align: center;
+}
+
+.hero--centered .hero__subtitle {
+  max-width: none;
+}
+
+.hero--centered .hero__cta {
+  align-self: center;
+}
+
+/* Left variant */
+.hero--left .hero__inner {
+  align-items: flex-start;
+  text-align: left;
+}
+
+/* Split variant: text left, image right at lg+ */
+.hero--split .hero__inner {
+  align-items: flex-start;
+  text-align: left;
+}
+
+@media (min-width: 1024px) {
+  .hero--split .hero__inner {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: center;
+    gap: var(--space-xl);
+  }
+}
+
+.hero__image-wrap {
+  flex-shrink: 0;
+}
+
+.hero__image {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+}
+
+/* ==========================================================================
+   COMPONENT: section
+   Generic text + optional image section.
+   ========================================================================== */
+
+.section {
+  padding-top: var(--space-xl);
+  padding-bottom: var(--space-xl);
+}
+
+.section__title {
+  margin-bottom: var(--space-md);
+}
+
+.section__content {
+  color: var(--color-text);
+  max-width: 70ch;
+}
+
+/* text-only: single column, content readable width */
+.section--text-only .section__body {
+  max-width: 70ch;
+}
+
+/* Image variants: side-by-side grid at md+ */
+.section__grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+@media (min-width: 768px) {
+  .section__grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: center;
+    gap: var(--space-xl);
+  }
+}
+
+.section__image {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+}
+
+/* ==========================================================================
+   COMPONENT: faq
+   Native details/summary accordion. No JS required.
+   ========================================================================== */
+
+.faq {
+  padding-top: var(--space-xl);
+  padding-bottom: var(--space-xl);
+  background-color: var(--color-surface);
+}
+
+.faq__heading {
+  margin-bottom: var(--space-lg);
+}
+
+.faq__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.faq__item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background-color: var(--color-bg);
+  overflow: hidden;
+}
+
+.faq__question {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+  list-style: none;
+  gap: var(--space-md);
+  min-height: 44px;
+  transition: color var(--transition);
+}
+
+/* Remove default marker in WebKit */
+.faq__question::-webkit-details-marker {
+  display: none;
+}
+
+/* Custom chevron via CSS */
+.faq__question::after {
+  content: '';
+  display: block;
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform var(--transition);
+}
+
+.faq__item[open] > .faq__question {
+  color: var(--color-accent);
+}
+
+.faq__item[open] > .faq__question::after {
+  transform: rotate(225deg);
+}
+
+.faq__answer {
+  padding: 0 var(--space-lg) var(--space-md);
+  color: var(--color-muted);
+  line-height: 1.6;
+}
+
+.faq__empty {
+  padding: var(--space-md) 0;
+}
+
+/* ==========================================================================
+   COMPONENT: grid
+   Responsive card grid. 1-col → 2-col md → 3-col lg.
+   Cards are for real content objects, not decoration.
+   ========================================================================== */
+
+.grid {
+  padding-top: var(--space-xl);
+  padding-bottom: var(--space-xl);
+}
+
+.grid__heading {
+  margin-bottom: var(--space-lg);
+}
+
+.grid__list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-lg);
+  list-style: none;
+}
+
+@media (min-width: 768px) {
+  .grid__list {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .grid__list {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.grid__item {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: transform var(--transition);
+}
+
+.grid__item:hover {
+  transform: translateY(-2px);
+}
+
+.grid__item-image-wrap {
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+}
+
+.grid__item-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.grid__item-body {
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  flex: 1;
+}
+
+.grid__item-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.grid__item-text {
+  color: var(--color-muted);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  flex: 1;
+}
+
+.grid__item-link {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--color-accent);
+  text-decoration: none;
+  align-self: flex-start;
+  margin-top: auto;
+}
+
+.grid__item-link:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+}
+
+.grid__empty {
+  grid-column: 1 / -1;
+  padding: var(--space-md) 0;
+}
+
+/* ==========================================================================
+   COMPONENT: table
+   Data table with horizontal scroll on mobile.
+   ========================================================================== */
+
+.table-section {
+  padding-top: var(--space-xl);
+  padding-bottom: var(--space-xl);
+}
+
+.table-section__heading {
+  margin-bottom: var(--space-lg);
+}
+
+.table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+  background-color: var(--color-bg);
+}
+
+.table__caption {
+  caption-side: bottom;
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.875rem;
+  color: var(--color-muted);
+  text-align: left;
+}
+
+.table__head {
+  background-color: var(--color-surface);
+}
+
+.table__header {
+  padding: var(--space-sm) var(--space-md);
+  text-align: left;
+  font-weight: 700;
+  color: var(--color-text);
+  border-bottom: 2px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.table__row {
+  border-bottom: 1px solid var(--color-border);
+  transition: background-color var(--transition);
+}
+
+.table__row:last-child {
+  border-bottom: none;
+}
+
+.table__row:hover {
+  background-color: var(--color-surface);
+}
+
+.table__cell {
+  padding: var(--space-sm) var(--space-md);
+  color: var(--color-text);
+  vertical-align: top;
+}
+
+.table-section__empty {
+  padding: var(--space-md) 0;
+}
+
+/* ==========================================================================
+   COMPONENT: cta
+   Call-to-action block. Variants: full-width (centered), inline (flex row).
+   ========================================================================== */
+
+.cta {
+  padding-top: var(--space-xl);
+  padding-bottom: var(--space-xl);
+}
+
+.cta__inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.cta__title {
+  margin-bottom: var(--space-xs);
+}
+
+.cta__body {
+  color: var(--color-muted);
+  margin-bottom: 0;
+}
+
+/* Full-width: centered block with surface background */
+.cta--full-width {
+  background-color: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.cta--full-width .cta__inner {
+  align-items: center;
+  text-align: center;
+}
+
+/* Inline: flex row, text left, button right */
+.cta--inline .cta__inner {
+  align-items: flex-start;
+  text-align: left;
+}
+
+@media (min-width: 768px) {
+  .cta--inline .cta__inner {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.cta__button {
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   COMPONENT: footer
+   Site footer with nav and copyright.
+   ========================================================================== */
+
+.site-footer {
+  background-color: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-lg);
+  padding-bottom: var(--space-lg);
+}
+
+.site-footer__inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+@media (min-width: 768px) {
+  .site-footer__inner {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.site-footer__nav ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-md);
+  list-style: none;
+}
+
+.site-footer__nav ul li a {
+  color: var(--color-muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+  transition: color var(--transition);
+}
+
+.site-footer__nav ul li a:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.site-footer__copyright {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+  margin-bottom: 0;
+}

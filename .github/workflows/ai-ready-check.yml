@@ -1,0 +1,79 @@
+name: AI-Ready Check
+
+on: [push, pull_request]
+
+jobs:
+  ai-ready:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No raw WP functions in templates
+        run: |
+          if grep -r --include="*.php" "get_field\|wp_nav_menu\|get_bloginfo\|get_the_title\|get_the_content\|home_url\|get_permalink\|WP_Query" templates/ components/; then
+            echo "ERROR: Raw WP functions found in templates/ or components/. Use lib/wp.php wrappers (pp_* prefix)."
+            exit 1
+          fi
+
+      - name: All components have schema.json
+        run: |
+          MISSING=0
+          for dir in components/*/; do
+            name=$(basename "$dir")
+            if [ ! -f "$dir/schema.json" ]; then
+              echo "ERROR: Missing schema.json in $dir"
+              MISSING=1
+            fi
+          done
+          if [ "$MISSING" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: All schema.json files are valid JSON
+        run: |
+          INVALID=0
+          for schema in components/*/schema.json; do
+            if ! python3 -m json.tool "$schema" > /dev/null 2>&1; then
+              echo "ERROR: Invalid JSON in $schema"
+              INVALID=1
+            fi
+          done
+          if [ "$INVALID" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: AI_CONTEXT.md exists
+        run: |
+          if [ ! -f AI_CONTEXT.md ]; then
+            echo "ERROR: AI_CONTEXT.md is missing."
+            exit 1
+          fi
+
+      - name: CLAUDE.md exists
+        run: |
+          if [ ! -f CLAUDE.md ]; then
+            echo "ERROR: CLAUDE.md is missing."
+            exit 1
+          fi
+
+      - name: No raw hex in components.css
+        run: |
+          if grep -P '#[0-9a-fA-F]{3,6}(?![0-9a-fA-F])' assets/css/components.css; then
+            echo "ERROR: Raw hex color found in components.css. Use CSS variables from base.css."
+            exit 1
+          fi
+
+      - name: All components have README.md
+        run: |
+          MISSING=0
+          for dir in components/*/; do
+            name=$(basename "$dir")
+            if [ ! -f "$dir/README.md" ]; then
+              echo "WARNING: Missing README.md in $dir"
+              MISSING=1
+            fi
+          done
+          if [ "$MISSING" -ne 0 ]; then
+            echo "All components should have README.md for AI discoverability."
+            exit 1
+          fi

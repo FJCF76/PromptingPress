@@ -1,0 +1,23 @@
+{
+  "component": "faq",
+  "description": "FAQ accordion using native HTML details/summary elements. Zero JavaScript required. Each item has a question and an HTML answer.",
+  "props": {
+    "title": {
+      "type": "string",
+      "required": false,
+      "default": "Frequently Asked Questions",
+      "description": "Section heading displayed above the FAQ list."
+    },
+    "items": {
+      "type": "array",
+      "required": true,
+      "description": "Array of FAQ items. Each item: { question: string, answer: string (HTML allowed) }.",
+      "items": {
+        "question": { "type": "string", "required": true },
+        "answer":   { "type": "string", "required": true }
+      }
+    }
+  },
+  "safe_to_edit": ["faq.php", "../../assets/css/components.css (COMPONENT: faq section)"],
+  "do_not_touch": ["schema.json without updating README.md"]
+}

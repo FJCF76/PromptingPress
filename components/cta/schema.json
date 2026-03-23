@@ -1,0 +1,36 @@
+{
+  "component": "cta",
+  "description": "Call-to-action block with title, optional supporting text, and a button. Two variants: full-width (centered, bg surface) and inline (flex row).",
+  "props": {
+    "title": {
+      "type": "string",
+      "required": true,
+      "description": "CTA headline."
+    },
+    "text": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Supporting body text below the title."
+    },
+    "button_text": {
+      "type": "string",
+      "required": true,
+      "description": "Button label."
+    },
+    "button_url": {
+      "type": "string",
+      "required": true,
+      "description": "Button destination URL."
+    },
+    "variant": {
+      "type": "enum",
+      "values": ["full-width", "inline"],
+      "required": false,
+      "default": "full-width",
+      "description": "'full-width' — centered block with surface background. 'inline' — flex row, text left, button right."
+    }
+  },
+  "safe_to_edit": ["cta.php", "../../assets/css/components.css (COMPONENT: cta section)"],
+  "do_not_touch": ["schema.json without updating README.md"]
+}

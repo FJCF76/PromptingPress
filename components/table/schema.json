@@ -1,0 +1,30 @@
+{
+  "component": "table",
+  "description": "Data or comparison table. Wraps in a horizontal-scroll container on mobile. Headers become <th scope='col'> elements.",
+  "props": {
+    "title": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Section heading above the table."
+    },
+    "headers": {
+      "type": "array",
+      "required": true,
+      "description": "Array of column header strings."
+    },
+    "rows": {
+      "type": "array",
+      "required": true,
+      "description": "Array of rows. Each row is an array of cell values (strings, HTML allowed)."
+    },
+    "caption": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Accessible table caption (rendered as <caption>). Recommended for data tables."
+    }
+  },
+  "safe_to_edit": ["table.php", "../../assets/css/components.css (COMPONENT: table section)"],
+  "do_not_touch": ["schema.json without updating README.md"]
+}
