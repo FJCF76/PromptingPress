@@ -17,6 +17,14 @@
  * @param array  $props  Associative array of props passed to the component.
  */
 function pp_get_component(string $name, array $props = []): void {
+    // Sanitize component name: only lowercase letters, digits, hyphens, underscores.
+    // Prevents path traversal (e.g. '../../wp-config') from reaching require.
+    $name = preg_replace('/[^a-z0-9_-]/i', '', $name);
+
+    if ($name === '') {
+        return;
+    }
+
     $file = get_template_directory() . "/components/{$name}/{$name}.php";
 
     if (!file_exists($file)) {
@@ -60,6 +68,10 @@ function pp_get_component(string $name, array $props = []): void {
  * @param string $name  Component name.
  */
 function pp_component_exists(string $name): bool {
+    $name = preg_replace('/[^a-z0-9_-]/i', '', $name);
+    if ($name === '') {
+        return false;
+    }
     $file = get_template_directory() . "/components/{$name}/{$name}.php";
     return file_exists($file);
 }

@@ -37,6 +37,12 @@
       "required": false,
       "default": "",
       "description": "Image URL. Only rendered in the 'split' variant."
+    },
+    "image_alt": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Alt text for the split variant image. Use a descriptive string for meaningful images; leave empty only if image is purely decorative."
     }
   },
   "safe_to_edit": ["hero.php", "../../assets/css/components.css (COMPONENT: hero section)"],

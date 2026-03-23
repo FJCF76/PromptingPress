@@ -16,6 +16,7 @@
         "title":     { "type": "string", "required": false },
         "text":      { "type": "string", "required": false },
         "image_url": { "type": "string", "required": false },
+        "image_alt": { "type": "string", "required": false, "default": "", "description": "Alt text for the card image. Leave empty only if the image is purely decorative." },
         "link_url":  { "type": "string", "required": false },
         "link_text": { "type": "string", "required": false, "default": "Read more" }
       }

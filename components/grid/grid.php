@@ -25,6 +25,7 @@ $items = $props['items'] ?? [];
                     $item_title = $item['title']     ?? '';
                     $item_text  = $item['text']      ?? '';
                     $image_url  = $item['image_url'] ?? '';
+                    $image_alt  = $item['image_alt'] ?? '';
                     $link_url   = $item['link_url']  ?? '';
                     $link_text  = $item['link_text'] ?? 'Read more';
                 ?>
@@ -33,7 +34,7 @@ $items = $props['items'] ?? [];
                             <div class="grid__item-image-wrap">
                                 <img
                                     src="<?php echo esc_url($image_url); ?>"
-                                    alt=""
+                                    alt="<?php echo esc_attr($image_alt); ?>"
                                     class="grid__item-image"
                                     loading="lazy"
                                 >

@@ -6,6 +6,9 @@
  * No hooks or filters anywhere else.
  */
 
+// ── Theme version (single source of truth — keep in sync with style.css) ──
+define('PP_VERSION', '1.0.0');
+
 // ── Load lib files ─────────────────────────────────────────────────────────
 require_once get_template_directory() . '/lib/wp.php';
 require_once get_template_directory() . '/lib/components.php';
@@ -34,7 +37,7 @@ add_action('after_setup_theme', function () {
 // ── Enqueue assets ─────────────────────────────────────────────────────────
 add_action('wp_enqueue_scripts', function () {
     $dir = get_template_directory_uri();
-    $ver = '1.0.0';
+    $ver = PP_VERSION;
 
     wp_enqueue_style(
         'pp-base',

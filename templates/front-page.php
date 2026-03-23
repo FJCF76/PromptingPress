@@ -15,24 +15,24 @@ pp_base_template(function () {
 
     // ── Hero ──────────────────────────────────────────────────────────────
     pp_get_component('hero', [
-        'title'    => pp_field('hero_title')    ?: 'Build AI-Ready WordPress Sites',
-        'subtitle' => pp_field('hero_subtitle') ?: 'PromptingPress is a WordPress theme designed so any AI tool can read one file, understand your entire site, and edit it safely — without knowing WordPress internals.',
-        'cta_text' => pp_field('hero_cta_text') ?: 'See How It Works',
-        'cta_url'  => pp_field('hero_cta_url')  ?: pp_site_url('#how-it-works'),
+        'title'    => pp_field('hero_title')    ?? 'Build AI-Ready WordPress Sites',
+        'subtitle' => pp_field('hero_subtitle') ?? 'PromptingPress is a WordPress theme designed so any AI tool can read one file, understand your entire site, and edit it safely — without knowing WordPress internals.',
+        'cta_text' => pp_field('hero_cta_text') ?? 'See How It Works',
+        'cta_url'  => pp_field('hero_cta_url')  ?? pp_site_url('#how-it-works'),
         'variant'  => 'centered',
     ]);
 
     // ── What is this — text + image section ───────────────────────────────
     pp_get_component('section', [
-        'title'     => pp_field('section_title')     ?: 'The AI Comprehension Problem',
-        'body'      => pp_field('section_body')      ?: '<p>WordPress themes are designed for developers who accumulate knowledge over time. AI can\'t accumulate. Every session, it re-infers the same hidden logic from your code.</p><p>PromptingPress solves this by wrapping all WordPress calls in a thin abstraction layer, typing every component with a machine-readable schema, and providing a single <code>AI_CONTEXT.md</code> that maps the entire site structure in seconds.</p>',
-        'image_url' => pp_field('section_image_url') ?: '',
-        'image_alt' => pp_field('section_image_alt') ?: '',
-        'layout'    => pp_field('section_layout')    ?: 'text-only',
+        'title'     => pp_field('section_title')     ?? 'The AI Comprehension Problem',
+        'body'      => pp_field('section_body')      ?? '<p>WordPress themes are designed for developers who accumulate knowledge over time. AI can\'t accumulate. Every session, it re-infers the same hidden logic from your code.</p><p>PromptingPress solves this by wrapping all WordPress calls in a thin abstraction layer, typing every component with a machine-readable schema, and providing a single <code>AI_CONTEXT.md</code> that maps the entire site structure in seconds.</p>',
+        'image_url' => pp_field('section_image_url') ?? '',
+        'image_alt' => pp_field('section_image_alt') ?? '',
+        'layout'    => pp_field('section_layout')    ?? 'text-only',
     ]);
 
     // ── Feature grid ──────────────────────────────────────────────────────
-    $grid_items = pp_field('grid_items') ?: [
+    $grid_items = pp_field('grid_items') ?? [
         [
             'title'     => 'WP Abstraction Layer',
             'text'      => 'lib/wp.php is the only file that calls WordPress functions. Templates use pp_site_title(), pp_field(), pp_permalink() — stable contracts an AI can learn once.',
@@ -78,12 +78,12 @@ pp_base_template(function () {
     ];
 
     pp_get_component('grid', [
-        'title' => pp_field('grid_title') ?: 'How It Works',
+        'title' => pp_field('grid_title') ?? 'How It Works',
         'items' => $grid_items,
     ]);
 
     // ── FAQ ───────────────────────────────────────────────────────────────
-    $faq_items = pp_field('faq_items') ?: [
+    $faq_items = pp_field('faq_items') ?? [
         [
             'question' => 'Does this theme require ACF?',
             'answer'   => 'No. The pp_field() wrapper returns null if ACF is not installed. All components accept fallback values so the page renders without any plugin installed.',
@@ -107,16 +107,16 @@ pp_base_template(function () {
     ];
 
     pp_get_component('faq', [
-        'title' => pp_field('faq_title') ?: 'Frequently Asked Questions',
+        'title' => pp_field('faq_title') ?? 'Frequently Asked Questions',
         'items' => $faq_items,
     ]);
 
     // ── CTA ───────────────────────────────────────────────────────────────
     pp_get_component('cta', [
-        'title'       => pp_field('cta_title')       ?: 'Ready to build your AI-ready site?',
-        'text'        => pp_field('cta_text')         ?: 'Start with the theme, fill in AI_CONTEXT.md, and let your AI tool do the rest.',
-        'button_text' => pp_field('cta_button_text')  ?: 'Get Started on GitHub',
-        'button_url'  => pp_field('cta_button_url')   ?: 'https://github.com/FJCF76/PromptingPress',
+        'title'       => pp_field('cta_title')       ?? 'Ready to build your AI-ready site?',
+        'text'        => pp_field('cta_text')         ?? 'Start with the theme, fill in AI_CONTEXT.md, and let your AI tool do the rest.',
+        'button_text' => pp_field('cta_button_text')  ?? 'Get Started on GitHub',
+        'button_url'  => pp_field('cta_button_url')   ?? 'https://github.com/FJCF76/PromptingPress',
         'variant'     => 'full-width',
     ]);
 

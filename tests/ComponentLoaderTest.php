@@ -94,15 +94,10 @@ class ComponentLoaderTest extends TestCase
 
     public function testMissingComponentReturnsNoOutputWithoutFatal(): void
     {
-        // With WP_DEBUG off, missing component = silent.
-        // We test that the function does NOT throw or fatal.
-        $nonExistentFile = $this->fixturesDir . '/components/does-not-exist/does-not-exist.php';
-
+        // With WP_DEBUG off, pp_get_component() for a missing component must:
+        // (a) produce no output, and (b) not throw or fatal.
         ob_start();
-        if (!file_exists($nonExistentFile)) {
-            // Simulate the early-return path in pp_get_component.
-            // No output, no fatal — just return.
-        }
+        pp_get_component('does-not-exist-fixture-xyz');
         $output = ob_get_clean();
 
         $this->assertSame('', $output, 'Missing component should produce no output.');

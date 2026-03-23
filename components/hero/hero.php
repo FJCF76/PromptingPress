@@ -11,8 +11,9 @@ $title    = $props['title']    ?? 'Default Title';
 $subtitle = $props['subtitle'] ?? '';
 $cta_text = $props['cta_text'] ?? '';
 $cta_url  = $props['cta_url']  ?? '#';
-$variant  = $props['variant']  ?? 'centered';
+$variant   = $props['variant']   ?? 'centered';
 $image_url = $props['image_url'] ?? '';
+$image_alt = $props['image_alt'] ?? '';
 
 // Validate variant.
 $allowed_variants = ['left', 'centered', 'split'];
@@ -41,7 +42,7 @@ if (!in_array($variant, $allowed_variants, true)) {
                 <div class="hero__image-wrap">
                     <img
                         src="<?php echo esc_url($image_url); ?>"
-                        alt=""
+                        alt="<?php echo esc_attr($image_alt); ?>"
                         class="hero__image"
                         loading="eager"
                     >

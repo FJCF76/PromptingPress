@@ -9,7 +9,7 @@
  */
 
 $location = $props['location'] ?? 'footer';
-$year     = date('Y');
+$year     = wp_date('Y');
 ?>
 <footer class="site-footer">
     <div class="container site-footer__inner">

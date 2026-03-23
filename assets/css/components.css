@@ -103,15 +103,10 @@
   color: var(--color-accent);
 }
 
-/* Nav menu — mobile: hidden by default, toggled by JS */
+/* Nav menu — visible without JS (progressive enhancement); JS adds/removes hidden. */
 .nav__menu {
   width: 100%;
   padding: var(--space-sm) 0 var(--space-md);
-}
-
-/* Override 'hidden' attribute behavior: ensure menu shows as block, not inline */
-.nav__menu[hidden] {
-  display: none;
 }
 
 /* WP menu list */
@@ -136,6 +131,14 @@
   text-decoration: underline;
 }
 
+/* Active link: WP sets current-menu-item on <li> — this is the primary active style. */
+.nav__menu ul li.current-menu-item > a,
+.nav__menu ul li.current_page_item > a {
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+/* aria-current="page" is a secondary enhancement (e.g. set by other means). */
 .nav__menu ul li a[aria-current="page"] {
   font-weight: 700;
   color: var(--color-accent);
@@ -151,9 +154,9 @@
     flex-wrap: nowrap;
   }
 
-  /* Override the 'hidden' attribute on desktop so menu is always shown */
+  /* When JS sets hidden on mobile, override it on desktop so menu is always shown. */
   .nav__menu[hidden] {
-    display: block;
+    display: flex;
   }
 
   .nav__menu {

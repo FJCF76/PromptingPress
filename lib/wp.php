@@ -86,11 +86,14 @@ function pp_posts(array $args = []): \WP_Query {
  * @param callable  $cb    Called once per post with the global post set.
  */
 function pp_the_loop(\WP_Query $query, callable $cb): void {
-    while ($query->have_posts()) {
-        $query->the_post();
-        $cb();
+    try {
+        while ($query->have_posts()) {
+            $query->the_post();
+            $cb();
+        }
+    } finally {
+        wp_reset_postdata();
     }
-    wp_reset_postdata();
 }
 
 /**

@@ -4,9 +4,12 @@
  * Minimal vanilla JS. No framework, no dependencies.
  *
  * Behaviors:
- *   1. Hamburger nav toggle (mobile)
+ *   1. Hamburger nav toggle (mobile) — progressive enhancement:
+ *      the menu is visible without JS; JS hides it and owns the toggle.
  *   2. Escape key closes the nav menu
- *   3. Active nav link highlight via aria-current
+ *
+ * Active nav link: handled server-side by WordPress (current-menu-item CSS class).
+ * No JS needed — see .nav__menu li.current-menu-item > a in components.css.
  */
 
 (function () {
@@ -18,6 +21,10 @@
   var menu   = document.getElementById('pp-nav-menu');
 
   if (toggle && menu) {
+
+    // JS is running — take ownership of the menu visibility.
+    // Without JS, the menu is visible (progressive enhancement).
+    menu.hidden = true;
 
     toggle.addEventListener('click', function () {
       var expanded = toggle.getAttribute('aria-expanded') === 'true';
@@ -35,17 +42,5 @@
     });
 
   }
-
-  // ── 3. Highlight active nav link ─────────────────────────────────────────
-  // Sets aria-current="page" on the nav link that matches the current URL.
-  // This runs after wp_footer() has rendered the nav menu into the DOM.
-
-  var currentUrl = window.location.href;
-
-  document.querySelectorAll('.nav__menu a').forEach(function (link) {
-    if (link.href === currentUrl) {
-      link.setAttribute('aria-current', 'page');
-    }
-  });
 
 })();

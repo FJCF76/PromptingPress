@@ -37,7 +37,7 @@ $logo_text = $props['logo_text'] ?? pp_site_title();
                 <span class="sr-only">Menu</span>
             </button>
 
-            <div id="pp-nav-menu" class="nav__menu" hidden>
+            <div id="pp-nav-menu" class="nav__menu">
                 <?php pp_nav_menu($location); ?>
             </div>
 
