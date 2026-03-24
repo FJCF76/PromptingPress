@@ -396,6 +396,21 @@
   line-height: 1.6;
 }
 
+@keyframes faq-open {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.faq__item[open] > .faq__answer {
+  animation: faq-open 150ms ease;
+}
+
 .faq__empty {
   padding: var(--space-md) 0;
 }
