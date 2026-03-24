@@ -245,7 +245,12 @@
   align-self: center;
 }
 
-/* Left variant */
+/* Left variant — used by inner pages; compact vertical rhythm */
+.hero--left {
+  padding-top: var(--space-xl);
+  padding-bottom: var(--space-xl);
+}
+
 .hero--left .hero__inner {
   align-items: flex-start;
   text-align: left;
