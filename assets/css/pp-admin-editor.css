@@ -147,6 +147,15 @@ body.pp-workspace-page #wpfooter {
     z-index: 5;
     transition: background 0.15s;
 }
+#pp-workspace .pp-resize-handle::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -8px;
+    right: -8px;
+    cursor: col-resize;
+}
 #pp-workspace .pp-resize-handle:hover,
 #pp-workspace .pp-resize-handle.is-dragging {
     background: #93c5fd;
@@ -185,7 +194,7 @@ body.pp-workspace-page #wpfooter {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: #6b7280;
+    color: #9ca3af;
     flex-shrink: 0;
     user-select: none;
 }
@@ -233,7 +242,7 @@ body.pp-workspace-page #wpfooter {
 }
 
 #pp-workspace .CodeMirror-linenumber {
-    color: #4a4a6a;
+    color: #6a6a8a;
 }
 
 /* ── Dark-theme syntax highlighting (VS Code–inspired) ────────────────────── */
@@ -312,7 +321,7 @@ body.pp-workspace-page #wpfooter {
 #pp-workspace .pp-comp-desc {
     margin: 0 0 6px;
     font-size: 11px;
-    color: #6b7280;
+    color: #9ca3af;
     line-height: 1.4;
 }
 
@@ -328,7 +337,7 @@ body.pp-workspace-page #wpfooter {
     font-family: "JetBrains Mono", Consolas, monospace;
 }
 #pp-workspace .pp-props-list code { color: #e2e8f0; font-size: 11px; background: none; }
-#pp-workspace .pp-prop-type { color: #4a5568; font-size: 10px; }
+#pp-workspace .pp-prop-type { color: #9ca3af; font-size: 10px; }
 #pp-workspace .pp-prop--req code { color: #fca5a5; }
 #pp-workspace .pp-prop--opt code { color: #94a3b8; }
 
@@ -336,7 +345,7 @@ body.pp-workspace-page #wpfooter {
 #pp-workspace #pp-schema-display { padding: 12px 14px; }
 
 #pp-workspace .pp-schema-placeholder {
-    font-size: 12px; color: #4a5568; font-style: italic; margin: 0; line-height: 1.5;
+    font-size: 12px; color: #9ca3af; font-style: italic; margin: 0; line-height: 1.5;
 }
 #pp-workspace .pp-schema-name {
     font-size: 14px; font-weight: 700; font-family: "JetBrains Mono", Consolas, monospace;
@@ -360,7 +369,7 @@ body.pp-workspace-page #wpfooter {
 #pp-workspace .pp-schema-table td:first-child { color: #e2e8f0; }
 
 #pp-workspace .pp-req-badge { font-size: 9px; font-weight: 700; text-transform: uppercase; color: #f87171; }
-#pp-workspace .pp-opt-badge { font-size: 9px; color: #4a5568; }
+#pp-workspace .pp-opt-badge { font-size: 9px; color: #6b7280; }
 
 /* ── Preview pane ──────────────────────────────────────────────────────────── */
 

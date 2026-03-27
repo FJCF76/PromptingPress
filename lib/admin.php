@@ -293,7 +293,7 @@ function pp_composition_workspace_page(): void {
                 <span class="pp-save-status" id="pp-save-status"></span>
             </div>
             <div class="pp-toolbar-right">
-                <button id="pp-save-btn" class="pp-save-btn button button-primary">
+                <button id="pp-save-btn" class="pp-save-btn button button-primary" title="Save (Ctrl+S)">
                     Save Composition
                 </button>
             </div>
@@ -373,7 +373,7 @@ function pp_composition_workspace_page(): void {
             <div class="pp-pane pp-pane--preview">
                 <div class="pp-pane-header">
                     Live Preview
-                    <span class="pp-preview-status" id="pp-preview-status"></span>
+                    <span class="pp-preview-status" id="pp-preview-status">Loading&hellip;</span>
                 </div>
                 <div class="pp-pane-body pp-pane-body--preview">
                     <iframe
