@@ -1,0 +1,382 @@
+/* pp-admin-editor.css — PromptingPress Composition Workspace
+ *
+ * This runs inside WP admin (#wpbody-content). All layout-critical properties
+ * use high specificity or !important to survive WP admin's global CSS.
+ */
+
+/* ── Override WP admin chrome for the workspace page ───────────────────────── */
+
+body.pp-workspace-page #adminmenumain,
+body.pp-workspace-page #adminmenuback,
+body.pp-workspace-page #adminmenuwrap {
+    display: none !important;
+}
+
+body.pp-workspace-page #wpcontent,
+body.pp-workspace-page #wpbody {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+}
+
+body.pp-workspace-page #wpbody-content {
+    padding-bottom: 0 !important;
+    padding-left: 0 !important;
+    overflow: hidden !important;
+}
+
+body.pp-workspace-page #wpfooter {
+    display: none !important;
+}
+
+/* ── Workspace container ───────────────────────────────────────────────────── */
+
+#pp-workspace.pp-workspace {
+    display: grid !important;
+    grid-template-rows: 48px auto 1fr !important;
+    height: calc(100vh - 32px) !important;    /* 32px = WP admin bar */
+    overflow: hidden !important;
+    background: #1e1e1e;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+#pp-workspace.pp-workspace *,
+#pp-workspace.pp-workspace *::before,
+#pp-workspace.pp-workspace *::after {
+    box-sizing: border-box;
+}
+
+/* ── Toolbar (row 1) ───────────────────────────────────────────────────────── */
+
+#pp-workspace .pp-toolbar {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    height: 48px;
+    padding: 0 16px;
+    background: #1a1a2e;
+    border-bottom: 1px solid #2d2d4e;
+    flex-shrink: 0;
+    z-index: 10;
+}
+
+#pp-workspace .pp-toolbar-left,
+#pp-workspace .pp-toolbar-right { flex: 0 0 auto; }
+#pp-workspace .pp-toolbar-center { flex: 1 1 0; text-align: center; }
+
+#pp-workspace .pp-back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #a0a8c0;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+}
+#pp-workspace .pp-back-link:hover { color: #fff; }
+#pp-workspace .pp-back-arrow { font-size: 18px; line-height: 1; }
+
+#pp-workspace .pp-save-status {
+    font-size: 12px;
+    color: #6b7280;
+    transition: color 0.2s;
+}
+#pp-workspace .pp-save-status.is-saving { color: #93c5fd; }
+#pp-workspace .pp-save-status.is-saved  { color: #6ee7b7; }
+#pp-workspace .pp-save-status.is-error  { color: #fca5a5; }
+
+#pp-workspace .pp-save-btn {
+    height: 32px;
+    padding: 0 16px;
+    font-size: 13px;
+    font-weight: 600;
+    background: #2271b1 !important;
+    border-color: #2271b1 !important;
+    color: #fff !important;
+    border-radius: 4px;
+    cursor: pointer;
+}
+#pp-workspace .pp-save-btn:hover {
+    background: #135e96 !important;
+    border-color: #135e96 !important;
+}
+#pp-workspace .pp-save-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ── Error bar (row 2, auto-height) ────────────────────────────────────────── */
+
+#pp-workspace .pp-error-bar {
+    background: #450a0a;
+    border-bottom: 1px solid #7f1d1d;
+    padding: 0 16px;
+    font-size: 12px;
+    color: #fca5a5;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+#pp-workspace .pp-error-bar:empty {
+    padding: 0;
+    border-bottom: none;
+}
+#pp-workspace .pp-error-bar:not(:empty) {
+    padding: 8px 16px;
+}
+#pp-workspace .pp-error-bar ul { margin: 0; padding: 0 0 0 16px; }
+#pp-workspace .pp-error-bar li { margin: 2px 0; }
+
+/* ── Three-pane layout (row 3, fills remaining height) ─────────────────────── */
+
+#pp-workspace .pp-panes {
+    display: flex !important;
+    flex-direction: row !important;
+    overflow: hidden !important;
+    min-height: 0 !important;
+}
+
+/* ── Resize handles ────────────────────────────────────────────────────────── */
+
+#pp-workspace .pp-resize-handle {
+    flex: 0 0 5px;
+    background: #2d2d4e;
+    cursor: col-resize;
+    position: relative;
+    z-index: 5;
+    transition: background 0.15s;
+}
+#pp-workspace .pp-resize-handle:hover,
+#pp-workspace .pp-resize-handle.is-dragging {
+    background: #93c5fd;
+}
+
+/* ── Pane base ──────────────────────────────────────────────────────────────── */
+
+#pp-workspace .pp-pane {
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    min-width: 0;
+    min-height: 0;
+    flex-shrink: 0;
+    flex-grow: 0;
+}
+
+#pp-workspace .pp-pane--editor {
+    /* default: ~50% of viewport, set via JS */
+}
+#pp-workspace .pp-pane--reference {
+    background: #16213e;
+}
+#pp-workspace .pp-pane--preview {
+    background: #fff;
+}
+
+#pp-workspace .pp-pane-header {
+    display: flex;
+    align-items: center;
+    height: 36px;
+    padding: 0 14px;
+    background: #16213e;
+    border-bottom: 1px solid #2d2d4e;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #6b7280;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+#pp-workspace .pp-pane--preview .pp-pane-header {
+    background: #f3f4f6;
+    border-bottom: 1px solid #e5e7eb;
+    color: #6b7280;
+}
+
+#pp-workspace .pp-pane-body {
+    flex: 1 1 0 !important;
+    overflow-y: auto;
+    min-height: 0 !important;
+    position: relative;
+}
+
+#pp-workspace .pp-pane-body--preview {
+    overflow: hidden;
+}
+
+/* ── CodeMirror — fills editor pane body ────────────────────────────────────── */
+
+#pp-workspace .pp-pane--editor .pp-pane-body {
+    overflow: hidden;
+    padding: 0;
+}
+
+#pp-workspace .CodeMirror {
+    position: absolute !important;
+    top: 0; left: 0; right: 0; bottom: 0;
+    height: auto !important;
+    font-size: 13px;
+    font-family: "JetBrains Mono", "Fira Code", Consolas, "SFMono-Regular", monospace;
+    line-height: 1.6;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    border: none;
+    border-radius: 0;
+}
+
+#pp-workspace .CodeMirror-gutters {
+    background: #252526;
+    border-right: 1px solid #2d2d4e;
+}
+
+#pp-workspace .CodeMirror-linenumber {
+    color: #4a4a6a;
+}
+
+/* ── Dark-theme syntax highlighting (VS Code–inspired) ────────────────────── */
+
+#pp-workspace .CodeMirror .cm-string          { color: #ce9178; }  /* warm orange for strings */
+#pp-workspace .CodeMirror .cm-string-2        { color: #ce9178; }
+#pp-workspace .CodeMirror .cm-number          { color: #b5cea8; }  /* soft green for numbers */
+#pp-workspace .CodeMirror .cm-atom            { color: #569cd6; }  /* blue for true/false/null */
+#pp-workspace .CodeMirror .cm-property        { color: #9cdcfe; }  /* light blue for keys */
+#pp-workspace .CodeMirror .cm-punctuation     { color: #808080; }  /* grey for braces/brackets */
+#pp-workspace .CodeMirror .cm-bracket         { color: #808080; }
+#pp-workspace .CodeMirror .cm-error           { color: #f44747; }
+#pp-workspace .CodeMirror .cm-keyword         { color: #569cd6; }
+#pp-workspace .CodeMirror-cursor              { border-left-color: #aeafad; }
+#pp-workspace .CodeMirror-selected            { background: #264f78 !important; }
+#pp-workspace .CodeMirror-activeline-background { background: #2a2d2e; }
+#pp-workspace .CodeMirror-matchingbracket     { color: #fff !important; background: #3b514d; }
+
+/* ── Reference pane ────────────────────────────────────────────────────────── */
+
+#pp-workspace .pp-pane-tabs {
+    padding: 0;
+    gap: 0;
+}
+
+#pp-workspace .pp-tab-btn {
+    flex: 1;
+    height: 100%;
+    padding: 0 12px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #6b7280;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+#pp-workspace .pp-tab-btn:hover { color: #a0a8c0; }
+#pp-workspace .pp-tab-btn--active {
+    color: #93c5fd;
+    border-bottom-color: #93c5fd;
+}
+
+/* Component list */
+#pp-workspace .pp-component-list {
+    margin: 0;
+    padding: 8px 0;
+    list-style: none;
+}
+
+#pp-workspace .pp-component-item {
+    padding: 10px 14px;
+    border-bottom: 1px solid #1e2a45;
+}
+#pp-workspace .pp-component-item:last-child { border-bottom: none; }
+
+#pp-workspace .pp-component-insert {
+    display: block;
+    width: 100%;
+    padding: 0;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    color: #93c5fd;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    margin-bottom: 4px;
+}
+#pp-workspace .pp-component-insert:hover { color: #bfdbfe; text-decoration: underline; }
+
+#pp-workspace .pp-comp-desc {
+    margin: 0 0 6px;
+    font-size: 11px;
+    color: #6b7280;
+    line-height: 1.4;
+}
+
+#pp-workspace .pp-props-list {
+    margin: 0; padding: 0; list-style: none;
+}
+#pp-workspace .pp-props-list li {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 11px;
+    line-height: 1.8;
+    font-family: "JetBrains Mono", Consolas, monospace;
+}
+#pp-workspace .pp-props-list code { color: #e2e8f0; font-size: 11px; background: none; }
+#pp-workspace .pp-prop-type { color: #4a5568; font-size: 10px; }
+#pp-workspace .pp-prop--req code { color: #fca5a5; }
+#pp-workspace .pp-prop--opt code { color: #94a3b8; }
+
+/* Schema tab */
+#pp-workspace #pp-schema-display { padding: 12px 14px; }
+
+#pp-workspace .pp-schema-placeholder {
+    font-size: 12px; color: #4a5568; font-style: italic; margin: 0; line-height: 1.5;
+}
+#pp-workspace .pp-schema-name {
+    font-size: 14px; font-weight: 700; font-family: "JetBrains Mono", Consolas, monospace;
+    color: #93c5fd; margin: 0 0 4px;
+}
+#pp-workspace .pp-schema-desc {
+    font-size: 11px; color: #6b7280; margin: 0 0 12px; line-height: 1.4;
+}
+#pp-workspace .pp-schema-table {
+    width: 100%; font-size: 11px; font-family: "JetBrains Mono", Consolas, monospace;
+    border-collapse: collapse;
+}
+#pp-workspace .pp-schema-table th {
+    padding: 4px 6px; text-align: left; font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.05em; color: #4a5568;
+    background: #0f172a; border-bottom: 1px solid #1e2a45;
+}
+#pp-workspace .pp-schema-table td {
+    padding: 4px 6px; border-bottom: 1px solid #1e2a45; color: #94a3b8; vertical-align: top;
+}
+#pp-workspace .pp-schema-table td:first-child { color: #e2e8f0; }
+
+#pp-workspace .pp-req-badge { font-size: 9px; font-weight: 700; text-transform: uppercase; color: #f87171; }
+#pp-workspace .pp-opt-badge { font-size: 9px; color: #4a5568; }
+
+/* ── Preview pane ──────────────────────────────────────────────────────────── */
+
+#pp-workspace .pp-preview-status {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: normal;
+    text-transform: none;
+    letter-spacing: 0;
+    color: #9ca3af;
+}
+
+#pp-workspace .pp-preview-frame {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: #fff;
+    display: block;
+}

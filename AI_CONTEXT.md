@@ -98,41 +98,27 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 
 ## Page templates
 
-| Template file         | Root loader       | WP Admin template name |
-|-----------------------|-------------------|------------------------|
-| templates/front-page.php | front-page.php | (set as front page in Settings → Reading) |
-| templates/page.php    | page.php          | Default Template       |
-| templates/single.php  | single.php        | (automatic for posts)  |
-| templates/archive.php | archive.php       | (automatic for archives) |
+| Template file              | Root loader         | WP Admin template name | Composition-aware? |
+|----------------------------|---------------------|------------------------|--------------------|
+| templates/front-page.php   | front-page.php      | (set as front page)    | ✅ Yes             |
+| templates/composition.php  | composition.php     | Composition            | ✅ Yes             |
+| templates/page.php         | page.php            | Default Template       | No                 |
+| templates/single.php       | single.php          | (automatic for posts)  | No                 |
+| templates/archive.php      | archive.php         | (automatic for archives) | No               |
+
+Both `front-page.php` and `composition.php` read `_pp_composition` post meta and render
+components via `pp_composition()`. No page using these templates has hardcoded component structure.
+
+The homepage has no special editing paradigm — it uses the same JSON composition system
+as any other page. Its initial composition is seeded in `_pp_composition` (post ID 4).
 
 ---
 
 ## WordPress fields (ACF)
 
-Fields used on the front page (templates/front-page.php):
-
-| Field name         | Component | Fallback default |
-|--------------------|-----------|-----------------|
-| hero_title         | hero      | 'Build AI-Ready WordPress Sites' |
-| hero_subtitle      | hero      | (see template) |
-| hero_cta_text      | hero      | 'See How It Works' |
-| hero_cta_url       | hero      | site URL + '#how-it-works' |
-| section_title      | section   | 'The AI Comprehension Problem' |
-| section_body       | section   | (see template) |
-| section_image_url  | section   | '' (text-only) |
-| section_image_alt  | section   | '' |
-| section_layout     | section   | 'text-only' |
-| grid_title         | grid      | 'How It Works' |
-| grid_items         | grid      | 6 hardcoded feature items |
-| faq_title          | faq       | 'Frequently Asked Questions' |
-| faq_items          | faq       | 5 hardcoded FAQ items |
-| cta_title          | cta       | 'Ready to build your AI-ready site?' |
-| cta_text           | cta       | (see template) |
-| cta_button_text    | cta       | 'Get Started on GitHub' |
-| cta_button_url     | cta       | GitHub repo URL |
-
-All pp_field() calls return null when ACF is not installed. Every template provides
-fallback defaults so the site renders correctly without ACF.
+`pp_field()` is available for use in templates and components as an ACF wrapper.
+No core templates currently use it — the front page content is stored in `_pp_composition`,
+not ACF fields. `pp_field()` returns null when ACF is not installed.
 
 ---
 
@@ -149,3 +135,50 @@ Shape:      --radius, --max-width, --transition
 ```
 
 See `ai-instructions/retheme.md` for the full retheme workflow.
+
+---
+
+## Composition model
+
+Pages using the **Composition** template store their layout in `_pp_composition` post meta.
+
+**Format:** JSON array of component objects.
+
+```json
+[
+  { "component": "hero", "props": { "title": "Welcome", "variant": "centered" } },
+  { "component": "section", "props": { "body": "<p>Content here.</p>", "layout": "text-only" } },
+  { "component": "faq", "props": { "items": [{ "question": "Q?", "answer": "A." }] } },
+  { "component": "cta", "props": { "title": "Go", "button_text": "Click", "button_url": "/" } }
+]
+```
+
+**Rules:**
+- `component` must match a registered component name (a folder in `components/`)
+- `props` must satisfy required props from the component's `schema.json`
+- Invalid compositions are rejected on save — the DB retains the last valid value
+- AI can write `_pp_composition` directly (via WP CLI or REST) — same format
+
+**To read the composition in PHP:** use `pp_composition()` from `lib/wp.php`.
+It returns `[]` when meta is absent or invalid JSON.
+
+**To write a composition as AI:**
+```bash
+wp post meta update <post_id> _pp_composition '[{"component":"hero","props":{"title":"Hello"}}]'
+```
+
+**Admin editor:** Pages with the Composition template show a "Page Composition" meta box
+in WP Admin with a CodeMirror JSON editor, live preview, and component reference sidebar.
+
+**AJAX preview:** `wp_ajax_pp_preview_composition` (cookie auth, WP nonce)
+- POST params: `post_id`, `composition` (JSON string), `nonce`
+- Returns: `{ "success": true, "data": { "html": "<full-page-html>" } }` or error
+
+**File map:**
+| File                           | Purpose                                          |
+|--------------------------------|--------------------------------------------------|
+| `composition.php`              | WP template header (root) — do not edit          |
+| `templates/composition.php`    | Composition template logic                       |
+| `lib/admin.php`                | Meta box, AJAX preview, validation, component registry |
+| `assets/js/pp-admin-editor.js` | Editor JS (CodeMirror, autocomplete, preview)    |
+| `assets/css/pp-admin-editor.css` | Editor layout and styles                       |

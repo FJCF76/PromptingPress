@@ -134,3 +134,18 @@ function pp_permalink(): string {
 function pp_thumbnail_url(string $size = 'large'): string {
     return (string) get_the_post_thumbnail_url(null, $size);
 }
+
+/**
+ * Returns the composition array for the current page from _pp_composition post meta.
+ * Returns an empty array when the meta is absent, empty, or contains invalid JSON.
+ *
+ * @return array  Array of component objects: [['component' => string, 'props' => array], ...]
+ */
+function pp_composition(): array {
+    $raw = get_post_meta(get_the_ID(), '_pp_composition', true);
+    if (!$raw) {
+        return [];
+    }
+    $items = json_decode($raw, true);
+    return is_array($items) ? $items : [];
+}

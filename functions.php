@@ -13,6 +13,7 @@ define('PP_VERSION', '1.0.0');
 require_once get_template_directory() . '/lib/wp.php';
 require_once get_template_directory() . '/lib/components.php';
 require_once get_template_directory() . '/lib/helpers.php';
+require_once get_template_directory() . '/lib/admin.php';
 
 // ── Theme setup ────────────────────────────────────────────────────────────
 add_action('after_setup_theme', function () {

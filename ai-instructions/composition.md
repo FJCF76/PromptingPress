@@ -1,0 +1,160 @@
+# AI Workflow: Compose a Page Using _pp_composition
+
+Use this when asked to build, edit, or populate a page that uses the **Composition** template.
+
+---
+
+## What the Composition template is
+
+Pages set to the **Composition** template (`Page Attributes → Template → Composition`) render
+their components from a JSON array stored in the `_pp_composition` post meta key.
+
+The format is AI-native: the same JSON a human edits in the admin meta box is what you write directly.
+
+---
+
+## The format
+
+```json
+[
+  { "component": "hero",    "props": { "title": "Welcome", "variant": "centered" } },
+  { "component": "section", "props": { "body": "<p>Content.</p>", "layout": "text-only" } },
+  { "component": "faq",     "props": { "items": [{ "question": "Q?", "answer": "A." }] } },
+  { "component": "cta",     "props": { "title": "Go", "button_text": "Click", "button_url": "/" } }
+]
+```
+
+- `component` — must match a registered component name (a folder in `components/`)
+- `props` — must satisfy required props from that component's `schema.json`
+- Order in the array = render order on the page
+- Any registered component can appear any number of times in any order
+
+---
+
+## Valid component names
+
+See `AI_CONTEXT.md` → Component index for the current list. As of last update:
+
+| Name    | Required props                          |
+|---------|-----------------------------------------|
+| hero    | title                                   |
+| section | body                                    |
+| faq     | items[] {question, answer}              |
+| grid    | items[] {title, text, ...}              |
+| table   | headers[], rows[][]                     |
+| cta     | title, button_text, button_url          |
+| nav     | (no required props)                     |
+| footer  | (no required props)                     |
+
+Always verify against `components/{name}/schema.json` before writing — the source of truth.
+
+---
+
+## How to write a composition (WP CLI)
+
+```bash
+# Set a composition on page ID 42
+wp post meta update 42 _pp_composition '[
+  {"component":"hero","props":{"title":"My Page","variant":"centered"}},
+  {"component":"section","props":{"body":"<p>Content goes here.</p>","layout":"text-only"}}
+]'
+
+# Read the current composition on a page
+wp post meta get 42 _pp_composition
+
+# Verify the page uses the Composition template
+wp post get 42 --field=page_template
+# Should return: composition.php
+```
+
+---
+
+## How to set the page template (WP CLI)
+
+```bash
+# Make page ID 42 use the Composition template
+wp post meta update 42 _wp_page_template composition.php
+```
+
+---
+
+## Validation rules
+
+Before writing, verify:
+1. Every `component` value exists as `components/{name}/{name}.php`
+2. Every required prop from `components/{name}/schema.json` is present
+3. The JSON is a valid array (not an object, not null)
+4. Prop types match the schema (`string`, `boolean`, `array`, `enum`)
+
+Invalid compositions are rejected on save by the PHP layer — the DB retains the last valid value.
+
+---
+
+## Example: build a full landing page
+
+```bash
+wp post meta update 42 _wp_page_template composition.php
+
+wp post meta update 42 _pp_composition '[
+  {
+    "component": "hero",
+    "props": {
+      "title": "Build AI-Ready Sites",
+      "subtitle": "A theme designed for AI-first editing.",
+      "cta_text": "Get Started",
+      "cta_url": "/docs",
+      "variant": "centered"
+    }
+  },
+  {
+    "component": "section",
+    "props": {
+      "title": "How It Works",
+      "body": "<p>PromptingPress exposes every component as a typed, schema-validated unit. AI reads the schema and edits with confidence.</p>",
+      "layout": "text-only"
+    }
+  },
+  {
+    "component": "cta",
+    "props": {
+      "title": "Ready to build?",
+      "button_text": "View on GitHub",
+      "button_url": "https://github.com/FJCF76/PromptingPress",
+      "variant": "full-width"
+    }
+  }
+]'
+```
+
+---
+
+## What NOT to store in _pp_composition
+
+- Layout, spacing, or visual decisions (those belong in CSS / design tokens)
+- Navigation or footer configuration (nav and footer are injected by `pp_base_template` automatically)
+- ACF field data (use `pp_field()` in templates or component props for that)
+
+The database stores page data (composition + component content).
+Files store everything visual.
+
+---
+
+## Checking if a page uses the Composition template
+
+```bash
+wp post meta get <post_id> _wp_page_template
+# Returns: composition.php  ← Composition template is active
+# Returns: (empty)          ← Default template
+```
+
+---
+
+## Related files
+
+| File                          | Purpose                                          |
+|-------------------------------|--------------------------------------------------|
+| `composition.php`             | WP template header (root) — do not edit         |
+| `templates/composition.php`   | Reads meta, renders components                  |
+| `lib/admin.php`               | Meta box, AJAX preview, PHP validation           |
+| `assets/js/pp-admin-editor.js`| In-admin JSON editor with live preview           |
+| `AI_CONTEXT.md`               | Full site map + composition model reference      |
