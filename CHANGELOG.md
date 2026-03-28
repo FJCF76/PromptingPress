@@ -4,11 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased]
-
----
-
-## 2026-03-28 — Composition Editor
+## [v0.1.0] — 2026-03-28 — Composition Editor beta
 
 ### New: In-admin JSON composition workspace
 
@@ -38,7 +34,7 @@ When a user fixed invalid JSON after a blocked save, the red "Fix errors first."
 
 ---
 
-## 2026-03-24 — Foundation
+## [v0.0.1] — 2026-03-24 — Foundation
 
 ### New: Complete theme foundation
 
