@@ -1,0 +1,62 @@
+{
+  "date": "2026-03-28",
+  "window": "7d",
+  "metrics": {
+    "commits": 29,
+    "contributors": 1,
+    "prs_merged": 0,
+    "insertions": 9327,
+    "deletions": 443,
+    "net_loc": 8884,
+    "test_loc": 386,
+    "test_ratio": 0.05,
+    "active_days": 4,
+    "sessions": 7,
+    "deep_sessions": 1,
+    "avg_session_minutes": 27,
+    "loc_per_session_hour": 2900,
+    "feat_pct": 0.03,
+    "fix_pct": 0.21,
+    "style_pct": 0.24,
+    "docs_pct": 0.17,
+    "chore_pct": 0.17,
+    "refactor_pct": 0.03,
+    "test_pct": 0.03,
+    "peak_hour": 8,
+    "ai_assisted_commits": 29
+  },
+  "authors": {
+    "Webfiable Admin": {
+      "commits": 29,
+      "insertions": 9327,
+      "deletions": 443,
+      "test_ratio": 0.05,
+      "top_area": "assets/"
+    }
+  },
+  "version_range": ["0.0.1", "0.1.1"],
+  "streak_days": 2,
+  "test_health": {
+    "total_test_files": 1,
+    "tests_added_this_period": 1,
+    "regression_test_commits": 0,
+    "test_files_changed": 1
+  },
+  "backlog": {
+    "total_open": 7,
+    "p0_p1": 0,
+    "p2": 1,
+    "completed_this_period": 1,
+    "added_this_period": 6
+  },
+  "skill_usage": {
+    "review": 3,
+    "qa": 2,
+    "retro": 2,
+    "document_release": 2,
+    "design_review": 1,
+    "ship": 1,
+    "plan_design_review": 1
+  },
+  "tweetable": "Week of Mar 21: 29 commits, +8.9k LOC, v0.1.1 tagged | AI WordPress theme + composition editor + JS test suite | 7 sessions, 1 deep | Streak: 2d"
+}
