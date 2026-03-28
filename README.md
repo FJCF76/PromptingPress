@@ -34,6 +34,7 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 /lib/components.php        Component auto-loader (don't edit)
 /assets/css/base.css       Design tokens — 16 CSS variables
 /assets/css/components.css Component styles (CSS variables only, no raw hex)
+/assets/js/pp-editor-logic.js  Pure JS logic: JSON context parser, validator, insert position
 /assets/js/pp-admin-editor.js  Composition editor frontend (CodeMirror + preview)
 AI_CONTEXT.md              AI site map — start here for any AI session
 CLAUDE.md                  Claude Code instructions and invariants
@@ -77,7 +78,7 @@ wp post meta update <post_id> _pp_composition '[{"component":"hero","props":{"ti
 2. Activate the theme in WP Admin (Appearance → Themes)
 3. To use the composition editor on a page: set its template to **Composition** (Page Attributes → Template)
 
-No build step required. No npm. No bundler. Vanilla PHP, CSS, and JS.
+No build step required for the site itself. Vanilla PHP, CSS, and JS. npm is used only for running JS unit tests (`npm test`).
 
 ## Rules (enforced by CLAUDE.md)
 
@@ -89,12 +90,21 @@ No build step required. No npm. No bundler. Vanilla PHP, CSS, and JS.
 
 ## Tests
 
+**PHP tests** (component loader, WP abstraction layer, invariant rules, schema validation):
+
 ```bash
 composer install
 composer test
 ```
 
-PHP unit tests cover the component loader, WP abstraction layer, invariant rules, and schema validation. JS unit test infrastructure is planned (P2).
+**JS tests** (JSON context parser, composition validator, insert-position walker — 38 tests):
+
+```bash
+npm install
+npm test
+```
+
+JS tests use [Vitest](https://vitest.dev/) with no bundler. Run `npm run test:watch` for watch mode.
 
 ## Status
 

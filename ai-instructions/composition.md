@@ -82,7 +82,7 @@ wp post meta update 42 _wp_page_template composition.php
 
 Before writing, verify:
 1. Every `component` value exists as `components/{name}/{name}.php`
-2. Every required prop from `components/{name}/schema.json` is present
+2. Every required prop from `components/{name}/schema.json` is present and non-empty — `null`, `false`, and `""` are treated as absent
 3. The JSON is a valid array (not an object, not null)
 4. Prop types match the schema (`string`, `boolean`, `array`, `enum`)
 
@@ -156,5 +156,6 @@ wp post meta get <post_id> _wp_page_template
 | `composition.php`             | WP template header (root) — do not edit         |
 | `templates/composition.php`   | Reads meta, renders components                  |
 | `lib/admin.php`               | Meta box, AJAX preview, PHP validation           |
+| `assets/js/pp-editor-logic.js`| Pure JS: context parser, validator, insert walker |
 | `assets/js/pp-admin-editor.js`| In-admin JSON editor with live preview           |
 | `AI_CONTEXT.md`               | Full site map + composition model reference      |

@@ -10,3 +10,4 @@ vendor/
 
 # JS dependencies
 node_modules/
+.gstack/

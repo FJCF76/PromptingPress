@@ -4,6 +4,56 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.1.1] — 2026-03-28 — JS test infrastructure + bug fixes
+
+### New: JS unit test suite (Vitest, 38 tests)
+
+Pure-function logic extracted from `pp-admin-editor.js` into `assets/js/pp-editor-logic.js`:
+`getJsonContextFromText`, `validateCompositionData`, `getInsertPosition`. All three are
+covered by 38 unit tests in `tests/js/pp-editor-logic.test.js` using Vitest 3.x — no bundler,
+no build step.
+
+```
+npm install
+npm test
+```
+
+### Fix: Global namespace pollution (ISSUE-002)
+
+The three extracted functions were leaking into `window` scope as bare globals
+(`window.getJsonContextFromText` etc.) because they were top-level `function` declarations
+in a plain `<script>` tag. Wrapped in an IIFE — functions are now scoped and only
+`window.PPEditorLogic` is exported to the browser. Node/CJS path for Vitest is unaffected.
+
+### Fix: afterColon bug in props-key context walker
+
+The original props-key context walker treated every position after a `:` as a value slot,
+even after a `,` reset. Cursor placed immediately after a comma (at the start of a new key)
+was returning `null` instead of `{ type: 'props-key', componentName }`. Fixed and covered
+by tests.
+
+### Fix: Null/false/"" treated as absent for required props
+
+`validateCompositionData` now rejects required props whose value is `null`, `false`, or `""`
+in addition to missing keys. This matches the PHP-layer validation contract documented in
+`ai-instructions/composition.md`.
+
+### Fix: Array.isArray guard for prop values
+
+`validateCompositionData` now rejects array-typed required prop values that are `[]` (empty).
+
+### Fix: window.module collision
+
+The Node/CJS export guard now checks `process.versions.node` instead of `typeof module`,
+preventing WP plugins that define `window.module` from stealing the exports branch.
+
+### Fix: bracketPos guard in getInsertPosition
+
+`getInsertPosition` returns early with `bracketPos: -1` when no `[` is found, rather than
+returning `afterIdx: -1` with an empty `itemEnds` that could confuse callers.
+
+---
+
 ## [v0.1.0] — 2026-03-28 — Composition Editor beta
 
 ### New: In-admin JSON composition workspace

@@ -2,15 +2,6 @@
 
 ## Admin Composition Editor
 
-### JS Test Infrastructure
-**Priority:** P2
-**What:** Set up a JS unit test runner (Vitest or Jest) for the admin meta box JavaScript — the inline CodeMirror validation logic, the hand-rolled JSON context/token walker, and the debounced preview update handler.
-**Why:** The JS validation logic (context parser that walks tokens to find nearest `"component"` key, prop suggestion filtering, debounce behavior) is non-trivial and currently has no automated coverage. Manual QA can verify the happy path but won't catch regressions in the token walker edge cases (cursor at end of document, nested objects, malformed JSON mid-type).
-**Context:** The project has no JS build pipeline (vanilla JS, no npm, no bundler). Adding Vitest with a standalone config that doesn't require bundling is the path of least resistance. The token walker and validation logic can be extracted as pure functions and tested in isolation. Recommend starting with: (1) context parser unit tests, (2) debounce timer tests, (3) autocomplete suggestion filter tests. See `lib/admin.php` JS localization for the registry data shape.
-**Depends on:** Initial admin editor feature ship (this feature branch).
-
----
-
 ### Save Composition — no success notification (ISSUE-004)
 **Priority:** P3
 **What:** After a successful "Save Composition", the page reloads silently with no visible confirmation. User has no feedback that the save worked.
