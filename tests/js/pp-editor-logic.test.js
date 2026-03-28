@@ -88,6 +88,18 @@ describe('getJsonContextFromText', () => {
         expect(getJsonContextFromText(text, ['hero'])).toEqual({ type: 'props-key', componentName: 'hero' });
     });
 
+    test('cursor inside a value string (afterColon=true) → null, not props-key', () => {
+        // Cursor is mid-way through a string value — should NOT trigger props-key autocomplete.
+        // This is the regression path for the afterColon fix.
+        const text = '[\n  {\n    "component": "hero",\n    "props": { "title": "hell';
+        expect(getJsonContextFromText(text, ['hero'])).toBeNull();
+    });
+
+    test('cursor after colon but before opening quote of value → null (value-slot, not key-slot)', () => {
+        const text = '[\n  {\n    "component": "hero",\n    "props": { "title": ';
+        expect(getJsonContextFromText(text, ['hero'])).toBeNull();
+    });
+
     test('cursor at end of document with unclosed brace — no false positive for component-value', () => {
         const text = '[\n  {\n    "component": "hero',
         // does NOT end with `"` so regex won't match component-value either

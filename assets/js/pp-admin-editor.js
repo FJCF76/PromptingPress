@@ -11,7 +11,11 @@
 
     if (typeof ppAdminEditor === 'undefined') return;
 
-    var logic      = window.PPEditorLogic || {};
+    var logic = window.PPEditorLogic;
+    if (!logic) {
+        if (window.console) console.error('[PromptingPress] pp-editor-logic.js failed to load — editor disabled.');
+        return;
+    }
     var components = ppAdminEditor.components || [];
     var ajaxUrl    = ppAdminEditor.ajaxUrl || '';
     var nonce      = ppAdminEditor.nonce || '';
