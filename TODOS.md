@@ -11,6 +11,24 @@
 
 ---
 
+### Save Composition — no success notification (ISSUE-004)
+**Priority:** P3
+**What:** After a successful "Save Composition", the page reloads silently with no visible confirmation. User has no feedback that the save worked.
+**Why:** Deferred from /qa 2026-03-28. Low severity UX polish. DB save is confirmed correct; just missing the notice.
+**Fix direction:** In `lib/admin.php` save handler, `wp_redirect(add_query_arg('saved', '1', ...))` and display an admin notice when `$_GET['saved']` is present.
+**Depends on:** Nothing.
+
+---
+
+### Meta box template scoping (ISSUE-003)
+**Priority:** P3
+**What:** "Page Composition" meta box appears in the Block Editor sidebar on ALL pages regardless of template. Original design intent was to only show it on Composition template pages.
+**Why:** Deferred from /qa 2026-03-28. Low severity. May be intentional to allow users to switch templates. Verify intent before fixing.
+**Fix direction:** In `lib/admin.php` `add_meta_box()` call, add a `$screen` condition or `add_action('add_meta_boxes_{post_type}', ...)` callback that checks the page template before registering the box.
+**Depends on:** Clarify whether always-visible is intentional.
+
+---
+
 ### getJsonContextFromText positional walk refactor
 **Priority:** P3
 **What:** Replace the two-step regex+lastIndexOf approach in `getJsonContextFromText` with a single position-aware forward walk. Currently, if a prop string value contains the text `"component": "evil", "props": {`, the regex picks up "evil" as the component name and autocomplete shows an empty list (no XSS, no data corruption — wrong suggestions only).
