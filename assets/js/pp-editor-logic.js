@@ -12,6 +12,8 @@
 
 /* jshint esversion: 5 */
 
+(function () {
+
 /**
  * Determine autocomplete context from the text before the cursor.
  *
@@ -190,3 +192,5 @@ if (typeof process !== 'undefined' && process.versions && process.versions.node)
 if (typeof window !== 'undefined') {
     window.PPEditorLogic = _logic;
 }
+
+}());
