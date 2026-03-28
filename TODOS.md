@@ -38,6 +38,72 @@
 
 ---
 
+## AI-First Documentation
+
+### Composition vs template decision rule (ISSUE-005)
+**Priority:** P3
+**What:** `AI_CONTEXT.md` never states when to use a template file vs the Composition system. An agent infers the rule from context and may get it wrong.
+**Fix direction:** Add two sentences to `AI_CONTEXT.md` under an "Authoring model" heading: "Use composition for all content-driven pages. Use template files only for structural or dynamic pages (archives, single posts, search results, 404)."
+**Depends on:** Nothing.
+
+---
+
+### Bootstrap state contract — ai-instructions/bootstrap.md (ISSUE-006)
+**Priority:** P3
+**What:** No document defines what a correctly provisioned PromptingPress install looks like as verifiable state. An agent setting up a fresh WordPress install must improvise the required database and option state, which creates conceptual drift toward procedural WordPress habits.
+**Why:** A state contract (not a setup checklist) keeps the documentation centered on verifiable system targets — the AI-first direction. It also makes Option B (seed script automation) trivially derivable later: the script just enforces the contract instead of inventing it.
+**Fix direction:** Create `ai-instructions/bootstrap.md`. Format throughout: required object → required state predicate → WP-CLI verification command. Contents must include the following minimum required state:
+
+**Theme**
+- Active theme is `promptingpress`
+- Verify: `wp theme status promptingpress` → `Status: Active`
+
+**WordPress options**
+- `show_on_front = page` (static homepage, not latest posts)
+- Verify: `wp option get show_on_front` → `page`
+- `page_on_front` = post ID of the homepage page object
+- Verify: `wp option get page_on_front` → numeric post ID
+- `permalink_structure = /%postname%/` (pretty permalinks required)
+- Verify: `wp option get permalink_structure` → `/%postname%/`
+
+**Homepage page**
+- A page exists whose post ID matches `page_on_front`
+- `_wp_page_template = composition.php`
+- Verify: `wp post meta get <id> _wp_page_template` → `composition.php`
+- `_pp_composition` is present and is a valid non-empty JSON array of registered components
+- Verify: `wp post meta get <id> _pp_composition` → valid JSON array
+
+**General rule for all composition pages**
+- Every page with `_wp_page_template = composition.php` must have a valid `_pp_composition` value: non-null, non-empty, valid JSON array. The PHP save handler rejects invalid values and retains the last valid one, but an absent value on a new page produces a blank render with no error. State contract must treat absence as a failure.
+- Verify: `wp post meta get <id> _pp_composition`
+
+**Primary navigation menu**
+- A WordPress menu must be created and assigned to location `primary`
+- WARNING: the nav component renders silently empty if no menu is assigned to `primary`. WordPress does not error. Menu assignment is mandatory contract state, not optional polish.
+- Verify: `wp menu location list` → `primary` column shows a menu name (not blank)
+
+**Footer navigation menu**
+- A WordPress menu must be created and assigned to location `footer`
+- WARNING: the footer component renders silently empty if no menu is assigned to `footer`. WordPress does not error. Menu assignment is mandatory contract state, not optional polish.
+- Verify: `wp menu location list` → `footer` column shows a menu name (not blank)
+
+A future agent can draft `ai-instructions/bootstrap.md` directly from this spec without reinterpreting intent.
+**Depends on:** Nothing.
+
+---
+
+### Doc hierarchy declaration in AI_CONTEXT.md (ISSUE-007)
+**Priority:** P3
+**What:** Multiple files cover overlapping territory (`AI_CONTEXT.md`, `CLAUDE.md`, `ai-instructions/*.md`, `components/{name}/schema.json`). An AI treats all Markdown as equally authoritative; without an explicit hierarchy, conflicting guidance requires the agent to resolve conflicts itself.
+**Fix direction:** Add a four-line authority table near the top of `AI_CONTEXT.md`:
+- Top-level map: `AI_CONTEXT.md` — orientation, file responsibilities, component index
+- Hard invariants: `CLAUDE.md` — rules that override everything else
+- Executable workflows: `ai-instructions/*.md` — task-specific procedures
+- Schema source of truth: `components/{name}/schema.json` — prop contracts; supersedes prose descriptions in any other file
+**Depends on:** Nothing.
+
+---
+
 ## Completed
 
 ### JS Test Infrastructure (2026-03-28)
