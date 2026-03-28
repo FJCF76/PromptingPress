@@ -7,3 +7,6 @@
 
 # PHP dependencies
 vendor/
+
+# JS dependencies
+node_modules/
