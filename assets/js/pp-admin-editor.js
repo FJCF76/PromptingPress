@@ -86,7 +86,15 @@
 
     function showErrors(errors) {
         var $bar = $('#pp-error-bar');
-        if (!errors.length) { $bar.empty(); return; }
+        if (!errors.length) {
+            $bar.empty();
+            // Clear stale "Fix errors first." if errors are now resolved
+            var $s = $('#pp-save-status');
+            if ($s.hasClass('is-error') && $s.text() === 'Fix errors first.') {
+                setSaveStatus('', '');
+            }
+            return;
+        }
         var html = '<ul>' + errors.map(function (e) { return '<li>' + esc(e) + '</li>'; }).join('') + '</ul>';
         $bar.html(html);
     }
