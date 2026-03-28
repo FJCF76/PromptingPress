@@ -480,9 +480,17 @@ add_action('admin_enqueue_scripts', function (string $hook) {
     $cm_deps = $cm_settings ? ['jquery', 'wp-codemirror'] : ['jquery'];
 
     wp_enqueue_script(
+        'pp-editor-logic',
+        $dir_uri . '/assets/js/pp-editor-logic.js',
+        [],
+        PP_VERSION,
+        true
+    );
+
+    wp_enqueue_script(
         'pp-admin-editor',
         $dir_uri . '/assets/js/pp-admin-editor.js',
-        $cm_deps,
+        array_merge($cm_deps, ['pp-editor-logic']),
         PP_VERSION,
         true
     );

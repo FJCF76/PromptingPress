@@ -5,12 +5,13 @@
  * All server communication uses wp_ajax_ handlers (cookie auth).
  */
 
-/* global ppAdminEditor, wp, jQuery */
+/* global ppAdminEditor, PPEditorLogic, wp, jQuery */
 (function ($) {
     'use strict';
 
     if (typeof ppAdminEditor === 'undefined') return;
 
+    var logic      = window.PPEditorLogic || {};
     var components = ppAdminEditor.components || [];
     var ajaxUrl    = ppAdminEditor.ajaxUrl || '';
     var nonce      = ppAdminEditor.nonce || '';
@@ -47,41 +48,7 @@
     // ── Validation (300ms debounce) ───────────────────────────────────────────
 
     function validateComposition(value) {
-        var errors = [];
-        if (!value.trim()) return errors;
-
-        var parsed;
-        try { parsed = JSON.parse(value); }
-        catch (e) { errors.push('JSON syntax error: ' + e.message); return errors; }
-
-        if (!Array.isArray(parsed)) {
-            errors.push('Composition must be a JSON array.');
-            return errors;
-        }
-
-        var nameMap = {};
-        components.forEach(function (c) { nameMap[c.name] = c; });
-
-        parsed.forEach(function (item, i) {
-            if (!item || typeof item !== 'object') {
-                errors.push('Item ' + i + ' is not an object.'); return;
-            }
-            if (!item.component) {
-                errors.push('Item ' + i + ' missing "component" key.'); return;
-            }
-            var comp = nameMap[item.component];
-            if (!comp) {
-                errors.push('Unknown component: "' + item.component + '".'); return;
-            }
-            var props = (comp.schema || {}).props || {};
-            Object.keys(props).forEach(function (k) {
-                if (props[k].required && (!item.props || !(k in item.props))) {
-                    errors.push('"' + item.component + '" missing required prop "' + k + '".');
-                }
-            });
-        });
-
-        return errors;
+        return logic.validateCompositionData(value, components);
     }
 
     function showErrors(errors) {
@@ -222,34 +189,7 @@
     function getJsonContext() {
         if (!cm) return null;
         var text = cm.getRange({ line: 0, ch: 0 }, cm.getCursor());
-
-        if (/"component"\s*:\s*"[^"]*$/.test(text)) {
-            return { type: 'component-value' };
-        }
-
-        var name = getNearestComponentName();
-        if (!name) return null;
-
-        var idx = text.lastIndexOf('"component"');
-        var after = text.slice(idx);
-        var pi = after.indexOf('"props"');
-        if (pi === -1) return null;
-
-        var ap = after.slice(pi + 7);
-        var bi = ap.indexOf('{');
-        if (bi === -1) return null;
-
-        var inside = ap.slice(bi + 1);
-        var depth = 1, inStr = false, esc2 = false;
-        for (var i = 0; i < inside.length; i++) {
-            var c = inside[i];
-            if (esc2) { esc2 = false; continue; }
-            if (c === '\\' && inStr) { esc2 = true; continue; }
-            if (c === '"') { inStr = !inStr; continue; }
-            if (!inStr) { if (c === '{') depth++; if (c === '}') depth--; }
-        }
-        if (depth > 0 && !inStr) return { type: 'props-key', componentName: name };
-        return null;
+        return logic.getJsonContextFromText(text, componentNames());
     }
 
     if (typeof wp !== 'undefined' && wp.CodeMirror) {
@@ -390,38 +330,11 @@
 
             // Find end positions (the closing `}`) of each top-level array item
             var text = cm.getValue();
-            var itemEnds = [];     // char offsets of each top-level `}`
-            var depth = 0, inStr = false, esc = false;
-            var bracketPos = text.indexOf('[');
-            for (var i = bracketPos + 1; i < text.length; i++) {
-                var c = text[i];
-                if (esc) { esc = false; continue; }
-                if (c === '\\' && inStr) { esc = true; continue; }
-                if (c === '"') { inStr = !inStr; continue; }
-                if (inStr) continue;
-                if (c === '{') depth++;
-                else if (c === '}') {
-                    depth--;
-                    if (depth === 0) itemEnds.push(i);
-                }
-                if (c === ']' && depth === 0) break;
-            }
-
-            // Determine which item the cursor is in/after
             var cursorOff = cm.indexFromPos(lastCursor || cm.getCursor());
-            var afterIdx = -1; // insert before all items by default
-            for (var k = 0; k < itemEnds.length; k++) {
-                if (cursorOff > itemEnds[k]) {
-                    afterIdx = k;
-                }
-            }
-            // If cursor is within an item (past its start but before its end), insert after that item
-            if (afterIdx === -1 && itemEnds.length > 0 && cursorOff > bracketPos) {
-                afterIdx = 0;
-                for (var m = 0; m < itemEnds.length; m++) {
-                    if (cursorOff <= itemEnds[m]) { afterIdx = m; break; }
-                }
-            }
+            var pos = logic.getInsertPosition(text, cursorOff);
+            var itemEnds   = pos.itemEnds;
+            var bracketPos = pos.bracketPos;
+            var afterIdx   = pos.afterIdx;
 
             var snippet = JSON.stringify(newEntry, null, 2);
             // Indent the snippet to match array indentation (2 spaces)
