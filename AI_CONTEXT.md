@@ -33,7 +33,9 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 | /assets/css/base.css     | Design tokens (16 CSS vars)     | Yes — tokens only                |
 | /assets/css/components.css | Component styles              | Yes                              |
 | /assets/css/utilities.css | Spacing / text utilities       | Yes                              |
+| /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Yes — run npm test after         |
 | /assets/js/main.js       | Nav toggle, active link         | Yes                              |
+| /tests/js/               | Vitest unit tests               | Yes — add tests for logic changes |
 | /lib/wp.php              | WP function wrappers            | Only to add pp_* functions       |
 | /lib/components.php      | Component loader                | No                               |
 | /lib/helpers.php         | Utility functions               | Yes — only to add                |
