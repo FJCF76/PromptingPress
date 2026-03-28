@@ -184,6 +184,30 @@ describe('validateCompositionData', () => {
         expect(validateCompositionData(json, REGISTRY)).toEqual([]);
     });
 
+    test('required prop set to null → error (null is not a valid value)', () => {
+        const json = JSON.stringify([{ component: 'hero', props: { title: null } }]);
+        const errors = validateCompositionData(json, REGISTRY);
+        expect(errors.some(e => /"title"/.test(e))).toBe(true);
+    });
+
+    test('required prop set to false → error', () => {
+        const json = JSON.stringify([{ component: 'hero', props: { title: false } }]);
+        const errors = validateCompositionData(json, REGISTRY);
+        expect(errors.some(e => /"title"/.test(e))).toBe(true);
+    });
+
+    test('required prop set to empty string → error', () => {
+        const json = JSON.stringify([{ component: 'hero', props: { title: '' } }]);
+        const errors = validateCompositionData(json, REGISTRY);
+        expect(errors.some(e => /"title"/.test(e))).toBe(true);
+    });
+
+    test('required array prop set to empty array → no error (empty array is valid)', () => {
+        // faq.items is required:true, type:array — an empty list is valid
+        const json = JSON.stringify([{ component: 'faq', props: { items: [] } }]);
+        expect(validateCompositionData(json, REGISTRY)).toEqual([]);
+    });
+
     test('item with no props key at all (and component has required props) → error', () => {
         const json = JSON.stringify([{ component: 'hero' }]);
         const errors = validateCompositionData(json, REGISTRY);

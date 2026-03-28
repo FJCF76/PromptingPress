@@ -109,7 +109,11 @@ function validateCompositionData(jsonString, componentRegistry) {
         }
         var props = (comp.schema || {}).props || {};
         Object.keys(props).forEach(function (k) {
-            if (props[k].required && (!item.props || !(k in item.props))) {
+            if (!props[k].required) return;
+            var absent = !item.props || !(k in item.props);
+            var val    = item.props ? item.props[k] : undefined;
+            var blank  = val === null || val === false || val === '';
+            if (absent || blank) {
                 errors.push('"' + item.component + '" missing required prop "' + k + '".');
             }
         });

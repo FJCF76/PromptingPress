@@ -11,6 +11,15 @@
 
 ---
 
+### getJsonContextFromText positional walk refactor
+**Priority:** P3
+**What:** Replace the two-step regex+lastIndexOf approach in `getJsonContextFromText` with a single position-aware forward walk. Currently, if a prop string value contains the text `"component": "evil", "props": {`, the regex picks up "evil" as the component name and autocomplete shows an empty list (no XSS, no data corruption — wrong suggestions only).
+**Why:** Low-severity product quality issue. Only hits a contrived editing state where the user deliberately types a JSON structure fragment inside a string value.
+**Fix direction:** Track component names positionally during the walk, discard any match that is inside a string. ~30 lines. Write tests with injected text before implementing.
+**Depends on:** Nothing.
+
+---
+
 ### E2E Test Infrastructure
 **Priority:** P2
 **What:** Set up Playwright (or wp-browser + Codeception) with a live WordPress test instance to cover the full admin composition editor flow end-to-end.
