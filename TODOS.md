@@ -22,6 +22,12 @@
 
 ## Completed
 
+### JS Test Infrastructure (2026-03-28)
+Extracted three pure functions from `pp-admin-editor.js` into `assets/js/pp-editor-logic.js`:
+`getJsonContextFromText`, `validateCompositionData`, `getInsertPosition`. Set up Vitest 3.x (no
+bundler). 31 unit tests in `tests/js/pp-editor-logic.test.js` covering all edge cases including the
+`afterColon` bug in the original props-key context walker. Run: `npm test`.
+
 ### Admin Composition Editor — core implementation (2026-03-26)
 Built and deployed the full in-admin JSON editor for composing pages from registered components.
 Ships: `composition.php`, `templates/composition.php`, `lib/admin.php`, `pp-admin-editor.js`,

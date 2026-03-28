@@ -30,6 +30,17 @@ When building or editing components:
 See `ai-instructions/add-component.md` for the exact steps.
 The auto-loader picks up any component in /components/{name}/{name}.php — no registration needed.
 
+## JS tests
+
+Pure-function unit tests live in `tests/js/`. No bundler required — Vitest runs them directly.
+
+```
+npm test            # run once
+npm run test:watch  # watch mode
+```
+
+The logic under test is in `assets/js/pp-editor-logic.js`. When editing `getJsonContextFromText`, `validateCompositionData`, or `getInsertPosition`, run tests before committing.
+
 ## File responsibilities
 
 | File/Folder              | Purpose                         | Safe to edit?                    |
@@ -38,6 +49,7 @@ The auto-loader picks up any component in /components/{name}/{name}.php — no r
 | /components/             | Reusable sections               | Yes                              |
 | /assets/css/base.css     | Design tokens                   | Yes — tokens only                |
 | /assets/css/components.css | Component styles              | Yes                              |
+| /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Yes — run npm test after         |
 | /assets/js/main.js       | Nav toggle, active link         | Yes                              |
 | /lib/wp.php              | WP function wrappers            | Only to add pp_ functions        |
 | /lib/components.php      | Component loader                | No                               |
