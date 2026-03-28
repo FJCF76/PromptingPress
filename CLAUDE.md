@@ -2,6 +2,14 @@
 
 Read `AI_CONTEXT.md` first. It maps the full site structure.
 
+## AI-first principle
+
+When WordPress convention and AI operability conflict, AI operability wins. Specifically: keep documentation centered on verifiable system state and explicit contracts, not human-centric setup checklists or procedural WordPress habits. If a documentation decision would make the project feel more like a conventional WordPress theme, it is the wrong decision.
+
+## Dev environment
+
+The dev site at `dev.promptingpress.com` is a separate copy of the repo, not a symlink. Changes made on the server are not automatically in the repo. Commit and push explicitly after every change.
+
 ## Invariants — never violate these
 
 - Templates call components. Components do not call components.
