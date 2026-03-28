@@ -1,0 +1,9 @@
+# gstack browser session logs (ephemeral)
+.gstack/browse-console.log
+.gstack/browse-network.log
+
+# OS
+.DS_Store
+
+# PHP dependencies
+vendor/

@@ -1,0 +1,41 @@
+{
+  "date": "2026-03-24",
+  "window": "7d",
+  "metrics": {
+    "commits": 10,
+    "contributors": 1,
+    "prs_merged": 0,
+    "insertions": 4495,
+    "deletions": 59,
+    "net_loc": 4436,
+    "test_loc": 817,
+    "test_ratio": 0.18,
+    "active_days": 2,
+    "sessions": 2,
+    "deep_sessions": 1,
+    "avg_session_minutes": 52,
+    "loc_per_session_hour": 2550,
+    "feat_pct": 0.0,
+    "fix_pct": 0.20,
+    "peak_hour": 8,
+    "ai_assisted_commits": 10
+  },
+  "authors": {
+    "Webfiable Admin": {
+      "commits": 10,
+      "insertions": 4495,
+      "deletions": 59,
+      "test_ratio": 0.18,
+      "top_area": "assets/css/"
+    }
+  },
+  "version_range": ["0.0.0", "0.0.0"],
+  "streak_days": 2,
+  "test_health": {
+    "total_test_files": 4,
+    "tests_added_this_period": 4,
+    "regression_test_commits": 0,
+    "test_files_changed": 1
+  },
+  "tweetable": "Week of Mar 17: 10 commits, 4.5k LOC, 18% tests, 0 PRs, peak: 8am | Streak: 2d | Full theme built from scratch + design audit + QA"
+}
