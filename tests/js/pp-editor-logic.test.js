@@ -101,11 +101,18 @@ describe('getJsonContextFromText', () => {
     });
 
     test('cursor at end of document with unclosed brace — no false positive for component-value', () => {
-        const text = '[\n  {\n    "component": "hero',
+        const text = '[\n  {\n    "component": "hero';
         // does NOT end with `"` so regex won't match component-value either
-        ctx = getJsonContextFromText(text, ['hero']);
+        const ctx = getJsonContextFromText(text, ['hero']);
         // partial component name in value → component-value
         expect(ctx).toEqual({ type: 'component-value' });
+    });
+
+    test('empty "props": {} followed by sibling object — must not return props-key', () => {
+        // Regression for the depth-0 break fix: after props closes, a sibling key with
+        // an object value would re-open depth to 1, triggering a false props-key hit.
+        const text = '[ { "component": "hero", "props": {}, "extra": { "';
+        expect(getJsonContextFromText(text, ['hero'])).toBeNull();
     });
 
     test('"component" key text with no name yet (just partial) and cursor not in props → not props-key', () => {

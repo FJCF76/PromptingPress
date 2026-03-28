@@ -58,7 +58,10 @@ function getJsonContextFromText(textBeforeCursor, componentNames) {
         if (c === '"')           { inStr = !inStr;  continue; }
         if (!inStr) {
             if (c === '{') depth++;
-            if (c === '}') depth--;
+            else if (c === '}') {
+                depth--;
+                if (depth === 0) break;  // props object closed — cursor is outside it
+            }
             if (c === ':' && depth === 1) afterColon = true;
             if (c === ',' && depth === 1) afterColon = false;
         }
@@ -91,7 +94,7 @@ function validateCompositionData(jsonString, componentRegistry) {
     componentRegistry.forEach(function (c) { nameMap[c.name] = c; });
 
     parsed.forEach(function (item, i) {
-        if (!item || typeof item !== 'object') {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
             errors.push('Item ' + i + ' is not an object.');
             return;
         }
@@ -128,6 +131,9 @@ function validateCompositionData(jsonString, componentRegistry) {
  */
 function getInsertPosition(compositionText, cursorOffset) {
     var bracketPos = compositionText.indexOf('[');
+    if (bracketPos === -1) {
+        return { afterIdx: -1, itemEnds: [], bracketPos: -1 };
+    }
     var itemEnds   = [];
     var depth = 0, inStr = false, isEsc = false;
 
@@ -163,19 +169,20 @@ function getInsertPosition(compositionText, cursorOffset) {
 
 // ── Exports ───────────────────────────────────────────────────────────────────
 
+var _logic = {
+    getJsonContextFromText:  getJsonContextFromText,
+    validateCompositionData: validateCompositionData,
+    getInsertPosition:       getInsertPosition,
+};
+
 /* istanbul ignore next */
-if (typeof module !== 'undefined' && module.exports) {
-    // Node / Vitest (CommonJS)
-    module.exports = {
-        getJsonContextFromText:  getJsonContextFromText,
-        validateCompositionData: validateCompositionData,
-        getInsertPosition:       getInsertPosition,
-    };
-} else if (typeof window !== 'undefined') {
-    // Browser — loaded before pp-admin-editor.js via wp_enqueue_script dependency
-    window.PPEditorLogic = {
-        getJsonContextFromText:  getJsonContextFromText,
-        validateCompositionData: validateCompositionData,
-        getInsertPosition:       getInsertPosition,
-    };
+// Node / Vitest (CommonJS) — detect by process.versions.node, not by `module`,
+// because some WP plugins define window.module and would steal the exports branch.
+if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+    module.exports = _logic;
+}
+// Browser — always set window.PPEditorLogic so wp_enqueue dependencies work
+// regardless of whether another plugin has defined window.module.
+if (typeof window !== 'undefined') {
+    window.PPEditorLogic = _logic;
 }
