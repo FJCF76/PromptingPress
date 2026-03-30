@@ -1,5 +1,25 @@
 # TODOS
 
+## Component Primitive Gaps
+
+### Section background variant (wedge-validation gap)
+**Priority:** P2
+**What:** The `section` component has no `variant` prop for per-section background control. All sections render on `--color-bg`. Marketing pages need alternating dark/light/inverted sections for visual rhythm — this is a composition primitive, not a styling trick.
+**Why:** Identified during webfiable.com wedge-validation sprint (2026-03-30). Cannot express a dark hero-section or an inverted CTA section in `_pp_composition` JSON at all. Not a CSS polish issue — the schema doesn't support it.
+**Fix direction:** Add `variant` prop to `section` schema.json: `"default" | "dark" | "inverted"`. In `section.php`, add a CSS class based on variant (`pp-section--dark`, etc.). In `components.css`, define background/color overrides for each class using existing tokens plus a new `--color-bg-inverted` token. Update `ai-instructions/composition.md` with variant examples.
+**Depends on:** Nothing.
+
+---
+
+### Grid step variant (wedge-validation gap)
+**Priority:** P2
+**What:** The `grid` component has no way to render numbered steps. Numbered process sections ("How it works: 1 → 2 → 3") are a standard marketing primitive. Currently requires an HTML-body workaround that can't be expressed cleanly in composition JSON.
+**Why:** Identified during webfiable.com wedge-validation sprint (2026-03-30). webfiable.com's "Cómo funciona" section uses explicit step numbers rendered as styled numerals. The `grid` component schema has no `number` field per item and no `variant: "steps"` mode.
+**Fix direction:** Add optional `number` field to each grid item in schema.json. Add `variant: "steps"` to the grid component. In `grid.php`, render a `<span class="pp-step-number">` before each item's content when variant is steps. Style with `--color-accent` (or a dedicated `--color-step` token). Each item's `number` field can be auto-indexed if omitted.
+**Depends on:** Nothing.
+
+---
+
 ## Admin Composition Editor
 
 ### Save Composition — no success notification (ISSUE-004)
@@ -70,13 +90,25 @@ composition data contract, nav/footer menus, and known WP-CLI behavior on this s
 provisioning sprint.
 
 ### webfiable.com Wedge Validation Sprint (2026-03-30)
-Provisioned poc.promptingpress.com from zero and reproduced webfiable.com homepage via
-JSON composition + WP-CLI with no admin UI for content. Full stack: nginx vhost, SSL cert
-(certbot --expand), MySQL, WordPress 6.9.4 (es_ES), PromptingPress theme, 9-component
-composition (hero, 4×section, cta, grid, faq, section). All success criteria met.
-Component coverage: ~80% native, 2 HTML-body workarounds (nested feature lists, checklist)
-that rendered cleanly — no gaps requiring TODOS entries. The AI authoring proposition
-is validated on a real-world site.
+**Result: PASS on AI authoring + token retheme. PARTIAL on visual fidelity.**
+
+Provisioned poc.promptingpress.com from zero: nginx vhost, SSL (certbot --expand),
+MySQL, WordPress 6.9.4 (es_ES), PromptingPress theme, 9-component homepage composition
+(hero, 4×section, cta, grid, faq, section) via WP-CLI with no admin UI.
+
+Retheme pass applied webfiable.com's palette (dark navy `#1a1a2e`, orange-red `#EA3900`)
+via 7 CSS token changes — entire site visual system shifted in one edit.
+
+**What passed:** AI can provision a real WordPress stack from zero and compose a real
+homepage using only JSON + WP-CLI. The token retheme proposition works end-to-end.
+Component coverage ~80% native; 2 HTML-body workarounds rendered cleanly.
+
+**What was partial:** Visual fidelity fell short of webfiable.com due to two missing
+composition primitives — not CSS gaps. POC renders as a flat dark site; webfiable has
+section rhythm (alternating tones) and numbered step sequences. Both gaps are captured
+as P2 TODOs above: `section.variant` and `grid.variant: "steps"`.
+
+**Sprint closed.** No further polishing — gaps are documented and scoped.
 
 ### JS Test Infrastructure (2026-03-28)
 Extracted three pure functions from `pp-admin-editor.js` into `assets/js/pp-editor-logic.js`:
