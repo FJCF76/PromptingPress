@@ -8,11 +8,19 @@
       "default": "",
       "description": "Section heading above the grid. Omit if the context makes it clear."
     },
+    "variant": {
+      "type": "enum",
+      "values": ["default", "steps"],
+      "required": false,
+      "default": "default",
+      "description": "Grid presentation. 'default' = standard card grid. 'steps' = numbered process cards. Use 'steps' for How-it-works / process flows. Each item's 'number' field is required when variant is steps."
+    },
     "items": {
       "type": "array",
       "required": true,
-      "description": "Array of card items. Each: { title, text, image_url, link_url, link_text }.",
+      "description": "Array of card items. Each: { title, text, image_url, link_url, link_text }. When variant is 'steps', also include: { number }.",
       "items": {
+        "number":    { "type": "string", "required": false, "description": "Step number label (e.g. '1', '01', '1.'). Required when grid variant is 'steps'." },
         "title":     { "type": "string", "required": false },
         "text":      { "type": "string", "required": false },
         "image_url": { "type": "string", "required": false },

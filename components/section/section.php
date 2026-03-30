@@ -13,6 +13,7 @@ $body      = $props['body']      ?? '';
 $image_url = $props['image_url'] ?? '';
 $image_alt = $props['image_alt'] ?? '';
 $layout    = $props['layout']    ?? 'text-only';
+$variant   = $props['variant']   ?? 'default';
 
 $allowed_layouts = ['text-only', 'image-left', 'image-right'];
 if (!in_array($layout, $allowed_layouts, true)) {
@@ -23,8 +24,15 @@ if (!in_array($layout, $allowed_layouts, true)) {
 if (!$image_url) {
     $layout = 'text-only';
 }
+
+$allowed_variants = ['default', 'dark', 'inverted'];
+if (!in_array($variant, $allowed_variants, true)) {
+    $variant = 'default';
+}
+
+$variant_class = $variant !== 'default' ? ' pp-section--' . $variant : '';
 ?>
-<section class="section section--<?php echo esc_attr($layout); ?>">
+<section class="section section--<?php echo esc_attr($layout); ?><?php echo esc_attr($variant_class); ?>">
     <div class="container">
 
         <?php if ($layout === 'text-only') : ?>

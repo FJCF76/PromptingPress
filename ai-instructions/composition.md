@@ -35,16 +35,55 @@ The format is AI-native: the same JSON a human edits in the admin meta box is wh
 
 See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 
-| Name    | Required props                          |
-|---------|-----------------------------------------|
-| hero    | title                                   |
-| section | body                                    |
-| faq     | items[] {question, answer}              |
-| grid    | items[] {title, text, ...}              |
-| table   | headers[], rows[][]                     |
-| cta     | title, button_text, button_url          |
-| nav     | (no required props)                     |
-| footer  | (no required props)                     |
+| Name    | Required props                          | Optional props (selection)             |
+|---------|-----------------------------------------|----------------------------------------|
+| hero    | title                                   | subtitle, cta_text, cta_url, variant   |
+| section | body                                    | title, layout, variant                 |
+| faq     | items[] {question, answer}              |                                        |
+| grid    | items[] {title, text, ...}              | title, variant                         |
+| table   | headers[], rows[][]                     |                                        |
+| cta     | title, button_text, button_url          | variant                                |
+| nav     | (no required props)                     |                                        |
+| footer  | (no required props)                     |                                        |
+
+### section.variant
+
+Controls per-section background for visual rhythm on marketing pages.
+
+| Value      | Effect                                                      |
+|------------|-------------------------------------------------------------|
+| `default`  | Page background (`--color-bg`). No class added. Default.   |
+| `dark`     | Surface background (`--color-surface`). Subtle differentiation. |
+| `inverted` | Inverted background (`--color-bg-inverted`). Strong contrast. |
+
+Example — alternating section rhythm:
+```json
+{ "component": "section", "props": { "body": "<p>...</p>", "variant": "dark" } },
+{ "component": "section", "props": { "body": "<p>...</p>", "variant": "inverted" } }
+```
+
+### grid.variant: "steps"
+
+Renders numbered process cards. Use for How-It-Works or sequential flows.
+
+- Set `variant: "steps"` on the grid
+- Include a `number` field on each item (`"1"`, `"01"`, `"Step 1"`, etc.)
+- Images are suppressed in steps variant; use title + text only
+
+```json
+{
+  "component": "grid",
+  "props": {
+    "title": "How it works",
+    "variant": "steps",
+    "items": [
+      { "number": "1", "title": "Sign up", "text": "Create your account." },
+      { "number": "2", "title": "Configure", "text": "Set your preferences." },
+      { "number": "3", "title": "Launch", "text": "Go live." }
+    ]
+  }
+}
+```
 
 Always verify against `components/{name}/schema.json` before writing — the source of truth.
 

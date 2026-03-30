@@ -9,10 +9,19 @@
  * @var array $props
  */
 
-$title = $props['title'] ?? '';
-$items = $props['items'] ?? [];
+$title   = $props['title']   ?? '';
+$items   = $props['items']   ?? [];
+$variant = $props['variant'] ?? 'default';
+
+$allowed_variants = ['default', 'steps'];
+if (!in_array($variant, $allowed_variants, true)) {
+    $variant = 'default';
+}
+
+$is_steps     = $variant === 'steps';
+$variant_class = $is_steps ? ' grid--steps' : '';
 ?>
-<section class="grid">
+<section class="grid<?php echo esc_attr($variant_class); ?>">
     <div class="container">
 
         <?php if ($title) : ?>
@@ -21,16 +30,21 @@ $items = $props['items'] ?? [];
 
         <?php if (!empty($items)) : ?>
             <ul class="grid__list" role="list">
-                <?php foreach ($items as $item) :
-                    $item_title = $item['title']     ?? '';
-                    $item_text  = $item['text']      ?? '';
-                    $image_url  = $item['image_url'] ?? '';
-                    $image_alt  = $item['image_alt'] ?? '';
-                    $link_url   = $item['link_url']  ?? '';
-                    $link_text  = $item['link_text'] ?? 'Read more';
+                <?php foreach ($items as $index => $item) :
+                    $item_number = $item['number']    ?? (string)($index + 1);
+                    $item_title  = $item['title']     ?? '';
+                    $item_text   = $item['text']      ?? '';
+                    $image_url   = $item['image_url'] ?? '';
+                    $image_alt   = $item['image_alt'] ?? '';
+                    $link_url    = $item['link_url']  ?? '';
+                    $link_text   = $item['link_text'] ?? 'Read more';
                 ?>
                     <li class="grid__item">
-                        <?php if ($image_url) : ?>
+                        <?php if ($is_steps) : ?>
+                            <span class="pp-step-number" aria-hidden="true"><?php echo esc_html($item_number); ?></span>
+                        <?php endif; ?>
+
+                        <?php if ($image_url && !$is_steps) : ?>
                             <div class="grid__item-image-wrap">
                                 <img
                                     src="<?php echo esc_url($image_url); ?>"

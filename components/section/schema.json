@@ -31,6 +31,13 @@
       "required": false,
       "default": "text-only",
       "description": "Column layout. Falls back to text-only if image_url is empty."
+    },
+    "variant": {
+      "type": "enum",
+      "values": ["default", "dark", "inverted"],
+      "required": false,
+      "default": "default",
+      "description": "Background presentation. 'default' = page background. 'dark' = dark surface. 'inverted' = inverted background for strong contrast. Controls per-section visual rhythm on marketing pages."
     }
   },
   "safe_to_edit": ["section.php", "../../assets/css/components.css (COMPONENT: section section)"],

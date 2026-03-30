@@ -5,12 +5,12 @@
 
 /* ==========================================================================
    1. CSS Custom Properties (Design Tokens)
-   Change these 16 values to retheme the entire site.
+   Change these 17 values to retheme the entire site.
    See ai-instructions/retheme.md for the full retheme workflow.
    ========================================================================== */
 
 :root {
-  /* Color — change all 7 to retheme */
+  /* Color — change all 8 to retheme */
   --color-bg:           #ffffff;  /* Page background */
   --color-surface:      #f9fafb;  /* Card / component backgrounds */
   --color-text:         #1a1a1a;  /* Primary text */
@@ -18,6 +18,7 @@
   --color-border:       #e5e7eb;  /* Dividers, outlines */
   --color-accent:       #0055cc;  /* Primary action — WCAG AA 4.7:1 on white */
   --color-accent-hover: #0044aa;  /* Hover / active state for accent */
+  --color-bg-inverted:  #1a1a1a;  /* Section variant: inverted bg (semantic opposite of --color-bg) */
 
   /* Spacing — the layout scale */
   --space-xs:  0.25rem;   /*  4px */

@@ -327,6 +327,31 @@
   border-radius: var(--radius);
 }
 
+/* Section background variants */
+.pp-section--dark {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+}
+
+.pp-section--inverted {
+  background-color: var(--color-bg-inverted);
+  color: var(--color-bg);
+}
+
+.pp-section--inverted .section__title,
+.pp-section--inverted h2,
+.pp-section--inverted h3 {
+  color: var(--color-bg);
+}
+
+.pp-section--inverted .section__content {
+  color: var(--color-bg);
+}
+
+.pp-section--inverted a {
+  color: var(--color-accent);
+}
+
 /* ==========================================================================
    COMPONENT: faq
    Native details/summary accordion. No JS required.
@@ -517,6 +542,28 @@
 .grid__empty {
   grid-column: 1 / -1;
   padding: var(--space-md) 0;
+}
+
+/* Steps variant */
+.grid--steps .grid__item {
+  background-color: transparent;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+  padding: var(--space-md) 0;
+}
+
+.grid--steps .grid__item:hover {
+  transform: none;
+}
+
+.pp-step-number {
+  display: block;
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-accent);
+  margin-bottom: var(--space-sm);
 }
 
 /* ==========================================================================
