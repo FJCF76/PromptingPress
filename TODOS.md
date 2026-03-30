@@ -2,21 +2,11 @@
 
 ## Component Primitive Gaps
 
-### Section background variant (wedge-validation gap)
-**Priority:** P2
-**What:** The `section` component has no `variant` prop for per-section background control. All sections render on `--color-bg`. Marketing pages need alternating dark/light/inverted sections for visual rhythm — this is a composition primitive, not a styling trick.
-**Why:** Identified during webfiable.com wedge-validation sprint (2026-03-30). Cannot express a dark hero-section or an inverted CTA section in `_pp_composition` JSON at all. Not a CSS polish issue — the schema doesn't support it.
-**Fix direction:** Add `variant` prop to `section` schema.json: `"default" | "dark" | "inverted"`. In `section.php`, add a CSS class based on variant (`pp-section--dark`, etc.). In `components.css`, define background/color overrides for each class using existing tokens plus a new `--color-bg-inverted` token. Update `ai-instructions/composition.md` with variant examples.
-**Depends on:** Nothing.
+### Section background variant (2026-03-30) ✓
+Shipped in commit bfbef07. `variant: "default" | "dark" | "inverted"` on `section`. New `--color-bg-inverted` token. CSS classes `pp-section--dark`, `pp-section--inverted`. Verified on POC.
 
----
-
-### Grid step variant (wedge-validation gap)
-**Priority:** P2
-**What:** The `grid` component has no way to render numbered steps. Numbered process sections ("How it works: 1 → 2 → 3") are a standard marketing primitive. Currently requires an HTML-body workaround that can't be expressed cleanly in composition JSON.
-**Why:** Identified during webfiable.com wedge-validation sprint (2026-03-30). webfiable.com's "Cómo funciona" section uses explicit step numbers rendered as styled numerals. The `grid` component schema has no `number` field per item and no `variant: "steps"` mode.
-**Fix direction:** Add optional `number` field to each grid item in schema.json. Add `variant: "steps"` to the grid component. In `grid.php`, render a `<span class="pp-step-number">` before each item's content when variant is steps. Style with `--color-accent` (or a dedicated `--color-step` token). Each item's `number` field can be auto-indexed if omitted.
-**Depends on:** Nothing.
+### Grid step variant (2026-03-30) ✓
+Shipped in commit bfbef07. `variant: "steps"` on `grid`. Per-item `number` field with auto-index fallback. `pp-step-number` styled with `--color-accent`. Verified on POC.
 
 ---
 
