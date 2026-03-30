@@ -1,6 +1,6 @@
 {
   "name": "promptingpress",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": true,
   "description": "JS unit tests for pp-editor-logic.js",
   "scripts": {

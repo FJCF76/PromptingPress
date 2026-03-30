@@ -4,6 +4,46 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.1.2] — 2026-03-30 — Section and grid composition primitives
+
+### Added: `section.variant` — per-section background control
+
+Sections can now carry their own background tone, enabling visual rhythm on multi-section pages without touching CSS. Set via `variant` prop in composition JSON:
+
+- `default` — page background (`--color-bg`). No class added. Backward-compatible default.
+- `dark` — surface background (`--color-surface`) with a 1px border above and below. Subtle differentiation.
+- `inverted` — inverted background (`--color-bg-inverted`). Strong contrast. Full text/heading color override included.
+
+```json
+{ "component": "section", "props": { "body": "<p>...</p>", "variant": "dark" } }
+```
+
+New design token: `--color-bg-inverted` (8th color token in `base.css`). Set this alongside the other 7 color tokens when rethemeing.
+
+### Added: `grid.variant: "steps"` — numbered process cards
+
+Grid now renders as a numbered step sequence when `variant: "steps"` is set. Use for How-It-Works flows, onboarding sequences, or any ordered process.
+
+- Step number rendered per item (`number` field, or auto-indexed from 1)
+- Images suppressed in steps mode — title + text only
+- Number styled with `--color-accent` for visual anchor
+
+```json
+{ "component": "grid", "props": { "variant": "steps", "items": [
+  { "number": "1", "title": "Sign up", "text": "Create your account." }
+] } }
+```
+
+### Fixed: `pp-section--dark` invisible on light theme
+
+On the default light palette, `--color-surface` (#f9fafb) and `--color-bg` (#ffffff) are nearly identical (1.04:1 contrast). Added 1px `--color-border` top/bottom borders to `.pp-section--dark` so the boundary reads on any palette.
+
+### Fixed: Bootstrap state contract
+
+Added `ai-instructions/bootstrap.md` — a machine-readable state contract with WP-CLI verification commands for every required site state (theme, options, homepage, composition data, menus). Verified during poc.promptingpress.com provisioning.
+
+---
+
 ## [v0.1.1] — 2026-03-28 — JS test infrastructure + bug fixes
 
 ### New: JS unit test suite (Vitest, 38 tests)
