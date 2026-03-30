@@ -331,6 +331,8 @@
 .pp-section--dark {
   background-color: var(--color-surface);
   color: var(--color-text);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .pp-section--inverted {
