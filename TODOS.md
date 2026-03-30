@@ -48,50 +48,6 @@
 
 ---
 
-### Bootstrap state contract — ai-instructions/bootstrap.md (ISSUE-006)
-**Priority:** P3
-**What:** No document defines what a correctly provisioned PromptingPress install looks like as verifiable state. An agent setting up a fresh WordPress install must improvise the required database and option state, which creates conceptual drift toward procedural WordPress habits.
-**Why:** A state contract (not a setup checklist) keeps the documentation centered on verifiable system targets — the AI-first direction. It also makes Option B (seed script automation) trivially derivable later: the script just enforces the contract instead of inventing it.
-**Fix direction:** Create `ai-instructions/bootstrap.md`. Format throughout: required object → required state predicate → WP-CLI verification command. Contents must include the following minimum required state:
-
-**Theme**
-- Active theme is `promptingpress`
-- Verify: `wp theme status promptingpress` → `Status: Active`
-
-**WordPress options**
-- `show_on_front = page` (static homepage, not latest posts)
-- Verify: `wp option get show_on_front` → `page`
-- `page_on_front` = post ID of the homepage page object
-- Verify: `wp option get page_on_front` → numeric post ID
-- `permalink_structure = /%postname%/` (pretty permalinks required)
-- Verify: `wp option get permalink_structure` → `/%postname%/`
-
-**Homepage page**
-- A page exists whose post ID matches `page_on_front`
-- `_wp_page_template = composition.php`
-- Verify: `wp post meta get <id> _wp_page_template` → `composition.php`
-- `_pp_composition` is present and is a valid non-empty JSON array of registered components
-- Verify: `wp post meta get <id> _pp_composition` → valid JSON array
-
-**General rule for all composition pages**
-- Every page with `_wp_page_template = composition.php` must have a valid `_pp_composition` value: non-null, non-empty, valid JSON array. The PHP save handler rejects invalid values and retains the last valid one, but an absent value on a new page produces a blank render with no error. State contract must treat absence as a failure.
-- Verify: `wp post meta get <id> _pp_composition`
-
-**Primary navigation menu**
-- A WordPress menu must be created and assigned to location `primary`
-- WARNING: the nav component renders silently empty if no menu is assigned to `primary`. WordPress does not error. Menu assignment is mandatory contract state, not optional polish.
-- Verify: `wp menu location list` → `primary` column shows a menu name (not blank)
-
-**Footer navigation menu**
-- A WordPress menu must be created and assigned to location `footer`
-- WARNING: the footer component renders silently empty if no menu is assigned to `footer`. WordPress does not error. Menu assignment is mandatory contract state, not optional polish.
-- Verify: `wp menu location list` → `footer` column shows a menu name (not blank)
-
-A future agent can draft `ai-instructions/bootstrap.md` directly from this spec without reinterpreting intent.
-**Depends on:** Nothing.
-
----
-
 ### Doc hierarchy declaration in AI_CONTEXT.md (ISSUE-007)
 **Priority:** P3
 **What:** Multiple files cover overlapping territory (`AI_CONTEXT.md`, `CLAUDE.md`, `ai-instructions/*.md`, `components/{name}/schema.json`). An AI treats all Markdown as equally authoritative; without an explicit hierarchy, conflicting guidance requires the agent to resolve conflicts itself.
@@ -105,6 +61,22 @@ A future agent can draft `ai-instructions/bootstrap.md` directly from this spec 
 ---
 
 ## Completed
+
+### Bootstrap state contract — ai-instructions/bootstrap.md (ISSUE-006) (2026-03-30)
+Created `ai-instructions/bootstrap.md` from the ISSUE-006 spec. Format: required object →
+state predicate → WP-CLI verification command. Covers theme, WP options, homepage page,
+composition data contract, nav/footer menus, and known WP-CLI behavior on this server
+(proc_open restriction, post meta creation workaround). Validated during poc.promptingpress.com
+provisioning sprint.
+
+### webfiable.com Wedge Validation Sprint (2026-03-30)
+Provisioned poc.promptingpress.com from zero and reproduced webfiable.com homepage via
+JSON composition + WP-CLI with no admin UI for content. Full stack: nginx vhost, SSL cert
+(certbot --expand), MySQL, WordPress 6.9.4 (es_ES), PromptingPress theme, 9-component
+composition (hero, 4×section, cta, grid, faq, section). All success criteria met.
+Component coverage: ~80% native, 2 HTML-body workarounds (nested feature lists, checklist)
+that rendered cleanly — no gaps requiring TODOS entries. The AI authoring proposition
+is validated on a real-world site.
 
 ### JS Test Infrastructure (2026-03-28)
 Extracted three pure functions from `pp-admin-editor.js` into `assets/js/pp-editor-logic.js`:
