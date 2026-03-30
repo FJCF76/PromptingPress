@@ -11,10 +11,16 @@ each section. Register the template in WP Admin (Pages → Edit → Page Attribu
 **To edit a component:** Open `/components/{name}/{name}.php`. Props are documented in
 `schema.json` in the same folder. CSS is in `/assets/css/components.css`.
 
+**To add a page:** Follow the steps in `ai-instructions/add-page.md`.
+
+**To build a landing page:** See `ai-instructions/build-landing-page.md` for a complete template with copy guidance.
+
 **To add a component:** Follow the steps in `ai-instructions/add-component.md`. The
 auto-loader picks up any component at `/components/{name}/{name}.php` — no registration needed.
 
-**To retheme:** Read `ai-instructions/retheme.md`. Edit the 16 CSS tokens in `assets/css/base.css`.
+**To retheme:** Read `ai-instructions/retheme.md`. Edit the 17 CSS tokens in `assets/css/base.css`.
+
+**To provision a new WordPress site:** Read `ai-instructions/bootstrap.md` for the full state contract and WP-CLI verification commands.
 
 **Never:**
 - Add hooks or filters to template or component files (only in `functions.php`)
@@ -30,7 +36,7 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 |--------------------------|---------------------------------|----------------------------------|
 | /templates/              | Page layouts                    | Yes                              |
 | /components/             | Reusable sections               | Yes                              |
-| /assets/css/base.css     | Design tokens (16 CSS vars)     | Yes — tokens only                |
+| /assets/css/base.css     | Design tokens (17 CSS vars)     | Yes — tokens only                |
 | /assets/css/components.css | Component styles              | Yes                              |
 | /assets/css/utilities.css | Spacing / text utilities       | Yes                              |
 | /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Yes — run npm test after         |
@@ -51,9 +57,9 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 | Component | File                           | Description                                      | Key props                                          |
 |-----------|--------------------------------|--------------------------------------------------|----------------------------------------------------|
 | hero      | components/hero/hero.php       | Full-width headline + optional CTA and image     | title (req), subtitle, cta_text, cta_url, variant  |
-| section   | components/section/section.php | Text + optional image. 3 layout variants         | body (req), title, image_url, image_alt, layout    |
+| section   | components/section/section.php | Text + optional image. 3 layout variants         | body (req), title, image_url, image_alt, layout, variant |
 | faq       | components/faq/faq.php         | Native details/summary accordion. Zero JS.       | items[] (req) {question, answer}, title            |
-| grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {title, text, image_url, link_url, link_text}, title |
+| grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {title, text, image_url, link_url, link_text}, title, variant |
 | table     | components/table/table.php     | Data/comparison table, horizontal scroll mobile  | headers[] (req), rows[][] (req), title, caption    |
 | cta       | components/cta/cta.php         | Call-to-action block. Two variants.              | title (req), button_text (req), button_url (req), text, variant |
 | nav       | components/nav/nav.php         | Site header, logo, hamburger mobile nav          | location, logo_text                                |
@@ -126,11 +132,11 @@ not ACF fields. `pp_field()` returns null when ACF is not installed.
 
 ## Design tokens (assets/css/base.css)
 
-16 CSS custom properties control the entire visual system. To retheme, edit these only.
+17 CSS custom properties control the entire visual system. To retheme, edit these only.
 
 ```
 Colors:     --color-bg, --color-surface, --color-text, --color-muted,
-            --color-border, --color-accent, --color-accent-hover
+            --color-border, --color-accent, --color-accent-hover, --color-bg-inverted
 Spacing:    --space-xs, --space-sm, --space-md, --space-lg, --space-xl, --space-2xl
 Typography: --font-body, --font-heading
 Shape:      --radius, --max-width, --transition

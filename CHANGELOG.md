@@ -38,9 +38,9 @@ Grid now renders as a numbered step sequence when `variant: "steps"` is set. Use
 
 On the default light palette, `--color-surface` (#f9fafb) and `--color-bg` (#ffffff) are nearly identical (1.04:1 contrast). Added 1px `--color-border` top/bottom borders to `.pp-section--dark` so the boundary reads on any palette.
 
-### Fixed: Bootstrap state contract
+### Added: Bootstrap state contract
 
-Added `ai-instructions/bootstrap.md` — a machine-readable state contract with WP-CLI verification commands for every required site state (theme, options, homepage, composition data, menus). Verified during poc.promptingpress.com provisioning.
+`ai-instructions/bootstrap.md` — a machine-readable state contract with WP-CLI verification commands for every required site state (theme, options, homepage, composition data, menus). Lets any AI provision a fresh PromptingPress site from zero without guesswork.
 
 ---
 

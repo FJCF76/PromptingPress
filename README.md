@@ -20,7 +20,7 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 
 **WP abstraction layer** — `lib/wp.php` is the only file that calls WordPress functions. Templates and components use `pp_*` wrappers only. This means AI can edit templates without knowing WordPress internals, and templates are testable without bootstrapping WP.
 
-**Design token system** — 16 CSS custom properties in `assets/css/base.css` control the entire visual system. To retheme: edit those 16 variables and nothing else.
+**Design token system** — 17 CSS custom properties in `assets/css/base.css` control the entire visual system. To retheme: edit those 17 variables and nothing else.
 
 **AI context map** — `AI_CONTEXT.md` is a machine-readable site map: file responsibilities, component index, WP abstraction API, composition format, design tokens. Read it once and you know the whole site.
 
@@ -32,7 +32,7 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 /lib/wp.php                WP abstraction layer (pp_* functions only)
 /lib/admin.php             Composition editor: AJAX handlers, validation, meta box
 /lib/components.php        Component auto-loader (don't edit)
-/assets/css/base.css       Design tokens — 16 CSS variables
+/assets/css/base.css       Design tokens — 17 CSS variables
 /assets/css/components.css Component styles (CSS variables only, no raw hex)
 /assets/js/pp-editor-logic.js  Pure JS logic: JSON context parser, validator, insert position
 /assets/js/pp-admin-editor.js  Composition editor frontend (CodeMirror + preview)
