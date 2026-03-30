@@ -22,7 +22,7 @@ The dev site at `dev.promptingpress.com` is a separate copy of the repo, not a s
 ## Design system
 
 To restyle the site, read `ai-instructions/retheme.md`.
-Design tokens live in `assets/css/base.css` — 16 CSS variables control the entire visual system.
+Design tokens live in `assets/css/base.css` — 17 CSS variables control the entire visual system.
 
 ## Anti-slop rules
 

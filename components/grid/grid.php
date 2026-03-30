@@ -41,7 +41,7 @@ $variant_class = $is_steps ? ' grid--steps' : '';
                 ?>
                     <li class="grid__item">
                         <?php if ($is_steps) : ?>
-                            <span class="pp-step-number" aria-hidden="true"><?php echo esc_html($item_number); ?></span>
+                            <span class="pp-step-number"><?php echo esc_html($item_number); ?></span>
                         <?php endif; ?>
 
                         <?php if ($image_url && !$is_steps) : ?>

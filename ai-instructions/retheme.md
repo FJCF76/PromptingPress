@@ -4,9 +4,9 @@ Follow these steps to change the visual design of the site. You can change the e
 
 ---
 
-## Step 1 — Edit the 7 color tokens in assets/css/base.css
+## Step 1 — Edit the 8 color tokens in assets/css/base.css
 
-Open `/assets/css/base.css`. Find the `:root` block and change these 7 properties:
+Open `/assets/css/base.css`. Find the `:root` block and change these 8 properties:
 
 ```css
 --color-bg:           #ffffff;  /* Page background */
@@ -16,6 +16,7 @@ Open `/assets/css/base.css`. Find the `:root` block and change these 7 propertie
 --color-border:       #e5e7eb;  /* Dividers, outlines */
 --color-accent:       #0055cc;  /* Primary action color */
 --color-accent-hover: #0044aa;  /* Hover / active state */
+--color-bg-inverted:  #1a1a1a;  /* Section variant: inverted bg (semantic opposite of --color-bg) */
 ```
 
 **WCAG AA requirement:** `--color-accent` on `--color-bg` must have contrast ratio ≥ 4.5:1.
@@ -30,6 +31,7 @@ Example retheme — warm neutral:
 --color-border:       #e7e0d8;
 --color-accent:       #b45309;
 --color-accent-hover: #92400e;
+--color-bg-inverted:  #1c1917;
 ```
 
 ---
@@ -120,4 +122,4 @@ The output should be empty. If it returns matches, replace each with the corresp
 | schema.json files        | Machine-readable contracts — not styling |
 | functions.php            | Only add the font enqueue, nothing else |
 
-The entire visual output of the site flows through the 16 CSS variables. Editing anything outside `assets/css/base.css` is unnecessary for a retheme.
+The entire visual output of the site flows through the 17 CSS variables. Editing anything outside `assets/css/base.css` is unnecessary for a retheme.
