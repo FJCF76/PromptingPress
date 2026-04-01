@@ -102,6 +102,33 @@ function pp_validate_composition(array $items) {
     return true;
 }
 
+// ── Composition Page Discriminator ───────────────────────────────────────────
+
+/**
+ * Determines whether a post should use the composition editor.
+ *
+ * Site-level rule: all standard pages on a PromptingPress site use composition
+ * editing by default. The only exception is pages explicitly assigned to a
+ * third-party template — those belong to another system and are left alone.
+ *
+ * The composition.php template is an internal rendering mechanism, not the
+ * discriminator. This function is the single gate for all routing decisions
+ * and can be updated in one place if the data model changes.
+ *
+ * @param  int  $post_id
+ * @return bool
+ */
+function pp_is_composition_page(int $post_id): bool {
+    if (get_post_type($post_id) !== 'page') {
+        return false;
+    }
+    $template = get_page_template_slug($post_id);
+    // A non-empty template that is not composition.php means another system
+    // explicitly owns this page. Treat that as an interoperability exception.
+    // Empty string, 'default', and 'composition.php' are all PromptingPress pages.
+    return $template === '' || $template === 'default' || $template === 'composition.php';
+}
+
 // ── Post Meta Registration ───────────────────────────────────────────────────
 
 add_action('init', function () {
@@ -121,48 +148,90 @@ add_action('init', function () {
     ]);
 });
 
-// ── Meta Box — "Edit Composition" link on post edit screen ───────────────────
+// ── Admin Routing ─────────────────────────────────────────────────────────────
 
-add_action('add_meta_boxes', function () {
-    add_meta_box(
-        'pp-composition-meta-box',
-        'Page Composition',
-        'pp_composition_meta_box_link_callback',
-        'page',
-        'side',
-        'high'
-    );
+/**
+ * Intercept new page creation and existing page edits, routing both to the
+ * composition editor. This is the entry point for the site-level authoring model.
+ *
+ * Two cases handled:
+ *   post-new.php?post_type=page  — create a draft page and redirect immediately
+ *   post.php?action=edit&post=N  — redirect to composition editor for pp pages
+ */
+add_action('admin_init', function (): void {
+    global $pagenow;
+
+    // New page: create a draft, assign composition template, open the editor.
+    if ($pagenow === 'post-new.php' &&
+        isset($_GET['post_type']) && $_GET['post_type'] === 'page') {
+        if (!current_user_can('create_pages')) {
+            return;
+        }
+        $post_id = wp_insert_post([
+            'post_type'   => 'page',
+            'post_status' => 'draft',
+            'post_title'  => '',
+        ]);
+        if (!$post_id || is_wp_error($post_id)) {
+            return;
+        }
+        update_post_meta($post_id, '_wp_page_template', 'composition.php');
+        wp_safe_redirect(admin_url('admin.php?page=pp-composition&post=' . $post_id));
+        exit;
+    }
+
+    // Existing page edit: redirect composition pages to the composition editor.
+    if ($pagenow === 'post.php' &&
+        isset($_GET['action']) && $_GET['action'] === 'edit' &&
+        isset($_GET['post'])) {
+        $post_id = (int) $_GET['post'];
+        if (!$post_id) {
+            return;
+        }
+        $post = get_post($post_id);
+        if (!$post || !current_user_can('edit_post', $post_id)) {
+            return;
+        }
+        if (!pp_is_composition_page($post_id)) {
+            return;
+        }
+        wp_safe_redirect(admin_url('admin.php?page=pp-composition&post=' . $post_id));
+        exit;
+    }
 });
 
 /**
- * Renders a simple "Edit Composition" button pointing to the full workspace.
+ * Rewrite edit links for composition pages so that all WP-generated "Edit"
+ * URLs — Pages list row actions, admin bar, Gutenberg edit button — point
+ * to the composition editor rather than post.php.
  */
-function pp_composition_meta_box_link_callback(WP_Post $post): void {
-    $url        = admin_url('admin.php?page=pp-composition&post=' . $post->ID);
-    $raw        = get_post_meta($post->ID, '_pp_composition', true);
-    $count      = 0;
-    if ($raw) {
-        $decoded = json_decode($raw, true);
-        $count   = is_array($decoded) ? count($decoded) : 0;
+add_filter('get_edit_post_link', function ($url, $post_id, $context) {
+    if (!$post_id || !pp_is_composition_page((int) $post_id)) {
+        return $url;
     }
-    ?>
-    <div class="pp-meta-link-wrap">
-        <a href="<?php echo esc_url($url); ?>" class="button button-primary pp-open-workspace-btn">
-            Open Composition Editor &rarr;
-        </a>
-        <?php if ($count > 0) : ?>
-        <p class="description" style="margin-top:8px;">
-            <?php echo $count; ?> component<?php echo $count !== 1 ? 's' : ''; ?> saved.
-        </p>
-        <?php else : ?>
-        <p class="description" style="margin-top:8px;">No composition yet.</p>
-        <?php endif; ?>
-    </div>
-    <style>
-        .pp-open-workspace-btn { display: block; text-align: center; margin-top: 4px; }
-    </style>
-    <?php
-}
+    return admin_url('admin.php?page=pp-composition&post=' . (int) $post_id);
+}, 10, 3);
+
+/**
+ * Template normalization — separate concern from routing.
+ *
+ * Ensures composition pages have the correct rendering template on the
+ * front-end. This is a data-hygiene operation: when a page is saved and
+ * its template is still unset, it gets composition.php assigned so the
+ * front-end renders correctly. Explicit third-party templates are left alone.
+ */
+add_action('save_post_page', function (int $post_id, WP_Post $post, bool $update): void {
+    if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
+        return;
+    }
+    if (wp_is_post_revision($post_id)) {
+        return;
+    }
+    $template = get_page_template_slug($post_id);
+    if ($template === '' || $template === 'default') {
+        update_post_meta($post_id, '_wp_page_template', 'composition.php');
+    }
+}, 10, 3);
 
 // ── AJAX Save ─────────────────────────────────────────────────────────────────
 
@@ -249,8 +318,14 @@ function pp_composition_workspace_page(): void {
     }
     $components = pp_get_registered_components();
 
-    $back_url   = get_edit_post_link($post_id) ?: admin_url('edit.php?post_type=page');
-    $page_title = esc_html($post->post_title ?: '(no title)');
+    // Back always goes to the Pages list — not get_edit_post_link(), which
+    // now returns the composition editor URL and would create a loop.
+    $back_url = admin_url('edit.php?post_type=page');
+
+    $view_url   = $post->post_status === 'publish'
+        ? get_permalink($post_id)
+        : get_preview_post_link($post_id);
+    $view_label = $post->post_status === 'publish' ? 'View' : 'Preview';
 
     // Build component list for sidebar
     $component_list = [];
@@ -284,17 +359,36 @@ function pp_composition_workspace_page(): void {
         <!-- ── Toolbar ───────────────────────────────────────────────── -->
         <div class="pp-toolbar">
             <div class="pp-toolbar-left">
-                <a href="<?php echo esc_url($back_url); ?>" class="pp-back-link">
-                    <span class="pp-back-arrow">&#8592;</span>
-                    <span><?php echo $page_title; ?></span>
+                <a href="<?php echo esc_url($back_url); ?>" class="pp-back-btn" title="All Pages">
+                    &#8592;
                 </a>
+                <input
+                    type="text"
+                    id="pp-page-title"
+                    class="pp-page-title-input"
+                    value="<?php echo esc_attr($post->post_title); ?>"
+                    placeholder="Page title"
+                    autocomplete="off"
+                    spellcheck="false"
+                />
+                <?php if ($post->post_status !== 'publish') : ?>
+                <span class="pp-status-badge" id="pp-status-badge">Draft</span>
+                <?php endif; ?>
             </div>
             <div class="pp-toolbar-center">
                 <span class="pp-save-status" id="pp-save-status"></span>
             </div>
             <div class="pp-toolbar-right">
-                <button id="pp-save-btn" class="pp-save-btn button button-primary" title="Save (Ctrl+S)">
-                    Save Composition
+                <a href="<?php echo esc_url($view_url); ?>" target="_blank"
+                   rel="noopener" class="pp-view-link" id="pp-view-link">
+                    <?php echo esc_html($view_label); ?> &#8599;
+                </a>
+                <button id="pp-save-btn" class="pp-toolbar-btn" title="Save (Ctrl+S)">
+                    Save
+                </button>
+                <button id="pp-publish-btn" class="pp-toolbar-btn pp-toolbar-btn--primary"
+                        data-status="<?php echo esc_attr($post->post_status); ?>">
+                    <?php echo $post->post_status === 'publish' ? 'Update' : 'Publish'; ?>
                 </button>
             </div>
         </div>
@@ -452,6 +546,75 @@ add_action('wp_ajax_pp_preview_composition', function () {
     wp_send_json_success(['html' => $html]);
 });
 
+// ── AJAX: Save Title ──────────────────────────────────────────────────────────
+
+add_action('wp_ajax_pp_save_title', function (): void {
+    $post_id = isset($_POST['post_id']) ? (int) $_POST['post_id'] : 0;
+
+    if (!$post_id || !isset($_POST['nonce']) ||
+        !wp_verify_nonce($_POST['nonce'], 'pp_composition_' . $post_id)) {
+        wp_send_json_error('Invalid nonce.');
+    }
+
+    if (!current_user_can('edit_post', $post_id)) {
+        wp_send_json_error('Insufficient permissions.');
+    }
+
+    $title  = isset($_POST['title']) ? sanitize_text_field(wp_unslash($_POST['title'])) : '';
+    $result = wp_update_post(['ID' => $post_id, 'post_title' => $title], true);
+
+    if (is_wp_error($result)) {
+        wp_send_json_error($result->get_error_message());
+    }
+
+    wp_send_json_success(['title' => $title]);
+});
+
+// ── AJAX: Publish / Update ────────────────────────────────────────────────────
+
+add_action('wp_ajax_pp_publish_page', function (): void {
+    $post_id = isset($_POST['post_id']) ? (int) $_POST['post_id'] : 0;
+
+    if (!$post_id || !isset($_POST['nonce']) ||
+        !wp_verify_nonce($_POST['nonce'], 'pp_composition_' . $post_id)) {
+        wp_send_json_error('Invalid nonce.');
+    }
+
+    if (!current_user_can('edit_post', $post_id) || !current_user_can('publish_pages')) {
+        wp_send_json_error('Insufficient permissions.');
+    }
+
+    // Save composition meta first (same validation as pp_save_composition).
+    $raw = isset($_POST['composition']) ? stripslashes($_POST['composition']) : '';
+    if ($raw !== '') {
+        $decoded = json_decode($raw, true);
+        if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
+            wp_send_json_error('Invalid JSON.');
+        }
+        $validation = pp_validate_composition($decoded);
+        if (is_wp_error($validation)) {
+            wp_send_json_error($validation->get_error_message());
+        }
+        update_post_meta(
+            $post_id,
+            '_pp_composition',
+            wp_slash(wp_json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
+        );
+    }
+
+    // Publish the page.
+    $result = wp_update_post(['ID' => $post_id, 'post_status' => 'publish'], true);
+    if (is_wp_error($result)) {
+        wp_send_json_error($result->get_error_message());
+    }
+
+    wp_send_json_success([
+        'status'       => 'publish',
+        'post_link'    => (string) (get_permalink($post_id) ?: ''),
+        'preview_link' => (string) (get_preview_post_link($post_id) ?: ''),
+    ]);
+});
+
 // ── Admin Assets ──────────────────────────────────────────────────────────────
 
 add_action('admin_enqueue_scripts', function (string $hook) {
@@ -508,6 +671,9 @@ add_action('admin_enqueue_scripts', function (string $hook) {
         'ajaxUrl'            => admin_url('admin-ajax.php'),
         'nonce'              => wp_create_nonce('pp_composition_' . $post_id),
         'postId'             => $post_id,
+        'postStatus'         => get_post_field('post_status', $post_id),
+        'postLink'           => (string) (get_permalink($post_id) ?: ''),
+        'previewLink'        => (string) (get_preview_post_link($post_id) ?: ''),
     ]);
 });
 

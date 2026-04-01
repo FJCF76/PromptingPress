@@ -16,12 +16,15 @@
         if (window.console) console.error('[PromptingPress] pp-editor-logic.js failed to load — editor disabled.');
         return;
     }
-    var components = ppAdminEditor.components || [];
-    var ajaxUrl    = ppAdminEditor.ajaxUrl || '';
-    var nonce      = ppAdminEditor.nonce || '';
-    var postId     = ppAdminEditor.postId || 0;
-    var cm         = null;
-    var lastCursor = null;  // preserved across focus loss
+    var components   = ppAdminEditor.components || [];
+    var ajaxUrl      = ppAdminEditor.ajaxUrl || '';
+    var nonce        = ppAdminEditor.nonce || '';
+    var postId       = ppAdminEditor.postId || 0;
+    var postStatus   = ppAdminEditor.postStatus || 'draft';
+    var postLink     = ppAdminEditor.postLink || '';
+    var previewLink  = ppAdminEditor.previewLink || '';
+    var cm           = null;
+    var lastCursor   = null;  // preserved across focus loss
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -415,6 +418,95 @@
         .always(function () { $('#pp-save-btn').prop('disabled', false); });
     }
 
+    // ── Title editor ─────────────────────────────────────────────────────────
+
+    function initTitleEditor() {
+        var $input = $('#pp-page-title');
+        if (!$input.length) return;
+
+        var titleTimer;
+
+        $input.on('input', function () {
+            clearTimeout(titleTimer);
+            titleTimer = setTimeout(doSaveTitle, 800);
+        });
+
+        $input.on('blur', function () {
+            clearTimeout(titleTimer);
+            doSaveTitle();
+        });
+    }
+
+    function doSaveTitle() {
+        var $input = $('#pp-page-title');
+        var title = $input.val();
+        $.post(ajaxUrl, {
+            action:  'pp_save_title',
+            post_id: postId,
+            title:   title,
+            nonce:   nonce,
+        });
+        document.title = (title.trim() || 'Untitled') + ' \u2014 Composition Editor';
+    }
+
+    // ── Publish / Update ─────────────────────────────────────────────────────
+
+    function initPublishButton() {
+        $('#pp-publish-btn').on('click', function () {
+            if (!cm) return;
+            var value = cm.getValue().trim();
+            var errors = validateComposition(value);
+            if (errors.length) {
+                showErrors(errors);
+                setSaveStatus('is-error', 'Fix errors first.');
+                return;
+            }
+
+            var $btn = $(this);
+            var label = postStatus === 'publish' ? 'Updating\u2026' : 'Publishing\u2026';
+            $btn.prop('disabled', true);
+            $('#pp-save-btn').prop('disabled', true);
+            setSaveStatus('is-saving', label);
+
+            $.post(ajaxUrl, {
+                action:      'pp_publish_page',
+                post_id:     postId,
+                composition: value,
+                nonce:       nonce,
+            })
+            .done(function (res) {
+                if (res.success) {
+                    postStatus  = res.data.status;
+                    postLink    = res.data.post_link;
+                    previewLink = res.data.preview_link;
+
+                    // Update button label
+                    $btn.text('Update').data('status', 'publish');
+
+                    // Update view/preview link
+                    $('#pp-view-link')
+                        .text('View \u2197')
+                        .attr('href', postLink);
+
+                    // Remove Draft badge
+                    $('#pp-status-badge').remove();
+
+                    setSaveStatus('is-saved', 'Published');
+                    setTimeout(function () { setSaveStatus('', ''); }, 3000);
+                } else {
+                    var msg = res.data || 'Publish failed.';
+                    if (msg === 'Invalid nonce.') msg = 'Session expired. Please reload the page.';
+                    setSaveStatus('is-error', msg);
+                }
+            })
+            .fail(function () { setSaveStatus('is-error', 'Network error.'); })
+            .always(function () {
+                $btn.prop('disabled', false);
+                $('#pp-save-btn').prop('disabled', false);
+            });
+        });
+    }
+
     // ── Resizable panes ────────────────────────────────────────────────────────
 
     function initResize() {
@@ -501,6 +593,8 @@
         initResize();
         initEditor();
         initSidebar();
+        initTitleEditor();
+        initPublishButton();
         $('#pp-save-btn').on('click', doSave);
     });
 
