@@ -4,34 +4,33 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [v0.1.3] — 2026-04-01 — Composition editor as the default editing workflow
+## [v0.1.3] — 2026-04-01 — Composition-first page editing + homepage bootstrap
 
-### Editorial workflow: draft and publish have distinct actions
+### Composition editor as the page editing experience
 
-The composition editor now reflects the actual state of each page. Draft pages show
-**Publish** as the primary action and **Save Draft** as secondary. Published pages show
-only **Update**. When you publish a draft, the toolbar switches immediately — Save Draft
-disappears and the primary button becomes Update — without a page reload.
+PromptingPress treats the composition editor as the page editing experience, not a mode
+you opt into per page. This release makes that clearer through the editor's action model.
 
-Previously, a single "Save" button covered all states with no indication of whether a
-save would publish or just store a draft.
+Draft pages show **Publish** as the primary action and **Save Draft** as secondary.
+Published pages show only **Update**. After you publish a draft, the editor switches into
+the published state immediately — no page reload.
 
-### Fresh installs get a real static homepage
+### Fresh installs get a real Home page
 
-Activating the theme on a site without a configured static front page now creates one
-automatically: a published page titled "Home", assigned the Composition template, seeded
-with the default composition, and set as the front page in Reading Settings. The page
-appears in the Pages list and is editable through the composition editor.
+When no valid static front page exists, activating the theme now creates one: a published
+page titled "Home", assigned the Composition template, set as the site front page in
+Reading Settings. The page appears in the Pages list and is immediately editable through
+the composition editor.
 
-This replaces a front-end fallback that silently rendered default content when no real
-backing page existed — making the site appear configured when it was not. If no static
-front page is configured, admins now see a diagnostic message with a link to fix it.
+Previously, a site with no real front page silently appeared healthy from the front end.
+Now, if no static front page is configured, the condition is visible — admins see a
+message with a link to fix it.
 
-### Fix: new-page editor was restricted to administrators only
+### Fix: Pages → Add New was restricted to administrators only
 
-The handler that opens the composition editor on Pages → Add New was checking
-`create_pages`, which is not a real WordPress capability. In practice this limited access
-to administrators only. Now correctly checks `edit_pages`.
+The handler that creates a new draft and opens the composition editor was checking
+`create_pages`, which is not a real WordPress capability. In practice this restricted the
+flow to administrators only. Now correctly checks `edit_pages`.
 
 ---
 
