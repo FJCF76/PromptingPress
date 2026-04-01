@@ -4,27 +4,34 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [v0.1.3] — 2026-04-01 — Composition editor action model + theme activation
+## [v0.1.3] — 2026-04-01 — Composition editor as the default editing workflow
 
-### New: Contextual Save Draft / Publish / Update action model
+### Editorial workflow: draft and publish have distinct actions
 
-The composition editor toolbar now reflects the actual state of the page. Draft pages show **Save Draft** and **Publish**. Published pages show only **Update**. The Save Draft button disappears immediately when you publish — no page reload required.
+The composition editor now reflects the actual state of each page. Draft pages show
+**Publish** as the primary action and **Save Draft** as secondary. Published pages show
+only **Update**. When you publish a draft, the toolbar switches immediately — Save Draft
+disappears and the primary button becomes Update — without a page reload.
 
-Ctrl+S is now contextual: saves a draft on draft pages, triggers Update on published pages.
+Previously, a single "Save" button covered all states with no indication of whether a
+save would publish or just store a draft.
 
-### New: Automatic homepage provisioning on theme activation
+### Fresh installs get a real static homepage
 
-Activating the theme now creates a static front page automatically if none exists. The page is titled "Home", uses the Composition template, and is seeded with the default three-component homepage composition (hero, section, cta). Idempotent — re-activating the theme on a site that already has a configured front page does nothing.
+Activating the theme on a site without a configured static front page now creates one
+automatically: a published page titled "Home", assigned the Composition template, seeded
+with the default composition, and set as the front page in Reading Settings. The page
+appears in the Pages list and is editable through the composition editor.
 
-Default composition lives in `pp_default_homepage_composition()` in `lib/wp.php`, used both at activation time and as a blank-page fallback in `templates/front-page.php`.
+This replaces a front-end fallback that silently rendered default content when no real
+backing page existed — making the site appear configured when it was not. If no static
+front page is configured, admins now see a diagnostic message with a link to fix it.
 
-### Fix: Save Draft button remains visible after draft → publish transition
+### Fix: new-page editor was restricted to administrators only
 
-After publishing a draft, the Save Draft button now disappears immediately in the browser without requiring a page reload.
-
-### Fix: `edit_pages` capability for new-page gate
-
-The admin_init handler that creates a new draft and opens the editor on `post-new.php?post_type=page` now checks `edit_pages` instead of `create_pages`. `create_pages` is not a real WP capability — it fell through to "administrator only" in practice.
+The handler that opens the composition editor on Pages → Add New was checking
+`create_pages`, which is not a real WordPress capability. In practice this limited access
+to administrators only. Now correctly checks `edit_pages`.
 
 ---
 
