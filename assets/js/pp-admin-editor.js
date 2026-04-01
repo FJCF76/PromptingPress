@@ -487,9 +487,6 @@
 
                 $('#pp-status-badge').remove();
 
-                // "Save Draft" no longer applies once the page is published.
-                $('#pp-save-btn').remove();
-
                 setSaveStatus('is-saved', wasPublished ? 'Updated' : 'Published');
                 setTimeout(function () { setSaveStatus('', ''); }, 3000);
             } else {
@@ -501,8 +498,14 @@
         .fail(function () { setSaveStatus('is-error', 'Network error.'); })
         .always(function () {
             $btn.prop('disabled', false);
-            // #pp-save-btn may have been removed on success; prop() on an empty set is a no-op.
-            $('#pp-save-btn').prop('disabled', false);
+            // Once published, remove the draft-only action. Check postStatus (updated
+            // in .done()) so this handles both the success path and any edge case where
+            // .done() ran but the remove did not complete before .always() fired.
+            if (postStatus === 'publish') {
+                $('#pp-save-btn').remove();
+            } else {
+                $('#pp-save-btn').prop('disabled', false);
+            }
         });
     }
 
