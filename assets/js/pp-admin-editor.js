@@ -257,8 +257,8 @@
             extraKeys: {
                 Tab:          'indentMore',
                 'Ctrl-Space': function (ed) { wp.CodeMirror.showHint(ed, wp.CodeMirror.hint['pp-json'], { completeSingle: false }); },
-                'Ctrl-S':     function () { doSave(); },
-                'Cmd-S':      function () { doSave(); },
+                'Ctrl-S':     function () { doContextualSave(); },
+                'Cmd-S':      function () { doContextualSave(); },
             },
         });
 
@@ -383,7 +383,7 @@
         if (state) $s.addClass(state);
     }
 
-    function doSave() {
+    function doSaveDraft() {
         if (!cm) return;
         var value = cm.getValue().trim();
         var errors = validateComposition(value);
@@ -394,7 +394,7 @@
         }
 
         $('#pp-save-btn').prop('disabled', true);
-        setSaveStatus('is-saving', 'Saving\u2026');
+        setSaveStatus('is-saving', 'Saving draft\u2026');
 
         $.post(ajaxUrl, {
             action:      'pp_save_composition',
@@ -404,7 +404,7 @@
         })
         .done(function (res) {
             if (res.success) {
-                setSaveStatus('is-saved', 'Saved');
+                setSaveStatus('is-saved', 'Draft saved');
                 setTimeout(function () { setSaveStatus('', ''); }, 3000);
             } else {
                 var msg = res.data || 'Save failed.';
@@ -451,60 +451,71 @@
 
     // ── Publish / Update ─────────────────────────────────────────────────────
 
-    function initPublishButton() {
-        $('#pp-publish-btn').on('click', function () {
-            if (!cm) return;
-            var value = cm.getValue().trim();
-            var errors = validateComposition(value);
-            if (errors.length) {
-                showErrors(errors);
-                setSaveStatus('is-error', 'Fix errors first.');
-                return;
+    function doPublishOrUpdate() {
+        if (!cm) return;
+        var value = cm.getValue().trim();
+        var errors = validateComposition(value);
+        if (errors.length) {
+            showErrors(errors);
+            setSaveStatus('is-error', 'Fix errors first.');
+            return;
+        }
+
+        var wasPublished = (postStatus === 'publish');
+        var $btn = $('#pp-publish-btn');
+        $btn.prop('disabled', true);
+        $('#pp-save-btn').prop('disabled', true);
+        setSaveStatus('is-saving', wasPublished ? 'Updating\u2026' : 'Publishing\u2026');
+
+        $.post(ajaxUrl, {
+            action:      'pp_publish_page',
+            post_id:     postId,
+            composition: value,
+            nonce:       nonce,
+        })
+        .done(function (res) {
+            if (res.success) {
+                postStatus  = res.data.status;
+                postLink    = res.data.post_link;
+                previewLink = res.data.preview_link;
+
+                $btn.text('Update').data('status', 'publish');
+
+                $('#pp-view-link')
+                    .text('View \u2197')
+                    .attr('href', postLink);
+
+                $('#pp-status-badge').remove();
+
+                // "Save Draft" no longer applies once the page is published.
+                $('#pp-save-btn').remove();
+
+                setSaveStatus('is-saved', wasPublished ? 'Updated' : 'Published');
+                setTimeout(function () { setSaveStatus('', ''); }, 3000);
+            } else {
+                var msg = res.data || (wasPublished ? 'Update failed.' : 'Publish failed.');
+                if (msg === 'Invalid nonce.') msg = 'Session expired. Please reload the page.';
+                setSaveStatus('is-error', msg);
             }
-
-            var $btn = $(this);
-            var label = postStatus === 'publish' ? 'Updating\u2026' : 'Publishing\u2026';
-            $btn.prop('disabled', true);
-            $('#pp-save-btn').prop('disabled', true);
-            setSaveStatus('is-saving', label);
-
-            $.post(ajaxUrl, {
-                action:      'pp_publish_page',
-                post_id:     postId,
-                composition: value,
-                nonce:       nonce,
-            })
-            .done(function (res) {
-                if (res.success) {
-                    postStatus  = res.data.status;
-                    postLink    = res.data.post_link;
-                    previewLink = res.data.preview_link;
-
-                    // Update button label
-                    $btn.text('Update').data('status', 'publish');
-
-                    // Update view/preview link
-                    $('#pp-view-link')
-                        .text('View \u2197')
-                        .attr('href', postLink);
-
-                    // Remove Draft badge
-                    $('#pp-status-badge').remove();
-
-                    setSaveStatus('is-saved', 'Published');
-                    setTimeout(function () { setSaveStatus('', ''); }, 3000);
-                } else {
-                    var msg = res.data || 'Publish failed.';
-                    if (msg === 'Invalid nonce.') msg = 'Session expired. Please reload the page.';
-                    setSaveStatus('is-error', msg);
-                }
-            })
-            .fail(function () { setSaveStatus('is-error', 'Network error.'); })
-            .always(function () {
-                $btn.prop('disabled', false);
-                $('#pp-save-btn').prop('disabled', false);
-            });
+        })
+        .fail(function () { setSaveStatus('is-error', 'Network error.'); })
+        .always(function () {
+            $btn.prop('disabled', false);
+            // #pp-save-btn may have been removed on success; prop() on an empty set is a no-op.
+            $('#pp-save-btn').prop('disabled', false);
         });
+    }
+
+    function doContextualSave() {
+        if (postStatus === 'publish') {
+            doPublishOrUpdate();
+        } else {
+            doSaveDraft();
+        }
+    }
+
+    function initPublishButton() {
+        $('#pp-publish-btn').on('click', doPublishOrUpdate);
     }
 
     // ── Resizable panes ────────────────────────────────────────────────────────
@@ -595,7 +606,7 @@
         initSidebar();
         initTitleEditor();
         initPublishButton();
-        $('#pp-save-btn').on('click', doSave);
+        $('#pp-save-btn').on('click', doSaveDraft);
     });
 
 })(jQuery);

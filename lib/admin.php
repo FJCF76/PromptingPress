@@ -383,9 +383,11 @@ function pp_composition_workspace_page(): void {
                    rel="noopener" class="pp-view-link" id="pp-view-link">
                     <?php echo esc_html($view_label); ?> &#8599;
                 </a>
-                <button id="pp-save-btn" class="pp-toolbar-btn" title="Save (Ctrl+S)">
-                    Save
+                <?php if ($post->post_status !== 'publish') : ?>
+                <button id="pp-save-btn" class="pp-toolbar-btn" title="Save draft (Ctrl+S)">
+                    Save Draft
                 </button>
+                <?php endif; ?>
                 <button id="pp-publish-btn" class="pp-toolbar-btn pp-toolbar-btn--primary"
                         data-status="<?php echo esc_attr($post->post_status); ?>">
                     <?php echo $post->post_status === 'publish' ? 'Update' : 'Publish'; ?>
