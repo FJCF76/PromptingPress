@@ -4,55 +4,50 @@
  *
  * Composition-aware: reads _pp_composition post meta and renders components
  * in order, identical to templates/composition.php. The homepage has no
- * hardcoded component structure — it is fully editable through the same
- * JSON composition system as any other page.
+ * hardcoded component structure — it is fully editable through the composition
+ * editor (WP Admin → Pages → Home → edit).
  *
- * To edit the homepage composition:
- *   - WP Admin → Pages → (front page) → Page Composition meta box
- *   - WP CLI: wp post meta update <id> _pp_composition '[...]'
- *   - AI: see ai-instructions/composition.md
+ * Fallback behaviour:
+ *   post_id > 0, no composition  — blank-page safeguard: seeds the default
+ *                                   composition into meta and renders it so a
+ *                                   newly created page is never blank.
+ *   post_id = 0                  — no static front page is configured; renders
+ *                                   a diagnostic state rather than hiding the
+ *                                   misconfiguration behind default content.
  */
 
 require_once get_template_directory() . '/templates/base.php';
 
 pp_base_template(function () {
     $composition = pp_composition();
+    $post_id     = get_the_ID();
 
     if (empty($composition)) {
-        // Fallback: seed the default composition into post meta so the page
-        // is never blank after a fresh install or theme switch.
-        $default = [
-            ['component' => 'hero', 'props' => [
-                'title'    => 'Build AI-Ready WordPress Sites',
-                'subtitle' => 'PromptingPress is a WordPress theme designed so any AI tool can read one file, understand your entire site, and edit it safely.',
-                'cta_text' => 'See How It Works',
-                'cta_url'  => '#how-it-works',
-                'variant'  => 'centered',
-            ]],
-            ['component' => 'section', 'props' => [
-                'title'  => 'The AI Comprehension Problem',
-                'body'   => '<p>WordPress themes are designed for developers who accumulate knowledge over time. AI can\'t accumulate. Every session, it re-infers the same hidden logic from your code.</p><p>PromptingPress solves this with a thin abstraction layer, typed component schemas, and a single AI_CONTEXT.md that maps the entire site.</p>',
-                'layout' => 'text-only',
-            ]],
-            ['component' => 'cta', 'props' => [
-                'title'       => 'Ready to build your AI-ready site?',
-                'text'        => 'Start with the theme, fill in AI_CONTEXT.md, and let your AI tool do the rest.',
-                'button_text' => 'Get Started on GitHub',
-                'button_url'  => 'https://github.com/FJCF76/PromptingPress',
-                'variant'     => 'full-width',
-            ]],
-        ];
-
-        $post_id = get_the_ID();
-        if ($post_id) {
-            update_post_meta(
-                $post_id,
-                '_pp_composition',
-                wp_slash(wp_json_encode($default, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
-            );
+        if (!$post_id) {
+            // No static front page is configured. Do not render default content
+            // here — that would make a broken setup look healthy. Surface the
+            // problem so it is visible and diagnosable.
+            if (is_user_logged_in() && current_user_can('manage_options')) {
+                echo '<div style="max-width:600px;margin:4rem auto;padding:0 1rem;font-family:sans-serif;">'
+                   . '<p><strong>Homepage not configured.</strong> '
+                   . 'No static front page is set. '
+                   . 'Visit <a href="' . esc_url(admin_url('options-reading.php')) . '">'
+                   . 'Settings &rarr; Reading</a> and choose a static page, '
+                   . 'or re-activate the theme to auto-create one.</p>'
+                   . '</div>';
+            }
+            return;
         }
 
-        $composition = $default;
+        // Real page exists but has no composition data yet (e.g. manually
+        // created without content). Seed the defaults and render so the page
+        // is never blank and is immediately editable.
+        $composition = pp_default_homepage_composition();
+        update_post_meta(
+            $post_id,
+            '_pp_composition',
+            wp_slash(wp_json_encode($composition, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
+        );
     }
 
     foreach ($composition as $item) {

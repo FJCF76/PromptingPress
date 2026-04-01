@@ -149,3 +149,34 @@ function pp_composition(): array {
     $items = json_decode($raw, true);
     return is_array($items) ? $items : [];
 }
+
+/**
+ * Returns the default homepage composition used on fresh installs and as the
+ * blank-page fallback. Single source of truth — called by lib/setup.php at
+ * activation time and by templates/front-page.php as a render-time safeguard.
+ *
+ * @return array  Component array ready for wp_json_encode or direct rendering.
+ */
+function pp_default_homepage_composition(): array {
+    return [
+        ['component' => 'hero', 'props' => [
+            'title'    => 'Build AI-Ready WordPress Sites',
+            'subtitle' => 'PromptingPress is a WordPress theme designed so any AI tool can read one file, understand your entire site, and edit it safely.',
+            'cta_text' => 'See How It Works',
+            'cta_url'  => '#how-it-works',
+            'variant'  => 'centered',
+        ]],
+        ['component' => 'section', 'props' => [
+            'title'  => 'The AI Comprehension Problem',
+            'body'   => '<p>WordPress themes are designed for developers who accumulate knowledge over time. AI can\'t accumulate. Every session, it re-infers the same hidden logic from your code.</p><p>PromptingPress solves this with a thin abstraction layer, typed component schemas, and a single AI_CONTEXT.md that maps the entire site.</p>',
+            'layout' => 'text-only',
+        ]],
+        ['component' => 'cta', 'props' => [
+            'title'       => 'Ready to build your AI-ready site?',
+            'text'        => 'Start with the theme, fill in AI_CONTEXT.md, and let your AI tool do the rest.',
+            'button_text' => 'Get Started on GitHub',
+            'button_url'  => 'https://github.com/FJCF76/PromptingPress',
+            'variant'     => 'full-width',
+        ]],
+    ];
+}
