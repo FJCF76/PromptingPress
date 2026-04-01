@@ -164,7 +164,7 @@ add_action('admin_init', function (): void {
     // New page: create a draft, assign composition template, open the editor.
     if ($pagenow === 'post-new.php' &&
         isset($_GET['post_type']) && $_GET['post_type'] === 'page') {
-        if (!current_user_can('create_pages')) {
+        if (!current_user_can('edit_pages')) {
             return;
         }
         $post_id = wp_insert_post([
