@@ -15,6 +15,8 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 - Component name autocomplete (Ctrl+Space)
 - Component reference sidebar with props, types, and required/optional status
 - Save blocked on invalid compositions — the database always holds the last valid value
+- Contextual actions: draft pages show **Save Draft** + **Publish**; published pages show only **Update**
+- Ctrl+S adapts: saves draft on draft pages, triggers Update on published pages
 
 **Component system** — 8 registered components, each with a `schema.json` that documents props, types, and required fields. Components are isolated PHP partials. No component calls another component. The auto-loader picks up any new component at `/components/{name}/{name}.php` — no registration needed.
 
@@ -31,6 +33,7 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 /templates/                Page layout files
 /lib/wp.php                WP abstraction layer (pp_* functions only)
 /lib/admin.php             Composition editor: AJAX handlers, validation, meta box
+/lib/setup.php             Theme activation bootstrap: homepage provisioning
 /lib/components.php        Component auto-loader (don't edit)
 /assets/css/base.css       Design tokens — 17 CSS variables
 /assets/css/components.css Component styles (CSS variables only, no raw hex)

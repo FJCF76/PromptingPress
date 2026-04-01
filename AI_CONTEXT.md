@@ -43,6 +43,7 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 | /assets/js/main.js       | Nav toggle, active link         | Yes                              |
 | /tests/js/               | Vitest unit tests               | Yes — add tests for logic changes |
 | /lib/wp.php              | WP function wrappers            | Only to add pp_* functions       |
+| /lib/setup.php           | Theme activation bootstrap      | Only to add idempotent setup     |
 | /lib/components.php      | Component loader                | No                               |
 | /lib/helpers.php         | Utility functions               | Yes — only to add                |
 | functions.php            | WP registration                 | Only to add                      |
@@ -101,6 +102,7 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_excerpt($length)`         | Trimmed excerpt (default 55 words)              |
 | `pp_permalink()`              | Current post permalink                          |
 | `pp_thumbnail_url($size)`     | Post thumbnail URL (default 'large')            |
+| `pp_default_homepage_composition()` | Default homepage component array (hero, section, cta) — single source of truth for activation seeding and blank-page fallback |
 
 ---
 
@@ -175,8 +177,7 @@ It returns `[]` when meta is absent or invalid JSON.
 wp post meta update <post_id> _pp_composition '[{"component":"hero","props":{"title":"Hello"}}]'
 ```
 
-**Admin editor:** Pages with the Composition template show a "Page Composition" meta box
-in WP Admin with a CodeMirror JSON editor, live preview, and component reference sidebar.
+**Admin editor:** Pages with the Composition template open a full-screen workspace in WP Admin with a CodeMirror JSON editor, live preview, and component reference sidebar. The toolbar adapts to page state: draft pages show **Save Draft** and **Publish**; published pages show only **Update**. Ctrl+S is contextual — saves draft on draft pages, triggers Update on published pages.
 
 **AJAX preview:** `wp_ajax_pp_preview_composition` (cookie auth, WP nonce)
 - POST params: `post_id`, `composition` (JSON string), `nonce`

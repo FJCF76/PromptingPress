@@ -4,6 +4,30 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.1.3] — 2026-04-01 — Composition editor action model + theme activation
+
+### New: Contextual Save Draft / Publish / Update action model
+
+The composition editor toolbar now reflects the actual state of the page. Draft pages show **Save Draft** and **Publish**. Published pages show only **Update**. The Save Draft button disappears immediately when you publish — no page reload required.
+
+Ctrl+S is now contextual: saves a draft on draft pages, triggers Update on published pages.
+
+### New: Automatic homepage provisioning on theme activation
+
+Activating the theme now creates a static front page automatically if none exists. The page is titled "Home", uses the Composition template, and is seeded with the default three-component homepage composition (hero, section, cta). Idempotent — re-activating the theme on a site that already has a configured front page does nothing.
+
+Default composition lives in `pp_default_homepage_composition()` in `lib/wp.php`, used both at activation time and as a blank-page fallback in `templates/front-page.php`.
+
+### Fix: Save Draft button remains visible after draft → publish transition
+
+After publishing a draft, the Save Draft button now disappears immediately in the browser without requiring a page reload.
+
+### Fix: `edit_pages` capability for new-page gate
+
+The admin_init handler that creates a new draft and opens the editor on `post-new.php?post_type=page` now checks `edit_pages` instead of `create_pages`. `create_pages` is not a real WP capability — it fell through to "administrator only" in practice.
+
+---
+
 ## [v0.1.2] — 2026-03-30 — Section and grid composition primitives
 
 ### Added: `section.variant` — per-section background control

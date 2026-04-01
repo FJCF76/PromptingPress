@@ -12,14 +12,6 @@ Shipped in commit bfbef07. `variant: "steps"` on `grid`. Per-item `number` field
 
 ## Admin Composition Editor
 
-### Save Composition — no success notification (ISSUE-004)
-**Priority:** P3
-**What:** After a successful "Save Composition", the page reloads silently with no visible confirmation. User has no feedback that the save worked.
-**Why:** Deferred from /qa 2026-03-28. Low severity UX polish. DB save is confirmed correct; just missing the notice.
-**Fix direction:** In `lib/admin.php` save handler, `wp_redirect(add_query_arg('saved', '1', ...))` and display an admin notice when `$_GET['saved']` is present.
-**Depends on:** Nothing.
-
----
 
 ### Meta box template scoping (ISSUE-003)
 **Priority:** P3
@@ -71,6 +63,9 @@ Shipped in commit bfbef07. `variant: "steps"` on `grid`. Per-item `number` field
 ---
 
 ## Completed
+
+### Save Composition — no success notification (ISSUE-004) — **Completed: v0.1.3 (2026-04-01)**
+Superseded by the action model rework. The composition editor now uses AJAX-only saves with inline status messages ("Draft saved", "Published", "Updated") — no page reload, no admin notice needed. The UX gap is gone.
 
 ### Bootstrap state contract — ai-instructions/bootstrap.md (ISSUE-006) (2026-03-30)
 Created `ai-instructions/bootstrap.md` from the ISSUE-006 spec. Format: required object →
