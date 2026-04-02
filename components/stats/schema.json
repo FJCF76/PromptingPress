@@ -1,0 +1,23 @@
+{
+  "component": "stats",
+  "description": "A horizontal row of large-number metrics with labels. Use for quantified credentials or social proof (e.g. '+30 years experience', '100+ clients').",
+  "props": {
+    "title": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional section heading above the stats row."
+    },
+    "items": {
+      "type": "array",
+      "required": true,
+      "description": "Array of stat items. Each: { number: string, label: string }.",
+      "items": {
+        "number": { "type": "string", "required": true,  "description": "The metric value, e.g. '+30' or '100+'." },
+        "label":  { "type": "string", "required": true,  "description": "The metric label, e.g. 'Years of experience'." }
+      }
+    }
+  },
+  "safe_to_edit": ["stats.php", "../../assets/css/components.css (COMPONENT: stats section)"],
+  "do_not_touch": ["schema.json without updating AI_CONTEXT.md"]
+}

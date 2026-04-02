@@ -65,6 +65,9 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 | cta       | components/cta/cta.php         | Call-to-action block. Two variants.              | title (req), button_text (req), button_url (req), text, variant |
 | nav       | components/nav/nav.php         | Site header, logo, hamburger mobile nav          | location, logo_text                                |
 | footer    | components/footer/footer.php   | Site footer with nav menu and copyright          | location                                           |
+| stats     | components/stats/stats.php     | Horizontal row of large-number metrics + labels  | items[] (req) {number, label}, title               |
+| logos     | components/logos/logos.php     | Flex-wrap image grid — logo strips or icon tiles | items[] (req) {image_url, image_alt, label?}, title |
+| embed     | components/embed/embed.php     | WP shortcode / plugin content wrapper            | content (req), title                               |
 
 ---
 

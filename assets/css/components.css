@@ -746,3 +746,121 @@
   color: var(--color-muted);
   margin-bottom: 0;
 }
+
+/* ==========================================================================
+   COMPONENT: stats
+   Horizontal row of large-number metrics with labels.
+   ========================================================================== */
+
+.stats {
+  padding-top: var(--space-xl);
+  padding-bottom: var(--space-xl);
+}
+
+.stats__heading {
+  margin-bottom: var(--space-lg);
+  text-align: center;
+}
+
+.stats__list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-lg) var(--space-xl);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.stats__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 8rem;
+}
+
+.stats__number {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--color-accent);
+  line-height: 1;
+}
+
+.stats__label {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+  text-align: center;
+}
+
+/* ==========================================================================
+   COMPONENT: logos
+   Flex-wrap image grid. Works for logo strips (no labels) and icon-category
+   tiles (with labels). Items are always image-based.
+   ========================================================================== */
+
+.logos {
+  padding-top: var(--space-xl);
+  padding-bottom: var(--space-xl);
+}
+
+.logos__heading {
+  margin-bottom: var(--space-lg);
+}
+
+.logos__list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-lg);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.logos__item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logos__item--labeled {
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 6rem;
+}
+
+.logos__image {
+  max-height: 3rem;
+  width: auto;
+  object-fit: contain;
+}
+
+.logos__item--labeled .logos__image {
+  max-height: 2.5rem;
+}
+
+.logos__label {
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+  text-align: center;
+}
+
+/* ==========================================================================
+   COMPONENT: embed
+   Generic WP shortcode / plugin content wrapper.
+   ========================================================================== */
+
+.embed {
+  padding-top: var(--space-xl);
+  padding-bottom: var(--space-xl);
+}
+
+.embed__heading {
+  margin-bottom: var(--space-lg);
+}
+
+.embed__content {
+  max-width: 40rem;
+}

@@ -1,0 +1,24 @@
+{
+  "component": "logos",
+  "description": "A flex-wrap image grid. Use for client logo strips (no labels) or icon-category tiles (with labels). Items always have an image; labels are optional.",
+  "props": {
+    "title": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional section heading above the grid."
+    },
+    "items": {
+      "type": "array",
+      "required": true,
+      "description": "Array of image items. Each: { image_url: string, image_alt: string, label?: string }. Omit label for pure logo display; include label for icon+category tiles.",
+      "items": {
+        "image_url": { "type": "string", "required": true,  "description": "Image or icon URL." },
+        "image_alt": { "type": "string", "required": true,  "description": "Alt text. Use the logo or category name; empty string only for decorative images." },
+        "label":     { "type": "string", "required": false, "description": "Text label below the image. Omit for logo-only rows." }
+      }
+    }
+  },
+  "safe_to_edit": ["logos.php", "../../assets/css/components.css (COMPONENT: logos section)"],
+  "do_not_touch": ["schema.json without updating AI_CONTEXT.md"]
+}
