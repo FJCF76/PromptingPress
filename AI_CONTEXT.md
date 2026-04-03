@@ -71,15 +71,25 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 
 ### Component capabilities reference
 
-**Variants (color themes):** Most section-level components support `variant` with values `default`, `dark`, `inverted`. CTA uses `theme` instead (because `variant` controls layout: `full-width` or `inline`).
+**Variants (color themes):** Most section-level components support `variant` with values `default`, `dark`, `inverted`. CTA is the exception — see below.
 
-**Background images:** hero (via `cover` variant + `image_url`), section (`background_image` prop), and cta (`background_image` prop) support CSS background-image with a dark overlay and light text. The overlay is a separate div (`.hero__overlay`, `.section__overlay`, `.cta__overlay`).
+**CTA has two independent axes.** `variant` controls layout (`full-width` = centered block with surface background, `inline` = flex row with text left and button right). `theme` controls color (`default`, `dark`, `inverted`). These combine independently. Every other component uses `variant` for color because they have only one layout. If a future component needs both layout and color control, follow the same pattern: `variant` for layout, `theme` for color.
+
+**Background images:** hero (via `cover` variant + `image_url`), section (`background_image` prop), and cta (`background_image` prop) support CSS background-image with a dark overlay and light text. All three use the same implementation pattern:
+- `background-image` inline style on the root `<section>` element
+- A child `div.{component}__overlay` (e.g. `.hero__overlay`) with `rgba(0,0,0,0.5–0.55)` background
+- Container gets `position: relative; z-index: 1` to sit above the overlay
+- Text colors switch to `var(--color-bg)` for contrast
+
+If adding background-image support to another component, follow this exact pattern.
 
 **Anchor IDs:** All 7 section-level components (hero, section, stats, grid, logos, cta, embed) accept an `id` prop that renders as the HTML `id` attribute on the root `<section>` element. Use for anchor navigation.
 
 **Hero variants:** `left`, `centered`, `split` (inline image), `cover` (fullscreen background-image with overlay).
 
 **Grid variants:** `default` (card grid), `steps` (numbered process steps).
+
+**CSS invariant:** Component CSS in `components.css` must use only CSS variables from `base.css` — never raw hex values. Color decisions belong to the design tokens, not to individual components.
 
 ---
 
