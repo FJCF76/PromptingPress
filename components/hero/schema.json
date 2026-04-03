@@ -2,6 +2,12 @@
   "component": "hero",
   "description": "Full-width hero section with headline, optional subtitle, optional CTA button, and optional image. Supports three layout variants.",
   "props": {
+    "id": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional HTML id attribute for anchor linking (e.g. navigation anchors)."
+    },
     "title": {
       "type": "string",
       "required": true,
@@ -27,16 +33,16 @@
     },
     "variant": {
       "type": "enum",
-      "values": ["left", "centered", "split"],
+      "values": ["left", "centered", "split", "cover"],
       "required": false,
       "default": "centered",
-      "description": "Layout variant. 'centered' centers all content. 'left' aligns content left. 'split' places text left and image right at lg+."
+      "description": "Layout variant. 'centered' centers all content. 'left' aligns content left. 'split' places text left and image right at lg+. 'cover' uses image_url as a full-width background image with dark overlay and white text."
     },
     "image_url": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Image URL. Only rendered in the 'split' variant."
+      "description": "Image URL. Rendered as an inline image in 'split' variant, or as a CSS background-image in 'cover' variant."
     },
     "image_alt": {
       "type": "string",

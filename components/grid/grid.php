@@ -9,6 +9,7 @@
  * @var array $props
  */
 
+$id      = $props['id']      ?? '';
 $title   = $props['title']   ?? '';
 $items   = $props['items']   ?? [];
 $variant = $props['variant'] ?? 'default';
@@ -21,7 +22,7 @@ if (!in_array($variant, $allowed_variants, true)) {
 $is_steps     = $variant === 'steps';
 $variant_class = $is_steps ? ' grid--steps' : '';
 ?>
-<section class="grid<?php echo esc_attr($variant_class); ?>">
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($variant_class); ?>">
     <div class="container">
 
         <?php if ($title) : ?>

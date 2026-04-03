@@ -7,6 +7,7 @@
  * @var array $props
  */
 
+$id       = $props['id']       ?? '';
 $title    = $props['title']    ?? 'Default Title';
 $subtitle = $props['subtitle'] ?? '';
 $cta_text = $props['cta_text'] ?? '';
@@ -16,12 +17,24 @@ $image_url = $props['image_url'] ?? '';
 $image_alt = $props['image_alt'] ?? '';
 
 // Validate variant.
-$allowed_variants = ['left', 'centered', 'split'];
+$allowed_variants = ['left', 'centered', 'split', 'cover'];
 if (!in_array($variant, $allowed_variants, true)) {
     $variant = 'centered';
 }
+
+// Cover variant: image becomes a background-image with overlay.
+$cover_style = '';
+if ($variant === 'cover' && $image_url) {
+    $cover_style = sprintf(
+        ' style="background-image:url(%s);"',
+        esc_url($image_url)
+    );
+}
 ?>
-<section class="hero hero--<?php echo esc_attr($variant); ?>">
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="hero hero--<?php echo esc_attr($variant); ?>"<?php echo $cover_style; ?>>
+    <?php if ($variant === 'cover') : ?>
+        <div class="hero__overlay" aria-hidden="true"></div>
+    <?php endif; ?>
     <div class="container">
         <div class="hero__inner">
             <div class="hero__content">

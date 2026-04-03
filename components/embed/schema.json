@@ -2,6 +2,12 @@
   "component": "embed",
   "description": "A generic content embed block. Renders an optional heading and passes content through do_shortcode(). Use for WP plugin shortcodes (contact forms, calendars, etc.) that belong to WP rather than to the PromptingPress composition model. This is the only sanctioned way to introduce arbitrary content into a composition.",
   "props": {
+    "id": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional HTML id attribute for anchor linking (e.g. navigation anchors)."
+    },
     "title": {
       "type": "string",
       "required": false,
@@ -12,6 +18,13 @@
       "type": "string",
       "required": true,
       "description": "WP shortcode string or pre-rendered HTML. Passed through do_shortcode() and wp_kses_post(). Example: '[contact-form-7 id=\"123\"]'."
+    },
+    "variant": {
+      "type": "enum",
+      "values": ["default", "dark", "inverted"],
+      "required": false,
+      "default": "default",
+      "description": "Background presentation. 'default' = page background. 'dark' = surface background with borders. 'inverted' = inverted background for strong contrast."
     }
   },
   "safe_to_edit": ["embed.php", "../../assets/css/components.css (COMPONENT: embed section)"],

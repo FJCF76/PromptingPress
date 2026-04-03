@@ -9,10 +9,11 @@
  * @var array $props
  */
 
+$id    = $props['id']    ?? '';
 $title = $props['title'] ?? '';
 $items = $props['items'] ?? [];
 ?>
-<section class="logos">
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="logos">
     <div class="container">
 
         <?php if ($title) : ?>

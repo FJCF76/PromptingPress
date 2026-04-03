@@ -2,6 +2,12 @@
   "component": "grid",
   "description": "Responsive card grid for discrete content objects — posts, features, team members. Not for decorative icon grids. Cards are 1-col mobile, 2-col tablet, 3-col desktop.",
   "props": {
+    "id": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional HTML id attribute for anchor linking (e.g. navigation anchors)."
+    },
     "title": {
       "type": "string",
       "required": false,

@@ -2,6 +2,12 @@
   "component": "section",
   "description": "Generic text section with an optional image. Supports three layout variants: text only, image left, image right.",
   "props": {
+    "id": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional HTML id attribute for anchor linking (e.g. navigation anchors)."
+    },
     "title": {
       "type": "string",
       "required": false,
@@ -38,6 +44,12 @@
       "required": false,
       "default": "default",
       "description": "Background presentation. 'default' = page background. 'dark' = dark surface. 'inverted' = inverted background for strong contrast. Controls per-section visual rhythm on marketing pages."
+    },
+    "background_image": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional background image URL. When set, renders as a CSS background-image with a dark overlay for text readability. Combines with any variant. Text automatically uses light colors for contrast."
     }
   },
   "safe_to_edit": ["section.php", "../../assets/css/components.css (COMPONENT: section section)"],

@@ -2,6 +2,12 @@
   "component": "logos",
   "description": "A flex-wrap image grid. Use for client logo strips (no labels) or icon-category tiles (with labels). Items always have an image; labels are optional.",
   "props": {
+    "id": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional HTML id attribute for anchor linking (e.g. navigation anchors)."
+    },
     "title": {
       "type": "string",
       "required": false,

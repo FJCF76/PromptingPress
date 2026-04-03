@@ -271,6 +271,47 @@
   }
 }
 
+/* Cover variant: full-width background image with overlay */
+.hero--cover {
+  position: relative;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  min-height: 70vh;
+  display: flex;
+  align-items: center;
+}
+
+.hero__overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.hero--cover .container {
+  position: relative;
+  z-index: 1;
+}
+
+.hero--cover .hero__inner {
+  align-items: center;
+  text-align: center;
+}
+
+.hero--cover .hero__title {
+  color: var(--color-bg);
+}
+
+.hero--cover .hero__subtitle {
+  color: var(--color-bg);
+  opacity: 0.85;
+  max-width: none;
+}
+
+.hero--cover .hero__cta {
+  align-self: center;
+}
+
 .hero__image-wrap {
   flex-shrink: 0;
 }
@@ -352,6 +393,40 @@
 }
 
 .pp-section--inverted a {
+  color: var(--color-accent);
+}
+
+/* Section with background image */
+.section--has-bg-image {
+  position: relative;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.section__overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.section--has-bg-image > .container {
+  position: relative;
+  z-index: 1;
+}
+
+.section--has-bg-image .section__title,
+.section--has-bg-image h2,
+.section--has-bg-image h3 {
+  color: var(--color-bg);
+}
+
+.section--has-bg-image .section__content,
+.section--has-bg-image .section__body {
+  color: var(--color-bg);
+}
+
+.section--has-bg-image a {
   color: var(--color-accent);
 }
 
@@ -513,6 +588,11 @@
   flex-direction: column;
   gap: var(--space-sm);
   flex: 1;
+}
+
+/* When a card has no image, the body is the only child — add top padding for balance */
+.grid__item-body:first-child {
+  padding-top: var(--space-lg);
 }
 
 .grid__item-title {
@@ -696,6 +776,55 @@
   flex-shrink: 0;
 }
 
+/* CTA theme variants */
+.cta--dark {
+  background-color: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.cta--inverted {
+  background-color: var(--color-bg-inverted);
+}
+
+.cta--inverted .cta__title {
+  color: var(--color-bg);
+}
+
+.cta--inverted .cta__body {
+  color: var(--color-bg);
+  opacity: 0.85;
+}
+
+/* CTA with background image */
+.cta--has-bg-image {
+  position: relative;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border: none;
+}
+
+.cta__overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.cta--has-bg-image .container {
+  position: relative;
+  z-index: 1;
+}
+
+.cta--has-bg-image .cta__title {
+  color: var(--color-bg);
+}
+
+.cta--has-bg-image .cta__body {
+  color: var(--color-bg);
+  opacity: 0.85;
+}
+
 /* ==========================================================================
    COMPONENT: footer
    Site footer with nav and copyright.
@@ -793,6 +922,30 @@
   text-align: center;
 }
 
+/* Stats variants */
+.stats--dark {
+  background-color: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.stats--inverted {
+  background-color: var(--color-bg-inverted);
+}
+
+.stats--inverted .stats__heading {
+  color: var(--color-bg);
+}
+
+.stats--inverted .stats__number {
+  color: var(--color-accent);
+}
+
+.stats--inverted .stats__label {
+  color: var(--color-bg);
+  opacity: 0.75;
+}
+
 /* ==========================================================================
    COMPONENT: logos
    Flex-wrap image grid. Works for logo strips (no labels) and icon-category
@@ -863,4 +1016,27 @@
 
 .embed__content {
   max-width: 40rem;
+}
+
+/* Embed variants */
+.embed--dark {
+  background-color: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.embed--inverted {
+  background-color: var(--color-bg-inverted);
+}
+
+.embed--inverted .embed__heading {
+  color: var(--color-bg);
+}
+
+.embed--inverted .embed__content {
+  color: var(--color-bg);
+}
+
+.embed--inverted a {
+  color: var(--color-accent);
 }

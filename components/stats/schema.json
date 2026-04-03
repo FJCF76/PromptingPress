@@ -2,11 +2,24 @@
   "component": "stats",
   "description": "A horizontal row of large-number metrics with labels. Use for quantified credentials or social proof (e.g. '+30 years experience', '100+ clients').",
   "props": {
+    "id": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional HTML id attribute for anchor linking (e.g. navigation anchors)."
+    },
     "title": {
       "type": "string",
       "required": false,
       "default": "",
       "description": "Optional section heading above the stats row."
+    },
+    "variant": {
+      "type": "enum",
+      "values": ["default", "dark", "inverted"],
+      "required": false,
+      "default": "default",
+      "description": "Background presentation. 'default' = page background. 'dark' = surface background with borders. 'inverted' = inverted background for strong contrast."
     },
     "items": {
       "type": "array",

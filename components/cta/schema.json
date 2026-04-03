@@ -2,6 +2,12 @@
   "component": "cta",
   "description": "Call-to-action block with title, optional supporting text, and a button. Two variants: full-width (centered, bg surface) and inline (flex row).",
   "props": {
+    "id": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional HTML id attribute for anchor linking (e.g. navigation anchors)."
+    },
     "title": {
       "type": "string",
       "required": true,
@@ -29,6 +35,19 @@
       "required": false,
       "default": "full-width",
       "description": "'full-width' — centered block with surface background. 'inline' — flex row, text left, button right."
+    },
+    "theme": {
+      "type": "enum",
+      "values": ["default", "dark", "inverted"],
+      "required": false,
+      "default": "default",
+      "description": "Color theme. 'default' = surface/page background. 'dark' = dark surface. 'inverted' = inverted background for strong contrast. Combines with variant for layout + color."
+    },
+    "background_image": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional background image URL. When set, renders as a CSS background-image with a dark overlay. Text automatically uses light colors for contrast."
     }
   },
   "safe_to_edit": ["cta.php", "../../assets/css/components.css (COMPONENT: cta section)"],
