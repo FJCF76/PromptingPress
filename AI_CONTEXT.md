@@ -57,17 +57,29 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 
 | Component | File                           | Description                                      | Key props                                          |
 |-----------|--------------------------------|--------------------------------------------------|----------------------------------------------------|
-| hero      | components/hero/hero.php       | Full-width headline + optional CTA and image     | title (req), subtitle, cta_text, cta_url, variant  |
-| section   | components/section/section.php | Text + optional image. 3 layout variants         | body (req), title, image_url, image_alt, layout, variant |
+| hero      | components/hero/hero.php       | Full-width headline + optional CTA and image     | title (req), subtitle, cta_text, cta_url, variant, image_url, image_alt, id |
+| section   | components/section/section.php | Text + optional image. 3 layout variants         | body (req), title, image_url, image_alt, layout, variant, background_image, id |
 | faq       | components/faq/faq.php         | Native details/summary accordion. Zero JS.       | items[] (req) {question, answer}, title            |
-| grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {title, text, image_url, link_url, link_text}, title, variant |
+| grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {title, text, image_url, link_url, link_text}, title, variant, id |
 | table     | components/table/table.php     | Data/comparison table, horizontal scroll mobile  | headers[] (req), rows[][] (req), title, caption    |
-| cta       | components/cta/cta.php         | Call-to-action block. Two variants.              | title (req), button_text (req), button_url (req), text, variant |
+| cta       | components/cta/cta.php         | Call-to-action block. Layout + color + bg-image  | title (req), button_text (req), button_url (req), text, variant, theme, background_image, id |
 | nav       | components/nav/nav.php         | Site header, logo, hamburger mobile nav          | location, logo_text                                |
 | footer    | components/footer/footer.php   | Site footer with nav menu and copyright          | location                                           |
-| stats     | components/stats/stats.php     | Horizontal row of large-number metrics + labels  | items[] (req) {number, label}, title               |
-| logos     | components/logos/logos.php     | Flex-wrap image grid — logo strips or icon tiles | items[] (req) {image_url, image_alt, label?}, title |
-| embed     | components/embed/embed.php     | WP shortcode / plugin content wrapper            | content (req), title                               |
+| stats     | components/stats/stats.php     | Horizontal row of large-number metrics + labels  | items[] (req) {number, label}, title, variant, id  |
+| logos     | components/logos/logos.php     | Flex-wrap image grid — logo strips or icon tiles | items[] (req) {image_url, image_alt, label?}, title, id |
+| embed     | components/embed/embed.php     | WP shortcode / plugin content wrapper            | content (req), title, variant, id                  |
+
+### Component capabilities reference
+
+**Variants (color themes):** Most section-level components support `variant` with values `default`, `dark`, `inverted`. CTA uses `theme` instead (because `variant` controls layout: `full-width` or `inline`).
+
+**Background images:** hero (via `cover` variant + `image_url`), section (`background_image` prop), and cta (`background_image` prop) support CSS background-image with a dark overlay and light text. The overlay is a separate div (`.hero__overlay`, `.section__overlay`, `.cta__overlay`).
+
+**Anchor IDs:** All 7 section-level components (hero, section, stats, grid, logos, cta, embed) accept an `id` prop that renders as the HTML `id` attribute on the root `<section>` element. Use for anchor navigation.
+
+**Hero variants:** `left`, `centered`, `split` (inline image), `cover` (fullscreen background-image with overlay).
+
+**Grid variants:** `default` (card grid), `steps` (numbered process steps).
 
 ---
 
@@ -159,10 +171,10 @@ Pages using the **Composition** template store their layout in `_pp_composition`
 
 ```json
 [
-  { "component": "hero", "props": { "title": "Welcome", "variant": "centered" } },
-  { "component": "section", "props": { "body": "<p>Content here.</p>", "layout": "text-only" } },
-  { "component": "faq", "props": { "items": [{ "question": "Q?", "answer": "A." }] } },
-  { "component": "cta", "props": { "title": "Go", "button_text": "Click", "button_url": "/" } }
+  { "component": "hero", "props": { "id": "top", "title": "Welcome", "variant": "cover", "image_url": "/path/to/bg.jpg" } },
+  { "component": "section", "props": { "id": "about", "body": "<p>Content here.</p>", "layout": "text-only" } },
+  { "component": "stats", "props": { "variant": "dark", "items": [{ "number": "50+", "label": "Clients" }] } },
+  { "component": "cta", "props": { "title": "Go", "button_text": "Click", "button_url": "/", "theme": "inverted" } }
 ]
 ```
 
