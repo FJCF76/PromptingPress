@@ -22,6 +22,17 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 
 **To provision a new WordPress site:** Read `ai-instructions/bootstrap.md` for the full state contract and WP-CLI verification commands.
 
+**Composition vs templates:** Use composition for all content-driven pages. Use template files only for structural or dynamic pages (archives, single posts, search results, 404).
+
+**Document authority:**
+
+| Source | Scope | Precedence |
+|---|---|---|
+| `AI_CONTEXT.md` | Orientation, file map, component index | Start here |
+| `AI_RULES.md` | Hard invariants, coding rules | Overrides everything else |
+| `ai-instructions/*.md` | Task-specific workflows | Executable procedures |
+| `components/{name}/schema.json` | Prop contracts (types, required) | Supersedes prose in any other file |
+
 **Never:**
 - Add hooks or filters to template or component files (only in `functions.php`)
 - Call WordPress functions directly in templates or components (use `pp_*` wrappers from `lib/wp.php`)
