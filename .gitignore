@@ -1,6 +1,6 @@
-# gstack browser session logs (ephemeral)
-.gstack/browse-console.log
-.gstack/browse-network.log
+# Internal tooling artifacts
+.gstack/
+.context/
 
 # OS
 .DS_Store
@@ -10,4 +10,3 @@ vendor/
 
 # JS dependencies
 node_modules/
-.gstack/

@@ -154,13 +154,13 @@ class InvariantTest extends TestCase
         }
     }
 
-    // ── CLAUDE.md and AI_CONTEXT.md exist ─────────────────────────────────
+    // ── AI_RULES.md and AI_CONTEXT.md exist ────────────────────────────────
 
-    public function testClaudeMdExists(): void
+    public function testAiRulesMdExists(): void
     {
         $this->assertFileExists(
-            $this->themeRoot . '/CLAUDE.md',
-            'CLAUDE.md is missing from theme root.'
+            $this->themeRoot . '/AI_RULES.md',
+            'AI_RULES.md is missing from theme root.'
         );
     }
 

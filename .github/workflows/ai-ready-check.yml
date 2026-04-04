@@ -49,10 +49,10 @@ jobs:
             exit 1
           fi
 
-      - name: CLAUDE.md exists
+      - name: AI_RULES.md exists
         run: |
-          if [ ! -f CLAUDE.md ]; then
-            echo "ERROR: CLAUDE.md is missing."
+          if [ ! -f AI_RULES.md ]; then
+            echo "ERROR: AI_RULES.md is missing."
             exit 1
           fi
 

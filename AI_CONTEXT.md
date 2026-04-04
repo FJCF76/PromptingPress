@@ -48,7 +48,7 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 | /lib/helpers.php         | Utility functions               | Yes — only to add                |
 | functions.php            | WP registration                 | Only to add                      |
 | style.css                | Theme header (WP requirement)   | No                               |
-| CLAUDE.md                | Claude Code instructions        | Only to update invariants        |
+| AI_RULES.md              | AI coding rules and invariants  | Only to update invariants        |
 | AI_CONTEXT.md            | This file — AI site map         | Keep current when structure changes |
 
 ---

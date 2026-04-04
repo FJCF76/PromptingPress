@@ -29,7 +29,7 @@ New Step 5 in `build-landing-page.md` for verifying diacritics, accent marks, an
 
 - `AI_CONTEXT.md` updated with all new props, dual-axis pattern for grid, background-image recipe for 4 components, and 18-token count
 - `composition.md` component reference table updated with all 11 components and correct props
-- `retheme.md` and `CLAUDE.md` updated to reflect 18 design tokens
+- `retheme.md` and `AI_RULES.md` updated to reflect 18 design tokens
 
 ---
 

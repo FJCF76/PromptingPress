@@ -1,4 +1,4 @@
-# PromptingPress — Claude Code Instructions
+# PromptingPress — AI Rules
 
 Read `AI_CONTEXT.md` first. It maps the full site structure.
 

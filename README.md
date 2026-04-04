@@ -40,7 +40,7 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 /assets/js/pp-editor-logic.js  Pure JS logic: JSON context parser, validator, insert position
 /assets/js/pp-admin-editor.js  Composition editor frontend (CodeMirror + preview)
 AI_CONTEXT.md              AI site map — start here for any AI session
-CLAUDE.md                  Claude Code instructions and invariants
+AI_RULES.md                AI coding rules and invariants
 ```
 
 ## Components
@@ -83,7 +83,7 @@ wp post meta update <post_id> _pp_composition '[{"component":"hero","props":{"ti
 
 No build step required for the site itself. Vanilla PHP, CSS, and JS. npm is used only for running JS unit tests (`npm test`).
 
-## Rules (enforced by CLAUDE.md)
+## Rules (enforced by AI_RULES.md)
 
 - Templates call components. Components do not call components.
 - No WordPress functions in `/templates/` or `/components/`. Only `lib/wp.php` calls WP.
