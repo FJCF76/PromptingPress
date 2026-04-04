@@ -8,7 +8,7 @@ All notable changes to PromptingPress are documented here.
 
 ### 7 component capabilities added
 
-This release closes the component capability gaps identified during the Velaochaga benchmark sprint (Phase 2). Every change is a reusable first-class addition to the component system, not benchmark-specific polish.
+This release closes the component capability gaps identified during the benchmark sprint (Phase 2). Every change is a reusable first-class addition to the component system, not benchmark-specific polish.
 
 - **Hero dual CTA** — `cta2_text` + `cta2_url` props render a secondary outline button alongside the primary CTA. On `cover` variant, the outline button gets white border/text for visibility over the dark overlay.
 - **Nav image logo** — `logo_url` + `logo_alt` props. When `logo_url` is set, renders an `<img>` instead of text. Falls back to `logo_text` when empty.
