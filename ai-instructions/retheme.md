@@ -122,4 +122,4 @@ The output should be empty. If it returns matches, replace each with the corresp
 | schema.json files        | Machine-readable contracts — not styling |
 | functions.php            | Only add the font enqueue, nothing else |
 
-The entire visual output of the site flows through the 17 CSS variables. Editing anything outside `assets/css/base.css` is unnecessary for a retheme.
+The entire visual output of the site flows through the 18 CSS variables. Editing anything outside `assets/css/base.css` is unnecessary for a retheme.

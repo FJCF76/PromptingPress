@@ -35,16 +35,19 @@ The format is AI-native: the same JSON a human edits in the admin meta box is wh
 
 See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 
-| Name    | Required props                          | Optional props (selection)             |
-|---------|-----------------------------------------|----------------------------------------|
-| hero    | title                                   | subtitle, cta_text, cta_url, variant   |
-| section | body                                    | title, layout, variant                 |
-| faq     | items[] {question, answer}              |                                        |
-| grid    | items[] {title, text, ...}              | title, variant                         |
-| table   | headers[], rows[][]                     |                                        |
-| cta     | title, button_text, button_url          | variant                                |
-| nav     | (no required props)                     |                                        |
-| footer  | (no required props)                     |                                        |
+| Name    | Required props                          | Optional props (selection)                              |
+|---------|-----------------------------------------|---------------------------------------------------------|
+| hero    | title                                   | subtitle, cta_text, cta_url, cta2_text, cta2_url, variant |
+| section | body                                    | title, layout, variant, background_image                |
+| faq     | items[] {question, answer}              | title                                                   |
+| grid    | items[] {title, text, ...}              | title, variant, theme                                   |
+| table   | headers[], rows[][]                     | title, caption                                          |
+| cta     | title, button_text, button_url          | text, variant, theme, background_image                  |
+| nav     | (no required props)                     | logo_text, logo_url, logo_alt                           |
+| footer  | (no required props)                     | location                                                |
+| stats   | items[] {number, label}                 | title, variant, background_image                        |
+| logos   | items[] {image_url, image_alt}          | title, variant                                          |
+| embed   | content                                 | title, variant                                          |
 
 ### section.variant
 
@@ -164,6 +167,14 @@ wp post meta update 42 _pp_composition '[
   }
 ]'
 ```
+
+---
+
+## Non-English content
+
+If the composition content is in a non-English language, verify orthography (diacritics,
+accent marks, language-specific punctuation) after generating the JSON and before applying it.
+See `ai-instructions/build-landing-page.md` → Step 5 for the full verification checklist.
 
 ---
 

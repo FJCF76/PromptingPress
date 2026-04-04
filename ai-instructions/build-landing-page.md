@@ -146,7 +146,27 @@ Create an ACF field group with these fields and assign it to this template:
 
 ---
 
-## Step 5 — Write real copy
+## Step 5 — Verify non-English content (if applicable)
+
+If the site content is in a non-English language, perform a dedicated orthography verification
+pass after generating the composition JSON and before applying it.
+
+AI agents generating content inside JSON / CLI-heavy workflows are more likely to drop
+diacritics and language-specific characters. This is not a system bug — the pipeline
+preserves Unicode correctly end to end — but the authored content can be wrong.
+
+Explicitly verify:
+- **Diacritics / accent marks** — e.g. `tecnología` not `tecnologia`, `diseño` not `diseno`
+- **Language-specific punctuation** — e.g. `¿`, `¡`, `ñ`, `ç`, `ü`
+- **Headings and CTA text** — these are highest-visibility, highest-impact if wrong
+- **Common high-frequency words** in the target language that are often degraded in code contexts
+
+Do not skip this step. Orthographic errors in a non-English site are immediately visible
+to native speakers and undermine the credibility of the entire page.
+
+---
+
+## Step 6 — Write real copy
 
 Replace every fallback default in the template with specific, concrete content. Avoid:
 
@@ -159,7 +179,7 @@ Use: customer-specific language, concrete feature descriptions, and real pricing
 
 ---
 
-## Customization
+## Step 7 — Customization
 
 - **Reorder components:** Rearrange the `pp_get_component()` calls inside `pp_base_template()`
 - **Remove a component:** Delete that `pp_get_component()` call

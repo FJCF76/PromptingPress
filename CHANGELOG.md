@@ -4,6 +4,35 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.1.4] — 2026-04-04 — Phase 2 component capabilities + design token consistency
+
+### 7 component capabilities added
+
+This release closes the component capability gaps identified during the Velaochaga benchmark sprint (Phase 2). Every change is a reusable first-class addition to the component system, not benchmark-specific polish.
+
+- **Hero dual CTA** — `cta2_text` + `cta2_url` props render a secondary outline button alongside the primary CTA. On `cover` variant, the outline button gets white border/text for visibility over the dark overlay.
+- **Nav image logo** — `logo_url` + `logo_alt` props. When `logo_url` is set, renders an `<img>` instead of text. Falls back to `logo_text` when empty.
+- **Grid background themes** — `theme` prop (`default`, `dark`, `inverted`) controls background color independently of `variant` (which controls layout). Follows the same dual-axis pattern established by CTA.
+- **Grid steps connectors** — `steps` variant now renders `→` arrow pseudo-elements between cards at desktop (≥1024px). Connectors use `--color-muted` and suppress on mobile.
+- **Stats background image** — `background_image` prop with the standard overlay pattern (inline style + `.stats__overlay` div + `var(--overlay-bg)`).
+- **Logos variants** — `variant` prop (`default`, `dark`, `inverted`) for background control on logo strip sections.
+
+### Design token: `--overlay-bg`
+
+All 4 components with background-image support (hero, section, cta, stats) now reference `var(--overlay-bg)` instead of hardcoded `rgba()` values. This is the 18th design token in `base.css`. A site-builder AI can now control overlay darkness from one place during retheme.
+
+### AI instructions: multilingual orthography verification
+
+New Step 5 in `build-landing-page.md` for verifying diacritics, accent marks, and language-specific punctuation when generating non-English composition content. Cross-referenced from `composition.md`.
+
+### Documentation
+
+- `AI_CONTEXT.md` updated with all new props, dual-axis pattern for grid, background-image recipe for 4 components, and 18-token count
+- `composition.md` component reference table updated with all 11 components and correct props
+- `retheme.md` and `CLAUDE.md` updated to reflect 18 design tokens
+
+---
+
 ## [v0.1.3] — 2026-04-01 — Composition-first page editing + homepage bootstrap
 
 ### Composition editor as the page editing experience

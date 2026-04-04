@@ -57,27 +57,27 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 
 | Component | File                           | Description                                      | Key props                                          |
 |-----------|--------------------------------|--------------------------------------------------|----------------------------------------------------|
-| hero      | components/hero/hero.php       | Full-width headline + optional CTA and image     | title (req), subtitle, cta_text, cta_url, variant, image_url, image_alt, id |
+| hero      | components/hero/hero.php       | Full-width headline + optional CTA and image     | title (req), subtitle, cta_text, cta_url, cta2_text, cta2_url, variant, image_url, image_alt, id |
 | section   | components/section/section.php | Text + optional image. 3 layout variants         | body (req), title, image_url, image_alt, layout, variant, background_image, id |
 | faq       | components/faq/faq.php         | Native details/summary accordion. Zero JS.       | items[] (req) {question, answer}, title            |
-| grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {title, text, image_url, link_url, link_text}, title, variant, id |
+| grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {title, text, image_url, link_url, link_text}, title, variant, theme, id |
 | table     | components/table/table.php     | Data/comparison table, horizontal scroll mobile  | headers[] (req), rows[][] (req), title, caption    |
 | cta       | components/cta/cta.php         | Call-to-action block. Layout + color + bg-image  | title (req), button_text (req), button_url (req), text, variant, theme, background_image, id |
-| nav       | components/nav/nav.php         | Site header, logo, hamburger mobile nav          | location, logo_text                                |
+| nav       | components/nav/nav.php         | Site header, logo, hamburger mobile nav          | location, logo_text, logo_url, logo_alt            |
 | footer    | components/footer/footer.php   | Site footer with nav menu and copyright          | location                                           |
-| stats     | components/stats/stats.php     | Horizontal row of large-number metrics + labels  | items[] (req) {number, label}, title, variant, id  |
-| logos     | components/logos/logos.php     | Flex-wrap image grid — logo strips or icon tiles | items[] (req) {image_url, image_alt, label?}, title, id |
+| stats     | components/stats/stats.php     | Horizontal row of large-number metrics + labels  | items[] (req) {number, label}, title, variant, background_image, id |
+| logos     | components/logos/logos.php     | Flex-wrap image grid — logo strips or icon tiles | items[] (req) {image_url, image_alt, label?}, title, variant, id |
 | embed     | components/embed/embed.php     | WP shortcode / plugin content wrapper            | content (req), title, variant, id                  |
 
 ### Component capabilities reference
 
-**Variants (color themes):** Most section-level components support `variant` with values `default`, `dark`, `inverted`. CTA is the exception — see below.
+**Variants (color themes):** Most section-level components support `variant` with values `default`, `dark`, `inverted`. CTA and grid are exceptions — see below.
 
-**CTA has two independent axes.** `variant` controls layout (`full-width` = centered block with surface background, `inline` = flex row with text left and button right). `theme` controls color (`default`, `dark`, `inverted`). These combine independently. Every other component uses `variant` for color because they have only one layout. If a future component needs both layout and color control, follow the same pattern: `variant` for layout, `theme` for color.
+**Two components have dual-axis control.** CTA and grid both use `variant` for layout and `theme` for color, because they need independent control of both. CTA: `variant` = layout (`full-width`, `inline`), `theme` = color (`default`, `dark`, `inverted`). Grid: `variant` = layout (`default`, `steps`), `theme` = color (`default`, `dark`, `inverted`). Every other component uses `variant` for color because it has only one layout. If a future component needs both layout and color control, follow the same pattern.
 
-**Background images:** hero (via `cover` variant + `image_url`), section (`background_image` prop), and cta (`background_image` prop) support CSS background-image with a dark overlay and light text. All three use the same implementation pattern:
+**Background images:** hero (via `cover` variant + `image_url`), section (`background_image` prop), cta (`background_image` prop), and stats (`background_image` prop) support CSS background-image with a dark overlay and light text. All four use the same implementation pattern:
 - `background-image` inline style on the root `<section>` element
-- A child `div.{component}__overlay` (e.g. `.hero__overlay`) with `rgba(0,0,0,0.5–0.55)` background
+- A child `div.{component}__overlay` (e.g. `.hero__overlay`) with `background: var(--overlay-bg)`
 - Container gets `position: relative; z-index: 1` to sit above the overlay
 - Text colors switch to `var(--color-bg)` for contrast
 
@@ -85,9 +85,11 @@ If adding background-image support to another component, follow this exact patte
 
 **Anchor IDs:** All 7 section-level components (hero, section, stats, grid, logos, cta, embed) accept an `id` prop that renders as the HTML `id` attribute on the root `<section>` element. Use for anchor navigation.
 
-**Hero variants:** `left`, `centered`, `split` (inline image), `cover` (fullscreen background-image with overlay).
+**Hero:** Variants `left`, `centered`, `split` (inline image), `cover` (fullscreen background-image with overlay). Supports dual CTA buttons (`cta_text` + `cta2_text`); secondary renders as outline/ghost style.
 
-**Grid variants:** `default` (card grid), `steps` (numbered process steps).
+**Nav:** Supports image logos via `logo_url` + `logo_alt`. Falls back to `logo_text` (text) when `logo_url` is empty.
+
+**Grid:** Variants `default` (card grid), `steps` (numbered process steps with arrow connectors at desktop). `theme` controls background color independently of layout variant.
 
 **CSS invariant:** Component CSS in `components.css` must use only CSS variables from `base.css` — never raw hex values. Color decisions belong to the design tokens, not to individual components.
 
@@ -159,14 +161,14 @@ not ACF fields. `pp_field()` returns null when ACF is not installed.
 
 ## Design tokens (assets/css/base.css)
 
-17 CSS custom properties control the entire visual system. To retheme, edit these only.
+18 CSS custom properties control the entire visual system. To retheme, edit these only.
 
 ```
 Colors:     --color-bg, --color-surface, --color-text, --color-muted,
             --color-border, --color-accent, --color-accent-hover, --color-bg-inverted
 Spacing:    --space-xs, --space-sm, --space-md, --space-lg, --space-xl, --space-2xl
 Typography: --font-body, --font-heading
-Shape:      --radius, --max-width, --transition
+Shape:      --radius, --max-width, --transition, --overlay-bg
 ```
 
 See `ai-instructions/retheme.md` for the full retheme workflow.
