@@ -5,7 +5,7 @@
 
 /* ==========================================================================
    1. CSS Custom Properties (Design Tokens)
-   Change these 17 values to retheme the entire site.
+   Change these 18 values to retheme the entire site.
    See ai-instructions/retheme.md for the full retheme workflow.
    ========================================================================== */
 
@@ -36,6 +36,7 @@
   --radius:     0.375rem;   /* 6px — increase for rounder corners */
   --max-width:  72rem;      /* 1152px — content column max width */
   --transition: 150ms ease; /* Default transition for interactive states */
+  --overlay-bg: rgba(0, 0, 0, 0.55); /* Dark scrim over background images for text readability */
 }
 
 /* Responsive breakpoints (reference — use in media queries):
