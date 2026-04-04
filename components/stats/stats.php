@@ -9,19 +9,27 @@
  * @var array $props
  */
 
-$id      = $props['id']      ?? '';
-$title   = $props['title']   ?? '';
-$variant = $props['variant'] ?? 'default';
-$items   = $props['items']   ?? [];
+$id               = $props['id']               ?? '';
+$title            = $props['title']            ?? '';
+$variant          = $props['variant']          ?? 'default';
+$items            = $props['items']            ?? [];
+$background_image = $props['background_image'] ?? '';
 
 $allowed_variants = ['default', 'dark', 'inverted'];
 if (!in_array($variant, $allowed_variants, true)) {
     $variant = 'default';
 }
 
-$variant_class = $variant !== 'default' ? ' stats--' . $variant : '';
+$variant_class  = $variant !== 'default' ? ' stats--' . $variant : '';
+$bg_image_class = $background_image ? ' stats--has-bg-image' : '';
+$bg_image_style = $background_image
+    ? sprintf(' style="background-image:url(%s);"', esc_url($background_image))
+    : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="stats<?php echo esc_attr($variant_class); ?>">
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="stats<?php echo esc_attr($variant_class); ?><?php echo esc_attr($bg_image_class); ?>"<?php echo $bg_image_style; ?>>
+    <?php if ($background_image) : ?>
+        <div class="stats__overlay" aria-hidden="true"></div>
+    <?php endif; ?>
     <div class="container">
 
         <?php if ($title) : ?>

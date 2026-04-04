@@ -21,6 +21,12 @@
       "default": "default",
       "description": "Background presentation. 'default' = page background. 'dark' = surface background with borders. 'inverted' = inverted background for strong contrast."
     },
+    "background_image": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional background image URL. When set, renders as a CSS background-image with a dark overlay for text readability."
+    },
     "items": {
       "type": "array",
       "required": true,

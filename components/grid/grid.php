@@ -13,16 +13,23 @@ $id      = $props['id']      ?? '';
 $title   = $props['title']   ?? '';
 $items   = $props['items']   ?? [];
 $variant = $props['variant'] ?? 'default';
+$theme   = $props['theme']   ?? 'default';
 
 $allowed_variants = ['default', 'steps'];
 if (!in_array($variant, $allowed_variants, true)) {
     $variant = 'default';
 }
 
-$is_steps     = $variant === 'steps';
+$allowed_themes = ['default', 'dark', 'inverted'];
+if (!in_array($theme, $allowed_themes, true)) {
+    $theme = 'default';
+}
+
+$is_steps      = $variant === 'steps';
 $variant_class = $is_steps ? ' grid--steps' : '';
+$theme_class   = $theme !== 'default' ? ' grid--' . $theme : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($variant_class); ?>">
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($variant_class); ?><?php echo esc_attr($theme_class); ?>">
     <div class="container">
 
         <?php if ($title) : ?>

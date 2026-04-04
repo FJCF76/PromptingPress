@@ -14,6 +14,13 @@
       "default": "",
       "description": "Optional section heading above the grid."
     },
+    "variant": {
+      "type": "enum",
+      "values": ["default", "dark", "inverted"],
+      "required": false,
+      "default": "default",
+      "description": "Background presentation. 'default' = page background. 'dark' = surface background with borders. 'inverted' = inverted background for strong contrast."
+    },
     "items": {
       "type": "array",
       "required": true,

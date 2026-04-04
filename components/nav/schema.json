@@ -12,9 +12,21 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Logo text. Falls back to pp_site_title() when empty."
+      "description": "Logo text. Falls back to pp_site_title() when empty. Ignored when logo_url is set."
+    },
+    "logo_url": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Logo image URL. When set, renders an img tag instead of text. Falls back to logo_text if empty."
+    },
+    "logo_alt": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Alt text for the logo image. Defaults to logo_text if empty."
     }
   },
   "safe_to_edit": ["nav.php", "../../assets/css/components.css (COMPONENT: nav section)"],
-  "do_not_touch": ["schema.json without updating README.md"]
+  "do_not_touch": ["schema.json without updating AI_CONTEXT.md"]
 }

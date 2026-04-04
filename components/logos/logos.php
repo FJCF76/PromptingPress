@@ -9,11 +9,19 @@
  * @var array $props
  */
 
-$id    = $props['id']    ?? '';
-$title = $props['title'] ?? '';
-$items = $props['items'] ?? [];
+$id      = $props['id']      ?? '';
+$title   = $props['title']   ?? '';
+$variant = $props['variant'] ?? 'default';
+$items   = $props['items']   ?? [];
+
+$allowed_variants = ['default', 'dark', 'inverted'];
+if (!in_array($variant, $allowed_variants, true)) {
+    $variant = 'default';
+}
+
+$variant_class = $variant !== 'default' ? ' logos--' . $variant : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="logos">
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="logos<?php echo esc_attr($variant_class); ?>">
     <div class="container">
 
         <?php if ($title) : ?>

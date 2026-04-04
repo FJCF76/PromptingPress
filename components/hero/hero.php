@@ -7,11 +7,13 @@
  * @var array $props
  */
 
-$id       = $props['id']       ?? '';
-$title    = $props['title']    ?? 'Default Title';
-$subtitle = $props['subtitle'] ?? '';
-$cta_text = $props['cta_text'] ?? '';
-$cta_url  = $props['cta_url']  ?? '#';
+$id        = $props['id']        ?? '';
+$title     = $props['title']    ?? 'Default Title';
+$subtitle  = $props['subtitle'] ?? '';
+$cta_text  = $props['cta_text'] ?? '';
+$cta_url   = $props['cta_url']  ?? '#';
+$cta2_text = $props['cta2_text'] ?? '';
+$cta2_url  = $props['cta2_url']  ?? '#';
 $variant   = $props['variant']   ?? 'centered';
 $image_url = $props['image_url'] ?? '';
 $image_alt = $props['image_alt'] ?? '';
@@ -45,9 +47,16 @@ if ($variant === 'cover' && $image_url) {
                 <?php endif; ?>
 
                 <?php if ($cta_text) : ?>
-                    <a href="<?php echo esc_url($cta_url); ?>" class="hero__cta btn">
-                        <?php echo esc_html($cta_text); ?>
-                    </a>
+                    <div class="hero__cta-group">
+                        <a href="<?php echo esc_url($cta_url); ?>" class="hero__cta btn">
+                            <?php echo esc_html($cta_text); ?>
+                        </a>
+                        <?php if ($cta2_text) : ?>
+                            <a href="<?php echo esc_url($cta2_url); ?>" class="hero__cta btn btn--outline">
+                                <?php echo esc_html($cta2_text); ?>
+                            </a>
+                        <?php endif; ?>
+                    </div>
                 <?php endif; ?>
             </div>
 

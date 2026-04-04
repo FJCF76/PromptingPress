@@ -19,7 +19,14 @@
       "values": ["default", "steps"],
       "required": false,
       "default": "default",
-      "description": "Grid presentation. 'default' = standard card grid. 'steps' = numbered process cards. Use 'steps' for How-it-works / process flows. Each item's 'number' field is required when variant is steps."
+      "description": "Grid presentation. 'default' = standard card grid. 'steps' = numbered process cards with visual connectors at desktop. Use 'steps' for How-it-works / process flows."
+    },
+    "theme": {
+      "type": "enum",
+      "values": ["default", "dark", "inverted"],
+      "required": false,
+      "default": "default",
+      "description": "Background color. Independent of variant (layout). 'default' = page background. 'dark' = surface background with borders. 'inverted' = inverted background for strong contrast."
     },
     "items": {
       "type": "array",
@@ -37,5 +44,5 @@
     }
   },
   "safe_to_edit": ["grid.php", "../../assets/css/components.css (COMPONENT: grid section)"],
-  "do_not_touch": ["schema.json without updating README.md"]
+  "do_not_touch": ["schema.json without updating AI_CONTEXT.md"]
 }

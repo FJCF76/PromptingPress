@@ -12,13 +12,23 @@
 
 $location  = $props['location']  ?? 'primary';
 $logo_text = $props['logo_text'] ?? pp_site_title();
+$logo_url  = $props['logo_url']  ?? '';
+$logo_alt  = $props['logo_alt']  ?? $logo_text;
 ?>
 <header class="site-header">
     <nav class="nav" aria-label="Main navigation">
         <div class="container nav__container">
 
             <a class="nav__logo" href="<?php echo esc_url(pp_site_url()); ?>">
-                <?php echo esc_html($logo_text); ?>
+                <?php if ($logo_url) : ?>
+                    <img
+                        src="<?php echo esc_url($logo_url); ?>"
+                        alt="<?php echo esc_attr($logo_alt); ?>"
+                        class="nav__logo-image"
+                    >
+                <?php else : ?>
+                    <?php echo esc_html($logo_text); ?>
+                <?php endif; ?>
             </a>
 
             <button

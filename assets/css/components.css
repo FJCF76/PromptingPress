@@ -87,6 +87,13 @@
   color: var(--color-accent);
 }
 
+.nav__logo-image {
+  display: block;
+  max-height: 2.5rem;
+  width: auto;
+  object-fit: contain;
+}
+
 /* Hamburger toggle button */
 .nav__toggle {
   display: flex;
@@ -227,6 +234,13 @@
   line-height: 1.6;
 }
 
+.hero__cta-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  align-self: flex-start;
+}
+
 .hero__cta {
   align-self: flex-start;
 }
@@ -239,6 +253,10 @@
 
 .hero--centered .hero__subtitle {
   max-width: none;
+}
+
+.hero--centered .hero__cta-group {
+  align-self: center;
 }
 
 .hero--centered .hero__cta {
@@ -285,7 +303,7 @@
 .hero__overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--overlay-bg);
 }
 
 .hero--cover .container {
@@ -308,8 +326,22 @@
   max-width: none;
 }
 
+.hero--cover .hero__cta-group {
+  align-self: center;
+}
+
 .hero--cover .hero__cta {
   align-self: center;
+}
+
+.hero--cover .btn--outline {
+  border-color: var(--color-bg);
+  color: var(--color-bg);
+}
+
+.hero--cover .btn--outline:hover {
+  background-color: var(--color-bg);
+  color: var(--color-text);
 }
 
 .hero__image-wrap {
@@ -407,7 +439,7 @@
 .section__overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--overlay-bg);
 }
 
 .section--has-bg-image > .container {
@@ -649,6 +681,58 @@
   margin-bottom: var(--space-sm);
 }
 
+/* Steps connectors: arrow between cards at desktop */
+@media (min-width: 1024px) {
+  .grid--steps .grid__item {
+    position: relative;
+  }
+
+  .grid--steps .grid__item:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    right: calc(-1 * var(--space-lg));
+    top: 50%;
+    transform: translateX(50%) translateY(-50%);
+    width: 0;
+    height: 0;
+    border-top: 8px solid transparent;
+    border-bottom: 8px solid transparent;
+    border-left: 10px solid var(--color-muted);
+  }
+}
+
+/* Grid theme variants */
+.grid--dark {
+  background-color: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.grid--inverted {
+  background-color: var(--color-bg-inverted);
+}
+
+.grid--inverted .grid__heading {
+  color: var(--color-bg);
+}
+
+.grid--inverted .grid__item {
+  background-color: var(--color-bg);
+}
+
+.grid--inverted.grid--steps .grid__item {
+  background-color: transparent;
+}
+
+.grid--inverted.grid--steps .grid__item-title {
+  color: var(--color-bg);
+}
+
+.grid--inverted.grid--steps .grid__item-text {
+  color: var(--color-bg);
+  opacity: 0.75;
+}
+
 /* ==========================================================================
    COMPONENT: table
    Data table with horizontal scroll on mobile.
@@ -808,7 +892,7 @@
 .cta__overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--overlay-bg);
 }
 
 .cta--has-bg-image .container {
@@ -946,6 +1030,38 @@
   opacity: 0.75;
 }
 
+/* Stats with background image */
+.stats--has-bg-image {
+  position: relative;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.stats__overlay {
+  position: absolute;
+  inset: 0;
+  background: var(--overlay-bg);
+}
+
+.stats--has-bg-image > .container {
+  position: relative;
+  z-index: 1;
+}
+
+.stats--has-bg-image .stats__heading {
+  color: var(--color-bg);
+}
+
+.stats--has-bg-image .stats__number {
+  color: var(--color-accent);
+}
+
+.stats--has-bg-image .stats__label {
+  color: var(--color-bg);
+  opacity: 0.85;
+}
+
 /* ==========================================================================
    COMPONENT: logos
    Flex-wrap image grid. Works for logo strips (no labels) and icon-category
@@ -998,6 +1114,26 @@
   font-size: 0.8125rem;
   color: var(--color-muted);
   text-align: center;
+}
+
+/* Logos variants */
+.logos--dark {
+  background-color: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.logos--inverted {
+  background-color: var(--color-bg-inverted);
+}
+
+.logos--inverted .logos__heading {
+  color: var(--color-bg);
+}
+
+.logos--inverted .logos__label {
+  color: var(--color-bg);
+  opacity: 0.75;
 }
 
 /* ==========================================================================
