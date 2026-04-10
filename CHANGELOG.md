@@ -4,6 +4,38 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.1.5] — 2026-04-10 — Accordion editor for structured composition editing
+
+### Accordion replaces the reference pane
+
+The three-pane editor layout (JSON | Reference | Preview) is now two panes (Accordion | Preview). The reference pane, which showed static schema info, is gone. In its place, the editor pane defaults to an accordion view that renders each composition component as a collapsible card with typed form fields.
+
+The accordion is a structured lens over the canonical JSON, not a replacement for it. A toolbar toggle switches between accordion and CodeMirror views. Edits in either view sync to the other. JSON remains the single source of truth.
+
+### What the accordion does
+
+- **Collapsible cards** for each component. Header shows component name + first prop value preview (truncated at 40 chars). All cards start collapsed on load.
+- **Typed fields**: string inputs, multi-line textareas (for `body`, `content`, `answer`), enum dropdowns, and repeatable array sub-forms with add/remove item buttons.
+- **Required field indicators**: red asterisk on labels, red border on blur when empty.
+- **Component operations**: insert (dropdown at top and bottom, all 11 components), move up/down, delete. Each operation preserves expand/collapse state across re-renders.
+- **JSON toggle round-trip**: accordion to JSON to edit to accordion, no data loss. Invalid JSON keeps you in JSON view with validation errors.
+
+### Accessibility
+
+Full WAI-ARIA accordion pattern: `aria-expanded`, `aria-controls`, `role="region"`, `aria-labelledby` on every card. Screen reader announcements via `aria-live="polite"` region on insert, reorder, and delete. Move/delete buttons have descriptive `aria-label` attributes. ARIA live region uses `.sr-only` clip pattern, invisible to sighted users.
+
+### Pure logic extraction
+
+`buildAccordionData()` and `serializeAccordionData()` added to `pp-editor-logic.js` as pure, testable functions with no DOM dependencies. 56 unit tests pass including round-trip, unknown component, and array field coverage.
+
+### Removed
+
+- Reference pane (`.pp-pane--reference`), component list, schema tab, second resize handle
+- `initSidebar()`, `updateSchemaTab()`, `getNearestComponentName()` functions
+- ~80 lines of reference pane CSS
+
+---
+
 ## [v0.1.4] — 2026-04-04 — Phase 2 component capabilities + design token consistency
 
 ### 7 component capabilities added
