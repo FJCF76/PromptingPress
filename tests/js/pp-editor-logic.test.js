@@ -11,6 +11,8 @@ const {
     getJsonContextFromText,
     validateCompositionData,
     getInsertPosition,
+    buildAccordionData,
+    serializeAccordionData,
 } = require('../../assets/js/pp-editor-logic.js');
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -29,13 +31,31 @@ const FAQ = {
     name: 'faq',
     schema: {
         props: {
-            items: { type: 'array', required: true  },
+            items: {
+                type: 'array', required: true,
+                items: {
+                    question: { type: 'string', required: true },
+                    answer:   { type: 'string', required: true },
+                },
+            },
             title: { type: 'string', required: false },
         },
     },
 };
 
-const REGISTRY = [HERO, FAQ];
+const SECTION = {
+    name: 'section',
+    schema: {
+        props: {
+            body:    { type: 'string',  required: true, description: 'HTML body content.' },
+            title:   { type: 'string',  required: false, default: '' },
+            layout:  { type: 'enum', values: ['text-only', 'image-left', 'image-right'], required: false, default: 'text-only' },
+            variant: { type: 'enum', values: ['default', 'dark', 'inverted'], required: false, default: 'default' },
+        },
+    },
+};
+
+const REGISTRY = [HERO, FAQ, SECTION];
 
 // ─── getJsonContextFromText ───────────────────────────────────────────────────
 
@@ -300,5 +320,175 @@ describe('getInsertPosition', () => {
         const cursorOff = firstItemEnd - 2; // just before `}`
         const { afterIdx } = getInsertPosition(text, cursorOff);
         expect(afterIdx).toBe(0);
+    });
+});
+
+// ─── buildAccordionData ─────────────────────────────────────────────────────
+
+describe('buildAccordionData', () => {
+    test('valid JSON with known component — fields merged with schema', () => {
+        const json = JSON.stringify([{ component: 'hero', props: { title: 'Hello' } }]);
+        const result = buildAccordionData(json, REGISTRY);
+        expect(result.errors).toEqual([]);
+        expect(result.components).toHaveLength(1);
+        expect(result.components[0].name).toBe('hero');
+        // title field should be present and userTouched
+        const titleField = result.components[0].fields.find(f => f.name === 'title');
+        expect(titleField.value).toBe('Hello');
+        expect(titleField.required).toBe(true);
+        expect(titleField.userTouched).toBe(true);
+    });
+
+    test('schema fields not in JSON get default values and userTouched=false', () => {
+        const json = JSON.stringify([{ component: 'hero', props: { title: 'Hi' } }]);
+        const result = buildAccordionData(json, REGISTRY);
+        const subtitleField = result.components[0].fields.find(f => f.name === 'subtitle');
+        expect(subtitleField.value).toBe('');
+        expect(subtitleField.userTouched).toBe(false);
+    });
+
+    test('unknown component — raw props preserved, no schema merge', () => {
+        const json = JSON.stringify([{ component: 'ghost', props: { foo: 'bar' } }]);
+        const result = buildAccordionData(json, REGISTRY);
+        expect(result.errors).toEqual([]);
+        expect(result.components).toHaveLength(1);
+        expect(result.components[0].name).toBe('ghost');
+        expect(result.components[0].fields).toHaveLength(1);
+        expect(result.components[0].fields[0].name).toBe('foo');
+        expect(result.components[0].fields[0].userTouched).toBe(true);
+    });
+
+    test('invalid JSON string — returns errors array', () => {
+        const result = buildAccordionData('{broken', REGISTRY);
+        expect(result.components).toEqual([]);
+        expect(result.errors).toHaveLength(1);
+        expect(result.errors[0]).toMatch(/JSON syntax error/);
+    });
+
+    test('empty array — returns empty components, no errors', () => {
+        const result = buildAccordionData('[]', REGISTRY);
+        expect(result.components).toEqual([]);
+        expect(result.errors).toEqual([]);
+    });
+
+    test('empty/whitespace string — returns empty result', () => {
+        const result = buildAccordionData('  ', REGISTRY);
+        expect(result.components).toEqual([]);
+        expect(result.errors).toEqual([]);
+    });
+
+    test('enum field has values array', () => {
+        const json = JSON.stringify([{ component: 'section', props: { body: '<p>Hi</p>' } }]);
+        const result = buildAccordionData(json, REGISTRY);
+        const layoutField = result.components[0].fields.find(f => f.name === 'layout');
+        expect(layoutField.type).toBe('enum');
+        expect(layoutField.values).toEqual(['text-only', 'image-left', 'image-right']);
+    });
+
+    test('array field has items sub-schema', () => {
+        const json = JSON.stringify([{ component: 'faq', props: { items: [{ question: 'Q?', answer: 'A.' }] } }]);
+        const result = buildAccordionData(json, REGISTRY);
+        const itemsField = result.components[0].fields.find(f => f.name === 'items');
+        expect(itemsField.type).toBe('array');
+        expect(itemsField.items).toBeDefined();
+        expect(itemsField.items.question).toBeDefined();
+    });
+
+    test('prop in JSON but not in schema — preserved as pass-through', () => {
+        const json = JSON.stringify([{ component: 'hero', props: { title: 'Hi', custom_thing: 'val' } }]);
+        const result = buildAccordionData(json, REGISTRY);
+        const customField = result.components[0].fields.find(f => f.name === 'custom_thing');
+        expect(customField).toBeDefined();
+        expect(customField.value).toBe('val');
+        expect(customField.userTouched).toBe(true);
+    });
+
+    test('multiline flag set for body field', () => {
+        const json = JSON.stringify([{ component: 'section', props: { body: '<p>text</p>' } }]);
+        const result = buildAccordionData(json, REGISTRY);
+        const bodyField = result.components[0].fields.find(f => f.name === 'body');
+        expect(bodyField.multiline).toBe(true);
+        const titleField = result.components[0].fields.find(f => f.name === 'title');
+        expect(titleField.multiline).toBe(false);
+    });
+
+    test('multiline flag set for answer field in faq items sub-schema', () => {
+        const json = JSON.stringify([{ component: 'faq', props: { items: [] } }]);
+        const result = buildAccordionData(json, REGISTRY);
+        // answer is inside items sub-schema, not a top-level field
+        // multiline detection is on top-level field names only
+        const itemsField = result.components[0].fields.find(f => f.name === 'items');
+        expect(itemsField.multiline).toBe(false); // items itself is not multiline
+    });
+});
+
+// ─── serializeAccordionData ─────────────────────────────────────────────────
+
+describe('serializeAccordionData', () => {
+    test('round-trip: hero parse→build→serialize preserves user-touched props', () => {
+        const original = [{ component: 'hero', props: { title: 'Hello', subtitle: 'World' } }];
+        const json = JSON.stringify(original);
+        const data = buildAccordionData(json, REGISTRY);
+        const serialized = serializeAccordionData(data.components);
+        const reparsed = JSON.parse(serialized);
+        expect(reparsed[0].component).toBe('hero');
+        expect(reparsed[0].props.title).toBe('Hello');
+        expect(reparsed[0].props.subtitle).toBe('World');
+    });
+
+    test('round-trip: faq with array items', () => {
+        const original = [{ component: 'faq', props: { items: [{ question: 'Q?', answer: 'A.' }] } }];
+        const json = JSON.stringify(original);
+        const data = buildAccordionData(json, REGISTRY);
+        const serialized = serializeAccordionData(data.components);
+        const reparsed = JSON.parse(serialized);
+        expect(reparsed[0].props.items).toEqual([{ question: 'Q?', answer: 'A.' }]);
+    });
+
+    test('user-touched empty string — preserved in output', () => {
+        const json = JSON.stringify([{ component: 'hero', props: { title: 'Hi', subtitle: '' } }]);
+        const data = buildAccordionData(json, REGISTRY);
+        const serialized = serializeAccordionData(data.components);
+        const reparsed = JSON.parse(serialized);
+        expect('subtitle' in reparsed[0].props).toBe(true);
+        expect(reparsed[0].props.subtitle).toBe('');
+    });
+
+    test('schema-default never touched — omitted from output', () => {
+        const json = JSON.stringify([{ component: 'hero', props: { title: 'Hi' } }]);
+        const data = buildAccordionData(json, REGISTRY);
+        const serialized = serializeAccordionData(data.components);
+        const reparsed = JSON.parse(serialized);
+        // subtitle was not in original JSON, so userTouched=false, should be omitted
+        expect('subtitle' in reparsed[0].props).toBe(false);
+    });
+
+    test('empty array items — preserved', () => {
+        const json = JSON.stringify([{ component: 'faq', props: { items: [] } }]);
+        const data = buildAccordionData(json, REGISTRY);
+        const serialized = serializeAccordionData(data.components);
+        const reparsed = JSON.parse(serialized);
+        expect(reparsed[0].props.items).toEqual([]);
+    });
+
+    test('pretty-prints with 2-space indent', () => {
+        const json = JSON.stringify([{ component: 'hero', props: { title: 'Hi' } }]);
+        const data = buildAccordionData(json, REGISTRY);
+        const serialized = serializeAccordionData(data.components);
+        expect(serialized).toContain('\n');
+        expect(serialized).toMatch(/^  /m); // 2-space indent on some line
+    });
+
+    test('multiple components serialized in order', () => {
+        const json = JSON.stringify([
+            { component: 'hero', props: { title: 'First' } },
+            { component: 'faq', props: { items: [] } },
+        ]);
+        const data = buildAccordionData(json, REGISTRY);
+        const serialized = serializeAccordionData(data.components);
+        const reparsed = JSON.parse(serialized);
+        expect(reparsed).toHaveLength(2);
+        expect(reparsed[0].component).toBe('hero');
+        expect(reparsed[1].component).toBe('faq');
     });
 });

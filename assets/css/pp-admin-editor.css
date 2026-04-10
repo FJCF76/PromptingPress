@@ -4,6 +4,20 @@
  * use high specificity or !important to survive WP admin's global CSS.
  */
 
+/* ── Screen-reader-only utility ────────────────────────────────────────────── */
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 /* ── Override WP admin chrome for the workspace page ───────────────────────── */
 
 body.pp-workspace-page #adminmenumain,
@@ -335,115 +349,248 @@ body.pp-workspace-page #wpfooter {
 #pp-workspace .CodeMirror-activeline-background { background: #2a2d2e; }
 #pp-workspace .CodeMirror-matchingbracket     { color: #fff !important; background: #3b514d; }
 
-/* ── Reference pane ────────────────────────────────────────────────────────── */
+/* ── Accordion ─────────────────────────────────────────────────────────────── */
 
-#pp-workspace .pp-pane-tabs {
-    padding: 0;
-    gap: 0;
-}
-
-#pp-workspace .pp-tab-btn {
-    flex: 1;
+#pp-workspace .pp-accordion {
+    overflow-y: auto;
+    padding: 8px 12px;
     height: 100%;
-    padding: 0 12px;
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: #6b7280;
+}
+
+#pp-workspace .pp-accordion-card {
+    background: #0d1117;
+    border: 1px solid #1e2a45;
+    border-radius: 4px;
+    margin-bottom: 6px;
+}
+
+#pp-workspace .pp-accordion-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
     cursor: pointer;
-    transition: color 0.15s, border-color 0.15s;
+    transition: background 0.15s;
 }
-#pp-workspace .pp-tab-btn:hover { color: #a0a8c0; }
-#pp-workspace .pp-tab-btn--active {
-    color: #93c5fd;
-    border-bottom-color: #93c5fd;
-}
+#pp-workspace .pp-accordion-header:hover { background: #1a1f2e; }
 
-/* Component list */
-#pp-workspace .pp-component-list {
-    margin: 0;
-    padding: 8px 0;
-    list-style: none;
-}
-
-#pp-workspace .pp-component-item {
-    padding: 10px 14px;
-    border-bottom: 1px solid #1e2a45;
-}
-#pp-workspace .pp-component-item:last-child { border-bottom: none; }
-
-#pp-workspace .pp-component-insert {
-    display: block;
-    width: 100%;
-    padding: 0;
+#pp-workspace .pp-accordion-toggle {
+    flex: 1;
     background: none;
     border: none;
+    color: #e2e8f0;
+    font-size: 13px;
+    cursor: pointer;
     text-align: left;
-    cursor: pointer;
+    padding: 0;
+    font-family: inherit;
+}
+#pp-workspace .pp-accordion-toggle:active { opacity: 0.7; }
+
+#pp-workspace .pp-card-name {
+    font-family: "JetBrains Mono", Consolas, monospace;
     font-size: 13px;
     font-weight: 700;
     color: #93c5fd;
-    font-family: "JetBrains Mono", Consolas, monospace;
-    margin-bottom: 4px;
 }
-#pp-workspace .pp-component-insert:hover { color: #bfdbfe; text-decoration: underline; }
 
-#pp-workspace .pp-comp-desc {
-    margin: 0 0 6px;
+#pp-workspace .pp-card-preview {
+    font-size: 11px;
+    color: #6b7280;
+    margin-left: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 200px;
+    display: inline-block;
+    vertical-align: bottom;
+}
+
+#pp-workspace .pp-card-actions {
+    display: flex;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+#pp-workspace .pp-card-actions button {
+    background: none;
+    border: none;
+    color: #6b7280;
+    font-size: 14px;
+    padding: 2px 6px;
+    cursor: pointer;
+    min-width: 32px;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    transition: color 0.15s;
+}
+#pp-workspace .pp-card-actions button:hover { color: #e2e8f0; }
+#pp-workspace .pp-card-actions button:active { opacity: 0.7; }
+#pp-workspace .pp-card-actions button[disabled] { opacity: 0.3; cursor: default; }
+#pp-workspace .pp-delete-btn:hover { color: #f87171 !important; }
+
+#pp-workspace .pp-accordion-body {
+    padding: 8px 12px 12px;
+    border-top: 1px solid #1e2a45;
+    transition: max-height 150ms ease;
+}
+
+#pp-workspace .pp-accordion-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+#pp-workspace .pp-accordion-field label {
+    flex: 0 0 120px;
     font-size: 11px;
     color: #9ca3af;
-    line-height: 1.4;
-}
-
-#pp-workspace .pp-props-list {
-    margin: 0; padding: 0; list-style: none;
-}
-#pp-workspace .pp-props-list li {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    font-size: 11px;
-    line-height: 1.8;
     font-family: "JetBrains Mono", Consolas, monospace;
 }
-#pp-workspace .pp-props-list code { color: #e2e8f0; font-size: 11px; background: none; }
-#pp-workspace .pp-prop-type { color: #9ca3af; font-size: 10px; }
-#pp-workspace .pp-prop--req code { color: #fca5a5; }
-#pp-workspace .pp-prop--opt code { color: #94a3b8; }
 
-/* Schema tab */
-#pp-workspace #pp-schema-display { padding: 12px 14px; }
+#pp-workspace .pp-accordion-field--required label::after {
+    content: " *";
+    color: #f87171;
+}
 
-#pp-workspace .pp-schema-placeholder {
-    font-size: 12px; color: #9ca3af; font-style: italic; margin: 0; line-height: 1.5;
+#pp-workspace .pp-accordion-field input,
+#pp-workspace .pp-accordion-field select,
+#pp-workspace .pp-accordion-field textarea {
+    flex: 1;
+    background: #1a1a2e;
+    border: 1px solid #2d2d4e;
+    border-radius: 3px;
+    color: #e2e8f0;
+    font-size: 12px;
+    padding: 4px 8px;
+    font-family: "JetBrains Mono", Consolas, monospace;
 }
-#pp-workspace .pp-schema-name {
-    font-size: 14px; font-weight: 700; font-family: "JetBrains Mono", Consolas, monospace;
-    color: #93c5fd; margin: 0 0 4px;
-}
-#pp-workspace .pp-schema-desc {
-    font-size: 11px; color: #6b7280; margin: 0 0 12px; line-height: 1.4;
-}
-#pp-workspace .pp-schema-table {
-    width: 100%; font-size: 11px; font-family: "JetBrains Mono", Consolas, monospace;
-    border-collapse: collapse;
-}
-#pp-workspace .pp-schema-table th {
-    padding: 4px 6px; text-align: left; font-size: 10px;
-    text-transform: uppercase; letter-spacing: 0.05em; color: #4a5568;
-    background: #0f172a; border-bottom: 1px solid #1e2a45;
-}
-#pp-workspace .pp-schema-table td {
-    padding: 4px 6px; border-bottom: 1px solid #1e2a45; color: #94a3b8; vertical-align: top;
-}
-#pp-workspace .pp-schema-table td:first-child { color: #e2e8f0; }
 
-#pp-workspace .pp-req-badge { font-size: 9px; font-weight: 700; text-transform: uppercase; color: #f87171; }
-#pp-workspace .pp-opt-badge { font-size: 9px; color: #6b7280; }
+#pp-workspace .pp-accordion-field textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+#pp-workspace .pp-accordion-field input:focus,
+#pp-workspace .pp-accordion-field select:focus,
+#pp-workspace .pp-accordion-field textarea:focus {
+    border-color: #93c5fd;
+    outline: none;
+}
+
+#pp-workspace .pp-accordion-field input.pp-field-error,
+#pp-workspace .pp-accordion-field textarea.pp-field-error {
+    border-bottom-color: #f87171;
+}
+
+#pp-workspace .pp-accordion-field input::placeholder,
+#pp-workspace .pp-accordion-field textarea::placeholder {
+    color: #4a5568;
+    font-style: italic;
+}
+
+/* Array items */
+#pp-workspace .pp-accordion-array {
+    padding-left: 128px; /* 120px label + 8px gap */
+    margin-bottom: 8px;
+}
+
+#pp-workspace .pp-accordion-array-item {
+    border: 1px solid #1e2a45;
+    border-radius: 3px;
+    padding: 8px;
+    margin-bottom: 4px;
+    background: #0f172a;
+}
+
+#pp-workspace .pp-accordion-array-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+    font-size: 11px;
+    color: #6b7280;
+}
+
+#pp-workspace .pp-array-remove-btn {
+    background: none;
+    border: none;
+    color: #6b7280;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 2px 6px;
+    min-width: 32px;
+    min-height: 32px;
+}
+#pp-workspace .pp-array-remove-btn:hover { color: #f87171; }
+
+/* Add buttons */
+#pp-workspace .pp-accordion-add-btn {
+    background: none;
+    border: 1px dashed #2d2d4e;
+    color: #93c5fd;
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    width: 100%;
+    margin-top: 8px;
+    transition: border-color 0.15s;
+}
+#pp-workspace .pp-accordion-add-btn:hover { border-color: #93c5fd; }
+
+#pp-workspace .pp-accordion-insert {
+    display: block;
+    width: 100%;
+    background: none;
+    border: 1px dashed #2d2d4e;
+    color: #93c5fd;
+    font-size: 12px;
+    padding: 8px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    margin-bottom: 6px;
+    transition: border-color 0.15s;
+    -webkit-appearance: none;
+}
+#pp-workspace .pp-accordion-insert:hover { border-color: #93c5fd; }
+#pp-workspace .pp-accordion-insert option { background: #1a1a2e; color: #e2e8f0; }
+
+/* Empty state */
+#pp-workspace .pp-accordion-empty {
+    text-align: center;
+    padding: 32px 16px;
+    color: #6b7280;
+    font-size: 13px;
+}
+
+/* Narrow pane responsive */
+#pp-workspace .pp-accordion--narrow .pp-accordion-field {
+    flex-direction: column;
+    align-items: stretch;
+}
+#pp-workspace .pp-accordion--narrow .pp-accordion-field label {
+    flex: none;
+    margin-bottom: 2px;
+}
+#pp-workspace .pp-accordion--narrow .pp-accordion-array {
+    padding-left: 0;
+}
+
+/* Focus rings for accordion interactive elements */
+#pp-workspace .pp-accordion-toggle:focus-visible,
+#pp-workspace .pp-card-actions button:focus-visible,
+#pp-workspace .pp-accordion-add-btn:focus-visible,
+#pp-workspace .pp-accordion-insert:focus-visible,
+#pp-workspace .pp-array-remove-btn:focus-visible {
+    outline: 2px solid #93c5fd;
+    outline-offset: 2px;
+    border-radius: 3px;
+}
 
 /* ── Preview pane ──────────────────────────────────────────────────────────── */
 

@@ -173,12 +173,138 @@ function getInsertPosition(compositionText, cursorOffset) {
     return { afterIdx: afterIdx, itemEnds: itemEnds, bracketPos: bracketPos };
 }
 
+/**
+ * Multi-line field names. Fields with these names render as <textarea>
+ * instead of <input> in the accordion. Pure display affordance — the JSON
+ * value is the same string either way.
+ */
+var MULTILINE_FIELDS = ['body', 'content', 'answer'];
+
+/**
+ * Build accordion data by merging a JSON composition string with a component registry.
+ *
+ * @param {string} jsonString   Raw JSON from CodeMirror
+ * @param {Array<{ name: string, schema: Object }>} componentRegistry
+ * @returns {{ components: Array<{ name: string, fields: Array, props: Object }>, errors: string[] }}
+ */
+function buildAccordionData(jsonString, componentRegistry) {
+    var result = { components: [], errors: [] };
+    if (!jsonString || !jsonString.trim()) return result;
+
+    var parsed;
+    try   { parsed = JSON.parse(jsonString); }
+    catch (e) { result.errors.push('JSON syntax error: ' + e.message); return result; }
+
+    if (!Array.isArray(parsed)) {
+        result.errors.push('Composition must be a JSON array.');
+        return result;
+    }
+
+    var schemaMap = {};
+    componentRegistry.forEach(function (c) { schemaMap[c.name] = c; });
+
+    parsed.forEach(function (item) {
+        if (!item || typeof item !== 'object' || !item.component) return;
+
+        var compName = item.component;
+        var comp = schemaMap[compName];
+        var props = item.props || {};
+        var fields = [];
+
+        if (comp && comp.schema && comp.schema.props) {
+            var schemaDef = comp.schema.props;
+            // Schema-defined fields first
+            Object.keys(schemaDef).forEach(function (key) {
+                var spec = schemaDef[key];
+                var hasValue = key in props;
+                var field = {
+                    name: key,
+                    type: spec.type === 'enum' ? 'enum' : (spec.type === 'array' ? 'array' : 'string'),
+                    required: !!spec.required,
+                    value: hasValue ? props[key] : (spec.default !== undefined ? spec.default : ''),
+                    description: spec.description || '',
+                    default: spec.default !== undefined ? spec.default : '',
+                    userTouched: hasValue,
+                    multiline: MULTILINE_FIELDS.indexOf(key) !== -1
+                };
+                if (spec.type === 'enum' && spec.values) {
+                    field.values = spec.values;
+                }
+                if (spec.type === 'array' && spec.items) {
+                    field.items = spec.items;
+                }
+                fields.push(field);
+            });
+            // Props in JSON but not in schema (pass-through)
+            Object.keys(props).forEach(function (key) {
+                if (!(key in schemaDef)) {
+                    fields.push({
+                        name: key,
+                        type: Array.isArray(props[key]) ? 'array' : 'string',
+                        required: false,
+                        value: props[key],
+                        description: '',
+                        default: '',
+                        userTouched: true,
+                        multiline: false
+                    });
+                }
+            });
+        } else {
+            // Unknown component — raw props, no schema merge
+            Object.keys(props).forEach(function (key) {
+                fields.push({
+                    name: key,
+                    type: Array.isArray(props[key]) ? 'array' : 'string',
+                    required: false,
+                    value: props[key],
+                    description: '',
+                    default: '',
+                    userTouched: true,
+                    multiline: false
+                });
+            });
+        }
+
+        result.components.push({
+            name: compName,
+            fields: fields,
+            props: props
+        });
+    });
+
+    return result;
+}
+
+/**
+ * Serialize accordion data back to a JSON composition string.
+ * Only includes user-touched props (fields the user interacted with or that
+ * were present in the original JSON). Schema defaults that were never touched
+ * are omitted to keep the JSON clean.
+ *
+ * @param {Array<{ name: string, fields: Array }>} components
+ * @returns {string} Pretty-printed JSON string
+ */
+function serializeAccordionData(components) {
+    var arr = components.map(function (comp) {
+        var props = {};
+        comp.fields.forEach(function (field) {
+            if (!field.userTouched) return;
+            props[field.name] = field.value;
+        });
+        return { component: comp.name, props: props };
+    });
+    return JSON.stringify(arr, null, 2);
+}
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 var _logic = {
     getJsonContextFromText:  getJsonContextFromText,
     validateCompositionData: validateCompositionData,
     getInsertPosition:       getInsertPosition,
+    buildAccordionData:      buildAccordionData,
+    serializeAccordionData:  serializeAccordionData,
 };
 
 /* istanbul ignore next */
