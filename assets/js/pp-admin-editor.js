@@ -1,7 +1,7 @@
 /**
  * pp-admin-editor.js — PromptingPress Composition Workspace
  *
- * Full-screen three-pane editor for page compositions.
+ * Two-pane editor: accordion (default) | preview, with JSON toggle.
  * All server communication uses wp_ajax_ handlers (cookie auth).
  */
 
@@ -25,6 +25,8 @@
     var previewLink  = ppAdminEditor.previewLink || '';
     var cm           = null;
     var lastCursor   = null;  // preserved across focus loss
+    var isSyncingFromAccordion = false;  // guard flag to prevent sync loops
+    var currentView  = 'accordion';      // 'accordion' or 'json'
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -141,55 +143,461 @@
         });
     }, 500);
 
-    // ── Schema tab (150ms debounce) ───────────────────────────────────────────
+    // ── Accordion ─────────────────────────────────────────────────────────────
 
-    function getNearestComponentName() {
-        if (!cm) return null;
-        var text = cm.getRange({ line: 0, ch: 0 }, cm.getCursor());
-        var re = /"component"\s*:\s*"([^"]+)"/g;
-        var m, last = null;
-        while ((m = re.exec(text)) !== null) last = m[1];
-        return last;
+    function announce(msg) {
+        var $live = $('#pp-accordion-live');
+        if ($live.length) $live.text(msg);
     }
 
-    var updateSchemaTab = debounce(function () {
-        var name = getNearestComponentName();
-        var $el  = $('#pp-schema-display');
+    /** Snapshot which accordion cards are currently expanded (index → true). */
+    function getExpandedMap() {
+        var map = {};
+        $('#pp-accordion-view .pp-accordion-toggle').each(function () {
+            if ($(this).attr('aria-expanded') === 'true') {
+                var card = $(this).closest('.pp-accordion-card');
+                var idx = parseInt(card.data('comp-idx'), 10);
+                if (!isNaN(idx)) map[idx] = true;
+            }
+        });
+        return map;
+    }
 
-        if (!name) {
-            $el.html('<p class="pp-schema-placeholder">Place cursor inside a component to see its schema.</p>');
-            return;
+    function getFirstRequiredPropValue(compData) {
+        for (var i = 0; i < compData.fields.length; i++) {
+            var f = compData.fields[i];
+            if (f.required && f.type === 'string' && f.value) {
+                var v = String(f.value);
+                return v.length > 40 ? v.slice(0, 40) + '\u2026' : v;
+            }
         }
+        return '';
+    }
 
-        var comp = getComponentByName(name);
-        if (!comp) {
-            $el.html('<p class="pp-schema-placeholder">Unknown: "' + esc(name) + '"</p>');
-            return;
-        }
+    function buildFieldHtml(field, compIdx, fieldIdx, itemIdx) {
+        var id = 'pp-field-' + compIdx + '-' + fieldIdx + (itemIdx !== undefined ? '-' + itemIdx : '');
+        var reqClass = field.required ? ' pp-accordion-field--required' : '';
+        var h = '<div class="pp-accordion-field' + reqClass + '">';
+        h += '<label for="' + id + '">' + esc(field.name) + '</label>';
 
-        var schema = comp.schema || {};
-        var props  = schema.props || {};
-        var h = '<p class="pp-schema-name">' + esc(name) + '</p>';
-
-        if (schema.description) {
-            h += '<p class="pp-schema-desc">' + esc(schema.description) + '</p>';
-        }
-
-        var keys = Object.keys(props);
-        if (keys.length) {
-            h += '<table class="pp-schema-table"><thead><tr><th>Prop</th><th>Type</th><th></th></tr></thead><tbody>';
-            keys.forEach(function (k) {
-                var d = props[k];
-                var type = d.type || 'string';
-                if (type === 'enum' && d.values) type = d.values.map(function (v) { return '"' + v + '"'; }).join(' | ');
-                var badge = d.required ? '<span class="pp-req-badge">req</span>' : '<span class="pp-opt-badge">opt</span>';
-                h += '<tr><td>' + esc(k) + '</td><td>' + esc(type) + '</td><td>' + badge + '</td></tr>';
+        if (field.type === 'enum' && field.values) {
+            h += '<select id="' + id + '" data-comp="' + compIdx + '" data-field="' + field.name + '">';
+            field.values.forEach(function (v) {
+                var sel = v === field.value ? ' selected' : '';
+                h += '<option value="' + esc(v) + '"' + sel + '>' + esc(v) + '</option>';
             });
-            h += '</tbody></table>';
+            h += '</select>';
+        } else if (field.multiline) {
+            h += '<textarea id="' + id + '" rows="4" data-comp="' + compIdx + '" data-field="' + field.name + '"';
+            h += ' placeholder="' + esc(field.description || '') + '"';
+            h += '>' + esc(String(field.value || '')) + '</textarea>';
+        } else if (field.type === 'string') {
+            h += '<input type="text" id="' + id + '" data-comp="' + compIdx + '" data-field="' + field.name + '"';
+            h += ' value="' + esc(String(field.value || '')) + '"';
+            h += ' placeholder="' + esc(field.description || '') + '"';
+            h += ' />';
         }
 
-        $el.html(h);
-    }, 150);
+        h += '</div>';
+        return h;
+    }
+
+    function buildArrayFieldHtml(field, compIdx, fieldIdx) {
+        var items = Array.isArray(field.value) ? field.value : [];
+        var subSchema = field.items || {};
+        var subKeys = Object.keys(subSchema);
+        var h = '<div class="pp-accordion-field pp-accordion-field--required">';
+        h += '<label>' + esc(field.name) + '</label>';
+        h += '</div>';
+        h += '<div class="pp-accordion-array" data-comp="' + compIdx + '" data-field="' + field.name + '">';
+
+        items.forEach(function (item, itemIdx) {
+            h += '<div class="pp-accordion-array-item" data-item="' + itemIdx + '">';
+            h += '<div class="pp-accordion-array-item-header">';
+            h += '<span>Item ' + (itemIdx + 1) + '</span>';
+            h += '<button class="pp-array-remove-btn" data-comp="' + compIdx + '" data-field="' + field.name + '" data-item="' + itemIdx + '" aria-label="Remove item ' + (itemIdx + 1) + '">&times;</button>';
+            h += '</div>';
+            subKeys.forEach(function (sk) {
+                var subField = {
+                    name: sk,
+                    type: 'string',
+                    required: !!(subSchema[sk] && subSchema[sk].required),
+                    value: item[sk] || '',
+                    description: (subSchema[sk] && subSchema[sk].description) || '',
+                    multiline: ['body', 'content', 'answer'].indexOf(sk) !== -1
+                };
+                h += buildFieldHtml(subField, compIdx, field.name + '.' + sk, itemIdx);
+            });
+            h += '</div>';
+        });
+
+        h += '<button class="pp-accordion-add-btn pp-array-add-btn" data-comp="' + compIdx + '" data-field="' + field.name + '">+ Add item</button>';
+        h += '</div>';
+        return h;
+    }
+
+    /**
+     * @param {Object} [expandedMap] Map of index→boolean for which cards are expanded.
+     *                               Defaults to {0: true} (first card open) when omitted.
+     */
+    function renderAccordion(expandedMap) {
+        if (!cm) return;
+        var $container = $('#pp-accordion-view');
+        var data = logic.buildAccordionData(cm.getValue(), components);
+
+        if (data.errors.length) return; // stay in current view
+
+        if (!data.components.length) {
+            $container.html(
+                '<div class="pp-accordion-empty">No components yet</div>' +
+                buildInsertDropdown()
+            );
+            return;
+        }
+
+        if (!expandedMap) expandedMap = {};
+
+        var h = buildInsertDropdown();
+        data.components.forEach(function (comp, idx) {
+            var expanded = !!expandedMap[idx];
+            var preview = getFirstRequiredPropValue(comp);
+            var previewHtml = preview ? ' <span class="pp-card-preview">\u2014 "' + esc(preview) + '"</span>' : '';
+
+            h += '<div class="pp-accordion-card" data-comp-idx="' + idx + '">';
+            h += '<div class="pp-accordion-header" id="pp-card-header-' + idx + '">';
+            h += '<button class="pp-accordion-toggle" aria-expanded="' + expanded + '" aria-controls="pp-card-body-' + idx + '">';
+            h += (expanded ? '\u25BC' : '\u25B6') + ' <span class="pp-card-name">' + esc(comp.name) + '</span>' + previewHtml;
+            h += '</button>';
+            h += '<span class="pp-card-actions">';
+            h += '<button class="pp-move-btn pp-move-up" data-idx="' + idx + '" aria-label="Move ' + esc(comp.name) + ' up"' + (idx === 0 ? ' disabled' : '') + '>\u2191</button>';
+            h += '<button class="pp-move-btn pp-move-down" data-idx="' + idx + '" aria-label="Move ' + esc(comp.name) + ' down"' + (idx === data.components.length - 1 ? ' disabled' : '') + '>\u2193</button>';
+            h += '<button class="pp-delete-btn" data-idx="' + idx + '" aria-label="Delete ' + esc(comp.name) + ' component">&times;</button>';
+            h += '</span>';
+            h += '</div>';
+
+            h += '<div class="pp-accordion-body" id="pp-card-body-' + idx + '" role="region" aria-labelledby="pp-card-header-' + idx + '"';
+            h += expanded ? '>' : ' aria-hidden="true" style="overflow:hidden;max-height:0;padding:0 12px;border-top:none;">';
+
+            comp.fields.forEach(function (field, fIdx) {
+                if (field.type === 'array') {
+                    h += buildArrayFieldHtml(field, idx, fIdx);
+                } else {
+                    h += buildFieldHtml(field, idx, fIdx);
+                }
+            });
+
+            h += '</div></div>';
+        });
+        h += buildInsertDropdown();
+
+        $container.html(h);
+    }
+
+    function buildInsertDropdown() {
+        var h = '<select class="pp-accordion-insert">';
+        h += '<option value="" disabled selected>+ Add component\u2026</option>';
+        components.forEach(function (c) {
+            h += '<option value="' + esc(c.name) + '">' + esc(c.name) + '</option>';
+        });
+        h += '</select>';
+        return h;
+    }
+
+    var syncAccordionToJson = debounce(function () {
+        if (!cm) return;
+        var data = logic.buildAccordionData(cm.getValue(), components);
+        if (data.errors.length) return;
+
+        var $container = $('#pp-accordion-view');
+
+        data.components.forEach(function (comp, compIdx) {
+            comp.fields.forEach(function (field) {
+                if (field.type === 'array') {
+                    // Rebuild array value from DOM
+                    var items = [];
+                    var $arrayItems = $container.find('.pp-accordion-array[data-comp="' + compIdx + '"][data-field="' + field.name + '"] .pp-accordion-array-item');
+                    var subSchema = field.items || {};
+                    var subKeys = Object.keys(subSchema);
+                    $arrayItems.each(function (itemIdx) {
+                        var item = {};
+                        subKeys.forEach(function (sk) {
+                            var $input = $(this).find('[data-field="' + field.name + '.' + sk + '"][data-comp="' + compIdx + '"]');
+                            if ($input.length) item[sk] = $input.val();
+                        }.bind(this));
+                        items.push(item);
+                    });
+                    field.value = items;
+                    field.userTouched = true;
+                } else {
+                    var $input = $container.find('[data-comp="' + compIdx + '"][data-field="' + field.name + '"]');
+                    if ($input.length) {
+                        field.value = $input.val();
+                        field.userTouched = true;
+                    }
+                }
+            });
+        });
+
+        var json = logic.serializeAccordionData(data.components);
+        isSyncingFromAccordion = true;
+        try { cm.setValue(json); }
+        finally { isSyncingFromAccordion = false; }
+    }, 300);
+
+    function initViewToggle() {
+        $(document).on('click', '#pp-view-toggle', function () {
+            var $btn = $(this);
+            var $accordion = $('#pp-accordion-view');
+            var $json = $('#pp-json-view');
+
+            if (currentView === 'accordion') {
+                // Switch to JSON view
+                $accordion.hide();
+                $json.show();
+                $btn.text('Accordion');
+                currentView = 'json';
+                if (cm) cm.refresh();
+            } else {
+                // Switch to accordion view — parse first
+                if (cm) {
+                    var errors = validateComposition(cm.getValue());
+                    if (errors.length) {
+                        showErrors(errors);
+                        return; // stay in JSON view
+                    }
+                }
+                $json.hide();
+                $accordion.show();
+                $btn.text('JSON');
+                currentView = 'accordion';
+                renderAccordion();
+            }
+        });
+    }
+
+    function initAccordionEvents() {
+        var $container = $('#pp-accordion-view');
+
+        // Expand/collapse
+        $container.on('click', '.pp-accordion-toggle', function () {
+            var $header = $(this);
+            var expanded = $header.attr('aria-expanded') === 'true';
+            var $body = $('#' + $header.attr('aria-controls'));
+
+            if (expanded) {
+                $header.attr('aria-expanded', 'false');
+                $body.attr('aria-hidden', 'true').css({ overflow: 'hidden', maxHeight: '0', padding: '0 12px', borderTop: 'none' });
+                $header.find('.pp-accordion-toggle').first().html($header.html().replace('\u25BC', '\u25B6'));
+            } else {
+                $header.attr('aria-expanded', 'true');
+                $body.removeAttr('aria-hidden').css({ overflow: '', maxHeight: '', padding: '', borderTop: '' });
+                $header.find('.pp-accordion-toggle').first().html($header.html().replace('\u25B6', '\u25BC'));
+            }
+            // Fix: update the button's own text since we're on the button itself
+            var text = $(this).html();
+            if (expanded) {
+                $(this).html(text.replace('\u25BC', '\u25B6'));
+            } else {
+                $(this).html(text.replace('\u25B6', '\u25BC'));
+            }
+        });
+
+        // Field change
+        $container.on('input change', 'input, textarea, select', function () {
+            syncAccordionToJson();
+        });
+
+        // Field validation on blur (required fields)
+        $container.on('blur', 'input, textarea', function () {
+            var $el = $(this);
+            var compIdx = parseInt($el.data('comp'), 10);
+            var fieldName = $el.data('field');
+            // Check if this field is required
+            var data = logic.buildAccordionData(cm.getValue(), components);
+            if (!data.components[compIdx]) return;
+            var field = null;
+            for (var i = 0; i < data.components[compIdx].fields.length; i++) {
+                if (data.components[compIdx].fields[i].name === fieldName) {
+                    field = data.components[compIdx].fields[i];
+                    break;
+                }
+            }
+            if (field && field.required && !$el.val().trim()) {
+                $el.addClass('pp-field-error');
+            } else {
+                $el.removeClass('pp-field-error');
+            }
+        });
+
+        // Component insert
+        $container.on('change', '.pp-accordion-insert', function () {
+            var name = $(this).val();
+            if (!name) return;
+            $(this).val(''); // reset dropdown
+
+            var comp = getComponentByName(name);
+            var schema = comp && comp.schema ? comp.schema : {};
+            var props = schema.props || {};
+            var starter = {};
+            Object.keys(props).forEach(function (k) {
+                if (!props[k].required) return;
+                var t = props[k].type || 'string';
+                if (t === 'array') starter[k] = [];
+                else if (t === 'enum') starter[k] = props[k].values ? props[k].values[0] : '';
+                else starter[k] = '';
+            });
+
+            var parsed;
+            try { parsed = JSON.parse(cm.getValue()); } catch (e) { parsed = []; }
+            if (!Array.isArray(parsed)) parsed = [];
+            parsed.push({ component: name, props: starter });
+
+            isSyncingFromAccordion = true;
+            try { cm.setValue(JSON.stringify(parsed, null, 2)); }
+            finally { isSyncingFromAccordion = false; }
+
+            renderAccordion();
+            announce(name + ' component added');
+
+            // Scroll to new card and expand it
+            setTimeout(function () {
+                var $cards = $container.find('.pp-accordion-card');
+                var $last = $cards.last();
+                if ($last.length) {
+                    $last[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    // Expand the new card
+                    var $toggle = $last.find('.pp-accordion-toggle');
+                    if ($toggle.attr('aria-expanded') === 'false') $toggle.trigger('click');
+                }
+            }, 50);
+        });
+
+        // Move up
+        $container.on('click', '.pp-move-up', function () {
+            var idx = parseInt($(this).data('idx'), 10);
+            if (idx <= 0) return;
+            var parsed;
+            try { parsed = JSON.parse(cm.getValue()); } catch (e) { return; }
+            if (!Array.isArray(parsed) || idx >= parsed.length) return;
+            // Snapshot expand state, then shift to follow the swap
+            var oldMap = getExpandedMap();
+            var newMap = {};
+            Object.keys(oldMap).forEach(function (k) {
+                var n = parseInt(k, 10);
+                if (n === idx) newMap[n - 1] = true;
+                else if (n === idx - 1) newMap[n + 1] = true;
+                else newMap[n] = true;
+            });
+            var temp = parsed[idx];
+            parsed[idx] = parsed[idx - 1];
+            parsed[idx - 1] = temp;
+            isSyncingFromAccordion = true;
+            try { cm.setValue(JSON.stringify(parsed, null, 2)); }
+            finally { isSyncingFromAccordion = false; }
+            renderAccordion(newMap);
+            announce(temp.component + ' moved up');
+            var $header = $container.find('.pp-accordion-card[data-comp-idx="' + (idx - 1) + '"] .pp-accordion-toggle');
+            if ($header.length) $header.focus();
+        });
+
+        // Move down
+        $container.on('click', '.pp-move-down', function () {
+            var idx = parseInt($(this).data('idx'), 10);
+            var parsed;
+            try { parsed = JSON.parse(cm.getValue()); } catch (e) { return; }
+            if (!Array.isArray(parsed) || idx >= parsed.length - 1) return;
+            var oldMap = getExpandedMap();
+            var newMap = {};
+            Object.keys(oldMap).forEach(function (k) {
+                var n = parseInt(k, 10);
+                if (n === idx) newMap[n + 1] = true;
+                else if (n === idx + 1) newMap[n - 1] = true;
+                else newMap[n] = true;
+            });
+            var temp = parsed[idx];
+            parsed[idx] = parsed[idx + 1];
+            parsed[idx + 1] = temp;
+            isSyncingFromAccordion = true;
+            try { cm.setValue(JSON.stringify(parsed, null, 2)); }
+            finally { isSyncingFromAccordion = false; }
+            renderAccordion(newMap);
+            announce(temp.component + ' moved down');
+            var $header = $container.find('.pp-accordion-card[data-comp-idx="' + (idx + 1) + '"] .pp-accordion-toggle');
+            if ($header.length) $header.focus();
+        });
+
+        // Delete
+        $container.on('click', '.pp-delete-btn', function () {
+            var idx = parseInt($(this).data('idx'), 10);
+            var parsed;
+            try { parsed = JSON.parse(cm.getValue()); } catch (e) { return; }
+            if (!Array.isArray(parsed) || idx >= parsed.length) return;
+            var oldMap = getExpandedMap();
+            var newMap = {};
+            Object.keys(oldMap).forEach(function (k) {
+                var n = parseInt(k, 10);
+                if (n === idx) { /* deleted, drop it */ }
+                else if (n > idx) newMap[n - 1] = true;
+                else newMap[n] = true;
+            });
+            var removed = parsed.splice(idx, 1)[0];
+            isSyncingFromAccordion = true;
+            try { cm.setValue(JSON.stringify(parsed, null, 2)); }
+            finally { isSyncingFromAccordion = false; }
+            renderAccordion(newMap);
+            announce(removed.component + ' component deleted');
+            // Focus next card header, or previous, or add button
+            var $cards = $container.find('.pp-accordion-card');
+            if ($cards.length) {
+                var focusIdx = idx < $cards.length ? idx : $cards.length - 1;
+                $cards.eq(focusIdx).find('.pp-accordion-toggle').focus();
+            } else {
+                $container.find('.pp-accordion-insert').focus();
+            }
+        });
+
+        // Array item add
+        $container.on('click', '.pp-array-add-btn', function () {
+            var compIdx = parseInt($(this).data('comp'), 10);
+            var fieldName = $(this).data('field');
+            var parsed;
+            try { parsed = JSON.parse(cm.getValue()); } catch (e) { return; }
+            if (!Array.isArray(parsed) || !parsed[compIdx]) return;
+
+            var comp = getComponentByName(parsed[compIdx].component);
+            var schema = comp && comp.schema ? comp.schema : {};
+            var propDef = (schema.props || {})[fieldName];
+            var subKeys = propDef && propDef.items ? Object.keys(propDef.items) : [];
+            var newItem = {};
+            subKeys.forEach(function (k) { newItem[k] = ''; });
+
+            if (!parsed[compIdx].props) parsed[compIdx].props = {};
+            if (!Array.isArray(parsed[compIdx].props[fieldName])) parsed[compIdx].props[fieldName] = [];
+            parsed[compIdx].props[fieldName].push(newItem);
+
+            isSyncingFromAccordion = true;
+            try { cm.setValue(JSON.stringify(parsed, null, 2)); }
+            finally { isSyncingFromAccordion = false; }
+            renderAccordion();
+        });
+
+        // Array item remove
+        $container.on('click', '.pp-array-remove-btn', function () {
+            var compIdx = parseInt($(this).data('comp'), 10);
+            var fieldName = $(this).data('field');
+            var itemIdx = parseInt($(this).data('item'), 10);
+            var parsed;
+            try { parsed = JSON.parse(cm.getValue()); } catch (e) { return; }
+            if (!Array.isArray(parsed) || !parsed[compIdx]) return;
+            if (!parsed[compIdx].props || !Array.isArray(parsed[compIdx].props[fieldName])) return;
+            parsed[compIdx].props[fieldName].splice(itemIdx, 1);
+
+            isSyncingFromAccordion = true;
+            try { cm.setValue(JSON.stringify(parsed, null, 2)); }
+            finally { isSyncingFromAccordion = false; }
+            renderAccordion();
+        });
+    }
 
     // ── Autocomplete ──────────────────────────────────────────────────────────
 
@@ -272,10 +680,13 @@
         sizeEditor();
         $(window).on('resize', debounce(sizeEditor, 100));
 
-        cm.on('change', function () { runValidation(); runPreview(); });
+        cm.on('change', function () {
+            runValidation();
+            runPreview();
+            // Do not re-render accordion when the change came from accordion sync
+        });
         cm.on('cursorActivity', function () {
             lastCursor = cm.getCursor();
-            updateSchemaTab();
         });
         cm.on('inputRead', function (ed, ch) {
             if (ch.text && ch.text[0] === '"') {
@@ -287,93 +698,7 @@
         runPreview();
     }
 
-    // ── Sidebar ───────────────────────────────────────────────────────────────
-
-    function initSidebar() {
-        $(document).on('click', '.pp-tab-btn', function () {
-            var tab = $(this).data('tab');
-            $('.pp-tab-btn').removeClass('pp-tab-btn--active');
-            $(this).addClass('pp-tab-btn--active');
-            $('.pp-tab-panel').hide();
-            $('#pp-tab-' + tab).show();
-        });
-
-        $(document).on('click', '.pp-component-insert', function () {
-            if (!cm) return;
-            var name = $(this).data('name');
-            var comp = getComponentByName(name);
-            var schema = comp && comp.schema ? comp.schema : {};
-            var props  = schema.props || {};
-
-            var starter = {};
-            Object.keys(props).forEach(function (k) {
-                if (!props[k].required) return;
-                var t = props[k].type || 'string';
-                if (t === 'array')   starter[k] = [];
-                else if (t === 'enum') starter[k] = props[k].values ? props[k].values[0] : '';
-                else                 starter[k] = '';
-            });
-
-            var newEntry = { component: name, props: starter };
-            var current = cm.getValue().trim();
-
-            if (!current) {
-                // Empty editor: create fresh array
-                cm.setValue(JSON.stringify([newEntry], null, 2));
-                cm.setCursor({ line: 1, ch: 0 });
-                cm.focus();
-                return;
-            }
-
-            var parsed;
-            try { parsed = JSON.parse(current); } catch (e) { parsed = null; }
-
-            if (!Array.isArray(parsed)) {
-                // Not valid array: insert at cursor as raw text
-                cm.replaceSelection(JSON.stringify(newEntry, null, 2));
-                cm.focus();
-                return;
-            }
-
-            // Find end positions (the closing `}`) of each top-level array item
-            var text = cm.getValue();
-            var cursorOff = cm.indexFromPos(lastCursor || cm.getCursor());
-            var pos = logic.getInsertPosition(text, cursorOff);
-            var itemEnds   = pos.itemEnds;
-            var bracketPos = pos.bracketPos;
-            var afterIdx   = pos.afterIdx;
-
-            var snippet = JSON.stringify(newEntry, null, 2);
-            // Indent the snippet to match array indentation (2 spaces)
-            var indented = snippet.replace(/\n/g, '\n  ');
-            var insertPos, insertText;
-
-            if (afterIdx === -1 || itemEnds.length === 0) {
-                // Insert as first item in the array — right after `[`
-                var afterBracket = cm.posFromIndex(bracketPos + 1);
-                insertText = '\n  ' + indented + (itemEnds.length ? ',' : '');
-                insertPos = afterBracket;
-            } else if (afterIdx === itemEnds.length - 1) {
-                // Insert after the last item
-                var lastEnd = cm.posFromIndex(itemEnds[afterIdx]);
-                insertText = ',\n  ' + indented;
-                insertPos = { line: lastEnd.line, ch: lastEnd.ch + 1 };
-            } else {
-                // Insert between two items
-                var prevEnd = cm.posFromIndex(itemEnds[afterIdx]);
-                insertText = ',\n  ' + indented;
-                insertPos = { line: prevEnd.line, ch: prevEnd.ch + 1 };
-            }
-
-            cm.replaceRange(insertText, insertPos, insertPos);
-
-            // Place cursor at the inserted component and scroll into view
-            var insertedLine = insertPos.line + 1;
-            cm.setCursor({ line: insertedLine, ch: 0 });
-            cm.scrollIntoView(null, cm.getScrollInfo().clientHeight / 3);
-            cm.focus();
-        });
-    }
+    // (Sidebar removed — accordion replaces the reference pane)
 
     // ── Save (AJAX) ───────────────────────────────────────────────────────────
 
@@ -527,76 +852,71 @@
         var $panes = $('#pp-workspace .pp-panes');
         if (!$panes.length) return;
 
-        var paneEditor    = $panes.find('.pp-pane--editor')[0];
-        var paneReference = $panes.find('.pp-pane--reference')[0];
-        var panePreview   = $panes.find('.pp-pane--preview')[0];
-        if (!paneEditor || !paneReference || !panePreview) return;
+        var paneEditor  = $panes.find('.pp-pane--editor')[0];
+        var panePreview = $panes.find('.pp-pane--preview')[0];
+        if (!paneEditor || !panePreview) return;
 
-        // Set initial widths (50% / 22% / 28% minus handle space)
+        // Two panes: 45% editor, 55% preview (one handle)
         function setInitialWidths() {
-            var total = $panes[0].offsetWidth - 10; // 2 handles × 5px
-            paneEditor.style.width    = Math.round(total * 0.50) + 'px';
-            paneReference.style.width = Math.round(total * 0.22) + 'px';
-            panePreview.style.width   = Math.round(total * 0.28) + 'px';
+            var total = $panes[0].offsetWidth - 5; // 1 handle × 5px
+            paneEditor.style.width  = Math.round(total * 0.45) + 'px';
+            panePreview.style.width = Math.round(total * 0.55) + 'px';
         }
         setInitialWidths();
 
-        var handles = $panes.find('.pp-resize-handle');
+        var $handle = $panes.find('.pp-resize-handle');
         var MIN_PANE = 150;
 
-        handles.each(function () {
-            var handle = this;
-            var leftName  = handle.getAttribute('data-left');
-            var rightName = handle.getAttribute('data-right');
+        $handle.on('mousedown', function (e) {
+            e.preventDefault();
+            var startX     = e.clientX;
+            var startLeft  = paneEditor.offsetWidth;
+            var startRight = panePreview.offsetWidth;
 
-            var leftPane  = $panes.find('.pp-pane--' + leftName)[0];
-            var rightPane = $panes.find('.pp-pane--' + rightName)[0];
+            $handle.addClass('is-dragging');
+            $('body').css({ cursor: 'col-resize', userSelect: 'none' });
+            $('#pp-preview-frame').css('pointer-events', 'none');
 
-            $(handle).on('mousedown', function (e) {
-                e.preventDefault();
-                var startX     = e.clientX;
-                var startLeft  = leftPane.offsetWidth;
-                var startRight = rightPane.offsetWidth;
+            function onMove(e2) {
+                var dx = e2.clientX - startX;
+                var newLeft  = startLeft + dx;
+                var newRight = startRight - dx;
 
-                $(handle).addClass('is-dragging');
-                $('body').css({ cursor: 'col-resize', userSelect: 'none' });
-                // Prevent iframe from stealing mouse events during drag
-                $('#pp-preview-frame').css('pointer-events', 'none');
+                if (newLeft < MIN_PANE) { newLeft = MIN_PANE; newRight = startLeft + startRight - MIN_PANE; }
+                if (newRight < MIN_PANE) { newRight = MIN_PANE; newLeft = startLeft + startRight - MIN_PANE; }
 
-                function onMove(e2) {
-                    var dx = e2.clientX - startX;
-                    var newLeft  = startLeft + dx;
-                    var newRight = startRight - dx;
+                paneEditor.style.width  = newLeft + 'px';
+                panePreview.style.width = newRight + 'px';
 
-                    if (newLeft < MIN_PANE) { newLeft = MIN_PANE; newRight = startLeft + startRight - MIN_PANE; }
-                    if (newRight < MIN_PANE) { newRight = MIN_PANE; newLeft = startLeft + startRight - MIN_PANE; }
-
-                    leftPane.style.width  = newLeft + 'px';
-                    rightPane.style.width = newRight + 'px';
-
-                    if (cm) cm.refresh();
+                // Narrow pane responsive class
+                var $accordion = $('#pp-accordion-view');
+                if (newLeft < 300) {
+                    $accordion.addClass('pp-accordion--narrow');
+                } else {
+                    $accordion.removeClass('pp-accordion--narrow');
                 }
 
-                function onUp() {
-                    $(document).off('mousemove', onMove).off('mouseup', onUp);
-                    $(handle).removeClass('is-dragging');
-                    $('body').css({ cursor: '', userSelect: '' });
-                    $('#pp-preview-frame').css('pointer-events', '');
-                    if (cm) cm.refresh();
-                }
+                if (cm) cm.refresh();
+            }
 
-                $(document).on('mousemove', onMove).on('mouseup', onUp);
-            });
+            function onUp() {
+                $(document).off('mousemove', onMove).off('mouseup', onUp);
+                $handle.removeClass('is-dragging');
+                $('body').css({ cursor: '', userSelect: '' });
+                $('#pp-preview-frame').css('pointer-events', '');
+                if (cm) cm.refresh();
+            }
+
+            $(document).on('mousemove', onMove).on('mouseup', onUp);
         });
 
         $(window).on('resize', debounce(function () {
-            var total = $panes[0].offsetWidth - 10;
-            var curTotal = paneEditor.offsetWidth + paneReference.offsetWidth + panePreview.offsetWidth;
+            var total = $panes[0].offsetWidth - 5;
+            var curTotal = paneEditor.offsetWidth + panePreview.offsetWidth;
             if (curTotal < 10) { setInitialWidths(); return; }
             var ratio = total / curTotal;
-            paneEditor.style.width    = Math.round(paneEditor.offsetWidth * ratio) + 'px';
-            paneReference.style.width = Math.round(paneReference.offsetWidth * ratio) + 'px';
-            panePreview.style.width   = Math.round(panePreview.offsetWidth * ratio) + 'px';
+            paneEditor.style.width  = Math.round(paneEditor.offsetWidth * ratio) + 'px';
+            panePreview.style.width = Math.round(panePreview.offsetWidth * ratio) + 'px';
             if (cm) cm.refresh();
         }, 100));
     }
@@ -606,10 +926,13 @@
     $(function () {
         initResize();
         initEditor();
-        initSidebar();
+        initViewToggle();
+        initAccordionEvents();
         initTitleEditor();
         initPublishButton();
         $('#pp-save-btn').on('click', doSaveDraft);
+        // Render accordion on load (default view)
+        renderAccordion();
     });
 
 })(jQuery);

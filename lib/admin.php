@@ -379,6 +379,7 @@ function pp_composition_workspace_page(): void {
                 <span class="pp-save-status" id="pp-save-status"></span>
             </div>
             <div class="pp-toolbar-right">
+                <button id="pp-view-toggle" class="pp-toolbar-btn" data-view="accordion">JSON</button>
                 <a href="<?php echo esc_url($view_url); ?>" target="_blank"
                    rel="noopener" class="pp-view-link" id="pp-view-link">
                     <?php echo esc_html($view_label); ?> &#8599;
@@ -403,67 +404,26 @@ function pp_composition_workspace_page(): void {
 
             <!-- Editor pane -->
             <div class="pp-pane pp-pane--editor">
-                <div class="pp-pane-header">JSON Composition</div>
+                <div class="pp-pane-header">Composition</div>
                 <div class="pp-pane-body">
-                    <textarea
-                        id="pp-composition-editor"
-                        name="pp_composition"
-                        style="display:none;"
-                    ><?php echo esc_textarea($raw ?: ''); ?></textarea>
+                    <!-- Accordion view (default) -->
+                    <div id="pp-accordion-view" class="pp-accordion"></div>
+                    <!-- JSON view (hidden by default) -->
+                    <div id="pp-json-view" style="display:none;">
+                        <textarea
+                            id="pp-composition-editor"
+                            name="pp_composition"
+                            style="display:none;"
+                        ><?php echo esc_textarea($raw ?: ''); ?></textarea>
+                    </div>
                 </div>
             </div>
 
-            <!-- Resize handle: editor | reference -->
-            <div class="pp-resize-handle" data-left="editor" data-right="reference"></div>
+            <!-- Resize handle: editor | preview -->
+            <div class="pp-resize-handle" data-left="editor" data-right="preview"></div>
 
-            <!-- Reference pane -->
-            <div class="pp-pane pp-pane--reference">
-                <div class="pp-pane-header pp-pane-tabs">
-                    <button class="pp-tab-btn pp-tab-btn--active" data-tab="components">Components</button>
-                    <button class="pp-tab-btn" data-tab="schema">Schema</button>
-                </div>
-                <div class="pp-pane-body">
-
-                    <div class="pp-tab-panel pp-tab-panel--active" id="pp-tab-components">
-                        <ul class="pp-component-list">
-                            <?php foreach ($component_list as $comp) : ?>
-                            <li class="pp-component-item">
-                                <button
-                                    class="pp-component-insert"
-                                    data-name="<?php echo esc_attr($comp['name']); ?>"
-                                    title="Insert <?php echo esc_attr($comp['name']); ?>"
-                                >
-                                    <?php echo esc_html($comp['name']); ?>
-                                </button>
-                                <?php if ($comp['description']) : ?>
-                                <p class="pp-comp-desc"><?php echo esc_html($comp['description']); ?></p>
-                                <?php endif; ?>
-                                <?php if ($comp['props_summary']) : ?>
-                                <ul class="pp-props-list">
-                                    <?php foreach ($comp['props_summary'] as $p) : ?>
-                                    <li class="<?php echo $p['required'] ? 'pp-prop--req' : 'pp-prop--opt'; ?>">
-                                        <code><?php echo esc_html($p['name']); ?></code>
-                                        <span class="pp-prop-type"><?php echo esc_html($p['type']); ?></span>
-                                    </li>
-                                    <?php endforeach; ?>
-                                </ul>
-                                <?php endif; ?>
-                            </li>
-                            <?php endforeach; ?>
-                        </ul>
-                    </div>
-
-                    <div class="pp-tab-panel" id="pp-tab-schema" style="display:none;">
-                        <div id="pp-schema-display">
-                            <p class="pp-schema-placeholder">Move your cursor inside a component block to see its schema.</p>
-                        </div>
-                    </div>
-
-                </div>
-            </div>
-
-            <!-- Resize handle: reference | preview -->
-            <div class="pp-resize-handle" data-left="reference" data-right="preview"></div>
+            <!-- ARIA live region for accordion announcements -->
+            <div id="pp-accordion-live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
             <!-- Preview pane -->
             <div class="pp-pane pp-pane--preview">
