@@ -207,5 +207,5 @@ wp post meta get <post_id> _wp_page_template
 | `templates/composition.php`   | Reads meta, renders components                  |
 | `lib/admin.php`               | Meta box, AJAX preview, PHP validation           |
 | `assets/js/pp-editor-logic.js`| Pure JS: context parser, validator, insert walker |
-| `assets/js/pp-admin-editor.js`| In-admin JSON editor with live preview           |
+| `assets/js/pp-admin-editor.js`| In-admin editor (accordion + JSON toggle + live preview) |
 | `AI_CONTEXT.md`               | Full site map + composition model reference      |

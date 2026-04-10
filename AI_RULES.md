@@ -47,7 +47,7 @@ npm test            # run once
 npm run test:watch  # watch mode
 ```
 
-The logic under test is in `assets/js/pp-editor-logic.js`. When editing `getJsonContextFromText`, `validateCompositionData`, or `getInsertPosition`, run tests before committing.
+The logic under test is in `assets/js/pp-editor-logic.js`. When editing `getJsonContextFromText`, `validateCompositionData`, `getInsertPosition`, `buildAccordionData`, or `serializeAccordionData`, run tests before committing.
 
 ## File responsibilities
 

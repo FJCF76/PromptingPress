@@ -10,19 +10,18 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 
 ## Features
 
-**Composition editor** — build and edit pages from the WordPress admin without touching a file. Any page using the Composition template gets a full-screen JSON editor with:
-- Real-time validation and live preview as you type
-- Component name autocomplete (Ctrl+Space)
-- Component reference sidebar with props, types, and required/optional status
+**Composition editor** — build and edit pages from the WordPress admin without touching a file. Any page using the Composition template gets a full-screen workspace with:
+- Accordion view (default) — each component as a collapsible card with typed form fields, insert/reorder/delete controls
+- JSON view (toggle) — CodeMirror editor with real-time validation, autocomplete (Ctrl+Space), and live preview
 - Save blocked on invalid compositions — the database always holds the last valid value
 - Contextual actions: draft pages show **Save Draft** + **Publish**; published pages show only **Update**
 - Ctrl+S adapts: saves draft on draft pages, triggers Update on published pages
 
-**Component system** — 8 registered components, each with a `schema.json` that documents props, types, and required fields. Components are isolated PHP partials. No component calls another component. The auto-loader picks up any new component at `/components/{name}/{name}.php` — no registration needed.
+**Component system** — 11 registered components, each with a `schema.json` that documents props, types, and required fields. Components are isolated PHP partials. No component calls another component. The auto-loader picks up any new component at `/components/{name}/{name}.php` — no registration needed.
 
 **WP abstraction layer** — `lib/wp.php` is the only file that calls WordPress functions. Templates and components use `pp_*` wrappers only. This means AI can edit templates without knowing WordPress internals, and templates are testable without bootstrapping WP.
 
-**Design token system** — 17 CSS custom properties in `assets/css/base.css` control the entire visual system. To retheme: edit those 17 variables and nothing else.
+**Design token system** — 18 CSS custom properties in `assets/css/base.css` control the entire visual system. To retheme: edit those 18 variables and nothing else.
 
 **AI context map** — `AI_CONTEXT.md` is a machine-readable site map: file responsibilities, component index, WP abstraction API, composition format, design tokens. Read it once and you know the whole site.
 
@@ -37,8 +36,8 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 /lib/components.php        Component auto-loader (don't edit)
 /assets/css/base.css       Design tokens — 17 CSS variables
 /assets/css/components.css Component styles (CSS variables only, no raw hex)
-/assets/js/pp-editor-logic.js  Pure JS logic: JSON context parser, validator, insert position
-/assets/js/pp-admin-editor.js  Composition editor frontend (CodeMirror + preview)
+/assets/js/pp-editor-logic.js  Pure JS logic: JSON context, validator, accordion data, insert position
+/assets/js/pp-admin-editor.js  Composition editor frontend (accordion + CodeMirror + preview)
 AI_CONTEXT.md              AI site map — start here for any AI session
 AI_RULES.md                AI coding rules and invariants
 ```
@@ -52,9 +51,12 @@ AI_RULES.md                AI coding rules and invariants
 | faq | Native `details/summary` accordion, zero JS | `items[]` |
 | grid | Responsive card grid for real content objects | `items[]` |
 | table | Data/comparison table, horizontal scroll on mobile | `headers[]`, `rows[][]` |
-| cta | Call-to-action block, two variants | `title`, `button_text`, `button_url` |
+| cta | Call-to-action block, layout + color + bg-image | `title`, `button_text`, `button_url` |
 | nav | Site header with hamburger mobile nav | — |
 | footer | Site footer with nav menu and copyright | — |
+| stats | Large-number metrics + labels | `items[]` |
+| logos | Flex-wrap image grid for logo strips | `items[]` |
+| embed | WP shortcode / plugin content wrapper | `content` |
 
 ## Composition format
 
@@ -100,7 +102,7 @@ composer install
 composer test
 ```
 
-**JS tests** (JSON context parser, composition validator, insert-position walker — 38 tests):
+**JS tests** (JSON context parser, composition validator, accordion data, insert-position walker — 56 tests):
 
 ```bash
 npm install

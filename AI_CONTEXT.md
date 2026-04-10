@@ -215,7 +215,7 @@ It returns `[]` when meta is absent or invalid JSON.
 wp post meta update <post_id> _pp_composition '[{"component":"hero","props":{"title":"Hello"}}]'
 ```
 
-**Admin editor:** Pages with the Composition template open a full-screen workspace in WP Admin with a CodeMirror JSON editor, live preview, and component reference sidebar. The toolbar adapts to page state: draft pages show **Save Draft** and **Publish**; published pages show only **Update**. Ctrl+S is contextual — saves draft on draft pages, triggers Update on published pages.
+**Admin editor:** Pages with the Composition template open a full-screen workspace in WP Admin. The default view is an accordion, where each component renders as a collapsible card with typed form fields (string inputs, textareas, enum dropdowns, repeatable array sub-forms). A toolbar toggle switches to a CodeMirror JSON view with autocomplete and live preview. Both views sync to the same canonical JSON. The toolbar adapts to page state: draft pages show **Save Draft** and **Publish**; published pages show only **Update**. Ctrl+S is contextual — saves draft on draft pages, triggers Update on published pages.
 
 **AJAX preview:** `wp_ajax_pp_preview_composition` (cookie auth, WP nonce)
 - POST params: `post_id`, `composition` (JSON string), `nonce`
@@ -227,5 +227,5 @@ wp post meta update <post_id> _pp_composition '[{"component":"hero","props":{"ti
 | `composition.php`              | WP template header (root) — do not edit          |
 | `templates/composition.php`    | Composition template logic                       |
 | `lib/admin.php`                | Meta box, AJAX preview, validation, component registry |
-| `assets/js/pp-admin-editor.js` | Editor JS (CodeMirror, autocomplete, preview)    |
+| `assets/js/pp-admin-editor.js` | Editor JS (accordion, CodeMirror, autocomplete, preview) |
 | `assets/css/pp-admin-editor.css` | Editor layout and styles                       |
