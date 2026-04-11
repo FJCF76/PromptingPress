@@ -18,7 +18,7 @@ each section. Register the template in WP Admin (Pages → Edit → Page Attribu
 **To add a component:** Follow the steps in `ai-instructions/add-component.md`. The
 auto-loader picks up any component at `/components/{name}/{name}.php` — no registration needed.
 
-**To retheme:** Read `ai-instructions/retheme.md`. Edit the 17 CSS tokens in `assets/css/base.css`.
+**To retheme:** Read `ai-instructions/retheme.md`. Edit the 18 CSS tokens in `assets/css/base.css`.
 
 **To provision a new WordPress site:** Read `ai-instructions/bootstrap.md` for the full state contract and WP-CLI verification commands.
 
@@ -47,12 +47,14 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 |--------------------------|---------------------------------|----------------------------------|
 | /templates/              | Page layouts                    | Yes                              |
 | /components/             | Reusable sections               | Yes                              |
-| /assets/css/base.css     | Design tokens (17 CSS vars)     | Yes — tokens only                |
+| /assets/css/base.css     | Design tokens (18 CSS vars)     | Yes — tokens only                |
 | /assets/css/components.css | Component styles              | Yes                              |
 | /assets/css/utilities.css | Spacing / text utilities       | Yes                              |
 | /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Yes — run npm test after         |
 | /assets/js/main.js       | Nav toggle, active link         | Yes                              |
 | /tests/js/               | Vitest unit tests               | Yes — add tests for logic changes |
+| /tests/e2e/              | Playwright E2E tests            | Yes — requires Docker (wp-env)   |
+| .wp-env.json             | wp-env Docker config            | Yes — test environment only      |
 | /lib/wp.php              | WP function wrappers            | Only to add pp_* functions       |
 | /lib/setup.php           | Theme activation bootstrap      | Only to add idempotent setup     |
 | /lib/components.php      | Component loader                | No                               |
