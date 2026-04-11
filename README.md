@@ -34,7 +34,7 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 /lib/admin.php             Composition editor: AJAX handlers, validation, meta box
 /lib/setup.php             Theme activation bootstrap: homepage provisioning
 /lib/components.php        Component auto-loader (don't edit)
-/assets/css/base.css       Design tokens — 17 CSS variables
+/assets/css/base.css       Design tokens — 18 CSS variables
 /assets/css/components.css Component styles (CSS variables only, no raw hex)
 /assets/js/pp-editor-logic.js  Pure JS logic: JSON context, validator, accordion data, insert position
 /assets/js/pp-admin-editor.js  Composition editor frontend (accordion + CodeMirror + preview)
@@ -83,7 +83,7 @@ wp post meta update <post_id> _pp_composition '[{"component":"hero","props":{"ti
 2. Activate the theme in WP Admin (Appearance → Themes)
 3. To use the composition editor on a page: set its template to **Composition** (Page Attributes → Template)
 
-No build step required for the site itself. Vanilla PHP, CSS, and JS. npm is used only for running JS unit tests (`npm test`).
+No build step required for the site itself. Vanilla PHP, CSS, and JS. npm is used for JS unit tests (`npm test`) and E2E tests (`npm run test:e2e`).
 
 ## Rules (enforced by AI_RULES.md)
 
@@ -110,6 +110,16 @@ npm test
 ```
 
 JS tests use [Vitest](https://vitest.dev/) with no bundler. Run `npm run test:watch` for watch mode.
+
+**E2E tests** (full composition editor round-trip against a live WordPress instance — 6 tests):
+
+```bash
+npm run env:start   # boot wp-env Docker container (first run pulls images)
+npm run test:e2e    # Playwright tests against http://localhost:8889
+npm run env:stop    # tear down
+```
+
+E2E tests cover: workspace initialization, preview updates, save rejection on invalid compositions, autosave skip on broken JSON, front-end rendering after publish, and accordion edit round-trip. Requires Docker.
 
 ## Status
 
