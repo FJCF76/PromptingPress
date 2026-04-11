@@ -29,14 +29,6 @@ async function setCM(page, json: string): Promise<void> {
   }, json);
 }
 
-/** Read CodeMirror value via page.evaluate. */
-async function getCM(page): Promise<string> {
-  return page.evaluate(() => {
-    const cmEl = document.querySelector('.CodeMirror') as any;
-    return cmEl?.CodeMirror?.getValue() ?? '';
-  });
-}
-
 // ── Fixture JSON ─────────────────────────────────────────────────────────────
 
 const HERO_SECTION_JSON = JSON.stringify([
