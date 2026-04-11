@@ -10,3 +10,8 @@ vendor/
 
 # JS dependencies
 node_modules/
+
+# E2E test artifacts
+test-results/
+playwright-report/
+tests/e2e/.auth/
