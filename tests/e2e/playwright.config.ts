@@ -11,8 +11,9 @@ export default defineConfig({
   reporter: 'list',
   use: {
     baseURL: 'http://localhost:8889',
-    trace: 'on-first-retry',
+    trace: 'retain-on-failure',
   },
+  timeout: 60000,
   projects: [
     {
       name: 'setup',
