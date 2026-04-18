@@ -55,7 +55,9 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 | /tests/js/               | Vitest unit tests               | Yes — add tests for logic changes |
 | /tests/e2e/              | Playwright E2E tests            | Yes — requires Docker (wp-env)   |
 | .wp-env.json             | wp-env Docker config            | Yes — test environment only      |
-| /lib/wp.php              | WP function wrappers            | Only to add pp_* functions       |
+| /lib/wp.php              | WP function wrappers (read + write) | Only to add pp_* functions   |
+| /lib/actions.php         | Typed action model (9 actions)  | Add actions following the contract |
+| /lib/cli.php             | WP-CLI `wp pp action` commands  | Yes                              |
 | /lib/setup.php           | Theme activation bootstrap      | Only to add idempotent setup     |
 | /lib/components.php      | Component loader                | No                               |
 | /lib/helpers.php         | Utility functions               | Yes — only to add                |
@@ -143,6 +145,15 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_permalink()`              | Current post permalink                          |
 | `pp_thumbnail_url($size)`     | Post thumbnail URL (default 'large')            |
 | `pp_default_homepage_composition()` | Default homepage component array (hero, section, cta) — single source of truth for activation seeding and blank-page fallback |
+| `pp_get_composition($post_id)` | Composition array for any page by ID (returns [] if absent) |
+| `pp_composition_pages()`       | All composition pages: [{id, title, status, url}, ...] (static cached) |
+| `pp_design_tokens()`           | CSS custom properties from base.css :root {} as key-value map (read-only, static cached) |
+| `pp_site_option($key)`         | Whitelisted option value (blogname, blogdescription) or WP_Error |
+| `pp_update_composition($post_id, $composition)` | Writes composition array to post meta (handles JSON serialization). Returns true\|WP_Error |
+| `pp_update_page_title($post_id, $title)` | Updates page title. Returns true\|WP_Error |
+| `pp_create_page($title, $status)` | Creates page with Composition template. Returns post ID\|WP_Error |
+| `pp_publish_page($post_id)`    | Sets post_status to 'publish'. Returns true\|WP_Error |
+| `pp_update_site_option($key, $value)` | Updates whitelisted option. Returns true\|WP_Error |
 
 ---
 
@@ -212,7 +223,12 @@ Pages using the **Composition** template store their layout in `_pp_composition`
 **To read the composition in PHP:** use `pp_composition()` from `lib/wp.php`.
 It returns `[]` when meta is absent or invalid JSON.
 
-**To write a composition as AI:**
+**To write a composition as AI (preferred):**
+```bash
+wp pp action execute update_composition --params='{"post_id":4,"composition":[{"component":"hero","props":{"title":"Hello"}}]}'
+```
+
+**Direct meta write (legacy, bypasses validation):**
 ```bash
 wp post meta update <post_id> _pp_composition '[{"component":"hero","props":{"title":"Hello"}}]'
 ```
@@ -231,3 +247,49 @@ wp post meta update <post_id> _pp_composition '[{"component":"hero","props":{"ti
 | `lib/admin.php`                | Meta box, AJAX preview, validation, component registry |
 | `assets/js/pp-admin-editor.js` | Editor JS (accordion, CodeMirror, autocomplete, preview) |
 | `assets/css/pp-admin-editor.css` | Editor layout and styles                       |
+
+---
+
+## Action model (lib/actions.php)
+
+All mutations go through typed actions. AJAX handlers, WP-CLI, and future AI callers all use the same layer.
+
+**Every action returns the same canonical result shape:**
+```php
+['ok' => bool, 'action' => string, 'scope' => string, 'target' => array, 'changes' => array, 'error' => string|null]
+```
+
+**Execute always validates first.** Callers never need to pre-validate.
+
+**Registry functions:**
+- `pp_get_registered_actions()` — all 9 actions
+- `pp_get_action($name)` — single action definition or null
+- `pp_validate_action($name, $params)` — structural + semantic validation, returns true|WP_Error
+- `pp_preview_action($name, $params)` — validates, computes diff, never writes
+- `pp_execute_action($name, $params)` — validates then executes, returns canonical result
+
+### Actions
+
+| Action | Scope | Params | Semantics |
+|---|---|---|---|
+| `create_page` | site | title (req), composition, status | Create. Defaults to draft with empty composition |
+| `update_site_option` | site | key (req), value (req) | Replace. Whitelisted: blogname, blogdescription |
+| `update_page_title` | page | post_id (req), title (req) | Replace |
+| `update_composition` | page | post_id (req), composition (req) | Replace entire array |
+| `publish_page` | page | post_id (req) | Sets status to publish. Idempotent |
+| `add_component` | page | post_id (req), component (req), props (req), position | Append, or insert at position (0-based) |
+| `remove_component` | page | post_id (req), component_index (req) | Remove by 0-based index. Rejects OOB |
+| `reorder_components` | page | post_id (req), order (req, int[]) | Permutation of 0..N-1. No duplicates, no gaps |
+| `update_component` | section | post_id (req), component_index (req), props (req) | **Patch** (not replace). Shallow merge. Unspecified props unchanged. `null` removes a prop. Validates merged result |
+
+### WP-CLI
+
+```bash
+wp pp action list                                    # all actions with scope and params
+wp pp action preview <name> --params='{"key":"val"}'  # validate + diff, never writes
+wp pp action execute <name> --params='{"key":"val"}'  # validate + execute
+```
+
+### AJAX handler delegation
+
+The 3 mutation AJAX handlers (`pp_save_composition`, `pp_save_title`, `pp_publish_page`) are thin HTTP adapters. They handle nonce verification, capability checks, and JSON parsing, then delegate to `pp_execute_action()`. The publish handler uses a short-circuit pattern: save composition first, publish only if save succeeds. Zero JS changes.
