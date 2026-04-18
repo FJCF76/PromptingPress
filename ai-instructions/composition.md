@@ -94,13 +94,34 @@ Always verify against `components/{name}/schema.json` before writing — the sou
 
 ## How to write a composition (WP CLI)
 
+**Preferred: typed actions** (validates before writing, returns structured result):
+
 ```bash
-# Set a composition on page ID 42
-wp post meta update 42 _pp_composition '[
+# Update a composition on page ID 42
+wp pp action execute update_composition --params='{"post_id":42,"composition":[
   {"component":"hero","props":{"title":"My Page","variant":"centered"}},
   {"component":"section","props":{"body":"<p>Content goes here.</p>","layout":"text-only"}}
-]'
+]}'
 
+# Add a single component to an existing page
+wp pp action execute add_component --params='{"post_id":42,"component":"cta","props":{"title":"Go","button_text":"Click","button_url":"/"}}'
+
+# Preview a change without writing
+wp pp action preview update_component --params='{"post_id":42,"component_index":0,"props":{"title":"New Title"}}'
+
+# Create a new page
+wp pp action execute create_page --params='{"title":"About Us"}'
+```
+
+**Direct meta write** (legacy, bypasses validation):
+
+```bash
+wp post meta update 42 _pp_composition '[{"component":"hero","props":{"title":"Hello"}}]'
+```
+
+**Read operations:**
+
+```bash
 # Read the current composition on a page
 wp post meta get 42 _pp_composition
 

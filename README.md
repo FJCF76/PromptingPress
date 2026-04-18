@@ -31,7 +31,9 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 /components/{name}/        Component partials + schema.json
 /templates/                Page layout files
 /lib/wp.php                WP abstraction layer (pp_* functions only)
-/lib/admin.php             Composition editor: AJAX handlers, validation, meta box
+/lib/actions.php           Typed action model (9 actions, validate/preview/execute)
+/lib/cli.php               WP-CLI commands (wp pp action list|preview|execute)
+/lib/admin.php             Composition editor: meta box, AJAX adapters → action layer
 /lib/setup.php             Theme activation bootstrap: homepage provisioning
 /lib/components.php        Component auto-loader (don't edit)
 /assets/css/base.css       Design tokens — 18 CSS variables
@@ -71,10 +73,10 @@ Pages using the Composition template store their layout in `_pp_composition` pos
 ]
 ```
 
-AI can write compositions directly via WP CLI:
+AI can write compositions via the typed action layer:
 
 ```bash
-wp post meta update <post_id> _pp_composition '[{"component":"hero","props":{"title":"Hello"}}]'
+wp pp action execute update_composition --params='{"post_id":4,"composition":[{"component":"hero","props":{"title":"Hello"}}]}'
 ```
 
 ## Installation
@@ -95,7 +97,7 @@ No build step required for the site itself. Vanilla PHP, CSS, and JS. npm is use
 
 ## Tests
 
-**PHP tests** (component loader, WP abstraction layer, invariant rules, schema validation):
+**PHP tests** (component loader, WP abstraction layer, invariant rules, schema validation, 9 typed actions):
 
 ```bash
 composer install
@@ -111,7 +113,7 @@ npm test
 
 JS tests use [Vitest](https://vitest.dev/) with no bundler. Run `npm run test:watch` for watch mode.
 
-**E2E tests** (full composition editor round-trip against a live WordPress instance — 6 tests):
+**E2E tests** (full composition editor round-trip against a live WordPress instance — 7 tests):
 
 ```bash
 npm run env:start   # boot wp-env Docker container (first run pulls images)
@@ -119,7 +121,7 @@ npm run test:e2e    # Playwright tests against http://localhost:8889
 npm run env:stop    # tear down
 ```
 
-E2E tests cover: workspace initialization, preview updates, save rejection on invalid compositions, autosave skip on broken JSON, front-end rendering after publish, and accordion edit round-trip. Requires Docker.
+E2E tests cover: workspace initialization, preview updates, save rejection on invalid compositions, autosave skip on broken JSON, front-end rendering after publish, accordion edit round-trip, and CLI action round-trip (create page + add component + publish + render). Requires Docker.
 
 ## Status
 
