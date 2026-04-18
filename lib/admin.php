@@ -254,16 +254,14 @@ add_action('wp_ajax_pp_save_composition', function () {
         wp_send_json_error('Invalid JSON.');
     }
 
-    $result = pp_validate_composition($decoded);
-    if (is_wp_error($result)) {
-        wp_send_json_error($result->get_error_message());
-    }
+    $result = pp_execute_action('update_composition', [
+        'post_id'     => $post_id,
+        'composition' => $decoded,
+    ]);
 
-    update_post_meta(
-        $post_id,
-        '_pp_composition',
-        wp_slash(wp_json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
-    );
+    if (!$result['ok']) {
+        wp_send_json_error($result['error']);
+    }
 
     wp_send_json_success('Saved.');
 });
@@ -523,10 +521,13 @@ add_action('wp_ajax_pp_save_title', function (): void {
     }
 
     $title  = isset($_POST['title']) ? sanitize_text_field(wp_unslash($_POST['title'])) : '';
-    $result = wp_update_post(['ID' => $post_id, 'post_title' => $title], true);
+    $result = pp_execute_action('update_page_title', [
+        'post_id' => $post_id,
+        'title'   => $title,
+    ]);
 
-    if (is_wp_error($result)) {
-        wp_send_json_error($result->get_error_message());
+    if (!$result['ok']) {
+        wp_send_json_error($result['error']);
     }
 
     wp_send_json_success(['title' => $title]);
@@ -546,28 +547,26 @@ add_action('wp_ajax_pp_publish_page', function (): void {
         wp_send_json_error('Insufficient permissions.');
     }
 
-    // Save composition meta first (same validation as pp_save_composition).
+    // Save composition first (short-circuit: if save fails, publish never fires).
     $raw = isset($_POST['composition']) ? stripslashes($_POST['composition']) : '';
     if ($raw !== '') {
         $decoded = json_decode($raw, true);
         if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
             wp_send_json_error('Invalid JSON.');
         }
-        $validation = pp_validate_composition($decoded);
-        if (is_wp_error($validation)) {
-            wp_send_json_error($validation->get_error_message());
+        $save_result = pp_execute_action('update_composition', [
+            'post_id'     => $post_id,
+            'composition' => $decoded,
+        ]);
+        if (!$save_result['ok']) {
+            wp_send_json_error($save_result['error']);
         }
-        update_post_meta(
-            $post_id,
-            '_pp_composition',
-            wp_slash(wp_json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
-        );
     }
 
     // Publish the page.
-    $result = wp_update_post(['ID' => $post_id, 'post_status' => 'publish'], true);
-    if (is_wp_error($result)) {
-        wp_send_json_error($result->get_error_message());
+    $pub_result = pp_execute_action('publish_page', ['post_id' => $post_id]);
+    if (!$pub_result['ok']) {
+        wp_send_json_error($pub_result['error']);
     }
 
     wp_send_json_success([

@@ -12,6 +12,46 @@ if (!defined('WP_DEBUG')) {
     define('WP_DEBUG', true);
 }
 
+// ── WP_Error stub ───────────────────────────────────────────────────────────
+// Minimal stub for action layer tests. Supports get_error_message/code.
+if (!class_exists('WP_Error')) {
+    class WP_Error {
+        protected string $code;
+        protected string $message;
+
+        public function __construct(string $code = '', string $message = '') {
+            $this->code    = $code;
+            $this->message = $message;
+        }
+
+        public function get_error_code(): string {
+            return $this->code;
+        }
+
+        public function get_error_message(): string {
+            return $this->message;
+        }
+    }
+}
+
+if (!function_exists('is_wp_error')) {
+    function is_wp_error($thing): bool {
+        return $thing instanceof WP_Error;
+    }
+}
+
+// ── Stateful in-memory store for write-path stubs ───────────────────────────
+// Action layer tests need get_post_meta to return what update_post_meta wrote.
+// Clear $GLOBALS['_pp_test_store'] in setUp() for test isolation.
+if (!isset($GLOBALS['_pp_test_store'])) {
+    $GLOBALS['_pp_test_store'] = [
+        'post_meta' => [],
+        'posts'     => [],
+        'options'   => [],
+        'next_id'   => 100,
+    ];
+}
+
 // Stub get_template_directory() so component loader can resolve paths
 // without a real WordPress install. Returns the theme root.
 if (!function_exists('get_template_directory')) {
@@ -42,7 +82,11 @@ if (!function_exists('home_url')) {
 }
 
 if (!function_exists('get_the_title')) {
-    function get_the_title(int $post = 0): string {
+    function get_the_title($post = 0): string {
+        $id = is_int($post) ? $post : 0;
+        if ($id && isset($GLOBALS['_pp_test_store']['posts'][$id]['post_title'])) {
+            return $GLOBALS['_pp_test_store']['posts'][$id]['post_title'];
+        }
         return 'Test Post Title';
     }
 }
@@ -73,7 +117,11 @@ if (!function_exists('wp_trim_words')) {
 }
 
 if (!function_exists('get_permalink')) {
-    function get_permalink(): string {
+    function get_permalink($post = 0): string {
+        $id = is_int($post) ? $post : 0;
+        if ($id) {
+            return 'https://example.com/?page_id=' . $id;
+        }
         return 'https://example.com/test-post/';
     }
 }
@@ -136,7 +184,226 @@ if (!function_exists('wp_strip_all_tags')) {
     }
 }
 
+// ── Write-path stubs (stateful via $GLOBALS['_pp_test_store']) ───────────────
+
+if (!function_exists('get_post_meta')) {
+    function get_post_meta(int $post_id, string $key = '', bool $single = false) {
+        $store = $GLOBALS['_pp_test_store']['post_meta'];
+        if ($key === '') {
+            return $store[$post_id] ?? [];
+        }
+        $value = $store[$post_id][$key] ?? ($single ? '' : []);
+        return $value;
+    }
+}
+
+if (!function_exists('update_post_meta')) {
+    function update_post_meta(int $post_id, string $key, $value): bool {
+        $GLOBALS['_pp_test_store']['post_meta'][$post_id][$key] = $value;
+        return true;
+    }
+}
+
+if (!function_exists('get_posts')) {
+    function get_posts(array $args = []): array {
+        $results = [];
+        foreach ($GLOBALS['_pp_test_store']['posts'] as $id => $data) {
+            if (isset($args['meta_key'], $args['meta_value'])) {
+                $meta = $GLOBALS['_pp_test_store']['post_meta'][$id][$args['meta_key']] ?? null;
+                if ($meta !== $args['meta_value']) {
+                    continue;
+                }
+            }
+            if (isset($args['post_status']) && is_array($args['post_status'])) {
+                if (!in_array($data['post_status'] ?? 'draft', $args['post_status'], true)) {
+                    continue;
+                }
+            }
+            $post = (object) array_merge(['ID' => $id], $data);
+            $results[] = $post;
+        }
+        return $results;
+    }
+}
+
+if (!function_exists('wp_insert_post')) {
+    function wp_insert_post(array $args, bool $wp_error = false) {
+        $id = $GLOBALS['_pp_test_store']['next_id']++;
+        $GLOBALS['_pp_test_store']['posts'][$id] = [
+            'post_type'   => $args['post_type'] ?? 'post',
+            'post_title'  => $args['post_title'] ?? '',
+            'post_status' => $args['post_status'] ?? 'draft',
+        ];
+        return $id;
+    }
+}
+
+if (!function_exists('wp_update_post')) {
+    function wp_update_post(array $args, bool $wp_error = false) {
+        $id = $args['ID'] ?? 0;
+        if (!$id || !isset($GLOBALS['_pp_test_store']['posts'][$id])) {
+            if ($wp_error) {
+                return new WP_Error('invalid_post', 'Post not found.');
+            }
+            return 0;
+        }
+        foreach ($args as $key => $value) {
+            if ($key !== 'ID') {
+                $GLOBALS['_pp_test_store']['posts'][$id][$key] = $value;
+            }
+        }
+        return $id;
+    }
+}
+
+if (!function_exists('get_option')) {
+    function get_option(string $key, $default = false) {
+        return $GLOBALS['_pp_test_store']['options'][$key] ?? $default;
+    }
+}
+
+if (!function_exists('update_option')) {
+    function update_option(string $key, $value): bool {
+        $GLOBALS['_pp_test_store']['options'][$key] = $value;
+        return true;
+    }
+}
+
+if (!function_exists('wp_slash')) {
+    // No-op: real WP adds slashes then update_post_meta strips them.
+    // Our stubs don't strip, so wp_slash must be transparent.
+    function wp_slash($value) {
+        return $value;
+    }
+}
+
+if (!function_exists('wp_json_encode')) {
+    function wp_json_encode($data, int $options = 0, int $depth = 512) {
+        return json_encode($data, $options, $depth);
+    }
+}
+
+if (!function_exists('sanitize_text_field')) {
+    function sanitize_text_field(string $str): string {
+        return trim(strip_tags($str));
+    }
+}
+
+if (!function_exists('get_the_ID')) {
+    function get_the_ID(): int {
+        return 0;
+    }
+}
+
+if (!function_exists('get_preview_post_link')) {
+    function get_preview_post_link(int $post_id = 0): string {
+        return 'https://example.com/?preview=true&page_id=' . $post_id;
+    }
+}
+
+// ── WordPress hook/registration stubs ──────────────────────────────────────
+// Needed so lib/admin.php can be loaded without a real WP environment.
+
+if (!function_exists('add_action')) {
+    function add_action(string $tag, $callback, int $priority = 10, int $accepted_args = 1): void {}
+}
+
+if (!function_exists('add_filter')) {
+    function add_filter(string $tag, $callback, int $priority = 10, int $accepted_args = 1): void {}
+}
+
+if (!function_exists('register_post_meta')) {
+    function register_post_meta(string $post_type, string $meta_key, array $args): bool { return true; }
+}
+
+if (!function_exists('wp_send_json_success')) {
+    function wp_send_json_success($data = null): void {}
+}
+
+if (!function_exists('wp_send_json_error')) {
+    function wp_send_json_error($data = null, int $status = 200): void {}
+}
+
+if (!function_exists('wp_verify_nonce')) {
+    function wp_verify_nonce($nonce, $action = -1): bool { return true; }
+}
+
+if (!function_exists('current_user_can')) {
+    function current_user_can(string $capability): bool { return true; }
+}
+
+if (!function_exists('check_ajax_referer')) {
+    function check_ajax_referer($action = -1, $query_arg = false, $die = true): bool { return true; }
+}
+
+if (!function_exists('add_meta_box')) {
+    function add_meta_box($id, $title, $callback, $screen = null, $context = 'advanced', $priority = 'default', $args = null): void {}
+}
+
+if (!function_exists('add_menu_page')) {
+    function add_menu_page($page_title, $menu_title, $capability, $menu_slug, $callback = '', $icon_url = '', $position = null): string { return ''; }
+}
+
+if (!function_exists('add_submenu_page')) {
+    function add_submenu_page($parent_slug, $page_title, $menu_title, $capability, $menu_slug, $callback = '', $position = null): string { return ''; }
+}
+
+if (!function_exists('admin_url')) {
+    function admin_url(string $path = ''): string { return 'https://example.com/wp-admin/' . $path; }
+}
+
+if (!function_exists('wp_enqueue_style')) {
+    function wp_enqueue_style($handle, $src = '', $deps = [], $ver = false, $media = 'all'): void {}
+}
+
+if (!function_exists('wp_enqueue_script')) {
+    function wp_enqueue_script($handle, $src = '', $deps = [], $ver = false, $in_footer = false): void {}
+}
+
+if (!function_exists('wp_localize_script')) {
+    function wp_localize_script($handle, $object_name, $l10n): bool { return true; }
+}
+
+if (!function_exists('wp_create_nonce')) {
+    function wp_create_nonce($action = -1): string { return 'test_nonce'; }
+}
+
+if (!function_exists('get_post')) {
+    function get_post($post = null) {
+        $id = is_object($post) ? $post->ID : (int) $post;
+        if (!$id || !isset($GLOBALS['_pp_test_store']['posts'][$id])) {
+            return null;
+        }
+        $data = $GLOBALS['_pp_test_store']['posts'][$id];
+        $obj = new WP_Post();
+        $obj->ID = $id;
+        $obj->post_type = $data['post_type'] ?? 'page';
+        $obj->post_title = $data['post_title'] ?? '';
+        $obj->post_status = $data['post_status'] ?? 'draft';
+        return $obj;
+    }
+}
+
+if (!function_exists('get_post_type')) {
+    function get_post_type($post = null): string { return 'page'; }
+}
+
+if (!function_exists('get_page_template_slug')) {
+    function get_page_template_slug($post = null): string { return 'composition.php'; }
+}
+
+if (!class_exists('WP_Post')) {
+    class WP_Post {
+        public int $ID = 0;
+        public string $post_type = 'page';
+        public string $post_title = '';
+        public string $post_status = 'draft';
+    }
+}
+
 // Load the theme library files.
 require_once dirname(__DIR__) . '/lib/wp.php';
 require_once dirname(__DIR__) . '/lib/helpers.php';
 require_once dirname(__DIR__) . '/lib/components.php';
+require_once dirname(__DIR__) . '/lib/admin.php';
+require_once dirname(__DIR__) . '/lib/actions.php';

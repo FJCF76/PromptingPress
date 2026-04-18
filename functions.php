@@ -13,8 +13,13 @@ define('PP_VERSION', '1.0.1');
 require_once get_template_directory() . '/lib/wp.php';
 require_once get_template_directory() . '/lib/components.php';
 require_once get_template_directory() . '/lib/helpers.php';
+require_once get_template_directory() . '/lib/actions.php';
 require_once get_template_directory() . '/lib/admin.php';
 require_once get_template_directory() . '/lib/setup.php';
+
+if (defined('WP_CLI') && WP_CLI) {
+    require_once get_template_directory() . '/lib/cli.php';
+}
 
 // ── Theme setup ────────────────────────────────────────────────────────────
 add_action('after_setup_theme', function () {

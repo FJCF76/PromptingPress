@@ -150,6 +150,197 @@ function pp_composition(): array {
     return is_array($items) ? $items : [];
 }
 
+// ── Site-state read functions (action-layer support) ─────────────────────────
+
+/**
+ * Returns the composition array for a specific page by post ID.
+ * Unlike pp_composition(), this works outside the loop.
+ *
+ * @param int $post_id  WordPress post ID.
+ * @return array  Array of component objects, or [] if absent/invalid.
+ */
+function pp_get_composition(int $post_id): array {
+    $raw = get_post_meta($post_id, '_pp_composition', true);
+    if (!$raw) {
+        return [];
+    }
+    $items = json_decode($raw, true);
+    return is_array($items) ? $items : [];
+}
+
+/**
+ * Returns all pages using the Composition template.
+ * Each entry: ['id' => int, 'title' => string, 'status' => string, 'url' => string].
+ * URL is get_permalink() for all statuses (best available WP link, not guaranteed public for drafts).
+ * Uses static cache — safe to call multiple times per request.
+ *
+ * @return array
+ */
+function pp_composition_pages(): array {
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+
+    $posts = get_posts([
+        'post_type'      => 'page',
+        'post_status'    => ['publish', 'draft', 'pending', 'private'],
+        'meta_key'       => '_wp_page_template',
+        'meta_value'     => 'composition.php',
+        'posts_per_page' => -1,
+        'orderby'        => 'title',
+        'order'          => 'ASC',
+    ]);
+
+    $cache = [];
+    foreach ($posts as $post) {
+        $cache[] = [
+            'id'     => $post->ID,
+            'title'  => $post->post_title,
+            'status' => $post->post_status,
+            'url'    => (string) get_permalink($post->ID),
+        ];
+    }
+
+    return $cache;
+}
+
+/**
+ * Returns CSS custom properties from base.css :root {} as a flat key-value map.
+ * Read-only. Returns e.g. ['--color-bg' => '#ffffff', '--space-md' => '1rem', ...].
+ * Static cached. No file writes.
+ *
+ * @return array  Associative array of CSS custom property name => value.
+ */
+function pp_design_tokens(): array {
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+
+    $file = get_template_directory() . '/assets/css/base.css';
+    if (!file_exists($file)) {
+        $cache = [];
+        return $cache;
+    }
+
+    $css = file_get_contents($file);
+    $cache = [];
+
+    // Match :root { ... } block
+    if (preg_match('/:root\s*\{([^}]+)\}/s', $css, $root_match)) {
+        // Match each --property: value pair
+        preg_match_all('/(--[\w-]+)\s*:\s*([^;]+);/', $root_match[1], $matches, PREG_SET_ORDER);
+        foreach ($matches as $m) {
+            $cache[trim($m[1])] = trim($m[2]);
+        }
+    }
+
+    return $cache;
+}
+
+/**
+ * Returns a whitelisted WordPress option value.
+ * Only allows: blogname, blogdescription.
+ *
+ * @param string $key  Option name (must be whitelisted).
+ * @return string|WP_Error  Option value, or WP_Error if key not whitelisted.
+ */
+function pp_site_option(string $key) {
+    $allowed = ['blogname', 'blogdescription'];
+    if (!in_array($key, $allowed, true)) {
+        return new WP_Error('invalid_option', sprintf('Option "%s" is not whitelisted.', $key));
+    }
+    return (string) get_option($key, '');
+}
+
+// ── Site-state write functions (persistence wrappers) ────────────────────────
+
+/**
+ * Writes a composition array to post meta.
+ * Thin persistence wrapper — handles JSON serialization internally.
+ * Does NOT validate (the action layer owns validation).
+ *
+ * @param int   $post_id      WordPress post ID.
+ * @param array $composition  Array of component objects.
+ * @return true|WP_Error
+ */
+function pp_update_composition(int $post_id, array $composition) {
+    $json = wp_json_encode($composition, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    update_post_meta($post_id, '_pp_composition', wp_slash($json));
+    return true;
+}
+
+/**
+ * Updates a page title.
+ *
+ * @param int    $post_id  WordPress post ID.
+ * @param string $title    New page title.
+ * @return true|WP_Error
+ */
+function pp_update_page_title(int $post_id, string $title) {
+    $result = wp_update_post(['ID' => $post_id, 'post_title' => $title], true);
+    if (is_wp_error($result)) {
+        return $result;
+    }
+    return true;
+}
+
+/**
+ * Creates a new page with the Composition template.
+ *
+ * @param string $title   Page title.
+ * @param string $status  Post status (default 'draft').
+ * @return int|WP_Error   New post ID, or WP_Error on failure.
+ */
+function pp_create_page(string $title, string $status = 'draft') {
+    $post_id = wp_insert_post([
+        'post_type'   => 'page',
+        'post_title'  => $title,
+        'post_status' => $status,
+    ], true);
+
+    if (is_wp_error($post_id)) {
+        return $post_id;
+    }
+
+    update_post_meta($post_id, '_wp_page_template', 'composition.php');
+    return $post_id;
+}
+
+/**
+ * Publishes a page (sets post_status to 'publish').
+ *
+ * @param int $post_id  WordPress post ID.
+ * @return true|WP_Error
+ */
+function pp_publish_page(int $post_id) {
+    $result = wp_update_post(['ID' => $post_id, 'post_status' => 'publish'], true);
+    if (is_wp_error($result)) {
+        return $result;
+    }
+    return true;
+}
+
+/**
+ * Updates a whitelisted WordPress option.
+ * Only allows: blogname, blogdescription.
+ *
+ * @param string $key    Option name (must be whitelisted).
+ * @param string $value  New option value.
+ * @return true|WP_Error
+ */
+function pp_update_site_option(string $key, string $value) {
+    $allowed = ['blogname', 'blogdescription'];
+    if (!in_array($key, $allowed, true)) {
+        return new WP_Error('invalid_option', sprintf('Option "%s" is not whitelisted.', $key));
+    }
+    update_option($key, $value);
+    return true;
+}
+
+// ── Default content ─────────────────────────────────────────────────────────
+
 /**
  * Returns the default homepage composition used on fresh installs and as the
  * blank-page fallback. Single source of truth — called by lib/setup.php at
