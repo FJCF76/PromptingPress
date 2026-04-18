@@ -55,7 +55,7 @@ Playwright tests in `tests/e2e/` run against a live WordPress instance via wp-en
 
 ```
 npm run env:start   # boot Docker WordPress on port 8889
-npm run test:e2e    # 6 tests covering full editor round-trip
+npm run test:e2e    # 7 tests covering editor round-trip + CLI actions
 npm run env:stop    # tear down
 ```
 
@@ -71,7 +71,9 @@ Requires Docker. Tests cover workspace init, preview updates, save rejection, au
 | /assets/css/components.css | Component styles              | Yes                              |
 | /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Yes — run npm test after         |
 | /assets/js/main.js       | Nav toggle, active link         | Yes                              |
-| /lib/wp.php              | WP function wrappers            | Only to add pp_ functions        |
+| /lib/wp.php              | WP function wrappers (read + write) | Only to add pp_ functions   |
+| /lib/actions.php         | Typed action model (9 actions)  | Add actions following the contract |
+| /lib/cli.php             | WP-CLI `wp pp action` commands  | Yes                              |
 | /lib/components.php      | Component loader                | No                               |
 | functions.php            | WP registration                 | Only to add                      |
 | style.css                | Theme header (WP requirement)   | No                               |

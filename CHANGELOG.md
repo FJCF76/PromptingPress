@@ -4,6 +4,38 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.1.6] — 2026-04-18 — Typed action model, WP-CLI, and AJAX refactor
+
+### One write path for everything
+
+All mutations now go through typed actions. The composition editor, WP-CLI, and future AI callers all use the same `pp_execute_action()` layer. Every action validates before writing, returns the same structured result shape, and supports preview (see the diff without writing).
+
+### 9 actions
+
+You can now create pages, update compositions, add/remove/reorder components, update titles, publish pages, and change site options, all through one consistent interface. Each action declares its params, validates inputs, and returns a canonical `{ok, action, scope, target, changes, error}` result.
+
+### WP-CLI interface
+
+```bash
+wp pp action list                                    # see all 9 actions
+wp pp action preview update_component --params='{}'  # see the diff, never writes
+wp pp action execute create_page --params='{"title":"New Page"}'
+```
+
+### AJAX handlers are now thin adapters
+
+The 3 mutation AJAX handlers (`pp_save_composition`, `pp_save_title`, `pp_publish_page`) delegate to the action layer. Same POST params, same JSON response shape, zero JS changes. The editor works exactly as before, backed by a canonical architecture.
+
+### Site-state read layer
+
+New `pp_*` functions for querying site state: `pp_get_composition($post_id)` (composition for any page by ID), `pp_composition_pages()` (all composition pages), `pp_design_tokens()` (CSS custom properties from base.css), `pp_site_option($key)` (whitelisted options).
+
+### 85 unit tests, 367 assertions
+
+Full coverage of all 9 actions across validate, preview, and execute paths, plus edge cases (reorder permutation validation, OOB rejection, null-removes-prop, partial merge).
+
+---
+
 ## [v0.1.5] — 2026-04-10 — Accordion editor for structured composition editing
 
 ### Accordion replaces the reference pane
