@@ -147,13 +147,35 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_default_homepage_composition()` | Default homepage component array (hero, section, cta) — single source of truth for activation seeding and blank-page fallback |
 | `pp_get_composition($post_id)` | Composition array for any page by ID (returns [] if absent) |
 | `pp_composition_pages()`       | All composition pages: [{id, title, status, url}, ...] (static cached) |
-| `pp_design_tokens()`           | CSS custom properties from base.css :root {} as key-value map (read-only, static cached) |
+| `pp_design_tokens()`           | CSS custom properties from base.css :root {} with type metadata. Returns `['--token' => ['value' => string, 'type' => string\|null]]`. Static cached. |
+| `pp_invalidate_design_tokens_cache()` | Resets the pp_design_tokens() static cache. Call after writing to base.css. |
 | `pp_site_option($key)`         | Whitelisted option value (blogname, blogdescription) or WP_Error |
 | `pp_update_composition($post_id, $composition)` | Writes composition array to post meta (handles JSON serialization). Returns true\|WP_Error |
 | `pp_update_page_title($post_id, $title)` | Updates page title. Returns true\|WP_Error |
 | `pp_create_page($title, $status)` | Creates page with Composition template. Returns post ID\|WP_Error |
 | `pp_publish_page($post_id)`    | Sets post_status to 'publish'. Returns true\|WP_Error |
 | `pp_update_site_option($key, $value)` | Updates whitelisted option. Returns true\|WP_Error |
+
+### Apply layer (file-based mutations — lib/apply.php)
+
+| Function | Description |
+|----------|-------------|
+| `pp_register_apply($name, $def)` | Registers a file-based mutation (apply). |
+| `pp_get_registered_applies()` | Returns all registered applies. |
+| `pp_get_apply($name)` | Returns a single apply definition, or null. |
+| `pp_validate_apply($name, $params)` | Validates params (structural + semantic). Returns true\|WP_Error. |
+| `pp_preview_apply($name, $params)` | Validates and returns before/after diff without writing. |
+| `pp_execute_apply($name, $params)` | Validates, backs up, applies mutation, verifies contract. |
+| `pp_restore_points($basename)` | Returns available restore points for a file. |
+| `pp_restore($target_path, $point)` | Restores a file from a restore point (null = latest). |
+
+**Registered applies:**
+
+| Name | Domain | Target | Params |
+|------|--------|--------|--------|
+| `update_design_token` | design | assets/css/base.css | token (string, required), value (string, required) |
+
+**CLI:** `wp pp apply list\|preview\|execute\|restore` (requires manage_options capability).
 
 ---
 

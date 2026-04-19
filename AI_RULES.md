@@ -23,6 +23,9 @@ The dev site at `dev.promptingpress.com` is a separate copy of the repo, not a s
 
 To restyle the site, read `ai-instructions/retheme.md`.
 Design tokens live in `assets/css/base.css` — 18 CSS variables control the entire visual system.
+Each token has a type annotation in its comment (color, length, font-family, duration, raw).
+To change a token programmatically, use `pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309'])`.
+CLI: `wp pp apply execute update_design_token --params='{"token":"--color-accent","value":"#b45309"}'`.
 
 ## Anti-slop rules
 
@@ -73,7 +76,8 @@ Requires Docker. Tests cover workspace init, preview updates, save rejection, au
 | /assets/js/main.js       | Nav toggle, active link         | Yes                              |
 | /lib/wp.php              | WP function wrappers (read + write) | Only to add pp_ functions   |
 | /lib/actions.php         | Typed action model (9 actions)  | Add actions following the contract |
-| /lib/cli.php             | WP-CLI `wp pp action` commands  | Yes                              |
+| /lib/apply.php           | Apply layer (file-based mutations) | Add applies following the contract |
+| /lib/cli.php             | WP-CLI `wp pp action` + `wp pp apply` commands | Yes               |
 | /lib/components.php      | Component loader                | No                               |
 | functions.php            | WP registration                 | Only to add                      |
 | style.css                | Theme header (WP requirement)   | No                               |
