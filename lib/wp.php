@@ -206,14 +206,21 @@ function pp_composition_pages(): array {
 }
 
 /**
- * Returns CSS custom properties from base.css :root {} as a flat key-value map.
- * Read-only. Returns e.g. ['--color-bg' => '#ffffff', '--space-md' => '1rem', ...].
- * Static cached. No file writes.
+ * Returns CSS custom properties from base.css :root {} with type metadata.
+ * Each token is ['value' => string, 'type' => string|null].
+ * Type is extracted from the structured comment convention: /* type: description *​/
  *
- * @return array  Associative array of CSS custom property name => value.
+ * Returns e.g. ['--color-bg' => ['value' => '#ffffff', 'type' => 'color'], ...].
+ * Static cached. Call pp_invalidate_design_tokens_cache() after writes.
+ *
+ * @return array  Associative array of CSS custom property name => ['value', 'type'].
  */
 function pp_design_tokens(): array {
     static $cache = null;
+    if (!empty($GLOBALS['_pp_design_tokens_invalidate'])) {
+        $cache = null;
+        unset($GLOBALS['_pp_design_tokens_invalidate']);
+    }
     if ($cache !== null) {
         return $cache;
     }
@@ -229,14 +236,32 @@ function pp_design_tokens(): array {
 
     // Match :root { ... } block
     if (preg_match('/:root\s*\{([^}]+)\}/s', $css, $root_match)) {
-        // Match each --property: value pair
-        preg_match_all('/(--[\w-]+)\s*:\s*([^;]+);/', $root_match[1], $matches, PREG_SET_ORDER);
+        // Match each --property: value; with optional /* type: description */ comment
+        preg_match_all(
+            '/(--[\w-]+)\s*:\s*([^;]+);\s*(?:\/\*\s*(\w[\w-]*):\s*[^*]*\*\/)?/',
+            $root_match[1],
+            $matches,
+            PREG_SET_ORDER
+        );
         foreach ($matches as $m) {
-            $cache[trim($m[1])] = trim($m[2]);
+            $name  = trim($m[1]);
+            $value = trim($m[2]);
+            $type  = isset($m[3]) && $m[3] !== '' ? $m[3] : null;
+            $cache[$name] = ['value' => $value, 'type' => $type];
         }
     }
 
     return $cache;
+}
+
+/**
+ * Invalidates the pp_design_tokens() static cache.
+ * Call after writing to base.css so subsequent reads return fresh data.
+ */
+function pp_invalidate_design_tokens_cache(): void {
+    // Static variables can only be reset by re-calling the function
+    // with a flag. We use a global flag that pp_design_tokens() checks.
+    $GLOBALS['_pp_design_tokens_invalidate'] = true;
 }
 
 /**

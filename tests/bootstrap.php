@@ -54,9 +54,10 @@ if (!isset($GLOBALS['_pp_test_store'])) {
 
 // Stub get_template_directory() so component loader can resolve paths
 // without a real WordPress install. Returns the theme root.
+// Apply tests can override via $GLOBALS['_pp_test_template_dir'].
 if (!function_exists('get_template_directory')) {
     function get_template_directory(): string {
-        return dirname(__DIR__);
+        return $GLOBALS['_pp_test_template_dir'] ?? dirname(__DIR__);
     }
 }
 
@@ -401,9 +402,17 @@ if (!class_exists('WP_Post')) {
     }
 }
 
+// WP_CONTENT_DIR stub for apply layer backup tests.
+// Individual tests can override get_template_directory() behavior
+// by setting $GLOBALS['_pp_test_template_dir'].
+if (!defined('WP_CONTENT_DIR')) {
+    define('WP_CONTENT_DIR', sys_get_temp_dir() . '/pp-test-content-' . getmypid());
+}
+
 // Load the theme library files.
 require_once dirname(__DIR__) . '/lib/wp.php';
 require_once dirname(__DIR__) . '/lib/helpers.php';
 require_once dirname(__DIR__) . '/lib/components.php';
 require_once dirname(__DIR__) . '/lib/admin.php';
 require_once dirname(__DIR__) . '/lib/actions.php';
+require_once dirname(__DIR__) . '/lib/apply.php';

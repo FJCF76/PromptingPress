@@ -11,32 +11,32 @@
 
 :root {
   /* Color — change all 8 to retheme */
-  --color-bg:           #ffffff;  /* Page background */
-  --color-surface:      #f9fafb;  /* Card / component backgrounds */
-  --color-text:         #1a1a1a;  /* Primary text */
-  --color-muted:        #6b7280;  /* Secondary text, captions, placeholders */
-  --color-border:       #e5e7eb;  /* Dividers, outlines */
-  --color-accent:       #0055cc;  /* Primary action — WCAG AA 4.7:1 on white */
-  --color-accent-hover: #0044aa;  /* Hover / active state for accent */
-  --color-bg-inverted:  #1a1a1a;  /* Section variant: inverted bg (semantic opposite of --color-bg) */
+  --color-bg:           #ffffff;  /* color: Page background */
+  --color-surface:      #f9fafb;  /* color: Card / component backgrounds */
+  --color-text:         #1a1a1a;  /* color: Primary text */
+  --color-muted:        #6b7280;  /* color: Secondary text, captions, placeholders */
+  --color-border:       #e5e7eb;  /* color: Dividers, outlines */
+  --color-accent:       #0055cc;  /* color: Primary action — WCAG AA 4.7:1 on white */
+  --color-accent-hover: #0044aa;  /* color: Hover / active state for accent */
+  --color-bg-inverted:  #1a1a1a;  /* color: Section variant: inverted bg (semantic opposite of --color-bg) */
 
   /* Spacing — the layout scale */
-  --space-xs:  0.25rem;   /*  4px */
-  --space-sm:  0.5rem;    /*  8px */
-  --space-md:  1rem;      /* 16px */
-  --space-lg:  2rem;      /* 32px */
-  --space-xl:  4rem;      /* 64px */
-  --space-2xl: 7rem;      /* 112px */
+  --space-xs:  0.25rem;   /* length: 4px */
+  --space-sm:  0.5rem;    /* length: 8px */
+  --space-md:  1rem;      /* length: 16px */
+  --space-lg:  2rem;      /* length: 32px */
+  --space-xl:  4rem;      /* length: 64px */
+  --space-2xl: 7rem;      /* length: 112px */
 
   /* Typography — replace both to change fonts */
-  --font-body:    system-ui, sans-serif;  /* Body text */
-  --font-heading: system-ui, sans-serif;  /* All headings */
+  --font-body:    system-ui, sans-serif;  /* font-family: Body text */
+  --font-heading: system-ui, sans-serif;  /* font-family: All headings */
 
   /* Shape & motion */
-  --radius:     0.375rem;   /* 6px — increase for rounder corners */
-  --max-width:  72rem;      /* 1152px — content column max width */
-  --transition: 150ms ease; /* Default transition for interactive states */
-  --overlay-bg: rgba(0, 0, 0, 0.55); /* Dark scrim over background images for text readability */
+  --radius:     0.375rem;   /* length: 6px — increase for rounder corners */
+  --max-width:  72rem;      /* length: 1152px — content column max width */
+  --transition: 150ms ease; /* raw: Default transition for interactive states */
+  --overlay-bg: rgba(0, 0, 0, 0.55); /* color: Dark scrim over background images for text readability */
 }
 
 /* Responsive breakpoints (reference — use in media queries):
