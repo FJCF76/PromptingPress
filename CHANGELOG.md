@@ -4,6 +4,54 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.1.7] — 2026-04-19 — Bounded design token mutation
+
+### Programmatic write path for the design system
+
+The AI interface can now change how the site looks, not just its content. `pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309'])` changes the accent color and the site visibly reflects it. Backup, verification, and restore are automatic.
+
+### Apply layer (file-based mutations)
+
+New adjacent execution contract in `lib/apply.php` for file-based mutations. Same architectural DNA as the action model, but for files instead of database. Validates params, creates backup, writes the file, verifies the full contract (target changed AND every non-target unchanged), and auto-restores on any violation.
+
+### Safety model
+
+- Backup to `wp-content/pp-backups/` before every write (keeps last 5)
+- Verified backup before proceeding
+- Full contract verification after write
+- Auto-restore from backup on any failure
+- Injection prevention: rejects `{`, `}`, `;` in values
+- No-op detection: setting a token to its current value returns success with empty changes
+
+### Token type metadata
+
+All 18 design tokens now carry machine-readable type annotations in their CSS comments: `color`, `length`, `font-family`, `duration`, `raw`. Type-specific validation enforces correct CSS values (hex, rgb, rem, font stacks, etc.).
+
+### WP-CLI
+
+```bash
+wp pp apply list                                                              # see registered applies
+wp pp apply preview update_design_token --params='{"token":"--color-accent","value":"#b45309"}'  # diff without writing
+wp pp apply execute update_design_token --params='{"token":"--color-accent","value":"#b45309"}'  # apply + verify
+wp pp apply restore                                                           # undo last change
+wp pp apply restore --point=2                                                 # restore specific point
+wp pp apply restore --list                                                    # show available points
+```
+
+### Richer `pp_design_tokens()` return shape
+
+Returns `['--token' => ['value' => string, 'type' => string|null]]` instead of flat key-value. Only 1 real caller existed (the new apply layer), so zero breakage.
+
+### Browser cache busting
+
+`base.css` enqueue now uses `PP_VERSION.filemtime()` suffix, so token changes are immediately visible without hard refresh.
+
+### 142 unit tests, 509 assertions
+
+57 new tests covering registry, validation (structural + type-specific), injection prevention, preview, execute, contract verification, backup pruning, cache invalidation, restore, and return shape.
+
+---
+
 ## [v0.1.6] — 2026-04-18 — Typed action model, WP-CLI, and AJAX refactor
 
 ### One write path for everything
