@@ -32,7 +32,8 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 /templates/                Page layout files
 /lib/wp.php                WP abstraction layer (pp_* functions only)
 /lib/actions.php           Typed action model (9 actions, validate/preview/execute)
-/lib/cli.php               WP-CLI commands (wp pp action list|preview|execute)
+/lib/apply.php             Apply layer (file-based mutations, validate/preview/execute/restore)
+/lib/cli.php               WP-CLI commands (wp pp action + wp pp apply)
 /lib/admin.php             Composition editor: meta box, AJAX adapters → action layer
 /lib/setup.php             Theme activation bootstrap: homepage provisioning
 /lib/components.php        Component auto-loader (don't edit)
@@ -97,7 +98,7 @@ No build step required for the site itself. Vanilla PHP, CSS, and JS. npm is use
 
 ## Tests
 
-**PHP tests** (component loader, WP abstraction layer, invariant rules, schema validation, 9 typed actions):
+**PHP tests** (component loader, WP abstraction layer, invariant rules, schema validation, 9 typed actions, apply layer with file I/O):
 
 ```bash
 composer install

@@ -123,3 +123,19 @@ The output should be empty. If it returns matches, replace each with the corresp
 | functions.php            | Only add the font enqueue, nothing else |
 
 The entire visual output of the site flows through the 18 CSS variables. Editing anything outside `assets/css/base.css` is unnecessary for a retheme.
+
+---
+
+## Programmatic alternative
+
+Tokens can also be changed via the apply layer without manually editing base.css:
+
+```bash
+wp pp apply execute update_design_token --params='{"token":"--color-accent","value":"#b45309"}'
+wp pp apply preview update_design_token --params='{"token":"--color-accent","value":"#b45309"}'  # diff without writing
+wp pp apply restore                                                                               # undo last change
+```
+
+Or from PHP: `pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309'])`.
+
+The apply layer validates token names, enforces type-specific value constraints, backs up before writing, and auto-restores on failure. Use this path when rethemeing programmatically (e.g. from an AI interface).
