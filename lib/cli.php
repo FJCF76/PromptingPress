@@ -10,6 +10,18 @@ if (!class_exists('WP_CLI') || !class_exists('WP_CLI_Command')) {
     return;
 }
 
+/**
+ * Parses the --params JSON argument. Shared by action and apply CLI commands.
+ */
+function pp_cli_parse_params(array $assoc_args): array {
+    $raw = $assoc_args['params'] ?? '{}';
+    $params = json_decode($raw, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        WP_CLI::error('Invalid JSON in --params: ' . json_last_error_msg());
+    }
+    return $params;
+}
+
 class PP_Action_Command extends WP_CLI_Command {
 
     /**
@@ -67,7 +79,7 @@ class PP_Action_Command extends WP_CLI_Command {
      */
     public function preview($args, $assoc_args) {
         list($name) = $args;
-        $params = $this->parse_params($assoc_args);
+        $params = pp_cli_parse_params($assoc_args);
 
         $result = pp_preview_action($name, $params);
 
@@ -99,7 +111,7 @@ class PP_Action_Command extends WP_CLI_Command {
      */
     public function execute($args, $assoc_args) {
         list($name) = $args;
-        $params = $this->parse_params($assoc_args);
+        $params = pp_cli_parse_params($assoc_args);
 
         $result = pp_execute_action($name, $params);
 
@@ -112,17 +124,176 @@ class PP_Action_Command extends WP_CLI_Command {
         }
     }
 
-    /**
-     * Parses the --params JSON argument.
-     */
-    private function parse_params(array $assoc_args): array {
-        $raw = $assoc_args['params'] ?? '{}';
-        $params = json_decode($raw, true);
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            WP_CLI::error('Invalid JSON in --params: ' . json_last_error_msg());
-        }
-        return $params;
-    }
 }
 
 WP_CLI::add_command('pp action', 'PP_Action_Command');
+
+// ── Apply CLI ───────────────────────────────────────────────────────────────
+
+class PP_Apply_Command extends WP_CLI_Command {
+
+    /**
+     * Lists all registered applies.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp apply list
+     *
+     * @subcommand list
+     */
+    public function list_applies($args, $assoc_args) {
+        $applies = pp_get_registered_applies();
+        if (empty($applies)) {
+            WP_CLI::warning('No applies registered.');
+            return;
+        }
+
+        $rows = [];
+        foreach ($applies as $name => $def) {
+            $params = [];
+            foreach ($def['params'] as $pname => $pdef) {
+                $label = $pname . ' (' . ($pdef['type'] ?? 'string') . ')';
+                if (!empty($pdef['required'])) {
+                    $label .= ' *';
+                }
+                $params[] = $label;
+            }
+            $rows[] = [
+                'name'        => $name,
+                'domain'      => $def['domain'],
+                'target_file' => $def['target_file'],
+                'description' => $def['description'] ?? '',
+                'params'      => implode(', ', $params),
+            ];
+        }
+
+        WP_CLI\Utils\format_items('table', $rows, ['name', 'domain', 'target_file', 'description', 'params']);
+    }
+
+    /**
+     * Previews an apply (validates and shows diff, never writes).
+     *
+     * ## OPTIONS
+     *
+     * <name>
+     * : The apply name.
+     *
+     * --params=<json>
+     * : JSON object of apply parameters.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp apply preview update_design_token --params='{"token":"--color-accent","value":"#b45309"}'
+     *
+     */
+    public function preview($args, $assoc_args) {
+        if (!current_user_can('manage_options')) {
+            WP_CLI::error('You need manage_options capability to use apply commands.');
+        }
+
+        list($name) = $args;
+        $params = pp_cli_parse_params($assoc_args);
+
+        $result = pp_preview_apply($name, $params);
+
+        if (is_wp_error($result)) {
+            WP_CLI::line(json_encode(['ok' => false, 'error' => $result->get_error_message()], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            WP_CLI::halt(1);
+            return;
+        }
+
+        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * Executes an apply (validates first, then applies).
+     *
+     * ## OPTIONS
+     *
+     * <name>
+     * : The apply name.
+     *
+     * --params=<json>
+     * : JSON object of apply parameters.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp apply execute update_design_token --params='{"token":"--color-accent","value":"#b45309"}'
+     *
+     */
+    public function execute($args, $assoc_args) {
+        if (!current_user_can('manage_options')) {
+            WP_CLI::error('You need manage_options capability to use apply commands.');
+        }
+
+        list($name) = $args;
+        $params = pp_cli_parse_params($assoc_args);
+
+        $result = pp_execute_apply($name, $params);
+
+        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+        if ($result['ok']) {
+            WP_CLI::success('Apply "' . $name . '" executed.');
+        } else {
+            WP_CLI::halt(1);
+        }
+    }
+
+    /**
+     * Restores base.css from a restore point.
+     *
+     * ## OPTIONS
+     *
+     * [--point=<index>]
+     * : Restore point index (1 = most recent). Default: latest.
+     *
+     * [--list]
+     * : List available restore points instead of restoring.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp apply restore
+     *     wp pp apply restore --point=2
+     *     wp pp apply restore --list
+     *
+     */
+    public function restore($args, $assoc_args) {
+        if (!current_user_can('manage_options')) {
+            WP_CLI::error('You need manage_options capability to use apply commands.');
+        }
+
+        // List mode
+        if (isset($assoc_args['list'])) {
+            $points = pp_restore_points('base.css');
+            if (empty($points)) {
+                WP_CLI::warning('No restore points available.');
+                return;
+            }
+
+            $rows = [];
+            foreach ($points as $point) {
+                $rows[] = [
+                    'index'     => $point['index'],
+                    'timestamp' => $point['timestamp'],
+                ];
+            }
+            WP_CLI\Utils\format_items('table', $rows, ['index', 'timestamp']);
+            return;
+        }
+
+        // Restore mode
+        $target = get_template_directory() . '/assets/css/base.css';
+        $point_index = isset($assoc_args['point']) ? (int) $assoc_args['point'] : null;
+
+        $result = pp_restore($target, $point_index);
+
+        if (is_wp_error($result)) {
+            WP_CLI::error($result->get_error_message());
+        }
+
+        WP_CLI::success('Restored base.css from restore point ' . ($point_index ?? 1) . '.');
+    }
+}
+
+WP_CLI::add_command('pp apply', 'PP_Apply_Command');

@@ -7,13 +7,14 @@
  */
 
 // ── Theme version (single source of truth — keep in sync with style.css) ──
-define('PP_VERSION', '1.0.1');
+define('PP_VERSION', '0.1.7');
 
 // ── Load lib files ─────────────────────────────────────────────────────────
 require_once get_template_directory() . '/lib/wp.php';
 require_once get_template_directory() . '/lib/components.php';
 require_once get_template_directory() . '/lib/helpers.php';
 require_once get_template_directory() . '/lib/actions.php';
+require_once get_template_directory() . '/lib/apply.php';
 require_once get_template_directory() . '/lib/admin.php';
 require_once get_template_directory() . '/lib/setup.php';
 
@@ -46,11 +47,14 @@ add_action('wp_enqueue_scripts', function () {
     $dir = get_template_directory_uri();
     $ver = PP_VERSION;
 
+    $base_css_path = get_template_directory() . '/assets/css/base.css';
+    $base_ver = $ver . '.' . (file_exists($base_css_path) ? filemtime($base_css_path) : '0');
+
     wp_enqueue_style(
         'pp-base',
         $dir . '/assets/css/base.css',
         [],
-        $ver
+        $base_ver
     );
 
     wp_enqueue_style(
