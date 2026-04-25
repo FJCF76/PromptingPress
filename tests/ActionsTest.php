@@ -24,14 +24,15 @@ class ActionsTest extends TestCase
 
     // ── Registry tests ─────────────────────────────────────────────────────
 
-    public function testRegistryReturnsAllNineActions(): void
+    public function testRegistryReturnsAllTwelveActions(): void
     {
         $actions = pp_get_registered_actions();
-        $this->assertCount(9, $actions);
+        $this->assertCount(12, $actions);
         $expected = [
             'create_page', 'update_site_option', 'update_page_title',
             'update_composition', 'publish_page', 'add_component',
             'remove_component', 'reorder_components', 'update_component',
+            'trash_page', 'restore_page', 'unpublish_page',
         ];
         foreach ($expected as $name) {
             $this->assertArrayHasKey($name, $actions, "Action '{$name}' not registered.");
@@ -502,5 +503,118 @@ class ActionsTest extends TestCase
         $this->assertArrayHasKey('ok', $result);
         $this->assertFalse($result['ok']);
         $this->assertIsString($result['error']);
+    }
+
+    // ── Action: trash_page ────────────────────────────────────────────────
+
+    public function testTrashPageExecute(): void
+    {
+        $id = pp_create_page('Trash Me', 'publish');
+        $result = pp_execute_action('trash_page', ['post_id' => $id]);
+        $this->assertTrue($result['ok']);
+        $this->assertEquals('trash_page', $result['action']);
+        $this->assertEquals('page', $result['scope']);
+        $this->assertEquals('trash', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+        $change = $result['changes'][0];
+        $this->assertEquals('publish', $change['from']);
+        $this->assertEquals('trash', $change['to']);
+    }
+
+    public function testTrashPageRejectsAlreadyTrashed(): void
+    {
+        $id = pp_create_page('Already Trashed', 'draft');
+        $GLOBALS['_pp_test_store']['posts'][$id]['post_status'] = 'trash';
+        $result = pp_execute_action('trash_page', ['post_id' => $id]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('already in the trash', $result['error']);
+    }
+
+    public function testTrashPageRejectsNonexistent(): void
+    {
+        $result = pp_execute_action('trash_page', ['post_id' => 99999]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testTrashPagePreview(): void
+    {
+        $id = pp_create_page('Preview Trash', 'publish');
+        $result = pp_preview_action('trash_page', ['post_id' => $id]);
+        $this->assertTrue($result['ok']);
+        $this->assertEquals('publish', $result['before']);
+        $this->assertEquals('trash', $result['after']);
+        // Page should still be published after preview
+        $this->assertEquals('publish', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    // ── Action: restore_page ──────────────────────────────────────────────
+
+    public function testRestorePageExecute(): void
+    {
+        $id = pp_create_page('Restore Me', 'draft');
+        pp_execute_action('trash_page', ['post_id' => $id]);
+        $this->assertEquals('trash', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+
+        $result = pp_execute_action('restore_page', ['post_id' => $id]);
+        $this->assertTrue($result['ok']);
+        $this->assertEquals('restore_page', $result['action']);
+        $this->assertNotEquals('trash', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+        $change = $result['changes'][0];
+        $this->assertEquals('trash', $change['from']);
+    }
+
+    public function testRestorePageRejectsNotTrashed(): void
+    {
+        $id = pp_create_page('Not Trashed', 'draft');
+        $result = pp_execute_action('restore_page', ['post_id' => $id]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not in the trash', $result['error']);
+    }
+
+    public function testRestorePageRejectsNonexistent(): void
+    {
+        $result = pp_execute_action('restore_page', ['post_id' => 99999]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    // ── Action: unpublish_page ────────────────────────────────────────────
+
+    public function testUnpublishPageExecute(): void
+    {
+        $id = pp_create_page('Unpublish Me', 'publish');
+        $result = pp_execute_action('unpublish_page', ['post_id' => $id]);
+        $this->assertTrue($result['ok']);
+        $this->assertEquals('unpublish_page', $result['action']);
+        $this->assertEquals('draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+        $change = $result['changes'][0];
+        $this->assertEquals('publish', $change['from']);
+        $this->assertEquals('draft', $change['to']);
+    }
+
+    public function testUnpublishPageRejectsNonPublished(): void
+    {
+        $id = pp_create_page('Draft Page', 'draft');
+        $result = pp_execute_action('unpublish_page', ['post_id' => $id]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not published', $result['error']);
+    }
+
+    public function testUnpublishPageRejectsNonexistent(): void
+    {
+        $result = pp_execute_action('unpublish_page', ['post_id' => 99999]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testUnpublishPagePreview(): void
+    {
+        $id = pp_create_page('Preview Unpublish', 'publish');
+        $result = pp_preview_action('unpublish_page', ['post_id' => $id]);
+        $this->assertTrue($result['ok']);
+        $this->assertEquals('publish', $result['before']);
+        $this->assertEquals('draft', $result['after']);
+        // Page should still be published after preview
+        $this->assertEquals('publish', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
     }
 }

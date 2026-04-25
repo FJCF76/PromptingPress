@@ -402,11 +402,83 @@ if (!class_exists('WP_Post')) {
     }
 }
 
+if (!function_exists('wp_trash_post')) {
+    function wp_trash_post(int $post_id) {
+        if (!isset($GLOBALS['_pp_test_store']['posts'][$post_id])) {
+            return false;
+        }
+        $GLOBALS['_pp_test_store']['posts'][$post_id]['post_status'] = 'trash';
+        return $GLOBALS['_pp_test_store']['posts'][$post_id];
+    }
+}
+
+if (!function_exists('wp_untrash_post')) {
+    function wp_untrash_post(int $post_id) {
+        if (!isset($GLOBALS['_pp_test_store']['posts'][$post_id])) {
+            return false;
+        }
+        // WordPress restores to the status before trashing (stored in _wp_trash_status_post_meta).
+        // For tests, restore to 'draft' as the safe default.
+        $GLOBALS['_pp_test_store']['posts'][$post_id]['post_status'] = 'draft';
+        return true;
+    }
+}
+
 // WP_CONTENT_DIR stub for apply layer backup tests.
 // Individual tests can override get_template_directory() behavior
 // by setting $GLOBALS['_pp_test_template_dir'].
 if (!defined('WP_CONTENT_DIR')) {
     define('WP_CONTENT_DIR', sys_get_temp_dir() . '/pp-test-content-' . getmypid());
+}
+
+// ── Stubs for AI layer ────────────────────────────────────────────────────────
+
+if (!function_exists('get_template_directory_uri')) {
+    function get_template_directory_uri(): string {
+        return 'https://example.com/wp-content/themes/promptingpress';
+    }
+}
+
+if (!function_exists('get_attached_file')) {
+    function get_attached_file(int $attachment_id): string {
+        return '/var/www/wp-content/uploads/image-' . $attachment_id . '.jpg';
+    }
+}
+
+if (!function_exists('wp_get_attachment_url')) {
+    function wp_get_attachment_url(int $attachment_id): string {
+        return 'https://example.com/wp-content/uploads/image-' . $attachment_id . '.jpg';
+    }
+}
+
+if (!function_exists('wp_get_attachment_metadata')) {
+    function wp_get_attachment_metadata(int $attachment_id): array {
+        return ['width' => 1200, 'height' => 800];
+    }
+}
+
+if (!function_exists('register_setting')) {
+    function register_setting(string $option_group, string $option_name, array $args = []): void {}
+}
+
+if (!function_exists('add_settings_section')) {
+    function add_settings_section(string $id, string $title, $callback, string $page, array $args = []): void {}
+}
+
+if (!function_exists('add_settings_field')) {
+    function add_settings_field(string $id, string $title, $callback, string $page, string $section = 'default', array $args = []): void {}
+}
+
+if (!function_exists('settings_fields')) {
+    function settings_fields(string $option_group): void {}
+}
+
+if (!function_exists('do_settings_sections')) {
+    function do_settings_sections(string $page): void {}
+}
+
+if (!function_exists('submit_button')) {
+    function submit_button(string $text = 'Save Changes'): void { echo "<button>{$text}</button>"; }
 }
 
 // Load the theme library files.
@@ -416,3 +488,7 @@ require_once dirname(__DIR__) . '/lib/components.php';
 require_once dirname(__DIR__) . '/lib/admin.php';
 require_once dirname(__DIR__) . '/lib/actions.php';
 require_once dirname(__DIR__) . '/lib/apply.php';
+require_once dirname(__DIR__) . '/lib/ai-context.php';
+require_once dirname(__DIR__) . '/lib/ai-provider.php';
+require_once dirname(__DIR__) . '/lib/ai-settings.php';
+require_once dirname(__DIR__) . '/lib/ai-chat.php';
