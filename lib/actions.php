@@ -589,6 +589,120 @@ pp_register_action('update_component', [
     },
 ]);
 
+// ── Action: trash_page ─────────────────────────────────────────────────────
+// Scope: page | Semantics: moves page to trash (reversible)
+
+pp_register_action('trash_page', [
+    'scope'       => 'page',
+    'description' => 'Moves a page to the trash (reversible, does not permanently delete).',
+    'semantics'   => 'Moves post_status to "trash". Reversible via restore_page.',
+    'params'      => [
+        'post_id' => ['type' => 'int', 'required' => true],
+    ],
+    'validate' => function (array $params) {
+        $post = get_post($params['post_id']);
+        if (!$post) {
+            return new WP_Error('not_found', 'Page not found.');
+        }
+        if ($post->post_status === 'trash') {
+            return new WP_Error('already_trashed', 'Page is already in the trash.');
+        }
+        return true;
+    },
+    'preview' => function (array $params): array {
+        $post = get_post($params['post_id']);
+        $from = $post ? $post->post_status : 'unknown';
+        return _pp_action_preview('trash_page', 'page', ['post_id' => $params['post_id']], $from, 'trash', [
+            ['path' => 'post_status', 'from' => $from, 'to' => 'trash'],
+        ]);
+    },
+    'execute' => function (array $params): array {
+        $post = get_post($params['post_id']);
+        $from = $post ? $post->post_status : 'unknown';
+        $result = wp_trash_post($params['post_id']);
+        if (!$result) {
+            return _pp_action_error('trash_page', 'page', 'Failed to trash page.');
+        }
+        return _pp_action_result('trash_page', 'page', ['post_id' => $params['post_id']], [
+            ['path' => 'post_status', 'from' => $from, 'to' => 'trash'],
+        ]);
+    },
+]);
+
+// ── Action: restore_page ──────────────────────────────────────────────────
+// Scope: page | Semantics: restores a trashed page
+
+pp_register_action('restore_page', [
+    'scope'       => 'page',
+    'description' => 'Restores a page from the trash back to its previous status.',
+    'semantics'   => 'Restores a trashed page. Only works on pages with post_status "trash".',
+    'params'      => [
+        'post_id' => ['type' => 'int', 'required' => true],
+    ],
+    'validate' => function (array $params) {
+        $post = get_post($params['post_id']);
+        if (!$post) {
+            return new WP_Error('not_found', 'Page not found.');
+        }
+        if ($post->post_status !== 'trash') {
+            return new WP_Error('not_trashed', 'Page is not in the trash.');
+        }
+        return true;
+    },
+    'preview' => function (array $params): array {
+        return _pp_action_preview('restore_page', 'page', ['post_id' => $params['post_id']], 'trash', 'draft', [
+            ['path' => 'post_status', 'from' => 'trash', 'to' => 'restored'],
+        ]);
+    },
+    'execute' => function (array $params): array {
+        $result = wp_untrash_post($params['post_id']);
+        if (!$result) {
+            return _pp_action_error('restore_page', 'page', 'Failed to restore page.');
+        }
+        $post = get_post($params['post_id']);
+        $new_status = $post ? $post->post_status : 'draft';
+        return _pp_action_result('restore_page', 'page', ['post_id' => $params['post_id']], [
+            ['path' => 'post_status', 'from' => 'trash', 'to' => $new_status],
+        ]);
+    },
+]);
+
+// ── Action: unpublish_page ────────────────────────────────────────────────
+// Scope: page | Semantics: reverts a published page to draft
+
+pp_register_action('unpublish_page', [
+    'scope'       => 'page',
+    'description' => 'Reverts a published page back to draft status.',
+    'semantics'   => 'Sets post_status from "publish" to "draft". Only works on published pages.',
+    'params'      => [
+        'post_id' => ['type' => 'int', 'required' => true],
+    ],
+    'validate' => function (array $params) {
+        $post = get_post($params['post_id']);
+        if (!$post) {
+            return new WP_Error('not_found', 'Page not found.');
+        }
+        if ($post->post_status !== 'publish') {
+            return new WP_Error('not_published', 'Page is not published (current status: ' . $post->post_status . ').');
+        }
+        return true;
+    },
+    'preview' => function (array $params): array {
+        return _pp_action_preview('unpublish_page', 'page', ['post_id' => $params['post_id']], 'publish', 'draft', [
+            ['path' => 'post_status', 'from' => 'publish', 'to' => 'draft'],
+        ]);
+    },
+    'execute' => function (array $params): array {
+        $result = wp_update_post(['ID' => $params['post_id'], 'post_status' => 'draft'], true);
+        if (is_wp_error($result)) {
+            return _pp_action_error('unpublish_page', 'page', $result->get_error_message());
+        }
+        return _pp_action_result('unpublish_page', 'page', ['post_id' => $params['post_id']], [
+            ['path' => 'post_status', 'from' => 'publish', 'to' => 'draft'],
+        ]);
+    },
+]);
+
 // ── Internal helpers ────────────────────────────────────────────────────────
 
 /**
