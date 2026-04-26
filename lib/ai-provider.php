@@ -251,7 +251,7 @@ function pp_ai_parse_error_response(int $http_code, string $body): string {
 
     $decoded = json_decode($body, true);
     if (is_array($decoded) && isset($decoded['error']['message'])) {
-        return 'Provider error: ' . $decoded['error']['message'];
+        return 'Provider error: ' . wp_strip_all_tags($decoded['error']['message']);
     }
 
     return 'Provider error (HTTP ' . $http_code . ').';

@@ -264,8 +264,9 @@ function pp_ai_format_messages(string $system, array $conversation, ?int $page_i
         ['role' => 'system', 'content' => $system_content],
     ];
 
+    $allowed_roles = ['user', 'assistant'];
     foreach ($conversation as $msg) {
-        if (isset($msg['role'], $msg['content'])) {
+        if (isset($msg['role'], $msg['content']) && in_array($msg['role'], $allowed_roles, true)) {
             $messages[] = [
                 'role'    => $msg['role'],
                 'content' => $msg['content'],
