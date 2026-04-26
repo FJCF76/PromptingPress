@@ -390,10 +390,15 @@
         msgBody.classList.remove('pp-ai-msg-streaming');
         msgBody.classList.add('pp-ai-msg-error');
 
+        msgBody.textContent = errorText;
+
         if (errorText.indexOf('API key') !== -1 || errorText.indexOf('not configured') !== -1) {
-            msgBody.innerHTML = errorText + ' <a href="' + config.settingsUrl + '">AI Settings</a>';
-        } else {
-            msgBody.textContent = errorText;
+            var sep = document.createTextNode(' ');
+            var link = document.createElement('a');
+            link.href = config.settingsUrl;
+            link.textContent = 'AI Settings';
+            msgBody.appendChild(sep);
+            msgBody.appendChild(link);
         }
 
         isStreaming = false;
