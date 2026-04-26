@@ -56,7 +56,7 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 | /tests/e2e/              | Playwright E2E tests            | Yes — requires Docker (wp-env)   |
 | .wp-env.json             | wp-env Docker config            | Yes — test environment only      |
 | /lib/wp.php              | WP function wrappers (read + write) | Only to add pp_* functions   |
-| /lib/actions.php         | Typed action model (9 actions)  | Add actions following the contract |
+| /lib/actions.php         | Typed action model (12 actions) | Add actions following the contract |
 | /lib/cli.php             | WP-CLI `wp pp action` commands  | Yes                              |
 | /lib/setup.php           | Theme activation bootstrap      | Only to add idempotent setup     |
 | /lib/components.php      | Component loader                | No                               |
@@ -64,6 +64,13 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 | functions.php            | WP registration                 | Only to add                      |
 | style.css                | Theme header (WP requirement)   | No                               |
 | AI_RULES.md              | AI coding rules and invariants  | Only to update invariants        |
+| /lib/ai-context.php      | AI site context layer             | Extend for new context sources     |
+| /lib/ai-provider.php     | LLM provider proxy (streaming)    | Extend for new providers           |
+| /lib/ai-settings.php     | AI settings page (admin only)     | Yes                                |
+| /lib/ai-chat.php         | AI chat page + AJAX handlers      | Yes                                |
+| /ai-stream.php           | SSE streaming endpoint            | Thin transport only                |
+| /assets/js/pp-ai-chat.js | AI chat UI (streaming, proposals) | Yes                                |
+| /assets/css/pp-ai-chat.css | AI chat styles                  | Yes                                |
 | AI_CONTEXT.md            | This file — AI site map         | Keep current when structure changes |
 
 ---
@@ -284,7 +291,7 @@ All mutations go through typed actions. AJAX handlers, WP-CLI, and future AI cal
 **Execute always validates first.** Callers never need to pre-validate.
 
 **Registry functions:**
-- `pp_get_registered_actions()` — all 9 actions
+- `pp_get_registered_actions()` — all 12 actions
 - `pp_get_action($name)` — single action definition or null
 - `pp_validate_action($name, $params)` — structural + semantic validation, returns true|WP_Error
 - `pp_preview_action($name, $params)` — validates, computes diff, never writes
@@ -303,6 +310,9 @@ All mutations go through typed actions. AJAX handlers, WP-CLI, and future AI cal
 | `remove_component` | page | post_id (req), component_index (req) | Remove by 0-based index. Rejects OOB |
 | `reorder_components` | page | post_id (req), order (req, int[]) | Permutation of 0..N-1. No duplicates, no gaps |
 | `update_component` | section | post_id (req), component_index (req), props (req) | **Patch** (not replace). Shallow merge. Unspecified props unchanged. `null` removes a prop. Validates merged result |
+| `trash_page` | page | post_id (req) | Moves page to trash (reversible). Rejects already-trashed pages |
+| `restore_page` | page | post_id (req) | Restores page from trash. Only works on trashed pages |
+| `unpublish_page` | page | post_id (req) | Sets status back to draft. Only works on published pages |
 
 ### WP-CLI
 
@@ -315,3 +325,88 @@ wp pp action execute <name> --params='{"key":"val"}'  # validate + execute
 ### AJAX handler delegation
 
 The 3 mutation AJAX handlers (`pp_save_composition`, `pp_save_title`, `pp_publish_page`) are thin HTTP adapters. They handle nonce verification, capability checks, and JSON parsing, then delegate to `pp_execute_action()`. The publish handler uses a short-circuit pattern: save composition first, publish only if save succeeds. Zero JS changes.
+
+---
+
+## AI Chat (lib/ai-chat.php, lib/ai-context.php, lib/ai-provider.php, lib/ai-settings.php)
+
+An in-admin AI chat that can read site state, answer questions, and propose/execute mutations through the action/apply contracts.
+
+### Admin pages
+
+| Page | Menu location | Capability | Purpose |
+|------|---------------|------------|---------|
+| AI Chat | PromptingPress → AI Chat | `edit_posts` | Chat interface for conversational site editing |
+| AI Settings | PromptingPress → AI Settings | `manage_options` | BYOK provider config (API key, base URL, model ID) |
+
+### Provider configuration
+
+Stored in `wp_options`:
+- `pp_ai_provider` — display label (default: "GitHub Models")
+- `pp_ai_base_url` — full endpoint URL (default: `https://models.github.ai/inference/chat/completions`)
+- `pp_ai_api_key` — API key (server-side only, never sent to browser)
+- `pp_ai_model` — model ID (default: `openai/gpt-4o`)
+
+Works with any OpenAI-compatible provider. Only GitHub Models is pre-configured.
+
+### Streaming architecture
+
+The chat uses POST-based SSE streaming (nonce in request body, never in URL):
+
+1. Chat JS sends `POST /wp-content/themes/promptingpress/ai-stream.php` with `{messages, nonce, page_id}`
+2. `ai-stream.php` loads WordPress, verifies nonce + capability, assembles system prompt via `pp_ai_system_prompt()`
+3. `pp_ai_stream_completion()` streams from the LLM via raw curl + `CURLOPT_WRITEFUNCTION`
+4. Response chunks forwarded as SSE events: `data: {"content":"..."}\n\n`
+5. Final event includes parsed proposal if the response contains one: `data: {"done":true,"proposal":{...}}\n\n`
+
+**AJAX fallback:** If SSE fails, chat JS retries via `wp_ajax_pp_ai_chat` which returns the complete response as JSON.
+
+### Nonce separation
+
+| Nonce | Scope | Used by |
+|-------|-------|---------|
+| `pp_ai_stream` | Read/stream | SSE endpoint, AJAX chat fallback |
+| `pp_ai_execute` | Mutate | Action/apply execution from chat |
+
+### System prompt contents
+
+Assembled by `pp_ai_system_prompt()`:
+- Site identity (name, tagline, URL)
+- Page inventory (titles, statuses, IDs)
+- Component catalog (names + prop schemas, condensed)
+- Action signatures (names, scopes, param types)
+- Apply signatures (names, domains, param types)
+- Design token inventory (18 tokens with current values and types)
+- Response format instructions (conversational vs structured proposal)
+
+### Proposal flow
+
+When the AI proposes a mutation, it outputs structured JSON:
+
+```json
+{"proposal": true, "steps": [{"type": "action", "name": "add_component", "params": {"post_id": 4, "component": "faq", "props": {"items": []}}, "description": "Add FAQ section"}]}
+```
+
+The chat UI renders this as a card with Apply/Cancel buttons. On Apply, each step executes via `wp_ajax_pp_ai_execute`, which delegates to `pp_execute_action()` or `pp_execute_apply()`. Applied changes are injected back into the conversation context so the AI knows about its own mutations.
+
+### Context functions
+
+| Function | Purpose |
+|----------|---------|
+| `pp_ai_system_prompt()` | Assembles complete system prompt |
+| `pp_ai_page_context($post_id)` | Returns composition + metadata for a specific page |
+| `pp_ai_media_inventory($limit)` | Returns recent media attachments (id, filename, url, alt, mime, dimensions) |
+| `pp_ai_site_context()` | Bundles all site context into a single array |
+| `pp_ai_format_messages($system, $conversation, $page_id)` | Formats for OpenAI chat completions API |
+| `pp_ai_condense_schema($schema)` | Condenses component schema to compact string |
+| `pp_ai_format_params($params)` | Formats action/apply params to compact string |
+| `pp_ai_stream_completion($messages, $on_chunk)` | Streams chat completion from configured provider |
+| `pp_ai_completion($messages)` | Non-streaming completion (AJAX fallback) |
+| `pp_ai_parse_proposal($response)` | Parses response for action proposals |
+| `pp_ai_validate_proposal($proposal)` | Validates proposal against registered capabilities |
+| `pp_ai_is_configured()` | Returns true if API key is saved |
+| `pp_ai_get_config()` | Returns provider configuration array |
+
+### Conversation persistence
+
+Messages persist in localStorage keyed per site (`pp_ai_chat_{siteUrl}`). Survives page reload. "New Chat" button clears state. Internal messages (apply confirmations) are stored in the conversation for AI context but hidden in the display.
