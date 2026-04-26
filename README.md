@@ -10,6 +10,8 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 
 ## Features
 
+**AI Chat** — an in-admin chat interface at PromptingPress → AI Chat. Talk to an LLM about your site, ask questions ("What pages do I have?"), and request changes ("Add a hero section to the About page"). The AI reads your site state, proposes structured mutations, and executes them through the typed action/apply layer on your approval. Streaming responses via SSE, conversation persistence across reloads, AJAX fallback for hosting environments that buffer SSE. Bring your own API key (any OpenAI-compatible provider, pre-configured for GitHub Models).
+
 **Composition editor** — build and edit pages from the WordPress admin without touching a file. Any page using the Composition template gets a full-screen workspace with:
 - Accordion view (default) — each component as a collapsible card with typed form fields, insert/reorder/delete controls
 - JSON view (toggle) — CodeMirror editor with real-time validation, autocomplete (Ctrl+Space), and live preview
@@ -31,16 +33,23 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 /components/{name}/        Component partials + schema.json
 /templates/                Page layout files
 /lib/wp.php                WP abstraction layer (pp_* functions only)
-/lib/actions.php           Typed action model (9 actions, validate/preview/execute)
+/lib/actions.php           Typed action model (12 actions, validate/preview/execute)
 /lib/apply.php             Apply layer (file-based mutations, validate/preview/execute/restore)
 /lib/cli.php               WP-CLI commands (wp pp action + wp pp apply)
 /lib/admin.php             Composition editor: meta box, AJAX adapters → action layer
+/lib/ai-chat.php           AI chat admin page + AJAX handlers (execute, fallback)
+/lib/ai-context.php        AI site context layer (system prompt, page/media context)
+/lib/ai-provider.php       LLM provider proxy (streaming + non-streaming)
+/lib/ai-settings.php       AI settings page (BYOK provider config)
 /lib/setup.php             Theme activation bootstrap: homepage provisioning
 /lib/components.php        Component auto-loader (don't edit)
 /assets/css/base.css       Design tokens — 18 CSS variables
 /assets/css/components.css Component styles (CSS variables only, no raw hex)
+/assets/css/pp-ai-chat.css AI chat styles
 /assets/js/pp-editor-logic.js  Pure JS logic: JSON context, validator, accordion data, insert position
 /assets/js/pp-admin-editor.js  Composition editor frontend (accordion + CodeMirror + preview)
+/assets/js/pp-ai-chat.js  AI chat UI (SSE streaming, proposal cards, persistence)
+/ai-stream.php             SSE streaming endpoint (thin transport, loads WP)
 AI_CONTEXT.md              AI site map — start here for any AI session
 AI_RULES.md                AI coding rules and invariants
 ```
@@ -98,7 +107,7 @@ No build step required for the site itself. Vanilla PHP, CSS, and JS. npm is use
 
 ## Tests
 
-**PHP tests** (component loader, WP abstraction layer, invariant rules, schema validation, 9 typed actions, apply layer with file I/O):
+**PHP tests** (component loader, WP abstraction layer, invariant rules, schema validation, 12 typed actions, apply layer with file I/O, AI context assembly, provider error handling, proposal parsing):
 
 ```bash
 composer install

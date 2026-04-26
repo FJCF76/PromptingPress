@@ -4,6 +4,49 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.2.0] — 2026-04-26 — In-admin AI chat
+
+### Talk to your site, change it from the conversation
+
+You can now open **PromptingPress → AI Chat** in the WordPress admin, ask your site questions ("What pages do I have?", "What are my design tokens?"), and request changes ("Add a hero section to the About page", "Change the accent color to orange"). The AI reads your real site state, proposes structured mutations with preview cards, and executes them through the existing action/apply layer when you click Apply.
+
+### Streaming chat with proposal cards
+
+Responses stream token-by-token via SSE. When the AI proposes a change, you see a card with the action name, description, and Apply/Cancel buttons. Multi-step proposals show numbered steps with "Apply All". After applying, the AI knows about its own mutations and can build on them in the same conversation.
+
+### BYOK provider configuration
+
+**PromptingPress → AI Settings** lets you configure any OpenAI-compatible provider. Pre-filled defaults for GitHub Models (`openai/gpt-4o`). Fields: provider name, base URL, API key (server-side only, never sent to browser), model ID. Test Connection button verifies your setup.
+
+### Conversation persistence
+
+Messages persist in localStorage across page reloads. "New Chat" clears the conversation. Internal apply-confirmation messages are stored for AI context but hidden in the display.
+
+### Page lifecycle actions
+
+Three new typed actions: `trash_page` (move to trash, reversible), `restore_page` (restore from trash), `unpublish_page` (revert to draft). All support validate, preview, and execute. Available via WP-CLI, AJAX, and AI chat.
+
+### Security
+
+- API key stored server-side in `wp_options`, never exposed to browser
+- Nonce separation: `pp_ai_stream` (read) vs `pp_ai_execute` (mutate)
+- Role whitelist: only `user` and `assistant` roles accepted from client conversation
+- XSS prevention: all chat rendering uses `textContent`, never `innerHTML`
+- Provider error messages sanitized with `wp_strip_all_tags()`
+- Capability gates: `manage_options` for settings, `edit_posts` for chat/execute
+
+### 211 unit tests, 684 assertions
+
+69 new tests covering AI context assembly, provider error paths, proposal parsing/validation, page lifecycle actions, nonce separation, and system prompt consistency.
+
+### Known deferrals
+
+- #15 — Markdown rendering in chat messages (content correct, just unformatted)
+- #16 — Unit test coverage gaps (pp_ai_coerce_params, AJAX fallback, capability-denial paths)
+- #14 — JS/frontend test coverage for chat UI
+
+---
+
 ## [v0.1.7] — 2026-04-19 — Bounded design token mutation
 
 ### Programmatic write path for the design system

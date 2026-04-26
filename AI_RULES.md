@@ -75,9 +75,14 @@ Requires Docker. Tests cover workspace init, preview updates, save rejection, au
 | /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Yes — run npm test after         |
 | /assets/js/main.js       | Nav toggle, active link         | Yes                              |
 | /lib/wp.php              | WP function wrappers (read + write) | Only to add pp_ functions   |
-| /lib/actions.php         | Typed action model (9 actions)  | Add actions following the contract |
+| /lib/actions.php         | Typed action model (12 actions) | Add actions following the contract |
 | /lib/apply.php           | Apply layer (file-based mutations) | Add applies following the contract |
 | /lib/cli.php             | WP-CLI `wp pp action` + `wp pp apply` commands | Yes               |
 | /lib/components.php      | Component loader                | No                               |
+| /lib/ai-context.php      | AI site context layer             | Extend for new context sources     |
+| /lib/ai-provider.php     | LLM provider proxy                | Extend for new providers           |
+| /lib/ai-settings.php     | AI settings page (admin only)     | Yes                                |
+| /lib/ai-chat.php         | AI chat page + AJAX handlers      | Yes                                |
+| /ai-stream.php           | SSE streaming endpoint            | Thin transport only                |
 | functions.php            | WP registration                 | Only to add                      |
 | style.css                | Theme header (WP requirement)   | No                               |
