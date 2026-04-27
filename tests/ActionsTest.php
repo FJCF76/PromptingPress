@@ -617,4 +617,204 @@ class ActionsTest extends TestCase
         // Page should still be published after preview
         $this->assertEquals('publish', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
     }
+
+    // ── Page existence validation ─────────────────────────────────────────
+
+    public function testPageExistenceHelperRejectsNonexistentPost(): void
+    {
+        $result = _pp_validate_page_exists(9999);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('not_found', $result->get_error_code());
+    }
+
+    public function testPageExistenceHelperRejectsNonPagePostType(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][50] = [
+            'post_type'   => 'attachment',
+            'post_status' => 'inherit',
+        ];
+        $result = _pp_validate_page_exists(50);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('not_a_page', $result->get_error_code());
+    }
+
+    public function testPageExistenceHelperAcceptsValidPage(): void
+    {
+        $id = pp_create_page('Valid Page');
+        $this->assertTrue(_pp_validate_page_exists($id));
+    }
+
+    public function testUpdatePageTitleRejectsNonexistentPage(): void
+    {
+        $result = pp_execute_action('update_page_title', ['post_id' => 9999, 'title' => 'New']);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testUpdateCompositionRejectsNonexistentPage(): void
+    {
+        $result = pp_execute_action('update_composition', ['post_id' => 9999, 'composition' => []]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testAddComponentRejectsNonexistentPage(): void
+    {
+        $result = pp_execute_action('add_component', [
+            'post_id'   => 9999,
+            'component' => 'hero',
+            'props'     => ['title' => 'Test'],
+        ]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testUpdateComponentRejectsNonexistentPage(): void
+    {
+        $result = pp_execute_action('update_component', [
+            'post_id'         => 9999,
+            'component_index' => 0,
+            'props'           => ['title' => 'Test'],
+        ]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testRemoveComponentRejectsNonexistentPage(): void
+    {
+        $result = pp_execute_action('remove_component', [
+            'post_id'         => 9999,
+            'component_index' => 0,
+        ]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testReorderComponentsRejectsNonexistentPage(): void
+    {
+        $result = pp_execute_action('reorder_components', [
+            'post_id' => 9999,
+            'order'   => [0],
+        ]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testPublishPageRejectsNonexistentPage(): void
+    {
+        $result = pp_execute_action('publish_page', ['post_id' => 9999]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    // ── Composition Normalization ────────────────────────────────────────────
+
+    public function testNormalizeCompositionRenamesTypeToComponent(): void
+    {
+        $raw = [
+            ['type' => 'hero', 'props' => ['title' => 'Hello', 'variant' => 'cover']],
+            ['type' => 'section', 'props' => ['title' => 'About']],
+        ];
+        $normalized = pp_normalize_composition($raw);
+
+        $this->assertEquals('hero', $normalized[0]['component']);
+        $this->assertEquals('section', $normalized[1]['component']);
+        $this->assertArrayNotHasKey('type', $normalized[0]);
+        $this->assertArrayNotHasKey('type', $normalized[1]);
+    }
+
+    public function testNormalizeCompositionPreservesCanonicalComponent(): void
+    {
+        $raw = [
+            ['component' => 'hero', 'props' => ['title' => 'Hello']],
+        ];
+        $normalized = pp_normalize_composition($raw);
+        $this->assertEquals('hero', $normalized[0]['component']);
+    }
+
+    public function testNormalizeCompositionDoesNotOverwriteExistingComponent(): void
+    {
+        // If both "component" and "type" exist, "component" wins
+        $raw = [
+            ['component' => 'hero', 'type' => 'section', 'props' => ['title' => 'Test']],
+        ];
+        $normalized = pp_normalize_composition($raw);
+        $this->assertEquals('hero', $normalized[0]['component']);
+    }
+
+    public function testNormalizeCompositionPreservesProps(): void
+    {
+        $raw = [
+            ['type' => 'hero', 'props' => ['title' => 'Welcome', 'variant' => 'split', 'image_url' => 'https://example.com/photo.jpg']],
+        ];
+        $normalized = pp_normalize_composition($raw);
+        $this->assertEquals('Welcome', $normalized[0]['props']['title']);
+        $this->assertEquals('split', $normalized[0]['props']['variant']);
+        $this->assertEquals('https://example.com/photo.jpg', $normalized[0]['props']['image_url']);
+    }
+
+    public function testNormalizeCompositionHandlesEmptyArray(): void
+    {
+        $this->assertEquals([], pp_normalize_composition([]));
+    }
+
+    public function testCreatePageExecutesWithTypeKeyInComposition(): void
+    {
+        // Simulates the T4 failure: AI sends "type" instead of "component"
+        $result = pp_execute_action('create_page', [
+            'title' => 'Portfolio',
+            'composition' => [
+                ['type' => 'hero', 'props' => ['title' => 'Our Work', 'variant' => 'split']],
+            ],
+        ]);
+
+        $this->assertTrue($result['ok']);
+        $post_id = $result['target']['post_id'];
+
+        // Verify the stored composition uses canonical "component" key
+        $stored = json_decode(
+            $GLOBALS['_pp_test_store']['post_meta'][$post_id]['_pp_composition'],
+            true
+        );
+        $this->assertEquals('hero', $stored[0]['component']);
+        $this->assertArrayNotHasKey('type', $stored[0]);
+    }
+
+    public function testUpdateCompositionExecutesWithTypeKeyInItems(): void
+    {
+        // Seed a page
+        $GLOBALS['_pp_test_store']['posts'][70] = [
+            'post_type'   => 'page',
+            'post_title'  => 'Test Page',
+            'post_status' => 'publish',
+        ];
+        $GLOBALS['_pp_test_store']['post_meta'][70]['_pp_composition'] = '[]';
+
+        $result = pp_execute_action('update_composition', [
+            'post_id' => 70,
+            'composition' => [
+                ['type' => 'section', 'props' => ['title' => 'About', 'body' => '<p>Our story.</p>']],
+                ['type' => 'cta', 'props' => ['title' => 'Contact Us', 'button_text' => 'Get in Touch', 'button_url' => '/contact']],
+            ],
+        ]);
+
+        $this->assertTrue($result['ok']);
+
+        $stored = json_decode(
+            $GLOBALS['_pp_test_store']['post_meta'][70]['_pp_composition'],
+            true
+        );
+        $this->assertEquals('section', $stored[0]['component']);
+        $this->assertEquals('cta', $stored[1]['component']);
+        $this->assertArrayNotHasKey('type', $stored[0]);
+        $this->assertArrayNotHasKey('type', $stored[1]);
+    }
+
+    public function testCreatePageDescriptionMentionsCompositionSchema(): void
+    {
+        $actions = pp_get_registered_actions();
+        $desc = $actions['create_page']['description'];
+        $this->assertStringContainsString('"component"', $desc);
+        $this->assertStringContainsString('"props"', $desc);
+    }
 }
