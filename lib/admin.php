@@ -58,6 +58,28 @@ function pp_get_registered_components(): array {
 // ── Validation ───────────────────────────────────────────────────────────────
 
 /**
+ * Normalizes a composition array to use canonical keys.
+ *
+ * LLMs sometimes produce composition items with "type" instead of "component"
+ * (e.g. {"type": "hero", "props": {...}} instead of {"component": "hero", ...}).
+ * This function canonicalizes known aliases so validation and rendering work
+ * regardless of which key name the AI chose.
+ *
+ * @param  array $items  Raw composition array.
+ * @return array         Normalized composition array.
+ */
+function pp_normalize_composition(array $items): array {
+    foreach ($items as $i => $item) {
+        // Canonical key is "component". Accept "type" as an alias when "component" is absent.
+        if (!isset($item['component']) && isset($item['type'])) {
+            $items[$i]['component'] = $item['type'];
+            unset($items[$i]['type']);
+        }
+    }
+    return $items;
+}
+
+/**
  * Validates a decoded composition array against the component registry.
  *
  * @param  array            $items  Decoded composition array.

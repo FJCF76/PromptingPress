@@ -129,10 +129,24 @@ if ($result['ok'] && $result['full_response']) {
     $proposal = pp_ai_parse_proposal($result['full_response']);
 }
 
+// Detect possible truncation: response has proposal-indicating language but
+// no parseable proposal JSON. This helps the client show an informational message.
+$truncated = false;
+if ($result['ok'] && !$proposal && $result['full_response']) {
+    $text = $result['full_response'];
+    if (preg_match('/here.s (?:the |my |what I )?propos|proposed (?:changes|update|step)|I.ll propose|proposal.*:/i', $text)) {
+        // Has proposal language but no valid proposal was parsed
+        $truncated = true;
+    }
+}
+
 // Send final event with proposal if found
 $done_data = ['done' => true];
 if ($proposal) {
     $done_data['proposal'] = $proposal;
+}
+if ($truncated) {
+    $done_data['truncated'] = true;
 }
 echo "data: " . wp_json_encode($done_data) . "\n\n";
 echo "data: [DONE]\n\n";

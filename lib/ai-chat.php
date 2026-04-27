@@ -154,6 +154,114 @@ function pp_ai_coerce_params(string $type, string $name, array $params): array {
     return $params;
 }
 
+/**
+ * Validates that any URL in action params matching the site's uploads directory
+ * corresponds to an actual media library attachment. URLs not matching the
+ * uploads pattern are passed through (external URLs are allowed).
+ *
+ * Checks: props (flat string values), props.items[].image_url/image_alt style,
+ * and composition arrays.
+ *
+ * @return true|WP_Error
+ */
+function _pp_validate_media_urls_in_params(array $params) {
+    $upload_dir = wp_get_upload_dir();
+    $upload_base = $upload_dir['baseurl'] ?? '';
+    if (empty($upload_base)) {
+        return true;
+    }
+
+    $urls = _pp_extract_urls_from_params($params);
+    if (empty($urls)) {
+        return true;
+    }
+
+    foreach ($urls as $url) {
+        // Only validate URLs that look like they reference the site's uploads
+        if (strpos($url, $upload_base) !== 0) {
+            continue;
+        }
+
+        // Check if this URL matches any attachment in the media library
+        if (!_pp_attachment_exists_by_url($url)) {
+            $filename = basename($url);
+            return new WP_Error(
+                'invalid_media_url',
+                sprintf('Image URL does not match any file in the media library: %s', $filename)
+            );
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Extracts all URL-like string values from action params.
+ * Walks props, composition arrays, and items arrays.
+ */
+function _pp_extract_urls_from_params(array $params): array {
+    $urls = [];
+    $url_props = ['image_url', 'background_image', 'logo_url'];
+
+    // Direct props (flat)
+    if (isset($params['props']) && is_array($params['props'])) {
+        _pp_collect_urls_from_props($params['props'], $url_props, $urls);
+    }
+
+    // Composition array (update_composition / create_page)
+    if (isset($params['composition']) && is_array($params['composition'])) {
+        foreach ($params['composition'] as $component) {
+            if (isset($component['props']) && is_array($component['props'])) {
+                _pp_collect_urls_from_props($component['props'], $url_props, $urls);
+            }
+        }
+    }
+
+    return $urls;
+}
+
+/**
+ * Collects URLs from a props array, including nested items arrays.
+ */
+function _pp_collect_urls_from_props(array $props, array $url_props, array &$urls): void {
+    foreach ($url_props as $prop) {
+        if (isset($props[$prop]) && is_string($props[$prop]) && $props[$prop] !== '') {
+            $urls[] = $props[$prop];
+        }
+    }
+    // Items arrays (grid, logos)
+    if (isset($props['items']) && is_array($props['items'])) {
+        foreach ($props['items'] as $item) {
+            if (is_array($item)) {
+                foreach ($url_props as $prop) {
+                    if (isset($item[$prop]) && is_string($item[$prop]) && $item[$prop] !== '') {
+                        $urls[] = $item[$prop];
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Checks if a URL corresponds to an existing media library attachment.
+ */
+function _pp_attachment_exists_by_url(string $url): bool {
+    // Try attachment_url_to_postid (handles scaled/resized URLs too)
+    $attachment_id = attachment_url_to_postid($url);
+    if ($attachment_id > 0) {
+        return true;
+    }
+
+    // Fallback: check by guid (handles edge cases where the above misses)
+    global $wpdb;
+    $count = $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'attachment' AND guid = %s",
+        $url
+    ));
+    return (int) $count > 0;
+}
+
 // ── AJAX: Preview Action/Apply ─────────────────────────────────────────────
 
 add_action('wp_ajax_pp_ai_preview', function () {
@@ -212,6 +320,14 @@ add_action('wp_ajax_pp_ai_execute', function () {
     }
 
     $params = pp_ai_coerce_params($type, $name, $params);
+
+    // Validate media-library URLs in props before execution
+    if ($type === 'action') {
+        $url_error = _pp_validate_media_urls_in_params($params);
+        if (is_wp_error($url_error)) {
+            wp_send_json_error($url_error->get_error_message());
+        }
+    }
 
     if ($type === 'action') {
         $result = pp_execute_action($name, $params);

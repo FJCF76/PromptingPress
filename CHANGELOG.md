@@ -4,6 +4,34 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.2.1] — 2026-04-27 — Media-aware page editing
+
+### AI can see and use your images
+
+The AI chat now sees your WordPress media library. When you ask it to build a page or add a component, it picks real images from your uploads instead of hallucinating URLs. The system prompt includes every image's filename, dimensions, alt text, and exact URL, with rules for which components use images as backgrounds vs foreground elements.
+
+### Added
+
+- Media library inventory wired into AI system prompt with per-image filename, dimensions, alt text, and URL
+- Image selection rules in system prompt: foreground vs background rendering, alt text requirements, component-specific prop mapping
+- Component index in page context so the AI can unambiguously target components by index (`[0] hero | variant: cover`)
+- Media URL validation on action execution — rejects hallucinated upload URLs before they hit the database
+- Composition normalization (`pp_normalize_composition`) — accepts `"type"` as alias for `"component"` in composition arrays, canonicalizes on input
+- Page-existence validation (`_pp_validate_page_exists`) on all 7 page-scoped actions
+- Truncation detection (server-side + client-side) — shows informational message when AI response is cut short before proposal JSON
+- Component summary helper (`_pp_summarize_component`) for the page context index
+
+### Fixed
+
+- AI-generated pages using `{"type": "hero"}` instead of `{"component": "hero"}` now work (normalization catches the alias)
+- Actions against nonexistent page IDs now return clear error messages instead of cryptic failures
+
+### Tests
+
+- 23 new unit tests: 10 for page-existence validation, 8 for composition normalization, 5 for media library context and component summaries
+
+---
+
 ## [v0.2.0] — 2026-04-26 — In-admin AI chat
 
 ### Talk to your site, change it from the conversation

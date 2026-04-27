@@ -90,6 +90,23 @@ function pp_ai_system_prompt(): string {
     }
     $parts[] = '';
 
+    // Media library inventory
+    $media = pp_ai_media_inventory();
+    $parts[] = '## Media Library';
+    if ($media) {
+        $parts[] = 'Available images. Copy the exact URL for each image — do not modify filenames, even to fix apparent typos or adjust spacing/hyphenation:';
+        foreach ($media as $item) {
+            $dims = ($item['width'] && $item['height'])
+                ? " ({$item['width']}x{$item['height']})"
+                : '';
+            $alt_str = $item['alt'] ? " alt=\"{$item['alt']}\"" : '';
+            $parts[] = "- `{$item['filename']}`{$dims}{$alt_str}: {$item['url']}";
+        }
+    } else {
+        $parts[] = 'No images available in the media library.';
+    }
+    $parts[] = '';
+
     // Response format instructions
     $parts[] = '## How to Respond';
     $parts[] = '';
@@ -105,6 +122,26 @@ function pp_ai_system_prompt(): string {
     $parts[] = 'For database mutations (add component, create page, etc.), use type "action" with the appropriate action name.';
     $parts[] = 'You can include multiple steps in a single proposal for complex requests.';
     $parts[] = 'Always explain what the proposal will do before the JSON block.';
+    $parts[] = '';
+
+    // Image selection rules
+    $parts[] = '## Image Selection Rules';
+    $parts[] = '- When adding or editing components that accept images, select from the Media Library above.';
+    $parts[] = '- Match images to the task by filename and alt text. Copy the full URL exactly as listed. Never invent, guess, or modify URLs.';
+    $parts[] = '- If the Media Library section shows no images, tell the user no images are available. Do not hallucinate URLs.';
+    $parts[] = '- Foreground images require `image_alt` (non-empty, descriptive):';
+    $parts[] = '  - hero (variant: "split"): `image_url` + `image_alt`';
+    $parts[] = '  - section (layout: "image-left" or "image-right"): `image_url` + `image_alt`';
+    $parts[] = '  - grid items (default variant only): `items[].image_url` + `items[].image_alt`';
+    $parts[] = '  - logos items: `items[].image_url` + `items[].image_alt`';
+    $parts[] = '  - nav: `logo_url` + `logo_alt`';
+    $parts[] = '- Background images (no `image_alt` needed):';
+    $parts[] = '  - hero (variant: "cover"): `image_url` rendered as CSS background-image';
+    $parts[] = '  - section: `background_image`';
+    $parts[] = '  - cta: `background_image`';
+    $parts[] = '  - stats: `background_image`';
+    $parts[] = '- Grid component: images only render in the default variant, not the steps variant.';
+    $parts[] = '- When editing a single item in a grid or logos component, pass the complete `items` array with the modification applied at the correct index. `update_component` uses shallow merge, not positional patching.';
 
     return implode("\n", $parts);
 }
@@ -234,6 +271,45 @@ function pp_ai_site_context(): array {
     ];
 }
 
+// ── Component Summary ─────────────────────────────────────────────────────
+
+/**
+ * Returns a one-line summary of a component for the page context index.
+ * Includes component type and key distinguishing props so the AI can
+ * unambiguously target components when a page has duplicates.
+ */
+function _pp_summarize_component(array $item): string {
+    $name  = $item['component'] ?? 'unknown';
+    $props = $item['props'] ?? [];
+    $parts = [$name];
+
+    // Variant or layout (the main structural differentiator)
+    if (!empty($props['variant'])) {
+        $parts[] = "variant: {$props['variant']}";
+    }
+    if (!empty($props['layout'])) {
+        $parts[] = "layout: {$props['layout']}";
+    }
+
+    // Title (short identifier)
+    if (!empty($props['title'])) {
+        $title = mb_strlen($props['title']) > 40
+            ? mb_substr($props['title'], 0, 37) . '...'
+            : $props['title'];
+        $parts[] = "title: \"{$title}\"";
+    }
+
+    // Image filename (key for image-bearing components)
+    foreach (['image_url', 'background_image', 'logo_url'] as $img_prop) {
+        if (!empty($props[$img_prop])) {
+            $parts[] = basename($props[$img_prop]);
+            break;
+        }
+    }
+
+    return implode(' | ', $parts);
+}
+
 // ── Message Formatting ─────────────────────────────────────────────────────
 
 /**
@@ -256,6 +332,16 @@ function pp_ai_format_messages(string $system, array $conversation, ?int $page_i
             $comp_json = wp_json_encode($page_ctx['composition'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
             $system_content .= "\n\n## Current Page Context\n";
             $system_content .= "Page: {$page_ctx['title']} (ID: {$page_ctx['id']}, status: {$page_ctx['status']})\n";
+
+            // Component index summary for unambiguous targeting
+            if (!empty($page_ctx['composition'])) {
+                $system_content .= "Components (use component_index to target):\n";
+                foreach ($page_ctx['composition'] as $idx => $item) {
+                    $summary = _pp_summarize_component($item);
+                    $system_content .= "  [{$idx}] {$summary}\n";
+                }
+            }
+
             $system_content .= "Composition:\n```json\n{$comp_json}\n```";
         }
     }

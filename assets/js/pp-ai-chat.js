@@ -291,6 +291,7 @@
 
         var msgBody = createStreamingMessage();
         var fullText = '';
+        var proposalReceived = false;
 
         fetch(config.streamUrl, {
             method: 'POST',
@@ -310,7 +311,7 @@
             function pump() {
                 return reader.read().then(function (result) {
                     if (result.done) {
-                        finishStream(msgBody, fullText);
+                        finishStream(msgBody, fullText, proposalReceived);
                         return;
                     }
 
@@ -342,7 +343,15 @@
                             }
 
                             if (data.done && data.proposal) {
+                                proposalReceived = true;
                                 renderProposal(data.proposal);
+                            }
+
+                            if (data.done && data.truncated && !data.proposal) {
+                                addStatusMessage(
+                                    'The response was cut short before the proposal could be generated. Try sending your request again, or simplify it.',
+                                    false
+                                );
                             }
                         } catch (e) {
                             // Skip malformed JSON chunks
@@ -369,7 +378,7 @@
         return stripped.trim();
     }
 
-    function finishStream(msgBody, fullText) {
+    function finishStream(msgBody, fullText, proposalReceived) {
         msgBody.classList.remove('pp-ai-msg-streaming');
         if (fullText) {
             // Store full text in conversation for context, but display without raw JSON
@@ -378,12 +387,57 @@
             if (displayText !== fullText) {
                 msgBody.textContent = displayText;
             }
+
+            // Detect truncated responses: prose suggests a proposal was coming
+            // but no proposal was received from the server
+            if (!proposalReceived && looksLikeIncompleteProposal(fullText)) {
+                addStatusMessage(
+                    'The response may have been cut short before the proposal could be generated. Try sending your request again, or simplify it.',
+                    false
+                );
+            }
         }
         saveState();
         isStreaming = false;
         sendBtn.disabled = false;
         inputEl.disabled = false;
         inputEl.focus();
+    }
+
+    function looksLikeIncompleteProposal(text) {
+        // Check if the text contains language that typically precedes a proposal
+        // but ends without one. These patterns indicate the AI started to propose
+        // something but the response was truncated before the JSON was emitted.
+        var proposalIndicators = [
+            /here(?:'|')s (?:the |my |what I )?propos/i,
+            /here(?:'|')s (?:the |my )?plan/i,
+            /proposed (?:changes|update|step)/i,
+            /I(?:'|')ll propose/i,
+            /proposal.*:/i
+        ];
+        var hasIndicator = proposalIndicators.some(function (re) {
+            return re.test(text);
+        });
+        if (!hasIndicator) {
+            return false;
+        }
+
+        // The text has proposal language but no actual proposal JSON was parsed.
+        // Check that the text doesn't end with a complete conversational response
+        // (if it ends mid-sentence or with a colon, it's more likely truncated).
+        var trimmed = text.trim();
+        var lastChar = trimmed.charAt(trimmed.length - 1);
+        // Ends with colon, incomplete sentence, or mid-word — likely truncated
+        if (lastChar === ':' || lastChar === ',') {
+            return true;
+        }
+        // If text has proposal indicators and is relatively short (the JSON
+        // block that should follow was never emitted), flag it
+        var afterLastIndicator = text.split(/propos|plan/i).pop();
+        if (afterLastIndicator && afterLastIndicator.trim().length < 50) {
+            return true;
+        }
+        return false;
     }
 
     function handleStreamError(msgBody, errorText) {
@@ -432,6 +486,11 @@
 
                 if (resp.data.proposal) {
                     renderProposal(resp.data.proposal);
+                } else if (looksLikeIncompleteProposal(resp.data.content)) {
+                    addStatusMessage(
+                        'The response may have been cut short before the proposal could be generated. Try sending your request again, or simplify it.',
+                        false
+                    );
                 }
             } else {
                 handleStreamError(msgBody, resp.data || 'Chat request failed.');

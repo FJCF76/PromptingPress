@@ -181,8 +181,8 @@ function _pp_action_preview(string $name, string $scope, array $target, $before,
 
 pp_register_action('create_page', [
     'scope'       => 'site',
-    'description' => 'Creates a new page with the Composition template.',
-    'semantics'   => 'Create. Title is required. Composition defaults to empty array. Status defaults to "draft".',
+    'description' => 'Creates a new page with the Composition template. Each composition item is {"component": "name", "props": {...}}.',
+    'semantics'   => 'Create. Title is required. Composition defaults to empty array. Status defaults to "draft". Composition items use the same {"component", "props"} shape as elsewhere.',
     'params'      => [
         'title'       => ['type' => 'string', 'required' => true],
         'composition' => ['type' => 'array',  'required' => false],
@@ -193,6 +193,7 @@ pp_register_action('create_page', [
             return new WP_Error('empty_title', 'Page title cannot be empty.');
         }
         if (isset($params['composition'])) {
+            $params['composition'] = pp_normalize_composition($params['composition']);
             $valid = pp_validate_composition($params['composition']);
             if (is_wp_error($valid)) {
                 return $valid;
@@ -201,10 +202,13 @@ pp_register_action('create_page', [
         return true;
     },
     'preview' => function (array $params): array {
+        $composition = isset($params['composition'])
+            ? pp_normalize_composition($params['composition'])
+            : [];
         return _pp_action_preview('create_page', 'site', [], null, [
             'title'       => $params['title'],
             'status'      => $params['status'] ?? 'draft',
-            'composition' => $params['composition'] ?? [],
+            'composition' => $composition,
         ], [
             ['path' => 'page', 'from' => null, 'to' => $params['title']],
         ]);
@@ -218,6 +222,7 @@ pp_register_action('create_page', [
         }
 
         if (!empty($params['composition'])) {
+            $params['composition'] = pp_normalize_composition($params['composition']);
             pp_update_composition($post_id, $params['composition']);
         }
 
@@ -281,6 +286,10 @@ pp_register_action('update_page_title', [
         'title'   => ['type' => 'string', 'required' => true],
     ],
     'validate' => function (array $params) {
+        $exists = _pp_validate_page_exists($params['post_id']);
+        if (is_wp_error($exists)) {
+            return $exists;
+        }
         return true;
     },
     'preview' => function (array $params): array {
@@ -306,22 +315,29 @@ pp_register_action('update_page_title', [
 
 pp_register_action('update_composition', [
     'scope'       => 'page',
-    'description' => 'Replaces the entire composition array for a page.',
-    'semantics'   => 'Replace. The full composition array is replaced. Pass the complete array, not a partial update.',
+    'description' => 'Replaces the entire composition array for a page. Each item is {"component": "name", "props": {...}}.',
+    'semantics'   => 'Replace. The full composition array is replaced. Pass the complete array, not a partial update. Items use {"component", "props"} shape.',
     'params'      => [
         'post_id'     => ['type' => 'int',   'required' => true],
         'composition' => ['type' => 'array', 'required' => true],
     ],
     'validate' => function (array $params) {
+        $exists = _pp_validate_page_exists($params['post_id']);
+        if (is_wp_error($exists)) {
+            return $exists;
+        }
+        $params['composition'] = pp_normalize_composition($params['composition']);
         return pp_validate_composition($params['composition']);
     },
     'preview' => function (array $params): array {
+        $params['composition'] = pp_normalize_composition($params['composition']);
         $current = pp_get_composition($params['post_id']);
         return _pp_action_preview('update_composition', 'page', ['post_id' => $params['post_id']], $current, $params['composition'], [
             ['path' => 'composition', 'from' => $current, 'to' => $params['composition']],
         ]);
     },
     'execute' => function (array $params): array {
+        $params['composition'] = pp_normalize_composition($params['composition']);
         $current = pp_get_composition($params['post_id']);
         $result = pp_update_composition($params['post_id'], $params['composition']);
         if (is_wp_error($result)) {
@@ -344,6 +360,10 @@ pp_register_action('publish_page', [
         'post_id' => ['type' => 'int', 'required' => true],
     ],
     'validate' => function (array $params) {
+        $exists = _pp_validate_page_exists($params['post_id']);
+        if (is_wp_error($exists)) {
+            return $exists;
+        }
         return true;
     },
     'preview' => function (array $params): array {
@@ -380,6 +400,10 @@ pp_register_action('add_component', [
         'position'  => ['type' => 'int',    'required' => false],
     ],
     'validate' => function (array $params) {
+        $exists = _pp_validate_page_exists($params['post_id']);
+        if (is_wp_error($exists)) {
+            return $exists;
+        }
         $new_item = ['component' => $params['component'], 'props' => $params['props']];
         // Validate the single new component
         $valid = pp_validate_composition([$new_item]);
@@ -439,6 +463,10 @@ pp_register_action('remove_component', [
         'component_index' => ['type' => 'int', 'required' => true],
     ],
     'validate' => function (array $params) {
+        $exists = _pp_validate_page_exists($params['post_id']);
+        if (is_wp_error($exists)) {
+            return $exists;
+        }
         $composition = pp_get_composition($params['post_id']);
         $count = count($composition);
         if ($params['component_index'] < 0 || $params['component_index'] >= $count) {
@@ -482,6 +510,10 @@ pp_register_action('reorder_components', [
         'order'   => ['type' => 'array', 'required' => true],
     ],
     'validate' => function (array $params) {
+        $exists = _pp_validate_page_exists($params['post_id']);
+        if (is_wp_error($exists)) {
+            return $exists;
+        }
         $composition = pp_get_composition($params['post_id']);
         $count = count($composition);
         $order = $params['order'];
@@ -543,6 +575,10 @@ pp_register_action('update_component', [
         'props'           => ['type' => 'array', 'required' => true],
     ],
     'validate' => function (array $params) {
+        $exists = _pp_validate_page_exists($params['post_id']);
+        if (is_wp_error($exists)) {
+            return $exists;
+        }
         $composition = pp_get_composition($params['post_id']);
         $count = count($composition);
 
@@ -704,6 +740,24 @@ pp_register_action('unpublish_page', [
 ]);
 
 // ── Internal helpers ────────────────────────────────────────────────────────
+
+/**
+ * Validates that a post_id refers to an existing page.
+ * Used by all page-scoped and section-scoped action validators.
+ *
+ * @param int $post_id  WordPress post ID.
+ * @return true|WP_Error
+ */
+function _pp_validate_page_exists(int $post_id) {
+    $post = get_post($post_id);
+    if (!$post) {
+        return new WP_Error('not_found', sprintf('Page %d not found.', $post_id));
+    }
+    if ($post->post_type !== 'page') {
+        return new WP_Error('not_a_page', sprintf('Post %d is not a page (type: %s).', $post_id, $post->post_type));
+    }
+    return true;
+}
 
 /**
  * Shallow-merges new props into existing props.
