@@ -356,7 +356,7 @@ add_action('wp_ajax_pp_ai_chat', function () {
     }
 
     if (!pp_ai_is_configured()) {
-        wp_send_json_error('AI provider not configured.');
+        wp_send_json_error('AI provider not configured. Check AI Settings.');
     }
 
     set_time_limit(0);

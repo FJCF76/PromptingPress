@@ -270,6 +270,12 @@ if (!function_exists('update_option')) {
     }
 }
 
+if (!function_exists('wp_unslash')) {
+    function wp_unslash($value) {
+        return is_string($value) ? stripslashes($value) : $value;
+    }
+}
+
 if (!function_exists('wp_slash')) {
     // No-op: real WP adds slashes then update_post_meta strips them.
     // Our stubs don't strip, so wp_slash must be transparent.
@@ -454,6 +460,34 @@ if (!function_exists('wp_get_attachment_url')) {
 if (!function_exists('wp_get_attachment_metadata')) {
     function wp_get_attachment_metadata(int $attachment_id): array {
         return ['width' => 1200, 'height' => 800];
+    }
+}
+
+if (!function_exists('selected')) {
+    function selected($selected, $current = true, bool $echo = true): string {
+        $result = ($selected == $current) ? ' selected="selected"' : '';
+        if ($echo) {
+            echo $result;
+        }
+        return $result;
+    }
+}
+
+if (!function_exists('esc_url_raw')) {
+    function esc_url_raw(string $url): string {
+        return filter_var($url, FILTER_SANITIZE_URL) ?: '';
+    }
+}
+
+if (!function_exists('esc_js')) {
+    function esc_js(string $text): string {
+        return addslashes($text);
+    }
+}
+
+if (!function_exists('site_url')) {
+    function site_url(string $path = ''): string {
+        return 'https://example.com' . $path;
     }
 }
 

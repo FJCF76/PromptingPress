@@ -20,9 +20,9 @@ if (!defined('PP_AI_OPT_PROVIDER')) {
     define('PP_AI_OPT_API_KEY',  'pp_ai_api_key');
     define('PP_AI_OPT_MODEL',    'pp_ai_model');
 
-    define('PP_AI_DEFAULT_PROVIDER', 'GitHub Models');
+    define('PP_AI_DEFAULT_PROVIDER', 'github_models');
     define('PP_AI_DEFAULT_BASE_URL', 'https://models.github.ai/inference/chat/completions');
-    define('PP_AI_DEFAULT_MODEL',    'openai/gpt-4o');
+    define('PP_AI_DEFAULT_MODEL',    'openai/gpt-5-chat');
 }
 
 // ── Config Helpers ────────────────────────────────────────────────────────
@@ -237,8 +237,13 @@ function pp_ai_completion(array $messages): array {
  * Parses an error response from the LLM provider into a user-friendly message.
  */
 function pp_ai_parse_error_response(int $http_code, string $body): string {
+    // COUPLED: JS handleStreamError() matches "Check AI Settings" to show settings link.
+    if ($http_code === 400) {
+        return 'The provider rejected the request. This may indicate an unsupported model or parameter. Check AI Settings.';
+    }
+
     if ($http_code === 401 || $http_code === 403) {
-        return 'Invalid API key. Check AI Settings.';
+        return 'AI provider rejected the API key. Check AI Settings.';
     }
 
     if ($http_code === 429) {
@@ -246,7 +251,7 @@ function pp_ai_parse_error_response(int $http_code, string $body): string {
     }
 
     if ($http_code === 404) {
-        return 'Model not found. Check the Model ID in AI Settings.';
+        return 'Model not found by the provider. Check AI Settings.';
     }
 
     $decoded = json_decode($body, true);
