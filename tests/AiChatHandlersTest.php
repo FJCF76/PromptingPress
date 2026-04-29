@@ -69,9 +69,9 @@ class AiChatHandlersTest extends TestCase
         $this->assertStringContainsString('models.github.ai', PP_AI_DEFAULT_BASE_URL);
     }
 
-    public function testDefaultModelIsGpt4o(): void
+    public function testDefaultModelIsGpt5Chat(): void
     {
-        $this->assertEquals('openai/gpt-4o', PP_AI_DEFAULT_MODEL);
+        $this->assertEquals('openai/gpt-5-chat', PP_AI_DEFAULT_MODEL);
     }
 
     // ── Config Retrieval ──────────────────────────────────────────────────

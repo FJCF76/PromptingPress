@@ -60,7 +60,7 @@ if (!current_user_can('edit_posts')) {
 // Check AI configuration
 if (!pp_ai_is_configured()) {
     http_response_code(400);
-    echo 'AI provider not configured.';
+    echo 'AI provider not configured. Check AI Settings.';
     exit;
 }
 

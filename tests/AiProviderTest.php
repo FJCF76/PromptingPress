@@ -89,7 +89,8 @@ class AiProviderTest extends TestCase
     public function testParseErrorResponse401(): void
     {
         $msg = pp_ai_parse_error_response(401, '');
-        $this->assertStringContainsString('Invalid API key', $msg);
+        $this->assertStringContainsString('rejected the API key', $msg);
+        $this->assertStringContainsString('Check AI Settings', $msg);
     }
 
     public function testParseErrorResponse429(): void
@@ -104,10 +105,17 @@ class AiProviderTest extends TestCase
         $this->assertStringContainsString('Model not found', $msg);
     }
 
+    public function testParseErrorResponse400(): void
+    {
+        $msg = pp_ai_parse_error_response(400, '');
+        $this->assertStringContainsString('rejected the request', $msg);
+        $this->assertStringContainsString('Check AI Settings', $msg);
+    }
+
     public function testParseErrorResponseWithJsonBody(): void
     {
         $body = json_encode(['error' => ['message' => 'Quota exceeded']]);
-        $msg = pp_ai_parse_error_response(400, $body);
+        $msg = pp_ai_parse_error_response(503, $body);
         $this->assertStringContainsString('Quota exceeded', $msg);
     }
 
