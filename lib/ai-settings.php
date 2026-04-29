@@ -260,7 +260,7 @@ function pp_ai_settings_page(): void {
         (function() {
             var providers = <?php echo $providers_json; ?>;
             var providerSelect = document.getElementById('pp-ai-provider');
-            var baseUrlRow = document.querySelector('#pp_ai_base_url').closest('tr');
+            var baseUrlRow = document.querySelector('input[name="<?php echo PP_AI_OPT_BASE_URL; ?>"]').closest('tr');
             var keyHelper = document.querySelector('.pp-ai-key-helper');
 
             // Model field elements
