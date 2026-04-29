@@ -14,20 +14,19 @@ The AI Settings page now uses dropdowns for Provider and Model instead of four r
 
 - Provider dropdown: GitHub Models (default) and Custom / Manual
 - Curated model dropdown for GitHub Models (GPT-5 Chat, GPT-5, GPT-4.1) with "Custom model ID..." escape hatch
-- Server-side Base URL derivation via sanitize callback — PHP is source of truth for known providers
-- One-time migration from legacy "GitHub Models" string to `github_models` key
-- Context-sensitive API Key helper text per provider
-- Test Connection helper text: "Tests saved settings — save changes first"
-- Test Connection disabled state when no API key saved
+- Server-side Base URL derivation — you never see or set the endpoint URL for GitHub Models; PHP handles it
+- Automatic migration from older settings format (no manual steps needed on upgrade)
+- API Key helper text adapts per provider ("GitHub PAT with models:read" vs "Bearer token")
+- Test Connection tells you to save first and disables itself until you do
 - `pp_ai_get_providers()` single source of truth for provider config
-- `tests/AiSettingsTest.php` — 13 tests for migration, provider data, sanitize callback
+- 13 new tests for migration, provider data, and sanitize callback
 
 ### Fixed
 
-- **#17** Test Connection falsely rejected GPT-5 models — removed `max_tokens` parameter
-- Error messages now include "Check AI Settings" phrase so chat UI shows clickable settings link
-- 400/401/403/404 error messages rewritten for clarity
-- Base URL row hidden correctly for GitHub Models (fixed JS selector from `#pp_ai_base_url` to `input[name] + closest('tr')`)
+- **#17** Test Connection now works with GPT-5 models (was sending a parameter the model rejected)
+- When the AI can't reach your provider, the chat now shows a clickable link to AI Settings instead of a raw error
+- Clearer error messages for bad API key, wrong model, and rejected requests
+- Base URL row hides correctly when GitHub Models is selected (JS selector fix)
 
 ### Changed
 
