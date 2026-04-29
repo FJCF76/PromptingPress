@@ -337,17 +337,19 @@ An in-admin AI chat that can read site state, answer questions, and propose/exec
 | Page | Menu location | Capability | Purpose |
 |------|---------------|------------|---------|
 | AI Chat | PromptingPress → AI Chat | `edit_posts` | Chat interface for conversational site editing |
-| AI Settings | PromptingPress → AI Settings | `manage_options` | BYOK provider config (API key, base URL, model ID) |
+| AI Settings | PromptingPress → AI Settings | `manage_options` | BYOK provider config (provider dropdown, API key, model) |
 
 ### Provider configuration
 
 Stored in `wp_options`:
-- `pp_ai_provider` — display label (default: "GitHub Models")
-- `pp_ai_base_url` — full endpoint URL (default: `https://models.github.ai/inference/chat/completions`)
+- `pp_ai_provider` — provider key (default: `github_models`). Dropdown: GitHub Models or Custom / Manual
+- `pp_ai_base_url` — full endpoint URL. Hidden for GitHub Models (derived server-side via `pp_ai_sanitize_base_url()`). Editable for Custom
 - `pp_ai_api_key` — API key (server-side only, never sent to browser)
-- `pp_ai_model` — model ID (default: `openai/gpt-4o`)
+- `pp_ai_model` — model ID (default: `openai/gpt-5-chat`). Curated dropdown for GitHub Models (GPT-5 Chat, GPT-5, GPT-4.1 + custom escape hatch). Free-text for Custom
 
-Works with any OpenAI-compatible provider. Only GitHub Models is pre-configured.
+`pp_ai_get_providers()` is the single source of truth for provider labels, canonical base URLs, and curated model lists. The sanitize callback for `pp_ai_base_url` reads `$_POST['pp_ai_provider']` and overrides the submitted value with the canonical URL for known providers. JS controls field visibility; PHP controls values.
+
+Works with any OpenAI-compatible provider. GitHub Models is the default with a curated experience.
 
 ### Streaming architecture
 
@@ -405,7 +407,11 @@ The chat UI renders this as a card with Apply/Cancel buttons. On Apply, each ste
 | `pp_ai_parse_proposal($response)` | Parses response for action proposals |
 | `pp_ai_validate_proposal($proposal)` | Validates proposal against registered capabilities |
 | `pp_ai_is_configured()` | Returns true if API key is saved |
-| `pp_ai_get_config()` | Returns provider configuration array |
+| `pp_ai_get_config()` | Returns provider configuration array (provider, base_url, api_key, model with defaults) |
+| `pp_ai_get_providers()` | Returns provider registry: keys, labels, canonical base URLs, curated model lists |
+| `pp_ai_sanitize_base_url($value)` | Sanitize callback: overrides base URL for known providers, passes through for Custom |
+| `pp_ai_maybe_migrate_provider()` | One-time migration from legacy provider strings to provider keys |
+| `pp_ai_parse_error_response($code, $body)` | Parses HTTP error into user-facing message with "Check AI Settings" phrase |
 
 ### Conversation persistence
 
