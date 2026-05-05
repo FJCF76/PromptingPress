@@ -18,6 +18,10 @@ The dev site at `dev.promptingpress.com` is a separate copy of the repo, not a s
 - No hooks (add_action, add_filter) in view files. Only in functions.php.
 - Every component has schema.json before it ships.
 - No raw hex in components.css — only CSS variables from base.css.
+- No positional selectors (nth-of-type, nth-child) for targeting components. Use stable IDs.
+- No modern CSS features: color-mix(), backdrop-filter, mask-image, :has(), @container.
+- No writing to WordPress Custom CSS (Appearance > Additional CSS) for theme styling. All styling through tokens or components.css.
+- Every composition component has a persisted stable ID. IDs are auto-assigned on save.
 
 ## Design system
 
@@ -75,7 +79,8 @@ Requires Docker. Tests cover workspace init, preview updates, save rejection, au
 | /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Yes — run npm test after         |
 | /assets/js/main.js       | Nav toggle, active link         | Yes                              |
 | /lib/wp.php              | WP function wrappers (read + write) | Only to add pp_ functions   |
-| /lib/actions.php         | Typed action model (12 actions) | Add actions following the contract |
+| /lib/actions.php         | Typed action model (13 actions) | Add actions following the contract |
+| /lib/guardrails.php      | Conflict detection + composition validation | Extend for new checks |
 | /lib/apply.php           | Apply layer (file-based mutations) | Add applies following the contract |
 | /lib/cli.php             | WP-CLI `wp pp action` + `wp pp apply` commands | Yes               |
 | /lib/components.php      | Component loader                | No                               |

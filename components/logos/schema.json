@@ -32,6 +32,11 @@
       }
     }
   },
+  "styling": {
+    "root_class": "logos",
+    "variant_classes": ["logos--dark", "logos--inverted"],
+    "tokens": ["--space-xl", "--space-2xl", "--color-bg", "--color-bg-inverted"]
+  },
   "safe_to_edit": ["logos.php", "../../assets/css/components.css (COMPONENT: logos section)"],
   "do_not_touch": ["schema.json without updating AI_CONTEXT.md"]
 }

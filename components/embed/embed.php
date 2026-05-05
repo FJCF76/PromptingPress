@@ -26,7 +26,7 @@ if (!in_array($variant, $allowed_variants, true)) {
 
 $variant_class = $variant !== 'default' ? ' embed--' . $variant : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="embed<?php echo esc_attr($variant_class); ?>">
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="embed<?php echo esc_attr($variant_class); ?>" data-pp-component="embed">
     <div class="container">
 
         <?php if ($title) : ?>

@@ -18,6 +18,7 @@ require_once get_template_directory() . '/lib/apply.php';
 require_once get_template_directory() . '/lib/ai-context.php';
 require_once get_template_directory() . '/lib/ai-provider.php';
 require_once get_template_directory() . '/lib/admin.php';
+require_once get_template_directory() . '/lib/guardrails.php';
 require_once get_template_directory() . '/lib/setup.php';
 
 if (is_admin()) {

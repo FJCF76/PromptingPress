@@ -43,6 +43,11 @@
       }
     }
   },
+  "styling": {
+    "root_class": "grid",
+    "variant_classes": ["grid--steps", "grid--dark", "grid--inverted"],
+    "tokens": ["--space-xl", "--space-2xl", "--color-bg", "--color-surface", "--color-border", "--color-bg-inverted"]
+  },
   "safe_to_edit": ["grid.php", "../../assets/css/components.css (COMPONENT: grid section)"],
   "do_not_touch": ["schema.json without updating AI_CONTEXT.md"]
 }

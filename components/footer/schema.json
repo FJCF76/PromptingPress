@@ -9,6 +9,11 @@
       "description": "WP theme location slug for the footer nav menu."
     }
   },
+  "styling": {
+    "root_class": "site-footer",
+    "variant_classes": [],
+    "tokens": ["--color-border", "--color-muted"]
+  },
   "safe_to_edit": ["footer.php", "../../assets/css/components.css (COMPONENT: footer section)"],
   "do_not_touch": ["schema.json without updating README.md"]
 }

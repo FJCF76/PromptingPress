@@ -21,7 +21,7 @@ if (!in_array($variant, $allowed_variants, true)) {
 
 $variant_class = $variant !== 'default' ? ' logos--' . $variant : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="logos<?php echo esc_attr($variant_class); ?>">
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="logos<?php echo esc_attr($variant_class); ?>" data-pp-component="logos">
     <div class="container">
 
         <?php if ($title) : ?>

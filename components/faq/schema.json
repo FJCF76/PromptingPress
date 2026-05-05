@@ -18,6 +18,11 @@
       }
     }
   },
+  "styling": {
+    "root_class": "faq",
+    "variant_classes": [],
+    "tokens": ["--space-xl", "--space-2xl", "--color-border", "--color-surface"]
+  },
   "safe_to_edit": ["faq.php", "../../assets/css/components.css (COMPONENT: faq section)"],
   "do_not_touch": ["schema.json without updating README.md"]
 }

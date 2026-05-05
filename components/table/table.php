@@ -8,12 +8,13 @@
  * @var array $props
  */
 
+$id      = $props['id']      ?? '';
 $title   = $props['title']   ?? '';
 $headers = $props['headers'] ?? [];
 $rows    = $props['rows']    ?? [];
 $caption = $props['caption'] ?? '';
 ?>
-<section class="table-section">
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="table-section" data-pp-component="table">
     <div class="container">
 
         <?php if ($title) : ?>

@@ -10,12 +10,13 @@
  * @var array $props
  */
 
+$id        = $props['id']        ?? '';
 $location  = $props['location']  ?? 'primary';
 $logo_text = $props['logo_text'] ?? pp_site_title();
 $logo_url  = $props['logo_url']  ?? '';
 $logo_alt  = $props['logo_alt']  ?? $logo_text;
 ?>
-<header class="site-header">
+<header<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="site-header" data-pp-component="nav">
     <nav class="nav" aria-label="Main navigation">
         <div class="container nav__container">
 

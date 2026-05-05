@@ -27,6 +27,11 @@
       "description": "Alt text for the logo image. Defaults to logo_text if empty."
     }
   },
+  "styling": {
+    "root_class": "site-header",
+    "variant_classes": [],
+    "tokens": ["--color-bg", "--color-text", "--color-accent"]
+  },
   "safe_to_edit": ["nav.php", "../../assets/css/components.css (COMPONENT: nav section)"],
   "do_not_touch": ["schema.json without updating AI_CONTEXT.md"]
 }

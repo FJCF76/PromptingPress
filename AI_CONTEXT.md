@@ -56,7 +56,7 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 | /tests/e2e/              | Playwright E2E tests            | Yes — requires Docker (wp-env)   |
 | .wp-env.json             | wp-env Docker config            | Yes — test environment only      |
 | /lib/wp.php              | WP function wrappers (read + write) | Only to add pp_* functions   |
-| /lib/actions.php         | Typed action model (12 actions) | Add actions following the contract |
+| /lib/actions.php         | Typed action model (13 actions) | Add actions following the contract |
 | /lib/cli.php             | WP-CLI `wp pp action` commands  | Yes                              |
 | /lib/setup.php           | Theme activation bootstrap      | Only to add idempotent setup     |
 | /lib/components.php      | Component loader                | No                               |
@@ -114,6 +114,25 @@ If adding background-image support to another component, follow this exact patte
 **Grid:** Variants `default` (card grid), `steps` (numbered process steps with arrow connectors at desktop). `theme` controls background color independently of layout variant.
 
 **CSS invariant:** Component CSS in `components.css` must use only CSS variables from `base.css` — never raw hex values. Color decisions belong to the design tokens, not to individual components.
+
+---
+
+## Mutation surfaces
+
+Every visual change maps to one surface. Writing to the wrong surface creates split authority.
+
+| Change | Surface | Method |
+|---|---|---|
+| Page layout / content | `_pp_composition` post meta | Actions: `update_composition`, `add_component`, `update_component` |
+| Site-wide colors, spacing, fonts | `assets/css/base.css` tokens | Apply: `update_design_token` |
+| Component-specific CSS | `assets/css/components.css` | Direct file edit (BEM, tokens only) |
+| Site name / tagline | WordPress options | Action: `update_site_option` |
+
+**Never use:** WordPress Custom CSS (Appearance > Additional CSS). Use `clear_custom_css` action if conflicts exist.
+
+**Stable IDs:** Every composition component gets a persisted `pp-XXXXXXXX` ID on save. Use these for CSS targeting, never positional selectors.
+
+**Guardrails:** `lib/guardrails.php` provides `pp_check_custom_css_conflicts()` and `pp_validate_composition_styling()`. CLI: `wp pp check conflicts`, `wp pp check page --post_id=N`, `wp pp validate site`.
 
 ---
 
@@ -291,7 +310,7 @@ All mutations go through typed actions. AJAX handlers, WP-CLI, and future AI cal
 **Execute always validates first.** Callers never need to pre-validate.
 
 **Registry functions:**
-- `pp_get_registered_actions()` — all 12 actions
+- `pp_get_registered_actions()` — all 13 actions
 - `pp_get_action($name)` — single action definition or null
 - `pp_validate_action($name, $params)` — structural + semantic validation, returns true|WP_Error
 - `pp_preview_action($name, $params)` — validates, computes diff, never writes
@@ -313,6 +332,7 @@ All mutations go through typed actions. AJAX handlers, WP-CLI, and future AI cal
 | `trash_page` | page | post_id (req) | Moves page to trash (reversible). Rejects already-trashed pages |
 | `restore_page` | page | post_id (req) | Restores page from trash. Only works on trashed pages |
 | `unpublish_page` | page | post_id (req) | Sets status back to draft. Only works on published pages |
+| `clear_custom_css` | site | (none) | Removes all Custom CSS from WordPress Customizer |
 
 ### WP-CLI
 
@@ -320,6 +340,9 @@ All mutations go through typed actions. AJAX handlers, WP-CLI, and future AI cal
 wp pp action list                                    # all actions with scope and params
 wp pp action preview <name> --params='{"key":"val"}'  # validate + diff, never writes
 wp pp action execute <name> --params='{"key":"val"}'  # validate + execute
+wp pp check conflicts                                 # Custom CSS conflict detection
+wp pp check page --post_id=42                         # composition styling validation
+wp pp validate site                                   # full site validation battery
 ```
 
 ### AJAX handler delegation

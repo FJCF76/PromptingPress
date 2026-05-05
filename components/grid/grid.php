@@ -29,7 +29,7 @@ $is_steps      = $variant === 'steps';
 $variant_class = $is_steps ? ' grid--steps' : '';
 $theme_class   = $theme !== 'default' ? ' grid--' . $theme : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($variant_class); ?><?php echo esc_attr($theme_class); ?>">
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($variant_class); ?><?php echo esc_attr($theme_class); ?>" data-pp-component="grid">
     <div class="container">
 
         <?php if ($title) : ?>

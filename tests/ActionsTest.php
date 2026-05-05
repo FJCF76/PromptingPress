@@ -24,15 +24,15 @@ class ActionsTest extends TestCase
 
     // ── Registry tests ─────────────────────────────────────────────────────
 
-    public function testRegistryReturnsAllTwelveActions(): void
+    public function testRegistryReturnsAllThirteenActions(): void
     {
         $actions = pp_get_registered_actions();
-        $this->assertCount(12, $actions);
+        $this->assertCount(13, $actions);
         $expected = [
             'create_page', 'update_site_option', 'update_page_title',
             'update_composition', 'publish_page', 'add_component',
             'remove_component', 'reorder_components', 'update_component',
-            'trash_page', 'restore_page', 'unpublish_page',
+            'trash_page', 'restore_page', 'unpublish_page', 'clear_custom_css',
         ];
         foreach ($expected as $name) {
             $this->assertArrayHasKey($name, $actions, "Action '{$name}' not registered.");
@@ -139,7 +139,10 @@ class ActionsTest extends TestCase
         $comp = [['component' => 'hero', 'props' => ['title' => 'Round Trip']]];
         $result = pp_update_composition(50, $comp);
         $this->assertTrue($result);
-        $this->assertEquals($comp, pp_get_composition(50));
+        $stored = pp_get_composition(50);
+        $this->assertEquals('hero', $stored[0]['component']);
+        $this->assertEquals('Round Trip', $stored[0]['props']['title']);
+        $this->assertStringStartsWith('pp-', $stored[0]['props']['id'], 'Auto-assigned ID expected.');
     }
 
     public function testPpCreatePageReturnsIdAndSetsTemplate(): void
@@ -193,7 +196,11 @@ class ActionsTest extends TestCase
         ]);
         $this->assertTrue($result['ok']);
         $post_id = $result['target']['post_id'];
-        $this->assertEquals($comp, pp_get_composition($post_id));
+        $stored = pp_get_composition($post_id);
+        $this->assertCount(1, $stored);
+        $this->assertEquals('hero', $stored[0]['component']);
+        $this->assertEquals('Welcome', $stored[0]['props']['title']);
+        $this->assertStringStartsWith('pp-', $stored[0]['props']['id']);
     }
 
     // ── Action: update_site_option ─────────────────────────────────────────
@@ -265,7 +272,11 @@ class ActionsTest extends TestCase
             'composition' => $new,
         ]);
         $this->assertTrue($result['ok']);
-        $this->assertEquals($new, pp_get_composition($id));
+        $stored = pp_get_composition($id);
+        $this->assertCount(1, $stored);
+        $this->assertEquals('section', $stored[0]['component']);
+        $this->assertEquals('New body', $stored[0]['props']['body']);
+        $this->assertStringStartsWith('pp-', $stored[0]['props']['id']);
     }
 
     // ── Action: add_component ──────────────────────────────────────────────
@@ -816,5 +827,81 @@ class ActionsTest extends TestCase
         $desc = $actions['create_page']['description'];
         $this->assertStringContainsString('"component"', $desc);
         $this->assertStringContainsString('"props"', $desc);
+    }
+
+    // ── Stable ID Generation ────────────────────────────────────────────────
+
+    public function testUpdateCompositionAssignsIdsToEntriesWithout(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'ID Test', 'post_status' => 'draft']);
+        $composition = [
+            ['component' => 'hero', 'props' => ['title' => 'Hello']],
+            ['component' => 'section', 'props' => ['body' => 'World']],
+        ];
+
+        pp_update_composition($post_id, $composition);
+        $stored = pp_get_composition($post_id);
+
+        $this->assertNotEmpty($stored[0]['props']['id'], 'Hero should have auto-assigned ID.');
+        $this->assertNotEmpty($stored[1]['props']['id'], 'Section should have auto-assigned ID.');
+        $this->assertStringStartsWith('pp-', $stored[0]['props']['id']);
+        $this->assertStringStartsWith('pp-', $stored[1]['props']['id']);
+    }
+
+    public function testUpdateCompositionPreservesExplicitIds(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Preserve Test', 'post_status' => 'draft']);
+        $composition = [
+            ['component' => 'hero', 'props' => ['title' => 'Hello', 'id' => 'my-hero']],
+            ['component' => 'section', 'props' => ['body' => 'World']],
+        ];
+
+        pp_update_composition($post_id, $composition);
+        $stored = pp_get_composition($post_id);
+
+        $this->assertEquals('my-hero', $stored[0]['props']['id'], 'Explicit ID must be preserved.');
+        $this->assertNotEquals('my-hero', $stored[1]['props']['id'], 'Section should get a different auto ID.');
+    }
+
+    public function testUpdateCompositionGeneratesUniqueIds(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Unique Test', 'post_status' => 'draft']);
+        $composition = [
+            ['component' => 'section', 'props' => ['body' => 'A']],
+            ['component' => 'section', 'props' => ['body' => 'B']],
+            ['component' => 'section', 'props' => ['body' => 'C']],
+        ];
+
+        pp_update_composition($post_id, $composition);
+        $stored = pp_get_composition($post_id);
+
+        $ids = array_map(fn($item) => $item['props']['id'], $stored);
+        $this->assertCount(3, array_unique($ids), 'All auto-generated IDs must be unique.');
+    }
+
+    public function testAddComponentFlowAssignsId(): void
+    {
+        // Create a page with one component
+        $result = pp_execute_action('create_page', [
+            'title' => 'Add Test',
+            'composition' => [
+                ['component' => 'hero', 'props' => ['title' => 'Hello']],
+            ],
+        ]);
+        $this->assertTrue($result['ok']);
+        $post_id = $result['target']['post_id'];
+
+        // Add another component
+        $result2 = pp_execute_action('add_component', [
+            'post_id'  => $post_id,
+            'component' => 'section',
+            'props'    => ['body' => 'New section'],
+        ]);
+        $this->assertTrue($result2['ok']);
+
+        $stored = pp_get_composition($post_id);
+        $this->assertCount(2, $stored);
+        $this->assertNotEmpty($stored[0]['props']['id'], 'Hero should have ID after add_component flow.');
+        $this->assertNotEmpty($stored[1]['props']['id'], 'New section should have ID after add_component flow.');
     }
 }

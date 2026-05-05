@@ -63,6 +63,11 @@
       "description": "Alt text for the split variant image. Use a descriptive string for meaningful images; leave empty only if image is purely decorative."
     }
   },
+  "styling": {
+    "root_class": "hero",
+    "variant_classes": ["hero--left", "hero--centered", "hero--split", "hero--cover"],
+    "tokens": ["--space-xl", "--space-2xl", "--color-bg", "--color-muted", "--color-accent", "--overlay-bg"]
+  },
   "safe_to_edit": ["hero.php", "../../assets/css/components.css (COMPONENT: hero section)"],
   "do_not_touch": ["schema.json without also updating AI_CONTEXT.md"]
 }

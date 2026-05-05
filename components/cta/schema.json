@@ -50,6 +50,11 @@
       "description": "Optional background image URL. When set, renders as a CSS background-image with a dark overlay. Text automatically uses light colors for contrast."
     }
   },
+  "styling": {
+    "root_class": "cta",
+    "variant_classes": ["cta--full-width", "cta--inline", "cta--dark", "cta--inverted"],
+    "tokens": ["--space-xl", "--space-2xl", "--color-surface", "--color-bg-inverted", "--color-accent", "--overlay-bg"]
+  },
   "safe_to_edit": ["cta.php", "../../assets/css/components.css (COMPONENT: cta section)"],
   "do_not_touch": ["schema.json without updating README.md"]
 }

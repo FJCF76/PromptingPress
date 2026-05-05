@@ -38,7 +38,7 @@ $bg_image_style = $background_image
     ? sprintf(' style="background-image:url(%s);"', esc_url($background_image))
     : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="section section--<?php echo esc_attr($layout); ?><?php echo esc_attr($variant_class); ?><?php echo esc_attr($bg_image_class); ?>"<?php echo $bg_image_style; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="section section--<?php echo esc_attr($layout); ?><?php echo esc_attr($variant_class); ?><?php echo esc_attr($bg_image_class); ?>" data-pp-component="section"<?php echo $bg_image_style; ?>>
     <?php if ($background_image) : ?>
         <div class="section__overlay" aria-hidden="true"></div>
     <?php endif; ?>

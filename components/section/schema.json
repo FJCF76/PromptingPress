@@ -52,6 +52,11 @@
       "description": "Optional background image URL. When set, renders as a CSS background-image with a dark overlay for text readability. Combines with any variant. Text automatically uses light colors for contrast."
     }
   },
+  "styling": {
+    "root_class": "section",
+    "variant_classes": ["section--text-only", "section--image-left", "section--image-right", "pp-section--dark", "pp-section--inverted"],
+    "tokens": ["--space-xl", "--space-2xl", "--color-bg", "--color-bg-inverted", "--overlay-bg"]
+  },
   "safe_to_edit": ["section.php", "../../assets/css/components.css (COMPONENT: section section)"],
   "do_not_touch": ["schema.json without updating README.md"]
 }

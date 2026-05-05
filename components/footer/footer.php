@@ -8,10 +8,11 @@
  * @var array $props
  */
 
+$id       = $props['id']       ?? '';
 $location = $props['location'] ?? 'footer';
 $year     = wp_date('Y');
 ?>
-<footer class="site-footer">
+<footer<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="site-footer" data-pp-component="footer">
     <div class="container site-footer__inner">
 
         <div class="site-footer__nav">

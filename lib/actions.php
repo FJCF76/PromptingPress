@@ -739,6 +739,44 @@ pp_register_action('unpublish_page', [
     },
 ]);
 
+// ── Action: clear_custom_css ───────────────────────────────────────────────
+// Scope: site | Semantics: removes all Custom CSS from the WordPress Customizer
+// Params: none
+// Rationale: Custom CSS creates split visual authority with theme CSS.
+// After conflict detection flags issues, this action closes the loop.
+
+pp_register_action('clear_custom_css', [
+    'scope'       => 'site',
+    'description' => 'Removes all Custom CSS from the WordPress Customizer. Use after conflict detection flags split-authority issues.',
+    'semantics'   => 'Destructive clear. No params. Removes wp_get_custom_css() content entirely.',
+    'params'      => [],
+    'validate' => function (array $params) {
+        $css = wp_get_custom_css();
+        if (!$css || !trim($css)) {
+            return new WP_Error('no_custom_css', 'No Custom CSS to clear.');
+        }
+        return true;
+    },
+    'preview' => function (array $params): array {
+        $current = wp_get_custom_css();
+        return _pp_action_preview('clear_custom_css', 'site', [], $current, '', [
+            ['path' => 'custom_css', 'from' => 'present', 'to' => 'empty'],
+        ]);
+    },
+    'execute' => function (array $params): array {
+        $post = wp_get_custom_css_post();
+        if ($post) {
+            wp_update_post([
+                'ID'           => $post->ID,
+                'post_content' => '',
+            ]);
+        }
+        return _pp_action_result('clear_custom_css', 'site', [], [
+            ['path' => 'custom_css', 'from' => 'present', 'to' => 'empty'],
+        ]);
+    },
+]);
+
 // ── Internal helpers ────────────────────────────────────────────────────────
 
 /**

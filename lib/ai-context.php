@@ -90,6 +90,19 @@ function pp_ai_system_prompt(): string {
     }
     $parts[] = '';
 
+    // Custom CSS conflict warnings
+    if (function_exists('pp_check_custom_css_conflicts')) {
+        $conflicts = pp_check_custom_css_conflicts();
+        if ($conflicts) {
+            $parts[] = '## ⚠ Custom CSS Conflicts';
+            $parts[] = 'The following Custom CSS selectors target PP component classes, creating split visual authority. Use `clear_custom_css` action to remove them:';
+            foreach ($conflicts as $c) {
+                $parts[] = "- `{$c['selector']}` targets **{$c['component']}**";
+            }
+            $parts[] = '';
+        }
+    }
+
     // Media library inventory
     $media = pp_ai_media_inventory();
     $parts[] = '## Media Library';

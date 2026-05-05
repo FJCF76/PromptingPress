@@ -8,10 +8,11 @@
  * @var array $props
  */
 
+$id    = $props['id']    ?? '';
 $title = $props['title'] ?? 'Frequently Asked Questions';
 $items = $props['items'] ?? [];
 ?>
-<section class="faq">
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="faq" data-pp-component="faq">
     <div class="container">
 
         <?php if ($title) : ?>

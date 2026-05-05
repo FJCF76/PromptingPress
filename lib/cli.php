@@ -297,3 +297,139 @@ class PP_Apply_Command extends WP_CLI_Command {
 }
 
 WP_CLI::add_command('pp apply', 'PP_Apply_Command');
+
+// ── Check / Validate CLI ──────────────────────────────────────────────────
+
+class PP_Check_Command extends WP_CLI_Command {
+
+    /**
+     * Reports Custom CSS selectors that conflict with PP component classes.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp check conflicts
+     *
+     */
+    public function conflicts($args, $assoc_args) {
+        $conflicts = pp_check_custom_css_conflicts();
+
+        if (empty($conflicts)) {
+            WP_CLI::success('No Custom CSS conflicts detected.');
+            return;
+        }
+
+        WP_CLI::warning(count($conflicts) . ' conflict(s) found:');
+        WP_CLI\Utils\format_items('table', $conflicts, ['selector', 'component']);
+    }
+
+    /**
+     * Validates composition styling for a specific page.
+     *
+     * ## OPTIONS
+     *
+     * --post_id=<id>
+     * : WordPress page post ID.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp check page --post_id=42
+     *
+     */
+    public function page($args, $assoc_args) {
+        $post_id = (int) ($assoc_args['post_id'] ?? 0);
+        if (!$post_id) {
+            WP_CLI::error('--post_id is required.');
+        }
+
+        $composition = pp_get_composition($post_id);
+        if (empty($composition)) {
+            WP_CLI::warning('No composition found for page ' . $post_id . '.');
+            return;
+        }
+
+        $warnings = pp_validate_composition_styling($composition);
+
+        if (empty($warnings)) {
+            WP_CLI::success('Page ' . $post_id . ': all components have stable IDs, no ambiguous targeting.');
+            return;
+        }
+
+        WP_CLI::warning(count($warnings) . ' ambiguous targeting warning(s):');
+        $rows = [];
+        foreach ($warnings as $w) {
+            $rows[] = [
+                'component' => $w['component'],
+                'indices'   => implode(', ', $w['indices']),
+                'issue'     => 'Duplicate component type without stable IDs',
+            ];
+        }
+        WP_CLI\Utils\format_items('table', $rows, ['component', 'indices', 'issue']);
+    }
+}
+
+WP_CLI::add_command('pp check', 'PP_Check_Command');
+
+class PP_Validate_Command extends WP_CLI_Command {
+
+    /**
+     * Runs full site validation battery.
+     *
+     * Checks: Custom CSS conflicts, composition styling for all pages,
+     * components without IDs.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp validate site
+     *
+     */
+    public function site($args, $assoc_args) {
+        $pass = true;
+
+        // 1. Custom CSS conflicts
+        WP_CLI::line('--- Custom CSS conflicts ---');
+        $conflicts = pp_check_custom_css_conflicts();
+        if (!empty($conflicts)) {
+            $pass = false;
+            WP_CLI::warning(count($conflicts) . ' conflict(s):');
+            WP_CLI\Utils\format_items('table', $conflicts, ['selector', 'component']);
+        } else {
+            WP_CLI::line('OK: No Custom CSS conflicts.');
+        }
+
+        // 2. Composition styling per page
+        WP_CLI::line('');
+        WP_CLI::line('--- Composition styling ---');
+        $pages = pp_composition_pages();
+        if (empty($pages)) {
+            WP_CLI::line('No composition pages found.');
+        } else {
+            foreach ($pages as $page) {
+                $post_id     = $page['id'];
+                $title       = $page['title'] ?? '(untitled)';
+                $composition = pp_get_composition($post_id);
+                $warnings    = pp_validate_composition_styling($composition);
+
+                if (!empty($warnings)) {
+                    $pass = false;
+                    WP_CLI::warning("Page {$post_id} ({$title}): " . count($warnings) . ' issue(s)');
+                    foreach ($warnings as $w) {
+                        WP_CLI::line("  - {$w['component']} at indices " . implode(', ', $w['indices']) . ' (no stable IDs)');
+                    }
+                } else {
+                    WP_CLI::line("OK: Page {$post_id} ({$title})");
+                }
+            }
+        }
+
+        // 3. Summary
+        WP_CLI::line('');
+        if ($pass) {
+            WP_CLI::success('Site validation passed.');
+        } else {
+            WP_CLI::warning('Site validation found issues. See above.');
+            WP_CLI::halt(1);
+        }
+    }
+}
+
+WP_CLI::add_command('pp validate', 'PP_Validate_Command');

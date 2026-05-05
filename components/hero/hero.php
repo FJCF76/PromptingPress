@@ -33,7 +33,7 @@ if ($variant === 'cover' && $image_url) {
     );
 }
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="hero hero--<?php echo esc_attr($variant); ?>"<?php echo $cover_style; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="hero hero--<?php echo esc_attr($variant); ?>" data-pp-component="hero"<?php echo $cover_style; ?>>
     <?php if ($variant === 'cover') : ?>
         <div class="hero__overlay" aria-hidden="true"></div>
     <?php endif; ?>

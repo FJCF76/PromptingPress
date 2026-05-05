@@ -33,7 +33,7 @@ $bg_image_style = $background_image
     ? sprintf(' style="background-image:url(%s);"', esc_url($background_image))
     : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="cta cta--<?php echo esc_attr($variant); ?><?php echo esc_attr($theme_class); ?><?php echo esc_attr($bg_image_class); ?>"<?php echo $bg_image_style; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="cta cta--<?php echo esc_attr($variant); ?><?php echo esc_attr($theme_class); ?><?php echo esc_attr($bg_image_class); ?>" data-pp-component="cta"<?php echo $bg_image_style; ?>>
     <?php if ($background_image) : ?>
         <div class="cta__overlay" aria-hidden="true"></div>
     <?php endif; ?>

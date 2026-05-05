@@ -25,6 +25,11 @@
       "description": "Accessible table caption (rendered as <caption>). Recommended for data tables."
     }
   },
+  "styling": {
+    "root_class": "table-section",
+    "variant_classes": [],
+    "tokens": ["--space-xl", "--space-2xl", "--color-border", "--color-surface"]
+  },
   "safe_to_edit": ["table.php", "../../assets/css/components.css (COMPONENT: table section)"],
   "do_not_touch": ["schema.json without updating README.md"]
 }

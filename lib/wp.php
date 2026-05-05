@@ -291,6 +291,16 @@ function pp_site_option(string $key) {
  * @return true|WP_Error
  */
 function pp_update_composition(int $post_id, array $composition) {
+    // Auto-assign stable IDs to entries that don't have one.
+    // Generated once at write time so IDs are persisted and never shift.
+    foreach ($composition as &$item) {
+        $props = $item['props'] ?? [];
+        if (empty($props['id'])) {
+            $item['props']['id'] = 'pp-' . substr(bin2hex(random_bytes(4)), 0, 8);
+        }
+    }
+    unset($item);
+
     $json = wp_json_encode($composition, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     update_post_meta($post_id, '_pp_composition', wp_slash($json));
     return true;

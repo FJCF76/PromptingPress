@@ -27,6 +27,11 @@
       "description": "Background presentation. 'default' = page background. 'dark' = surface background with borders. 'inverted' = inverted background for strong contrast."
     }
   },
+  "styling": {
+    "root_class": "embed",
+    "variant_classes": ["embed--dark", "embed--inverted"],
+    "tokens": ["--space-xl", "--space-2xl", "--color-bg", "--color-bg-inverted"]
+  },
   "safe_to_edit": ["embed.php", "../../assets/css/components.css (COMPONENT: embed section)"],
   "do_not_touch": ["schema.json without updating AI_CONTEXT.md"]
 }

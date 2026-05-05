@@ -515,11 +515,39 @@ if (!function_exists('submit_button')) {
     function submit_button(string $text = 'Save Changes'): void { echo "<button>{$text}</button>"; }
 }
 
+// ── Custom CSS stubs ──────────────────────────────────────────────────────
+
+if (!function_exists('wp_get_custom_css')) {
+    function wp_get_custom_css(): string {
+        return $GLOBALS['_pp_test_store']['custom_css'] ?? '';
+    }
+}
+
+if (!function_exists('wp_get_custom_css_post')) {
+    function wp_get_custom_css_post() {
+        $css = $GLOBALS['_pp_test_store']['custom_css'] ?? '';
+        if (!$css) {
+            return null;
+        }
+        $post = new WP_Post();
+        $post->ID = 999;
+        $post->post_content = $css;
+        return $post;
+    }
+}
+
+if (!function_exists('wp_date')) {
+    function wp_date(string $format): string {
+        return date($format);
+    }
+}
+
 // Load the theme library files.
 require_once dirname(__DIR__) . '/lib/wp.php';
 require_once dirname(__DIR__) . '/lib/helpers.php';
 require_once dirname(__DIR__) . '/lib/components.php';
 require_once dirname(__DIR__) . '/lib/admin.php';
+require_once dirname(__DIR__) . '/lib/guardrails.php';
 require_once dirname(__DIR__) . '/lib/actions.php';
 require_once dirname(__DIR__) . '/lib/apply.php';
 require_once dirname(__DIR__) . '/lib/ai-context.php';
