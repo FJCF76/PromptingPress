@@ -4,6 +4,53 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.2.3] — 2026-05-05 — Substrate reliability: stable IDs, split-authority detection, CSS guardrails
+
+### AI agents can no longer write to the wrong surface or target components ambiguously
+
+This release makes the PromptingPress substrate harder to mis-edit. Three structural gaps exposed during dogfooding are now closed: agents writing to WordPress Custom CSS instead of theme tokens, fragile positional selectors (nth-of-type) because components lacked stable identity, and overclaiming success without validation.
+
+### Stable persisted component IDs
+
+Every composition entry now gets a stable `pp-XXXXXXXX` ID auto-assigned at write time. IDs persist across saves, never shift on reorder, and render as HTML `id` attributes. AI agents can now target specific components by ID instead of brittle positional selectors.
+
+### Split visual authority detection
+
+New `wp pp check conflicts` CLI command detects when WordPress Custom CSS overrides theme component classes. Word-boundary-aware selector matching (not naive substring) avoids false positives. `clear_custom_css` typed action lets agents remediate conflicts through the action model.
+
+### CSS guardrails
+
+- Vitest regression guards: no nth-of-type in theme CSS, no modern CSS features (color-mix, :has, @container), no raw hex in components.css
+- `wp pp validate site` CLI command runs automated checks across all composition pages
+- `pp_validate_composition_styling()` flags duplicate component types without IDs
+
+### Added
+
+- `lib/guardrails.php`: conflict detection + composition validation (~70 lines)
+- `clear_custom_css` as 13th typed action in `lib/actions.php`
+- `PP_Check_Command` and `PP_Validate_Command` CLI commands in `lib/cli.php`
+- Custom CSS conflict warnings wired into AI system prompt via `lib/ai-context.php`
+- `data-pp-component="{name}"` attribute on all 11 component root elements
+- `"styling"` section in all 11 component schema.json files (root_class, variant_classes, tokens)
+- `ai-instructions/website-building.md`: mutation surface map, stable ID contract, escalation triggers
+- `ai-instructions/validate-site.md`: CLI checks + rendered review checklist
+- 4 new AI_RULES.md invariants (no positional selectors, no modern CSS, no Custom CSS for theme styling, stable IDs)
+- Mutation surfaces section in AI_CONTEXT.md
+- Hero mobile padding: `var(--space-xl)` at base, `var(--space-2xl)` at 768px+
+
+### Fixed
+
+- 4 components (faq, table, footer, nav) stored IDs in DB but never rendered them in HTML
+- Hero CTA not visible without scrolling at 375px viewport (padding was 112px, now 64px)
+
+### Tests
+
+- 273 PHP tests, 829 assertions (was 256 tests, 785 assertions)
+- 64 Vitest tests (was 56)
+- New: 13 guardrail tests, 4 ID generation tests, 8 CSS lint regression tests
+
+---
+
 ## [v0.2.2] — 2026-04-29 — AI Settings UX + error clarity
 
 ### Structured settings replace free-text fields
