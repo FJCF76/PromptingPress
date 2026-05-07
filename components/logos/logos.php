@@ -13,6 +13,8 @@ $id      = $props['id']      ?? '';
 $title   = $props['title']   ?? '';
 $variant = $props['variant'] ?? 'default';
 $items   = $props['items']   ?? [];
+$spacing = $props['spacing'] ?? 'default';
+$width   = $props['width']   ?? 'default';
 
 $allowed_variants = ['default', 'dark', 'inverted'];
 if (!in_array($variant, $allowed_variants, true)) {
@@ -20,8 +22,20 @@ if (!in_array($variant, $allowed_variants, true)) {
 }
 
 $variant_class = $variant !== 'default' ? ' logos--' . $variant : '';
+
+$allowed_spacings = ['default', 'compact', 'spacious'];
+if (!in_array($spacing, $allowed_spacings, true)) {
+    $spacing = 'default';
+}
+$allowed_widths = ['default', 'narrow', 'full'];
+if (!in_array($width, $allowed_widths, true)) {
+    $width = 'default';
+}
+
+$spacing_attr = $spacing !== 'default' ? ' data-pp-spacing="' . esc_attr($spacing) . '"' : '';
+$width_attr   = $width !== 'default' ? ' data-pp-width="' . esc_attr($width) . '"' : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="logos<?php echo esc_attr($variant_class); ?>" data-pp-component="logos">
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="logos<?php echo esc_attr($variant_class); ?>" data-pp-component="logos"<?php echo $spacing_attr; ?><?php echo $width_attr; ?>>
     <div class="container">
 
         <?php if ($title) : ?>

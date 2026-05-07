@@ -1183,3 +1183,81 @@
 .embed--inverted a {
   color: var(--color-accent);
 }
+
+/* ==========================================================================
+   SHARED: Adjacent-Sibling Rhythm
+   Tightens vertical padding between consecutive section-level components
+   inside <main>. First component keeps its own padding naturally (the `+`
+   combinator skips it). Desktop only — mobile spacing stays uniform.
+   ========================================================================== */
+
+@media (min-width: 768px) {
+  main > [data-pp-component] + [data-pp-component] {
+    padding-top: var(--space-lg);
+  }
+}
+
+/* ==========================================================================
+   SHARED: Text-Only Typography Modulation
+   Slightly larger heading and wider measure for text-only sections,
+   giving them visual weight without an image to anchor the eye.
+   ========================================================================== */
+
+.section--text-only .section__title {
+  font-size: 2.25rem;
+}
+
+.section--text-only .section__body {
+  max-width: 75ch;
+}
+
+/* ==========================================================================
+   SHARED: Spacing + Width Props (data attributes)
+   Cross-component layout overrides via data-pp-spacing and data-pp-width.
+   Compound selectors ensure these override rhythm defaults.
+   ========================================================================== */
+
+[data-pp-component][data-pp-spacing="compact"] {
+  padding-top: var(--space-lg);
+  padding-bottom: var(--space-lg);
+}
+
+[data-pp-component][data-pp-spacing="spacious"] {
+  padding-top: var(--space-2xl);
+  padding-bottom: var(--space-2xl);
+}
+
+@media (min-width: 768px) {
+  main > [data-pp-component][data-pp-spacing="compact"] {
+    padding-top: var(--space-lg);
+    padding-bottom: var(--space-lg);
+  }
+  main > [data-pp-component][data-pp-spacing="spacious"] {
+    padding-top: var(--space-3xl);
+    padding-bottom: var(--space-3xl);
+  }
+}
+
+[data-pp-width="narrow"] .container {
+  max-width: 56rem;
+}
+
+[data-pp-width="full"] .container {
+  max-width: 100%;
+}
+
+/* ==========================================================================
+   SHARED: Section Centered Variant
+   Centered text layout with constrained width, no image.
+   ========================================================================== */
+
+.section--centered .section__body {
+  text-align: center;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 56rem;
+}
+
+.section--centered .section__title {
+  text-align: center;
+}

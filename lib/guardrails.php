@@ -88,6 +88,44 @@ function pp_check_custom_css_conflicts(): array {
 }
 
 /**
+ * Renders a dismissible admin notice when Custom CSS conflicts with PP components.
+ * Scoped to composition page edit screens only.
+ *
+ * Hooked via add_action('admin_notices', ...) in functions.php.
+ */
+function pp_admin_notice_css_conflicts(): void {
+    $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+    if (!$screen || $screen->base !== 'post' || $screen->post_type !== 'page') {
+        return;
+    }
+
+    // Only show on composition pages.
+    $post_id = isset($_GET['post']) ? (int) $_GET['post'] : 0;
+    if (!$post_id) {
+        return;
+    }
+    $template = get_page_template_slug($post_id);
+    if ($template !== 'composition.php') {
+        return;
+    }
+
+    $conflicts = pp_check_custom_css_conflicts();
+    if (empty($conflicts)) {
+        return;
+    }
+
+    $selectors = array_map(fn($c) => '<code>' . esc_html($c['selector']) . '</code>', $conflicts);
+    $list = implode(', ', $selectors);
+
+    echo '<div class="notice notice-warning is-dismissible">';
+    echo '<p><strong>PromptingPress:</strong> Custom CSS conflicts detected. ';
+    echo 'The following selectors target PP component classes: ' . $list . '. ';
+    echo 'This may override theme styling. ';
+    echo 'Run <code>wp pp check conflicts</code> for details.</p>';
+    echo '</div>';
+}
+
+/**
  * Validates composition styling for ambiguous targeting.
  *
  * Flags duplicate component types that lack stable IDs — these cannot be

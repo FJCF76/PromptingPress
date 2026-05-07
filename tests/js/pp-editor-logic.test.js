@@ -49,7 +49,7 @@ const SECTION = {
         props: {
             body:    { type: 'string',  required: true, description: 'HTML body content.' },
             title:   { type: 'string',  required: false, default: '' },
-            layout:  { type: 'enum', values: ['text-only', 'image-left', 'image-right'], required: false, default: 'text-only' },
+            layout:  { type: 'enum', values: ['text-only', 'image-left', 'image-right', 'centered'], required: false, default: 'text-only' },
             variant: { type: 'enum', values: ['default', 'dark', 'inverted'], required: false, default: 'default' },
         },
     },
@@ -382,7 +382,7 @@ describe('buildAccordionData', () => {
         const result = buildAccordionData(json, REGISTRY);
         const layoutField = result.components[0].fields.find(f => f.name === 'layout');
         expect(layoutField.type).toBe('enum');
-        expect(layoutField.values).toEqual(['text-only', 'image-left', 'image-right']);
+        expect(layoutField.values).toEqual(['text-only', 'image-left', 'image-right', 'centered']);
     });
 
     test('array field has items sub-schema', () => {

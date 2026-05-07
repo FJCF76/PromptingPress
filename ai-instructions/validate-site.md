@@ -1,5 +1,15 @@
 # Validate Site — CLI Checks + Rendered Review
 
+## Mandatory pre-check
+
+Before modifying any component styling or composition, always run conflict detection first:
+
+```bash
+wp pp check conflicts
+```
+
+If conflicts are found, resolve them before proceeding. The admin edit screen also shows a dismissible warning on composition pages when conflicts exist, and `WP_DEBUG` mode renders an HTML comment in the page source.
+
 ## Automated checks (CLI)
 
 Run the full validation battery:
@@ -9,7 +19,7 @@ wp pp validate site
 ```
 
 This checks:
-1. **Custom CSS conflicts** — selectors in WordPress Custom CSS that target PP component classes
+1. **Custom CSS conflicts** — selectors in WordPress Custom CSS that target PP component classes (also surfaced via admin notice on composition edit screens)
 2. **Composition styling** — duplicate component types without stable IDs (ambiguous targeting)
 
 Individual checks:

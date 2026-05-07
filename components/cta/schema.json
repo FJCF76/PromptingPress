@@ -48,12 +48,26 @@
       "required": false,
       "default": "",
       "description": "Optional background image URL. When set, renders as a CSS background-image with a dark overlay. Text automatically uses light colors for contrast."
+    },
+    "spacing": {
+      "type": "enum",
+      "values": ["default", "compact", "spacious"],
+      "required": false,
+      "default": "default",
+      "description": "Vertical padding override. 'compact' tightens padding. 'spacious' adds extra breathing room. 'default' uses the component's built-in padding (subject to CSS rhythm defaults)."
+    },
+    "width": {
+      "type": "enum",
+      "values": ["default", "narrow", "full"],
+      "required": false,
+      "default": "default",
+      "description": "Content width override. 'narrow' constrains to 56rem. 'full' stretches to viewport (with padding). 'default' uses the standard max-width."
     }
   },
   "styling": {
     "root_class": "cta",
     "variant_classes": ["cta--full-width", "cta--inline", "cta--dark", "cta--inverted"],
-    "tokens": ["--space-xl", "--space-2xl", "--color-surface", "--color-bg-inverted", "--color-accent", "--overlay-bg"]
+    "tokens": ["--space-xl", "--space-2xl", "--space-3xl", "--color-surface", "--color-bg-inverted", "--color-accent", "--overlay-bg"]
   },
   "safe_to_edit": ["cta.php", "../../assets/css/components.css (COMPONENT: cta section)"],
   "do_not_touch": ["schema.json without updating README.md"]

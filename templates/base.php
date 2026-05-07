@@ -36,6 +36,14 @@ if (!function_exists('pp_base_template')) {
     <?php $content(); ?>
 </main>
 
+<?php if (defined('WP_DEBUG') && WP_DEBUG) :
+    $pp_conflicts = pp_check_custom_css_conflicts();
+    if (!empty($pp_conflicts)) :
+        $pp_conflict_selectors = array_map(fn($c) => $c['selector'], $pp_conflicts);
+?>
+<!-- PP WARNING: Custom CSS conflicts detected: <?php echo esc_html(implode(', ', $pp_conflict_selectors)); ?> -->
+<?php endif; endif; ?>
+
 <?php pp_get_component('footer', ['location' => 'footer']); ?>
 
 <?php wp_footer(); ?>

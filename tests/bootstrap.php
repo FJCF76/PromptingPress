@@ -396,7 +396,9 @@ if (!function_exists('get_post_type')) {
 }
 
 if (!function_exists('get_page_template_slug')) {
-    function get_page_template_slug($post = null): string { return 'composition.php'; }
+    function get_page_template_slug($post = null): string {
+        return $GLOBALS['_pp_test_store']['page_template_slug'] ?? 'composition.php';
+    }
 }
 
 if (!class_exists('WP_Post')) {
@@ -513,6 +515,22 @@ if (!function_exists('do_settings_sections')) {
 
 if (!function_exists('submit_button')) {
     function submit_button(string $text = 'Save Changes'): void { echo "<button>{$text}</button>"; }
+}
+
+// ── Shortcode stub ──────────────────────────────────────────────────────
+
+if (!function_exists('do_shortcode')) {
+    function do_shortcode(string $content): string {
+        return $content;
+    }
+}
+
+// ── Admin screen stub ──────────────────────────────────────────────────────
+
+if (!function_exists('get_current_screen')) {
+    function get_current_screen() {
+        return $GLOBALS['_pp_test_store']['current_screen'] ?? null;
+    }
 }
 
 // ── Custom CSS stubs ──────────────────────────────────────────────────────

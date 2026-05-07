@@ -5,7 +5,7 @@
 
 /* ==========================================================================
    1. CSS Custom Properties (Design Tokens)
-   Change these 18 values to retheme the entire site.
+   Change these 19 values to retheme the entire site.
    See ai-instructions/retheme.md for the full retheme workflow.
    ========================================================================== */
 
@@ -27,6 +27,7 @@
   --space-lg:  2rem;      /* length: 32px */
   --space-xl:  4rem;      /* length: 64px */
   --space-2xl: 7rem;      /* length: 112px */
+  --space-3xl: 10rem;     /* length: 160px */
 
   /* Typography — replace both to change fonts */
   --font-body:    system-ui, sans-serif;  /* font-family: Body text */

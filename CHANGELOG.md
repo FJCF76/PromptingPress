@@ -4,6 +4,39 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.2.4] — 2026-05-07 — Quality sprint: CSS rhythm, spacing/width props, centered section, styling authority
+
+### Pages look authored, not templated — without changing any composition JSON
+
+Adjacent-sibling CSS rhythm automatically tightens padding between consecutive components at desktop (768px+). The first component (typically hero) keeps its full padding; subsequent components get tighter spacing. This single CSS rule eliminates the biggest visual gap from dogfooding: every multi-section page looked monotonously spaced.
+
+### Spacing and width props on all section-level components
+
+All 7 section-level components (hero, section, grid, cta, stats, logos, embed) now accept `spacing` (compact/default/spacious) and `width` (narrow/default/full) props. Rendered as `data-pp-spacing` and `data-pp-width` attributes — two CSS rules handle all components instead of 14+ BEM classes. Explicit spacing overrides rhythm defaults via compound selector specificity.
+
+### Section centered layout variant
+
+New `layout: centered` option for the section component. Renders heading + body with centered text alignment, constrained to 56rem. Image is suppressed even when `image_url` is provided — centered is a text-only layout by design.
+
+### Admin notice for CSS conflicts on composition pages
+
+`pp_admin_notice_css_conflicts()` renders a dismissible warning on composition edit screens when Custom CSS targets PP component classes. Scoped via `get_current_screen()` to avoid firing on unrelated admin pages.
+
+### Added
+
+- `--space-3xl: 10rem` design token (19th token)
+- Adjacent-sibling rhythm rule: `main > [data-pp-component] + [data-pp-component]` at 768px+
+- Text-only typography modulation: `.section--text-only .section__title` at 2.25rem
+- `spacing` and `width` props on 7 component schemas + PHP templates
+- `data-pp-spacing` / `data-pp-width` CSS selectors with specificity override
+- `.section--centered` layout variant (CSS + PHP + schema)
+- Admin notice hook for CSS conflicts (`functions.php`)
+- WP_DEBUG HTML comment for CSS conflicts in `base.php`
+- 26 new PHP unit tests (ComponentPropsTest.php + GuardrailsTest.php extensions)
+- Updated JS editor test fixtures for centered layout enum
+
+---
+
 ## [v0.2.3] — 2026-05-05 — Substrate reliability: stable IDs, split-authority detection, CSS guardrails
 
 ### AI agents can no longer write to the wrong surface or target components ambiguously

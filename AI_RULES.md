@@ -10,6 +10,10 @@ When WordPress convention and AI operability conflict, AI operability wins. Spec
 
 The dev site at `dev.promptingpress.com` is a separate copy of the repo, not a symlink. Changes made on the server are not automatically in the repo. Commit and push explicitly after every change.
 
+## Mandatory first step
+
+Before modifying any component styling or composition: run `wp pp check conflicts` to verify no Custom CSS overrides exist. If conflicts are found, resolve them first (clear Custom CSS, move styling to tokens or components.css). Never layer new styling on top of unresolved conflicts.
+
 ## Invariants — never violate these
 
 - Templates call components. Components do not call components.

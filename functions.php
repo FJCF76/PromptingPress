@@ -30,6 +30,9 @@ if (defined('WP_CLI') && WP_CLI) {
     require_once get_template_directory() . '/lib/cli.php';
 }
 
+// ── Admin notices ─────────────────────────────────────────────────────────
+add_action('admin_notices', 'pp_admin_notice_css_conflicts');
+
 // ── Theme setup ────────────────────────────────────────────────────────────
 add_action('after_setup_theme', function () {
     add_theme_support('title-tag');

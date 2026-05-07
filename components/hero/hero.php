@@ -17,12 +17,27 @@ $cta2_url  = $props['cta2_url']  ?? '#';
 $variant   = $props['variant']   ?? 'centered';
 $image_url = $props['image_url'] ?? '';
 $image_alt = $props['image_alt'] ?? '';
+$spacing   = $props['spacing']   ?? 'default';
+$width     = $props['width']     ?? 'default';
 
 // Validate variant.
 $allowed_variants = ['left', 'centered', 'split', 'cover'];
 if (!in_array($variant, $allowed_variants, true)) {
     $variant = 'centered';
 }
+
+// Validate spacing/width props.
+$allowed_spacings = ['default', 'compact', 'spacious'];
+if (!in_array($spacing, $allowed_spacings, true)) {
+    $spacing = 'default';
+}
+$allowed_widths = ['default', 'narrow', 'full'];
+if (!in_array($width, $allowed_widths, true)) {
+    $width = 'default';
+}
+
+$spacing_attr = $spacing !== 'default' ? ' data-pp-spacing="' . esc_attr($spacing) . '"' : '';
+$width_attr   = $width !== 'default' ? ' data-pp-width="' . esc_attr($width) . '"' : '';
 
 // Cover variant: image becomes a background-image with overlay.
 $cover_style = '';
@@ -33,7 +48,7 @@ if ($variant === 'cover' && $image_url) {
     );
 }
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="hero hero--<?php echo esc_attr($variant); ?>" data-pp-component="hero"<?php echo $cover_style; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="hero hero--<?php echo esc_attr($variant); ?>" data-pp-component="hero"<?php echo $spacing_attr; ?><?php echo $width_attr; ?><?php echo $cover_style; ?>>
     <?php if ($variant === 'cover') : ?>
         <div class="hero__overlay" aria-hidden="true"></div>
     <?php endif; ?>

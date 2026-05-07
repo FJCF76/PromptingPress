@@ -61,12 +61,26 @@
       "required": false,
       "default": "",
       "description": "Alt text for the split variant image. Use a descriptive string for meaningful images; leave empty only if image is purely decorative."
+    },
+    "spacing": {
+      "type": "enum",
+      "values": ["default", "compact", "spacious"],
+      "required": false,
+      "default": "default",
+      "description": "Vertical padding override. 'compact' tightens padding. 'spacious' adds extra breathing room. 'default' uses the component's built-in padding (subject to CSS rhythm defaults)."
+    },
+    "width": {
+      "type": "enum",
+      "values": ["default", "narrow", "full"],
+      "required": false,
+      "default": "default",
+      "description": "Content width override. 'narrow' constrains to 56rem. 'full' stretches to viewport (with padding). 'default' uses the standard max-width."
     }
   },
   "styling": {
     "root_class": "hero",
     "variant_classes": ["hero--left", "hero--centered", "hero--split", "hero--cover"],
-    "tokens": ["--space-xl", "--space-2xl", "--color-bg", "--color-muted", "--color-accent", "--overlay-bg"]
+    "tokens": ["--space-xl", "--space-2xl", "--space-3xl", "--color-bg", "--color-muted", "--color-accent", "--overlay-bg"]
   },
   "safe_to_edit": ["hero.php", "../../assets/css/components.css (COMPONENT: hero section)"],
   "do_not_touch": ["schema.json without also updating AI_CONTEXT.md"]
