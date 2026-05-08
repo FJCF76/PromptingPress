@@ -79,7 +79,7 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 
 | Component | File                           | Description                                      | Key props                                          |
 |-----------|--------------------------------|--------------------------------------------------|----------------------------------------------------|
-| hero      | components/hero/hero.php       | Full-width headline + optional CTA and image     | title (req), subtitle, cta_text, cta_url, cta2_text, cta2_url, variant, image_url, image_alt, id |
+| hero      | components/hero/hero.php       | Full-width headline + optional CTA and image     | title (req), subtitle, cta_text, cta_url, cta2_text, cta2_url, variant, image_url, image_alt, split_ratio, content_measure, vertical_align, proof, id |
 | section   | components/section/section.php | Text + optional image. 3 layout variants         | body (req), title, image_url, image_alt, layout, variant, background_image, id |
 | faq       | components/faq/faq.php         | Native details/summary accordion. Zero JS.       | items[] (req) {question, answer}, title            |
 | grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {title, text, image_url, link_url, link_text}, title, variant, theme, id |
@@ -107,7 +107,7 @@ If adding background-image support to another component, follow this exact patte
 
 **Anchor IDs:** All 7 section-level components (hero, section, stats, grid, logos, cta, embed) accept an `id` prop that renders as the HTML `id` attribute on the root `<section>` element. Use for anchor navigation.
 
-**Hero:** Variants `left`, `centered`, `split` (inline image), `cover` (fullscreen background-image with overlay). Supports dual CTA buttons (`cta_text` + `cta2_text`); secondary renders as outline/ghost style.
+**Hero:** Variants `left`, `centered`, `split` (inline image), `cover` (fullscreen background-image with overlay). Supports dual CTA buttons (`cta_text` + `cta2_text`); secondary renders as outline/ghost style. Composition props: `split_ratio` (50-50/60-40/40-60, split variant only), `content_measure` (narrow/default/wide, constrains hero__content max-width), `vertical_align` (top/center/bottom, cover and split only), `proof` (HTML string for trust signals like logos/ratings, rendered after CTA group).
 
 **Nav:** Supports image logos via `logo_url` + `logo_alt`. Falls back to `logo_text` (text) when `logo_url` is empty.
 

@@ -4,6 +4,32 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.2.5] — 2026-05-08 — Hero composition props: split ratio, content measure, vertical align, proof slot
+
+### Hero sections now support fine-grained composition control
+
+Four new props give the hero component the high-resolution layout primitives it was missing for polished marketing pages:
+
+- **split_ratio** (split variant only): Control the content-to-image balance with `60-40` or `40-60` ratios. CSS Grid `3fr 2fr` / `2fr 3fr` at desktop (1024px+); stacks normally on mobile.
+- **content_measure**: Constrain headline/body width to `narrow` (36rem) or `wide` (48rem). Resets to full width on mobile (<768px) so nothing clips.
+- **vertical_align**: Pin content `top` or `bottom` within cover and split heroes at desktop (1024px+). Ignored on centered variant. No effect on mobile — content always flows naturally.
+- **proof**: HTML slot for trust signals (logos, star ratings, certifications) rendered as a flex-wrap row below the CTA. Sanitized with `wp_kses_post()`. Empty string = no proof div rendered.
+
+All props use the `data-pp-*` attribute pattern. Invalid values fall back to defaults silently. Props that don't apply to a variant (e.g., split_ratio on centered) are omitted from the HTML entirely.
+
+### Added
+- `split_ratio` prop on hero (schema + PHP + CSS)
+- `content_measure` prop on hero (schema + PHP + CSS)
+- `vertical_align` prop on hero (schema + PHP + CSS)
+- `proof` HTML slot on hero (schema + PHP + CSS)
+- 17 PHPUnit tests covering all prop validation, attribute output, variant gating, and proof sanitization
+- AI_CONTEXT.md updated with new hero props
+
+### Fixed
+- Cover variant vertical-align CSS was not gated behind `@media (min-width: 1024px)` — could push content off-screen on mobile. Now wrapped in the same desktop-only media query as split variant.
+
+---
+
 ## [v0.2.4] — 2026-05-07 — Quality sprint: CSS rhythm, spacing/width props, centered section, styling authority
 
 ### Pages look authored, not templated — without changing any composition JSON
