@@ -75,6 +75,33 @@
       "required": false,
       "default": "default",
       "description": "Content width override. 'narrow' constrains to 56rem. 'full' stretches to viewport (with padding). 'default' uses the standard max-width."
+    },
+    "split_ratio": {
+      "type": "enum",
+      "values": ["50-50", "60-40", "40-60"],
+      "required": false,
+      "default": "50-50",
+      "description": "Grid column ratio for the split variant. '60-40' gives more space to text, '40-60' gives more to the image. Ignored on non-split variants."
+    },
+    "content_measure": {
+      "type": "enum",
+      "values": ["default", "narrow", "wide"],
+      "required": false,
+      "default": "default",
+      "description": "Constrains hero__content max-width. 'narrow' = 36rem (tight editorial column), 'wide' = 48rem (for centered/cover with longer text). 'default' inherits from container (72rem). Constraints removed below 768px."
+    },
+    "vertical_align": {
+      "type": "enum",
+      "values": ["top", "center", "bottom"],
+      "required": false,
+      "default": "center",
+      "description": "Vertical alignment of content within the hero. Applies to cover and split variants only. Ignored on centered/left variants. Ignored below 1024px."
+    },
+    "proof": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "HTML string for trust signals (client logos, star ratings, user counts). Rendered after the CTA group inside hero__content. Sanitized via wp_kses_post. When empty, no DOM element is rendered."
     }
   },
   "styling": {

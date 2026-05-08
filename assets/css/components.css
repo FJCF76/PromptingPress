@@ -361,6 +361,60 @@
   border-radius: var(--radius);
 }
 
+/* Split ratio: grid column ratios at desktop */
+@media (min-width: 1024px) {
+  .hero--split[data-pp-split-ratio="60-40"] .hero__inner {
+    grid-template-columns: 3fr 2fr;
+  }
+  .hero--split[data-pp-split-ratio="40-60"] .hero__inner {
+    grid-template-columns: 2fr 3fr;
+  }
+}
+
+/* Content measure: constrain hero__content max-width */
+[data-pp-content-measure="narrow"] .hero__content {
+  max-width: 36rem;
+}
+
+[data-pp-content-measure="wide"] .hero__content {
+  max-width: 48rem;
+}
+
+@media (max-width: 767px) {
+  [data-pp-content-measure] .hero__content {
+    max-width: none;
+  }
+}
+
+/* Vertical align: cover + split variants (desktop only) */
+@media (min-width: 1024px) {
+  .hero--cover[data-pp-vertical-align="top"] {
+    align-items: flex-start;
+  }
+
+  .hero--cover[data-pp-vertical-align="bottom"] {
+    align-items: flex-end;
+  }
+
+  .hero--split[data-pp-vertical-align="top"] .hero__inner {
+    align-items: start;
+  }
+  .hero--split[data-pp-vertical-align="bottom"] .hero__inner {
+    align-items: end;
+  }
+}
+
+/* Proof slot: trust signals after CTA */
+.hero__proof {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  align-items: center;
+  margin-top: var(--space-md);
+  font-size: 0.875rem;
+  color: var(--color-muted);
+}
+
 /* ==========================================================================
    COMPONENT: section
    Generic text + optional image section.
