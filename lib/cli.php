@@ -22,6 +22,29 @@ function pp_cli_parse_params(array $assoc_args): array {
     return $params;
 }
 
+/**
+ * Capability gate for apply commands.
+ * In WP-CLI context, capability check is bypassed because WP-CLI already
+ * requires server-level access. This follows WP-CLI core conventions
+ * (e.g. wp db export). In web/AJAX context, requires manage_options.
+ */
+function _pp_cli_require_apply_cap(): void {
+    if (defined('WP_CLI') && WP_CLI) {
+        WP_CLI::debug('Capability gate bypassed: WP-CLI context detected.');
+        return;
+    }
+    if (!current_user_can('manage_options')) {
+        WP_CLI::error('You need manage_options capability to use apply commands.');
+    }
+}
+
+/**
+ * Action commands intentionally have no CLI capability gate.
+ * Actions mutate WordPress data through WP APIs (wp_update_post, update_option)
+ * which enforce their own permission model. Apply commands write directly to
+ * the filesystem, bypassing WordPress permissions entirely — hence the gate.
+ * AJAX surfaces for actions gate on edit_posts separately (see lib/ai-chat.php).
+ */
 class PP_Action_Command extends WP_CLI_Command {
 
     /**
@@ -128,6 +151,38 @@ class PP_Action_Command extends WP_CLI_Command {
 
 WP_CLI::add_command('pp action', 'PP_Action_Command');
 
+// ── Target CLI ──────────────────────────────────────────────────────────────
+
+class PP_Target_Command extends WP_CLI_Command {
+
+    /**
+     * Shows the canonical live target (site URL, WP root, theme path, environment).
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp target show
+     *
+     */
+    public function show($args, $assoc_args) {
+        $target = pp_get_target();
+
+        $warnings = [];
+        foreach ($target as $key => $value) {
+            if ($value === null) {
+                $warnings[] = $key;
+            }
+        }
+
+        WP_CLI::line(json_encode($target, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        if (!empty($warnings)) {
+            WP_CLI::warning('Could not resolve: ' . implode(', ', $warnings) . '. Verify WordPress is fully loaded.');
+        }
+    }
+}
+
+WP_CLI::add_command('pp target', 'PP_Target_Command');
+
 // ── Apply CLI ───────────────────────────────────────────────────────────────
 
 class PP_Apply_Command extends WP_CLI_Command {
@@ -187,9 +242,7 @@ class PP_Apply_Command extends WP_CLI_Command {
      *
      */
     public function preview($args, $assoc_args) {
-        if (!current_user_can('manage_options')) {
-            WP_CLI::error('You need manage_options capability to use apply commands.');
-        }
+        _pp_cli_require_apply_cap();
 
         list($name) = $args;
         $params = pp_cli_parse_params($assoc_args);
@@ -222,9 +275,7 @@ class PP_Apply_Command extends WP_CLI_Command {
      *
      */
     public function execute($args, $assoc_args) {
-        if (!current_user_can('manage_options')) {
-            WP_CLI::error('You need manage_options capability to use apply commands.');
-        }
+        _pp_cli_require_apply_cap();
 
         list($name) = $args;
         $params = pp_cli_parse_params($assoc_args);
@@ -259,9 +310,7 @@ class PP_Apply_Command extends WP_CLI_Command {
      *
      */
     public function restore($args, $assoc_args) {
-        if (!current_user_can('manage_options')) {
-            WP_CLI::error('You need manage_options capability to use apply commands.');
-        }
+        _pp_cli_require_apply_cap();
 
         // List mode
         if (isset($assoc_args['list'])) {
@@ -293,6 +342,58 @@ class PP_Apply_Command extends WP_CLI_Command {
         }
 
         WP_CLI::success('Restored base.css from restore point ' . ($point_index ?? 1) . '.');
+    }
+
+    /**
+     * Validates the execution surface before any mutation.
+     *
+     * Checks: target resolved, capability OK, backup directory writable.
+     * Exit 0 if all pass, exit 1 if any fail.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp apply preflight
+     *
+     */
+    public function preflight($args, $assoc_args) {
+        $checks = [];
+
+        // Check 1: Target resolved
+        $target = pp_get_target();
+        $missing = array_keys(array_filter($target, fn($v) => $v === null));
+        if (empty($missing)) {
+            $checks[] = ['check' => 'target', 'pass' => true, 'message' => 'Target resolved: ' . $target['site_url']];
+        } else {
+            $checks[] = ['check' => 'target', 'pass' => false, 'message' => 'Target not fully resolved. Missing: ' . implode(', ', $missing) . '. Run wp pp target show to inspect.'];
+        }
+
+        // Check 2: Capability
+        if (defined('WP_CLI') && WP_CLI) {
+            $checks[] = ['check' => 'capability', 'pass' => true, 'message' => 'WP-CLI context: capability gate bypassed.'];
+        } elseif (current_user_can('manage_options')) {
+            $checks[] = ['check' => 'capability', 'pass' => true, 'message' => 'User has manage_options capability.'];
+        } else {
+            $checks[] = ['check' => 'capability', 'pass' => false, 'message' => 'Missing manage_options capability. Run via WP-CLI or as an admin user.'];
+        }
+
+        // Check 3: Backup writability
+        $writable = _pp_check_backup_writability();
+        if ($writable === true) {
+            $checks[] = ['check' => 'backup_writable', 'pass' => true, 'message' => 'Backup directory is writable.'];
+        } else {
+            $checks[] = ['check' => 'backup_writable', 'pass' => false, 'message' => $writable];
+        }
+
+        $all_pass = empty(array_filter($checks, fn($c) => !$c['pass']));
+
+        WP_CLI::line(json_encode([
+            'ok'     => $all_pass,
+            'checks' => $checks,
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        if (!$all_pass) {
+            WP_CLI::halt(1);
+        }
     }
 }
 
@@ -433,3 +534,124 @@ class PP_Validate_Command extends WP_CLI_Command {
 }
 
 WP_CLI::add_command('pp validate', 'PP_Validate_Command');
+
+// ── Sync CLI ────────────────────────────────────────────────────────────────
+
+class PP_Sync_Command extends WP_CLI_Command {
+
+    /**
+     * Checks for drift between the deployment manifest and live theme files.
+     *
+     * Reports modified, added (live-only), and deleted files.
+     * Exit 0 if clean, exit 1 if drift detected.
+     *
+     * ## OPTIONS
+     *
+     * [--force]
+     * : Exit 0 regardless of drift (still prints summary).
+     *
+     * [--save-manifest]
+     * : Save current state as the new deployment manifest.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp sync check
+     *     wp pp sync check --force
+     *     wp pp sync check --save-manifest
+     *
+     */
+    public function check($args, $assoc_args) {
+        $target = pp_get_target();
+        if ($target['theme_path'] === null) {
+            WP_CLI::error('Cannot resolve theme path. Run wp pp target show to diagnose.');
+        }
+
+        $theme_path = $target['theme_path'];
+        if (!is_dir($theme_path)) {
+            WP_CLI::error(sprintf('Theme path %s does not exist.', $theme_path));
+        }
+
+        // Save manifest mode
+        if (isset($assoc_args['save-manifest'])) {
+            $hashes = _pp_hash_theme_files($theme_path);
+            $saved = _pp_save_deployment_manifest($theme_path, $hashes);
+            if (!$saved) {
+                WP_CLI::error('Failed to save deployment manifest. Check permissions on ' . dirname(_pp_deployment_manifest_path()));
+            }
+            WP_CLI::success(sprintf('Deployment manifest saved: %d files hashed.', count($hashes)));
+            return;
+        }
+
+        // Load manifest
+        $manifest = _pp_load_deployment_manifest();
+        $current_hashes = _pp_hash_theme_files($theme_path);
+
+        if ($manifest === null) {
+            WP_CLI::warning('No previous deployment manifest found. Run wp pp sync check --save-manifest after your next sync to establish a baseline.');
+            // Save current state as baseline
+            $saved = _pp_save_deployment_manifest($theme_path, $current_hashes);
+            if (!$saved) {
+                WP_CLI::error('Failed to save baseline manifest. Check permissions on ' . dirname(_pp_deployment_manifest_path()));
+            }
+            WP_CLI::line(sprintf('Baseline manifest created: %d files.', count($current_hashes)));
+            return;
+        }
+
+        $manifest_hashes = $manifest['file_hashes'];
+
+        // Compute drift
+        $modified = [];
+        $added = [];    // live-only (not in manifest)
+        $deleted = [];  // in manifest but not live
+
+        foreach ($current_hashes as $file => $hash) {
+            if (!isset($manifest_hashes[$file])) {
+                $added[] = $file;
+            } elseif ($manifest_hashes[$file] !== $hash) {
+                $modified[] = $file;
+            }
+        }
+
+        foreach ($manifest_hashes as $file => $hash) {
+            if (!isset($current_hashes[$file])) {
+                $deleted[] = $file;
+            }
+        }
+
+        $has_drift = !empty($modified) || !empty($added) || !empty($deleted);
+
+        // Report
+        $report = [
+            'drift'    => $has_drift,
+            'modified' => $modified,
+            'added'    => $added,
+            'deleted'  => $deleted,
+            'manifest_timestamp' => $manifest['timestamp'] ?? 'unknown',
+        ];
+
+        WP_CLI::line(json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        if ($has_drift) {
+            if (!empty($added)) {
+                WP_CLI::warning(sprintf('%d live-only file(s) not in deployment manifest — a sync would NOT include these.', count($added)));
+            }
+            if (!empty($modified)) {
+                WP_CLI::warning(sprintf('%d file(s) modified since last deployment.', count($modified)));
+            }
+            if (!empty($deleted)) {
+                WP_CLI::warning(sprintf('%d file(s) in manifest no longer present on live.', count($deleted)));
+            }
+
+            if (isset($assoc_args['force'])) {
+                WP_CLI::line('--force: proceeding despite drift.');
+                return;
+            }
+
+            WP_CLI::halt(1);
+        } else {
+            WP_CLI::success('No drift detected. Live theme matches deployment manifest.');
+        }
+    }
+}
+
+WP_CLI::add_command('pp sync', 'PP_Sync_Command');

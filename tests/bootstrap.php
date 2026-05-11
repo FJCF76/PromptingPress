@@ -432,6 +432,11 @@ if (!function_exists('wp_untrash_post')) {
     }
 }
 
+// ABSPATH stub for target discovery.
+if (!defined('ABSPATH')) {
+    define('ABSPATH', '/var/www/html/');
+}
+
 // WP_CONTENT_DIR stub for apply layer backup tests.
 // Individual tests can override get_template_directory() behavior
 // by setting $GLOBALS['_pp_test_template_dir'].

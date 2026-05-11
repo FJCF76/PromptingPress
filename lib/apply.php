@@ -168,6 +168,43 @@ function _pp_apply_preview(string $name, string $domain, string $target_file, ar
     ];
 }
 
+// ── Target Discovery ───────────────────────────────────────────────────────
+
+/**
+ * Returns the canonical target: site URL, WP root, theme path, environment.
+ * Auto-populated from current WordPress state.
+ *
+ * @return array{site_url: ?string, wp_root: ?string, theme_path: ?string, environment: ?string}
+ */
+function pp_get_target(): array {
+    $site_url = function_exists('get_option') ? get_option('siteurl', null) : null;
+    $wp_root = defined('ABSPATH') ? ABSPATH : null;
+    $theme_path = function_exists('get_template_directory') ? get_template_directory() : null;
+
+    // Environment label cascade:
+    // 1. Explicit WP_ENVIRONMENT_TYPE constant → authoritative (validated by wp_get_environment_type)
+    // 2. WP_DEBUG true without explicit env type → 'development' (heuristic)
+    // 3. wp_get_environment_type() with no constant → returns 'production' default, accepted
+    // 4. None of the above → null
+    $environment = null;
+    if (defined('WP_ENVIRONMENT_TYPE')) {
+        $environment = function_exists('wp_get_environment_type')
+            ? wp_get_environment_type()
+            : WP_ENVIRONMENT_TYPE;
+    } elseif (defined('WP_DEBUG') && WP_DEBUG) {
+        $environment = 'development';
+    } elseif (function_exists('wp_get_environment_type')) {
+        $environment = wp_get_environment_type();
+    }
+
+    return [
+        'site_url'    => $site_url ?: null,
+        'wp_root'     => $wp_root ?: null,
+        'theme_path'  => $theme_path ?: null,
+        'environment' => $environment,
+    ];
+}
+
 // ── Backup & Restore ────────────────────────────────────────────────────────
 
 /**
@@ -186,6 +223,27 @@ function _pp_backup_dir(): string {
     }
 
     return $dir;
+}
+
+/**
+ * Checks whether the backup directory is writable.
+ * Creates a probe file, verifies it, and cleans up.
+ *
+ * @return true|string  True if writable, error message string if not.
+ */
+function _pp_check_backup_writability() {
+    $dir = _pp_backup_dir();
+    $probe = $dir . '/.preflight-probe';
+    $result = @file_put_contents($probe, 'test');
+    if ($result === false) {
+        return sprintf(
+            'Backup directory %s is not writable. Fix: chmod 755 %s or run as the web server user.',
+            $dir,
+            $dir
+        );
+    }
+    @unlink($probe);
+    return true;
 }
 
 /**
@@ -587,3 +645,93 @@ pp_register_apply('update_design_token', [
         );
     },
 ]);
+
+// ── Deployment Manifest (Sync Safeguard) ───────────────────────────────────
+
+/**
+ * Returns the path to the deployment manifest file.
+ * Stored in wp-content/ (outside theme dir, survives theme sync).
+ */
+function _pp_deployment_manifest_path(): string {
+    if (defined('WP_CONTENT_DIR')) {
+        return WP_CONTENT_DIR . '/pp-deployment-manifest.json';
+    }
+    return dirname(dirname(get_template_directory())) . '/pp-deployment-manifest.json';
+}
+
+/**
+ * Loads the deployment manifest. Returns null if missing or malformed.
+ *
+ * @return array|null  ['timestamp' => string, 'theme_path' => string, 'file_hashes' => [relative => md5]]
+ */
+function _pp_load_deployment_manifest(): ?array {
+    $path = _pp_deployment_manifest_path();
+    if (!file_exists($path)) {
+        return null;
+    }
+    $data = json_decode(file_get_contents($path), true);
+    if (!is_array($data) || !isset($data['file_hashes'])) {
+        return null;
+    }
+    return $data;
+}
+
+/**
+ * Saves a deployment manifest snapshot.
+ *
+ * @param string $theme_path  Absolute path to the theme directory.
+ * @param array  $file_hashes Map of relative_path => md5 hash.
+ * @return bool
+ */
+function _pp_save_deployment_manifest(string $theme_path, array $file_hashes): bool {
+    $manifest = [
+        'timestamp'   => date('c'),
+        'theme_path'  => $theme_path,
+        'file_hashes' => $file_hashes,
+    ];
+    $result = file_put_contents(
+        _pp_deployment_manifest_path(),
+        json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+    );
+    return $result !== false;
+}
+
+/**
+ * Hashes all theme files (php, css, js, json) for drift detection.
+ * Skips .git/, node_modules/, vendor/, tests/ directories.
+ *
+ * @param string $theme_path  Absolute path to theme directory.
+ * @return array  Map of relative_path => md5 hash.
+ */
+function _pp_hash_theme_files(string $theme_path): array {
+    $hashes = [];
+    $extensions = ['php', 'css', 'js', 'json'];
+    $skip_dirs = ['.git', 'node_modules', 'vendor', 'tests'];
+
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveCallbackFilterIterator(
+            new RecursiveDirectoryIterator($theme_path, RecursiveDirectoryIterator::SKIP_DOTS),
+            function ($current, $key, $iterator) use ($skip_dirs) {
+                if ($current->isDir()) {
+                    return !in_array($current->getFilename(), $skip_dirs, true);
+                }
+                return true;
+            }
+        )
+    );
+
+    foreach ($iterator as $file) {
+        if (!$file->isFile()) {
+            continue;
+        }
+        $ext = strtolower($file->getExtension());
+        if (!in_array($ext, $extensions, true)) {
+            continue;
+        }
+        $relative = ltrim(str_replace($theme_path, '', $file->getPathname()), '/');
+        $hashes[$relative] = md5_file($file->getPathname());
+    }
+
+    ksort($hashes);
+    return $hashes;
+}

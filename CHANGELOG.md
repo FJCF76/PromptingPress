@@ -4,6 +4,44 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.2.6] — 2026-05-11 — Ops foundation: target discovery, apply preflight, sync safeguard
+
+### Operators can now preflight mutations and detect theme drift before syncing
+
+Three new WP-CLI commands build the operator contract the AI needs to work safely on live sites:
+
+- **`wp pp target show`** — Auto-discovers canonical target from WP state (site URL, WP root, theme path, environment label). Environment detection cascades: explicit `WP_ENVIRONMENT_TYPE` constant → `WP_DEBUG` heuristic → `wp_get_environment_type()` default.
+- **`wp pp apply preflight`** — Three-check gate before any mutation: target resolved, capability OK (WP-CLI bypass + debug log), backup directory writable (probe + cleanup). JSON output with pass/fail per check.
+- **`wp pp sync check`** — Drift detection using deployment manifests. Hashes live theme files against last-sync snapshot. Reports modified, added, and deleted files. `--force` to acknowledge drift, `--save-manifest` to record current state.
+
+### Added
+- `pp_get_target()` helper in `lib/apply.php` — returns associative array of target state
+- `_pp_cli_require_apply_cap()` helper — DRY capability gate with WP-CLI bypass
+- `_pp_check_backup_writability()` — probe-based writability check with cleanup
+- Deployment manifest system (`_pp_deployment_manifest_path()`, `_pp_load_deployment_manifest()`, `_pp_save_deployment_manifest()`, `_pp_hash_theme_files()`)
+- `PP_Target_Command` class with `show` subcommand
+- `PP_Sync_Command` class with `check` subcommand (supports `--force`, `--save-manifest`)
+- `preflight` subcommand on `PP_Apply_Command`
+- 29 new PHPUnit tests in `tests/PreflightTest.php`
+- `TODOS.md` with deferred P3 items (configurable backup dir, target set command)
+
+### Fixed
+- Capability gate in `wp pp apply execute` blocked WP-CLI operator contexts — extracted to helper with CLI bypass (#43)
+- Backup creation silently failed in non-writable directories — preflight now detects this before mutation (#46)
+- Theme sync had no drift detection — could overwrite live-only fixes without warning (#47)
+
+### Changed
+- Replaced 3 copy-pasted capability gates in `PP_Apply_Command` with single `_pp_cli_require_apply_cap()` helper
+- Version synced across all sources: style.css, functions.php (PP_VERSION), package.json
+
+### Closes
+- #43 — Typed apply CLI path is brittle in live operator workflows
+- #44 — Live-site execution target and mutation surface need an explicit source of truth
+- #46 — Typed apply backup creation is permission-fragile in live workflows
+- #47 — Repo-to-production theme sync can overwrite live-only fixes too easily
+
+---
+
 ## [v0.2.5] — 2026-05-08 — Hero composition props: split ratio, content measure, vertical align, proof slot
 
 ### Hero sections now support fine-grained composition control
