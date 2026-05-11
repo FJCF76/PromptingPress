@@ -158,3 +158,65 @@ function pp_validate_composition_styling(array $composition): array {
 
     return $warnings;
 }
+
+/**
+ * Validates composition for layout smell patterns.
+ *
+ * Detects repeated use of constraining props that produce visually weak
+ * desktop output: consecutive narrow widths, consecutive compact spacing,
+ * and left-aligned heroes without balancing images.
+ *
+ * @param  array $composition  Composition array (component + props).
+ * @return array[]             Each entry: ['type' => string, 'message' => string, 'index' => int]
+ */
+function pp_validate_composition_smells(array $composition): array {
+    $warnings = [];
+    $consecutive_narrow = 0;
+    $consecutive_compact = 0;
+
+    foreach ($composition as $i => $item) {
+        $props = $item['props'] ?? [];
+
+        // Track consecutive width:narrow
+        if (($props['width'] ?? 'default') === 'narrow') {
+            $consecutive_narrow++;
+        } else {
+            $consecutive_narrow = 0;
+        }
+        if ($consecutive_narrow >= 3) {
+            $warnings[] = [
+                'type' => 'consecutive_narrow',
+                'message' => '3+ consecutive components use width:narrow. This creates a memo-like page. Consider using default width.',
+                'index' => $i,
+            ];
+        }
+
+        // Track consecutive spacing:compact
+        if (($props['spacing'] ?? 'default') === 'compact') {
+            $consecutive_compact++;
+        } else {
+            $consecutive_compact = 0;
+        }
+        if ($consecutive_compact >= 3) {
+            $warnings[] = [
+                'type' => 'consecutive_compact',
+                'message' => '3+ consecutive components use spacing:compact. This creates a cramped page rhythm.',
+                'index' => $i,
+            ];
+        }
+
+        // Hero left without image
+        $component = $item['component'] ?? '';
+        $variant = $props['variant'] ?? 'centered';
+        $image_url = $props['image_url'] ?? '';
+        if ($component === 'hero' && $variant === 'left' && empty($image_url)) {
+            $warnings[] = [
+                'type' => 'hero_left_no_image',
+                'message' => 'Hero variant "left" without an image creates unbalanced dead space on desktop. Consider "centered" or "split" with an image.',
+                'index' => $i,
+            ];
+        }
+    }
+
+    return $warnings;
+}

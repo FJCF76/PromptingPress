@@ -449,22 +449,32 @@ class PP_Check_Command extends WP_CLI_Command {
         }
 
         $warnings = pp_validate_composition_styling($composition);
+        $smells   = pp_validate_composition_smells($composition);
 
-        if (empty($warnings)) {
-            WP_CLI::success('Page ' . $post_id . ': all components have stable IDs, no ambiguous targeting.');
+        if (empty($warnings) && empty($smells)) {
+            WP_CLI::success('Page ' . $post_id . ': all components have stable IDs, no ambiguous targeting, no composition smells.');
             return;
         }
 
-        WP_CLI::warning(count($warnings) . ' ambiguous targeting warning(s):');
-        $rows = [];
-        foreach ($warnings as $w) {
-            $rows[] = [
-                'component' => $w['component'],
-                'indices'   => implode(', ', $w['indices']),
-                'issue'     => 'Duplicate component type without stable IDs',
-            ];
+        if (!empty($warnings)) {
+            WP_CLI::warning(count($warnings) . ' ambiguous targeting warning(s):');
+            $rows = [];
+            foreach ($warnings as $w) {
+                $rows[] = [
+                    'component' => $w['component'],
+                    'indices'   => implode(', ', $w['indices']),
+                    'issue'     => 'Duplicate component type without stable IDs',
+                ];
+            }
+            WP_CLI\Utils\format_items('table', $rows, ['component', 'indices', 'issue']);
         }
-        WP_CLI\Utils\format_items('table', $rows, ['component', 'indices', 'issue']);
+
+        if (!empty($smells)) {
+            WP_CLI::warning(count($smells) . ' composition smell(s):');
+            foreach ($smells as $s) {
+                WP_CLI::line('  - [' . $s['type'] . '] index ' . $s['index'] . ': ' . $s['message']);
+            }
+        }
     }
 }
 
@@ -509,12 +519,17 @@ class PP_Validate_Command extends WP_CLI_Command {
                 $title       = $page['title'] ?? '(untitled)';
                 $composition = pp_get_composition($post_id);
                 $warnings    = pp_validate_composition_styling($composition);
+                $smells      = pp_validate_composition_smells($composition);
 
-                if (!empty($warnings)) {
+                if (!empty($warnings) || !empty($smells)) {
                     $pass = false;
-                    WP_CLI::warning("Page {$post_id} ({$title}): " . count($warnings) . ' issue(s)');
+                    $issue_count = count($warnings) + count($smells);
+                    WP_CLI::warning("Page {$post_id} ({$title}): {$issue_count} issue(s)");
                     foreach ($warnings as $w) {
                         WP_CLI::line("  - {$w['component']} at indices " . implode(', ', $w['indices']) . ' (no stable IDs)');
+                    }
+                    foreach ($smells as $s) {
+                        WP_CLI::line("  - [{$s['type']}] index {$s['index']}: {$s['message']}");
                     }
                 } else {
                     WP_CLI::line("OK: Page {$post_id} ({$title})");

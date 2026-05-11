@@ -275,6 +275,138 @@ class GuardrailsTest extends TestCase
         $this->assertStringNotContainsString('<script>', $output);
     }
 
+    // ── Composition Smell Validation ─────────────────────────────────────
+
+    public function testSmellsEmptyCompositionReturnsNoWarnings(): void
+    {
+        $this->assertSame([], pp_validate_composition_smells([]));
+    }
+
+    public function testSmellsThreeConsecutiveNarrowTriggersWarning(): void
+    {
+        $composition = [
+            ['component' => 'section', 'props' => ['width' => 'narrow']],
+            ['component' => 'section', 'props' => ['width' => 'narrow']],
+            ['component' => 'section', 'props' => ['width' => 'narrow']],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+
+        $this->assertCount(1, $warnings);
+        $this->assertEquals('consecutive_narrow', $warnings[0]['type']);
+        $this->assertEquals(2, $warnings[0]['index']);
+    }
+
+    public function testSmellsTwoConsecutiveNarrowDoesNotTrigger(): void
+    {
+        $composition = [
+            ['component' => 'section', 'props' => ['width' => 'narrow']],
+            ['component' => 'section', 'props' => ['width' => 'narrow']],
+        ];
+        $this->assertSame([], pp_validate_composition_smells($composition));
+    }
+
+    public function testSmellsNarrowCounterResetsOnNonNarrow(): void
+    {
+        $composition = [
+            ['component' => 'section', 'props' => ['width' => 'narrow']],
+            ['component' => 'section', 'props' => ['width' => 'narrow']],
+            ['component' => 'section', 'props' => ['width' => 'default']],
+            ['component' => 'section', 'props' => ['width' => 'narrow']],
+            ['component' => 'section', 'props' => ['width' => 'narrow']],
+        ];
+        $this->assertSame([], pp_validate_composition_smells($composition));
+    }
+
+    public function testSmellsThreeConsecutiveCompactTriggersWarning(): void
+    {
+        $composition = [
+            ['component' => 'section', 'props' => ['spacing' => 'compact']],
+            ['component' => 'section', 'props' => ['spacing' => 'compact']],
+            ['component' => 'section', 'props' => ['spacing' => 'compact']],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+
+        $this->assertCount(1, $warnings);
+        $this->assertEquals('consecutive_compact', $warnings[0]['type']);
+        $this->assertEquals(2, $warnings[0]['index']);
+    }
+
+    public function testSmellsTwoConsecutiveCompactDoesNotTrigger(): void
+    {
+        $composition = [
+            ['component' => 'section', 'props' => ['spacing' => 'compact']],
+            ['component' => 'section', 'props' => ['spacing' => 'compact']],
+        ];
+        $this->assertSame([], pp_validate_composition_smells($composition));
+    }
+
+    public function testSmellsCompactCounterResetsOnNonCompact(): void
+    {
+        $composition = [
+            ['component' => 'section', 'props' => ['spacing' => 'compact']],
+            ['component' => 'section', 'props' => ['spacing' => 'compact']],
+            ['component' => 'section', 'props' => ['spacing' => 'default']],
+            ['component' => 'section', 'props' => ['spacing' => 'compact']],
+            ['component' => 'section', 'props' => ['spacing' => 'compact']],
+        ];
+        $this->assertSame([], pp_validate_composition_smells($composition));
+    }
+
+    public function testSmellsHeroLeftNoImageTriggersWarning(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['variant' => 'left', 'title' => 'Test']],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+
+        $this->assertCount(1, $warnings);
+        $this->assertEquals('hero_left_no_image', $warnings[0]['type']);
+        $this->assertEquals(0, $warnings[0]['index']);
+    }
+
+    public function testSmellsHeroLeftWithImageDoesNotTrigger(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['variant' => 'left', 'image_url' => '/img/test.jpg']],
+        ];
+        $this->assertSame([], pp_validate_composition_smells($composition));
+    }
+
+    public function testSmellsHeroCenteredNoImageDoesNotTrigger(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['variant' => 'centered', 'title' => 'Test']],
+        ];
+        $this->assertSame([], pp_validate_composition_smells($composition));
+    }
+
+    public function testSmellsMixedWarnings(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['variant' => 'left']],
+            ['component' => 'section', 'props' => ['width' => 'narrow']],
+            ['component' => 'section', 'props' => ['width' => 'narrow']],
+            ['component' => 'section', 'props' => ['width' => 'narrow']],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+
+        $this->assertCount(2, $warnings);
+        $types = array_map(fn($w) => $w['type'], $warnings);
+        $this->assertContains('hero_left_no_image', $types);
+        $this->assertContains('consecutive_narrow', $types);
+    }
+
+    public function testSmellsDefaultPropsNoWarnings(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['title' => 'Welcome']],
+            ['component' => 'section', 'props' => ['body' => 'Content']],
+            ['component' => 'grid', 'props' => []],
+            ['component' => 'cta', 'props' => ['title' => 'Get started']],
+        ];
+        $this->assertSame([], pp_validate_composition_smells($composition));
+    }
+
     public function testHtmlCommentPresentWhenDebugAndConflicts(): void
     {
         $GLOBALS['_pp_test_store']['custom_css'] = '.cta { margin: 0; }';

@@ -43,3 +43,12 @@ The base breakpoint is mobile (375px). All components must be usable at this wid
 - Nav collapses to hamburger
 
 Verify at 375px viewport width before declaring a change complete.
+
+## Desktop expectations
+
+At 1280px+ viewport width, verify:
+- Page content fills a credible horizontal space (no memo-column feel)
+- No excessive unused space beside left-aligned heroes
+- Section body text has comfortable reading measure (not too narrow, not edge-to-edge)
+- Grid cards have enough internal padding to feel substantial, not sparse
+- Homepage has a clear visual anchor (usually a centered hero)

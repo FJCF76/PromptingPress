@@ -40,9 +40,23 @@ CLI: `wp pp apply execute update_design_token --params='{"token":"--color-accent
 When building or editing components:
 - No 3-column icon grids (icon-in-circle + title + 2-line description = template slop)
 - No decorative blobs, wavy dividers, or floating shapes
-- No centered-everything (hero centered is OK; everything centered is not)
+- Homepage hero should usually be centered -- it is the page's visual anchor.
+  Left-aligned heroes require a balancing element (image in split, or cover with
+  background). A left hero with no image creates dead space on desktop.
+  Not everything else should be centered, but the hero earns it.
 - Cards in grid are for real content objects, not feature decoration
 - No raw hex values in component CSS
+
+## Desktop width expectations
+
+Do not use composition width, spacing, or content_measure props to fix page-level
+presentation problems. If the page feels cramped or weak on desktop, the fix belongs
+in design tokens (base.css) or component CSS (components.css), not in composition
+overrides. Composition props are for intentional per-component adjustments, not
+page-shaping.
+
+A page built with all-default composition props should look credible on desktop.
+If it doesn't, the theme CSS needs fixing -- not the composition data.
 
 ## Adding components
 
