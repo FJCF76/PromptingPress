@@ -4,6 +4,29 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.2.7] — 2026-05-11 — Desktop width authority: coherent measure system, composition smell guardrails
+
+### Pages built with default composition props now look credible on desktop
+
+Scattered `max-width` rules across components.css (3 different unit types, 11 independent values) are now governed by 3 design tokens in base.css. The AI no longer needs to over-apply composition width/spacing/content_measure props to make pages look presentable at 1280px.
+
+### Added
+- `--measure-body` (70ch), `--measure-body-wide` (75ch), `--measure-centered` (56rem) design tokens in `assets/css/base.css`
+- `pp_validate_composition_smells()` in `lib/guardrails.php` — detects 3+ consecutive narrow components, 3+ consecutive compact spacing, and hero left-aligned without image
+- 12 new PHPUnit tests for composition smell validation in `tests/GuardrailsTest.php`
+- Desktop expectations checklist in `ai-instructions/website-building.md`
+- Desktop width expectations guidance in `AI_RULES.md`
+
+### Changed
+- `.section__content` max-width now uses `var(--measure-body)` instead of hardcoded `70ch`
+- `.section--text-only .section__body` max-width now uses `var(--measure-body-wide)` — removed duplicate rule
+- `.section--centered .section__body` max-width now uses `var(--measure-centered)` instead of hardcoded `56rem`
+- Grid card body padding increased to `var(--space-lg)` (32px) at desktop breakpoints
+- `.grid__item-text` line-height unified to 1.6 (matching body text)
+- Smell guardrails wired into `PP_Check_Command` and `PP_Validate_Command` in `lib/cli.php`
+
+---
+
 ## [v0.2.6] — 2026-05-11 — Ops foundation: target discovery, apply preflight, sync safeguard
 
 ### Operators can now preflight mutations and detect theme drift before syncing
