@@ -30,20 +30,6 @@
         "image_alt": { "type": "string", "required": true,  "description": "Alt text. Use the logo or category name; empty string only for decorative images." },
         "label":     { "type": "string", "required": false, "description": "Text label below the image. Omit for logo-only rows." }
       }
-    },
-    "spacing": {
-      "type": "enum",
-      "values": ["default", "compact", "spacious"],
-      "required": false,
-      "default": "default",
-      "description": "Vertical padding override. 'compact' tightens padding. 'spacious' adds extra breathing room. 'default' uses the component's built-in padding (subject to CSS rhythm defaults)."
-    },
-    "width": {
-      "type": "enum",
-      "values": ["default", "narrow", "full"],
-      "required": false,
-      "default": "default",
-      "description": "Content width override. 'narrow' constrains to 56rem. 'full' stretches to viewport (with padding). 'default' uses the standard max-width."
     }
   },
   "styling": {

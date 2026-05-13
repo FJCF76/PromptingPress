@@ -49,14 +49,12 @@ When building or editing components:
 
 ## Desktop width expectations
 
-Do not use composition width, spacing, or content_measure props to fix page-level
-presentation problems. If the page feels cramped or weak on desktop, the fix belongs
-in design tokens (base.css) or component CSS (components.css), not in composition
-overrides. Composition props are for intentional per-component adjustments, not
-page-shaping.
+Hero width and spacing props serve variant-specific layout needs. All other
+components use CSS defaults — no composition-level layout overrides.
 
 A page built with all-default composition props should look credible on desktop.
-If it doesn't, the theme CSS needs fixing -- not the composition data.
+If it doesn't, the fix belongs in design tokens (base.css) or component CSS
+(components.css), not in composition overrides.
 
 ## Adding components
 

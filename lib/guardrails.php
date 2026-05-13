@@ -162,59 +162,47 @@ function pp_validate_composition_styling(array $composition): array {
 /**
  * Validates composition for layout smell patterns.
  *
- * Detects repeated use of constraining props that produce visually weak
- * desktop output: consecutive narrow widths, consecutive compact spacing,
- * and left-aligned heroes without balancing images.
+ * Detects composition patterns that produce visually weak desktop output.
+ * Currently checks for left-aligned heroes without balancing images.
  *
  * @param  array $composition  Composition array (component + props).
  * @return array[]             Each entry: ['type' => string, 'message' => string, 'index' => int]
  */
 function pp_validate_composition_smells(array $composition): array {
     $warnings = [];
-    $consecutive_narrow = 0;
-    $consecutive_compact = 0;
+
+    $consecutive_text_only = 0;
 
     foreach ($composition as $i => $item) {
         $props = $item['props'] ?? [];
-
-        // Track consecutive width:narrow
-        if (($props['width'] ?? 'default') === 'narrow') {
-            $consecutive_narrow++;
-        } else {
-            $consecutive_narrow = 0;
-        }
-        if ($consecutive_narrow >= 3) {
-            $warnings[] = [
-                'type' => 'consecutive_narrow',
-                'message' => '3+ consecutive components use width:narrow. This creates a memo-like page. Consider using default width.',
-                'index' => $i,
-            ];
-        }
-
-        // Track consecutive spacing:compact
-        if (($props['spacing'] ?? 'default') === 'compact') {
-            $consecutive_compact++;
-        } else {
-            $consecutive_compact = 0;
-        }
-        if ($consecutive_compact >= 3) {
-            $warnings[] = [
-                'type' => 'consecutive_compact',
-                'message' => '3+ consecutive components use spacing:compact. This creates a cramped page rhythm.',
-                'index' => $i,
-            ];
-        }
-
-        // Hero left without image
         $component = $item['component'] ?? '';
         $variant = $props['variant'] ?? 'centered';
         $image_url = $props['image_url'] ?? '';
+
+        // Hero left without image
         if ($component === 'hero' && $variant === 'left' && empty($image_url)) {
             $warnings[] = [
                 'type' => 'hero_left_no_image',
                 'message' => 'Hero variant "left" without an image creates unbalanced dead space on desktop. Consider "centered" or "split" with an image.',
                 'index' => $i,
             ];
+        }
+
+        // Track consecutive text-only sections (no image, no visual anchor)
+        $layout = $props['layout'] ?? 'text-only';
+        if ($component === 'section' && in_array($layout, ['text-only', 'centered'], true) && empty($image_url) && empty($props['background_image'] ?? '')) {
+            $consecutive_text_only++;
+        } else {
+            $consecutive_text_only = 0;
+        }
+
+        if ($consecutive_text_only >= 3) {
+            $warnings[] = [
+                'type' => 'consecutive_text_sections',
+                'message' => '3+ consecutive text-only sections without images or background variety. Consider adding an image layout, grid, or stats component to break the wall-of-text pattern.',
+                'index' => $i,
+            ];
+            $consecutive_text_only = 0; // Reset to avoid repeated warnings.
         }
     }
 

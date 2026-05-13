@@ -211,8 +211,10 @@ function pp_get_target(): array {
  * Returns the backup directory path. Creates it if needed.
  */
 function _pp_backup_dir(): string {
-    // Use WP_CONTENT_DIR if available, otherwise derive from theme directory.
-    if (defined('WP_CONTENT_DIR')) {
+    // Allow override via constant (wp-config.php).
+    if (defined('PP_BACKUP_DIR') && PP_BACKUP_DIR) {
+        $dir = PP_BACKUP_DIR;
+    } elseif (defined('WP_CONTENT_DIR')) {
         $dir = WP_CONTENT_DIR . '/pp-backups';
     } else {
         $dir = dirname(dirname(get_template_directory())) . '/pp-backups';

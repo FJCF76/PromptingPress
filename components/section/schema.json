@@ -50,20 +50,6 @@
       "required": false,
       "default": "",
       "description": "Optional background image URL. When set, renders as a CSS background-image with a dark overlay for text readability. Combines with any variant. Text automatically uses light colors for contrast."
-    },
-    "spacing": {
-      "type": "enum",
-      "values": ["default", "compact", "spacious"],
-      "required": false,
-      "default": "default",
-      "description": "Vertical padding override. 'compact' tightens padding. 'spacious' adds extra breathing room. 'default' uses the component's built-in padding (subject to CSS rhythm defaults)."
-    },
-    "width": {
-      "type": "enum",
-      "values": ["default", "narrow", "full"],
-      "required": false,
-      "default": "default",
-      "description": "Content width override. 'narrow' constrains to 56rem. 'full' stretches to viewport (with padding). 'default' uses the standard max-width."
     }
   },
   "styling": {

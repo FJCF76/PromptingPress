@@ -4,6 +4,42 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.2.8] — 2026-05-13 — Schema narrowing: 12 generic layout knobs down to 2
+
+### AI agents now produce convincing pages with all-default props
+
+The composition schema exposed 12 generic layout knobs (`width`, `spacing`, `content_measure`) across 7 components. Production data showed zero usage of `width` or `spacing` on any non-hero component, and `content_measure: wide` on every hero. This release removes the unused knobs entirely: `width` and `spacing` are gone from section, grid, CTA, stats, logos, and embed; `content_measure` is gone from hero (its `wide` value is now the CSS default). Hero retains `width` and `spacing` because variant geometry genuinely needs them.
+
+Text-only sections now fill the full container width (1088px at desktop), matching grid, table, and CTA. Previously, a prose-readability constraint on the section body made it visibly narrower than adjacent components. The body wrapper is now unconstrained; only the inner prose content block is capped at `var(--measure-centered)` for readable line length.
+
+Backup directory is now configurable via `PP_BACKUP_DIR` constant in wp-config.php, with graceful fallback to `WP_CONTENT_DIR/pp-backups`.
+
+### Added
+- `PP_BACKUP_DIR` constant support in `lib/apply.php` for configurable backup directory
+- 3 new PHPUnit tests for backup directory configuration (`tests/ApplyTest.php`)
+- Data-provider regression tests for section, grid, CTA, stats, logos, embed width/spacing removal
+- Consecutive text sections guardrail in `pp_validate_composition_smells()`
+
+### Changed
+- Removed `width` and `spacing` props from 6 component schemas: section, grid, CTA, stats, logos, embed
+- Removed `content_measure` prop from hero schema; baked `max-width: var(--measure-centered)` as CSS default
+- Removed `data-pp-width` and `data-pp-spacing` attribute emission from 6 component PHP templates
+- Removed `[data-pp-content-measure]` CSS rules; hero content uses `var(--measure-centered)` by default
+- Text-only section body no longer constrained by `max-width`; fills container like all other components
+- Simplified `pp_validate_composition_smells()` to remove width/spacing checks for removed props
+- Updated AI guidance in `composition.md`, `AI_RULES.md`, `AI_CONTEXT.md`, `build-landing-page.md`
+- Preflight error message in `lib/cli.php` now mentions `PP_BACKUP_DIR` constant
+
+### Removed
+- 12 generic layout knobs from non-hero components (net schema surface: 12 knobs down to 2)
+- Stale tests for removed props in `ComponentPropsTest.php`, `HeroCompositionTest.php`, `GuardrailsTest.php`
+
+### Closes
+- #52 — Schema narrowing: reduce generic layout knobs
+- #50 (partial) — Configurable backup directory
+
+---
+
 ## [v0.2.7] — 2026-05-11 — Desktop width authority: coherent measure system, composition smell guardrails
 
 ### Pages built with default composition props now look credible on desktop

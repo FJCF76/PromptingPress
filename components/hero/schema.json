@@ -83,13 +83,6 @@
       "default": "50-50",
       "description": "Grid column ratio for the split variant. '60-40' gives more space to text, '40-60' gives more to the image. Ignored on non-split variants."
     },
-    "content_measure": {
-      "type": "enum",
-      "values": ["default", "narrow", "wide"],
-      "required": false,
-      "default": "default",
-      "description": "Constrains hero__content max-width. 'narrow' = 36rem (tight editorial column), 'wide' = 48rem (for centered/cover with longer text). 'default' inherits from container (72rem). Constraints removed below 768px."
-    },
     "vertical_align": {
       "type": "enum",
       "values": ["top", "center", "bottom"],

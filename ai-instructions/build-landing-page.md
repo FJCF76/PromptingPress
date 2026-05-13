@@ -35,7 +35,7 @@ pp_base_template(function () {
         'body'      => pp_field('lp_section_body')      ?: '<p>Describe the core problem and how your product solves it. Be specific. Avoid generic phrases like "all-in-one solution."</p>',
         'image_url' => pp_field('lp_section_image_url') ?: '',
         'image_alt' => pp_field('lp_section_image_alt') ?: '',
-        'layout'    => pp_field('lp_section_layout')    ?: 'text-only',
+        'layout'    => pp_field('lp_section_layout')    ?: 'text-only',  // omit layout prop in compositions — text-only is the default
     ]);
 
     // Feature grid — real content cards, not decoration

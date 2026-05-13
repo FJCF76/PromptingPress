@@ -612,4 +612,40 @@ class ApplyTest extends TestCase
         // Both should return same data (file unchanged)
         $this->assertEquals($tokens1, $tokens2);
     }
+
+    // ── Backup directory: PP_BACKUP_DIR ─────────────────────────────────────
+
+    public function testBackupDirFallsBackToWpContentDir(): void
+    {
+        // PP_BACKUP_DIR is not defined in the test harness, so _pp_backup_dir()
+        // should fall back to WP_CONTENT_DIR/pp-backups.
+        $dir = _pp_backup_dir();
+        $this->assertEquals(WP_CONTENT_DIR . '/pp-backups', $dir);
+    }
+
+    /**
+     * @runInSeparateProcess
+     * @preserveGlobalState disabled
+     */
+    public function testBackupDirUsesConstantWhenDefined(): void
+    {
+        $customPath = sys_get_temp_dir() . '/pp-backup-dir-test-' . getmypid();
+        define('PP_BACKUP_DIR', $customPath);
+
+        // Need WP_CONTENT_DIR and the function available in the separate process
+        if (!defined('WP_CONTENT_DIR')) {
+            define('WP_CONTENT_DIR', sys_get_temp_dir() . '/pp-test-content');
+        }
+        require_once dirname(__DIR__) . '/vendor/autoload.php';
+        require_once dirname(__DIR__) . '/tests/bootstrap.php';
+
+        $dir = _pp_backup_dir();
+        $this->assertEquals($customPath, $dir);
+        $this->assertDirectoryExists($customPath);
+
+        // Cleanup
+        if (is_dir($customPath)) {
+            rmdir($customPath);
+        }
+    }
 }

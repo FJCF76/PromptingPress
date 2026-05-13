@@ -41,20 +41,6 @@
         "link_url":  { "type": "string", "required": false },
         "link_text": { "type": "string", "required": false, "default": "Read more" }
       }
-    },
-    "spacing": {
-      "type": "enum",
-      "values": ["default", "compact", "spacious"],
-      "required": false,
-      "default": "default",
-      "description": "Vertical padding override. 'compact' tightens padding. 'spacious' adds extra breathing room. 'default' uses the component's built-in padding (subject to CSS rhythm defaults)."
-    },
-    "width": {
-      "type": "enum",
-      "values": ["default", "narrow", "full"],
-      "required": false,
-      "default": "default",
-      "description": "Content width override. 'narrow' constrains to 56rem. 'full' stretches to viewport (with padding). 'default' uses the standard max-width."
     }
   },
   "styling": {

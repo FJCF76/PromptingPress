@@ -381,7 +381,7 @@ class PP_Apply_Command extends WP_CLI_Command {
         if ($writable === true) {
             $checks[] = ['check' => 'backup_writable', 'pass' => true, 'message' => 'Backup directory is writable.'];
         } else {
-            $checks[] = ['check' => 'backup_writable', 'pass' => false, 'message' => $writable];
+            $checks[] = ['check' => 'backup_writable', 'pass' => false, 'message' => $writable . ' Set PP_BACKUP_DIR in wp-config.php to override the backup directory path.'];
         }
 
         $all_pass = empty(array_filter($checks, fn($c) => !$c['pass']));

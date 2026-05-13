@@ -282,76 +282,6 @@ class GuardrailsTest extends TestCase
         $this->assertSame([], pp_validate_composition_smells([]));
     }
 
-    public function testSmellsThreeConsecutiveNarrowTriggersWarning(): void
-    {
-        $composition = [
-            ['component' => 'section', 'props' => ['width' => 'narrow']],
-            ['component' => 'section', 'props' => ['width' => 'narrow']],
-            ['component' => 'section', 'props' => ['width' => 'narrow']],
-        ];
-        $warnings = pp_validate_composition_smells($composition);
-
-        $this->assertCount(1, $warnings);
-        $this->assertEquals('consecutive_narrow', $warnings[0]['type']);
-        $this->assertEquals(2, $warnings[0]['index']);
-    }
-
-    public function testSmellsTwoConsecutiveNarrowDoesNotTrigger(): void
-    {
-        $composition = [
-            ['component' => 'section', 'props' => ['width' => 'narrow']],
-            ['component' => 'section', 'props' => ['width' => 'narrow']],
-        ];
-        $this->assertSame([], pp_validate_composition_smells($composition));
-    }
-
-    public function testSmellsNarrowCounterResetsOnNonNarrow(): void
-    {
-        $composition = [
-            ['component' => 'section', 'props' => ['width' => 'narrow']],
-            ['component' => 'section', 'props' => ['width' => 'narrow']],
-            ['component' => 'section', 'props' => ['width' => 'default']],
-            ['component' => 'section', 'props' => ['width' => 'narrow']],
-            ['component' => 'section', 'props' => ['width' => 'narrow']],
-        ];
-        $this->assertSame([], pp_validate_composition_smells($composition));
-    }
-
-    public function testSmellsThreeConsecutiveCompactTriggersWarning(): void
-    {
-        $composition = [
-            ['component' => 'section', 'props' => ['spacing' => 'compact']],
-            ['component' => 'section', 'props' => ['spacing' => 'compact']],
-            ['component' => 'section', 'props' => ['spacing' => 'compact']],
-        ];
-        $warnings = pp_validate_composition_smells($composition);
-
-        $this->assertCount(1, $warnings);
-        $this->assertEquals('consecutive_compact', $warnings[0]['type']);
-        $this->assertEquals(2, $warnings[0]['index']);
-    }
-
-    public function testSmellsTwoConsecutiveCompactDoesNotTrigger(): void
-    {
-        $composition = [
-            ['component' => 'section', 'props' => ['spacing' => 'compact']],
-            ['component' => 'section', 'props' => ['spacing' => 'compact']],
-        ];
-        $this->assertSame([], pp_validate_composition_smells($composition));
-    }
-
-    public function testSmellsCompactCounterResetsOnNonCompact(): void
-    {
-        $composition = [
-            ['component' => 'section', 'props' => ['spacing' => 'compact']],
-            ['component' => 'section', 'props' => ['spacing' => 'compact']],
-            ['component' => 'section', 'props' => ['spacing' => 'default']],
-            ['component' => 'section', 'props' => ['spacing' => 'compact']],
-            ['component' => 'section', 'props' => ['spacing' => 'compact']],
-        ];
-        $this->assertSame([], pp_validate_composition_smells($composition));
-    }
-
     public function testSmellsHeroLeftNoImageTriggersWarning(): void
     {
         $composition = [
@@ -384,16 +314,13 @@ class GuardrailsTest extends TestCase
     {
         $composition = [
             ['component' => 'hero', 'props' => ['variant' => 'left']],
-            ['component' => 'section', 'props' => ['width' => 'narrow']],
-            ['component' => 'section', 'props' => ['width' => 'narrow']],
-            ['component' => 'section', 'props' => ['width' => 'narrow']],
+            ['component' => 'section', 'props' => ['body' => 'Content']],
+            ['component' => 'section', 'props' => ['body' => 'More content']],
         ];
         $warnings = pp_validate_composition_smells($composition);
 
-        $this->assertCount(2, $warnings);
-        $types = array_map(fn($w) => $w['type'], $warnings);
-        $this->assertContains('hero_left_no_image', $types);
-        $this->assertContains('consecutive_narrow', $types);
+        $this->assertCount(1, $warnings);
+        $this->assertEquals('hero_left_no_image', $warnings[0]['type']);
     }
 
     public function testSmellsDefaultPropsNoWarnings(): void
@@ -405,6 +332,70 @@ class GuardrailsTest extends TestCase
             ['component' => 'cta', 'props' => ['title' => 'Get started']],
         ];
         $this->assertSame([], pp_validate_composition_smells($composition));
+    }
+
+    // ── Consecutive Text Sections Smell ──────────────────────────────────
+
+    public function testSmellsThreeConsecutiveTextOnlyTriggersWarning(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['title' => 'Welcome']],
+            ['component' => 'section', 'props' => ['body' => 'A']],
+            ['component' => 'section', 'props' => ['body' => 'B', 'layout' => 'text-only']],
+            ['component' => 'section', 'props' => ['body' => 'C']],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertContains('consecutive_text_sections', $types);
+    }
+
+    public function testSmellsTwoTextOnlySectionsDoesNotTrigger(): void
+    {
+        $composition = [
+            ['component' => 'section', 'props' => ['body' => 'A']],
+            ['component' => 'section', 'props' => ['body' => 'B']],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertNotContains('consecutive_text_sections', $types);
+    }
+
+    public function testSmellsTextSectionCounterResetsOnGrid(): void
+    {
+        $composition = [
+            ['component' => 'section', 'props' => ['body' => 'A']],
+            ['component' => 'section', 'props' => ['body' => 'B']],
+            ['component' => 'grid', 'props' => ['items' => []]],
+            ['component' => 'section', 'props' => ['body' => 'C']],
+            ['component' => 'section', 'props' => ['body' => 'D']],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertNotContains('consecutive_text_sections', $types);
+    }
+
+    public function testSmellsSectionWithImageDoesNotCountAsTextOnly(): void
+    {
+        $composition = [
+            ['component' => 'section', 'props' => ['body' => 'A']],
+            ['component' => 'section', 'props' => ['body' => 'B', 'image_url' => 'img.jpg', 'layout' => 'image-left']],
+            ['component' => 'section', 'props' => ['body' => 'C']],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertNotContains('consecutive_text_sections', $types);
+    }
+
+    public function testSmellsSectionWithBackgroundImageDoesNotCountAsTextOnly(): void
+    {
+        $composition = [
+            ['component' => 'section', 'props' => ['body' => 'A']],
+            ['component' => 'section', 'props' => ['body' => 'B', 'background_image' => 'bg.jpg']],
+            ['component' => 'section', 'props' => ['body' => 'C']],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertNotContains('consecutive_text_sections', $types);
     }
 
     public function testHtmlCommentPresentWhenDebugAndConflicts(): void

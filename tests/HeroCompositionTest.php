@@ -2,7 +2,7 @@
 /**
  * tests/HeroCompositionTest.php — PHPUnit tests for hero composition props
  *
- * Covers: split_ratio, content_measure, vertical_align, proof slot.
+ * Covers: split_ratio, vertical_align, proof slot.
  */
 
 use PHPUnit\Framework\TestCase;
@@ -78,44 +78,6 @@ class HeroCompositionTest extends TestCase
             'split_ratio' => '60-40',
         ]);
         $this->assertStringNotContainsString('data-pp-split-ratio', $html);
-    }
-
-    // ── Content Measure ───────────────────────────────────────────────────
-
-    public function testContentMeasureNarrowOutputsAttribute(): void
-    {
-        $html = $this->render([
-            'title' => 'Test',
-            'content_measure' => 'narrow',
-        ]);
-        $this->assertStringContainsString('data-pp-content-measure="narrow"', $html);
-    }
-
-    public function testContentMeasureWideOutputsAttribute(): void
-    {
-        $html = $this->render([
-            'title' => 'Test',
-            'content_measure' => 'wide',
-        ]);
-        $this->assertStringContainsString('data-pp-content-measure="wide"', $html);
-    }
-
-    public function testContentMeasureDefaultOmitsAttribute(): void
-    {
-        $html = $this->render([
-            'title' => 'Test',
-            'content_measure' => 'default',
-        ]);
-        $this->assertStringNotContainsString('data-pp-content-measure', $html);
-    }
-
-    public function testContentMeasureInvalidFallsBackToDefault(): void
-    {
-        $html = $this->render([
-            'title' => 'Test',
-            'content_measure' => 'extra-wide',
-        ]);
-        $this->assertStringNotContainsString('data-pp-content-measure', $html);
     }
 
     // ── Vertical Align ────────────────────────────────────────────────────
@@ -200,5 +162,54 @@ class HeroCompositionTest extends TestCase
         $this->assertStringContainsString('hero__proof', $html);
         $this->assertStringContainsString('<img src="logo.png"', $html);
         $this->assertStringContainsString('4.9 stars', $html);
+    }
+
+    // ── Width ─────────────────────────────────────────────────────────────
+
+    public function testWidthNarrowOutputsAttribute(): void
+    {
+        $html = $this->render([
+            'title' => 'Test',
+            'width' => 'narrow',
+        ]);
+        $this->assertStringContainsString('data-pp-width="narrow"', $html);
+    }
+
+    public function testWidthFullOutputsAttribute(): void
+    {
+        $html = $this->render([
+            'title' => 'Test',
+            'width' => 'full',
+        ]);
+        $this->assertStringContainsString('data-pp-width="full"', $html);
+    }
+
+    public function testWidthDefaultOmitsAttribute(): void
+    {
+        $html = $this->render([
+            'title' => 'Test',
+            'width' => 'default',
+        ]);
+        $this->assertStringNotContainsString('data-pp-width', $html);
+    }
+
+    public function testWidthInvalidFallsBackToDefault(): void
+    {
+        $html = $this->render([
+            'title' => 'Test',
+            'width' => 'extra-wide',
+        ]);
+        $this->assertStringNotContainsString('data-pp-width', $html);
+    }
+
+    // ── Spacing (compact enum) ────────────────────────────────────────────
+
+    public function testSpacingCompactOutputsAttribute(): void
+    {
+        $html = $this->render([
+            'title' => 'Test',
+            'spacing' => 'compact',
+        ]);
+        $this->assertStringContainsString('data-pp-spacing="compact"', $html);
     }
 }

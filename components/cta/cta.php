@@ -16,8 +16,6 @@ $button_url       = $props['button_url']       ?? '#';
 $variant          = $props['variant']          ?? 'full-width';
 $theme            = $props['theme']            ?? 'default';
 $background_image = $props['background_image'] ?? '';
-$spacing          = $props['spacing']          ?? 'default';
-$width            = $props['width']            ?? 'default';
 
 $allowed_variants = ['full-width', 'inline'];
 if (!in_array($variant, $allowed_variants, true)) {
@@ -35,19 +33,8 @@ $bg_image_style = $background_image
     ? sprintf(' style="background-image:url(%s);"', esc_url($background_image))
     : '';
 
-$allowed_spacings = ['default', 'compact', 'spacious'];
-if (!in_array($spacing, $allowed_spacings, true)) {
-    $spacing = 'default';
-}
-$allowed_widths = ['default', 'narrow', 'full'];
-if (!in_array($width, $allowed_widths, true)) {
-    $width = 'default';
-}
-
-$spacing_attr = $spacing !== 'default' ? ' data-pp-spacing="' . esc_attr($spacing) . '"' : '';
-$width_attr   = $width !== 'default' ? ' data-pp-width="' . esc_attr($width) . '"' : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="cta cta--<?php echo esc_attr($variant); ?><?php echo esc_attr($theme_class); ?><?php echo esc_attr($bg_image_class); ?>" data-pp-component="cta"<?php echo $spacing_attr; ?><?php echo $width_attr; ?><?php echo $bg_image_style; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="cta cta--<?php echo esc_attr($variant); ?><?php echo esc_attr($theme_class); ?><?php echo esc_attr($bg_image_class); ?>" data-pp-component="cta"<?php echo $bg_image_style; ?>>
     <?php if ($background_image) : ?>
         <div class="cta__overlay" aria-hidden="true"></div>
     <?php endif; ?>

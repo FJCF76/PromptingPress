@@ -215,6 +215,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
+  max-width: var(--measure-centered);
 }
 
 .hero__title {
@@ -371,17 +372,8 @@
   }
 }
 
-/* Content measure: constrain hero__content max-width */
-[data-pp-content-measure="narrow"] .hero__content {
-  max-width: 36rem;
-}
-
-[data-pp-content-measure="wide"] .hero__content {
-  max-width: 48rem;
-}
-
 @media (max-width: 767px) {
-  [data-pp-content-measure] .hero__content {
+  .hero__content {
     max-width: none;
   }
 }
@@ -1253,23 +1245,25 @@
 }
 
 /* ==========================================================================
-   SHARED: Text-Only Typography Modulation
-   Slightly larger heading and wider measure for text-only sections,
-   giving them visual weight without an image to anchor the eye.
+   SHARED: Text-Only Layout
+   Text-only: body fills the container (no max-width) so titles and headings
+   match the visual width of adjacent full-width components (grid, table, CTA).
+   Only the prose content block is constrained for readable line length.
+   Centered: body is constrained to --measure-centered with center-aligned text.
    ========================================================================== */
 
 .section--text-only .section__title {
   font-size: 2.25rem;
 }
 
-.section--text-only .section__body {
-  max-width: var(--measure-body-wide);
+.section--text-only .section__content {
+  max-width: var(--measure-centered);
 }
 
 /* ==========================================================================
-   SHARED: Spacing + Width Props (data attributes)
-   Cross-component layout overrides via data-pp-spacing and data-pp-width.
-   Compound selectors ensure these override rhythm defaults.
+   SHARED: Spacing + Width overrides (data attributes)
+   These selectors are generic ([data-pp-component][data-pp-spacing=...]) but
+   only hero.php emits the data-pp-spacing and data-pp-width attributes.
    ========================================================================== */
 
 [data-pp-component][data-pp-spacing="compact"] {

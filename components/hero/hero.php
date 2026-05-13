@@ -20,7 +20,6 @@ $image_alt = $props['image_alt'] ?? '';
 $spacing         = $props['spacing']         ?? 'default';
 $width           = $props['width']           ?? 'default';
 $split_ratio     = $props['split_ratio']     ?? '50-50';
-$content_measure = $props['content_measure'] ?? 'default';
 $vertical_align  = $props['vertical_align']  ?? 'center';
 $proof           = $props['proof']           ?? '';
 
@@ -45,10 +44,6 @@ $allowed_split_ratios = ['50-50', '60-40', '40-60'];
 if (!in_array($split_ratio, $allowed_split_ratios, true)) {
     $split_ratio = '50-50';
 }
-$allowed_content_measures = ['default', 'narrow', 'wide'];
-if (!in_array($content_measure, $allowed_content_measures, true)) {
-    $content_measure = 'default';
-}
 $allowed_vertical_aligns = ['top', 'center', 'bottom'];
 if (!in_array($vertical_align, $allowed_vertical_aligns, true)) {
     $vertical_align = 'center';
@@ -57,7 +52,6 @@ if (!in_array($vertical_align, $allowed_vertical_aligns, true)) {
 $spacing_attr        = $spacing !== 'default' ? ' data-pp-spacing="' . esc_attr($spacing) . '"' : '';
 $width_attr          = $width !== 'default' ? ' data-pp-width="' . esc_attr($width) . '"' : '';
 $split_ratio_attr    = ($variant === 'split' && $split_ratio !== '50-50') ? ' data-pp-split-ratio="' . esc_attr($split_ratio) . '"' : '';
-$content_measure_attr = $content_measure !== 'default' ? ' data-pp-content-measure="' . esc_attr($content_measure) . '"' : '';
 $vertical_align_attr = (in_array($variant, ['cover', 'split'], true) && $vertical_align !== 'center') ? ' data-pp-vertical-align="' . esc_attr($vertical_align) . '"' : '';
 
 // Cover variant: image becomes a background-image with overlay.
@@ -69,7 +63,7 @@ if ($variant === 'cover' && $image_url) {
     );
 }
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="hero hero--<?php echo esc_attr($variant); ?>" data-pp-component="hero"<?php echo $spacing_attr; ?><?php echo $width_attr; ?><?php echo $split_ratio_attr; ?><?php echo $content_measure_attr; ?><?php echo $vertical_align_attr; ?><?php echo $cover_style; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="hero hero--<?php echo esc_attr($variant); ?>" data-pp-component="hero"<?php echo $spacing_attr; ?><?php echo $width_attr; ?><?php echo $split_ratio_attr; ?><?php echo $vertical_align_attr; ?><?php echo $cover_style; ?>>
     <?php if ($variant === 'cover') : ?>
         <div class="hero__overlay" aria-hidden="true"></div>
     <?php endif; ?>

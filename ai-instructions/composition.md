@@ -18,7 +18,7 @@ The format is AI-native: the same JSON a human edits in the admin meta box is wh
 ```json
 [
   { "component": "hero",    "props": { "title": "Welcome", "variant": "centered" } },
-  { "component": "section", "props": { "body": "<p>Content.</p>", "layout": "text-only" } },
+  { "component": "section", "props": { "body": "<p>Content.</p>" } },
   { "component": "faq",     "props": { "items": [{ "question": "Q?", "answer": "A." }] } },
   { "component": "cta",     "props": { "title": "Go", "button_text": "Click", "button_url": "/" } }
 ]
@@ -37,7 +37,7 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 
 | Name    | Required props                          | Optional props (selection)                              |
 |---------|-----------------------------------------|---------------------------------------------------------|
-| hero    | title                                   | subtitle, cta_text, cta_url, cta2_text, cta2_url, variant |
+| hero    | title                                   | subtitle, cta_text, cta_url, cta2_text, cta2_url, variant, spacing, width, split_ratio, vertical_align, proof |
 | section | body                                    | title, layout, variant, background_image                |
 | faq     | items[] {question, answer}              | title                                                   |
 | grid    | items[] {title, text, ...}              | title, variant, theme                                   |
@@ -64,6 +64,17 @@ Example — alternating section rhythm:
 { "component": "section", "props": { "body": "<p>...</p>", "variant": "dark" } },
 { "component": "section", "props": { "body": "<p>...</p>", "variant": "inverted" } }
 ```
+
+### section.layout
+
+| Value         | Use when                                                     |
+|---------------|--------------------------------------------------------------|
+| `text-only`   | Default. Full-width text block with left-aligned text.       |
+| `centered`    | Short-form text (taglines, intros) with center-aligned text. |
+| `image-left`  | Narrative + supporting image, image on the left.             |
+| `image-right` | Narrative + supporting image, image on the right.            |
+
+`text-only` fills the container width — titles and headings match adjacent components (grid, table, CTA). Prose text is constrained for readable line length. `centered` constrains the body block to a narrower column with center-aligned text — use for short intros and taglines, not for multi-paragraph marketing content.
 
 ### grid.variant: "steps"
 
@@ -173,8 +184,7 @@ wp post meta update 42 _pp_composition '[
     "component": "section",
     "props": {
       "title": "How It Works",
-      "body": "<p>PromptingPress exposes every component as a typed, schema-validated unit. AI reads the schema and edits with confidence.</p>",
-      "layout": "text-only"
+      "body": "<p>PromptingPress exposes every component as a typed, schema-validated unit. AI reads the schema and edits with confidence.</p>"
     }
   },
   {

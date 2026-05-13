@@ -14,8 +14,6 @@ $title   = $props['title']   ?? '';
 $items   = $props['items']   ?? [];
 $variant = $props['variant'] ?? 'default';
 $theme   = $props['theme']   ?? 'default';
-$spacing = $props['spacing'] ?? 'default';
-$width   = $props['width']   ?? 'default';
 
 $allowed_variants = ['default', 'steps'];
 if (!in_array($variant, $allowed_variants, true)) {
@@ -31,19 +29,8 @@ $is_steps      = $variant === 'steps';
 $variant_class = $is_steps ? ' grid--steps' : '';
 $theme_class   = $theme !== 'default' ? ' grid--' . $theme : '';
 
-$allowed_spacings = ['default', 'compact', 'spacious'];
-if (!in_array($spacing, $allowed_spacings, true)) {
-    $spacing = 'default';
-}
-$allowed_widths = ['default', 'narrow', 'full'];
-if (!in_array($width, $allowed_widths, true)) {
-    $width = 'default';
-}
-
-$spacing_attr = $spacing !== 'default' ? ' data-pp-spacing="' . esc_attr($spacing) . '"' : '';
-$width_attr   = $width !== 'default' ? ' data-pp-width="' . esc_attr($width) . '"' : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($variant_class); ?><?php echo esc_attr($theme_class); ?>" data-pp-component="grid"<?php echo $spacing_attr; ?><?php echo $width_attr; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($variant_class); ?><?php echo esc_attr($theme_class); ?>" data-pp-component="grid">
     <div class="container">
 
         <?php if ($title) : ?>
