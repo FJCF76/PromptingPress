@@ -221,6 +221,11 @@
 .hero__title {
   font-size: clamp(2.5rem, 5vw, 4rem);
   line-height: 1.03;
+}
+
+/* Constrain heading width for left/split variants; centered uses text-align centering */
+.hero--left .hero__title,
+.hero--split .hero__title {
   max-width: 12ch;
 }
 
@@ -707,8 +712,9 @@
   }
 }
 
+/* Steps variant: 3-col at desktop (always 3 items) */
 @media (min-width: 1024px) {
-  .grid__list {
+  .grid--steps .grid__list {
     grid-template-columns: repeat(3, 1fr);
   }
 }
