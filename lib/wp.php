@@ -386,11 +386,14 @@ function pp_update_site_option(string $key, string $value) {
 function pp_default_homepage_composition(): array {
     return [
         ['component' => 'hero', 'props' => [
-            'title'    => 'Build AI-Ready WordPress Sites',
-            'subtitle' => 'PromptingPress is a WordPress theme designed so any AI tool can read one file, understand your entire site, and edit it safely.',
-            'cta_text' => 'See How It Works',
-            'cta_url'  => '#how-it-works',
-            'variant'  => 'centered',
+            'id'       => 'home-hero',
+            'title'    => 'AI-led WordPress pages that stay workable after the first draft.',
+            'subtitle' => 'PromptingPress is built for real WordPress page workflows where AI can move fast on the first pass without turning revisions, handoff, and maintenance into cleanup debt.',
+            'cta_text' => 'See how it works',
+            'cta_url'  => '/how-promptingpress-works/',
+            'variant'  => 'split',
+            'split_ratio' => '60-40',
+            'proof'    => '<p class="hero__surface-label">Product workflow surface</p><div class="hero__surface-list"><div class="hero__surface-item"><span class="hero__surface-key">Read</span><span class="hero__surface-value">Structured site context</span></div><div class="hero__surface-item"><span class="hero__surface-key">Edit</span><span class="hero__surface-value">Page composition, not builder clutter</span></div><div class="hero__surface-item"><span class="hero__surface-key">Validate</span><span class="hero__surface-value">Screenshot-backed changes before apply</span></div></div>',
         ]],
         ['component' => 'section', 'props' => [
             'title'  => 'The AI Comprehension Problem',

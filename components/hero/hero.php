@@ -53,6 +53,7 @@ $spacing_attr        = $spacing !== 'default' ? ' data-pp-spacing="' . esc_attr(
 $width_attr          = $width !== 'default' ? ' data-pp-width="' . esc_attr($width) . '"' : '';
 $split_ratio_attr    = ($variant === 'split' && $split_ratio !== '50-50') ? ' data-pp-split-ratio="' . esc_attr($split_ratio) . '"' : '';
 $vertical_align_attr = (in_array($variant, ['cover', 'split'], true) && $vertical_align !== 'center') ? ' data-pp-vertical-align="' . esc_attr($vertical_align) . '"' : '';
+$proof_markup        = trim((string) $proof);
 
 // Cover variant: image becomes a background-image with overlay.
 $cover_style = '';
@@ -89,12 +90,16 @@ if ($variant === 'cover' && $image_url) {
                     </div>
                 <?php endif; ?>
 
-                <?php if ($proof) : ?>
-                    <div class="hero__proof"><?php echo wp_kses_post($proof); ?></div>
+                <?php if ($proof_markup && $variant !== 'split') : ?>
+                    <div class="hero__proof"><?php echo wp_kses_post($proof_markup); ?></div>
                 <?php endif; ?>
             </div>
 
-            <?php if ($variant === 'split' && $image_url) : ?>
+            <?php if ($variant === 'split' && $proof_markup) : ?>
+                <div class="hero__surface" aria-label="Product workflow surface">
+                    <?php echo wp_kses_post($proof_markup); ?>
+                </div>
+            <?php elseif ($variant === 'split' && $image_url) : ?>
                 <div class="hero__image-wrap">
                     <img
                         src="<?php echo esc_url($image_url); ?>"

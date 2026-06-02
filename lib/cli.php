@@ -347,51 +347,52 @@ class PP_Apply_Command extends WP_CLI_Command {
     /**
      * Validates the execution surface before any mutation.
      *
-     * Checks: target resolved, capability OK, backup directory writable.
-     * Exit 0 if all pass, exit 1 if any fail.
+     * Checks: target resolved, capability OK, backup directory writable,
+     * drift state, theme writability, and target page (if applicable).
+     *
+     * ## OPTIONS
+     *
+     * [--planned-files=<json>]
+     * : JSON array of file paths the agent intends to modify.
+     *   Enables drift overlap detection. Without this flag, drift is a warning only.
+     *
+     * [--post_id=<id>]
+     * : Target page post ID. Enables target_page check.
+     *
+     * [--apply=<name>]
+     * : Named apply definition. Auto-populates planned_files from the apply's target_file.
      *
      * ## EXAMPLES
      *
      *     wp pp apply preflight
+     *     wp pp apply preflight --planned-files='["assets/css/base.css"]'
+     *     wp pp apply preflight --apply=update_design_token
+     *     wp pp apply preflight --post_id=42
      *
      */
     public function preflight($args, $assoc_args) {
-        $checks = [];
+        $context = [];
 
-        // Check 1: Target resolved
-        $target = pp_get_target();
-        $missing = array_keys(array_filter($target, fn($v) => $v === null));
-        if (empty($missing)) {
-            $checks[] = ['check' => 'target', 'pass' => true, 'message' => 'Target resolved: ' . $target['site_url']];
-        } else {
-            $checks[] = ['check' => 'target', 'pass' => false, 'message' => 'Target not fully resolved. Missing: ' . implode(', ', $missing) . '. Run wp pp target show to inspect.'];
+        if (!empty($assoc_args['planned-files'])) {
+            $decoded = json_decode($assoc_args['planned-files'], true);
+            if (is_array($decoded)) {
+                $context['planned_files'] = $decoded;
+            }
         }
 
-        // Check 2: Capability
-        if (defined('WP_CLI') && WP_CLI) {
-            $checks[] = ['check' => 'capability', 'pass' => true, 'message' => 'WP-CLI context: capability gate bypassed.'];
-        } elseif (current_user_can('manage_options')) {
-            $checks[] = ['check' => 'capability', 'pass' => true, 'message' => 'User has manage_options capability.'];
-        } else {
-            $checks[] = ['check' => 'capability', 'pass' => false, 'message' => 'Missing manage_options capability. Run via WP-CLI or as an admin user.'];
+        if (isset($assoc_args['post_id'])) {
+            $context['post_id'] = (int) $assoc_args['post_id'];
         }
 
-        // Check 3: Backup writability
-        $writable = _pp_check_backup_writability();
-        if ($writable === true) {
-            $checks[] = ['check' => 'backup_writable', 'pass' => true, 'message' => 'Backup directory is writable.'];
-        } else {
-            $checks[] = ['check' => 'backup_writable', 'pass' => false, 'message' => $writable . ' Set PP_BACKUP_DIR in wp-config.php to override the backup directory path.'];
+        if (!empty($assoc_args['apply'])) {
+            $context['apply_name'] = $assoc_args['apply'];
         }
 
-        $all_pass = empty(array_filter($checks, fn($c) => !$c['pass']));
+        $result = pp_preflight($context);
 
-        WP_CLI::line(json_encode([
-            'ok'     => $all_pass,
-            'checks' => $checks,
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
-        if (!$all_pass) {
+        if (!$result['ok']) {
             WP_CLI::halt(1);
         }
     }
@@ -549,6 +550,172 @@ class PP_Validate_Command extends WP_CLI_Command {
 }
 
 WP_CLI::add_command('pp validate', 'PP_Validate_Command');
+
+// ── Operate CLI ─────────────────────────────────────────────────────────────
+
+class PP_Operate_Command extends WP_CLI_Command {
+
+    /**
+     * Returns the full site operating picture as JSON.
+     *
+     * Used by agents at the INSPECT step of the operating loop.
+     *
+     * ## OPTIONS
+     *
+     * [--post_id=<id>]
+     * : Include page-specific composition smells for this post.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp operate inspect
+     *     wp pp operate inspect --post_id=42
+     *
+     */
+    public function inspect($args, $assoc_args) {
+        $post_id = isset($assoc_args['post_id']) ? (int) $assoc_args['post_id'] : null;
+        $result = pp_inspect_site($post_id);
+        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * Outputs the structured checklist for a playbook.
+     *
+     * ## OPTIONS
+     *
+     * --playbook=<name>
+     * : Playbook name: create-page, revise-section, or inspect-fix.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp operate checklist --playbook=create-page
+     *
+     */
+    public function checklist($args, $assoc_args) {
+        $playbook = $assoc_args['playbook'] ?? '';
+        $checklists = pp_operate_checklists();
+
+        if (!isset($checklists[$playbook])) {
+            $available = implode(', ', array_keys($checklists));
+            WP_CLI::error("Unknown playbook '{$playbook}'. Available: {$available}");
+        }
+
+        WP_CLI::line(json_encode($checklists[$playbook], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * Validates a loop run manifest against the operating contract.
+     *
+     * ## OPTIONS
+     *
+     * --run=<json>
+     * : JSON string of the loop run manifest.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp operate validate --run='{"INSPECT":{"site_state":{}},...}'
+     *
+     */
+    public function validate($args, $assoc_args) {
+        $raw = $assoc_args['run'] ?? '{}';
+        $run = json_decode($raw, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            WP_CLI::error('Invalid JSON in --run: ' . json_last_error_msg());
+        }
+
+        $result = pp_validate_loop_run($run);
+        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        if (!$result['valid']) {
+            WP_CLI::halt(1);
+        }
+    }
+}
+
+WP_CLI::add_command('pp operate', 'PP_Operate_Command');
+
+// ── Screenshot CLI ──────────────────────────────────────────────────────────
+
+class PP_Screenshot_Command extends WP_CLI_Command {
+
+    /**
+     * Captures a screenshot via PP_BROWSER_CMD.
+     *
+     * ## OPTIONS
+     *
+     * [--capture-url=<url>]
+     * : URL to capture. Required unless --post_id is given.
+     *   Named --capture-url to avoid collision with WP-CLI's global --url flag.
+     *
+     * [--post_id=<id>]
+     * : WordPress post ID. Resolves URL via get_permalink().
+     *
+     * [--width=<px>]
+     * : Viewport width in pixels. Default: 1280.
+     *
+     * [--output=<path>]
+     * : Output file path. Uses convention if omitted.
+     *
+     * [--playbook=<name>]
+     * : Generate full spec with both viewports for this playbook.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp screenshot capture --capture-url=https://dev.promptingpress.com/ --width=1280
+     *     wp pp screenshot capture --post_id=42 --playbook=create-page
+     *
+     */
+    public function capture($args, $assoc_args) {
+        $url     = $assoc_args['capture-url'] ?? '';
+        $post_id = isset($assoc_args['post_id']) ? (int) $assoc_args['post_id'] : 0;
+        $width   = (int) ($assoc_args['width'] ?? 1280);
+        $output  = $assoc_args['output'] ?? '';
+        $playbook = $assoc_args['playbook'] ?? '';
+
+        // Playbook mode: capture both viewports
+        if ($playbook && $post_id) {
+            $specs = pp_screenshot_spec($post_id, $playbook);
+            $results = [];
+            foreach ($specs as $spec) {
+                $results[] = pp_screenshot_capture($spec);
+            }
+            WP_CLI::line(json_encode($results, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            $any_failed = !empty(array_filter($results, fn($r) => !$r['ok']));
+            if ($any_failed) {
+                WP_CLI::halt(1);
+            }
+            return;
+        }
+
+        // Single capture mode
+        if (!$url && $post_id) {
+            $url = get_permalink($post_id);
+        }
+        if (!$url) {
+            WP_CLI::error('Either --capture-url or --post_id is required.');
+        }
+
+        if (!$output) {
+            $base_dir = pp_screenshot_dir();
+            $output = $base_dir . '/' . date('Ymd-His') . '-' . $width . 'px.png';
+        }
+
+        $spec = [
+            'url'    => $url,
+            'width'  => $width,
+            'height' => 800,
+            'output' => $output,
+        ];
+
+        $result = pp_screenshot_capture($spec);
+        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        if (!$result['ok']) {
+            WP_CLI::halt(1);
+        }
+    }
+}
+
+WP_CLI::add_command('pp screenshot', 'PP_Screenshot_Command');
 
 // ── Sync CLI ────────────────────────────────────────────────────────────────
 

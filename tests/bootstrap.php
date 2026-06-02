@@ -573,6 +573,8 @@ require_once dirname(__DIR__) . '/lib/admin.php';
 require_once dirname(__DIR__) . '/lib/guardrails.php';
 require_once dirname(__DIR__) . '/lib/actions.php';
 require_once dirname(__DIR__) . '/lib/apply.php';
+require_once dirname(__DIR__) . '/lib/operate.php';
+require_once dirname(__DIR__) . '/lib/screenshot.php';
 require_once dirname(__DIR__) . '/lib/ai-context.php';
 require_once dirname(__DIR__) . '/lib/ai-provider.php';
 require_once dirname(__DIR__) . '/lib/ai-settings.php';

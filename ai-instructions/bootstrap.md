@@ -7,6 +7,21 @@ verification command.
 This is a state contract, not a setup checklist. Every predicate is verifiable.
 An agent setting up a fresh install should enforce each predicate, not follow steps.
 
+## Agent Operating Loop
+
+**Before making any changes to a PromptingPress site, read the operating loop contract.**
+
+The operating loop (`ai-instructions/operating-loop.md`) defines the 8-step process
+agents must follow: INSPECT → PLAN → EDIT → PREFLIGHT → APPLY → SCREENSHOT → REVIEW → HANDOFF.
+
+Three playbooks customize the loop for common operations:
+- `playbook-create-page.md` — Create a new page from a brief
+- `playbook-revise-section.md` — Revise an existing section
+- `playbook-inspect-fix.md` — Diagnose and fix a reported issue
+
+The procedural guides in this directory (`add-page.md`, `composition.md`, `retheme.md`, etc.)
+describe *what* actions are available. The operating loop governs *how* and *when* to use them.
+
 ---
 
 ## Theme

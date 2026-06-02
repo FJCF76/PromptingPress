@@ -11,14 +11,14 @@
 
 :root {
   /* Color — change all 8 to retheme */
-  --color-bg:           #ffffff;  /* color: Page background */
-  --color-surface:      #f9fafb;  /* color: Card / component backgrounds */
-  --color-text:         #1a1a1a;  /* color: Primary text */
-  --color-muted:        #6b7280;  /* color: Secondary text, captions, placeholders */
-  --color-border:       #e5e7eb;  /* color: Dividers, outlines */
-  --color-accent:       #0055cc;  /* color: Primary action — WCAG AA 4.7:1 on white */
-  --color-accent-hover: #0044aa;  /* color: Hover / active state for accent */
-  --color-bg-inverted:  #1a1a1a;  /* color: Section variant: inverted bg (semantic opposite of --color-bg) */
+  --color-bg:           #fcfdff;  /* color: Page background */
+  --color-surface:      #f4f7fb;  /* color: Card / component backgrounds */
+  --color-text:         #101828;  /* color: Primary text */
+  --color-muted:        #5e6677;  /* color: Secondary text, captions, placeholders */
+  --color-border:       #d9e0eb;  /* color: Dividers, outlines */
+  --color-accent:       #3157f4;  /* color: Primary action — WCAG AA 4.7:1 on white */
+  --color-accent-hover: #2447df;  /* color: Hover / active state for accent */
+  --color-bg-inverted:  #0f172a;  /* color: Section variant: inverted bg (semantic opposite of --color-bg) */
 
   /* Spacing — the layout scale */
   --space-xs:  0.25rem;   /* length: 4px */
@@ -135,18 +135,19 @@ h4,
 h5,
 h6 {
   font-family: var(--font-heading);
-  font-weight: 700;
+  font-weight: 650;
   line-height: 1.2;
   color: var(--color-text);
   text-wrap: balance;
+  letter-spacing: -0.03em;
 }
 
-h1 { font-size: 2.5rem; }
-h2 { font-size: 2rem; }
-h3 { font-size: 1.5rem; }
-h4 { font-size: 1.25rem; }
-h5 { font-size: 1.125rem; }
-h6 { font-size: 1rem; }
+h1 { font-size: 2.375rem; }
+h2 { font-size: 1.875rem; }
+h3 { font-size: 1.375rem; }
+h4 { font-size: 1.125rem; }
+h5 { font-size: 1rem; }
+h6 { font-size: 0.875rem; }
 
 p {
   margin-bottom: var(--space-md);

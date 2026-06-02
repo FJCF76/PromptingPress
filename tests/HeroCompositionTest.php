@@ -164,6 +164,18 @@ class HeroCompositionTest extends TestCase
         $this->assertStringContainsString('4.9 stars', $html);
     }
 
+    public function testSplitVariantRendersProofAsSurface(): void
+    {
+        $html = $this->render([
+            'title' => 'Test',
+            'variant' => 'split',
+            'proof' => '<p class="hero__surface-label">Workflow surface</p>',
+        ]);
+        $this->assertStringContainsString('hero__surface', $html);
+        $this->assertStringNotContainsString('hero__proof', $html);
+        $this->assertStringContainsString('Workflow surface', $html);
+    }
+
     // ── Width ─────────────────────────────────────────────────────────────
 
     public function testWidthNarrowOutputsAttribute(): void
