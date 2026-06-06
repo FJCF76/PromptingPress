@@ -312,7 +312,7 @@ class ApplyTest extends TestCase
         $this->assertEquals('design', $result['domain']);
         $this->assertArrayHasKey('before', $result);
         $this->assertArrayHasKey('after', $result);
-        $this->assertEquals('#0055cc', $result['before']['--color-accent']);
+        $this->assertEquals('#3157f4', $result['before']['--color-accent']);
         $this->assertEquals('#b45309', $result['after']['--color-accent']);
         // Other tokens unchanged in preview
         $this->assertEquals($result['before']['--color-bg'], $result['after']['--color-bg']);
@@ -327,7 +327,7 @@ class ApplyTest extends TestCase
         $result = pp_preview_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309']);
         $this->assertCount(1, $result['changes']);
         $this->assertEquals('--color-accent', $result['changes'][0]['token']);
-        $this->assertEquals('#0055cc', $result['changes'][0]['from']);
+        $this->assertEquals('#3157f4', $result['changes'][0]['from']);
         $this->assertEquals('#b45309', $result['changes'][0]['to']);
     }
 
@@ -349,7 +349,7 @@ class ApplyTest extends TestCase
         $this->assertEquals('design', $result['domain']);
         $this->assertEquals(1, $result['restore_point']);
         $this->assertCount(1, $result['changes']);
-        $this->assertEquals('#0055cc', $result['changes'][0]['from']);
+        $this->assertEquals('#3157f4', $result['changes'][0]['from']);
         $this->assertEquals('#b45309', $result['changes'][0]['to']);
 
         // Verify the file was actually written
@@ -501,7 +501,7 @@ class ApplyTest extends TestCase
     public function testCacheInvalidationReturnsFreshDataAfterWrite(): void
     {
         $tokens_before = pp_design_tokens();
-        $this->assertEquals('#0055cc', $tokens_before['--color-accent']['value']);
+        $this->assertEquals('#3157f4', $tokens_before['--color-accent']['value']);
 
         pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309']);
 
@@ -526,7 +526,7 @@ class ApplyTest extends TestCase
 
         // Verify restore
         $tokens = _pp_read_tokens_from_file($this->baseCssPath);
-        $this->assertEquals('#0055cc', $tokens['--color-accent']);
+        $this->assertEquals('#3157f4', $tokens['--color-accent']);
     }
 
     public function testRestoreByPointIndex(): void
@@ -578,7 +578,7 @@ class ApplyTest extends TestCase
         $this->assertArrayHasKey('--color-bg', $tokens);
         $this->assertArrayHasKey('value', $tokens['--color-bg']);
         $this->assertArrayHasKey('type', $tokens['--color-bg']);
-        $this->assertEquals('#ffffff', $tokens['--color-bg']['value']);
+        $this->assertEquals('#fcfdff', $tokens['--color-bg']['value']);
         $this->assertEquals('color', $tokens['--color-bg']['type']);
     }
 

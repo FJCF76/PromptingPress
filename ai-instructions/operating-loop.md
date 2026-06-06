@@ -103,7 +103,8 @@ This captures screenshots at both viewports (1280px desktop + 375px mobile) unle
 
 Get the playbook checklist: `wp pp operate checklist --playbook=<name>`
 
-Evaluate each checklist item against the screenshots:
+Evaluate screenshots against the checklist without referencing your own reasoning about what you changed. Look only at what is visible in the screenshot and whether it matches the checklist criteria.
+
 - **Hard gates** must pass. If any hard gate fails, loop back to step 2 (PLAN), not step 3 (EDIT).
 - **Soft gates** are noted but do not block.
 
@@ -133,14 +134,23 @@ Report:
 
 ## Rules
 
-1. **Inspect before editing.** Never modify state without reading it first.
-2. **Preflight before applying.** Never write to files without checking safety.
-3. **Screenshot before reviewing.** Visual verification is evidence, not assumption.
-4. **Hard gate failure loops to PLAN, not EDIT.** Rethink the approach, don't just retry.
-5. **Never claim VERIFIED without screenshots and a fully evaluated checklist.**
-6. **Never claim VERIFIED with partial viewport coverage** unless the playbook declared only those viewports.
-7. **Escalate drift conflicts.** If drifted files overlap with your planned mutations, stop and ask the human.
-8. **Record everything.** The handoff report is the contract with the human.
+1. **Pass the run token.** Every `wp pp operate inspect` returns a `run_id`. Pass it to all subsequent mutating CLI commands via `--run-id`. Commands fail without it.
+2. **Inspect before editing.** Never modify state without reading it first.
+3. **Preflight before applying.** Never write to files without checking safety.
+4. **Screenshot before reviewing.** Visual verification is evidence, not assumption.
+5. **Hard gate failure loops to PLAN, not EDIT.** Rethink the approach, don't just retry.
+6. **Never claim VERIFIED without screenshots and a fully evaluated checklist.**
+7. **Never claim VERIFIED with partial viewport coverage** unless the playbook declared only those viewports.
+8. **Escalate drift conflicts.** If drifted files overlap with your planned mutations, stop and ask the human.
+9. **Record everything.** The handoff report is the contract with the human.
+
+## Enforcement Layers
+
+Two complementary enforcement mechanisms protect the loop:
+
+1. **Run tokens (real-time ordering):** `wp pp operate inspect` creates a state file tracking completed steps. Mutating commands (`action execute`, `apply preflight`, `apply execute`, `apply restore`) require `--run-id` and check the state file before proceeding. This prevents out-of-order CLI calls.
+
+2. **`wp pp operate validate` (post-hoc completeness):** Validates the finished run manifest — checks that all 8 steps ran, required outputs are present, viewports match the playbook, hard-gate checklist items were evaluated, and retry count is within bounds. This catches incomplete runs at HANDOFF.
 
 ## Escalation Rules
 
@@ -159,15 +169,16 @@ Three playbooks are available. Each one customizes the loop for a specific opera
 
 ## CLI Reference
 
-| Command | Step | Purpose |
-|---|---|---|
-| `wp pp operate inspect` | INSPECT | Full site operating picture |
-| `wp pp operate inspect --post_id=<id>` | INSPECT | Include page-specific smells |
-| `wp pp action execute --action=<name> --params='...'` | EDIT | Execute a typed action |
-| `wp pp apply preflight` | PREFLIGHT | Run safety checks |
-| `wp pp apply preflight --planned-files='[...]'` | PREFLIGHT | With drift overlap detection |
-| `wp pp apply execute --apply=<name> --params='...'` | APPLY | Commit file mutation |
-| `wp pp screenshot capture --post_id=<id> --playbook=<name>` | SCREENSHOT | Capture both viewports |
-| `wp pp screenshot capture --capture-url=<url> --width=<px>` | SCREENSHOT | Capture single URL |
-| `wp pp operate checklist --playbook=<name>` | REVIEW | Get playbook checklist |
-| `wp pp operate validate --run='...'` | HANDOFF | Validate loop run completeness |
+| Command | Step | `--run-id` | Purpose |
+|---|---|---|---|
+| `wp pp operate inspect` | INSPECT | Returns it | Full site operating picture + run token |
+| `wp pp operate inspect --post_id=<id>` | INSPECT | Returns it | Include page-specific smells |
+| `wp pp action execute <name> --run-id=<uuid> --params='...'` | EDIT | Required | Execute a typed action |
+| `wp pp apply preflight --run-id=<uuid>` | PREFLIGHT | Required | Run safety checks, record PREFLIGHT |
+| `wp pp apply preflight --run-id=<uuid> --planned-files='[...]'` | PREFLIGHT | Required | With drift overlap detection |
+| `wp pp apply execute <name> --run-id=<uuid> --params='...'` | APPLY | Required | Commit file mutation |
+| `wp pp apply restore --run-id=<uuid>` | APPLY | Required | Roll back to latest backup |
+| `wp pp screenshot capture --post_id=<id> --playbook=<name>` | SCREENSHOT | — | Capture both viewports |
+| `wp pp screenshot capture --capture-url=<url> --width=<px>` | SCREENSHOT | — | Capture single URL |
+| `wp pp operate checklist --playbook=<name>` | REVIEW | — | Get playbook checklist |
+| `wp pp operate validate --run='...'` | HANDOFF | — | Validate loop run completeness |

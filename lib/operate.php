@@ -363,8 +363,252 @@ function pp_validate_loop_run(array $run): array {
         }
     }
 
+    // Retry count validation: max 2 retries allowed.
+    if (isset($run['retry_count']) && (int) $run['retry_count'] > PP_OPERATE_MAX_RETRIES) {
+        $errors[] = 'Retry count ' . $run['retry_count'] . ' exceeds maximum of ' . PP_OPERATE_MAX_RETRIES . '. Escalate to human.';
+    }
+
+    // Viewport coverage + checklist completeness: resolve checklist once for both checks.
+    if (isset($run['playbook'])) {
+        $checklists = pp_operate_checklists();
+        if (isset($checklists[$run['playbook']])) {
+            $checklist = $checklists[$run['playbook']];
+
+            // Viewport coverage: check screenshot viewports.
+            if (isset($run['SCREENSHOT']['screenshot_result'])) {
+                $needs_mobile  = false;
+                $needs_desktop = false;
+                foreach ($checklist as $item) {
+                    $vp = $item['viewport'] ?? 'any';
+                    if ($vp === 'mobile') {
+                        $needs_mobile = true;
+                    } elseif ($vp === 'desktop') {
+                        $needs_desktop = true;
+                    } elseif ($vp === 'any') {
+                        $needs_mobile  = true;
+                        $needs_desktop = true;
+                    }
+                }
+
+                $screenshots   = $run['SCREENSHOT']['screenshot_result'];
+                $has_mobile    = ! empty($screenshots['mobile']);
+                $has_desktop   = ! empty($screenshots['desktop']);
+
+                if ($needs_mobile && ! $has_mobile) {
+                    $errors[] = 'Playbook "' . $run['playbook'] . '" requires mobile viewport but no mobile screenshot was captured.';
+                }
+                if ($needs_desktop && ! $has_desktop) {
+                    $errors[] = 'Playbook "' . $run['playbook'] . '" requires desktop viewport but no desktop screenshot was captured.';
+                }
+            }
+
+            // Checklist completeness: all hard-gate items must be evaluated.
+            if (isset($run['REVIEW']['review_result'])) {
+                $review    = $run['REVIEW']['review_result'];
+                $evaluated = array_column($review, 'id');
+
+                foreach ($checklist as $item) {
+                    if ($item['gate'] === 'hard' && ! in_array($item['id'], $evaluated, true)) {
+                        $errors[] = 'REVIEW: hard-gate checklist item "' . $item['id'] . '" was not evaluated.';
+                    }
+                }
+            }
+        }
+    }
+
     return [
         'valid'  => empty($errors),
         'errors' => $errors,
     ];
+}
+
+// ── Run Token State Files ─────────────────────────────────────────────────
+
+/** Maximum retry count before escalation. */
+define( 'PP_OPERATE_MAX_RETRIES', 2 );
+
+/** Run token TTL in seconds (2 hours). */
+define( 'PP_OPERATE_RUN_TTL', 7200 );
+
+/** UUID v4 validation pattern for run tokens. */
+define( 'PP_OPERATE_UUID_PATTERN', '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/' );
+
+/**
+ * Returns the state file path for a run token.
+ *
+ * @param string $run_id The run token UUID.
+ * @return string
+ */
+function pp_operate_run_path( string $run_id ): string {
+    return sys_get_temp_dir() . '/pp-operate-run-' . $run_id . '.json';
+}
+
+/**
+ * Validates that a run-id is a well-formed UUID v4.
+ *
+ * Prevents path traversal via crafted --run-id values.
+ *
+ * @param string $run_id The value to validate.
+ * @return bool
+ */
+function pp_operate_valid_run_id( string $run_id ): bool {
+    return (bool) preg_match( PP_OPERATE_UUID_PATTERN, $run_id );
+}
+
+/**
+ * Creates a new run token for step enforcement.
+ *
+ * Generates a UUID, writes a state file to /tmp with INSPECT recorded.
+ * The state file tracks which steps have been completed for this run.
+ *
+ * Run token state files enforce step ordering in real-time (CLI calls).
+ * pp_validate_loop_run() validates completeness post-hoc (finished run manifest).
+ * These are complementary layers, not alternatives.
+ *
+ * @return string|WP_Error  UUID string on success, WP_Error on failure.
+ */
+function pp_operate_create_run() {
+    $tmp_dir = sys_get_temp_dir();
+    if ( ! is_writable( $tmp_dir ) ) {
+        return new WP_Error(
+            'tmp_not_writable',
+            'Cannot create run token: ' . $tmp_dir . ' is not writable. Check server permissions.'
+        );
+    }
+
+    $run_id = wp_generate_uuid4();
+    $state  = [
+        'steps_completed' => [ 'INSPECT' ],
+        'created_at'      => time(),
+    ];
+
+    $path   = pp_operate_run_path( $run_id );
+    $result = file_put_contents( $path, wp_json_encode( $state ), LOCK_EX );
+
+    if ( $result === false ) {
+        return new WP_Error(
+            'state_write_failed',
+            'Cannot write run state file: ' . $path . '. Check disk space and permissions.'
+        );
+    }
+
+    return $run_id;
+}
+
+/**
+ * Checks whether a required step has been completed for a run.
+ *
+ * Returns false if the run-id is invalid, state file is missing,
+ * expired (>2 hours), contains invalid JSON, or does not include
+ * the required step. Expired files are cleaned up automatically.
+ *
+ * @param string $run_id        The run token UUID.
+ * @param string $required_step The step name to check for (e.g. 'INSPECT', 'PREFLIGHT').
+ * @return bool
+ */
+function pp_operate_check_step( string $run_id, string $required_step ): bool {
+    if ( ! pp_operate_valid_run_id( $run_id ) ) {
+        return false;
+    }
+
+    $path = pp_operate_run_path( $run_id );
+
+    if ( ! file_exists( $path ) ) {
+        return false;
+    }
+
+    $raw  = file_get_contents( $path );
+    $data = json_decode( $raw, true );
+
+    if ( ! is_array( $data ) || ! isset( $data['steps_completed'] ) || ! isset( $data['created_at'] ) ) {
+        return false;
+    }
+
+    // Auto-expire after TTL. Clean up the stale file.
+    if ( ( time() - (int) $data['created_at'] ) > PP_OPERATE_RUN_TTL ) {
+        @unlink( $path );
+        return false;
+    }
+
+    return in_array( $required_step, $data['steps_completed'], true );
+}
+
+/**
+ * Records a step as completed in the run state file.
+ *
+ * Uses exclusive file locking across the entire read-modify-write cycle
+ * to prevent TOCTOU races from concurrent CLI calls.
+ *
+ * Idempotent: recording the same step twice is a no-op.
+ *
+ * @param string $run_id The run token UUID.
+ * @param string $step   The step name to record (e.g. 'PREFLIGHT').
+ * @return bool  True on success, false if state file missing/expired/corrupt/invalid run-id.
+ */
+function pp_operate_record_step( string $run_id, string $step ): bool {
+    if ( ! pp_operate_valid_run_id( $run_id ) ) {
+        return false;
+    }
+
+    $path = pp_operate_run_path( $run_id );
+
+    $fh = @fopen( $path, 'r+' );
+    if ( ! $fh ) {
+        return false;
+    }
+
+    if ( ! flock( $fh, LOCK_EX ) ) {
+        fclose( $fh );
+        return false;
+    }
+
+    $raw  = stream_get_contents( $fh );
+    $data = json_decode( $raw, true );
+
+    if ( ! is_array( $data ) || ! isset( $data['steps_completed'] ) || ! isset( $data['created_at'] ) ) {
+        flock( $fh, LOCK_UN );
+        fclose( $fh );
+        return false;
+    }
+
+    // Auto-expire after TTL.
+    if ( ( time() - (int) $data['created_at'] ) > PP_OPERATE_RUN_TTL ) {
+        flock( $fh, LOCK_UN );
+        fclose( $fh );
+        @unlink( $path );
+        return false;
+    }
+
+    // Idempotent: don't duplicate.
+    if ( ! in_array( $step, $data['steps_completed'], true ) ) {
+        $data['steps_completed'][] = $step;
+    }
+
+    ftruncate( $fh, 0 );
+    rewind( $fh );
+    fwrite( $fh, wp_json_encode( $data ) );
+    fflush( $fh );
+    flock( $fh, LOCK_UN );
+    fclose( $fh );
+
+    return true;
+}
+
+/**
+ * Deletes the run state file. Called at HANDOFF.
+ *
+ * No-op if the file does not exist or run-id is invalid.
+ *
+ * @param string $run_id The run token UUID.
+ */
+function pp_operate_cleanup_run( string $run_id ): void {
+    if ( ! pp_operate_valid_run_id( $run_id ) ) {
+        return;
+    }
+
+    $path = pp_operate_run_path( $run_id );
+
+    if ( file_exists( $path ) ) {
+        @unlink( $path );
+    }
 }

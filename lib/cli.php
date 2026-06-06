@@ -11,6 +11,21 @@ if (!class_exists('WP_CLI') || !class_exists('WP_CLI_Command')) {
 }
 
 /**
+ * Validates and returns the --run-id from CLI args.
+ * Halts with WP_CLI::error if missing or not a valid UUID v4.
+ */
+function _pp_cli_require_run_id(array $assoc_args): string {
+    if (empty($assoc_args['run-id'])) {
+        WP_CLI::error('--run-id is required. Run `wp pp operate inspect` first to get a run token.');
+    }
+    $run_id = $assoc_args['run-id'];
+    if (!pp_operate_valid_run_id($run_id)) {
+        WP_CLI::error('--run-id must be a valid UUID v4. Got: "' . $run_id . '"');
+    }
+    return $run_id;
+}
+
+/**
  * Parses the --params JSON argument. Shared by action and apply CLI commands.
  */
 function pp_cli_parse_params(array $assoc_args): array {
@@ -126,13 +141,21 @@ class PP_Action_Command extends WP_CLI_Command {
      * --params=<json>
      * : JSON object of action parameters.
      *
+     * --run-id=<uuid>
+     * : Run token from `wp pp operate inspect`. Required.
+     *
      * ## EXAMPLES
      *
-     *     wp pp action execute create_page --params='{"title":"New Page"}'
-     *     wp pp action execute add_component --params='{"post_id":4,"component":"hero","props":{"title":"Hello"}}'
+     *     wp pp action execute create_page --run-id=<uuid> --params='{"title":"New Page"}'
+     *     wp pp action execute add_component --run-id=<uuid> --params='{"post_id":4,"component":"hero","props":{"title":"Hello"}}'
      *
      */
     public function execute($args, $assoc_args) {
+        $run_id = _pp_cli_require_run_id($assoc_args);
+        if (!pp_operate_check_step($run_id, 'INSPECT')) {
+            WP_CLI::error('Run token "' . $run_id . '" has no completed INSPECT step. Run `wp pp operate inspect` first.');
+        }
+
         list($name) = $args;
         $params = pp_cli_parse_params($assoc_args);
 
@@ -269,12 +292,20 @@ class PP_Apply_Command extends WP_CLI_Command {
      * --params=<json>
      * : JSON object of apply parameters.
      *
+     * --run-id=<uuid>
+     * : Run token from `wp pp operate inspect`. Required.
+     *
      * ## EXAMPLES
      *
-     *     wp pp apply execute update_design_token --params='{"token":"--color-accent","value":"#b45309"}'
+     *     wp pp apply execute update_design_token --run-id=<uuid> --params='{"token":"--color-accent","value":"#b45309"}'
      *
      */
     public function execute($args, $assoc_args) {
+        $run_id = _pp_cli_require_run_id($assoc_args);
+        if (!pp_operate_check_step($run_id, 'PREFLIGHT')) {
+            WP_CLI::error('Run token "' . $run_id . '" has no completed PREFLIGHT step. Run `wp pp apply preflight --run-id=' . $run_id . '` first.');
+        }
+
         _pp_cli_require_apply_cap();
 
         list($name) = $args;
@@ -285,6 +316,7 @@ class PP_Apply_Command extends WP_CLI_Command {
         WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
         if ($result['ok']) {
+            pp_operate_record_step($run_id, 'APPLY');
             WP_CLI::success('Apply "' . $name . '" executed.');
         } else {
             WP_CLI::halt(1);
@@ -295,6 +327,9 @@ class PP_Apply_Command extends WP_CLI_Command {
      * Restores base.css from a restore point.
      *
      * ## OPTIONS
+     *
+     * --run-id=<uuid>
+     * : Run token from `wp pp operate inspect`. Required.
      *
      * [--point=<index>]
      * : Restore point index (1 = most recent). Default: latest.
@@ -310,6 +345,11 @@ class PP_Apply_Command extends WP_CLI_Command {
      *
      */
     public function restore($args, $assoc_args) {
+        $run_id = _pp_cli_require_run_id($assoc_args);
+        if (!pp_operate_check_step($run_id, 'PREFLIGHT')) {
+            WP_CLI::error('Run token "' . $run_id . '" has no completed PREFLIGHT step. Run `wp pp apply preflight --run-id=' . $run_id . '` first.');
+        }
+
         _pp_cli_require_apply_cap();
 
         // List mode
@@ -349,8 +389,12 @@ class PP_Apply_Command extends WP_CLI_Command {
      *
      * Checks: target resolved, capability OK, backup directory writable,
      * drift state, theme writability, and target page (if applicable).
+     * Records PREFLIGHT step in the run state file.
      *
      * ## OPTIONS
+     *
+     * --run-id=<uuid>
+     * : Run token from `wp pp operate inspect`. Required.
      *
      * [--planned-files=<json>]
      * : JSON array of file paths the agent intends to modify.
@@ -364,13 +408,15 @@ class PP_Apply_Command extends WP_CLI_Command {
      *
      * ## EXAMPLES
      *
-     *     wp pp apply preflight
-     *     wp pp apply preflight --planned-files='["assets/css/base.css"]'
-     *     wp pp apply preflight --apply=update_design_token
-     *     wp pp apply preflight --post_id=42
+     *     wp pp apply preflight --run-id=<uuid>
+     *     wp pp apply preflight --run-id=<uuid> --planned-files='["assets/css/base.css"]'
+     *     wp pp apply preflight --run-id=<uuid> --apply=update_design_token
+     *     wp pp apply preflight --run-id=<uuid> --post_id=42
      *
      */
     public function preflight($args, $assoc_args) {
+        $run_id = _pp_cli_require_run_id($assoc_args);
+
         $context = [];
 
         if (!empty($assoc_args['planned-files'])) {
@@ -394,6 +440,11 @@ class PP_Apply_Command extends WP_CLI_Command {
 
         if (!$result['ok']) {
             WP_CLI::halt(1);
+        }
+
+        // Record PREFLIGHT step only on success.
+        if (!pp_operate_record_step($run_id, 'PREFLIGHT')) {
+            WP_CLI::error('Could not record PREFLIGHT step for run token "' . $run_id . '". State file may be missing or expired. Re-run `wp pp operate inspect`.');
         }
     }
 }
@@ -559,6 +610,8 @@ class PP_Operate_Command extends WP_CLI_Command {
      * Returns the full site operating picture as JSON.
      *
      * Used by agents at the INSPECT step of the operating loop.
+     * Always generates a run token. Pass the returned run_id to all
+     * subsequent mutating CLI commands via --run-id.
      *
      * ## OPTIONS
      *
@@ -574,6 +627,13 @@ class PP_Operate_Command extends WP_CLI_Command {
     public function inspect($args, $assoc_args) {
         $post_id = isset($assoc_args['post_id']) ? (int) $assoc_args['post_id'] : null;
         $result = pp_inspect_site($post_id);
+
+        $run_id = pp_operate_create_run();
+        if (is_wp_error($run_id)) {
+            WP_CLI::error('Cannot create run token: ' . $run_id->get_error_message());
+        }
+
+        $result['run_id'] = $run_id;
         WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
 

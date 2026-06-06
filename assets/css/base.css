@@ -20,6 +20,12 @@
   --color-accent-hover: #2447df;  /* color: Hover / active state for accent */
   --color-bg-inverted:  #0f172a;  /* color: Section variant: inverted bg (semantic opposite of --color-bg) */
 
+  /* Derived colors — computed from the 8 above, used for premium treatments */
+  --color-text-secondary:   #2d3648;  /* color: Body descriptions, slightly lighter than text */
+  --color-accent-strong:    #2744b7;  /* color: Button gradient dark stop, strong accent borders */
+  --color-border-accent:    #9dafee;  /* color: Accent-tinted borders for featured elements */
+  --color-surface-accent:   #e8ecfe;  /* color: Accent-washed backgrounds, eyebrows */
+
   /* Spacing — the layout scale */
   --space-xs:  0.25rem;   /* length: 4px */
   --space-sm:  0.5rem;    /* length: 8px */

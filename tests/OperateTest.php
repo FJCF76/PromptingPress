@@ -474,6 +474,196 @@ class OperateTest extends TestCase
         $this->assertEmpty($result['errors']);
     }
 
+    // ── Run Token State File Tests ────────────────────────────────────────
+
+    public function testCreateRunCreatesStateFileWithCorrectShape(): void
+    {
+        $run_id = pp_operate_create_run();
+        $this->assertIsString($run_id);
+
+        $path = pp_operate_run_path($run_id);
+        $this->assertFileExists($path);
+
+        $data = json_decode(file_get_contents($path), true);
+        $this->assertIsArray($data);
+        $this->assertArrayHasKey('steps_completed', $data);
+        $this->assertArrayHasKey('created_at', $data);
+        $this->assertContains('INSPECT', $data['steps_completed']);
+
+        // Cleanup
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testCreateRunReturnsValidUuid(): void
+    {
+        $run_id = pp_operate_create_run();
+        $this->assertMatchesRegularExpression(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',
+            $run_id
+        );
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testCheckStepReturnsTrueForCompletedStep(): void
+    {
+        $run_id = pp_operate_create_run();
+        $this->assertTrue(pp_operate_check_step($run_id, 'INSPECT'));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testCheckStepReturnsFalseForMissingStep(): void
+    {
+        $run_id = pp_operate_create_run();
+        $this->assertFalse(pp_operate_check_step($run_id, 'PREFLIGHT'));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testCheckStepReturnsFalseForExpiredStateFile(): void
+    {
+        $run_id = pp_operate_create_run();
+        $path = pp_operate_run_path($run_id);
+
+        // Backdate the created_at to 3 hours ago.
+        $data = json_decode(file_get_contents($path), true);
+        $data['created_at'] = time() - 10800;
+        file_put_contents($path, json_encode($data), LOCK_EX);
+
+        $this->assertFalse(pp_operate_check_step($run_id, 'INSPECT'));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRecordStepAppendsStep(): void
+    {
+        $run_id = pp_operate_create_run();
+        $this->assertTrue(pp_operate_record_step($run_id, 'PREFLIGHT'));
+        $this->assertTrue(pp_operate_check_step($run_id, 'PREFLIGHT'));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testCleanupRunDeletesStateFile(): void
+    {
+        $run_id = pp_operate_create_run();
+        $path = pp_operate_run_path($run_id);
+        $this->assertFileExists($path);
+
+        pp_operate_cleanup_run($run_id);
+        $this->assertFileDoesNotExist($path);
+    }
+
+    // ── Edge Case Tests ───────────────────────────────────────────────────
+
+    public function testCheckStepReturnsFalseForNonExistentStateFile(): void
+    {
+        // Valid UUID format but no state file exists.
+        $this->assertFalse(pp_operate_check_step('00000000-0000-4000-8000-000000000000', 'INSPECT'));
+    }
+
+    public function testCheckStepReturnsFalseForInvalidRunId(): void
+    {
+        // Path traversal attempt — should be rejected by UUID validation.
+        $this->assertFalse(pp_operate_check_step('../../etc/passwd', 'INSPECT'));
+        $this->assertFalse(pp_operate_check_step('not-a-uuid', 'INSPECT'));
+        $this->assertFalse(pp_operate_check_step('', 'INSPECT'));
+    }
+
+    public function testCheckStepReturnsFalseForCorruptJson(): void
+    {
+        $fake_id = wp_generate_uuid4();
+        $path = pp_operate_run_path($fake_id);
+        file_put_contents($path, 'NOT VALID JSON {{{', LOCK_EX);
+
+        $this->assertFalse(pp_operate_check_step($fake_id, 'INSPECT'));
+        @unlink($path);
+    }
+
+    public function testRecordStepDuplicateIsIdempotent(): void
+    {
+        $run_id = pp_operate_create_run();
+        pp_operate_record_step($run_id, 'PREFLIGHT');
+        pp_operate_record_step($run_id, 'PREFLIGHT');
+
+        $path = pp_operate_run_path($run_id);
+        $data = json_decode(file_get_contents($path), true);
+        $count = array_count_values($data['steps_completed']);
+        $this->assertEquals(1, $count['PREFLIGHT']);
+
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testCleanupRunNoOpForNonExistentFile(): void
+    {
+        // Should not throw — valid UUID format but no file exists.
+        pp_operate_cleanup_run('00000000-0000-4000-8000-000000000001');
+        $this->assertTrue(true);
+    }
+
+    // ── Validation Hardening Tests ────────────────────────────────────────
+
+    public function testValidateLoopRunRejectsRetryCountAbove2(): void
+    {
+        $run = $this->makeCompleteRun();
+        $run['retry_count'] = 3;
+        $result = pp_validate_loop_run($run);
+        $this->assertFalse($result['valid']);
+        $this->assertNotEmpty(array_filter($result['errors'], fn($e) => stripos($e, 'Retry count') !== false));
+    }
+
+    public function testValidateLoopRunAcceptsRetryCount2(): void
+    {
+        $run = $this->makeCompleteRun();
+        $run['retry_count'] = 2;
+        $result = pp_validate_loop_run($run);
+        $this->assertTrue($result['valid']);
+    }
+
+    public function testValidateLoopRunRejectsMissingMobileViewport(): void
+    {
+        $run = $this->makeCompleteRun();
+        $run['playbook'] = 'create-page';
+        $run['SCREENSHOT']['screenshot_result'] = ['desktop' => '/tmp/desktop.png', 'mobile' => ''];
+        $run['REVIEW']['review_result'] = $this->makeFullChecklistEvaluation('create-page');
+        $result = pp_validate_loop_run($run);
+        $this->assertFalse($result['valid']);
+        $this->assertNotEmpty(array_filter($result['errors'], fn($e) => stripos($e, 'mobile') !== false));
+    }
+
+    public function testValidateLoopRunRejectsIncompleteChecklist(): void
+    {
+        $run = $this->makeCompleteRun();
+        $run['playbook'] = 'create-page';
+        $run['SCREENSHOT']['screenshot_result'] = ['desktop' => '/tmp/d.png', 'mobile' => '/tmp/m.png'];
+        // Only evaluate one item — the rest are missing.
+        $run['REVIEW']['review_result'] = [['id' => 'sections_present', 'pass' => true]];
+        $result = pp_validate_loop_run($run);
+        $this->assertFalse($result['valid']);
+        $this->assertNotEmpty(array_filter($result['errors'], fn($e) => stripos($e, 'hard-gate') !== false));
+    }
+
+    public function testValidateLoopRunHandlesMissingPlaybookGracefully(): void
+    {
+        $run = $this->makeCompleteRun();
+        // No playbook field — viewport and checklist checks should be skipped.
+        $result = pp_validate_loop_run($run);
+        $this->assertTrue($result['valid']);
+    }
+
+    // ── Required --run-id Tests ───────────────────────────────────────────
+
+    public function testActionExecuteRequiresRunId(): void
+    {
+        // pp_operate_check_step with empty/missing run-id should return false,
+        // which is the PHP-level check the CLI command uses before proceeding.
+        $this->assertFalse(pp_operate_check_step('', 'INSPECT'));
+    }
+
+    public function testApplyExecuteRequiresRunId(): void
+    {
+        // A blank run-id should fail the PREFLIGHT check.
+        $this->assertFalse(pp_operate_check_step('', 'PREFLIGHT'));
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────
+
     private function makeCompleteRun(): array
     {
         return [
@@ -486,5 +676,18 @@ class OperateTest extends TestCase
             'REVIEW'     => ['review_result' => ['checklist' => []]],
             'HANDOFF'    => ['handoff_report' => ['status' => 'VERIFIED']],
         ];
+    }
+
+    private function makeFullChecklistEvaluation(string $playbook): array
+    {
+        $checklists = pp_operate_checklists();
+        if (!isset($checklists[$playbook])) {
+            return [];
+        }
+        $result = [];
+        foreach ($checklists[$playbook] as $item) {
+            $result[] = ['id' => $item['id'], 'pass' => true];
+        }
+        return $result;
     }
 }

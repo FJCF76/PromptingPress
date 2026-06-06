@@ -1051,6 +1051,122 @@
   opacity: 0.85;
 }
 
+/* Closing CTA correction: wide premium close, not a narrow centered poem. */
+#home-cta,
+#how-cta,
+#agencies-cta,
+#implementers-cta {
+  padding-top: 5.75rem;
+  padding-bottom: 5.75rem;
+}
+
+#home-cta .container,
+#how-cta .container,
+#agencies-cta .container,
+#implementers-cta .container {
+  max-width: 70rem;
+}
+
+#home-cta.cta--inline .cta__inner,
+#how-cta.cta--inline .cta__inner,
+#agencies-cta.cta--inline .cta__inner,
+#implementers-cta.cta--inline .cta__inner {
+  width: 100%;
+  max-width: 68rem;
+  margin-right: auto;
+  margin-left: auto;
+  gap: 1.75rem;
+  align-items: flex-start;
+  text-align: left;
+}
+
+#home-cta .cta__text,
+#how-cta .cta__text,
+#agencies-cta .cta__text,
+#implementers-cta .cta__text {
+  max-width: 38rem;
+}
+
+#home-cta .cta__title,
+#how-cta .cta__title,
+#agencies-cta .cta__title,
+#implementers-cta .cta__title {
+  max-width: 14em;
+  margin-right: 0;
+  margin-left: 0;
+}
+
+#home-cta .cta__body,
+#how-cta .cta__body,
+#agencies-cta .cta__body,
+#implementers-cta .cta__body {
+  max-width: 36rem;
+  margin-right: 0;
+  margin-left: 0;
+}
+
+#home-cta .cta__button,
+#how-cta .cta__button,
+#agencies-cta .cta__button,
+#implementers-cta .cta__button {
+  width: fit-content;
+  min-width: 15.5rem;
+  align-self: flex-start;
+}
+
+@media (min-width: 768px) {
+  #home-cta.cta--inline .cta__inner,
+  #how-cta.cta--inline .cta__inner,
+  #agencies-cta.cta--inline .cta__inner,
+  #implementers-cta.cta--inline .cta__inner {
+    display: grid;
+    grid-template-columns: minmax(32.5rem, 38rem) minmax(14rem, 1fr);
+    column-gap: clamp(3rem, 7vw, 6rem);
+    align-items: center;
+  }
+
+  #home-cta .cta__button,
+  #how-cta .cta__button,
+  #agencies-cta .cta__button,
+  #implementers-cta .cta__button {
+    justify-self: start;
+    align-self: center;
+  }
+}
+
+@media (max-width: 767px) {
+  #home-cta,
+  #how-cta,
+  #agencies-cta,
+  #implementers-cta {
+    padding-top: 4.25rem;
+    padding-bottom: 4.25rem;
+  }
+
+  #home-cta.cta--inline .cta__inner,
+  #how-cta.cta--inline .cta__inner,
+  #agencies-cta.cta--inline .cta__inner,
+  #implementers-cta.cta--inline .cta__inner {
+    max-width: 100%;
+    gap: 1.35rem;
+  }
+
+  #home-cta .cta__title,
+  #how-cta .cta__title,
+  #agencies-cta .cta__title,
+  #implementers-cta .cta__title {
+    max-width: 12.5em;
+  }
+
+  #home-cta .cta__button,
+  #how-cta .cta__button,
+  #agencies-cta .cta__button,
+  #implementers-cta .cta__button {
+    width: 100%;
+    max-width: 22rem;
+  }
+}
+
 /* ==========================================================================
    COMPONENT: footer
    Site footer with nav and copyright.
@@ -1397,4 +1513,1156 @@
 
 .section--centered .section__title {
   text-align: center;
+}
+/* Homepage closing CTA headline fix: title-left, action copy-right on desktop. */
+@media (min-width: 768px) {
+  #home-cta.cta--inline .cta__inner {
+    grid-template-columns: minmax(36rem, 40rem) minmax(18rem, 1fr);
+    column-gap: clamp(3rem, 6vw, 5.5rem);
+    row-gap: 0;
+    align-items: center;
+  }
+
+  #home-cta .cta__text {
+    display: contents;
+    max-width: none;
+  }
+
+  #home-cta .cta__title {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    max-width: 40rem;
+    margin: 0;
+    font-size: clamp(2.35rem, 3.05vw, 2.65rem);
+    line-height: 1.1;
+  }
+
+  #home-cta .cta__body {
+    grid-column: 2;
+    grid-row: 1;
+    max-width: 22rem;
+    margin: 0 0 1.15rem;
+    align-self: end;
+  }
+
+  #home-cta .cta__button {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+    align-self: start;
+  }
+}
+
+@media (max-width: 767px) {
+  #home-cta.cta--inline .cta__inner {
+    align-items: center;
+    text-align: center;
+  }
+
+  #home-cta .cta__text {
+    max-width: 100%;
+  }
+
+  #home-cta .cta__title {
+    max-width: 21rem;
+    margin-right: auto;
+    margin-left: auto;
+    font-size: clamp(1.55rem, 6.5vw, 1.75rem);
+    line-height: 1.12;
+  }
+
+  #home-cta .cta__body {
+    max-width: 22rem;
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  #home-cta .cta__button {
+    align-self: center;
+  }
+}
+/* Owned technical workflow surface motif. */
+.hero .pp-workflow-surface {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  background:
+    linear-gradient(90deg, rgba(49, 87, 244, 0.04) 1px, transparent 1px) 0 0 / 3.25rem 100%,
+    linear-gradient(180deg, rgba(49, 87, 244, 0.05) 1px, transparent 1px) 0 0 / 100% 3.25rem,
+    linear-gradient(180deg, var(--color-surface) 0%, var(--color-surface) 100%);
+  box-shadow:
+    0 24px 60px rgba(16, 24, 40, 0.11),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.hero .pp-workflow-surface::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent 0%, var(--color-accent) 16%, var(--color-accent) 52%, transparent 100%);
+}
+
+.hero .pp-workflow-surface::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: 0.82rem;
+  left: 1rem;
+  width: 0.58rem;
+  height: 0.58rem;
+  border: 1px solid var(--color-accent);
+  border-radius: 2px;
+  background: var(--color-bg);
+  box-shadow:
+    1.05rem 0 0 var(--color-surface-accent),
+    2.1rem 0 0 var(--color-surface);
+}
+
+.hero .pp-workflow-step {
+  position: relative;
+  z-index: 1;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.68) 0%, rgba(255, 255, 255, 0.22) 100%);
+  border-color: var(--color-border);
+}
+
+.hero .pp-workflow-step::after {
+  content: "";
+  position: absolute;
+  top: 1.15rem;
+  right: 1.25rem;
+  width: 1.65rem;
+  height: 0.42rem;
+  border-top: 1px solid var(--color-border-accent);
+  border-bottom: 1px solid var(--color-border);
+  opacity: 0.72;
+}
+
+.hero .pp-workflow-step + .pp-workflow-step {
+  border-left-color: var(--color-border);
+}
+
+.hero .pp-workflow-step + .pp-workflow-step::before {
+  background: var(--color-bg);
+  border-color: var(--color-border-accent);
+  box-shadow: 0 0 0 5px rgba(49, 87, 244, 0.08);
+}
+
+.hero .pp-workflow-step--active {
+  background:
+    linear-gradient(180deg, var(--color-surface-accent) 0%, var(--color-surface) 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(49, 87, 244, 0.30),
+    0 16px 32px rgba(37, 99, 235, 0.09);
+}
+
+.hero .pp-workflow-step--active::after {
+  border-color: var(--color-accent);
+  opacity: 1;
+}
+
+.hero .pp-workflow-kicker {
+  color: var(--color-accent);
+  letter-spacing: 0.09em;
+}
+
+.hero .pp-workflow-title {
+  color: var(--color-text);
+}
+
+.hero .pp-workflow-code {
+  border-top-color: var(--color-border);
+  background:
+    linear-gradient(90deg, rgba(49, 87, 244, 0.07) 1px, transparent 1px) 0 0 / 1.35rem 100%,
+    var(--color-bg);
+  color: var(--color-muted);
+}
+
+.grid--steps .grid__item {
+  position: relative;
+  overflow: hidden;
+  border-color: var(--color-border);
+  background:
+    linear-gradient(90deg, rgba(49, 87, 244, 0.04) 1px, transparent 1px) 0 0 / 3rem 100%,
+    linear-gradient(180deg, var(--color-surface) 0%, var(--color-surface) 100%);
+}
+
+.grid--steps .grid__item::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--color-accent), rgba(49, 87, 244, 0.14));
+}
+
+.grid--steps .pp-step-number {
+  display: inline-grid;
+  place-items: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--color-border-accent);
+  border-radius: 4px;
+  background: var(--color-surface-accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  color: var(--color-accent);
+  font-size: 1.45rem;
+  font-weight: 640;
+}
+
+.grid--steps .grid__item-title {
+  color: var(--color-text);
+}
+
+@media (max-width: 767px) {
+  .hero .pp-workflow-surface {
+    background:
+      linear-gradient(90deg, rgba(49, 87, 244, 0.04) 1px, transparent 1px) 0 0 / 2.5rem 100%,
+      linear-gradient(180deg, var(--color-surface) 0%, var(--color-surface) 100%);
+  }
+
+  .hero .pp-workflow-surface::after {
+    display: none;
+  }
+
+  .hero .pp-workflow-step::after {
+    top: 1rem;
+    right: 1rem;
+  }
+
+  .grid--steps .pp-step-number {
+    width: 2.8rem;
+    height: 2.8rem;
+    font-size: 1.25rem;
+  }
+}
+/* Explicit hero surface motif layer properties. */
+.hero .pp-workflow-surface {
+  background-color: var(--color-surface-accent);
+  background-image:
+    linear-gradient(90deg, rgba(37, 99, 235, 0.055) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(37, 99, 235, 0.045) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(37, 99, 235, 0.045));
+  background-size:
+    3.25rem 100%,
+    100% 3.25rem,
+    100% 100%;
+  background-position:
+    0 0,
+    0 0,
+    0 0;
+  background-repeat:
+    repeat,
+    repeat,
+    no-repeat;
+}
+
+.hero .pp-workflow-step + .pp-workflow-step::before {
+  box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.08);
+}
+
+.hero .pp-workflow-code {
+  background:
+    linear-gradient(90deg, rgba(37, 99, 235, 0.07) 1px, transparent 1px) 0 0 / 1.35rem 100%,
+    var(--color-bg);
+}
+
+.grid--steps .grid__item {
+  background:
+    linear-gradient(90deg, rgba(37, 99, 235, 0.045) 1px, transparent 1px) 0 0 / 3rem 100%,
+    linear-gradient(180deg, var(--color-surface) 0%, var(--color-surface) 100%);
+}
+
+@media (max-width: 767px) {
+  .hero .pp-workflow-surface {
+    background-image:
+      linear-gradient(90deg, rgba(37, 99, 235, 0.05) 1px, transparent 1px),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(37, 99, 235, 0.045));
+    background-size:
+      2.5rem 100%,
+      100% 100%;
+    background-repeat:
+      repeat,
+      no-repeat;
+  }
+}
+/* Page-specific surface motif image wins over prior shorthands. */
+#home-hero .pp-workflow-surface,
+#how-hero .pp-workflow-surface,
+#agencies-hero .pp-workflow-surface,
+#implementers-hero .pp-workflow-surface {
+  background-color: var(--color-surface-accent);
+  background-image:
+    linear-gradient(90deg, rgba(37, 99, 235, .055) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(37, 99, 235, .045) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255, 255, 255, .9), rgba(37, 99, 235, .045));
+  background-size:
+    3.25rem 100%,
+    100% 3.25rem,
+    100% 100%;
+  background-position:
+    0 0,
+    0 0,
+    0 0;
+  background-repeat:
+    repeat,
+    repeat,
+    no-repeat;
+}
+
+@media (max-width: 767px) {
+  #home-hero .pp-workflow-surface,
+  #how-hero .pp-workflow-surface,
+  #agencies-hero .pp-workflow-surface,
+  #implementers-hero .pp-workflow-surface {
+    background-image:
+      linear-gradient(90deg, rgba(37, 99, 235, .05) 1px, transparent 1px),
+      linear-gradient(180deg, rgba(255, 255, 255, .92), rgba(37, 99, 235, .045));
+    background-size:
+      2.5rem 100%,
+      100% 100%;
+    background-repeat:
+      repeat,
+      no-repeat;
+  }
+}
+/* Premium mechanism strip weight. */
+#home-hero .hero__proof,
+#how-hero .hero__proof,
+#agencies-hero .hero__proof,
+#implementers-hero .hero__proof {
+  margin-top: clamp(2.4rem, 3.3vw, 3.25rem);
+}
+
+#home-hero .pp-workflow-surface,
+#how-hero .pp-workflow-surface,
+#agencies-hero .pp-workflow-surface,
+#implementers-hero .pp-workflow-surface {
+  max-width: 62rem;
+  border: 1px solid var(--color-border-accent);
+  border-radius: 10px;
+  box-shadow:
+    0 26px 64px rgba(15, 23, 42, 0.14),
+    0 0 0 1px rgba(37, 99, 235, 0.055),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+#home-hero .pp-workflow-surface::before,
+#how-hero .pp-workflow-surface::before,
+#agencies-hero .pp-workflow-surface::before,
+#implementers-hero .pp-workflow-surface::before {
+  height: 4px;
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.08) 0%, rgba(37, 99, 235, 0.72) 18%, var(--color-accent) 50%, rgba(37, 99, 235, 0.72) 82%, rgba(37, 99, 235, 0.08) 100%);
+}
+
+#home-hero .pp-workflow-step,
+#how-hero .pp-workflow-step,
+#agencies-hero .pp-workflow-step,
+#implementers-hero .pp-workflow-step {
+  min-height: 12.9rem;
+  padding: 2.05rem 1.7rem 1.55rem;
+  border-color: var(--color-border);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82) 0%, rgba(248, 251, 255, 0.62) 100%);
+}
+
+#home-hero .pp-workflow-step + .pp-workflow-step,
+#how-hero .pp-workflow-step + .pp-workflow-step,
+#agencies-hero .pp-workflow-step + .pp-workflow-step,
+#implementers-hero .pp-workflow-step + .pp-workflow-step {
+  border-left-color: var(--color-border-accent);
+}
+
+#home-hero .pp-workflow-step + .pp-workflow-step::before,
+#how-hero .pp-workflow-step + .pp-workflow-step::before,
+#agencies-hero .pp-workflow-step + .pp-workflow-step::before,
+#implementers-hero .pp-workflow-step + .pp-workflow-step::before {
+  width: 0.82rem;
+  height: 0.82rem;
+  border-width: 2px;
+  border-color: var(--color-accent);
+  background: var(--color-surface-accent);
+  box-shadow:
+    0 0 0 5px rgba(37, 99, 235, 0.08),
+    0 0 0 1px rgba(255, 255, 255, 0.92);
+}
+
+#home-hero .pp-workflow-step--active,
+#how-hero .pp-workflow-step--active,
+#agencies-hero .pp-workflow-step--active,
+#implementers-hero .pp-workflow-step--active {
+  background:
+    linear-gradient(180deg, var(--color-surface-accent) 0%, var(--color-surface) 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(49, 87, 244, 0.42),
+    inset 0 4px 0 rgba(37, 99, 235, 0.28),
+    0 18px 40px rgba(37, 99, 235, 0.13);
+}
+
+#home-hero .pp-workflow-step--active .pp-workflow-kicker,
+#how-hero .pp-workflow-step--active .pp-workflow-kicker,
+#agencies-hero .pp-workflow-step--active .pp-workflow-kicker,
+#implementers-hero .pp-workflow-step--active .pp-workflow-kicker {
+  color: var(--color-accent);
+}
+
+#home-hero .pp-workflow-kicker,
+#how-hero .pp-workflow-kicker,
+#agencies-hero .pp-workflow-kicker,
+#implementers-hero .pp-workflow-kicker {
+  display: block;
+  margin-bottom: 0.72rem;
+  color: var(--color-accent);
+  font-size: 0.72rem;
+  font-weight: 760;
+  letter-spacing: 0.105em;
+}
+
+#home-hero .pp-workflow-title,
+#how-hero .pp-workflow-title,
+#agencies-hero .pp-workflow-title,
+#implementers-hero .pp-workflow-title {
+  display: block;
+  max-width: 15rem;
+  color: var(--color-text);
+  font-size: 1.02rem;
+  font-weight: 680;
+  line-height: 1.24;
+}
+
+#home-hero .pp-workflow-code,
+#how-hero .pp-workflow-code,
+#agencies-hero .pp-workflow-code,
+#implementers-hero .pp-workflow-code {
+  display: block;
+  margin-top: 1.18rem;
+  padding: 0.92rem 0.95rem 0.82rem;
+  border: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-accent);
+  border-radius: 5px;
+  background-color: rgba(255, 255, 255, 0.62);
+  background-image:
+    linear-gradient(90deg, rgba(37, 99, 235, .085) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255, 255, 255, .88), rgba(37, 99, 235, .04));
+  background-size:
+    1.25rem 100%,
+    100% 100%;
+  color: var(--color-muted);
+  font-size: 0.77rem;
+  font-weight: 560;
+  line-height: 1.55;
+  letter-spacing: 0.01em;
+}
+
+@media (min-width: 768px) {
+  #home-hero .hero__proof {
+    max-width: 62rem;
+  }
+
+  #how-hero .hero__proof,
+  #agencies-hero .hero__proof,
+  #implementers-hero .hero__proof {
+    max-width: 62rem;
+  }
+}
+
+@media (max-width: 767px) {
+  #home-hero .hero__proof,
+  #how-hero .hero__proof,
+  #agencies-hero .hero__proof,
+  #implementers-hero .hero__proof {
+    margin-top: 2rem;
+  }
+
+  #home-hero .pp-workflow-surface,
+  #how-hero .pp-workflow-surface,
+  #agencies-hero .pp-workflow-surface,
+  #implementers-hero .pp-workflow-surface {
+    border-radius: 8px;
+  }
+
+  #home-hero .pp-workflow-step,
+  #how-hero .pp-workflow-step,
+  #agencies-hero .pp-workflow-step,
+  #implementers-hero .pp-workflow-step {
+    min-height: auto;
+    padding: 1.35rem 1.15rem 1.25rem;
+  }
+
+  #home-hero .pp-workflow-title,
+  #how-hero .pp-workflow-title,
+  #agencies-hero .pp-workflow-title,
+  #implementers-hero .pp-workflow-title {
+    max-width: 18rem;
+    font-size: 0.98rem;
+  }
+
+  #home-hero .pp-workflow-code,
+  #how-hero .pp-workflow-code,
+  #agencies-hero .pp-workflow-code,
+  #implementers-hero .pp-workflow-code {
+    margin-top: 0.95rem;
+    padding: 0.78rem 0.8rem;
+    font-size: 0.72rem;
+  }
+}
+/* Premium body-section typography. */
+@media (min-width: 768px) {
+  main > .section .section__title,
+  main > .grid .grid__heading,
+  main > .faq .faq__heading {
+    margin-bottom: 1.65rem;
+    color: var(--color-text);
+    font-size: clamp(2.25rem, 3vw, 2.62rem);
+    font-weight: 560;
+    line-height: 1.12;
+  }
+
+  main > .section .section__content,
+  main > .section .section__content p {
+    color: var(--color-text-secondary);
+    font-size: 1.065rem;
+    font-weight: 430;
+    line-height: 1.76;
+  }
+
+  main > .section--text-only .section__content {
+    max-width: 49rem;
+  }
+
+  main > .section .section__content p + p {
+    margin-top: 1.05rem;
+  }
+
+  main > .grid .grid__item-title {
+    color: var(--color-text);
+    font-size: 1.13rem;
+    font-weight: 670;
+    line-height: 1.28;
+  }
+
+  main > .grid:not(.grid--steps) .grid__item-title {
+    font-size: 1.14rem;
+  }
+
+  main > .grid .grid__item-text {
+    color: var(--color-text-secondary);
+    font-size: 1.005rem;
+    font-weight: 430;
+    line-height: 1.68;
+  }
+
+  main > .grid .grid__item-body,
+  main > .grid .grid__item-body:first-child {
+    padding: 2rem;
+  }
+
+  main > .grid--steps .grid__item-title {
+    max-width: 17rem;
+    font-size: 1.04rem;
+    font-weight: 680;
+  }
+
+  main > .grid--steps .grid__item-text {
+    font-size: 0.995rem;
+    line-height: 1.66;
+  }
+
+  main > .faq .faq__question {
+    color: var(--color-text);
+    font-size: 1rem;
+    font-weight: 560;
+    line-height: 1.45;
+  }
+
+  main > .faq .faq__answer {
+    color: var(--color-text-secondary);
+    font-size: 1rem;
+    font-weight: 430;
+    line-height: 1.68;
+  }
+
+  main > .cta .cta__body {
+    color: var(--color-text-secondary);
+    font-size: 1.04rem;
+    font-weight: 430;
+    line-height: 1.66;
+  }
+}
+
+@media (max-width: 767px) {
+  main > .section .section__title,
+  main > .grid .grid__heading,
+  main > .faq .faq__heading {
+    margin-bottom: 1.25rem;
+    font-weight: 560;
+    line-height: 1.15;
+  }
+
+  main > .section .section__content,
+  main > .section .section__content p,
+  main > .grid .grid__item-text,
+  main > .faq .faq__answer,
+  main > .cta .cta__body {
+    font-size: 1rem;
+    font-weight: 430;
+    line-height: 1.65;
+  }
+
+  main > .grid .grid__item-title {
+    font-size: 1.06rem;
+    font-weight: 660;
+    line-height: 1.28;
+  }
+
+  main > .grid .grid__item-body,
+  main > .grid .grid__item-body:first-child {
+    padding: 1.55rem;
+  }
+
+  main > .faq .faq__question {
+    font-size: 0.98rem;
+    font-weight: 560;
+    line-height: 1.42;
+  }
+}
+
+/* True final cascade: composed card-grid hierarchy. */
+main > .grid .grid__list {
+  gap: 1rem;
+}
+
+main > .grid .grid__item {
+  position: relative;
+  border-color: var(--color-border);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.045);
+}
+
+main > .grid:not(.grid--steps) .grid__item {
+  background:
+    linear-gradient(90deg, rgba(37, 99, 235, 0.028) 1px, transparent 1px) 0 0 / 3rem 100%,
+    linear-gradient(180deg, var(--color-bg) 0%, var(--color-surface) 100%);
+}
+
+main > .grid:not(.grid--steps) .grid__item::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: var(--color-border);
+}
+
+main > .grid:not(.grid--steps) .grid__item:first-child {
+  border-color: var(--color-border-accent);
+  background:
+    linear-gradient(90deg, rgba(37, 99, 235, 0.055) 1px, transparent 1px) 0 0 / 2.75rem 100%,
+    linear-gradient(180deg, var(--color-surface-accent) 0%, var(--color-surface) 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(37, 99, 235, 0.055),
+    0 18px 42px rgba(37, 99, 235, 0.10);
+}
+
+main > .grid:not(.grid--steps) .grid__item:first-child::before {
+  height: 4px;
+  background: linear-gradient(90deg, var(--color-accent), rgba(49, 87, 244, 0.18));
+}
+
+main > .grid:not(.grid--steps) .grid__item:first-child .grid__item-title {
+  color: var(--color-text);
+}
+
+main > .grid .grid__item-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding-top: 0.2rem;
+}
+
+main > .grid .grid__item-link::after {
+  content: "->";
+  color: currentColor;
+  font-weight: 700;
+}
+
+@media (min-width: 1024px) {
+  main > .grid .grid__list {
+    gap: 1.05rem;
+  }
+
+  main > .grid:not(.grid--steps) .grid__list[data-pp-count="4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: 58rem;
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  main > .grid--steps .grid__list[data-pp-count="4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: 56rem;
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  main > .grid:not(.grid--steps) .grid__list[data-pp-count="2"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: 52rem;
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  main > .grid:not(.grid--steps) .grid__item:first-child .grid__item-body {
+    padding-top: 2.25rem;
+  }
+
+  main > .grid:not(.grid--steps) .grid__item:first-child .grid__item-title {
+    font-size: 1.22rem;
+    line-height: 1.22;
+  }
+
+  main > .grid--dark:not(.grid--steps) .grid__item:first-child {
+    transform: translateY(-0.18rem);
+  }
+
+  main > .grid--dark:not(.grid--steps) .grid__item:first-child:hover {
+    transform: translateY(-0.34rem);
+  }
+}
+
+@media (max-width: 767px) {
+  main > .grid .grid__list {
+    gap: 0.85rem;
+  }
+
+  main > .grid:not(.grid--steps) .grid__item:first-child {
+    box-shadow: 0 14px 32px rgba(37, 99, 235, 0.09);
+  }
+}
+
+/* True final cascade: premium CTA treatment. */
+main .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 13.25rem;
+  min-height: 3rem;
+  padding: 0.82rem 1.18rem;
+  border: 1px solid var(--color-accent-strong);
+  border-radius: 6px;
+  background:
+    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 10px 24px rgba(37, 99, 235, 0.16);
+  color: var(--color-bg);
+  font-size: 0.96rem;
+  font-weight: 640;
+  line-height: 1.2;
+  text-align: center;
+  transition:
+    background-color var(--transition),
+    border-color var(--transition),
+    box-shadow var(--transition),
+    color var(--transition),
+    transform var(--transition);
+}
+
+main .btn:hover {
+  border-color: var(--color-accent);
+  background:
+    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-hover) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 14px 30px rgba(37, 99, 235, 0.22);
+  color: var(--color-bg);
+  transform: translateY(-1px);
+  text-decoration: none;
+}
+
+main .btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 4px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 0 0 4px rgba(49, 87, 244, 0.14),
+    0 14px 30px rgba(37, 99, 235, 0.20);
+}
+
+#home-hero .hero__cta-group .btn,
+#how-hero .hero__cta-group .btn,
+#agencies-hero .hero__cta-group .btn,
+#implementers-hero .hero__cta-group .btn {
+  width: auto;
+  min-width: 13.75rem;
+  max-width: 18rem;
+}
+
+#home-cta .cta__button,
+#how-cta .cta__button,
+#agencies-cta .cta__button,
+#implementers-cta .cta__button {
+  position: relative;
+  width: fit-content;
+  min-width: 14.75rem;
+  max-width: 20rem;
+  padding-right: 1.35rem;
+  padding-left: 1.35rem;
+}
+
+#home-cta .cta__button::before,
+#how-cta .cta__button::before,
+#agencies-cta .cta__button::before,
+#implementers-cta .cta__button::before {
+  content: "Next step";
+  position: absolute;
+  top: -1.72rem;
+  left: 0;
+  color: var(--color-accent);
+  font-size: 0.72rem;
+  font-weight: 720;
+  letter-spacing: 0.105em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+#home-cta .cta__button::after,
+#how-cta .cta__button::after,
+#agencies-cta .cta__button::after,
+#implementers-cta .cta__button::after {
+  content: "";
+  width: 0.42rem;
+  height: 0.42rem;
+  margin-left: 0.68rem;
+  border-top: 1.5px solid currentColor;
+  border-right: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+
+@media (min-width: 768px) {
+  #home-cta .cta__button,
+  #how-cta .cta__button,
+  #agencies-cta .cta__button,
+  #implementers-cta .cta__button {
+    justify-self: start;
+    margin-top: 1.35rem;
+  }
+}
+
+@media (max-width: 767px) {
+  main .btn {
+    width: 100%;
+    min-width: 0;
+    max-width: 20rem;
+    min-height: 2.95rem;
+    padding-right: 1rem;
+    padding-left: 1rem;
+  }
+
+  #home-hero .hero__cta-group,
+  #how-hero .hero__cta-group,
+  #agencies-hero .hero__cta-group,
+  #implementers-hero .hero__cta-group {
+    width: 100%;
+    align-items: center;
+  }
+
+  #home-hero .hero__cta-group .btn,
+  #how-hero .hero__cta-group .btn,
+  #agencies-hero .hero__cta-group .btn,
+  #implementers-hero .hero__cta-group .btn,
+  #home-cta .cta__button,
+  #how-cta .cta__button,
+  #agencies-cta .cta__button,
+  #implementers-cta .cta__button {
+    width: 100%;
+    max-width: 20rem;
+  }
+
+  #home-cta .cta__button,
+  #how-cta .cta__button,
+  #agencies-cta .cta__button,
+  #implementers-cta .cta__button {
+    margin-top: 1.3rem;
+  }
+
+  #home-cta .cta__button::before,
+  #how-cta .cta__button::before,
+  #agencies-cta .cta__button::before,
+  #implementers-cta .cta__button::before {
+    right: 0;
+    text-align: center;
+  }
+}
+
+/* True final cascade: CTA color and elevation correction. */
+main .btn,
+#home-hero .hero__cta-group .btn,
+#how-hero .hero__cta-group .btn,
+#agencies-hero .hero__cta-group .btn,
+#implementers-hero .hero__cta-group .btn,
+#home-cta .cta__button,
+#how-cta .cta__button,
+#agencies-cta .cta__button,
+#implementers-cta .cta__button {
+  border-color: var(--color-accent-strong);
+  background:
+    linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 10px 22px rgba(37, 99, 235, 0.14);
+}
+
+main .btn:hover,
+#home-hero .hero__cta-group .btn:hover,
+#how-hero .hero__cta-group .btn:hover,
+#agencies-hero .hero__cta-group .btn:hover,
+#implementers-hero .hero__cta-group .btn:hover,
+#home-cta .cta__button:hover,
+#how-cta .cta__button:hover,
+#agencies-cta .cta__button:hover,
+#implementers-cta .cta__button:hover {
+  border-color: var(--color-accent);
+  background:
+    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 14px 30px rgba(37, 99, 235, 0.20);
+}
+
+main .btn:focus,
+main .btn:focus-visible,
+#home-hero .hero__cta-group .btn:focus,
+#home-hero .hero__cta-group .btn:focus-visible,
+#how-hero .hero__cta-group .btn:focus,
+#how-hero .hero__cta-group .btn:focus-visible,
+#agencies-hero .hero__cta-group .btn:focus,
+#agencies-hero .hero__cta-group .btn:focus-visible,
+#implementers-hero .hero__cta-group .btn:focus,
+#implementers-hero .hero__cta-group .btn:focus-visible,
+#home-cta .cta__button:focus,
+#home-cta .cta__button:focus-visible,
+#how-cta .cta__button:focus,
+#how-cta .cta__button:focus-visible,
+#agencies-cta .cta__button:focus,
+#agencies-cta .cta__button:focus-visible,
+#implementers-cta .cta__button:focus,
+#implementers-cta .cta__button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 4px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 0 0 4px rgba(49, 87, 244, 0.14),
+    0 14px 30px rgba(37, 99, 235, 0.20);
+}
+
+/* True final cascade: technical workflow brand and compact mobile closers. */
+main > [data-pp-component] + [data-pp-component] {
+  padding-top: clamp(4.25rem, 6vw, 5rem);
+}
+
+.section,
+.grid,
+.faq,
+.cta {
+  padding-top: clamp(4.25rem, 6vw, 5rem);
+  padding-bottom: clamp(4.25rem, 6vw, 5rem);
+}
+
+.hero__eyebrow,
+#home-hero .hero__eyebrow,
+#how-hero .hero__eyebrow,
+#agencies-hero .hero__eyebrow,
+#implementers-hero .hero__eyebrow {
+  border-radius: 3px;
+  border-color: var(--color-border);
+  background:
+    linear-gradient(90deg, rgba(37, 99, 235, 0.06) 1px, transparent 1px) 0 0 / 1.4rem 100%,
+    var(--color-surface-accent);
+  color: var(--color-text);
+}
+
+.hero .pp-workflow-surface,
+#home-hero .pp-workflow-surface,
+#how-hero .pp-workflow-surface,
+#agencies-hero .pp-workflow-surface,
+#implementers-hero .pp-workflow-surface,
+main > .grid .grid__item,
+main > .faq .faq__item,
+#home-cta.cta--inline .cta__inner,
+#how-cta.cta--inline .cta__inner,
+#agencies-cta.cta--inline .cta__inner,
+#implementers-cta.cta--inline .cta__inner {
+  border-radius: 4px;
+}
+
+.hero .pp-workflow-surface,
+#home-hero .pp-workflow-surface,
+#how-hero .pp-workflow-surface,
+#agencies-hero .pp-workflow-surface,
+#implementers-hero .pp-workflow-surface {
+  border-color: var(--color-accent-strong);
+  box-shadow:
+    inset 0 0 0 1px rgba(15, 23, 42, 0.04),
+    0 18px 42px rgba(15, 23, 42, 0.09);
+}
+
+main > .grid .grid__item {
+  border-color: var(--color-border);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.055);
+}
+
+main > .grid:not(.grid--steps) .grid__item:first-child {
+  border-color: var(--color-accent-strong);
+}
+
+main .btn,
+#home-hero .hero__cta-group .btn,
+#how-hero .hero__cta-group .btn,
+#agencies-hero .hero__cta-group .btn,
+#implementers-hero .hero__cta-group .btn,
+#home-cta .cta__button,
+#how-cta .cta__button,
+#agencies-cta .cta__button,
+#implementers-cta .cta__button {
+  border-radius: 4px;
+}
+
+#home-cta.cta--inline .cta__inner,
+#how-cta.cta--inline .cta__inner,
+#agencies-cta.cta--inline .cta__inner,
+#implementers-cta.cta--inline .cta__inner {
+  position: relative;
+  border: 1px solid var(--color-border);
+  background:
+    linear-gradient(90deg, rgba(37, 99, 235, 0.04) 1px, transparent 1px) 0 0 / 2.25rem 100%,
+    linear-gradient(180deg, var(--color-surface) 0%, var(--color-surface) 100%);
+  padding: clamp(2rem, 4vw, 2.6rem);
+}
+
+#home-cta.cta--inline .cta__inner::before,
+#how-cta.cta--inline .cta__inner::before,
+#agencies-cta.cta--inline .cta__inner::before,
+#implementers-cta.cta--inline .cta__inner::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--color-accent), rgba(49, 87, 244, 0.18));
+}
+
+#home-cta .cta__body,
+#how-cta .cta__body,
+#agencies-cta .cta__body,
+#implementers-cta .cta__body {
+  color: var(--color-text-secondary);
+}
+
+@media (max-width: 767px) {
+  main > [data-pp-component] + [data-pp-component] {
+    padding-top: 3.35rem;
+  }
+
+  .section,
+  .grid,
+  .faq {
+    padding-top: 3.35rem;
+    padding-bottom: 3.35rem;
+  }
+
+  #home-cta,
+  #how-cta,
+  #agencies-cta,
+  #implementers-cta {
+    padding-top: 2.85rem;
+    padding-bottom: 2.85rem;
+  }
+
+  #home-cta.cta--inline .cta__inner,
+  #how-cta.cta--inline .cta__inner,
+  #agencies-cta.cta--inline .cta__inner,
+  #implementers-cta.cta--inline .cta__inner {
+    gap: 1rem;
+    padding: 1.45rem 1.2rem 1.25rem;
+    text-align: left;
+  }
+
+  #home-cta .cta__text,
+  #how-cta .cta__text,
+  #agencies-cta .cta__text,
+  #implementers-cta .cta__text {
+    max-width: none;
+  }
+
+  #home-cta .cta__title,
+  #how-cta .cta__title,
+  #agencies-cta .cta__title,
+  #implementers-cta .cta__title {
+    max-width: none;
+    margin-bottom: 0.75rem;
+    font-size: clamp(1.48rem, 6.45vw, 1.72rem);
+    font-weight: 620;
+    line-height: 1.08;
+  }
+
+  #home-cta .cta__body,
+  #how-cta .cta__body,
+  #agencies-cta .cta__body,
+  #implementers-cta .cta__body {
+    max-width: 19.75rem;
+    color: var(--color-text-secondary);
+    font-size: 1.015rem;
+    font-weight: 450;
+    line-height: 1.52;
+  }
+
+  #home-cta .cta__text::after,
+  #how-cta .cta__text::after,
+  #agencies-cta .cta__text::after,
+  #implementers-cta .cta__text::after {
+    content: "Rules -> composition -> WordPress output";
+    display: block;
+    width: 100%;
+    margin-top: 1rem;
+    padding: 0.72rem 0.8rem;
+    border: 1px solid var(--color-border);
+    border-left: 3px solid var(--color-accent);
+    border-radius: 3px;
+    background:
+      linear-gradient(90deg, rgba(37, 99, 235, 0.06) 1px, transparent 1px) 0 0 / 1.45rem 100%,
+      var(--color-surface-accent);
+    color: var(--color-text);
+    font-size: 0.73rem;
+    font-weight: 720;
+    letter-spacing: 0.04em;
+    line-height: 1.35;
+    text-transform: uppercase;
+  }
+
+  #home-cta .cta__button,
+  #how-cta .cta__button,
+  #agencies-cta .cta__button,
+  #implementers-cta .cta__button {
+    align-self: flex-start;
+    width: 100%;
+    max-width: 19.75rem;
+    margin-top: 1.15rem;
+  }
+
+  #home-cta .cta__button::before,
+  #how-cta .cta__button::before,
+  #agencies-cta .cta__button::before,
+  #implementers-cta .cta__button::before {
+    right: auto;
+    text-align: left;
+  }
 }

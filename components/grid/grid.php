@@ -38,7 +38,7 @@ $theme_class   = $theme !== 'default' ? ' grid--' . $theme : '';
         <?php endif; ?>
 
         <?php if (!empty($items)) : ?>
-            <ul class="grid__list" role="list">
+            <ul class="grid__list" role="list" data-pp-count="<?php echo esc_attr(count($items)); ?>">
                 <?php foreach ($items as $index => $item) :
                     $item_number = $item['number']    ?? (string)($index + 1);
                     $item_title  = $item['title']     ?? '';
