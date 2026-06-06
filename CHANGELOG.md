@@ -37,6 +37,38 @@ The design system gains 4 derived tokens (`--color-text-secondary`, `--color-acc
 - All `color-mix()` usage from theme CSS
 - `:has()` and `nth-child` selectors from theme CSS
 
+## [v0.2.9] — 2026-06-02 — Agent operating framework v0
+
+### AI agents now follow an 8-step operating loop with screenshot verification
+
+The agent operating framework defines how AI agents operate a PromptingPress site: an 8-step loop (INSPECT, PLAN, EDIT, PREFLIGHT, APPLY, SCREENSHOT, REVIEW, HANDOFF) across 4 roles (Strategist, Implementer, Operator, Reviewer). Three playbooks ship for common operations: `create-page`, `revise-section`, and `inspect-fix`. Screenshot capture at declared viewports (1280px desktop + 375px mobile) provides visual verification evidence. Preflight checks gate filesystem mutations with 6 safety conditions including drift detection.
+
+Hero component gains an overlay scrim for background images, improving text readability over busy photographs. The overlay uses the `--overlay-bg` design token for consistent theming.
+
+### Added
+- Agent operating loop (`ai-instructions/operating-loop.md`) — 8 steps, 4 phases, escalation rules
+- 3 playbooks: `playbook-create-page.md`, `playbook-revise-section.md`, `playbook-inspect-fix.md`
+- `lib/operate.php` — `pp_operate_loop_steps()`, `pp_check_drift()`, `pp_inspect_site()`, `pp_preflight()`, `pp_operate_checklists()`, `pp_validate_loop_run()`
+- `lib/screenshot.php` — browser-based screenshot capture with configurable viewports
+- WP-CLI commands: `wp pp operate inspect`, `wp pp operate checklist`, `wp pp operate validate`, `wp pp screenshot capture`
+- `--overlay-bg` design token (`rgba(0, 0, 0, 0.55)`) in `base.css`
+- Hero overlay scrim for background images in `hero.php` and `components.css`
+- Bootstrap instruction file (`ai-instructions/bootstrap.md`)
+- 26 PHPUnit tests for operate functions (`tests/OperateTest.php`)
+- 10 PHPUnit tests for screenshot capture (`tests/ScreenshotTest.php`)
+- Hero overlay composition tests (`tests/HeroCompositionTest.php`)
+
+### Changed
+- `lib/cli.php` expanded with operate, screenshot, and preflight CLI subcommands
+- `functions.php` includes `lib/operate.php` and `lib/screenshot.php`
+- `base.css` adds `--measure-body`, `--measure-body-wide`, `--measure-centered`, `--overlay-bg` tokens
+- Hero component (`hero.php`) restructured for overlay support with background image
+- Premium component treatments in `components.css` (grid lines, card shadows, button gradients)
+
+### Fixed
+- Hero title constrained to heading measure for readable line lengths
+- Grid column layout issues at various item counts
+
 ## [v0.2.8] — 2026-05-13 — Schema narrowing: 12 generic layout knobs down to 2
 
 ### AI agents now produce convincing pages with all-default props
