@@ -4,6 +4,39 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.3.0] — 2026-06-06 — Agent step enforcement + design token compliance
+
+### AI agents can no longer skip safety steps; design tokens replace all color-mix() calls
+
+The operating loop now enforces step ordering at the PHP/CLI level. Every `wp pp operate inspect` generates a run token (UUID v4 state file in /tmp). Mutating commands (`action execute`, `apply preflight`, `apply execute`, `apply restore`) require `--run-id` and reject if prerequisite steps haven't completed: INSPECT before any mutation, PREFLIGHT before any filesystem apply. State files auto-expire after 2 hours. `pp_validate_loop_run()` now checks viewport coverage against the playbook, checklist completeness for hard-gate items, and caps retry count at 2.
+
+The design system gains 4 derived tokens (`--color-text-secondary`, `--color-accent-strong`, `--color-border-accent`, `--color-surface-accent`) that replace ~70 `color-mix()` calls in components.css. Grid markup now outputs a `data-pp-count` attribute, replacing `:has(nth-child)` CSS selectors with `[data-pp-count="N"]` attribute selectors. All raw hex removed from component styles.
+
+### Added
+- `pp_operate_create_run()` — generates UUID v4 run token, writes state file with `LOCK_EX`
+- `pp_operate_check_step()` — reads state file, validates step completion with 2-hour expiry
+- `pp_operate_record_step()` — appends step to state file using `fopen()`/`flock(LOCK_EX)`
+- `pp_operate_cleanup_run()` — deletes state file at HANDOFF
+- `pp_operate_run_path()` — centralized path helper for state files
+- `pp_operate_valid_run_id()` — UUID v4 regex validation to prevent path traversal
+- 4 derived CSS tokens in `base.css`: `--color-text-secondary`, `--color-accent-strong`, `--color-border-accent`, `--color-surface-accent`
+- `data-pp-count` attribute on grid `<ul>` element in `grid.php` with `esc_attr()` escaping
+- 17 new PHPUnit tests for run token lifecycle, validation hardening, and `--run-id` enforcement (44 total OperateTest)
+
+### Changed
+- `wp pp action execute`, `wp pp apply preflight`, `wp pp apply execute`, `wp pp apply restore` now require `--run-id` parameter
+- `wp pp operate inspect` always generates and returns a run token in JSON output
+- `pp_validate_loop_run()` rejects missing viewport coverage, incomplete checklists, and retry count > 2
+- ~70 `color-mix()` calls in `components.css` replaced with semantic tokens or `rgba()` for decorative effects
+- `:has()`/`nth-child` CSS selectors replaced with `[data-pp-count="N"]` attribute selectors
+- Raw hex values removed from `components.css`
+- REVIEW step instructions updated for separated critic pattern
+- 6 stale `ApplyTest` expectations updated to match current token values (`#0055cc` → `#3157f4`, `#ffffff` → `#fcfdff`)
+
+### Removed
+- All `color-mix()` usage from theme CSS
+- `:has()` and `nth-child` selectors from theme CSS
+
 ## [v0.2.8] — 2026-05-13 — Schema narrowing: 12 generic layout knobs down to 2
 
 ### AI agents now produce convincing pages with all-default props
