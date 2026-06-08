@@ -77,13 +77,17 @@ function pp_ai_get_connector_models(string $provider_id): array {
         return [];
     }
 
-    $requirements = new \WordPress\AiClient\Providers\Models\DTO\ModelRequirements(
-        [\WordPress\AiClient\Providers\Models\Enums\CapabilityEnum::text_generation],
-        []
-    );
+    try {
+        $requirements = new \WordPress\AiClient\Providers\Models\DTO\ModelRequirements(
+            [\WordPress\AiClient\Providers\Models\Enums\CapabilityEnum::TEXT_GENERATION],
+            []
+        );
 
-    $registry = \WordPress\AiClient\AiClient::defaultRegistry();
-    $models   = $registry->findProviderModelsMetadataForSupport($provider_id, $requirements);
+        $registry = \WordPress\AiClient\AiClient::defaultRegistry();
+        $models   = $registry->findProviderModelsMetadataForSupport($provider_id, $requirements);
+    } catch (\Throwable $e) {
+        return [];
+    }
 
     $result = [];
     foreach ($models as $meta) {
