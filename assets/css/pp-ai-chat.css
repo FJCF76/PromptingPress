@@ -73,24 +73,26 @@ body.pp-ai-chat-page #wpcontent {
     line-height: 1.4;
 }
 
-.pp-ai-chat-selector {
+#pp-ai-chat-app .pp-ai-chat-selector {
     appearance: none;
     -webkit-appearance: none;
     font-size: 12px;
     color: #646970;
     background: #f0f0f1 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23646970'/%3E%3C/svg%3E") no-repeat right 6px center;
-    padding: 2px 20px 2px 8px;
+    padding: 4px 20px 4px 8px;
     border: 1px solid #c3c4c7;
     border-radius: 3px;
     cursor: pointer;
     line-height: 1.4;
+    height: auto;
+    min-height: 0;
 }
 
-.pp-ai-chat-selector:hover {
+#pp-ai-chat-app .pp-ai-chat-selector:hover {
     border-color: #8c8f94;
 }
 
-.pp-ai-chat-selector:focus {
+#pp-ai-chat-app .pp-ai-chat-selector:focus {
     border-color: #2271b1;
     box-shadow: 0 0 0 1px #2271b1;
     outline: none;
