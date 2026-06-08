@@ -89,7 +89,7 @@ add_action('admin_enqueue_scripts', function (string $hook) {
         'streamNonce'      => wp_create_nonce('pp_ai_stream'),
         'executeNonce'     => wp_create_nonce('pp_ai_execute'),
         'configured'       => pp_ai_is_configured(),
-        'connectorsUrl'    => admin_url('options-general.php?page=connectors'),
+        'connectorsUrl'    => admin_url('options-connectors.php'),
         'siteUrl'          => site_url(),
         'pages'            => $pages,
         'providers'        => $providers_js,
@@ -112,7 +112,7 @@ function pp_ai_chat_page(): void {
                     <span class="dashicons dashicons-admin-generic pp-ai-chat-unconfigured-icon"></span>
                     <h2>Connect an AI Provider</h2>
                     <p>PromptingPress uses WordPress Connectors to securely manage AI provider credentials. Configure Anthropic, OpenAI, or Google in your WordPress settings.</p>
-                    <a href="<?php echo esc_url(admin_url('options-general.php?page=connectors')); ?>" class="button button-primary">
+                    <a href="<?php echo esc_url(admin_url('options-connectors.php')); ?>" class="button button-primary">
                         Configure AI Provider
                     </a>
                 </div>
