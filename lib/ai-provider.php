@@ -171,6 +171,84 @@ function pp_ai_get_config(): array {
     ];
 }
 
+// ── Provider-Aware Request Helpers ────────────────────────────────────────
+
+/**
+ * Returns HTTP headers for the given provider.
+ */
+function pp_ai_request_headers(array $config): array {
+    if ($config['provider'] === 'anthropic') {
+        return [
+            'Content-Type: application/json',
+            'x-api-key: ' . $config['api_key'],
+            'anthropic-version: 2023-06-01',
+        ];
+    }
+    return [
+        'Content-Type: application/json',
+        'Authorization: Bearer ' . $config['api_key'],
+    ];
+}
+
+/**
+ * Returns the JSON request body for the given provider.
+ */
+function pp_ai_request_body(array $config, array $messages, bool $stream): string {
+    $body = [
+        'model'    => $config['model'],
+        'messages' => $messages,
+    ];
+    if ($stream) {
+        $body['stream'] = true;
+    }
+    if ($config['provider'] === 'anthropic') {
+        $body['max_tokens'] = 4096;
+        // Anthropic uses a top-level system parameter, not a system message
+        $system_parts = [];
+        $filtered = [];
+        foreach ($messages as $msg) {
+            if (($msg['role'] ?? '') === 'system') {
+                $system_parts[] = $msg['content'];
+            } else {
+                $filtered[] = $msg;
+            }
+        }
+        if (!empty($system_parts)) {
+            $body['system'] = implode("\n\n", $system_parts);
+        }
+        $body['messages'] = $filtered;
+    }
+    return wp_json_encode($body);
+}
+
+/**
+ * Extracts the text delta from a streaming SSE chunk.
+ * Returns null if the chunk has no text content.
+ */
+function pp_ai_extract_stream_delta(array $chunk, string $provider): ?string {
+    if ($provider === 'anthropic') {
+        // Anthropic: content_block_delta events have delta.text
+        if (($chunk['type'] ?? '') === 'content_block_delta') {
+            return $chunk['delta']['text'] ?? null;
+        }
+        return null;
+    }
+    // OpenAI-compatible: choices[0].delta.content
+    return $chunk['choices'][0]['delta']['content'] ?? null;
+}
+
+/**
+ * Extracts the full response text from a non-streaming response.
+ */
+function pp_ai_extract_response(array $decoded, string $provider): ?string {
+    if ($provider === 'anthropic') {
+        // Anthropic: content[0].text
+        return $decoded['content'][0]['text'] ?? null;
+    }
+    // OpenAI-compatible: choices[0].message.content
+    return $decoded['choices'][0]['message']['content'] ?? null;
+}
+
 // ── Streaming Completion ───────────────────────────────────────────────────
 
 /**
@@ -191,11 +269,10 @@ function pp_ai_stream_completion(array $messages, callable $on_chunk): array {
         return ['ok' => false, 'error' => 'Base URL not configured.', 'full_response' => ''];
     }
 
-    $body = wp_json_encode([
-        'model'    => $config['model'],
-        'messages' => $messages,
-        'stream'   => true,
-    ]);
+    $body = pp_ai_request_body($config, $messages, true);
+    $headers = pp_ai_request_headers($config);
+    $headers[] = 'Accept: text/event-stream';
+    $provider = $config['provider'];
 
     $full_response = '';
     $http_code = 0;
@@ -208,18 +285,14 @@ function pp_ai_stream_completion(array $messages, callable $on_chunk): array {
         CURLOPT_POSTFIELDS     => $body,
         CURLOPT_RETURNTRANSFER => false,
         CURLOPT_TIMEOUT        => 120,
-        CURLOPT_HTTPHEADER     => [
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . $config['api_key'],
-            'Accept: text/event-stream',
-        ],
+        CURLOPT_HTTPHEADER     => $headers,
         CURLOPT_HEADERFUNCTION => function ($ch, $header) use (&$http_code) {
             if (preg_match('/^HTTP\/\S+\s+(\d+)/', $header, $m)) {
                 $http_code = (int) $m[1];
             }
             return strlen($header);
         },
-        CURLOPT_WRITEFUNCTION  => function ($ch, $data) use (&$full_response, &$on_chunk, &$http_code, &$error_body, &$buffer) {
+        CURLOPT_WRITEFUNCTION  => function ($ch, $data) use (&$full_response, &$on_chunk, &$http_code, &$error_body, &$buffer, $provider) {
             // If non-2xx, accumulate for error parsing
             if ($http_code >= 400) {
                 $error_body .= $data;
@@ -250,7 +323,7 @@ function pp_ai_stream_completion(array $messages, callable $on_chunk): array {
                     continue;
                 }
 
-                $delta = $chunk['choices'][0]['delta']['content'] ?? null;
+                $delta = pp_ai_extract_stream_delta($chunk, $provider);
                 if ($delta !== null && $delta !== '') {
                     $full_response .= $delta;
                     $on_chunk($delta);
@@ -313,10 +386,7 @@ function pp_ai_completion(array $messages): array {
         return ['ok' => false, 'error' => 'API key not configured.', 'full_response' => ''];
     }
 
-    $body = wp_json_encode([
-        'model'    => $config['model'],
-        'messages' => $messages,
-    ]);
+    $body = pp_ai_request_body($config, $messages, false);
 
     $ch = curl_init($config['base_url']);
     curl_setopt_array($ch, [
@@ -324,10 +394,7 @@ function pp_ai_completion(array $messages): array {
         CURLOPT_POSTFIELDS     => $body,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 60,
-        CURLOPT_HTTPHEADER     => [
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . $config['api_key'],
-        ],
+        CURLOPT_HTTPHEADER     => pp_ai_request_headers($config),
     ]);
 
     $response = curl_exec($ch);
@@ -345,14 +412,15 @@ function pp_ai_completion(array $messages): array {
     }
 
     $decoded = json_decode($response, true);
-    if (!is_array($decoded) || !isset($decoded['choices'][0]['message']['content'])) {
+    $content = is_array($decoded) ? pp_ai_extract_response($decoded, $config['provider']) : null;
+    if ($content === null) {
         return ['ok' => false, 'error' => 'Unexpected response format.', 'full_response' => ''];
     }
 
     return [
         'ok'            => true,
         'error'         => null,
-        'full_response' => $decoded['choices'][0]['message']['content'],
+        'full_response' => $content,
     ];
 }
 
