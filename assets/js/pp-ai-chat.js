@@ -174,13 +174,33 @@
         var result = [];
         var inList = false;
         var listType = '';
+        var listItemCount = 0;
 
         for (var i = 0; i < lines.length; i++) {
             var line = lines[i];
 
             // Skip lines inside pre blocks (already handled)
             if (line.indexOf('<pre>') !== -1) {
-                if (inList) { result.push('</' + listType + '>'); inList = false; }
+                if (inList) {
+                    // Look ahead past the code block for another list item
+                    var preEnd = i;
+                    var tempLine = line;
+                    while (tempLine.indexOf('</pre>') === -1 && preEnd + 1 < lines.length) {
+                        preEnd++;
+                        tempLine = lines[preEnd];
+                    }
+                    // Check lines after the code block for list continuation
+                    var nextAfterPre = preEnd + 1;
+                    while (nextAfterPre < lines.length && lines[nextAfterPre].trim() === '') nextAfterPre++;
+                    var listContinues = false;
+                    if (nextAfterPre < lines.length) {
+                        if (listType === 'ol' && lines[nextAfterPre].match(/^\d+\.\s/)) listContinues = true;
+                        if (listType === 'ul' && lines[nextAfterPre].match(/^[-*]\s/)) listContinues = true;
+                    }
+                    result.push('</' + listType + '>');
+                    inList = false;
+                    if (!listContinues) listItemCount = 0;
+                }
                 // Collect until </pre>
                 var preBlock = line;
                 while (line.indexOf('</pre>') === -1 && i + 1 < lines.length) {
@@ -195,7 +215,7 @@
             // Headings
             var headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
             if (headingMatch) {
-                if (inList) { result.push('</' + listType + '>'); inList = false; }
+                if (inList) { result.push('</' + listType + '>'); inList = false; listItemCount = 0; }
                 var level = headingMatch[1].length;
                 result.push('<h' + (level + 2) + '>' + headingMatch[2] + '</h' + (level + 2) + '>');
                 continue;
@@ -206,7 +226,11 @@
             if (olMatch) {
                 if (!inList || listType !== 'ol') {
                     if (inList) result.push('</' + listType + '>');
-                    result.push('<ol>');
+                    if (listItemCount > 0) {
+                        result.push('<ol start="' + (listItemCount + 1) + '">');
+                    } else {
+                        result.push('<ol>');
+                    }
                     inList = true;
                     listType = 'ol';
                 }
@@ -221,6 +245,7 @@
                         break;
                     }
                 }
+                listItemCount++;
                 result.push('<li>' + liContent + '</li>');
                 continue;
             }
@@ -262,6 +287,7 @@
                     if (!continues) {
                         result.push('</' + listType + '>');
                         inList = false;
+                        listItemCount = 0;
                     }
                 }
                 result.push('');
@@ -272,6 +298,7 @@
             if (inList) {
                 result.push('</' + listType + '>');
                 inList = false;
+                listItemCount = 0;
             }
 
             // Regular text — wrap in paragraph
