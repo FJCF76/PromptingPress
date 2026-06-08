@@ -122,6 +122,16 @@ function pp_ai_chat_page(): void {
                 $configured_connectors = pp_ai_get_configured_connectors();
                 $providers_map      = pp_ai_connector_providers();
                 $is_multi_provider  = count($configured_connectors) > 1;
+
+                // Resolve friendly model name for display
+                $model_display = $ai_config['model'];
+                $current_models = pp_ai_get_provider_models($ai_config['provider']);
+                foreach ($current_models as $m) {
+                    if ($m['id'] === $ai_config['model']) {
+                        $model_display = $m['name'];
+                        break;
+                    }
+                }
                 ?>
                 <div class="pp-ai-chat-header">
                     <h2>AI Chat</h2>
@@ -140,7 +150,7 @@ function pp_ai_chat_page(): void {
                     <?php endif; ?>
                     <select id="pp-ai-model-select" class="pp-ai-chat-selector">
                         <option value="<?php echo esc_attr($ai_config['model']); ?>" selected>
-                            <?php echo esc_html($ai_config['model']); ?>
+                            <?php echo esc_html($model_display); ?>
                         </option>
                     </select>
                     <button id="pp-ai-new-chat" class="button pp-ai-new-chat" title="Start a new conversation">New Chat</button>

@@ -22,14 +22,17 @@ function pp_ai_connector_providers(): array {
         'anthropic' => [
             'base_url'      => 'https://api.anthropic.com/v1/messages',
             'default_model' => 'claude-sonnet-4-5-20250514',
+            'default_name'  => 'Claude Sonnet 4.5',
         ],
         'openai' => [
             'base_url'      => 'https://api.openai.com/v1/chat/completions',
             'default_model' => 'gpt-4o',
+            'default_name'  => 'GPT-4o',
         ],
         'google' => [
             'base_url'      => 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
             'default_model' => 'gemini-2.5-flash',
+            'default_name'  => 'Gemini 2.5 Flash',
         ],
     ];
 }
@@ -109,7 +112,7 @@ function pp_ai_get_provider_models(string $provider_id): array {
     if (empty($models)) {
         $providers = pp_ai_connector_providers();
         if (isset($providers[$provider_id])) {
-            $models = [['id' => $providers[$provider_id]['default_model'], 'name' => $providers[$provider_id]['default_model']]];
+            $models = [['id' => $providers[$provider_id]['default_model'], 'name' => $providers[$provider_id]['default_name'] ?? $providers[$provider_id]['default_model']]];
         }
     }
     return $models;

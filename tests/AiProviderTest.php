@@ -113,6 +113,7 @@ class AiProviderTest extends TestCase
         $models = pp_ai_get_provider_models('anthropic');
         $this->assertCount(1, $models);
         $this->assertEquals('claude-sonnet-4-5-20250514', $models[0]['id']);
+        $this->assertEquals('Claude Sonnet 4.5', $models[0]['name']);
     }
 
     public function testGetProviderModelsReturnsEmptyForUnknownProvider(): void
