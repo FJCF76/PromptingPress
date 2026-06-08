@@ -112,8 +112,8 @@ class AiProviderTest extends TestCase
         // so pp_ai_get_provider_models should fall back to the hardcoded default
         $models = pp_ai_get_provider_models('anthropic');
         $this->assertCount(1, $models);
-        $this->assertEquals('claude-sonnet-4-5-20250514', $models[0]['id']);
-        $this->assertEquals('Claude Sonnet 4.5', $models[0]['name']);
+        $this->assertEquals('claude-sonnet-4-6', $models[0]['id']);
+        $this->assertEquals('Claude Sonnet 4.6', $models[0]['name']);
     }
 
     public function testGetProviderModelsReturnsEmptyForUnknownProvider(): void
@@ -155,7 +155,7 @@ class AiProviderTest extends TestCase
         $this->assertEquals('anthropic', $config['provider']);
         $this->assertStringContainsString('anthropic', $config['base_url']);
         $this->assertEquals('sk-ant-test', $config['api_key']);
-        $this->assertEquals('claude-sonnet-4-5-20250514', $config['model']);
+        $this->assertEquals('claude-sonnet-4-6', $config['model']);
     }
 
     public function testGetConfigRespectsSelectedProvider(): void
@@ -175,10 +175,23 @@ class AiProviderTest extends TestCase
     {
         $this->configureConnector('anthropic', 'Anthropic', 'sk-ant-test');
 
-        $GLOBALS['_pp_test_store']['options']['pp_ai_selected_model'] = 'claude-opus-4-20250514';
+        // Select a model that's in the fallback list
+        $GLOBALS['_pp_test_store']['options']['pp_ai_selected_model'] = 'claude-sonnet-4-6';
 
         $config = pp_ai_get_config();
-        $this->assertEquals('claude-opus-4-20250514', $config['model']);
+        $this->assertEquals('claude-sonnet-4-6', $config['model']);
+    }
+
+    public function testGetConfigAutoCorrectsInvalidModel(): void
+    {
+        $this->configureConnector('anthropic', 'Anthropic', 'sk-ant-test');
+
+        // Select a model that doesn't exist in available list
+        $GLOBALS['_pp_test_store']['options']['pp_ai_selected_model'] = 'claude-nonexistent';
+
+        $config = pp_ai_get_config();
+        // Should auto-correct to the first available model
+        $this->assertEquals('claude-sonnet-4-6', $config['model']);
     }
 
     public function testGetConfigFallsBackWhenSelectedProviderInvalid(): void

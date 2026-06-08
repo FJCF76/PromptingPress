@@ -21,8 +21,8 @@ function pp_ai_connector_providers(): array {
     return [
         'anthropic' => [
             'base_url'      => 'https://api.anthropic.com/v1/messages',
-            'default_model' => 'claude-sonnet-4-5-20250514',
-            'default_name'  => 'Claude Sonnet 4.5',
+            'default_model' => 'claude-sonnet-4-6',
+            'default_name'  => 'Claude Sonnet 4.6',
         ],
         'openai' => [
             'base_url'      => 'https://api.openai.com/v1/chat/completions',
@@ -82,7 +82,7 @@ function pp_ai_get_connector_models(string $provider_id): array {
 
     try {
         $requirements = new \WordPress\AiClient\Providers\Models\DTO\ModelRequirements(
-            [\WordPress\AiClient\Providers\Models\Enums\CapabilityEnum::TEXT_GENERATION],
+            [\WordPress\AiClient\Providers\Models\Enums\CapabilityEnum::textGeneration()],
             []
         );
 
@@ -153,6 +153,15 @@ function pp_ai_get_config(): array {
 
     $provider_map = $providers[$selected] ?? [];
     $model        = get_option('pp_ai_selected_model', $provider_map['default_model'] ?? '');
+
+    // Auto-correct if selected model isn't in the provider's available list
+    $available = pp_ai_get_provider_models($selected);
+    if (!empty($available)) {
+        $model_ids = array_column($available, 'id');
+        if (!in_array($model, $model_ids, true)) {
+            $model = $model_ids[0];
+        }
+    }
 
     return [
         'provider' => $selected,

@@ -85,13 +85,13 @@ class AiChatHandlersTest extends TestCase
         $this->configureConnector('openai', 'OpenAI', 'sk-oai-test');
 
         $GLOBALS['_pp_test_store']['options']['pp_ai_selected_provider'] = 'openai';
-        $GLOBALS['_pp_test_store']['options']['pp_ai_selected_model'] = 'gpt-4-turbo';
+        $GLOBALS['_pp_test_store']['options']['pp_ai_selected_model'] = 'gpt-4o';
 
         $config = pp_ai_get_config();
         $this->assertEquals('openai', $config['provider']);
         $this->assertStringContainsString('openai.com', $config['base_url']);
         $this->assertEquals('sk-oai-test', $config['api_key']);
-        $this->assertEquals('gpt-4-turbo', $config['model']);
+        $this->assertEquals('gpt-4o', $config['model']);
     }
 
     // ── Provider Switch AJAX Handler ─────────────────────────────────────

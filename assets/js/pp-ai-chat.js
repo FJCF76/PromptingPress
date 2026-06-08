@@ -84,6 +84,23 @@
         });
     }
 
+    // Populate full model list on page load from config
+    if (modelSelect && config.providers && config.providers.length > 0) {
+        var currentProvider = config.providers.find(function (p) {
+            return p.id === config.selectedProvider;
+        });
+        if (currentProvider && currentProvider.models && currentProvider.models.length > 1) {
+            modelSelect.innerHTML = '';
+            currentProvider.models.forEach(function (m) {
+                var opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = m.name;
+                if (m.id === config.selectedModel) opt.selected = true;
+                modelSelect.appendChild(opt);
+            });
+        }
+    }
+
     // ── Persistence ───────────────────────────────────────────────────
 
     var STORAGE_KEY = 'pp_ai_chat_' + (config.siteUrl || 'default');
