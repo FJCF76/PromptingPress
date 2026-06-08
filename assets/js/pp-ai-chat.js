@@ -678,9 +678,11 @@
         msgBody.textContent = errorText;
 
         // COUPLED: must match wording in pp_ai_parse_error_response() and "not configured" messages.
-        if (errorText.indexOf('API key') !== -1 ||
+        // Skip for quota errors — those direct the user to switch providers above, not Connectors.
+        if ((errorText.indexOf('API key') !== -1 ||
             errorText.indexOf('not configured') !== -1 ||
-            errorText.indexOf('Settings > Connectors') !== -1) {
+            errorText.indexOf('Settings > Connectors') !== -1) &&
+            errorText.indexOf('no remaining credits') === -1) {
             var sep = document.createTextNode(' ');
             var link = document.createElement('a');
             link.href = config.connectorsUrl;
