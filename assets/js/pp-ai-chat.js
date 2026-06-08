@@ -19,6 +19,71 @@
 
     if (!messagesEl || !inputEl || !sendBtn) return;
 
+    // ── Provider/Model Selectors ──────────────────────────────────────
+
+    var providerSelect = document.getElementById('pp-ai-provider-select');
+    var modelSelect    = document.getElementById('pp-ai-model-select');
+
+    var switchRetryCount = 0;
+
+    function switchProvider(providerId, modelId) {
+        var body = new FormData();
+        body.append('action', 'pp_ai_switch_provider');
+        body.append('_ajax_nonce', config.executeNonce);
+        body.append('provider', providerId || '');
+        body.append('model', modelId || '');
+
+        if (modelSelect) {
+            modelSelect.classList.add('pp-ai-chat-selector--loading');
+            modelSelect.innerHTML = '<option>\u2026</option>';
+        }
+
+        fetch(config.ajaxUrl, { method: 'POST', body: body, credentials: 'same-origin' })
+            .then(function (res) { return res.json(); })
+            .then(function (json) {
+                switchRetryCount = 0;
+                if (!json.success || !modelSelect) return;
+                var models = json.data.models || [];
+                modelSelect.innerHTML = '';
+                models.forEach(function (m) {
+                    var opt = document.createElement('option');
+                    opt.value = m.id;
+                    opt.textContent = m.name;
+                    if (m.id === json.data.model) opt.selected = true;
+                    modelSelect.appendChild(opt);
+                });
+                modelSelect.classList.remove('pp-ai-chat-selector--loading');
+                modelSelect.classList.remove('pp-ai-chat-selector--error');
+            })
+            .catch(function () {
+                if (!modelSelect) return;
+                modelSelect.innerHTML = '<option>Failed</option>';
+                modelSelect.classList.remove('pp-ai-chat-selector--loading');
+                modelSelect.classList.add('pp-ai-chat-selector--error');
+                if (switchRetryCount < 1) {
+                    switchRetryCount++;
+                    setTimeout(function () {
+                        modelSelect.classList.remove('pp-ai-chat-selector--error');
+                        switchProvider(config.selectedProvider, config.selectedModel);
+                    }, 3000);
+                }
+            });
+    }
+
+    if (providerSelect) {
+        providerSelect.addEventListener('change', function () {
+            config.selectedProvider = this.value;
+            switchProvider(this.value, '');
+        });
+    }
+
+    if (modelSelect) {
+        modelSelect.addEventListener('change', function () {
+            config.selectedModel = this.value;
+            switchProvider('', this.value);
+        });
+    }
+
     // ── Persistence ───────────────────────────────────────────────────
 
     var STORAGE_KEY = 'pp_ai_chat_' + (config.siteUrl || 'default');
@@ -449,11 +514,11 @@
         // COUPLED: must match wording in pp_ai_parse_error_response() and "not configured" messages.
         if (errorText.indexOf('API key') !== -1 ||
             errorText.indexOf('not configured') !== -1 ||
-            errorText.indexOf('Check AI Settings') !== -1) {
+            errorText.indexOf('Settings > Connectors') !== -1) {
             var sep = document.createTextNode(' ');
             var link = document.createElement('a');
-            link.href = config.settingsUrl;
-            link.textContent = 'AI Settings';
+            link.href = config.connectorsUrl;
+            link.textContent = 'Settings > Connectors';
             msgBody.appendChild(sep);
             msgBody.appendChild(link);
         }

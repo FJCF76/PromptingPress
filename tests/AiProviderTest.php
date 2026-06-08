@@ -2,12 +2,10 @@
 /**
  * tests/AiProviderTest.php — PHPUnit tests for the AI Provider Layer
  *
- * Covers: config reading, error paths (missing key, invalid URL),
- * proposal parsing (bare JSON, fenced JSON, malformed fallback),
- * proposal validation.
+ * Covers: WP 7.0 connector config, provider/model resolution,
+ * error paths, proposal parsing, proposal validation.
  *
- * Note: actual curl/streaming tests require integration testing.
- * These tests cover the pure functions in ai-provider.php.
+ * Integration tests (@group integration) hit real APIs when keys are available.
  */
 
 use PHPUnit\Framework\TestCase;
@@ -18,44 +16,189 @@ class AiProviderTest extends TestCase
     {
         parent::setUp();
         $GLOBALS['_pp_test_store'] = [
-            'post_meta' => [],
-            'posts'     => [],
-            'options'   => [],
-            'next_id'   => 100,
+            'post_meta'  => [],
+            'posts'      => [],
+            'options'    => [],
+            'connectors' => [],
+            'next_id'    => 100,
         ];
     }
 
-    // ── Config Reading ────────────────────────────────────────────────────
+    // ── Helper: configure a test connector ─────────────────────────────────
 
-    public function testGetConfigReadsFromOptions(): void
+    private function configureConnector(string $id, string $name, string $api_key): void
     {
-        $GLOBALS['_pp_test_store']['options'][PP_AI_OPT_BASE_URL] = 'https://custom.api/v1/chat';
-        $GLOBALS['_pp_test_store']['options'][PP_AI_OPT_API_KEY] = 'sk-test-key';
-        $GLOBALS['_pp_test_store']['options'][PP_AI_OPT_MODEL] = 'gpt-4o-mini';
-
-        $config = pp_ai_get_config();
-        $this->assertEquals('https://custom.api/v1/chat', $config['base_url']);
-        $this->assertEquals('sk-test-key', $config['api_key']);
-        $this->assertEquals('gpt-4o-mini', $config['model']);
+        $setting_name = "wp_connector_{$id}_api_key";
+        $GLOBALS['_pp_test_store']['connectors'][$id] = [
+            'name'           => $name,
+            'authentication' => [
+                'setting_name'  => $setting_name,
+                'constant_name' => strtoupper($id) . '_API_KEY',
+                'env_var_name'  => strtoupper($id) . '_API_KEY',
+            ],
+        ];
+        $GLOBALS['_pp_test_store']['options'][$setting_name] = $api_key;
     }
 
-    public function testGetConfigUsesDefaults(): void
+    // ── Connector Provider Map ────────────────────────────────────────────
+
+    public function testConnectorProvidersReturnsThreeProviders(): void
     {
-        $config = pp_ai_get_config();
-        $this->assertEquals(PP_AI_DEFAULT_BASE_URL, $config['base_url']);
-        $this->assertEquals('', $config['api_key']);
-        $this->assertEquals(PP_AI_DEFAULT_MODEL, $config['model']);
+        $providers = pp_ai_connector_providers();
+        $this->assertCount(3, $providers);
+        $this->assertArrayHasKey('anthropic', $providers);
+        $this->assertArrayHasKey('openai', $providers);
+        $this->assertArrayHasKey('google', $providers);
     }
 
-    public function testIsConfiguredReturnsFalseWithoutKey(): void
+    public function testConnectorProvidersHaveBaseUrlAndDefaultModel(): void
+    {
+        $providers = pp_ai_connector_providers();
+        foreach ($providers as $id => $provider) {
+            $this->assertArrayHasKey('base_url', $provider, "$id missing base_url");
+            $this->assertArrayHasKey('default_model', $provider, "$id missing default_model");
+            $this->assertNotEmpty($provider['base_url'], "$id has empty base_url");
+            $this->assertNotEmpty($provider['default_model'], "$id has empty default_model");
+        }
+    }
+
+    // ── Configured Connectors ─────────────────────────────────────────────
+
+    public function testGetConfiguredConnectorsReturnsEmptyWithNoConnectors(): void
+    {
+        $this->assertEmpty(pp_ai_get_configured_connectors());
+    }
+
+    public function testGetConfiguredConnectorsReturnsOnlyKeyed(): void
+    {
+        $this->configureConnector('anthropic', 'Anthropic', 'sk-ant-test');
+        // Add openai connector WITHOUT a key
+        $GLOBALS['_pp_test_store']['connectors']['openai'] = [
+            'name'           => 'OpenAI',
+            'authentication' => ['setting_name' => 'wp_connector_openai_api_key'],
+        ];
+
+        $configured = pp_ai_get_configured_connectors();
+        $this->assertCount(1, $configured);
+        $this->assertArrayHasKey('anthropic', $configured);
+        $this->assertEquals('sk-ant-test', $configured['anthropic']['api_key']);
+    }
+
+    public function testGetConfiguredConnectorsSkipsUnknownProviders(): void
+    {
+        // Add a connector not in pp_ai_connector_providers()
+        $GLOBALS['_pp_test_store']['connectors']['huggingface'] = [
+            'name'           => 'Hugging Face',
+            'authentication' => ['setting_name' => 'wp_connector_hf_api_key'],
+        ];
+        $GLOBALS['_pp_test_store']['options']['wp_connector_hf_api_key'] = 'hf-test';
+
+        $this->assertEmpty(pp_ai_get_configured_connectors());
+    }
+
+    // ── Model Listing ─────────────────────────────────────────────────────
+
+    public function testGetConnectorModelsReturnsEmptyWithoutAiClient(): void
+    {
+        // WordPress\AiClient\AiClient class doesn't exist in test env
+        $models = pp_ai_get_connector_models('anthropic');
+        $this->assertIsArray($models);
+        $this->assertEmpty($models);
+    }
+
+    public function testGetProviderModelsFallsBackToDefault(): void
+    {
+        // Without AiClient, pp_ai_get_connector_models returns [],
+        // so pp_ai_get_provider_models should fall back to the hardcoded default
+        $models = pp_ai_get_provider_models('anthropic');
+        $this->assertCount(1, $models);
+        $this->assertEquals('claude-sonnet-4-5-20250514', $models[0]['id']);
+    }
+
+    public function testGetProviderModelsReturnsEmptyForUnknownProvider(): void
+    {
+        $models = pp_ai_get_provider_models('nonexistent');
+        $this->assertEmpty($models);
+    }
+
+    // ── Is Configured ─────────────────────────────────────────────────────
+
+    public function testIsConfiguredReturnsFalseWithNoConnectors(): void
     {
         $this->assertFalse(pp_ai_is_configured());
     }
 
-    public function testIsConfiguredReturnsTrueWithKey(): void
+    public function testIsConfiguredReturnsTrueWithKeyedConnector(): void
     {
-        $GLOBALS['_pp_test_store']['options'][PP_AI_OPT_API_KEY] = 'test-key';
+        $this->configureConnector('anthropic', 'Anthropic', 'sk-ant-test');
         $this->assertTrue(pp_ai_is_configured());
+    }
+
+    // ── Get Config ────────────────────────────────────────────────────────
+
+    public function testGetConfigReturnsEmptyWhenNoConnectors(): void
+    {
+        $config = pp_ai_get_config();
+        $this->assertEquals('', $config['provider']);
+        $this->assertEquals('', $config['base_url']);
+        $this->assertEquals('', $config['api_key']);
+        $this->assertEquals('', $config['model']);
+    }
+
+    public function testGetConfigUsesFirstConnectorAsDefault(): void
+    {
+        $this->configureConnector('anthropic', 'Anthropic', 'sk-ant-test');
+        $this->configureConnector('openai', 'OpenAI', 'sk-oai-test');
+
+        $config = pp_ai_get_config();
+        $this->assertEquals('anthropic', $config['provider']);
+        $this->assertStringContainsString('anthropic', $config['base_url']);
+        $this->assertEquals('sk-ant-test', $config['api_key']);
+        $this->assertEquals('claude-sonnet-4-5-20250514', $config['model']);
+    }
+
+    public function testGetConfigRespectsSelectedProvider(): void
+    {
+        $this->configureConnector('anthropic', 'Anthropic', 'sk-ant-test');
+        $this->configureConnector('openai', 'OpenAI', 'sk-oai-test');
+
+        $GLOBALS['_pp_test_store']['options']['pp_ai_selected_provider'] = 'openai';
+
+        $config = pp_ai_get_config();
+        $this->assertEquals('openai', $config['provider']);
+        $this->assertEquals('sk-oai-test', $config['api_key']);
+        $this->assertEquals('gpt-4o', $config['model']);
+    }
+
+    public function testGetConfigRespectsSelectedModel(): void
+    {
+        $this->configureConnector('anthropic', 'Anthropic', 'sk-ant-test');
+
+        $GLOBALS['_pp_test_store']['options']['pp_ai_selected_model'] = 'claude-opus-4-20250514';
+
+        $config = pp_ai_get_config();
+        $this->assertEquals('claude-opus-4-20250514', $config['model']);
+    }
+
+    public function testGetConfigFallsBackWhenSelectedProviderInvalid(): void
+    {
+        $this->configureConnector('openai', 'OpenAI', 'sk-oai-test');
+
+        $GLOBALS['_pp_test_store']['options']['pp_ai_selected_provider'] = 'nonexistent';
+
+        $config = pp_ai_get_config();
+        $this->assertEquals('openai', $config['provider']);
+        $this->assertEquals('sk-oai-test', $config['api_key']);
+    }
+
+    public function testGetConfigGoogleProvider(): void
+    {
+        $this->configureConnector('google', 'Google', 'aiza-test');
+
+        $config = pp_ai_get_config();
+        $this->assertEquals('google', $config['provider']);
+        $this->assertStringContainsString('generativelanguage.googleapis.com', $config['base_url']);
+        $this->assertEquals('gemini-2.5-flash', $config['model']);
     }
 
     // ── Stream Completion Error Paths ─────────────────────────────────────
@@ -69,12 +212,12 @@ class AiProviderTest extends TestCase
 
     public function testStreamCompletionFailsWithoutBaseUrl(): void
     {
-        $GLOBALS['_pp_test_store']['options'][PP_AI_OPT_API_KEY] = 'test-key';
-        $GLOBALS['_pp_test_store']['options'][PP_AI_OPT_BASE_URL] = '';
-
+        // Configure a connector but with a provider not in the map (edge case)
+        // Actually: configure properly but clear the base_url — not possible
+        // since base_url comes from the hardcoded map. Instead test the empty
+        // config path (no connectors configured).
         $result = pp_ai_stream_completion([], function () {});
         $this->assertFalse($result['ok']);
-        $this->assertStringContainsString('Base URL', $result['error']);
     }
 
     public function testNonStreamingCompletionFailsWithoutApiKey(): void
@@ -90,7 +233,7 @@ class AiProviderTest extends TestCase
     {
         $msg = pp_ai_parse_error_response(401, '');
         $this->assertStringContainsString('rejected the API key', $msg);
-        $this->assertStringContainsString('Check AI Settings', $msg);
+        $this->assertStringContainsString('Settings > Connectors', $msg);
     }
 
     public function testParseErrorResponse429(): void
@@ -103,13 +246,14 @@ class AiProviderTest extends TestCase
     {
         $msg = pp_ai_parse_error_response(404, '');
         $this->assertStringContainsString('Model not found', $msg);
+        $this->assertStringContainsString('Settings > Connectors', $msg);
     }
 
     public function testParseErrorResponse400(): void
     {
         $msg = pp_ai_parse_error_response(400, '');
         $this->assertStringContainsString('rejected the request', $msg);
-        $this->assertStringContainsString('Check AI Settings', $msg);
+        $this->assertStringContainsString('Settings > Connectors', $msg);
     }
 
     public function testParseErrorResponseWithJsonBody(): void

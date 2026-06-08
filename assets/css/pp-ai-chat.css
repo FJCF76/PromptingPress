@@ -30,6 +30,16 @@ body.pp-ai-chat-page #wpcontent {
 .pp-ai-chat-unconfigured {
     text-align: center;
     padding: 80px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.pp-ai-chat-unconfigured-icon {
+    font-size: 32px;
+    color: #646970;
+    margin-bottom: 12px;
 }
 
 .pp-ai-chat-unconfigured h2 {
@@ -39,6 +49,8 @@ body.pp-ai-chat-page #wpcontent {
 
 .pp-ai-chat-unconfigured p {
     color: #646970;
+    font-size: 14px;
+    max-width: 480px;
     margin-bottom: 20px;
 }
 
@@ -47,7 +59,8 @@ body.pp-ai-chat-page #wpcontent {
 .pp-ai-chat-header {
     display: flex;
     align-items: center;
-    gap: 12px;
+    flex-wrap: wrap;
+    gap: 8px;
     padding: 12px 0;
     border-bottom: 1px solid #c3c4c7;
     flex-shrink: 0;
@@ -60,12 +73,43 @@ body.pp-ai-chat-page #wpcontent {
     line-height: 1.4;
 }
 
-.pp-ai-chat-model {
+.pp-ai-chat-selector {
+    appearance: none;
+    -webkit-appearance: none;
     font-size: 12px;
     color: #646970;
-    background: #f0f0f1;
-    padding: 2px 8px;
+    background: #f0f0f1 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23646970'/%3E%3C/svg%3E") no-repeat right 6px center;
+    padding: 2px 20px 2px 8px;
+    border: 1px solid #c3c4c7;
     border-radius: 3px;
+    cursor: pointer;
+    line-height: 1.4;
+}
+
+.pp-ai-chat-selector:hover {
+    border-color: #8c8f94;
+}
+
+.pp-ai-chat-selector:focus {
+    border-color: #2271b1;
+    box-shadow: 0 0 0 1px #2271b1;
+    outline: none;
+}
+
+.pp-ai-chat-selector--static {
+    background-image: none;
+    padding-right: 8px;
+    cursor: default;
+    border-color: transparent;
+}
+
+.pp-ai-chat-selector--loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.pp-ai-chat-selector--error {
+    color: #d63638;
 }
 
 .pp-ai-new-chat {

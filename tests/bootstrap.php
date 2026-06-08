@@ -457,6 +457,22 @@ if (!defined('WP_CONTENT_DIR')) {
     define('WP_CONTENT_DIR', sys_get_temp_dir() . '/pp-test-content-' . getmypid());
 }
 
+// ── WP 7.0 Connector stubs ───────────────────────────────────────────────────
+// Tests control connector state via $GLOBALS['_pp_test_store']['connectors'].
+
+if (!function_exists('wp_get_connectors')) {
+    function wp_get_connectors(): array {
+        return $GLOBALS['_pp_test_store']['connectors'] ?? [];
+    }
+}
+
+if (!function_exists('wp_get_connector')) {
+    function wp_get_connector(string $id): ?array {
+        $connectors = wp_get_connectors();
+        return $connectors[$id] ?? null;
+    }
+}
+
 // ── Stubs for AI layer ────────────────────────────────────────────────────────
 
 if (!function_exists('get_template_directory_uri')) {
@@ -590,5 +606,4 @@ require_once dirname(__DIR__) . '/lib/operate.php';
 require_once dirname(__DIR__) . '/lib/screenshot.php';
 require_once dirname(__DIR__) . '/lib/ai-context.php';
 require_once dirname(__DIR__) . '/lib/ai-provider.php';
-require_once dirname(__DIR__) . '/lib/ai-settings.php';
 require_once dirname(__DIR__) . '/lib/ai-chat.php';

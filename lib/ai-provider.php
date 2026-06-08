@@ -10,39 +10,148 @@
  * ai-stream.php needs it and runs outside admin context.
  */
 
-// ── Option Keys & Defaults ────────────────────────────────────────────────
-// Defined here (not ai-settings.php) because ai-stream.php needs them
-// outside admin context. ai-settings.php is admin-only (UI + Settings API).
+// ── WP 7.0 Connector Provider Map ─────────────────────────────────────────
+// All three WP 7.0 providers use AbstractOpenAiCompatibleTextGenerationModel.
+// PP maintains its own base_url map because connectors don't expose endpoints.
 
-if (!defined('PP_AI_OPT_PROVIDER')) {
-    define('PP_AI_OPT_PROVIDER', 'pp_ai_provider');
-    define('PP_AI_OPT_BASE_URL', 'pp_ai_base_url');
-    define('PP_AI_OPT_API_KEY',  'pp_ai_api_key');
-    define('PP_AI_OPT_MODEL',    'pp_ai_model');
-
-    define('PP_AI_DEFAULT_PROVIDER', 'github_models');
-    define('PP_AI_DEFAULT_BASE_URL', 'https://models.github.ai/inference/chat/completions');
-    define('PP_AI_DEFAULT_MODEL',    'openai/gpt-5-chat');
+/**
+ * Returns the hardcoded provider-to-URL map for WP 7.0 connector providers.
+ */
+function pp_ai_connector_providers(): array {
+    return [
+        'anthropic' => [
+            'base_url'      => 'https://api.anthropic.com/v1/messages',
+            'default_model' => 'claude-sonnet-4-5-20250514',
+        ],
+        'openai' => [
+            'base_url'      => 'https://api.openai.com/v1/chat/completions',
+            'default_model' => 'gpt-4o',
+        ],
+        'google' => [
+            'base_url'      => 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+            'default_model' => 'gemini-2.5-flash',
+        ],
+    ];
 }
 
 // ── Config Helpers ────────────────────────────────────────────────────────
 
 /**
- * Returns true if the AI provider has a saved API key.
+ * Returns configured WP 7.0 connectors that have an API key set.
+ *
+ * @return array Keyed by provider id, each entry has 'name' and 'api_key'.
  */
-function pp_ai_is_configured(): bool {
-    return !empty(get_option(PP_AI_OPT_API_KEY, ''));
+function pp_ai_get_configured_connectors(): array {
+    $connectors = wp_get_connectors();
+    $providers  = pp_ai_connector_providers();
+    $configured = [];
+
+    foreach ($connectors as $id => $connector) {
+        if (!isset($providers[$id])) {
+            continue;
+        }
+        $setting = $connector['authentication']['setting_name'] ?? '';
+        $key     = $setting ? get_option($setting, '') : '';
+        if (!empty($key)) {
+            $configured[$id] = [
+                'name'    => $connector['name'] ?? $id,
+                'api_key' => $key,
+            ];
+        }
+    }
+
+    return $configured;
 }
 
 /**
- * Returns the AI provider configuration.
+ * Returns available text-generation models for a given provider.
+ *
+ * Uses WP 7.0's ProviderRegistry to query per-provider model metadata,
+ * filtered to text_generation capability.
+ *
+ * @param string $provider_id  Provider identifier (e.g. 'anthropic').
+ * @return array  Array of ['id' => ..., 'name' => ...].
+ */
+function pp_ai_get_connector_models(string $provider_id): array {
+    if (!class_exists('WordPress\\AiClient\\AiClient')) {
+        return [];
+    }
+
+    $requirements = new \WordPress\AiClient\Providers\Models\DTO\ModelRequirements(
+        [\WordPress\AiClient\Providers\Models\Enums\CapabilityEnum::text_generation],
+        []
+    );
+
+    $registry = \WordPress\AiClient\AiClient::defaultRegistry();
+    $models   = $registry->findProviderModelsMetadataForSupport($provider_id, $requirements);
+
+    $result = [];
+    foreach ($models as $meta) {
+        $result[] = [
+            'id'   => $meta->getId(),
+            'name' => $meta->getName(),
+        ];
+    }
+
+    return $result;
+}
+
+/**
+ * Returns models for a provider, falling back to the hardcoded default
+ * when the WP AI Client registry returns an empty list.
+ */
+function pp_ai_get_provider_models(string $provider_id): array {
+    $models = pp_ai_get_connector_models($provider_id);
+    if (empty($models)) {
+        $providers = pp_ai_connector_providers();
+        if (isset($providers[$provider_id])) {
+            $models = [['id' => $providers[$provider_id]['default_model'], 'name' => $providers[$provider_id]['default_model']]];
+        }
+    }
+    return $models;
+}
+
+/**
+ * Returns true if at least one WP 7.0 connector has an API key configured.
+ */
+function pp_ai_is_configured(): bool {
+    return !empty(pp_ai_get_configured_connectors());
+}
+
+/**
+ * Returns the AI provider configuration from WP 7.0 connectors.
+ *
+ * Uses pp_ai_selected_provider and pp_ai_selected_model wp_options
+ * for the user's provider/model choice.
  */
 function pp_ai_get_config(): array {
+    $configured = pp_ai_get_configured_connectors();
+
+    if (empty($configured)) {
+        return [
+            'provider' => '',
+            'base_url' => '',
+            'api_key'  => '',
+            'model'    => '',
+        ];
+    }
+
+    $providers    = pp_ai_connector_providers();
+    $selected     = get_option('pp_ai_selected_provider', '');
+
+    // Fall back to first configured provider if selection is invalid
+    if (empty($selected) || !isset($configured[$selected])) {
+        $selected = array_key_first($configured);
+    }
+
+    $provider_map = $providers[$selected] ?? [];
+    $model        = get_option('pp_ai_selected_model', $provider_map['default_model'] ?? '');
+
     return [
-        'provider' => get_option(PP_AI_OPT_PROVIDER, PP_AI_DEFAULT_PROVIDER),
-        'base_url' => get_option(PP_AI_OPT_BASE_URL, PP_AI_DEFAULT_BASE_URL),
-        'api_key'  => get_option(PP_AI_OPT_API_KEY, ''),
-        'model'    => get_option(PP_AI_OPT_MODEL, PP_AI_DEFAULT_MODEL),
+        'provider' => $selected,
+        'base_url' => $provider_map['base_url'] ?? '',
+        'api_key'  => $configured[$selected]['api_key'] ?? '',
+        'model'    => $model,
     ];
 }
 
@@ -237,13 +346,13 @@ function pp_ai_completion(array $messages): array {
  * Parses an error response from the LLM provider into a user-friendly message.
  */
 function pp_ai_parse_error_response(int $http_code, string $body): string {
-    // COUPLED: JS handleStreamError() matches "Check AI Settings" to show settings link.
+    // COUPLED: JS handleStreamError() matches "Settings > Connectors" to show settings link.
     if ($http_code === 400) {
-        return 'The provider rejected the request. This may indicate an unsupported model or parameter. Check AI Settings.';
+        return 'The provider rejected the request. This may indicate an unsupported model or parameter. Check Settings > Connectors.';
     }
 
     if ($http_code === 401 || $http_code === 403) {
-        return 'AI provider rejected the API key. Check AI Settings.';
+        return 'AI provider rejected the API key. Check Settings > Connectors.';
     }
 
     if ($http_code === 429) {
@@ -251,7 +360,7 @@ function pp_ai_parse_error_response(int $http_code, string $body): string {
     }
 
     if ($http_code === 404) {
-        return 'Model not found by the provider. Check AI Settings.';
+        return 'Model not found by the provider. Check Settings > Connectors.';
     }
 
     $decoded = json_decode($body, true);

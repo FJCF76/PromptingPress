@@ -68,16 +68,33 @@ add_action('admin_enqueue_scripts', function (string $hook) {
     // Pass config to JS
     $pages = pp_composition_pages();
 
+    $ai_config  = pp_ai_get_config();
+    $configured = pp_ai_get_configured_connectors();
+    $providers_map = pp_ai_connector_providers();
+
+    // Build providers array with model lists for JS
+    $providers_js = [];
+    foreach ($configured as $pid => $pdata) {
+        $models = pp_ai_get_provider_models($pid);
+        $providers_js[] = [
+            'id'     => $pid,
+            'name'   => $pdata['name'],
+            'models' => $models,
+        ];
+    }
+
     wp_localize_script('pp-ai-chat', 'ppAiChat', [
-        'streamUrl'    => get_template_directory_uri() . '/ai-stream.php',
-        'ajaxUrl'      => admin_url('admin-ajax.php'),
-        'streamNonce'  => wp_create_nonce('pp_ai_stream'),
-        'executeNonce' => wp_create_nonce('pp_ai_execute'),
-        'configured'   => pp_ai_is_configured(),
-        'settingsUrl'  => admin_url('admin.php?page=pp-ai-settings'),
-        'siteUrl'      => site_url(),
-        'pages'        => $pages,
-        'model'        => get_option(PP_AI_OPT_MODEL, PP_AI_DEFAULT_MODEL),
+        'streamUrl'        => get_template_directory_uri() . '/ai-stream.php',
+        'ajaxUrl'          => admin_url('admin-ajax.php'),
+        'streamNonce'      => wp_create_nonce('pp_ai_stream'),
+        'executeNonce'     => wp_create_nonce('pp_ai_execute'),
+        'configured'       => pp_ai_is_configured(),
+        'connectorsUrl'    => admin_url('options-general.php?page=connectors'),
+        'siteUrl'          => site_url(),
+        'pages'            => $pages,
+        'providers'        => $providers_js,
+        'selectedProvider' => $ai_config['provider'],
+        'selectedModel'    => $ai_config['model'],
     ]);
 });
 
@@ -92,16 +109,40 @@ function pp_ai_chat_page(): void {
         <div id="pp-ai-chat-app">
             <?php if (!pp_ai_is_configured()): ?>
                 <div class="pp-ai-chat-unconfigured">
-                    <h2>AI Chat</h2>
-                    <p>Configure your AI provider to get started.</p>
-                    <a href="<?php echo esc_url(admin_url('admin.php?page=pp-ai-settings')); ?>" class="button button-primary">
-                        AI Settings
+                    <span class="dashicons dashicons-admin-generic pp-ai-chat-unconfigured-icon"></span>
+                    <h2>Connect an AI Provider</h2>
+                    <p>PromptingPress uses WordPress Connectors to securely manage AI provider credentials. Configure Anthropic, OpenAI, or Google in your WordPress settings.</p>
+                    <a href="<?php echo esc_url(admin_url('options-general.php?page=connectors')); ?>" class="button button-primary">
+                        Configure AI Provider
                     </a>
                 </div>
             <?php else: ?>
+                <?php
+                $ai_config          = pp_ai_get_config();
+                $configured_connectors = pp_ai_get_configured_connectors();
+                $providers_map      = pp_ai_connector_providers();
+                $is_multi_provider  = count($configured_connectors) > 1;
+                ?>
                 <div class="pp-ai-chat-header">
                     <h2>AI Chat</h2>
-                    <span class="pp-ai-chat-model"><?php echo esc_html(get_option(PP_AI_OPT_MODEL, PP_AI_DEFAULT_MODEL)); ?></span>
+                    <?php if ($is_multi_provider): ?>
+                        <select id="pp-ai-provider-select" class="pp-ai-chat-selector">
+                            <?php foreach ($configured_connectors as $pid => $pdata): ?>
+                                <option value="<?php echo esc_attr($pid); ?>" <?php selected($pid, $ai_config['provider']); ?>>
+                                    <?php echo esc_html($pdata['name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    <?php else: ?>
+                        <span class="pp-ai-chat-selector pp-ai-chat-selector--static">
+                            <?php echo esc_html(reset($configured_connectors)['name']); ?>
+                        </span>
+                    <?php endif; ?>
+                    <select id="pp-ai-model-select" class="pp-ai-chat-selector">
+                        <option value="<?php echo esc_attr($ai_config['model']); ?>" selected>
+                            <?php echo esc_html($ai_config['model']); ?>
+                        </option>
+                    </select>
                     <button id="pp-ai-new-chat" class="button pp-ai-new-chat" title="Start a new conversation">New Chat</button>
                 </div>
                 <div id="pp-ai-messages" class="pp-ai-chat-messages"></div>
@@ -114,6 +155,55 @@ function pp_ai_chat_page(): void {
     </div>
     <?php
 }
+
+// ── Provider/Model Switch AJAX ────────────────────────────────────────────
+
+add_action('wp_ajax_pp_ai_switch_provider', function () {
+    check_ajax_referer('pp_ai_execute');
+
+    if (!current_user_can('edit_posts')) {
+        wp_send_json_error('Permission denied.', 403);
+        return;
+    }
+
+    $provider = isset($_POST['provider']) ? sanitize_text_field($_POST['provider']) : '';
+    $model    = isset($_POST['model']) ? sanitize_text_field($_POST['model']) : '';
+
+    $configured = pp_ai_get_configured_connectors();
+    $providers  = pp_ai_connector_providers();
+
+    if (!empty($provider) && isset($configured[$provider])) {
+        update_option('pp_ai_selected_provider', $provider);
+
+        // If no model specified, use default for this provider
+        if (empty($model)) {
+            $model = $providers[$provider]['default_model'] ?? '';
+        }
+    }
+
+    if (!empty($model)) {
+        // Validate model ID against the provider's available models
+        $valid_provider = !empty($provider) && isset($configured[$provider]) ? $provider : get_option('pp_ai_selected_provider', '');
+        if (!empty($valid_provider)) {
+            $available = pp_ai_get_provider_models($valid_provider);
+            $model_ids = array_column($available, 'id');
+            if (!empty($model_ids) && !in_array($model, $model_ids, true)) {
+                $model = $model_ids[0] ?? $model;
+            }
+        }
+        update_option('pp_ai_selected_model', $model);
+    }
+
+    // Return the model list for the selected provider
+    $selected  = get_option('pp_ai_selected_provider', '');
+    $models    = !empty($selected) ? pp_ai_get_provider_models($selected) : [];
+
+    wp_send_json_success([
+        'provider' => $selected,
+        'model'    => get_option('pp_ai_selected_model', ''),
+        'models'   => $models,
+    ]);
+});
 
 // ── Param Coercion ────────────────────────────────────────────────────────
 // FormData sends all values as strings. The action/apply layer does strict
@@ -356,7 +446,7 @@ add_action('wp_ajax_pp_ai_chat', function () {
     }
 
     if (!pp_ai_is_configured()) {
-        wp_send_json_error('AI provider not configured. Check AI Settings.');
+        wp_send_json_error('AI provider not configured. Check Settings > Connectors.');
     }
 
     set_time_limit(0);
