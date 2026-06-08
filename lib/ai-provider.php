@@ -202,7 +202,7 @@ function pp_ai_request_body(array $config, array $messages, bool $stream): strin
         $body['stream'] = true;
     }
     if ($config['provider'] === 'anthropic') {
-        $body['max_tokens'] = 4096;
+        $body['max_tokens'] = 16384;
         // Anthropic uses a top-level system parameter, not a system message
         $system_parts = [];
         $filtered = [];
