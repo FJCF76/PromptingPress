@@ -440,6 +440,10 @@ function pp_ai_parse_error_response(int $http_code, string $body): string {
     }
 
     if ($http_code === 429) {
+        $decoded = json_decode($body, true);
+        if (is_array($decoded) && ($decoded['error']['code'] ?? '') === 'insufficient_quota') {
+            return 'Your API key has no remaining credits. Add billing at your provider or switch providers in Settings > Connectors.';
+        }
         return 'Rate limited. Try again in a moment.';
     }
 
