@@ -163,11 +163,75 @@ body.pp-ai-chat-page #wpcontent {
 .pp-ai-msg-body {
     font-size: 14px;
     line-height: 1.6;
-    white-space: pre-wrap;
     word-wrap: break-word;
 }
 
+/* User messages keep pre-wrap for whitespace */
+.pp-ai-msg-user .pp-ai-msg-body {
+    white-space: pre-wrap;
+}
+
+/* ── Markdown Rendering ───────────────────────────────────────────────────── */
+
+.pp-ai-msg-assistant .pp-ai-msg-body p {
+    margin: 0 0 0.6em;
+}
+
+.pp-ai-msg-assistant .pp-ai-msg-body p:last-child {
+    margin-bottom: 0;
+}
+
+.pp-ai-msg-assistant .pp-ai-msg-body h3,
+.pp-ai-msg-assistant .pp-ai-msg-body h4,
+.pp-ai-msg-assistant .pp-ai-msg-body h5 {
+    margin: 1em 0 0.4em;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.pp-ai-msg-assistant .pp-ai-msg-body h3 {
+    font-size: 15px;
+}
+
+.pp-ai-msg-assistant .pp-ai-msg-body ul,
+.pp-ai-msg-assistant .pp-ai-msg-body ol {
+    margin: 0.4em 0 0.6em;
+    padding-left: 1.5em;
+}
+
+.pp-ai-msg-assistant .pp-ai-msg-body li {
+    margin-bottom: 0.2em;
+}
+
+.pp-ai-msg-assistant .pp-ai-msg-body code {
+    background: #f0f0f1;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 13px;
+}
+
+.pp-ai-msg-assistant .pp-ai-msg-body pre {
+    background: #2c3338;
+    color: #f0f0f1;
+    padding: 12px;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 0.6em 0;
+}
+
+.pp-ai-msg-assistant .pp-ai-msg-body pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+    font-size: 13px;
+}
+
 /* ── Streaming Indicator ──────────────────────────────────────────────────── */
+
+/* During streaming, text is raw (textContent) so preserve whitespace */
+.pp-ai-msg-streaming {
+    white-space: pre-wrap;
+}
 
 .pp-ai-msg-streaming::after {
     content: '';

@@ -143,6 +143,153 @@
     var isStreaming = false;
     var activePageId = null;
 
+    // ── Markdown Rendering ────────────────────────────────────────────
+
+    function renderMarkdown(text) {
+        if (!text) return '';
+        // Escape HTML first to prevent XSS
+        var html = text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+
+        // Code blocks (``` ... ```)
+        html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function (_, lang, code) {
+            return '<pre><code>' + code.replace(/\n$/, '') + '</code></pre>';
+        });
+
+        // Inline code
+        html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+
+        // Bold + italic
+        html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+        // Bold
+        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        // Italic
+        html = html.replace(/(?<!\*)\*([^\s*][^*]*[^\s*])\*(?!\*)/g, '<em>$1</em>');
+        html = html.replace(/(?<!\*)\*([^\s*])\*(?!\*)/g, '<em>$1</em>');
+
+        // Split into lines for block-level processing
+        var lines = html.split('\n');
+        var result = [];
+        var inList = false;
+        var listType = '';
+
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i];
+
+            // Skip lines inside pre blocks (already handled)
+            if (line.indexOf('<pre>') !== -1) {
+                if (inList) { result.push('</' + listType + '>'); inList = false; }
+                // Collect until </pre>
+                var preBlock = line;
+                while (line.indexOf('</pre>') === -1 && i + 1 < lines.length) {
+                    i++;
+                    line = lines[i];
+                    preBlock += '\n' + line;
+                }
+                result.push(preBlock);
+                continue;
+            }
+
+            // Headings
+            var headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
+            if (headingMatch) {
+                if (inList) { result.push('</' + listType + '>'); inList = false; }
+                var level = headingMatch[1].length;
+                result.push('<h' + (level + 2) + '>' + headingMatch[2] + '</h' + (level + 2) + '>');
+                continue;
+            }
+
+            // Ordered list
+            var olMatch = line.match(/^\d+\.\s+(.+)$/);
+            if (olMatch) {
+                if (!inList || listType !== 'ol') {
+                    if (inList) result.push('</' + listType + '>');
+                    result.push('<ol>');
+                    inList = true;
+                    listType = 'ol';
+                }
+                // Collect continuation lines (indented or blank lines followed by indented)
+                var liContent = olMatch[1];
+                while (i + 1 < lines.length) {
+                    var next = lines[i + 1];
+                    if (next.match(/^\s{2,}/) && !next.match(/^\d+\.\s/) && !next.match(/^[-*]\s/)) {
+                        liContent += '<br>' + next.trim();
+                        i++;
+                    } else {
+                        break;
+                    }
+                }
+                result.push('<li>' + liContent + '</li>');
+                continue;
+            }
+
+            // Unordered list
+            var ulMatch = line.match(/^[-*]\s+(.+)$/);
+            if (ulMatch) {
+                if (!inList || listType !== 'ul') {
+                    if (inList) result.push('</' + listType + '>');
+                    result.push('<ul>');
+                    inList = true;
+                    listType = 'ul';
+                }
+                var uliContent = ulMatch[1];
+                while (i + 1 < lines.length) {
+                    var nextUl = lines[i + 1];
+                    if (nextUl.match(/^\s{2,}/) && !nextUl.match(/^\d+\.\s/) && !nextUl.match(/^[-*]\s/)) {
+                        uliContent += '<br>' + nextUl.trim();
+                        i++;
+                    } else {
+                        break;
+                    }
+                }
+                result.push('<li>' + uliContent + '</li>');
+                continue;
+            }
+
+            // Empty line — check if list continues after it
+            if (line.trim() === '') {
+                if (inList) {
+                    // Look ahead past blank lines for another list item of the same type
+                    var ahead = i + 1;
+                    while (ahead < lines.length && lines[ahead].trim() === '') ahead++;
+                    var continues = false;
+                    if (ahead < lines.length) {
+                        if (listType === 'ol' && lines[ahead].match(/^\d+\.\s/)) continues = true;
+                        if (listType === 'ul' && lines[ahead].match(/^[-*]\s/)) continues = true;
+                    }
+                    if (!continues) {
+                        result.push('</' + listType + '>');
+                        inList = false;
+                    }
+                }
+                result.push('');
+                continue;
+            }
+
+            // Close list if we hit a non-list, non-empty line
+            if (inList) {
+                result.push('</' + listType + '>');
+                inList = false;
+            }
+
+            // Regular text — wrap in paragraph
+            result.push('<p>' + line + '</p>');
+        }
+
+        if (inList) result.push('</' + listType + '>');
+
+        // Clean up: merge adjacent <p> tags separated by nothing
+        return result.join('\n')
+            .replace(/<\/p>\n<p>/g, '<br>')
+            .replace(/\n{2,}/g, '\n');
+    }
+
+    function setMarkdownContent(el, text) {
+        el.innerHTML = renderMarkdown(text);
+    }
+
     // ── Message Rendering ──────────────────────────────────────────────
 
     function addMessage(role, content) {
@@ -155,7 +302,11 @@
 
         var body = document.createElement('div');
         body.className = 'pp-ai-msg-body';
-        body.textContent = content;
+        if (role === 'assistant') {
+            setMarkdownContent(body, content);
+        } else {
+            body.textContent = content;
+        }
 
         div.appendChild(label);
         div.appendChild(body);
@@ -466,9 +617,7 @@
             // Store full text in conversation for context, but display without raw JSON
             conversation.push({ role: 'assistant', content: fullText });
             var displayText = stripProposalJson(fullText);
-            if (displayText !== fullText) {
-                msgBody.textContent = displayText;
-            }
+            setMarkdownContent(msgBody, displayText);
 
             // Detect truncated responses: prose suggests a proposal was coming
             // but no proposal was received from the server
@@ -565,7 +714,7 @@
         .then(function (r) { return r.json(); })
         .then(function (resp) {
             if (resp.success) {
-                msgBody.textContent = resp.data.content;
+                setMarkdownContent(msgBody, resp.data.content);
                 msgBody.classList.remove('pp-ai-msg-streaming');
                 conversation.push({ role: 'assistant', content: resp.data.content });
 
