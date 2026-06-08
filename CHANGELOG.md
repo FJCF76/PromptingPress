@@ -4,6 +4,52 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.4.0] — 2026-06-08 — WP 7.0 AI Connector Integration
+
+### AI provider credentials now managed by WordPress Connectors
+
+PromptingPress no longer manages API keys or provider configuration. WordPress 7.0's Connectors API handles credential storage for Anthropic, Google, and OpenAI. The custom AI Settings page is deleted entirely — configure providers in Settings > Connectors.
+
+The AI Chat header gains provider and model selector dropdowns. Switch between configured providers mid-conversation. When only one provider is configured, the provider selector renders as a static label. Model lists load dynamically from the WP AI Client registry.
+
+Anthropic gets a native transport adapter. The Anthropic Messages API uses `x-api-key` + `anthropic-version` headers, top-level `system` param, and `content_block_delta` SSE events — different from the OpenAI-compatible format used by Google and OpenAI. The streaming layer now detects the provider and speaks the correct protocol.
+
+### Added
+- `pp_ai_connector_providers()` — hardcoded provider-to-URL map for Anthropic, Google, OpenAI
+- `pp_ai_get_configured_connectors()` — reads configured connectors from WP 7.0 Connectors API
+- `pp_ai_get_connector_models()` — queries WP AI Client model registry, filters for text generation
+- Provider and model `<select>` dropdowns in AI Chat header with pill styling
+- `wp_ajax_pp_ai_switch_provider` — saves provider/model selection, returns model list
+- Anthropic-native streaming transport (Messages API format with `content_block_delta` events)
+- Markdown rendering in assistant messages (bold, italic, inline code, code blocks, headings, lists)
+- Unconfigured state with dashicon, help text, and link to Settings > Connectors
+- CSS pill selector styles (`.pp-ai-chat-selector`) with hover/focus/loading/error states
+
+### Changed
+- `pp_ai_get_config()` reads credentials from WP Connectors instead of custom wp_options
+- `pp_ai_is_configured()` checks connector API keys instead of legacy options
+- `pp_ai_stream_completion()` uses provider-aware transport (Anthropic native vs OpenAI-compatible)
+- Error messages reference "Settings > Connectors" instead of "AI Settings"
+- Quota exhaustion errors distinguished from rate limiting with actionable guidance
+- `max_tokens` bumped from 4096 to 16384 for Anthropic requests
+- Ordered list numbering preserved across code block interruptions (`<ol start="N">`)
+
+### Removed
+- `lib/ai-settings.php` (443 lines) — entire custom AI Settings admin page
+- `tests/AiSettingsTest.php` — replaced by connector-focused tests
+- Legacy wp_options: `pp_ai_provider`, `pp_ai_base_url`, `pp_ai_api_key`, `pp_ai_model`
+- Admin menu item for "AI Settings"
+
+### Tests
+- 414 tests, 1238 assertions
+- Rewritten `AiProviderTest.php` for connector-only config
+- Rewritten `AiChatHandlersTest.php` for provider switch AJAX
+
+### Requires
+- WordPress 7.0+ (hard requirement — no backward compatibility)
+
+---
+
 ## [v0.3.0] — 2026-06-06 — Agent step enforcement + design token compliance
 
 ### AI agents can no longer skip safety steps; design tokens replace all color-mix() calls
