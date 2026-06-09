@@ -48,6 +48,29 @@ Anthropic gets a native transport adapter. The Anthropic Messages API uses `x-ap
 ### Requires
 - WordPress 7.0+ (hard requirement — no backward compatibility)
 
+### Theme packaging infrastructure
+
+PromptingPress can now be distributed as a ZIP and installed via WordPress Admin > Upload Theme.
+
+#### Added
+- `scripts/package.sh` — builds `promptingpress-{version}.zip` with version consistency checks (style.css = functions.php PP_VERSION = package.json), Composer production dependency guard, and size validation (<5MB)
+- `.distignore` — comprehensive exclusion patterns for dev artifacts
+- `.github/workflows/release.yml` — CI workflow attaches ZIP to GitHub releases with tag-version validation
+- `LICENSE` — GPL-2.0-or-later full text + PromptingPress trademark notice
+- `readme.txt` — WordPress.org theme readme format
+- `screenshot.png` — 1200×900 real screenshot from dev site
+- `comments.php` — minimal comments template with `comments_open()` guard, `wp_list_comments()`, `comment_form()`, and password-protected post check
+- `pp_comments_template()` wrapper in `lib/wp.php` — maintains the invariant: no raw WP functions in /templates/
+- Skip-to-content link in `templates/base.php` with `.skip-link` CSS (visible on :focus)
+- `wp_body_open()` hook in `templates/base.php`
+- `automatic-feed-links` theme support in `functions.php`
+- Packaging smoke test (`tests/js/package.test.js`) — 5 assertions verifying ZIP structure, required files, dev artifact exclusion, and no hidden files
+- `npm run package` script in `package.json`
+
+#### Changed
+- `style.css` — added Theme URI, License, License URI, Requires at least (7.0), Tested up to (7.0), Requires PHP (8.0), Tags
+- `templates/single.php` — wired `pp_comments_template()` after CTA component
+
 ---
 
 ## [v0.3.0] — 2026-06-06 — Agent step enforcement + design token compliance
