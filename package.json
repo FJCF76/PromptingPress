@@ -8,7 +8,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test --config tests/e2e/playwright.config.ts",
     "env:start": "wp-env start",
-    "env:stop": "wp-env stop"
+    "env:stop": "wp-env stop",
+    "package": "bash scripts/package.sh"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",

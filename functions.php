@@ -36,6 +36,7 @@ add_action('admin_notices', 'pp_admin_notice_css_conflicts');
 
 // ── Theme setup ────────────────────────────────────────────────────────────
 add_action('after_setup_theme', function () {
+    add_theme_support('automatic-feed-links');
     add_theme_support('title-tag');
     add_theme_support('post-thumbnails');
     add_theme_support('html5', [

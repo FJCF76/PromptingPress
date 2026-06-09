@@ -1,0 +1,51 @@
+# ── Packaging exclusions ────────────────────────────────────────────────
+# Files and directories excluded from the distributable ZIP.
+# Used by scripts/package.sh via rsync --exclude-from.
+
+# Version control
+.git/
+.github/
+
+# Internal tooling
+.gstack/
+.gstack-screenshots/
+.context/
+
+# Tests
+tests/
+test-results/
+playwright-report/
+
+# Dependencies (dev-only, not shipped)
+node_modules/
+vendor/
+
+# Dependency manifests (dev-only)
+composer.json
+composer.lock
+composer.phar
+package.json
+package-lock.json
+
+# Test config
+phpunit.xml
+vitest.config.js
+
+# Packaging infrastructure (not runtime)
+scripts/
+.distignore
+
+# Dev environment
+.wp-env.json
+content/
+.phpunit.result.cache
+
+# Documentation not needed at runtime
+CLAUDE.md
+TODOS.md
+
+# Previously built ZIPs
+promptingpress-*.zip
+
+# Hidden files/folders (catch-all)
+.*

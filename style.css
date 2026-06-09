@@ -1,8 +1,15 @@
 /*
-Theme Name:  PromptingPress
-Description: An AI-first WordPress theme built for clarity — zero raw WP calls in templates, typed component props, machine-readable schemas, and a single AI_CONTEXT.md that maps the entire site.
-Version:     0.4.0
-Author:      PromptingPress Contributors
-Author URI:  https://github.com/FJCF76/PromptingPress
-Text Domain: promptingpress
+Theme Name:       PromptingPress
+Theme URI:        https://github.com/FJCF76/PromptingPress
+Description:      An AI-first WordPress theme built for clarity — zero raw WP calls in templates, typed component props, machine-readable schemas, and a single AI_CONTEXT.md that maps the entire site.
+Version:          0.4.0
+Author:           PromptingPress Contributors
+Author URI:       https://github.com/FJCF76/PromptingPress
+License:          GPL-2.0-or-later
+License URI:      https://www.gnu.org/licenses/gpl-2.0.html
+Text Domain:      promptingpress
+Requires at least: 7.0
+Tested up to:     7.0
+Requires PHP:     8.0
+Tags:             custom-menu, featured-images, translation-ready
 */

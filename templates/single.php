@@ -28,4 +28,6 @@ pp_base_template(function () {
         'variant'     => 'inline',
     ]);
 
+    pp_comments_template();
+
 });

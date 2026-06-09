@@ -374,6 +374,19 @@ function pp_update_site_option(string $key, string $value) {
     return true;
 }
 
+// ── Template tags ──────────────────────────────────────────────────────────
+
+/**
+ * Loads the comments template (comments.php) for the current post.
+ * Wrapper for comments_template() — maintains the invariant that
+ * templates call only pp_* functions, never raw WP functions.
+ */
+function pp_comments_template(): void {
+    if (comments_open() || get_comments_number()) {
+        comments_template();
+    }
+}
+
 // ── Default content ─────────────────────────────────────────────────────────
 
 /**

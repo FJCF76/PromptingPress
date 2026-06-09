@@ -234,7 +234,30 @@ a:hover {
 }
 
 /* ==========================================================================
-   7. Responsive breakpoint reference (CSS custom media — documentation only)
+   7. Skip Link
+   Visually hidden until focused — keyboard users see it, mouse users don't.
+   ========================================================================== */
+
+.skip-link.screen-reader-text {
+  position: absolute;
+  top: -100%;
+  left: 0;
+  z-index: 999;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 0.875rem;
+  text-decoration: none;
+  clip: rect(0, 0, 0, 0);
+}
+
+.skip-link.screen-reader-text:focus {
+  top: 0;
+  clip: auto;
+}
+
+/* ==========================================================================
+   8. Responsive breakpoint reference (CSS custom media — documentation only)
 
    Use standard @media queries in component / utility CSS:
      @media (min-width: 640px)  { ... }   sm

@@ -1,0 +1,33 @@
+name: Package & Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@v4
+
+      - name: Validate tag matches style.css version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CSS_VERSION=$(grep -m1 '^Version:' style.css | sed 's/Version:[[:space:]]*//' | tr -d '[:space:]')
+          if [[ "$TAG_VERSION" != "$CSS_VERSION" ]]; then
+            echo "ERROR: Git tag ($TAG_VERSION) does not match style.css Version ($CSS_VERSION)" >&2
+            exit 1
+          fi
+          echo "Tag-version check: OK ($TAG_VERSION)"
+
+      - name: Build theme ZIP
+        run: bash scripts/package.sh
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: promptingpress-*.zip

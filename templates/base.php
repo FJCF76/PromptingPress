@@ -29,6 +29,8 @@ if (!function_exists('pp_base_template')) {
     <?php wp_head(); ?>
 </head>
 <body class="<?php echo esc_attr(pp_body_classes()); ?>">
+<?php wp_body_open(); ?>
+<a class="skip-link screen-reader-text" href="#main"><?php esc_html_e('Skip to content', 'promptingpress'); ?></a>
 
 <?php pp_get_component('nav', ['location' => 'primary']); ?>
 
