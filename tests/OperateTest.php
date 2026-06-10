@@ -314,12 +314,12 @@ class OperateTest extends TestCase
         $this->assertTrue($check['pass']);
     }
 
-    public function testPreflightThemeWritableFailsWhenNotWritable(): void
+    public function testPreflightThemeWritableFailsWhenNotWritableWithFilePlannedFiles(): void
     {
         // Make theme dir read-only
         chmod($this->tempDir, 0555);
 
-        $result = pp_preflight();
+        $result = pp_preflight(['planned_files' => ['assets/css/base.css']]);
         $check = null;
         foreach ($result['checks'] as $c) {
             if ($c['check'] === 'theme_writable') {
@@ -333,6 +333,51 @@ class OperateTest extends TestCase
 
         $this->assertNotNull($check);
         $this->assertFalse($check['pass']);
+    }
+
+    public function testPreflightThemeWritableSkippedForOptionBackedApply(): void
+    {
+        // Make theme dir read-only
+        chmod($this->tempDir, 0555);
+
+        // Option-backed apply should skip the writability check
+        $result = pp_preflight(['apply_name' => 'update_design_token']);
+        $check = null;
+        foreach ($result['checks'] as $c) {
+            if ($c['check'] === 'theme_writable') {
+                $check = $c;
+                break;
+            }
+        }
+
+        // Restore permissions before assertions (so tearDown cleanup works)
+        chmod($this->tempDir, 0755);
+
+        $this->assertNotNull($check);
+        $this->assertTrue($check['pass'], 'Option-backed applies should not require theme writability');
+        $this->assertStringContainsString('database-backed', $check['message']);
+    }
+
+    public function testPreflightThemeWritableSkippedWithNoPlannedFiles(): void
+    {
+        // Make theme dir read-only
+        chmod($this->tempDir, 0555);
+
+        // No apply_name, no planned_files — default case should skip check
+        $result = pp_preflight();
+        $check = null;
+        foreach ($result['checks'] as $c) {
+            if ($c['check'] === 'theme_writable') {
+                $check = $c;
+                break;
+            }
+        }
+
+        // Restore permissions before assertions (so tearDown cleanup works)
+        chmod($this->tempDir, 0755);
+
+        $this->assertNotNull($check);
+        $this->assertTrue($check['pass'], 'No planned files means no filesystem requirement');
     }
 
     public function testPreflightTargetPagePassesForValidPost(): void

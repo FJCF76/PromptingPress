@@ -241,9 +241,17 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
         }
     }
 
-    // Check 5: Theme writable
+    // Check 5: Theme writable (only required when planned applies target files)
+    $needs_filesystem = !empty($planned_files);
+    if (!$needs_filesystem && !empty($context['apply_name'])) {
+        $apply_def = pp_get_apply($context['apply_name']);
+        $needs_filesystem = $apply_def !== null && isset($apply_def['target']['type']) && $apply_def['target']['type'] === 'file';
+    }
+
     $theme_path = $target['theme_path'];
-    if ($theme_path !== null && is_dir($theme_path) && is_writable($theme_path)) {
+    if (!$needs_filesystem) {
+        $checks[] = ['check' => 'theme_writable', 'pass' => true, 'message' => 'Skipped: planned applies are database-backed (no filesystem writes).'];
+    } elseif ($theme_path !== null && is_dir($theme_path) && is_writable($theme_path)) {
         $checks[] = ['check' => 'theme_writable', 'pass' => true, 'message' => 'Theme directory is writable.'];
     } elseif ($theme_path === null) {
         $checks[] = ['check' => 'theme_writable', 'pass' => false, 'message' => 'Cannot resolve theme path.'];
