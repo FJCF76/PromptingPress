@@ -236,16 +236,24 @@ class PP_Apply_Command extends WP_CLI_Command {
                 }
                 $params[] = $label;
             }
+            $target_label = '';
+            if (isset($def['target']['type'])) {
+                if ($def['target']['type'] === 'file') {
+                    $target_label = 'file:' . ($def['target']['path'] ?? '');
+                } elseif ($def['target']['type'] === 'option') {
+                    $target_label = 'option:' . ($def['target']['key'] ?? '');
+                }
+            }
             $rows[] = [
                 'name'        => $name,
                 'domain'      => $def['domain'],
-                'target_file' => $def['target_file'],
+                'target'      => $target_label,
                 'description' => $def['description'] ?? '',
                 'params'      => implode(', ', $params),
             ];
         }
 
-        WP_CLI\Utils\format_items('table', $rows, ['name', 'domain', 'target_file', 'description', 'params']);
+        WP_CLI\Utils\format_items('table', $rows, ['name', 'domain', 'target', 'description', 'params']);
     }
 
     /**
@@ -324,24 +332,23 @@ class PP_Apply_Command extends WP_CLI_Command {
     }
 
     /**
-     * Restores base.css from a restore point.
+     * Resets design tokens to product defaults.
+     *
+     * Design token overrides are stored in the database. Use reset_design_token
+     * or reset_all_design_tokens applies to revert to product defaults.
      *
      * ## OPTIONS
      *
      * --run-id=<uuid>
      * : Run token from `wp pp operate inspect`. Required.
      *
-     * [--point=<index>]
-     * : Restore point index (1 = most recent). Default: latest.
-     *
-     * [--list]
-     * : List available restore points instead of restoring.
+     * [--token=<name>]
+     * : Reset a single token. Omit to reset all.
      *
      * ## EXAMPLES
      *
-     *     wp pp apply restore
-     *     wp pp apply restore --point=2
-     *     wp pp apply restore --list
+     *     wp pp apply restore --run-id=<uuid> --token=--color-accent
+     *     wp pp apply restore --run-id=<uuid>
      *
      */
     public function restore($args, $assoc_args) {
@@ -352,36 +359,21 @@ class PP_Apply_Command extends WP_CLI_Command {
 
         _pp_cli_require_apply_cap();
 
-        // List mode
-        if (isset($assoc_args['list'])) {
-            $points = pp_restore_points('base.css');
-            if (empty($points)) {
-                WP_CLI::warning('No restore points available.');
-                return;
-            }
-
-            $rows = [];
-            foreach ($points as $point) {
-                $rows[] = [
-                    'index'     => $point['index'],
-                    'timestamp' => $point['timestamp'],
-                ];
-            }
-            WP_CLI\Utils\format_items('table', $rows, ['index', 'timestamp']);
-            return;
+        if (isset($assoc_args['token'])) {
+            $result = pp_execute_apply('reset_design_token', ['token' => $assoc_args['token']]);
+        } else {
+            $result = pp_execute_apply('reset_all_design_tokens', []);
         }
 
-        // Restore mode
-        $target = get_template_directory() . '/assets/css/base.css';
-        $point_index = isset($assoc_args['point']) ? (int) $assoc_args['point'] : null;
+        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
-        $result = pp_restore($target, $point_index);
-
-        if (is_wp_error($result)) {
-            WP_CLI::error($result->get_error_message());
+        if ($result['ok']) {
+            pp_operate_record_step($run_id, 'APPLY');
+            $count = count($result['changes']);
+            WP_CLI::success($count > 0 ? "Reset $count token(s) to product defaults." : 'No overrides to reset.');
+        } else {
+            WP_CLI::halt(1);
         }
-
-        WP_CLI::success('Restored base.css from restore point ' . ($point_index ?? 1) . '.');
     }
 
     /**
@@ -404,7 +396,7 @@ class PP_Apply_Command extends WP_CLI_Command {
      * : Target page post ID. Enables target_page check.
      *
      * [--apply=<name>]
-     * : Named apply definition. Auto-populates planned_files from the apply's target_file.
+     * : Named apply definition. Auto-populates planned_files from the apply's target (file-based applies only).
      *
      * ## EXAMPLES
      *

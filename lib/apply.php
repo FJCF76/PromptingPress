@@ -1,15 +1,16 @@
 <?php
 /**
- * lib/apply.php — PromptingPress Apply Layer (File-Based Mutations)
+ * lib/apply.php — PromptingPress Apply Layer
  *
- * Adjacent execution contract for file-based mutations.
- * Same architectural DNA as the action model (lib/actions.php) but for
- * file writes instead of database writes.
+ * Adjacent execution contract for mutations (file-based or option-based).
+ * Same architectural DNA as the action model (lib/actions.php).
  *
  * Apply definition contract:
  *   name        => string (unique, snake_case)
- *   domain      => 'design' (future: other file-based domains)
- *   target_file => string (relative to theme root, e.g. 'assets/css/base.css')
+ *   domain      => 'design' (future: other domains)
+ *   target      => ['type' => 'file'|'option', ...type-specific keys]
+ *                   file:   ['type' => 'file', 'path' => string]  (relative to theme root)
+ *                   option: ['type' => 'option', 'key' => string] (wp_options key)
  *   description => string (one sentence, caller-facing)
  *   params      => [param_name => ['type' => string, 'required' => bool], ...]
  *   validate    => callable(array $params): true|WP_Error
@@ -18,12 +19,11 @@
  *
  * Canonical result shape (apply):
  *   ['ok' => bool, 'apply' => string, 'domain' => string,
- *    'target_file' => string, 'restore_point' => int|null,
- *    'changes' => array, 'error' => string|null]
+ *    'target' => array, 'changes' => array, 'error' => string|null]
  *
  * Preview result shape (same + before/after):
  *   ['ok' => true, 'apply' => string, 'domain' => string,
- *    'target_file' => string, 'before' => array, 'after' => array,
+ *    'target' => array, 'before' => array, 'after' => array,
  *    'changes' => array, 'error' => null]
  */
 
@@ -115,13 +115,12 @@ function pp_execute_apply(string $name, array $params): array {
     if (is_wp_error($validation)) {
         $apply = pp_get_apply($name);
         return [
-            'ok'            => false,
-            'apply'         => $name,
-            'domain'        => $apply['domain'] ?? 'unknown',
-            'target_file'   => $apply['target_file'] ?? '',
-            'restore_point' => null,
-            'changes'       => [],
-            'error'         => $validation->get_error_message(),
+            'ok'      => false,
+            'apply'   => $name,
+            'domain'  => $apply['domain'] ?? 'unknown',
+            'target'  => $apply['target'] ?? [],
+            'changes' => [],
+            'error'   => $validation->get_error_message(),
         ];
     }
 
@@ -131,40 +130,38 @@ function pp_execute_apply(string $name, array $params): array {
 
 // ── Helper: build result arrays ─────────────────────────────────────────────
 
-function _pp_apply_result(string $name, string $domain, string $target_file, ?int $restore_point, array $changes): array {
+function _pp_apply_result(string $name, string $domain, array $target, array $changes): array {
     return [
-        'ok'            => true,
-        'apply'         => $name,
-        'domain'        => $domain,
-        'target_file'   => $target_file,
-        'restore_point' => $restore_point,
-        'changes'       => $changes,
-        'error'         => null,
+        'ok'      => true,
+        'apply'   => $name,
+        'domain'  => $domain,
+        'target'  => $target,
+        'changes' => $changes,
+        'error'   => null,
     ];
 }
 
-function _pp_apply_error(string $name, string $domain, string $target_file, string $error): array {
+function _pp_apply_error(string $name, string $domain, array $target, string $error): array {
     return [
-        'ok'            => false,
-        'apply'         => $name,
-        'domain'        => $domain,
-        'target_file'   => $target_file,
-        'restore_point' => null,
-        'changes'       => [],
-        'error'         => $error,
+        'ok'      => false,
+        'apply'   => $name,
+        'domain'  => $domain,
+        'target'  => $target,
+        'changes' => [],
+        'error'   => $error,
     ];
 }
 
-function _pp_apply_preview(string $name, string $domain, string $target_file, array $before, array $after, array $changes): array {
+function _pp_apply_preview(string $name, string $domain, array $target, array $before, array $after, array $changes): array {
     return [
-        'ok'          => true,
-        'apply'       => $name,
-        'domain'      => $domain,
-        'target_file' => $target_file,
-        'before'      => $before,
-        'after'       => $after,
-        'changes'     => $changes,
-        'error'       => null,
+        'ok'      => true,
+        'apply'   => $name,
+        'domain'  => $domain,
+        'target'  => $target,
+        'before'  => $before,
+        'after'   => $after,
+        'changes' => $changes,
+        'error'   => null,
     ];
 }
 
@@ -203,165 +200,6 @@ function pp_get_target(): array {
         'theme_path'  => $theme_path ?: null,
         'environment' => $environment,
     ];
-}
-
-// ── Backup & Restore ────────────────────────────────────────────────────────
-
-/**
- * Returns the backup directory path. Creates it if needed.
- */
-function _pp_backup_dir(): string {
-    // Allow override via constant (wp-config.php).
-    if (defined('PP_BACKUP_DIR') && PP_BACKUP_DIR) {
-        $dir = PP_BACKUP_DIR;
-    } elseif (defined('WP_CONTENT_DIR')) {
-        $dir = WP_CONTENT_DIR . '/pp-backups';
-    } else {
-        $dir = dirname(dirname(get_template_directory())) . '/pp-backups';
-    }
-
-    if (!is_dir($dir)) {
-        mkdir($dir, 0755, true);
-    }
-
-    return $dir;
-}
-
-/**
- * Checks whether the backup directory is writable.
- * Creates a probe file, verifies it, and cleans up.
- *
- * @return true|string  True if writable, error message string if not.
- */
-function _pp_check_backup_writability() {
-    $dir = _pp_backup_dir();
-    $probe = $dir . '/.preflight-probe';
-    $result = @file_put_contents($probe, 'test');
-    if ($result === false) {
-        return sprintf(
-            'Backup directory %s is not writable. Fix: chmod 755 %s or run as the web server user.',
-            $dir,
-            $dir
-        );
-    }
-    @unlink($probe);
-    return true;
-}
-
-/**
- * Creates a backup of the target file.
- * Returns the backup file path, or false on failure.
- */
-function _pp_create_backup(string $source_path): string|false {
-    $dir = _pp_backup_dir();
-    $basename = basename($source_path);
-    $backup_path = $dir . '/' . $basename . '.backup.' . date('Ymd-His');
-
-    $result = copy($source_path, $backup_path);
-    if (!$result) {
-        return false;
-    }
-
-    // Verify backup exists and is non-empty
-    if (!file_exists($backup_path) || filesize($backup_path) === 0) {
-        return false;
-    }
-
-    // Prune old backups: keep last 5
-    _pp_prune_backups($basename, 5);
-
-    return $backup_path;
-}
-
-/**
- * Prunes old backups, keeping only the N most recent.
- */
-function _pp_prune_backups(string $basename, int $keep): void {
-    $dir = _pp_backup_dir();
-    $pattern = $dir . '/' . $basename . '.backup.*';
-    $files = glob($pattern);
-    if (!$files || count($files) <= $keep) {
-        return;
-    }
-
-    // Sort newest first (filenames contain timestamps, so alphabetical = chronological)
-    rsort($files);
-    $to_delete = array_slice($files, $keep);
-    foreach ($to_delete as $file) {
-        unlink($file);
-    }
-}
-
-/**
- * Returns available restore points for a given file basename.
- * Each restore point is ['index' => int, 'timestamp' => string, 'path' => string].
- * Index 1 = most recent.
- */
-function pp_restore_points(string $basename = 'base.css'): array {
-    $dir = _pp_backup_dir();
-    $pattern = $dir . '/' . $basename . '.backup.*';
-    $files = glob($pattern);
-    if (!$files) {
-        return [];
-    }
-
-    rsort($files); // newest first
-    $points = [];
-    foreach ($files as $i => $file) {
-        // Extract timestamp from filename: base.css.backup.20260418-190000
-        $parts = explode('.backup.', basename($file));
-        $timestamp = $parts[1] ?? 'unknown';
-        $points[] = [
-            'index'     => $i + 1,
-            'timestamp' => $timestamp,
-            'path'      => $file,
-        ];
-    }
-
-    return $points;
-}
-
-/**
- * Restores a file from a restore point.
- *
- * @param string   $target_path  The file to restore.
- * @param int|null $point_index  Restore point index (1 = most recent). Null = latest.
- * @return true|WP_Error
- */
-function pp_restore(string $target_path, ?int $point_index = null) {
-    $basename = basename($target_path);
-    $points = pp_restore_points($basename);
-
-    if (empty($points)) {
-        return new WP_Error('no_backups', 'No restore points available.');
-    }
-
-    $index = $point_index ?? 1;
-    $point = null;
-    foreach ($points as $p) {
-        if ($p['index'] === $index) {
-            $point = $p;
-            break;
-        }
-    }
-
-    if (!$point) {
-        return new WP_Error('invalid_point', sprintf('Restore point %d does not exist. Available: 1-%d.', $index, count($points)));
-    }
-
-    if (!file_exists($point['path']) || filesize($point['path']) === 0) {
-        return new WP_Error('corrupt_backup', sprintf('Restore point %d is corrupted or empty.', $index));
-    }
-
-    $result = copy($point['path'], $target_path);
-    if (!$result) {
-        return new WP_Error('restore_failed', 'Failed to restore file from backup.');
-    }
-
-    // Invalidate token cache after restore
-    pp_invalidate_design_tokens_cache();
-
-    return true;
 }
 
 // ── Token Validation ────────────────────────────────────────────────────────
@@ -490,50 +328,13 @@ function _pp_read_tokens_from_file(string $file_path): array {
     return $tokens;
 }
 
-/**
- * Performs full contract verification after a token write.
- * Verifies: target token has new value AND every non-target token unchanged.
- *
- * @param string $file_path    Path to the written file.
- * @param array  $before_map   Token values before the write (flat: name => value).
- * @param string $target_token The token that was changed.
- * @param string $new_value    The expected new value.
- * @return true|string         True if verified, error message string if violated.
- */
-function _pp_verify_contract(string $file_path, array $before_map, string $target_token, string $new_value) {
-    $after_map = _pp_read_tokens_from_file($file_path);
-
-    // Check target token has the new value
-    if (!isset($after_map[$target_token])) {
-        return sprintf('Target token "%s" is missing after write.', $target_token);
-    }
-    if ($after_map[$target_token] !== $new_value) {
-        return sprintf('Target token "%s" has value "%s", expected "%s".', $target_token, $after_map[$target_token], $new_value);
-    }
-
-    // Check every non-target token is unchanged
-    foreach ($before_map as $name => $old_value) {
-        if ($name === $target_token) {
-            continue;
-        }
-        if (!isset($after_map[$name])) {
-            return sprintf('Token "%s" is missing after write.', $name);
-        }
-        if ($after_map[$name] !== $old_value) {
-            return sprintf('Token "%s" changed from "%s" to "%s" (should be unchanged).', $name, $old_value, $after_map[$name]);
-        }
-    }
-
-    return true;
-}
-
 // ── Apply: update_design_token ──────────────────────────────────────────────
-// Domain: design | Target: assets/css/base.css
+// Domain: design | Target: wp_options pp_token_overrides
 
 pp_register_apply('update_design_token', [
     'domain'      => 'design',
-    'target_file' => 'assets/css/base.css',
-    'description' => 'Updates a single CSS design token value in base.css.',
+    'target'      => ['type' => 'option', 'key' => 'pp_token_overrides'],
+    'description' => 'Updates a single CSS design token override in the database.',
     'params'      => [
         'token' => ['type' => 'string', 'required' => true],
         'value' => ['type' => 'string', 'required' => true],
@@ -570,7 +371,7 @@ pp_register_apply('update_design_token', [
         return _pp_apply_preview(
             'update_design_token',
             'design',
-            'assets/css/base.css',
+            ['type' => 'option', 'key' => 'pp_token_overrides'],
             $before_values,
             $after_values,
             [['token' => $token, 'from' => $tokens[$token]['value'], 'to' => $value]]
@@ -580,71 +381,180 @@ pp_register_apply('update_design_token', [
     'apply' => function (array $params) {
         $token = $params['token'];
         $value = $params['value'];
-        $file  = get_template_directory() . '/assets/css/base.css';
+        $target = ['type' => 'option', 'key' => 'pp_token_overrides'];
 
-        // Snapshot before-state (flat map for contract verification)
         $tokens = pp_design_tokens();
-        $before_map = [];
-        foreach ($tokens as $name => $info) {
-            $before_map[$name] = $info['value'];
-        }
-
-        $old_value = $before_map[$token];
+        $old_value = $tokens[$token]['value'];
 
         // No-op: postcondition already satisfied
         if ($old_value === $value) {
-            return _pp_apply_result('update_design_token', 'design', 'assets/css/base.css', null, []);
+            return _pp_apply_result('update_design_token', 'design', $target, []);
         }
 
-        // Create backup
-        $backup_path = _pp_create_backup($file);
-        if ($backup_path === false) {
-            return _pp_apply_error('update_design_token', 'design', 'assets/css/base.css',
-                'Failed to create backup. Write aborted for safety.');
+        // Write override to database (pp_set_token_override handles cache invalidation)
+        $result = pp_set_token_override($token, $value);
+        if (!$result) {
+            return _pp_apply_error('update_design_token', 'design', $target,
+                sprintf('Failed to write token override "%s" to database.', $token));
         }
 
-        // Read file and perform regex replacement
-        $css = file_get_contents($file);
-        $escaped_token = preg_quote($token, '/');
-        $pattern = '/(' . $escaped_token . '\s*:\s*)([^;]+)(;)/';
-        $replacement = '${1}' . str_replace('$', '\\$', $value) . '${3}';
-        $new_css = preg_replace($pattern, $replacement, $css, 1);
-
-        if ($new_css === null) {
-            return _pp_apply_error('update_design_token', 'design', 'assets/css/base.css',
-                sprintf('Regex replacement failed for token "%s".', $token));
+        // Verify: read back from database
+        $overrides = pp_get_token_overrides();
+        if (!isset($overrides[$token]) || $overrides[$token] !== $value) {
+            return _pp_apply_error('update_design_token', 'design', $target,
+                sprintf('Verification failed: token "%s" not set to expected value after write.', $token));
         }
 
-        // Write
-        $write_result = file_put_contents($file, $new_css);
-        if ($write_result === false) {
-            // Attempt restore
-            copy($backup_path, $file);
-            return _pp_apply_error('update_design_token', 'design', 'assets/css/base.css',
-                'Failed to write base.css. Restored from backup.');
-        }
-
-        // Full contract verification (bypass cache, read file directly)
-        $verification = _pp_verify_contract($file, $before_map, $token, $value);
-        if ($verification !== true) {
-            // Auto-restore
-            copy($backup_path, $file);
-            pp_invalidate_design_tokens_cache();
-            return _pp_apply_error('update_design_token', 'design', 'assets/css/base.css',
-                'Contract verification failed: ' . $verification . ' Auto-restored from backup.');
-        }
-
-        // Invalidate cache so subsequent reads in same request return fresh data
-        pp_invalidate_design_tokens_cache();
-
-        // Determine restore point index (this backup is the most recent = index 1)
         return _pp_apply_result(
             'update_design_token',
             'design',
-            'assets/css/base.css',
-            1,
+            $target,
             [['token' => $token, 'from' => $old_value, 'to' => $value]]
         );
+    },
+]);
+
+// ── Apply: reset_design_token ──────────────────────────────────────────────
+// Domain: design | Clears a single token override, reverting to product default
+
+pp_register_apply('reset_design_token', [
+    'domain'      => 'design',
+    'target'      => ['type' => 'option', 'key' => 'pp_token_overrides'],
+    'description' => 'Clears a single design token override, reverting it to the product default.',
+    'params'      => [
+        'token' => ['type' => 'string', 'required' => true],
+    ],
+
+    'validate' => function (array $params) {
+        $token = $params['token'];
+        $tokens = pp_design_tokens();
+        if (!array_key_exists($token, $tokens)) {
+            $available = implode(', ', array_keys($tokens));
+            return new WP_Error('unknown_token', sprintf('Token "%s" is not a registered design token. Available: %s', $token, $available));
+        }
+        return true;
+    },
+
+    'preview' => function (array $params) {
+        $token = $params['token'];
+        $tokens = pp_design_tokens();
+        $overrides = pp_get_token_overrides();
+
+        if (!isset($overrides[$token])) {
+            return _pp_apply_preview(
+                'reset_design_token',
+                'design',
+                ['type' => 'option', 'key' => 'pp_token_overrides'],
+                [$token => $tokens[$token]['value']],
+                [$token => $tokens[$token]['value']],
+                []
+            );
+        }
+
+        // Read defaults from base.css directly (bypass merge)
+        $file = get_template_directory() . '/assets/css/base.css';
+        $file_tokens = _pp_read_tokens_from_file($file);
+        $default_value = $file_tokens[$token] ?? $tokens[$token]['value'];
+
+        return _pp_apply_preview(
+            'reset_design_token',
+            'design',
+            ['type' => 'option', 'key' => 'pp_token_overrides'],
+            [$token => $tokens[$token]['value']],
+            [$token => $default_value],
+            [['token' => $token, 'from' => $tokens[$token]['value'], 'to' => $default_value]]
+        );
+    },
+
+    'apply' => function (array $params) {
+        $token = $params['token'];
+        $target = ['type' => 'option', 'key' => 'pp_token_overrides'];
+        $tokens = pp_design_tokens();
+        $old_value = $tokens[$token]['value'];
+
+        $cleared = pp_clear_token_override($token);
+        if (!$cleared) {
+            // Token had no override — no-op
+            return _pp_apply_result('reset_design_token', 'design', $target, []);
+        }
+
+        // Read the new effective value (product default)
+        $new_tokens = pp_design_tokens();
+        $new_value = $new_tokens[$token]['value'];
+
+        return _pp_apply_result(
+            'reset_design_token',
+            'design',
+            $target,
+            [['token' => $token, 'from' => $old_value, 'to' => $new_value]]
+        );
+    },
+]);
+
+// ── Apply: reset_all_design_tokens ─────────────────────────────────────────
+// Domain: design | Clears all token overrides, reverting to product defaults
+
+pp_register_apply('reset_all_design_tokens', [
+    'domain'      => 'design',
+    'target'      => ['type' => 'option', 'key' => 'pp_token_overrides'],
+    'description' => 'Clears all design token overrides, reverting the entire site to product defaults.',
+    'params'      => [],
+
+    'validate' => function (array $params) {
+        return true;
+    },
+
+    'preview' => function (array $params) {
+        $tokens = pp_design_tokens();
+        $overrides = pp_get_token_overrides();
+
+        $before = [];
+        $after = [];
+        $file = get_template_directory() . '/assets/css/base.css';
+        $file_tokens = _pp_read_tokens_from_file($file);
+
+        foreach ($tokens as $name => $info) {
+            $before[$name] = $info['value'];
+            $after[$name] = $file_tokens[$name] ?? $info['value'];
+        }
+
+        $changes = [];
+        foreach ($overrides as $name => $override_value) {
+            $default_value = $file_tokens[$name] ?? null;
+            if ($default_value !== null) {
+                $changes[] = ['token' => $name, 'from' => $override_value, 'to' => $default_value];
+            }
+        }
+
+        return _pp_apply_preview(
+            'reset_all_design_tokens',
+            'design',
+            ['type' => 'option', 'key' => 'pp_token_overrides'],
+            $before,
+            $after,
+            $changes
+        );
+    },
+
+    'apply' => function (array $params) {
+        $target = ['type' => 'option', 'key' => 'pp_token_overrides'];
+        $overrides = pp_get_token_overrides();
+        $count = pp_clear_all_token_overrides();
+
+        if ($count === 0) {
+            return _pp_apply_result('reset_all_design_tokens', 'design', $target, []);
+        }
+
+        $file = get_template_directory() . '/assets/css/base.css';
+        $file_tokens = _pp_read_tokens_from_file($file);
+
+        $changes = [];
+        foreach ($overrides as $name => $override_value) {
+            $default_value = $file_tokens[$name] ?? 'unknown';
+            $changes[] = ['token' => $name, 'from' => $override_value, 'to' => $default_value];
+        }
+
+        return _pp_apply_result('reset_all_design_tokens', 'design', $target, $changes);
     },
 ]);
 

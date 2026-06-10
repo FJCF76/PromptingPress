@@ -126,36 +126,6 @@ class PreflightTest extends TestCase
         $this->assertSame($target, $decoded);
     }
 
-    // ── Backup Writability ────────────────────────────────────────────────
-
-    public function testWritabilityProbePassesOnWritableDir(): void
-    {
-        $result = _pp_check_backup_writability();
-        $this->assertTrue($result);
-    }
-
-    public function testWritabilityProbeCleansUpProbeFile(): void
-    {
-        _pp_check_backup_writability();
-        $dir = _pp_backup_dir();
-        $this->assertFileDoesNotExist($dir . '/.preflight-probe');
-    }
-
-    public function testWritabilityProbeFailsOnNonWritableDir(): void
-    {
-        $dir = _pp_backup_dir();
-        chmod($dir, 0000);
-
-        $result = _pp_check_backup_writability();
-
-        // Restore permissions before assertions (so tearDown can clean up)
-        chmod($dir, 0755);
-
-        $this->assertIsString($result);
-        $this->assertStringContainsString('not writable', $result);
-        $this->assertStringContainsString('chmod', $result);
-    }
-
     // ── Deployment Manifest ───────────────────────────────────────────────
 
     public function testManifestPathIsOutsideThemeDir(): void
@@ -399,23 +369,4 @@ class PreflightTest extends TestCase
         $this->assertTrue($result['ok']);
     }
 
-    public function testBackupCreationStillWorksAfterWritabilityProbeAddition(): void
-    {
-        $backup = _pp_create_backup($this->baseCssPath);
-        $this->assertNotFalse($backup);
-        $this->assertFileExists($backup);
-        $this->assertGreaterThan(0, filesize($backup));
-    }
-
-    public function testRestoreStillWorksAfterChanges(): void
-    {
-        // Create backup, modify file, restore
-        _pp_create_backup($this->baseCssPath);
-        $original = file_get_contents($this->baseCssPath);
-        file_put_contents($this->baseCssPath, 'corrupted');
-
-        $result = pp_restore($this->baseCssPath);
-        $this->assertTrue($result);
-        $this->assertSame($original, file_get_contents($this->baseCssPath));
-    }
 }

@@ -201,15 +201,7 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
         $checks[] = ['check' => 'capability', 'pass' => false, 'message' => 'Missing manage_options capability.'];
     }
 
-    // Check 3: Backup writability
-    $writable = _pp_check_backup_writability();
-    if ($writable === true) {
-        $checks[] = ['check' => 'backup_writable', 'pass' => true, 'message' => 'Backup directory is writable.'];
-    } else {
-        $checks[] = ['check' => 'backup_writable', 'pass' => false, 'message' => $writable];
-    }
-
-    // Check 4: Drift
+    // Check 3: Drift (backup writability check removed — token storage is database-backed)
     if ($drift === null) {
         $drift = pp_check_drift();
     }
@@ -218,8 +210,11 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
     $planned_files = $context['planned_files'] ?? [];
     if (empty($planned_files) && !empty($context['apply_name'])) {
         $apply_def = pp_get_apply($context['apply_name']);
-        if ($apply_def !== null && isset($apply_def['target_file'])) {
-            $planned_files = [$apply_def['target_file']];
+        if ($apply_def !== null && isset($apply_def['target']['type'])) {
+            if ($apply_def['target']['type'] === 'file' && isset($apply_def['target']['path'])) {
+                $planned_files = [$apply_def['target']['path']];
+            }
+            // Option-based targets don't produce planned_files (no file drift concern)
         }
     }
 

@@ -275,10 +275,10 @@ class OperateTest extends TestCase
         $this->assertTrue($drift_check['pass'], 'Non-overlapping drift should pass (warning only)');
     }
 
-    public function testPreflightAutoPopulatesPlannedFilesFromApplyDefinition(): void
+    public function testPreflightOptionBasedApplyDoesNotProducePlannedFiles(): void
     {
-        // The update_design_token apply has target_file => 'assets/css/base.css'
-        // Create drift in that file to trigger overlap detection
+        // update_design_token uses target.type = 'option', not 'file'.
+        // Drift in base.css should NOT trigger overlap detection for option-based applies.
         $hashes = _pp_hash_theme_files($this->tempDir);
         _pp_save_deployment_manifest($this->tempDir, $hashes);
         file_put_contents($this->baseCssPath, '/* drifted */');
@@ -296,7 +296,8 @@ class OperateTest extends TestCase
         }
 
         $this->assertNotNull($drift_check);
-        $this->assertFalse($drift_check['pass'], 'Should block: drift in assets/css/base.css overlaps with update_design_token target_file');
+        // Drift exists but doesn't overlap with option-based apply — should be a warning, not a block
+        $this->assertTrue($drift_check['pass'], 'Option-based apply should not trigger file drift overlap');
     }
 
     public function testPreflightThemeWritablePassesWhenWritable(): void

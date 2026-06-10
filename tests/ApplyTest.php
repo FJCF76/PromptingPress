@@ -83,7 +83,7 @@ class ApplyTest extends TestCase
         $apply = pp_get_apply('update_design_token');
         $this->assertNotNull($apply);
         $this->assertEquals('design', $apply['domain']);
-        $this->assertEquals('assets/css/base.css', $apply['target_file']);
+        $this->assertEquals(['type' => 'option', 'key' => 'pp_token_overrides'], $apply['target']);
         $this->assertArrayHasKey('validate', $apply);
         $this->assertArrayHasKey('preview', $apply);
         $this->assertArrayHasKey('apply', $apply);
@@ -350,23 +350,13 @@ class ApplyTest extends TestCase
         $this->assertTrue($result['ok']);
         $this->assertEquals('update_design_token', $result['apply']);
         $this->assertEquals('design', $result['domain']);
-        $this->assertEquals(1, $result['restore_point']);
         $this->assertCount(1, $result['changes']);
         $this->assertEquals('#3157f4', $result['changes'][0]['from']);
         $this->assertEquals('#b45309', $result['changes'][0]['to']);
 
-        // Verify the file was actually written
-        $tokens = _pp_read_tokens_from_file($this->baseCssPath);
-        $this->assertEquals('#b45309', $tokens['--color-accent']);
-    }
-
-    public function testExecuteCreatesBackup(): void
-    {
-        pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309']);
-
-        $points = pp_restore_points('base.css');
-        $this->assertNotEmpty($points);
-        $this->assertEquals(1, $points[0]['index']);
+        // Verify the override is in the database
+        $overrides = pp_get_token_overrides();
+        $this->assertEquals('#b45309', $overrides['--color-accent']);
     }
 
     public function testExecuteComplexValueRgba(): void
@@ -375,8 +365,8 @@ class ApplyTest extends TestCase
 
         $this->assertTrue($result['ok']);
 
-        $tokens = _pp_read_tokens_from_file($this->baseCssPath);
-        $this->assertEquals('rgba(10, 20, 30, 0.7)', $tokens['--overlay-bg']);
+        $overrides = pp_get_token_overrides();
+        $this->assertEquals('rgba(10, 20, 30, 0.7)', $overrides['--overlay-bg']);
     }
 
     public function testExecuteFontStack(): void
@@ -385,8 +375,8 @@ class ApplyTest extends TestCase
 
         $this->assertTrue($result['ok']);
 
-        $tokens = _pp_read_tokens_from_file($this->baseCssPath);
-        $this->assertEquals('Inter, system-ui, sans-serif', $tokens['--font-body']);
+        $overrides = pp_get_token_overrides();
+        $this->assertEquals('Inter, system-ui, sans-serif', $overrides['--font-body']);
     }
 
     public function testExecuteCompoundValue(): void
@@ -395,8 +385,8 @@ class ApplyTest extends TestCase
 
         $this->assertTrue($result['ok']);
 
-        $tokens = _pp_read_tokens_from_file($this->baseCssPath);
-        $this->assertEquals('200ms ease-in-out', $tokens['--transition']);
+        $overrides = pp_get_token_overrides();
+        $this->assertEquals('200ms ease-in-out', $overrides['--transition']);
     }
 
     public function testExecuteNoOpReturnsSuccessWithEmptyChanges(): void
@@ -409,94 +399,28 @@ class ApplyTest extends TestCase
 
         $this->assertTrue($result['ok']);
         $this->assertEmpty($result['changes']);
-        $this->assertNull($result['restore_point']);
     }
 
-    // ── Contract verification ───────────────────────────────────────────────
+    // ── Execute writes to database, not file ────────────────────────────────
 
-    public function testContractVerificationTargetHasNewValue(): void
+    public function testExecuteWritesToDatabaseNotFile(): void
     {
-        $before = ['--a' => '1', '--b' => '2'];
-        // Write a fake file to verify against
-        $css = ":root { --a: 99; --b: 2; }";
-        $tmp = $this->tempDir . '/contract-test.css';
-        file_put_contents($tmp, $css);
-
-        $result = _pp_verify_contract($tmp, $before, '--a', '99');
-        $this->assertTrue($result);
-    }
-
-    public function testContractVerificationTargetWrongValue(): void
-    {
-        $before = ['--a' => '1', '--b' => '2'];
-        $css = ":root { --a: wrong; --b: 2; }";
-        $tmp = $this->tempDir . '/contract-test.css';
-        file_put_contents($tmp, $css);
-
-        $result = _pp_verify_contract($tmp, $before, '--a', '99');
-        $this->assertIsString($result);
-        $this->assertStringContainsString('expected "99"', $result);
-    }
-
-    public function testContractVerificationNonTargetChanged(): void
-    {
-        $before = ['--a' => '1', '--b' => '2'];
-        $css = ":root { --a: 99; --b: changed; }";
-        $tmp = $this->tempDir . '/contract-test.css';
-        file_put_contents($tmp, $css);
-
-        $result = _pp_verify_contract($tmp, $before, '--a', '99');
-        $this->assertIsString($result);
-        $this->assertStringContainsString('--b', $result);
-        $this->assertStringContainsString('should be unchanged', $result);
-    }
-
-    public function testContractVerificationTokenMissing(): void
-    {
-        $before = ['--a' => '1', '--b' => '2'];
-        $css = ":root { --a: 99; }";
-        $tmp = $this->tempDir . '/contract-test.css';
-        file_put_contents($tmp, $css);
-
-        $result = _pp_verify_contract($tmp, $before, '--a', '99');
-        $this->assertIsString($result);
-        $this->assertStringContainsString('--b', $result);
-        $this->assertStringContainsString('missing', $result);
-    }
-
-    // ── Execute preserves non-target tokens ─────────────────────────────────
-
-    public function testExecutePreservesAllNonTargetTokens(): void
-    {
-        $before_tokens = _pp_read_tokens_from_file($this->baseCssPath);
+        $file_before = _pp_read_tokens_from_file($this->baseCssPath);
+        $original_accent = $file_before['--color-accent'];
 
         pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309']);
 
-        $after_tokens = _pp_read_tokens_from_file($this->baseCssPath);
+        // File should be unchanged
+        $file_after = _pp_read_tokens_from_file($this->baseCssPath);
+        $this->assertEquals($original_accent, $file_after['--color-accent']);
 
-        foreach ($before_tokens as $name => $old_value) {
-            if ($name === '--color-accent') {
-                $this->assertEquals('#b45309', $after_tokens[$name]);
-            } else {
-                $this->assertEquals($old_value, $after_tokens[$name], "Token $name should be unchanged");
-            }
-        }
-    }
+        // Database should have the override
+        $overrides = pp_get_token_overrides();
+        $this->assertSame('#b45309', $overrides['--color-accent']);
 
-    // ── Backup pruning ──────────────────────────────────────────────────────
-
-    public function testBackupPruningKeepsLastFive(): void
-    {
-        // Create 7 backups by executing 7 times
-        $colors = ['#111111', '#222222', '#333333', '#444444', '#555555', '#666666', '#777777'];
-        foreach ($colors as $color) {
-            pp_execute_apply('update_design_token', ['token' => '--color-bg', 'value' => $color]);
-            // Small delay to ensure unique timestamps
-            usleep(10000);
-        }
-
-        $points = pp_restore_points('base.css');
-        $this->assertLessThanOrEqual(5, count($points));
+        // Merged tokens should reflect the override
+        $tokens = pp_design_tokens();
+        $this->assertSame('#b45309', $tokens['--color-accent']['value']);
     }
 
     // ── Cache invalidation ──────────────────────────────────────────────────
@@ -512,65 +436,88 @@ class ApplyTest extends TestCase
         $this->assertEquals('#b45309', $tokens_after['--color-accent']['value']);
     }
 
-    // ── Restore ─────────────────────────────────────────────────────────────
+    // ── Reset applies ──────────────────────────────────────────────────────
 
-    public function testRestoreLatest(): void
+    public function testResetDesignTokenRevertsToDefault(): void
     {
-        // Execute to create a backup
+        $defaults = pp_design_tokens();
+        $default_accent = $defaults['--color-accent']['value'];
+
+        // Set an override
         pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309']);
+        $this->assertSame('#b45309', pp_design_tokens()['--color-accent']['value']);
 
-        // Verify the change
-        $tokens = _pp_read_tokens_from_file($this->baseCssPath);
-        $this->assertEquals('#b45309', $tokens['--color-accent']);
+        // Reset it
+        $result = pp_execute_apply('reset_design_token', ['token' => '--color-accent']);
+        $this->assertTrue($result['ok']);
+        $this->assertCount(1, $result['changes']);
+        $this->assertSame('#b45309', $result['changes'][0]['from']);
+        $this->assertSame($default_accent, $result['changes'][0]['to']);
 
-        // Restore
-        $result = pp_restore($this->baseCssPath);
-        $this->assertTrue($result);
-
-        // Verify restore
-        $tokens = _pp_read_tokens_from_file($this->baseCssPath);
-        $this->assertEquals('#3157f4', $tokens['--color-accent']);
+        // Should be back to default
+        $this->assertSame($default_accent, pp_design_tokens()['--color-accent']['value']);
     }
 
-    public function testRestoreByPointIndex(): void
+    public function testResetDesignTokenNoOpWhenNoOverride(): void
     {
-        // Execute twice to create two backups
-        pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#111111']);
-        usleep(10000);
-        pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#222222']);
-
-        // Restore point 1 = most recent backup (state before second execute)
-        $result = pp_restore($this->baseCssPath, 1);
-        $this->assertTrue($result);
-
-        $tokens = _pp_read_tokens_from_file($this->baseCssPath);
-        $this->assertEquals('#111111', $tokens['--color-accent']);
+        $result = pp_execute_apply('reset_design_token', ['token' => '--color-accent']);
+        $this->assertTrue($result['ok']);
+        $this->assertEmpty($result['changes']);
     }
 
-    public function testRestoreListReturnsPoints(): void
+    public function testResetDesignTokenRejectsUnknownToken(): void
     {
-        pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309']);
-
-        $points = pp_restore_points('base.css');
-        $this->assertNotEmpty($points);
-        $this->assertEquals(1, $points[0]['index']);
-        $this->assertArrayHasKey('timestamp', $points[0]);
+        $result = pp_execute_apply('reset_design_token', ['token' => '--nonexistent']);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not a registered', $result['error']);
     }
 
-    public function testRestoreWithNoBackupsReturnsError(): void
-    {
-        $result = pp_restore($this->baseCssPath);
-        $this->assertInstanceOf(WP_Error::class, $result);
-        $this->assertEquals('no_backups', $result->get_error_code());
-    }
-
-    public function testRestoreInvalidPointReturnsError(): void
+    public function testResetAllDesignTokensClearsAll(): void
     {
         pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309']);
+        pp_execute_apply('update_design_token', ['token' => '--color-bg', 'value' => '#000000']);
 
-        $result = pp_restore($this->baseCssPath, 99);
-        $this->assertInstanceOf(WP_Error::class, $result);
-        $this->assertEquals('invalid_point', $result->get_error_code());
+        $result = pp_execute_apply('reset_all_design_tokens', []);
+        $this->assertTrue($result['ok']);
+        $this->assertCount(2, $result['changes']);
+        $this->assertSame([], pp_get_token_overrides());
+    }
+
+    public function testResetAllDesignTokensNoOpWhenEmpty(): void
+    {
+        $result = pp_execute_apply('reset_all_design_tokens', []);
+        $this->assertTrue($result['ok']);
+        $this->assertEmpty($result['changes']);
+    }
+
+    // ── Typed target ───────────────────────────────────────────────────────
+
+    public function testResultContainsTypedTarget(): void
+    {
+        $result = pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309']);
+        $this->assertArrayHasKey('target', $result);
+        $this->assertEquals('option', $result['target']['type']);
+        $this->assertEquals('pp_token_overrides', $result['target']['key']);
+        $this->assertArrayNotHasKey('target_file', $result);
+    }
+
+    public function testPreviewContainsTypedTarget(): void
+    {
+        $result = pp_preview_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309']);
+        $this->assertArrayHasKey('target', $result);
+        $this->assertEquals('option', $result['target']['type']);
+        $this->assertArrayNotHasKey('target_file', $result);
+    }
+
+    public function testRegisteredAppliesHaveTypedTarget(): void
+    {
+        $applies = pp_get_registered_applies();
+        foreach ($applies as $name => $def) {
+            $this->assertArrayHasKey('target', $def, "Apply '$name' should have 'target' key");
+            $this->assertArrayHasKey('type', $def['target'], "Apply '$name' target should have 'type' key");
+            $this->assertContains($def['target']['type'], ['file', 'option'], "Apply '$name' target type should be 'file' or 'option'");
+            $this->assertArrayNotHasKey('target_file', $def, "Apply '$name' should not have legacy 'target_file' key");
+        }
     }
 
     // ── pp_design_tokens() return shape ─────────────────────────────────────
@@ -614,42 +561,6 @@ class ApplyTest extends TestCase
 
         // Both should return same data (file unchanged)
         $this->assertEquals($tokens1, $tokens2);
-    }
-
-    // ── Backup directory: PP_BACKUP_DIR ─────────────────────────────────────
-
-    public function testBackupDirFallsBackToWpContentDir(): void
-    {
-        // PP_BACKUP_DIR is not defined in the test harness, so _pp_backup_dir()
-        // should fall back to WP_CONTENT_DIR/pp-backups.
-        $dir = _pp_backup_dir();
-        $this->assertEquals(WP_CONTENT_DIR . '/pp-backups', $dir);
-    }
-
-    /**
-     * @runInSeparateProcess
-     * @preserveGlobalState disabled
-     */
-    public function testBackupDirUsesConstantWhenDefined(): void
-    {
-        $customPath = sys_get_temp_dir() . '/pp-backup-dir-test-' . getmypid();
-        define('PP_BACKUP_DIR', $customPath);
-
-        // Need WP_CONTENT_DIR and the function available in the separate process
-        if (!defined('WP_CONTENT_DIR')) {
-            define('WP_CONTENT_DIR', sys_get_temp_dir() . '/pp-test-content');
-        }
-        require_once dirname(__DIR__) . '/vendor/autoload.php';
-        require_once dirname(__DIR__) . '/tests/bootstrap.php';
-
-        $dir = _pp_backup_dir();
-        $this->assertEquals($customPath, $dir);
-        $this->assertDirectoryExists($customPath);
-
-        // Cleanup
-        if (is_dir($customPath)) {
-            rmdir($customPath);
-        }
     }
 
     // ── Token Override CRUD tests ─────────────────────────────────────────────
