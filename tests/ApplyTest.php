@@ -33,6 +33,9 @@ class ApplyTest extends TestCase
         // Point get_template_directory() at temp dir
         $GLOBALS['_pp_test_template_dir'] = $this->tempDir;
 
+        // Clear token overrides for test isolation
+        unset($GLOBALS['_pp_test_store']['options']['pp_token_overrides']);
+
         // Invalidate token cache for fresh reads
         pp_invalidate_design_tokens_cache();
     }
@@ -647,5 +650,119 @@ class ApplyTest extends TestCase
         if (is_dir($customPath)) {
             rmdir($customPath);
         }
+    }
+
+    // ── Token Override CRUD tests ─────────────────────────────────────────────
+
+    public function testGetTokenOverridesReturnsEmptyByDefault(): void
+    {
+        $this->assertSame([], pp_get_token_overrides());
+    }
+
+    public function testSetTokenOverrideStoresValue(): void
+    {
+        $result = pp_set_token_override('--color-accent', '#b45309');
+        $this->assertTrue($result);
+        $overrides = pp_get_token_overrides();
+        $this->assertSame('#b45309', $overrides['--color-accent']);
+    }
+
+    public function testSetMultipleOverrides(): void
+    {
+        pp_set_token_override('--color-accent', '#b45309');
+        pp_set_token_override('--font-heading', 'Georgia, serif');
+        $overrides = pp_get_token_overrides();
+        $this->assertCount(2, $overrides);
+        $this->assertSame('#b45309', $overrides['--color-accent']);
+        $this->assertSame('Georgia, serif', $overrides['--font-heading']);
+    }
+
+    public function testSetTokenOverrideOverwritesPrevious(): void
+    {
+        pp_set_token_override('--color-accent', '#b45309');
+        pp_set_token_override('--color-accent', '#1e40af');
+        $overrides = pp_get_token_overrides();
+        $this->assertSame('#1e40af', $overrides['--color-accent']);
+    }
+
+    public function testClearTokenOverrideRemovesSingleToken(): void
+    {
+        pp_set_token_override('--color-accent', '#b45309');
+        pp_set_token_override('--font-heading', 'Georgia, serif');
+        $result = pp_clear_token_override('--color-accent');
+        $this->assertTrue($result);
+        $overrides = pp_get_token_overrides();
+        $this->assertArrayNotHasKey('--color-accent', $overrides);
+        $this->assertSame('Georgia, serif', $overrides['--font-heading']);
+    }
+
+    public function testClearTokenOverrideReturnsFalseForMissing(): void
+    {
+        $result = pp_clear_token_override('--nonexistent');
+        $this->assertFalse($result);
+    }
+
+    public function testClearAllTokenOverrides(): void
+    {
+        pp_set_token_override('--color-accent', '#b45309');
+        pp_set_token_override('--font-heading', 'Georgia, serif');
+        $count = pp_clear_all_token_overrides();
+        $this->assertSame(2, $count);
+        $this->assertSame([], pp_get_token_overrides());
+    }
+
+    public function testClearAllTokenOverridesReturnsZeroWhenEmpty(): void
+    {
+        $count = pp_clear_all_token_overrides();
+        $this->assertSame(0, $count);
+    }
+
+    // ── Merged reading tests ──────────────────────────────────────────────────
+
+    public function testDesignTokensMergesOverrides(): void
+    {
+        $defaults = pp_design_tokens();
+        $defaultAccent = $defaults['--color-accent']['value'];
+
+        pp_set_token_override('--color-accent', '#b45309');
+        // Cache was invalidated by pp_set_token_override
+        $merged = pp_design_tokens();
+
+        $this->assertSame('#b45309', $merged['--color-accent']['value']);
+        // Type preserved from defaults
+        $this->assertSame($defaults['--color-accent']['type'], $merged['--color-accent']['type']);
+        // Non-overridden tokens unchanged
+        $this->assertSame($defaults['--color-bg']['value'], $merged['--color-bg']['value']);
+    }
+
+    public function testDesignTokensWithNoOverridesMatchesDefaults(): void
+    {
+        $defaults = pp_design_tokens();
+        // No overrides set — should be identical to file-only read
+        $this->assertNotEmpty($defaults);
+        foreach ($defaults as $token => $info) {
+            $this->assertArrayHasKey('value', $info);
+            $this->assertArrayHasKey('type', $info);
+        }
+    }
+
+    public function testDesignTokensIgnoresOverridesForUnknownTokens(): void
+    {
+        pp_set_token_override('--nonexistent-token', 'red');
+        $tokens = pp_design_tokens();
+        // Unknown token should NOT appear in merged result
+        $this->assertArrayNotHasKey('--nonexistent-token', $tokens);
+    }
+
+    public function testCacheInvalidationAfterOverrideChange(): void
+    {
+        $before = pp_design_tokens();
+        $originalAccent = $before['--color-accent']['value'];
+
+        pp_set_token_override('--color-accent', '#ff0000');
+        $after = pp_design_tokens();
+
+        $this->assertSame('#ff0000', $after['--color-accent']['value']);
+        $this->assertNotSame($originalAccent, $after['--color-accent']['value']);
     }
 }

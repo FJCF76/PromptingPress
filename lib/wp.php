@@ -251,17 +251,90 @@ function pp_design_tokens(): array {
         }
     }
 
+    // Merge database overrides: override values replace defaults, types preserved.
+    $overrides = pp_get_token_overrides();
+    foreach ($overrides as $token => $override_value) {
+        if (isset($cache[$token])) {
+            $cache[$token]['value'] = $override_value;
+        }
+    }
+
     return $cache;
 }
 
 /**
  * Invalidates the pp_design_tokens() static cache.
- * Call after writing to base.css so subsequent reads return fresh data.
+ * Call after modifying token overrides so subsequent reads return fresh data.
  */
 function pp_invalidate_design_tokens_cache(): void {
     // Static variables can only be reset by re-calling the function
     // with a flag. We use a global flag that pp_design_tokens() checks.
     $GLOBALS['_pp_design_tokens_invalidate'] = true;
+}
+
+/**
+ * Returns all design token overrides from the database.
+ * These are site-specific values that override the product defaults in base.css.
+ *
+ * @return array  Associative array of token name => value, e.g. ['--color-accent' => '#b45309'].
+ */
+function pp_get_token_overrides(): array {
+    $overrides = get_option('pp_token_overrides', []);
+    if (!is_array($overrides)) {
+        return [];
+    }
+    return $overrides;
+}
+
+/**
+ * Sets a single design token override in the database.
+ *
+ * @param string $token  CSS custom property name (e.g. '--color-accent').
+ * @param string $value  The override value.
+ * @return bool  True on success.
+ */
+function pp_set_token_override(string $token, string $value): bool {
+    $overrides = pp_get_token_overrides();
+    $overrides[$token] = $value;
+    $result = update_option('pp_token_overrides', $overrides, true);
+    pp_invalidate_design_tokens_cache();
+    return $result;
+}
+
+/**
+ * Clears a single design token override, reverting it to the product default.
+ *
+ * @param string $token  CSS custom property name.
+ * @return bool  True if the token was present and removed, false if it didn't exist.
+ */
+function pp_clear_token_override(string $token): bool {
+    $overrides = pp_get_token_overrides();
+    if (!array_key_exists($token, $overrides)) {
+        return false;
+    }
+    unset($overrides[$token]);
+    if (empty($overrides)) {
+        delete_option('pp_token_overrides');
+    } else {
+        update_option('pp_token_overrides', $overrides, true);
+    }
+    pp_invalidate_design_tokens_cache();
+    return true;
+}
+
+/**
+ * Clears all design token overrides, reverting the entire site to product defaults.
+ *
+ * @return int  Number of overrides that were cleared.
+ */
+function pp_clear_all_token_overrides(): int {
+    $overrides = pp_get_token_overrides();
+    $count = count($overrides);
+    if ($count > 0) {
+        delete_option('pp_token_overrides');
+        pp_invalidate_design_tokens_cache();
+    }
+    return $count;
 }
 
 /**

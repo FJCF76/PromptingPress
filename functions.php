@@ -63,12 +63,27 @@ add_action('wp_enqueue_scripts', function () {
     $base_css_path = get_template_directory() . '/assets/css/base.css';
     $base_ver = $ver . '.' . (file_exists($base_css_path) ? filemtime($base_css_path) : '0');
 
+    // Append override hash to version string for cache busting.
+    $overrides = pp_get_token_overrides();
+    if ($overrides) {
+        $base_ver .= '.' . substr(md5(serialize($overrides)), 0, 8);
+    }
+
     wp_enqueue_style(
         'pp-base',
         $dir . '/assets/css/base.css',
         [],
         $base_ver
     );
+
+    // Output overridden tokens as inline CSS after pp-base.
+    if ($overrides) {
+        $lines = [];
+        foreach ($overrides as $token => $value) {
+            $lines[] = '  ' . $token . ': ' . $value . ';';
+        }
+        wp_add_inline_style('pp-base', ":root {\n" . implode("\n", $lines) . "\n}");
+    }
 
     wp_enqueue_style(
         'pp-components',

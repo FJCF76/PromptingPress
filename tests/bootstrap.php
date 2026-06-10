@@ -264,8 +264,15 @@ if (!function_exists('get_option')) {
 }
 
 if (!function_exists('update_option')) {
-    function update_option(string $key, $value): bool {
+    function update_option(string $key, $value, $autoload = null): bool {
         $GLOBALS['_pp_test_store']['options'][$key] = $value;
+        return true;
+    }
+}
+
+if (!function_exists('delete_option')) {
+    function delete_option(string $key): bool {
+        unset($GLOBALS['_pp_test_store']['options'][$key]);
         return true;
     }
 }
