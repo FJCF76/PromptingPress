@@ -4,6 +4,41 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.5.0] — 2026-06-10 — Update-Safe Design Token Persistence
+
+### Design token overrides now survive theme updates
+
+Site-specific design token customizations are stored in the database (`pp_token_overrides` option), not in `base.css`. When the theme is updated via ZIP upload or auto-update, `base.css` is replaced with product defaults and the database-backed overrides re-apply automatically via CSS cascade (`wp_add_inline_style`). No migration step required.
+
+### Added
+- `pp_get_token_overrides()`, `pp_set_token_override()`, `pp_clear_token_override()`, `pp_clear_all_token_overrides()` — CRUD for database-backed token overrides
+- `pp_invalidate_design_tokens_cache()` — resets the merged token static cache
+- `reset_design_token` apply — clears a single override, reverting to product default
+- `reset_all_design_tokens` apply — clears all overrides
+- `number` type validator for unitless numeric tokens (font-weight, line-height)
+- 5 new design tokens: `--font-weight-heading` (number), `--line-height-body` (number), `--line-height-heading` (number), `--btn-padding-y` (length), `--btn-padding-x` (length)
+- Inline `:root` override block via `wp_add_inline_style('pp-base', ...)` — only emitted when overrides exist
+- Override-hash cache busting appended to the `pp-base` version string
+
+### Changed
+- `pp_design_tokens()` merges defaults from `base.css` with overrides from `pp_token_overrides` option
+- `update_design_token` apply writes to `wp_options` instead of `base.css`
+- Apply target model: typed `['type' => 'option', 'key' => 'pp_token_overrides']` replaces string `target_file`
+- Preflight `theme_writable` check skipped for database-backed applies
+- Token count: 28 → 33 (all global design tokens, no per-page or internal tokens)
+- `base.css` is now read-only in production (product defaults only)
+
+### Removed
+- `_pp_backup_dir()`, `_pp_create_backup()`, `_pp_prune_backups()`, `pp_restore_points()`, `pp_restore()` — backup/restore system (~160 lines)
+- File-based token write path in `update_design_token`
+- `target_file` string field from apply definitions
+
+### Tests
+- 432 tests, 1324 assertions
+- New: override CRUD, merged reading, inline CSS output, typed target, number validation, injection guard (`<>` for XSS), preflight conditional writability
+
+---
+
 ## [v0.4.0] — 2026-06-08 — WP 7.0 AI Connector Integration
 
 ### AI provider credentials now managed by WordPress Connectors
