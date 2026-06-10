@@ -676,4 +676,88 @@ class ApplyTest extends TestCase
         $this->assertSame('#ff0000', $after['--color-accent']['value']);
         $this->assertNotSame($originalAccent, $after['--color-accent']['value']);
     }
+
+    // ── Number Type Validation ───────────────────────────────────────────
+
+    public function testValidateNumberAcceptsInteger(): void
+    {
+        $this->assertTrue(_pp_validate_number('650'));
+    }
+
+    public function testValidateNumberAcceptsDecimal(): void
+    {
+        $this->assertTrue(_pp_validate_number('1.6'));
+    }
+
+    public function testValidateNumberAcceptsSmallDecimal(): void
+    {
+        $this->assertTrue(_pp_validate_number('0.85'));
+    }
+
+    public function testValidateNumberRejectsWithUnit(): void
+    {
+        $this->assertFalse(_pp_validate_number('650px'));
+    }
+
+    public function testValidateNumberRejectsWord(): void
+    {
+        $this->assertFalse(_pp_validate_number('bold'));
+    }
+
+    public function testValidateNumberRejectsEmpty(): void
+    {
+        $this->assertFalse(_pp_validate_number(''));
+    }
+
+    public function testValidateTokenValuePassesForNumberType(): void
+    {
+        $result = _pp_validate_token_value('1.6', 'number');
+        $this->assertTrue($result);
+    }
+
+    public function testValidateTokenValueFailsForInvalidNumber(): void
+    {
+        $result = _pp_validate_token_value('bold', 'number');
+        $this->assertInstanceOf(WP_Error::class, $result);
+    }
+
+    // ── New Token Declarations ───────────────────────────────────────────
+
+    public function testNewTokensFontWeightHeadingExists(): void
+    {
+        $tokens = pp_design_tokens();
+        $this->assertArrayHasKey('--font-weight-heading', $tokens);
+        $this->assertSame('number', $tokens['--font-weight-heading']['type']);
+        $this->assertSame('650', $tokens['--font-weight-heading']['value']);
+    }
+
+    public function testNewTokensLineHeightBodyExists(): void
+    {
+        $tokens = pp_design_tokens();
+        $this->assertArrayHasKey('--line-height-body', $tokens);
+        $this->assertSame('number', $tokens['--line-height-body']['type']);
+        $this->assertSame('1.6', $tokens['--line-height-body']['value']);
+    }
+
+    public function testNewTokensLineHeightHeadingExists(): void
+    {
+        $tokens = pp_design_tokens();
+        $this->assertArrayHasKey('--line-height-heading', $tokens);
+        $this->assertSame('number', $tokens['--line-height-heading']['type']);
+        $this->assertSame('1.2', $tokens['--line-height-heading']['value']);
+    }
+
+    public function testNewTokensBtnPaddingYExists(): void
+    {
+        $tokens = pp_design_tokens();
+        $this->assertArrayHasKey('--btn-padding-y', $tokens);
+        $this->assertSame('length', $tokens['--btn-padding-y']['type']);
+    }
+
+    public function testNewTokensBtnPaddingXExists(): void
+    {
+        $tokens = pp_design_tokens();
+        $this->assertArrayHasKey('--btn-padding-x', $tokens);
+        $this->assertSame('length', $tokens['--btn-padding-x']['type']);
+    }
 }

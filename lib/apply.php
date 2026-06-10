@@ -256,6 +256,15 @@ function _pp_validate_duration(string $value): bool {
 }
 
 /**
+ * Validates a unitless CSS number value.
+ * Accepts: positive integers or decimals (e.g. 650, 1.6, 0.85).
+ * Used for font-weight, line-height, and other unitless numeric tokens.
+ */
+function _pp_validate_number(string $value): bool {
+    return (bool) preg_match('/^\d+(\.\d+)?$/', $value);
+}
+
+/**
  * Validates a token value based on its type.
  *
  * @return true|WP_Error
@@ -293,6 +302,11 @@ function _pp_validate_token_value(string $value, ?string $type) {
         case 'duration':
             if (!_pp_validate_duration($value)) {
                 return new WP_Error('invalid_duration', 'Value must be a number with a time unit (ms, s).');
+            }
+            break;
+        case 'number':
+            if (!_pp_validate_number($value)) {
+                return new WP_Error('invalid_number', 'Value must be a unitless number (e.g. 650, 1.6).');
             }
             break;
         case 'raw':

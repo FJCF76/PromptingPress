@@ -15,7 +15,7 @@
 
 .btn {
   display: inline-block;
-  padding: var(--space-sm) var(--space-lg);
+  padding: var(--btn-padding-y) var(--btn-padding-x);
   background-color: var(--color-accent);
   color: var(--color-bg);
   font-weight: 600;
