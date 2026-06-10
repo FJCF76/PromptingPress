@@ -71,7 +71,7 @@ function pp_ai_system_prompt(): string {
     // Apply signatures
     $applies = pp_get_registered_applies();
     if ($applies) {
-        $parts[] = '## Available Applies (file mutations)';
+        $parts[] = '## Available Applies (design mutations)';
         foreach ($applies as $name => $def) {
             $param_str = pp_ai_format_params($def['params'] ?? []);
             $parts[] = "- **{$name}** ({$def['domain']}): {$def['description']} Params: {$param_str}";
@@ -82,7 +82,7 @@ function pp_ai_system_prompt(): string {
     // Design tokens
     $tokens = pp_design_tokens();
     if ($tokens) {
-        $parts[] = '## Design Tokens (CSS custom properties in base.css)';
+        $parts[] = '## Design Tokens (defaults from base.css, overrides from database)';
         foreach ($tokens as $token_name => $token_data) {
             $type_str = $token_data['type'] ? " ({$token_data['type']})" : '';
             $parts[] = "- `{$token_name}`: `{$token_data['value']}`{$type_str}";

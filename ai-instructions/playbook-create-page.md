@@ -22,7 +22,7 @@ Map the brief to PromptingPress components:
 - Hero, section, grid, CTA, FAQ, stats, footer, etc.
 - Choose variants and layouts based on the brief's intent
 - Plan the composition array (component order, props)
-- Declare planned file mutations (e.g., `assets/css/base.css` if token changes needed)
+- Note any design token changes needed (stored in database, not file-based)
 
 ### 3. EDIT
 Execute actions in order:
@@ -31,7 +31,7 @@ Execute actions in order:
 3. Any token updates if the brief requires brand changes
 
 ### 4. PREFLIGHT
-Run `wp pp apply preflight --planned-files='["assets/css/base.css"]'` if any file-based applies are needed. If only DB actions were used, a plain `wp pp apply preflight` suffices.
+Run `wp pp apply preflight` before any applies. Token applies are database-backed, so no `--planned-files` needed for design token changes.
 
 ### 5. APPLY
 Execute any file-based applies (e.g., `wp pp apply execute --apply=update_design_token --params='...'`).

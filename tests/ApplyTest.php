@@ -155,6 +155,13 @@ class ApplyTest extends TestCase
         $this->assertEquals('injection', $result->get_error_code());
     }
 
+    public function testValidateRejectsAngleBrackets(): void
+    {
+        $result = pp_validate_apply('update_design_token', ['token' => '--font-body', 'value' => 'system-ui</style><script>alert(1)</script>']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('injection', $result->get_error_code());
+    }
+
     public function testValidateAcceptsParensAndCommas(): void
     {
         $result = pp_validate_apply('update_design_token', ['token' => '--overlay-bg', 'value' => 'rgba(0, 0, 0, 0.5)']);

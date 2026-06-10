@@ -80,9 +80,9 @@ Preflight checks:
 
 Run: `wp pp apply execute --apply=<name> --params='...'`
 
-Apply creates a backup automatically. If apply fails, a restore point exists.
+Token overrides are stored in the database. Use `reset_design_token` or `reset_all_design_tokens` to revert.
 
-**Required output**: `apply_result` — apply result including backup path.
+**Required output**: `apply_result` — apply result including changes array.
 
 ### 6. SCREENSHOT
 **Role**: Reviewer. Capture visual evidence.

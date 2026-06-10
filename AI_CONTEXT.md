@@ -18,7 +18,7 @@ each section. Register the template in WP Admin (Pages → Edit → Page Attribu
 **To add a component:** Follow the steps in `ai-instructions/add-component.md`. The
 auto-loader picks up any component at `/components/{name}/{name}.php` — no registration needed.
 
-**To retheme:** Read `ai-instructions/retheme.md`. Edit the 18 CSS tokens in `assets/css/base.css`.
+**To retheme:** Read `ai-instructions/retheme.md`. Update the 33 design tokens via `update_design_token` apply (overrides stored in database, defaults in `assets/css/base.css`).
 
 **To provision a new WordPress site:** Read `ai-instructions/bootstrap.md` for the full state contract and WP-CLI verification commands.
 
@@ -47,7 +47,7 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 |--------------------------|---------------------------------|----------------------------------|
 | /templates/              | Page layouts                    | Yes                              |
 | /components/             | Reusable sections               | Yes                              |
-| /assets/css/base.css     | Design tokens (18 CSS vars)     | Yes — tokens only                |
+| /assets/css/base.css     | Design token defaults (33 CSS vars) | Yes — tokens only             |
 | /assets/css/components.css | Component styles              | Yes                              |
 | /assets/css/utilities.css | Spacing / text utilities       | Yes                              |
 | /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Yes — run npm test after         |
@@ -124,7 +124,7 @@ Every visual change maps to one surface. Writing to the wrong surface creates sp
 | Change | Surface | Method |
 |---|---|---|
 | Page layout / content | `_pp_composition` post meta | Actions: `update_composition`, `add_component`, `update_component` |
-| Site-wide colors, spacing, fonts | `assets/css/base.css` tokens | Apply: `update_design_token` |
+| Site-wide colors, spacing, fonts | `pp_token_overrides` option (defaults in `base.css`) | Apply: `update_design_token`, `reset_design_token`, `reset_all_design_tokens` |
 | Component-specific CSS | `assets/css/components.css` | Direct file edit (BEM, tokens only) |
 | Site name / tagline | WordPress options | Action: `update_site_option` |
 
@@ -173,8 +173,12 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_default_homepage_composition()` | Default homepage component array (hero, section, cta) — single source of truth for activation seeding and blank-page fallback |
 | `pp_get_composition($post_id)` | Composition array for any page by ID (returns [] if absent) |
 | `pp_composition_pages()`       | All composition pages: [{id, title, status, url}, ...] (static cached) |
-| `pp_design_tokens()`           | CSS custom properties from base.css :root {} with type metadata. Returns `['--token' => ['value' => string, 'type' => string\|null]]`. Static cached. |
-| `pp_invalidate_design_tokens_cache()` | Resets the pp_design_tokens() static cache. Call after writing to base.css. |
+| `pp_design_tokens()`           | CSS custom properties merged from base.css defaults + database overrides. Returns `['--token' => ['value' => string, 'type' => string\|null]]`. Static cached. |
+| `pp_invalidate_design_tokens_cache()` | Resets the pp_design_tokens() static cache. Call after modifying token overrides. |
+| `pp_get_token_overrides()`     | Returns database-stored token overrides as `['--token' => 'value']`. |
+| `pp_set_token_override($token, $value)` | Writes a single token override to the database. |
+| `pp_clear_token_override($token)` | Removes a single token override (reverts to default). |
+| `pp_clear_all_token_overrides()` | Removes all overrides (reverts site to shipped defaults). |
 | `pp_site_option($key)`         | Whitelisted option value (blogname, blogdescription) or WP_Error |
 | `pp_update_composition($post_id, $composition)` | Writes composition array to post meta (handles JSON serialization). Returns true\|WP_Error |
 | `pp_update_page_title($post_id, $title)` | Updates page title. Returns true\|WP_Error |
@@ -182,24 +186,24 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_publish_page($post_id)`    | Sets post_status to 'publish'. Returns true\|WP_Error |
 | `pp_update_site_option($key, $value)` | Updates whitelisted option. Returns true\|WP_Error |
 
-### Apply layer (file-based mutations — lib/apply.php)
+### Apply layer (lib/apply.php)
 
 | Function | Description |
 |----------|-------------|
-| `pp_register_apply($name, $def)` | Registers a file-based mutation (apply). |
+| `pp_register_apply($name, $def)` | Registers a mutation (file-based or option-based). |
 | `pp_get_registered_applies()` | Returns all registered applies. |
 | `pp_get_apply($name)` | Returns a single apply definition, or null. |
 | `pp_validate_apply($name, $params)` | Validates params (structural + semantic). Returns true\|WP_Error. |
 | `pp_preview_apply($name, $params)` | Validates and returns before/after diff without writing. |
-| `pp_execute_apply($name, $params)` | Validates, backs up, applies mutation, verifies contract. |
-| `pp_restore_points($basename)` | Returns available restore points for a file. |
-| `pp_restore($target_path, $point)` | Restores a file from a restore point (null = latest). |
+| `pp_execute_apply($name, $params)` | Validates and applies mutation. |
 
 **Registered applies:**
 
 | Name | Domain | Target | Params |
 |------|--------|--------|--------|
-| `update_design_token` | design | assets/css/base.css | token (string, required), value (string, required) |
+| `update_design_token` | design | option: `pp_token_overrides` | token (string, required), value (string, required) |
+| `reset_design_token` | design | option: `pp_token_overrides` | token (string, required) |
+| `reset_all_design_tokens` | design | option: `pp_token_overrides` | (none) |
 
 **CLI:** `wp pp apply list\|preview\|execute\|restore` (requires manage_options capability).
 
@@ -231,19 +235,24 @@ not ACF fields. `pp_field()` returns null when ACF is not installed.
 
 ---
 
-## Design tokens (assets/css/base.css)
+## Design tokens
 
-18 CSS custom properties control the entire visual system. To retheme, edit these only.
+33 CSS custom properties control the entire visual system. Product defaults live in `assets/css/base.css`. Site-specific overrides are stored in the `pp_token_overrides` database option and output as inline CSS after the base stylesheet (CSS cascade resolves precedence automatically).
+
+To change a token: use `pp_execute_apply('update_design_token', ['token' => '...', 'value' => '...'])`. To revert: use `reset_design_token` or `reset_all_design_tokens`.
 
 ```
 Colors:     --color-bg, --color-surface, --color-text, --color-muted,
             --color-border, --color-accent, --color-accent-hover, --color-bg-inverted
-Spacing:    --space-xs, --space-sm, --space-md, --space-lg, --space-xl, --space-2xl
-Typography: --font-body, --font-heading
-Shape:      --radius, --max-width, --transition, --overlay-bg
+Derived:    --color-text-secondary, --color-accent-strong, --color-border-accent, --color-surface-accent
+Spacing:    --space-xs, --space-sm, --space-md, --space-lg, --space-xl, --space-2xl, --space-3xl
+Typography: --font-body, --font-heading, --font-weight-heading, --line-height-body, --line-height-heading
+Button:     --btn-padding-y, --btn-padding-x
+Shape:      --radius, --max-width, --measure-body, --measure-body-wide, --measure-centered,
+            --transition, --overlay-bg
 ```
 
-See `ai-instructions/retheme.md` for the full retheme workflow.
+Token overrides survive theme updates — `base.css` is overwritten on update, but overrides persist in the database. See `ai-instructions/retheme.md` for the full retheme workflow.
 
 ---
 
@@ -401,7 +410,7 @@ Assembled by `pp_ai_system_prompt()`:
 - Component catalog (names + prop schemas, condensed)
 - Action signatures (names, scopes, param types)
 - Apply signatures (names, domains, param types)
-- Design token inventory (18 tokens with current values and types)
+- Design token inventory (33 tokens with current effective values and types)
 - Response format instructions (conversational vs structured proposal)
 
 ### Proposal flow

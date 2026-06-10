@@ -8,7 +8,7 @@ Every visual change maps to exactly one mutation surface. Writing to the wrong s
 |---|---|---|
 | Page layout (which components, what order) | `_pp_composition` post meta | `update_composition` or `add_component` action |
 | Component content (text, images, URLs) | `_pp_composition` post meta | `update_component` action |
-| Site-wide colors, spacing, fonts | `assets/css/base.css` design tokens | `update_design_token` apply |
+| Site-wide colors, spacing, fonts | `pp_token_overrides` option (defaults in `base.css`) | `update_design_token` apply |
 | Component variants (dark, inverted, steps) | `_pp_composition` post meta | `update_component` action (set `variant` or `theme` prop) |
 | Component-specific CSS (spacing, layout) | `assets/css/components.css` | Direct file edit (BEM classes, token values only) |
 | Site name, tagline | WordPress options | `update_site_option` action |

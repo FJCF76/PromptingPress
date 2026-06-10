@@ -122,20 +122,21 @@ The output should be empty. If it returns matches, replace each with the corresp
 | schema.json files        | Machine-readable contracts — not styling |
 | functions.php            | Only add the font enqueue, nothing else |
 
-The entire visual output of the site flows through the 18 CSS variables. Editing anything outside `assets/css/base.css` is unnecessary for a retheme.
+The entire visual output of the site flows through the 33 CSS variables. Editing anything outside `assets/css/base.css` is unnecessary for a retheme.
 
 ---
 
 ## Programmatic alternative
 
-Tokens can also be changed via the apply layer without manually editing base.css:
+Tokens can also be changed via the apply layer without manually editing base.css. Overrides are stored in the database (`pp_token_overrides` option) and survive theme updates:
 
 ```bash
 wp pp apply execute update_design_token --params='{"token":"--color-accent","value":"#b45309"}'
 wp pp apply preview update_design_token --params='{"token":"--color-accent","value":"#b45309"}'  # diff without writing
-wp pp apply restore                                                                               # undo last change
+wp pp apply restore --run-id=<uuid> --token=--color-accent                                       # reset single token to default
+wp pp apply restore --run-id=<uuid>                                                               # reset all tokens to defaults
 ```
 
 Or from PHP: `pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309'])`.
 
-The apply layer validates token names, enforces type-specific value constraints, backs up before writing, and auto-restores on failure. Use this path when rethemeing programmatically (e.g. from an AI interface).
+The apply layer validates token names, enforces type-specific value constraints, and verifies the write via database read-back. Use this path when rethemeing programmatically (e.g. from an AI interface).

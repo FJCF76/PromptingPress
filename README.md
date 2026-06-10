@@ -23,7 +23,7 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 
 **WP abstraction layer** — `lib/wp.php` is the only file that calls WordPress functions. Templates and components use `pp_*` wrappers only. This means AI can edit templates without knowing WordPress internals, and templates are testable without bootstrapping WP.
 
-**Design token system** — 18 CSS custom properties in `assets/css/base.css` control the entire visual system. To retheme: edit those 18 variables and nothing else.
+**Design token system** — 33 CSS custom properties control the entire visual system. Product defaults live in `assets/css/base.css`; site-specific overrides are stored in the database and survive theme updates.
 
 **AI context map** — `AI_CONTEXT.md` is a machine-readable site map: file responsibilities, component index, WP abstraction API, composition format, design tokens. Read it once and you know the whole site.
 
@@ -34,7 +34,7 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 /templates/                Page layout files
 /lib/wp.php                WP abstraction layer (pp_* functions only)
 /lib/actions.php           Typed action model (12 actions, validate/preview/execute)
-/lib/apply.php             Apply layer (file-based mutations, validate/preview/execute/restore)
+/lib/apply.php             Apply layer (file + option mutations, validate/preview/execute)
 /lib/cli.php               WP-CLI commands (wp pp action + wp pp apply)
 /lib/admin.php             Composition editor: meta box, AJAX adapters → action layer
 /lib/ai-chat.php           AI chat admin page + AJAX handlers (execute, fallback)
@@ -43,7 +43,7 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 /lib/ai-settings.php       AI settings page (BYOK provider config)
 /lib/setup.php             Theme activation bootstrap: homepage provisioning
 /lib/components.php        Component auto-loader (don't edit)
-/assets/css/base.css       Design tokens — 18 CSS variables
+/assets/css/base.css       Design token defaults — 33 CSS variables
 /assets/css/components.css Component styles (CSS variables only, no raw hex)
 /assets/css/pp-ai-chat.css AI chat styles
 /assets/js/pp-editor-logic.js  Pure JS logic: JSON context, validator, accordion data, insert position

@@ -270,9 +270,9 @@ function _pp_validate_number(string $value): bool {
  * @return true|WP_Error
  */
 function _pp_validate_token_value(string $value, ?string $type) {
-    // Injection check: reject { } ;
-    if (preg_match('/[{};]/', $value)) {
-        return new WP_Error('injection', 'Value must not contain {, }, or ; characters.');
+    // Injection check: reject { } ; < > (prevents CSS injection and style-tag breakout)
+    if (preg_match('/[{};<>]/', $value)) {
+        return new WP_Error('injection', 'Value must not contain {, }, ;, <, or > characters.');
     }
 
     if ($value === '') {

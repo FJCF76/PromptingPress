@@ -30,9 +30,11 @@ Before modifying any component styling or composition: run `wp pp check conflict
 ## Design system
 
 To restyle the site, read `ai-instructions/retheme.md`.
-Design tokens live in `assets/css/base.css` — 18 CSS variables control the entire visual system.
-Each token has a type annotation in its comment (color, length, font-family, duration, raw).
+33 design tokens control the entire visual system. Product defaults live in `assets/css/base.css`; site-specific overrides are stored in the `pp_token_overrides` database option and output as inline CSS. Overrides survive theme updates.
+Each token has a type annotation in its comment (color, length, font-family, number, duration, raw).
 To change a token programmatically, use `pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309'])`.
+To revert a token to its default, use `pp_execute_apply('reset_design_token', ['token' => '--color-accent'])`.
+To revert all tokens, use `pp_execute_apply('reset_all_design_tokens', [])`.
 CLI: `wp pp apply execute update_design_token --params='{"token":"--color-accent","value":"#b45309"}'`.
 
 ## Anti-slop rules
@@ -90,14 +92,14 @@ Requires Docker. Tests cover workspace init, preview updates, save rejection, au
 |--------------------------|---------------------------------|----------------------------------|
 | /templates/              | Page layouts                    | Yes                              |
 | /components/             | Reusable sections               | Yes                              |
-| /assets/css/base.css     | Design tokens                   | Yes — tokens only                |
+| /assets/css/base.css     | Design token defaults           | Yes — tokens only                |
 | /assets/css/components.css | Component styles              | Yes                              |
 | /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Yes — run npm test after         |
 | /assets/js/main.js       | Nav toggle, active link         | Yes                              |
 | /lib/wp.php              | WP function wrappers (read + write) | Only to add pp_ functions   |
 | /lib/actions.php         | Typed action model (13 actions) | Add actions following the contract |
 | /lib/guardrails.php      | Conflict detection + composition validation | Extend for new checks |
-| /lib/apply.php           | Apply layer (file-based mutations) | Add applies following the contract |
+| /lib/apply.php           | Apply layer (file + option mutations) | Add applies following the contract |
 | /lib/cli.php             | WP-CLI `wp pp action` + `wp pp apply` commands | Yes               |
 | /lib/components.php      | Component loader                | No                               |
 | /lib/ai-context.php      | AI site context layer             | Extend for new context sources     |
