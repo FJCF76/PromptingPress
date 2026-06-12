@@ -681,6 +681,97 @@ class PP_Operate_Command extends WP_CLI_Command {
             WP_CLI::halt(1);
         }
     }
+
+    /**
+     * Returns editable composition targets for a page as JSON.
+     *
+     * Walks each component, looks up the field editability map, and builds
+     * semantic selector strings with current values. Used by agents to
+     * discover what can be patched on a page.
+     *
+     * ## OPTIONS
+     *
+     * <page>
+     * : Post ID or slug of the page to inspect.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp operate inspect-composition 19
+     *     wp pp operate inspect-composition about-us
+     *
+     */
+    public function inspect_composition($args, $assoc_args) {
+        $page = $args[0] ?? null;
+        if (!$page) {
+            WP_CLI::error('Page argument is required.');
+        }
+
+        $post_id = is_numeric($page) ? (int) $page : url_to_postid(home_url($page));
+        if (!$post_id) {
+            WP_CLI::error(sprintf('Could not resolve page "%s".', $page));
+        }
+
+        $result = pp_inspect_composition($post_id);
+        if (is_wp_error($result)) {
+            WP_CLI::error($result->get_error_message());
+        }
+
+        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * Patches a composition field by semantic selector.
+     *
+     * Parses the selector, resolves the target component and field, then
+     * either previews the diff or applies the change through the
+     * update_component action path.
+     *
+     * ## OPTIONS
+     *
+     * <page>
+     * : Post ID or slug of the page to patch.
+     *
+     * --target=<selector>
+     * : Semantic selector (e.g. hero.subtitle, section[title="About"].body).
+     *
+     * --value=<value>
+     * : The new value for the targeted field.
+     *
+     * [--preview]
+     * : Show the diff without writing.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp operate patch 19 --target=hero.subtitle --value="New Subtitle" --preview
+     *     wp pp operate patch 19 --target=hero.subtitle --value="New Subtitle"
+     *
+     */
+    public function patch($args, $assoc_args) {
+        $page = $args[0] ?? null;
+        if (!$page) {
+            WP_CLI::error('Page argument is required.');
+        }
+
+        $post_id = is_numeric($page) ? (int) $page : url_to_postid(home_url($page));
+        if (!$post_id) {
+            WP_CLI::error(sprintf('Could not resolve page "%s".', $page));
+        }
+
+        $selector = $assoc_args['target'] ?? '';
+        $value    = $assoc_args['value'] ?? '';
+        $preview  = isset($assoc_args['preview']);
+
+        if ($selector === '') {
+            WP_CLI::error('--target is required.');
+        }
+
+        $result = pp_patch_composition($post_id, $selector, $value, $preview);
+        if (is_wp_error($result)) {
+            WP_CLI::error($result->get_error_message());
+        }
+
+        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
 }
 
 WP_CLI::add_command('pp operate', 'PP_Operate_Command');

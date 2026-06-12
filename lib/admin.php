@@ -22,6 +22,10 @@
  */
 function pp_get_registered_components(): array {
     static $cache = null;
+    if (!empty($GLOBALS['_pp_registered_components_invalidate'])) {
+        $cache = null;
+        unset($GLOBALS['_pp_registered_components_invalidate']);
+    }
     if ($cache !== null) {
         return $cache;
     }

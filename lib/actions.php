@@ -456,17 +456,25 @@ pp_register_action('add_component', [
 
 pp_register_action('remove_component', [
     'scope'       => 'page',
-    'description' => 'Removes a component from a page composition by index.',
-    'semantics'   => 'Remove by 0-based index. Validates index is in bounds. Remaining components shift down.',
+    'description' => 'Removes a component from a page composition. Accepts component_id (stable pp-<hex8>) or component_index (0-based). component_id takes precedence when both are provided.',
+    'semantics'   => 'Remove by component_id or 0-based index. Validates target is valid. Remaining components shift down.',
     'params'      => [
-        'post_id'         => ['type' => 'int', 'required' => true],
-        'component_index' => ['type' => 'int', 'required' => true],
+        'post_id'         => ['type' => 'int',    'required' => true],
+        'component_index' => ['type' => 'int',    'required' => false],
+        'component_id'    => ['type' => 'string', 'required' => false],
     ],
     'validate' => function (array $params) {
         $exists = _pp_validate_page_exists($params['post_id']);
         if (is_wp_error($exists)) {
             return $exists;
         }
+
+        // Resolve component_id → component_index
+        $resolved = _pp_resolve_id_param($params, $params['post_id']);
+        if (is_wp_error($resolved)) {
+            return $resolved;
+        }
+
         $composition = pp_get_composition($params['post_id']);
         $count = count($composition);
         if ($params['component_index'] < 0 || $params['component_index'] >= $count) {
@@ -475,6 +483,7 @@ pp_register_action('remove_component', [
         return true;
     },
     'preview' => function (array $params): array {
+        _pp_resolve_id_param($params, $params['post_id']);
         $current = pp_get_composition($params['post_id']);
         $removed = $current[$params['component_index']];
         $after   = $current;
@@ -484,6 +493,7 @@ pp_register_action('remove_component', [
         ]);
     },
     'execute' => function (array $params): array {
+        _pp_resolve_id_param($params, $params['post_id']);
         $current = pp_get_composition($params['post_id']);
         $removed = $current[$params['component_index']];
         $after   = $current;
@@ -567,18 +577,26 @@ pp_register_action('reorder_components', [
 
 pp_register_action('update_component', [
     'scope'       => 'section',
-    'description' => 'Updates a single component\'s props via shallow merge (patch, not replace).',
-    'semantics'   => 'Patch. Props are shallow-merged into existing props. Unspecified props unchanged. null removes a prop. Validates the merged composition via pp_validate_composition().',
+    'description' => 'Updates a single component\'s props via shallow merge (patch, not replace). Accepts component_id (stable pp-<hex8>) or component_index (0-based). component_id takes precedence when both are provided.',
+    'semantics'   => 'Patch. Props are shallow-merged into existing props. Unspecified props unchanged. null removes a prop. Validates the merged composition via pp_validate_composition(). Target component by component_id or component_index.',
     'params'      => [
-        'post_id'         => ['type' => 'int',   'required' => true],
-        'component_index' => ['type' => 'int',   'required' => true],
-        'props'           => ['type' => 'array', 'required' => true],
+        'post_id'         => ['type' => 'int',    'required' => true],
+        'component_index' => ['type' => 'int',    'required' => false],
+        'component_id'    => ['type' => 'string', 'required' => false],
+        'props'           => ['type' => 'array',  'required' => true],
     ],
     'validate' => function (array $params) {
         $exists = _pp_validate_page_exists($params['post_id']);
         if (is_wp_error($exists)) {
             return $exists;
         }
+
+        // Resolve component_id → component_index
+        $resolved = _pp_resolve_id_param($params, $params['post_id']);
+        if (is_wp_error($resolved)) {
+            return $resolved;
+        }
+
         $composition = pp_get_composition($params['post_id']);
         $count = count($composition);
 
@@ -597,6 +615,7 @@ pp_register_action('update_component', [
         return pp_validate_composition($test_composition);
     },
     'preview' => function (array $params): array {
+        _pp_resolve_id_param($params, $params['post_id']);
         $composition = pp_get_composition($params['post_id']);
         $before_props = $composition[$params['component_index']]['props'] ?? [];
         $after_props  = _pp_merge_component_props($before_props, $params['props']);
@@ -607,6 +626,7 @@ pp_register_action('update_component', [
         );
     },
     'execute' => function (array $params): array {
+        _pp_resolve_id_param($params, $params['post_id']);
         $composition  = pp_get_composition($params['post_id']);
         $before_props = $composition[$params['component_index']]['props'] ?? [];
         $after_props  = _pp_merge_component_props($before_props, $params['props']);
@@ -794,6 +814,38 @@ function _pp_validate_page_exists(int $post_id) {
     if ($post->post_type !== 'page') {
         return new WP_Error('not_a_page', sprintf('Post %d is not a page (type: %s).', $post_id, $post->post_type));
     }
+    return true;
+}
+
+/**
+ * Resolves component_id to component_index in action params.
+ *
+ * Call at the top of validate callables for actions that accept component_id.
+ * Mutates $params in place: sets component_index from resolution result.
+ *
+ * Precedence: component_id > component_index. At least one must be provided.
+ *
+ * @param array &$params  Action params (mutated: component_index set on success).
+ * @param int    $post_id Post ID to read composition from.
+ * @return true|WP_Error  true on success, WP_Error on failure.
+ */
+function _pp_resolve_id_param(array &$params, int $post_id) {
+    $has_id    = isset($params['component_id']) && $params['component_id'] !== '';
+    $has_index = isset($params['component_index']);
+
+    if (!$has_id && !$has_index) {
+        return new WP_Error('missing_component_target', 'Either component_id or component_index is required.');
+    }
+
+    if ($has_id) {
+        $composition = pp_get_composition($post_id);
+        $resolved = pp_resolve_component_target($composition, ['component_id' => $params['component_id']]);
+        if (is_wp_error($resolved)) {
+            return $resolved;
+        }
+        $params['component_index'] = $resolved['index'];
+    }
+
     return true;
 }
 

@@ -615,3 +615,513 @@ function pp_operate_cleanup_run( string $run_id ): void {
         @unlink( $path );
     }
 }
+
+// ── Semantic Composition Operator ──────────────────────────────────────────
+
+/**
+ * Resolves a component target within a composition array.
+ *
+ * Accepts either a component_id (stable pp-<hex8> identifier) or a
+ * component_index (0-based array position). Returns the resolved index
+ * and component data, or WP_Error on failure.
+ *
+ * When both component_id and component_index are provided, component_id
+ * takes precedence.
+ *
+ * @param array $composition  The composition array to search.
+ * @param array $target       Target descriptor: ['component_id' => string] or ['component_index' => int].
+ * @return array|WP_Error     ['index' => int, 'component' => array] or WP_Error.
+ */
+function pp_resolve_component_target(array $composition, array $target) {
+    $has_id    = isset($target['component_id']) && $target['component_id'] !== '';
+    $has_index = isset($target['component_index']);
+
+    if (!$has_id && !$has_index) {
+        return new WP_Error('no_target', 'No component_id or component_index provided.');
+    }
+
+    // component_id takes precedence
+    if ($has_id) {
+        $id = $target['component_id'];
+        foreach ($composition as $index => $item) {
+            if (isset($item['props']['id']) && $item['props']['id'] === $id) {
+                return ['index' => $index, 'component' => $item];
+            }
+        }
+        return new WP_Error(
+            'component_not_found',
+            sprintf('No component with id "%s" found in composition.', $id)
+        );
+    }
+
+    // component_index fallback
+    $idx   = (int) $target['component_index'];
+    $count = count($composition);
+    if ($idx < 0 || $idx >= $count) {
+        return new WP_Error(
+            'index_out_of_bounds',
+            sprintf('Component index %d is out of bounds (0..%d).', $idx, $count - 1)
+        );
+    }
+
+    return ['index' => $idx, 'component' => $composition[$idx]];
+}
+
+/**
+ * Parses a semantic composition selector string into a structured target.
+ *
+ * Supported patterns:
+ *   hero.subtitle                              → simple type + field
+ *   section[title="About Us"].body             → type + match + field
+ *   grid[title="Features"].items[title="X"].text → nested item targeting
+ *   hero[id="pp-a1b2c3d4"].subtitle            → ID-based targeting
+ *
+ * Escape rules: \" for literal quote inside match values, \\ for literal backslash.
+ *
+ * @param string $selector_string  The selector string to parse.
+ * @return array|WP_Error  Structured target or WP_Error on invalid input.
+ */
+function pp_parse_composition_selector(string $selector_string) {
+    $selector = trim($selector_string);
+    if ($selector === '') {
+        return new WP_Error('invalid_selector', 'Selector string is empty.');
+    }
+
+    // ── Parse component type ──
+    // Consume leading word chars as the component type.
+    if (!preg_match('/^([a-z][a-z0-9_]*)/', $selector, $m)) {
+        return new WP_Error('invalid_selector', sprintf('Invalid selector: cannot parse component type from "%s".', $selector));
+    }
+    $component_type = $m[1];
+    $rest = substr($selector, strlen($component_type));
+
+    $result = ['component_type' => $component_type];
+
+    // ── Parse optional bracket match on the component ──
+    if (str_starts_with($rest, '[')) {
+        $parsed = _pp_parse_bracket_match($rest);
+        if (is_wp_error($parsed)) {
+            return $parsed;
+        }
+        // Special case: id match sets component_id instead of match_field/match_value.
+        if ($parsed['field'] === 'id') {
+            $result['component_id'] = $parsed['value'];
+        } else {
+            $result['match_field'] = $parsed['field'];
+            $result['match_value'] = $parsed['value'];
+        }
+        $rest = $parsed['rest'];
+    }
+
+    // ── Expect a dot separator ──
+    if (!str_starts_with($rest, '.')) {
+        return new WP_Error('invalid_selector', sprintf('Invalid selector: expected "." after component type/match in "%s".', $selector));
+    }
+    $rest = substr($rest, 1);
+
+    // ── Check for nested items targeting: items[field="value"].field ──
+    if (str_starts_with($rest, 'items')) {
+        $rest = substr($rest, 5); // consume 'items'
+        if (!str_starts_with($rest, '[')) {
+            return new WP_Error('invalid_selector', sprintf('Invalid selector: expected bracket match after "items" in "%s".', $selector));
+        }
+        $parsed = _pp_parse_bracket_match($rest);
+        if (is_wp_error($parsed)) {
+            return $parsed;
+        }
+        $result['nested_match_field'] = $parsed['field'];
+        $result['nested_match_value'] = $parsed['value'];
+        $rest = $parsed['rest'];
+
+        if (!str_starts_with($rest, '.')) {
+            return new WP_Error('invalid_selector', sprintf('Invalid selector: expected "." after nested item match in "%s".', $selector));
+        }
+        $rest = substr($rest, 1);
+    }
+
+    // ── Parse target field ──
+    if (!preg_match('/^([a-z][a-z0-9_]*)$/', $rest, $m)) {
+        return new WP_Error('invalid_selector', sprintf('Invalid selector: cannot parse target field from "%s".', $selector));
+    }
+    $result['target_field'] = $m[1];
+
+    return $result;
+}
+
+/**
+ * Parses a bracket match expression like [field="value"] from the start of a string.
+ *
+ * Handles escaped quotes (\") and escaped backslashes (\\) inside the value.
+ *
+ * @param string $str  String starting with '['.
+ * @return array|WP_Error  ['field' => string, 'value' => string, 'rest' => string] or WP_Error.
+ */
+function _pp_parse_bracket_match(string $str) {
+    // Match: [field="...escaped content..."]
+    // We need to manually parse to handle escapes properly.
+    if (!str_starts_with($str, '[')) {
+        return new WP_Error('invalid_selector', 'Expected "[" at start of bracket match.');
+    }
+
+    $pos = 1; // skip '['
+    $len = strlen($str);
+
+    // Parse field name
+    $field_start = $pos;
+    while ($pos < $len && $str[$pos] !== '=' && $str[$pos] !== ']') {
+        $pos++;
+    }
+    $field = substr($str, $field_start, $pos - $field_start);
+    if ($field === '' || !preg_match('/^[a-z][a-z0-9_]*$/', $field)) {
+        return new WP_Error('invalid_selector', sprintf('Invalid match field: "%s".', $field));
+    }
+
+    // Expect ="
+    if ($pos + 1 >= $len || $str[$pos] !== '=' || $str[$pos + 1] !== '"') {
+        return new WP_Error('invalid_selector', 'Expected =" after match field name.');
+    }
+    $pos += 2; // skip ="
+
+    // Parse value with escape handling
+    $value = '';
+    while ($pos < $len) {
+        $ch = $str[$pos];
+        if ($ch === '\\' && $pos + 1 < $len) {
+            $next = $str[$pos + 1];
+            if ($next === '"' || $next === '\\') {
+                $value .= $next;
+                $pos += 2;
+                continue;
+            }
+        }
+        if ($ch === '"') {
+            $pos++; // skip closing quote
+            break;
+        }
+        $value .= $ch;
+        $pos++;
+    }
+
+    // Expect ]
+    if ($pos >= $len || $str[$pos] !== ']') {
+        return new WP_Error('invalid_selector', 'Expected "]" after match value.');
+    }
+    $pos++; // skip ]
+
+    return [
+        'field' => $field,
+        'value' => $value,
+        'rest'  => substr($str, $pos),
+    ];
+}
+
+// ── Component Field Editability Map ──────────────────────────────────────
+
+/**
+ * Registers editable fields for a component type.
+ *
+ * @param string $component_type  Component type name (e.g. 'hero', 'section').
+ * @param array  $fields          Array of field definitions: ['name' => string, 'type' => string].
+ */
+function pp_register_component_fields(string $component_type, array $fields): void {
+    global $_pp_component_fields;
+    if (!isset($_pp_component_fields)) {
+        $_pp_component_fields = [];
+    }
+    $_pp_component_fields[$component_type] = $fields;
+}
+
+/**
+ * Retrieves the editable fields for a component type.
+ *
+ * @param string $component_type  Component type name.
+ * @return array  Array of field definitions, or empty array if type is not registered.
+ */
+function pp_get_component_fields(string $component_type): array {
+    global $_pp_component_fields;
+    return $_pp_component_fields[$component_type] ?? [];
+}
+
+// ── Register default component fields ────────────────────────────────────
+
+pp_register_component_fields('hero', [
+    ['name' => 'title',    'type' => 'string'],
+    ['name' => 'subtitle', 'type' => 'string'],
+    ['name' => 'eyebrow',  'type' => 'string'],
+    ['name' => 'cta_text', 'type' => 'string'],
+    ['name' => 'cta_url',  'type' => 'url'],
+]);
+
+pp_register_component_fields('section', [
+    ['name' => 'title', 'type' => 'string'],
+    ['name' => 'body',  'type' => 'html'],
+]);
+
+pp_register_component_fields('grid', [
+    ['name' => 'items[].title', 'type' => 'string'],
+    ['name' => 'items[].text',  'type' => 'string'],
+    ['name' => 'items[].link',  'type' => 'url'],
+]);
+
+pp_register_component_fields('faq', [
+    ['name' => 'items[].question', 'type' => 'string'],
+    ['name' => 'items[].answer',   'type' => 'html'],
+]);
+
+pp_register_component_fields('cta', [
+    ['name' => 'title',    'type' => 'string'],
+    ['name' => 'subtitle', 'type' => 'string'],
+    ['name' => 'cta_text', 'type' => 'string'],
+    ['name' => 'cta_url',  'type' => 'url'],
+]);
+
+// ── Inspect Composition ──────────────────────────────────────────────────
+
+/**
+ * Inspects a page's composition and returns editable targets with selectors.
+ *
+ * For each component, looks up the field editability map and builds semantic
+ * selector strings for each editable field along with the current value.
+ * Components not in the field map are included with an empty fields array.
+ *
+ * @param int $post_id  The WordPress post ID.
+ * @return array|WP_Error  Array of component targets or WP_Error.
+ */
+function pp_inspect_composition(int $post_id): array|WP_Error {
+    $composition = pp_get_composition($post_id);
+    if (is_wp_error($composition)) {
+        return $composition;
+    }
+
+    $targets = [];
+    foreach ($composition as $index => $item) {
+        $type = $item['component'] ?? 'unknown';
+        $props = $item['props'] ?? [];
+        $component_id = $props['id'] ?? null;
+        $fields_def = pp_get_component_fields($type);
+
+        $fields = [];
+        foreach ($fields_def as $fdef) {
+            $field_name = $fdef['name'];
+            $field_type = $fdef['type'];
+
+            // Nested items field (e.g. items[].title)
+            if (str_starts_with($field_name, 'items[].')) {
+                $nested_field = substr($field_name, 8); // strip 'items[].'
+                $items = $props['items'] ?? [];
+                foreach ($items as $item_data) {
+                    // Build a selector for each item using its identifying field.
+                    // For nested items, we need a match field to identify the item.
+                    // Use the first non-target field that has a string value as the match.
+                    $match_field = _pp_pick_nested_match_field($type);
+                    if ($match_field === null || !isset($item_data[$match_field])) {
+                        continue;
+                    }
+                    $match_value = $item_data[$match_field];
+                    $escaped_match = str_replace(['\\', '"'], ['\\\\', '\\"'], $match_value);
+                    $escaped_comp_match = '';
+                    if (isset($props['title'])) {
+                        $escaped_comp_title = str_replace(['\\', '"'], ['\\\\', '\\"'], $props['title']);
+                        $escaped_comp_match = sprintf('[title="%s"]', $escaped_comp_title);
+                    }
+                    $selector = sprintf(
+                        '%s%s.items[%s="%s"].%s',
+                        $type, $escaped_comp_match, $match_field, $escaped_match, $nested_field
+                    );
+                    $fields[] = [
+                        'selector'      => $selector,
+                        'field'         => $field_name,
+                        'field_type'    => $field_type,
+                        'current_value' => $item_data[$nested_field] ?? null,
+                    ];
+                }
+            } else {
+                // Top-level field
+                $selector = sprintf('%s.%s', $type, $field_name);
+                // If there could be multiple components of the same type, qualify with match.
+                if (isset($props['title']) && $field_name !== 'title') {
+                    $escaped_title = str_replace(['\\', '"'], ['\\\\', '\\"'], $props['title']);
+                    $selector = sprintf('%s[title="%s"].%s', $type, $escaped_title, $field_name);
+                }
+                $fields[] = [
+                    'selector'      => $selector,
+                    'field'         => $field_name,
+                    'field_type'    => $field_type,
+                    'current_value' => $props[$field_name] ?? null,
+                ];
+            }
+        }
+
+        $targets[] = [
+            'component_type' => $type,
+            'component_id'   => $component_id,
+            'index'          => $index,
+            'fields'         => $fields,
+        ];
+    }
+
+    return $targets;
+}
+
+/**
+ * Picks the best match field for identifying a nested item within a component type.
+ *
+ * @param string $component_type  The component type.
+ * @return string|null  The match field name, or null if none available.
+ */
+function _pp_pick_nested_match_field(string $component_type): ?string {
+    $match_map = [
+        'grid' => 'title',
+        'faq'  => 'question',
+    ];
+    return $match_map[$component_type] ?? null;
+}
+
+// ── Patch Composition ────────────────────────────────────────────────────
+
+/**
+ * Patches a composition field by semantic selector.
+ *
+ * Parses the selector, resolves the target component, checks field editability,
+ * and routes through the update_component action for preview or apply.
+ *
+ * @param int    $post_id          The WordPress post ID.
+ * @param string $selector_string  Semantic selector (e.g. "hero.subtitle").
+ * @param string $value            The new value for the targeted field.
+ * @param bool   $preview          If true, return diff without writing.
+ * @return array|WP_Error  Preview diff or action result, or WP_Error.
+ */
+function pp_patch_composition(int $post_id, string $selector_string, string $value, bool $preview = false) {
+    // 1. Parse selector
+    $parsed = pp_parse_composition_selector($selector_string);
+    if (is_wp_error($parsed)) {
+        return $parsed;
+    }
+
+    $component_type = $parsed['component_type'];
+    $target_field   = $parsed['target_field'];
+    $is_nested      = isset($parsed['nested_match_field']);
+
+    // 2. Read composition
+    $composition = pp_get_composition($post_id);
+    if (is_wp_error($composition)) {
+        return $composition;
+    }
+
+    // 3. Resolve component
+    if (isset($parsed['component_id'])) {
+        // ID-based targeting
+        $resolved = pp_resolve_component_target($composition, ['component_id' => $parsed['component_id']]);
+    } else {
+        // Type-based targeting: find all components matching the type (and optional match_field)
+        $matches = [];
+        foreach ($composition as $idx => $item) {
+            if (($item['component'] ?? '') !== $component_type) {
+                continue;
+            }
+            if (isset($parsed['match_field'])) {
+                $prop_value = $item['props'][$parsed['match_field']] ?? null;
+                if ($prop_value !== $parsed['match_value']) {
+                    continue;
+                }
+            }
+            $matches[] = ['index' => $idx, 'component' => $item];
+        }
+
+        if (count($matches) === 0) {
+            $detail = isset($parsed['match_field'])
+                ? sprintf('No component of type "%s" matching %s="%s".', $component_type, $parsed['match_field'], $parsed['match_value'])
+                : sprintf('No component of type "%s" found.', $component_type);
+            return new WP_Error('component_not_found', $detail);
+        }
+        if (count($matches) > 1) {
+            $ids = array_map(fn($m) => $m['component']['props']['id'] ?? '(no id)', $matches);
+            return new WP_Error(
+                'multiple_components',
+                sprintf('Multiple components match. Use a more specific selector. Matching IDs: %s', implode(', ', $ids))
+            );
+        }
+
+        $resolved = $matches[0];
+    }
+
+    if (is_wp_error($resolved)) {
+        return $resolved;
+    }
+
+    $component_index = $resolved['index'];
+    $component       = $resolved['component'];
+    $props           = $component['props'] ?? [];
+
+    // 4. Check field editability
+    $fields_def = pp_get_component_fields($component_type);
+    if ($is_nested) {
+        $field_key = 'items[].' . $target_field;
+    } else {
+        $field_key = $target_field;
+    }
+    $field_found = false;
+    foreach ($fields_def as $fdef) {
+        if ($fdef['name'] === $field_key) {
+            $field_found = true;
+            break;
+        }
+    }
+    if (!$field_found) {
+        $editable = array_column($fields_def, 'name');
+        return new WP_Error(
+            'field_not_editable',
+            sprintf('Field "%s" is not editable on "%s". Editable fields: %s', $field_key, $component_type, implode(', ', $editable))
+        );
+    }
+
+    // 5. Build update_component params
+    if ($is_nested) {
+        // Nested item targeting: reconstruct full items array
+        $items = $props['items'] ?? [];
+        $nested_match_field = $parsed['nested_match_field'];
+        $nested_match_value = $parsed['nested_match_value'];
+
+        $matched_indices = [];
+        foreach ($items as $i => $item_data) {
+            if (isset($item_data[$nested_match_field]) && $item_data[$nested_match_field] === $nested_match_value) {
+                $matched_indices[] = $i;
+            }
+        }
+
+        if (count($matched_indices) === 0) {
+            return new WP_Error(
+                'nested_item_not_found',
+                sprintf('No item with %s="%s" found in items array.', $nested_match_field, $nested_match_value)
+            );
+        }
+        if (count($matched_indices) > 1) {
+            return new WP_Error(
+                'nested_item_multi_match',
+                sprintf('Multiple items match %s="%s". Matching item indices: %s', $nested_match_field, $nested_match_value, implode(', ', $matched_indices))
+            );
+        }
+
+        // Replace the target field in the matched item
+        $items[$matched_indices[0]][$target_field] = $value;
+
+        $action_params = [
+            'post_id'         => $post_id,
+            'component_index' => $component_index,
+            'props'           => ['items' => $items],
+        ];
+    } else {
+        // Top-level field
+        $action_params = [
+            'post_id'         => $post_id,
+            'component_index' => $component_index,
+            'props'           => [$target_field => $value],
+        ];
+    }
+
+    // 6. Preview or apply
+    if ($preview) {
+        return pp_preview_action('update_component', $action_params);
+    }
+    return pp_execute_action('update_component', $action_params);
+}
