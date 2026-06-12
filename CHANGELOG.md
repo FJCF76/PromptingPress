@@ -4,6 +4,42 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.6.0] — 2026-06-12 — Semantic Composition Operator
+
+### AI agents can now read and write individual composition fields by name
+
+Two new CLI commands let agents inspect what's editable on a page and patch specific fields without replacing entire compositions. `wp pp operate inspect-composition 74` returns every editable field with its semantic selector and current value. `wp pp operate patch 74 --target=hero.subtitle --value="New Headline"` changes one field through the existing `update_component` action path, with `--preview` for dry runs.
+
+Selectors are human-readable: `hero.subtitle`, `section[title="About"].body`, `grid[title="Features"].items[title="Speed"].text`. The selector parser handles escapes, validates structure, and returns clear errors for malformed input.
+
+Components can now be targeted by stable ID (`pp-a1b2c3d4`) instead of fragile array index. `update_component` and `remove_component` accept `component_id` as an alternative to `component_index`, with ID taking precedence when both are provided. Old index-based callers continue to work unchanged.
+
+### Added
+- `wp pp operate inspect-composition <page>` — returns editable targets as JSON with selectors and current values
+- `wp pp operate patch <page> --target=<selector> --value=<value> [--preview]` — semantic field patching
+- `component_id` parameter on `update_component` and `remove_component` actions
+- Selector parser (`pp_parse_composition_selector`) supporting type.field, bracket match, nested items, ID targeting, and escape sequences
+- Component field editability map (`pp_register_component_fields` / `pp_get_component_fields`) covering hero, section, grid, faq, and cta
+- `pp_resolve_component_target()` — resolves component_id or component_index to a composition entry
+- `pp_inspect_composition()` — walks composition and builds selector strings per editable field
+- `pp_patch_composition()` — parses selector, resolves target, checks editability, routes through update_component
+
+### Changed
+- `update_component` accepts `component_id` (string, optional) alongside `component_index`
+- `remove_component` accepts `component_id` (string, optional) alongside `component_index`
+- `component_index` is no longer required when `component_id` is provided
+
+### Tests
+- 485 tests, 1494 assertions
+- New: 53 tests covering selector parsing (valid patterns, edge cases, escapes, invalid input), component resolution (ID, index, out-of-bounds), inspect (nested items, components without titles), patch (preview, apply, rollback, nested items, multi-match rejection, ID-based targeting), and component_id addressing on actions
+
+### Closes
+- #66 — inspect-composition CLI command
+- #67 — semantic patch CLI command
+- #35 — component_id addressing for update and remove actions
+
+---
+
 ## [v0.5.0] — 2026-06-10 — Update-Safe Design Token Persistence
 
 ### Design token overrides now survive theme updates

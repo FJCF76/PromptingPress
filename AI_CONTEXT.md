@@ -335,9 +335,9 @@ All mutations go through typed actions. AJAX handlers, WP-CLI, and future AI cal
 | `update_composition` | page | post_id (req), composition (req) | Replace entire array |
 | `publish_page` | page | post_id (req) | Sets status to publish. Idempotent |
 | `add_component` | page | post_id (req), component (req), props (req), position | Append, or insert at position (0-based) |
-| `remove_component` | page | post_id (req), component_index (req) | Remove by 0-based index. Rejects OOB |
+| `remove_component` | page | post_id (req), component_index or component_id | Remove by index or stable ID. component_id takes precedence |
 | `reorder_components` | page | post_id (req), order (req, int[]) | Permutation of 0..N-1. No duplicates, no gaps |
-| `update_component` | section | post_id (req), component_index (req), props (req) | **Patch** (not replace). Shallow merge. Unspecified props unchanged. `null` removes a prop. Validates merged result |
+| `update_component` | section | post_id (req), component_index or component_id, props (req) | **Patch** (not replace). Shallow merge. Unspecified props unchanged. `null` removes a prop. Target by stable `component_id` (pp-XXXXXXXX) or 0-based `component_index`. Validates merged result |
 | `trash_page` | page | post_id (req) | Moves page to trash (reversible). Rejects already-trashed pages |
 | `restore_page` | page | post_id (req) | Restores page from trash. Only works on trashed pages |
 | `unpublish_page` | page | post_id (req) | Sets status back to draft. Only works on published pages |
@@ -352,7 +352,28 @@ wp pp action execute <name> --params='{"key":"val"}'  # validate + execute
 wp pp check conflicts                                 # Custom CSS conflict detection
 wp pp check page --post_id=42                         # composition styling validation
 wp pp validate site                                   # full site validation battery
+
+# Semantic composition operator
+wp pp operate inspect-composition <page>              # editable targets with selectors and current values
+wp pp operate patch <page> --target=hero.subtitle --value="New" --preview  # field-level diff, no write
+wp pp operate patch <page> --target=hero.subtitle --value="New"           # apply through action path
+
+# Component ID targeting (alternative to index)
+wp pp action execute update_component --params='{"post_id":19,"component_id":"pp-a1b2c3d4","props":{"subtitle":"Via ID"}}'
 ```
+
+### Semantic selectors
+
+The `inspect-composition` and `patch` commands use semantic selectors to target composition fields:
+
+| Pattern | Example | Target |
+|---|---|---|
+| `type.field` | `hero.subtitle` | Top-level field on the only component of that type |
+| `type[match="val"].field` | `section[title="About"].body` | Field on a matched component |
+| `type[id="pp-..."].field` | `hero[id="pp-a1b2c3d4"].subtitle` | Field on component by stable ID |
+| `type[match="val"].items[match="val"].field` | `grid[title="Features"].items[title="Speed"].text` | Nested item field |
+
+**Flow:** `inspect-composition` → identify target → `patch --preview` → `patch` (apply) → `validate`
 
 ### AJAX handler delegation
 
