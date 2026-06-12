@@ -27,9 +27,31 @@ class OperateTest extends TestCase
         $this->baseCssPath = $cssDir . '/base.css';
         copy($realBaseCss, $this->baseCssPath);
 
+        // Mirror component stubs so pp_get_registered_components() finds them
+        $realComponents = dirname(__DIR__) . '/components';
+        if (is_dir($realComponents)) {
+            foreach (scandir($realComponents) as $name) {
+                if ($name === '.' || $name === '..') continue;
+                $src = $realComponents . '/' . $name;
+                $dst = $this->tempDir . '/components/' . $name;
+                if (is_dir($src)) {
+                    mkdir($dst, 0755, true);
+                    // Copy the PHP file and schema.json if they exist
+                    foreach (["$name.php", 'schema.json'] as $file) {
+                        if (file_exists("$src/$file")) {
+                            copy("$src/$file", "$dst/$file");
+                        }
+                    }
+                }
+            }
+        }
+
         // Point get_template_directory() at temp dir
         $GLOBALS['_pp_test_template_dir'] = $this->tempDir;
         $GLOBALS['_pp_test_store']['options']['siteurl'] = 'https://example.com';
+
+        // Invalidate registered components cache so it re-scans the temp dir
+        $GLOBALS['_pp_registered_components_invalidate'] = true;
 
         // Ensure WP_CONTENT_DIR exists (needed for manifest storage)
         if (!is_dir(WP_CONTENT_DIR)) {
@@ -735,5 +757,494 @@ class OperateTest extends TestCase
             $result[] = ['id' => $item['id'], 'pass' => true];
         }
         return $result;
+    }
+
+    // ── pp_resolve_component_target tests ──────────────────────────────────
+
+    public function testResolveComponentTargetById(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabbccdd', 'title' => 'Hello']],
+            ['component' => 'section', 'props' => ['id' => 'pp-11223344', 'title' => 'About']],
+        ];
+        $result = pp_resolve_component_target($composition, ['component_id' => 'pp-11223344']);
+        $this->assertIsArray($result);
+        $this->assertSame(1, $result['index']);
+        $this->assertSame('section', $result['component']['component']);
+    }
+
+    public function testResolveComponentTargetByIdNotFound(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabbccdd', 'title' => 'Hello']],
+        ];
+        $result = pp_resolve_component_target($composition, ['component_id' => 'pp-notexist']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('component_not_found', $result->get_error_code());
+    }
+
+    public function testResolveComponentTargetByIndex(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabbccdd']],
+            ['component' => 'section', 'props' => ['id' => 'pp-11223344']],
+        ];
+        $result = pp_resolve_component_target($composition, ['component_index' => 0]);
+        $this->assertIsArray($result);
+        $this->assertSame(0, $result['index']);
+        $this->assertSame('hero', $result['component']['component']);
+    }
+
+    public function testResolveComponentTargetByIndexOutOfBounds(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabbccdd']],
+        ];
+        $result = pp_resolve_component_target($composition, ['component_index' => 5]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('index_out_of_bounds', $result->get_error_code());
+    }
+
+    public function testResolveComponentTargetEmptyTarget(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabbccdd']],
+        ];
+        $result = pp_resolve_component_target($composition, []);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('no_target', $result->get_error_code());
+    }
+
+    // ── Selector Parser Tests ────────────────────────────────────────────────
+
+    public function testParseCompositionSelectorSimple(): void
+    {
+        $result = pp_parse_composition_selector('hero.subtitle');
+        $this->assertIsArray($result);
+        $this->assertSame('hero', $result['component_type']);
+        $this->assertSame('subtitle', $result['target_field']);
+        $this->assertArrayNotHasKey('match_field', $result);
+        $this->assertArrayNotHasKey('component_id', $result);
+    }
+
+    public function testParseCompositionSelectorWithMatch(): void
+    {
+        $result = pp_parse_composition_selector('section[title="About Us"].body');
+        $this->assertIsArray($result);
+        $this->assertSame('section', $result['component_type']);
+        $this->assertSame('title', $result['match_field']);
+        $this->assertSame('About Us', $result['match_value']);
+        $this->assertSame('body', $result['target_field']);
+    }
+
+    public function testParseCompositionSelectorNested(): void
+    {
+        $result = pp_parse_composition_selector('grid[title="Features"].items[title="Speed"].text');
+        $this->assertIsArray($result);
+        $this->assertSame('grid', $result['component_type']);
+        $this->assertSame('title', $result['match_field']);
+        $this->assertSame('Features', $result['match_value']);
+        $this->assertSame('title', $result['nested_match_field']);
+        $this->assertSame('Speed', $result['nested_match_value']);
+        $this->assertSame('text', $result['target_field']);
+    }
+
+    public function testParseCompositionSelectorIdRouting(): void
+    {
+        $result = pp_parse_composition_selector('hero[id="pp-a1b2c3d4"].subtitle');
+        $this->assertIsArray($result);
+        $this->assertSame('hero', $result['component_type']);
+        $this->assertSame('pp-a1b2c3d4', $result['component_id']);
+        $this->assertSame('subtitle', $result['target_field']);
+        $this->assertArrayNotHasKey('match_field', $result);
+    }
+
+    public function testParseCompositionSelectorEscapedQuotes(): void
+    {
+        $result = pp_parse_composition_selector('section[title="Say \\"Hello\\""].body');
+        $this->assertIsArray($result);
+        $this->assertSame('section', $result['component_type']);
+        $this->assertSame('Say "Hello"', $result['match_value']);
+        $this->assertSame('body', $result['target_field']);
+    }
+
+    public function testParseCompositionSelectorInvalid(): void
+    {
+        $result = pp_parse_composition_selector('!!!invalid');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_selector', $result->get_error_code());
+    }
+
+    public function testParseCompositionSelectorEmpty(): void
+    {
+        $result = pp_parse_composition_selector('');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_selector', $result->get_error_code());
+    }
+
+    // ── Field Editability Map Tests ──────────────────────────────────────────
+
+    public function testRegisterComponentFields(): void
+    {
+        // Verify built-in registrations for all 5 types.
+        $hero = pp_get_component_fields('hero');
+        $this->assertCount(5, $hero);
+        $this->assertSame('title', $hero[0]['name']);
+        $this->assertSame('string', $hero[0]['type']);
+        $this->assertSame('cta_url', $hero[4]['name']);
+        $this->assertSame('url', $hero[4]['type']);
+
+        $section = pp_get_component_fields('section');
+        $this->assertCount(2, $section);
+        $this->assertSame('body', $section[1]['name']);
+        $this->assertSame('html', $section[1]['type']);
+
+        $grid = pp_get_component_fields('grid');
+        $this->assertCount(3, $grid);
+        $this->assertSame('items[].title', $grid[0]['name']);
+
+        $faq = pp_get_component_fields('faq');
+        $this->assertCount(2, $faq);
+        $this->assertSame('items[].question', $faq[0]['name']);
+        $this->assertSame('items[].answer', $faq[1]['name']);
+
+        $cta = pp_get_component_fields('cta');
+        $this->assertCount(4, $cta);
+
+        // Unmapped type returns empty array.
+        $unknown = pp_get_component_fields('nonexistent');
+        $this->assertSame([], $unknown);
+    }
+
+    // ── Inspect Composition Tests ────────────────────────────────────────────
+
+    public function testInspectCompositionReturnsTargets(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Inspect Test', 'post_status' => 'publish']);
+        update_post_meta($post_id, '_pp_composition', json_encode([
+            ['component' => 'hero', 'props' => ['id' => 'pp-hero1111', 'title' => 'Welcome', 'subtitle' => 'Sub']],
+            ['component' => 'section', 'props' => ['id' => 'pp-sect2222', 'title' => 'About', 'body' => '<p>Hi</p>']],
+        ]));
+
+        $result = pp_inspect_composition($post_id);
+        $this->assertIsArray($result);
+        $this->assertCount(2, $result);
+
+        // Hero component
+        $hero = $result[0];
+        $this->assertSame('hero', $hero['component_type']);
+        $this->assertSame('pp-hero1111', $hero['component_id']);
+        $this->assertSame(0, $hero['index']);
+        $this->assertNotEmpty($hero['fields']);
+        // Check that title and subtitle selectors are present
+        $selectors = array_column($hero['fields'], 'selector');
+        $this->assertTrue(in_array('hero.title', $selectors), 'Hero title selector present');
+
+        // Section component
+        $section = $result[1];
+        $this->assertSame('section', $section['component_type']);
+        $this->assertSame('pp-sect2222', $section['component_id']);
+        // body field should have field_type = html
+        $body_field = null;
+        foreach ($section['fields'] as $f) {
+            if ($f['field'] === 'body') {
+                $body_field = $f;
+                break;
+            }
+        }
+        $this->assertNotNull($body_field);
+        $this->assertSame('html', $body_field['field_type']);
+        $this->assertSame('<p>Hi</p>', $body_field['current_value']);
+    }
+
+    public function testInspectCompositionEmptyPage(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Empty Page', 'post_status' => 'publish']);
+        // No composition set — pp_get_composition returns []
+        $result = pp_inspect_composition($post_id);
+        $this->assertIsArray($result);
+        $this->assertCount(0, $result);
+    }
+
+    public function testInspectCompositionUnmappedType(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Custom Type', 'post_status' => 'publish']);
+        update_post_meta($post_id, '_pp_composition', json_encode([
+            ['component' => 'testimonial', 'props' => ['id' => 'pp-test3333', 'quote' => 'Great!']],
+        ]));
+
+        $result = pp_inspect_composition($post_id);
+        $this->assertIsArray($result);
+        $this->assertCount(1, $result);
+        $this->assertSame('testimonial', $result[0]['component_type']);
+        $this->assertSame([], $result[0]['fields']);
+    }
+
+    // ── Patch Composition Tests ──────────────────────────────────────────────
+
+    private function createPatchTestPage(): int
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Patch Test', 'post_status' => 'publish']);
+        $composition = [
+            ['component' => 'hero', 'props' => ['id' => 'pp-hero0001', 'title' => 'Welcome', 'subtitle' => 'Old Subtitle']],
+            ['component' => 'section', 'props' => ['id' => 'pp-sect0002', 'title' => 'About', 'body' => '<p>About us</p>']],
+            ['component' => 'grid', 'props' => ['id' => 'pp-grid0003', 'title' => 'Features', 'items' => [
+                ['title' => 'Speed', 'text' => 'Fast performance'],
+                ['title' => 'Scale', 'text' => 'Grows with you'],
+            ]]],
+        ];
+        update_post_meta($post_id, '_pp_composition', json_encode($composition));
+        return $post_id;
+    }
+
+    public function testPatchTopLevelFieldPreview(): void
+    {
+        $post_id = $this->createPatchTestPage();
+        $result = pp_patch_composition($post_id, 'hero.subtitle', 'New Subtitle', true);
+        $this->assertIsArray($result);
+        // Preview should have action name and before/after data
+        $this->assertSame('update_component', $result['action']);
+        $this->assertArrayHasKey('before', $result);
+        $this->assertArrayHasKey('after', $result);
+        // Verify the value was NOT written
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('Old Subtitle', $comp[0]['props']['subtitle']);
+    }
+
+    public function testPatchTopLevelFieldApply(): void
+    {
+        $post_id = $this->createPatchTestPage();
+        $result = pp_patch_composition($post_id, 'hero.subtitle', 'New Subtitle');
+        $this->assertIsArray($result);
+        $this->assertTrue($result['ok']);
+        $this->assertSame('update_component', $result['action']);
+        // Verify the value was written
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('New Subtitle', $comp[0]['props']['subtitle']);
+        // Other props should be unchanged
+        $this->assertSame('Welcome', $comp[0]['props']['title']);
+    }
+
+    public function testPatchNestedItemApply(): void
+    {
+        $post_id = $this->createPatchTestPage();
+        $result = pp_patch_composition($post_id, 'grid[title="Features"].items[title="Speed"].text', 'Blazing fast');
+        $this->assertIsArray($result);
+        $this->assertTrue($result['ok']);
+        // Verify the nested item was updated
+        $comp = pp_get_composition($post_id);
+        $items = $comp[2]['props']['items'];
+        $this->assertSame('Blazing fast', $items[0]['text']);
+        // Other item should be unchanged
+        $this->assertSame('Grows with you', $items[1]['text']);
+    }
+
+    public function testPatchZeroMatchesFails(): void
+    {
+        $post_id = $this->createPatchTestPage();
+        $result = pp_patch_composition($post_id, 'cta.title', 'No CTA Here');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('component_not_found', $result->get_error_code());
+    }
+
+    public function testPatchMultiMatchFails(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Multi Match', 'post_status' => 'publish']);
+        $composition = [
+            ['component' => 'section', 'props' => ['id' => 'pp-sect0001', 'title' => 'Part 1', 'body' => 'A']],
+            ['component' => 'section', 'props' => ['id' => 'pp-sect0002', 'title' => 'Part 2', 'body' => 'B']],
+        ];
+        update_post_meta($post_id, '_pp_composition', json_encode($composition));
+        // Selector without match field should hit multiple sections
+        $result = pp_patch_composition($post_id, 'section.body', 'New body');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('multiple_components', $result->get_error_code());
+        $this->assertStringContainsString('pp-sect0001', $result->get_error_message());
+        $this->assertStringContainsString('pp-sect0002', $result->get_error_message());
+    }
+
+    public function testPatchFieldNotEditableFails(): void
+    {
+        $post_id = $this->createPatchTestPage();
+        $result = pp_patch_composition($post_id, 'hero.background_image', '/img/new.jpg');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('field_not_editable', $result->get_error_code());
+        $this->assertStringContainsString('title', $result->get_error_message()); // lists editable fields
+    }
+
+    public function testPatchNestedItemNotFoundFails(): void
+    {
+        $post_id = $this->createPatchTestPage();
+        $result = pp_patch_composition($post_id, 'grid[title="Features"].items[title="Nonexistent"].text', 'Value');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('nested_item_not_found', $result->get_error_code());
+    }
+
+    public function testPatchNestedItemMultiMatchFails(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Dupe Items', 'post_status' => 'publish']);
+        $composition = [
+            ['component' => 'grid', 'props' => ['id' => 'pp-grid0001', 'title' => 'Cards', 'items' => [
+                ['title' => 'Same', 'text' => 'First'],
+                ['title' => 'Same', 'text' => 'Second'],
+            ]]],
+        ];
+        update_post_meta($post_id, '_pp_composition', json_encode($composition));
+        $result = pp_patch_composition($post_id, 'grid[title="Cards"].items[title="Same"].text', 'Updated');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('nested_item_multi_match', $result->get_error_code());
+        $this->assertStringContainsString('0', $result->get_error_message());
+        $this->assertStringContainsString('1', $result->get_error_message());
+    }
+
+    // ── Coverage gap tests (generated by /ship Step 7) ─────────────────────
+
+    public function testResolveComponentTargetNegativeIndex(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabbccdd']],
+        ];
+        $result = pp_resolve_component_target($composition, ['component_index' => -1]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('index_out_of_bounds', $result->get_error_code());
+    }
+
+    public function testParseCompositionSelectorMissingDotAfterType(): void
+    {
+        // 'hero' alone has no dot separator — should fail
+        $result = pp_parse_composition_selector('hero');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_selector', $result->get_error_code());
+    }
+
+    public function testParseCompositionSelectorMissingDotAfterBracket(): void
+    {
+        // Bracket match but no dot after it
+        $result = pp_parse_composition_selector('section[title="About"]');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_selector', $result->get_error_code());
+    }
+
+    public function testParseCompositionSelectorItemsWithoutBracket(): void
+    {
+        // items keyword but no bracket match
+        $result = pp_parse_composition_selector('grid.items');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_selector', $result->get_error_code());
+    }
+
+    public function testParseCompositionSelectorMissingDotAfterNestedMatch(): void
+    {
+        // Nested items match but no trailing dot+field
+        $result = pp_parse_composition_selector('grid.items[title="Speed"]');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_selector', $result->get_error_code());
+    }
+
+    public function testParseCompositionSelectorTrailingGarbage(): void
+    {
+        // Extra text after valid field
+        $result = pp_parse_composition_selector('hero.subtitle.extra');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_selector', $result->get_error_code());
+    }
+
+    public function testParseCompositionSelectorEscapedBackslash(): void
+    {
+        // Escaped backslash in value: \\
+        $result = pp_parse_composition_selector('section[title="Back\\\\Slash"].body');
+        $this->assertIsArray($result);
+        $this->assertSame('Back\\Slash', $result['match_value']);
+        $this->assertSame('body', $result['target_field']);
+    }
+
+    public function testParseBracketMatchInvalidFieldName(): void
+    {
+        // Field starts with a number — invalid
+        $result = pp_parse_composition_selector('section[123="bad"].body');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_selector', $result->get_error_code());
+    }
+
+    public function testParseBracketMatchMissingEqualsQuote(): void
+    {
+        // Missing =" — just field and value without quotes
+        $result = pp_parse_composition_selector('section[title].body');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_selector', $result->get_error_code());
+    }
+
+    public function testInspectCompositionGridWithNestedItems(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Grid Inspect', 'post_status' => 'publish']);
+        update_post_meta($post_id, '_pp_composition', json_encode([
+            ['component' => 'grid', 'props' => ['id' => 'pp-grid9999', 'title' => 'Features', 'items' => [
+                ['title' => 'Speed', 'text' => 'Fast performance'],
+                ['title' => 'Scale', 'text' => 'Grows with you'],
+            ]]],
+        ]));
+
+        $result = pp_inspect_composition($post_id);
+        $this->assertIsArray($result);
+        $this->assertCount(1, $result);
+        $this->assertSame('grid', $result[0]['component_type']);
+
+        // Should have nested item selectors
+        $selectors = array_column($result[0]['fields'], 'selector');
+        $this->assertTrue(
+            count(array_filter($selectors, fn($s) => str_contains($s, 'items['))) >= 2,
+            'Grid inspect should produce nested item selectors'
+        );
+        // Check a specific nested selector pattern
+        $speed_fields = array_filter($result[0]['fields'], fn($f) => $f['current_value'] === 'Fast performance');
+        $this->assertNotEmpty($speed_fields, 'Should find the Speed item text field');
+    }
+
+    public function testInspectCompositionComponentWithoutTitle(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'No Title', 'post_status' => 'publish']);
+        update_post_meta($post_id, '_pp_composition', json_encode([
+            ['component' => 'hero', 'props' => ['id' => 'pp-notitle1', 'subtitle' => 'Just a subtitle']],
+        ]));
+
+        $result = pp_inspect_composition($post_id);
+        $this->assertIsArray($result);
+        $this->assertCount(1, $result);
+        // Without title prop, should produce simple selectors (hero.subtitle, not hero[title="..."].subtitle)
+        $selectors = array_column($result[0]['fields'], 'selector');
+        foreach ($selectors as $sel) {
+            $this->assertStringNotContainsString('[title=', $sel, 'No title bracket match when title prop is absent');
+        }
+    }
+
+    public function testPatchWithIdBasedSelector(): void
+    {
+        $post_id = $this->createPatchTestPage();
+        $result = pp_patch_composition($post_id, 'hero[id="pp-hero0001"].subtitle', 'ID Patched');
+        $this->assertIsArray($result);
+        $this->assertTrue($result['ok']);
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('ID Patched', $comp[0]['props']['subtitle']);
+    }
+
+    public function testPatchMatchFieldZeroMatches(): void
+    {
+        $post_id = $this->createPatchTestPage();
+        $result = pp_patch_composition($post_id, 'section[title="Nonexistent"].body', 'No match');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('component_not_found', $result->get_error_code());
+    }
+
+    public function testPatchNestedItemPreview(): void
+    {
+        $post_id = $this->createPatchTestPage();
+        $result = pp_patch_composition($post_id, 'grid[title="Features"].items[title="Speed"].text', 'Preview Value', true);
+        $this->assertIsArray($result);
+        $this->assertSame('update_component', $result['action']);
+        $this->assertArrayHasKey('before', $result);
+        $this->assertArrayHasKey('after', $result);
+        // Verify the value was NOT written
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('Fast performance', $comp[2]['props']['items'][0]['text']);
     }
 }

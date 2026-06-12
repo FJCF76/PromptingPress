@@ -904,4 +904,235 @@ class ActionsTest extends TestCase
         $this->assertNotEmpty($stored[0]['props']['id'], 'Hero should have ID after add_component flow.');
         $this->assertNotEmpty($stored[1]['props']['id'], 'New section should have ID after add_component flow.');
     }
+
+    // ── _pp_resolve_id_param tests ────────────────────────────────────────
+
+    private function createPageWithIdComponents(): int
+    {
+        $result = pp_execute_action('create_page', [
+            'title' => 'ID Test Page',
+            'composition' => [
+                ['component' => 'hero', 'props' => ['title' => 'Hello']],
+                ['component' => 'section', 'props' => ['body' => 'World']],
+            ],
+        ]);
+        return $result['target']['post_id'];
+    }
+
+    public function testResolveIdParamWithComponentId(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $composition = pp_get_composition($post_id);
+        $hero_id = $composition[0]['props']['id'];
+
+        $params = ['post_id' => $post_id, 'component_id' => $hero_id, 'props' => ['title' => 'Changed']];
+        $result = _pp_resolve_id_param($params, $post_id);
+        $this->assertTrue($result);
+        $this->assertSame(0, $params['component_index']);
+    }
+
+    public function testResolveIdParamWithComponentIdNotFound(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $params = ['post_id' => $post_id, 'component_id' => 'pp-notexist', 'props' => ['title' => 'Changed']];
+        $result = _pp_resolve_id_param($params, $post_id);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('component_not_found', $result->get_error_code());
+    }
+
+    public function testResolveIdParamWithComponentIndex(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $params = ['post_id' => $post_id, 'component_index' => 1, 'props' => ['body' => 'Changed']];
+        $result = _pp_resolve_id_param($params, $post_id);
+        $this->assertTrue($result);
+        $this->assertSame(1, $params['component_index']);
+    }
+
+    public function testResolveIdParamWithBothIdWins(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $composition = pp_get_composition($post_id);
+        $section_id = $composition[1]['props']['id'];
+
+        $params = ['post_id' => $post_id, 'component_id' => $section_id, 'component_index' => 0, 'props' => ['body' => 'Changed']];
+        $result = _pp_resolve_id_param($params, $post_id);
+        $this->assertTrue($result);
+        $this->assertSame(1, $params['component_index'], 'component_id should win over component_index');
+    }
+
+    public function testResolveIdParamWithNeitherFails(): void
+    {
+        $params = ['post_id' => 1, 'props' => ['title' => 'Changed']];
+        $result = _pp_resolve_id_param($params, 1);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('missing_component_target', $result->get_error_code());
+    }
+
+    // ── component_id integration tests ────────────────────────────────────
+
+    public function testUpdateComponentWithComponentId(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $composition = pp_get_composition($post_id);
+        $hero_id = $composition[0]['props']['id'];
+
+        $result = pp_execute_action('update_component', [
+            'post_id'      => $post_id,
+            'component_id' => $hero_id,
+            'props'        => ['title' => 'Updated via ID'],
+        ]);
+        $this->assertTrue($result['ok']);
+        $updated = pp_get_composition($post_id);
+        $this->assertSame('Updated via ID', $updated[0]['props']['title']);
+    }
+
+    public function testUpdateComponentWithInvalidComponentId(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $result = pp_execute_action('update_component', [
+            'post_id'      => $post_id,
+            'component_id' => 'pp-badid000',
+            'props'        => ['title' => 'Should fail'],
+        ]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('pp-badid000', $result['error']);
+    }
+
+    public function testUpdateComponentBackwardCompatIndex(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'props'           => ['title' => 'Via index'],
+        ]);
+        $this->assertTrue($result['ok']);
+        $updated = pp_get_composition($post_id);
+        $this->assertSame('Via index', $updated[0]['props']['title']);
+    }
+
+    public function testRemoveComponentWithComponentId(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $composition = pp_get_composition($post_id);
+        $section_id = $composition[1]['props']['id'];
+
+        $result = pp_execute_action('remove_component', [
+            'post_id'      => $post_id,
+            'component_id' => $section_id,
+        ]);
+        $this->assertTrue($result['ok']);
+        $updated = pp_get_composition($post_id);
+        $this->assertCount(1, $updated);
+        $this->assertSame('hero', $updated[0]['component']);
+    }
+
+    public function testRemoveComponentWithInvalidComponentId(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $result = pp_execute_action('remove_component', [
+            'post_id'      => $post_id,
+            'component_id' => 'pp-badid000',
+        ]);
+        $this->assertFalse($result['ok']);
+    }
+
+    public function testRemoveComponentBackwardCompatIndex(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $result = pp_execute_action('remove_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+        ]);
+        $this->assertTrue($result['ok']);
+        $updated = pp_get_composition($post_id);
+        $this->assertCount(1, $updated);
+        $this->assertSame('section', $updated[0]['component']);
+    }
+
+    // ── Coverage gap tests (generated by /ship Step 7) ─────────────────────
+
+    public function testResolveIdParamWithEmptyStringComponentId(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        // Empty string component_id should be treated as "not provided"
+        $params = ['post_id' => $post_id, 'component_id' => '', 'component_index' => 0, 'props' => ['title' => 'Changed']];
+        $result = _pp_resolve_id_param($params, $post_id);
+        // Should fall through to component_index since component_id is empty
+        $this->assertTrue($result);
+        $this->assertSame(0, $params['component_index']);
+    }
+
+    public function testUpdateComponentPreviewWithComponentId(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $composition = pp_get_composition($post_id);
+        $hero_id = $composition[0]['props']['id'];
+
+        $result = pp_preview_action('update_component', [
+            'post_id'      => $post_id,
+            'component_id' => $hero_id,
+            'props'        => ['title' => 'Preview Title'],
+        ]);
+        $this->assertIsArray($result);
+        $this->assertSame('update_component', $result['action']);
+        $this->assertArrayHasKey('before', $result);
+        $this->assertArrayHasKey('after', $result);
+        // Verify no actual write
+        $unchanged = pp_get_composition($post_id);
+        $this->assertNotSame('Preview Title', $unchanged[0]['props']['title']);
+    }
+
+    public function testRemoveComponentPreviewWithComponentId(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $composition = pp_get_composition($post_id);
+        $section_id = $composition[1]['props']['id'];
+
+        $result = pp_preview_action('remove_component', [
+            'post_id'      => $post_id,
+            'component_id' => $section_id,
+        ]);
+        $this->assertIsArray($result);
+        $this->assertSame('remove_component', $result['action']);
+        // Verify no actual write
+        $unchanged = pp_get_composition($post_id);
+        $this->assertCount(2, $unchanged);
+    }
+
+    public function testUpdateComponentFullItemsArrayReplacement(): void
+    {
+        $post_id = pp_create_page('Items Replace Test', 'draft');
+        pp_update_composition($post_id, [
+            ['component' => 'grid', 'props' => [
+                'title' => 'Cards',
+                'items' => [
+                    ['title' => 'A', 'text' => 'Original A'],
+                    ['title' => 'B', 'text' => 'Original B'],
+                ],
+            ]],
+        ]);
+
+        // Patch with a full items array (one item changed, one unchanged)
+        $new_items = [
+            ['title' => 'A', 'text' => 'Updated A'],
+            ['title' => 'B', 'text' => 'Original B'],
+        ];
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'props'           => ['items' => $new_items],
+        ]);
+        $this->assertTrue($result['ok']);
+
+        $comp = pp_get_composition($post_id);
+        $items = $comp[0]['props']['items'];
+        // items array should be fully replaced (shallow merge overwrites arrays)
+        $this->assertCount(2, $items);
+        $this->assertSame('Updated A', $items[0]['text']);
+        $this->assertSame('Original B', $items[1]['text']);
+        // title prop should be preserved (not in the patch)
+        $this->assertSame('Cards', $comp[0]['props']['title']);
+    }
 }
