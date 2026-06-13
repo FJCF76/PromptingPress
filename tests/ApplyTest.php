@@ -253,6 +253,63 @@ class ApplyTest extends TestCase
         $this->assertEquals('invalid_length', $result->get_error_code());
     }
 
+    // ── Length validator extension: clamp, calc, unitless 0 ────────────────
+
+    public function testLengthAcceptsUnitlessZero(): void
+    {
+        $this->assertTrue(_pp_validate_length('0'));
+    }
+
+    public function testLengthAcceptsClamp(): void
+    {
+        $this->assertTrue(_pp_validate_length('clamp(2.5rem, 5vw, 4rem)'));
+    }
+
+    public function testLengthAcceptsClampWithPercent(): void
+    {
+        $this->assertTrue(_pp_validate_length('clamp(1rem, 50%, 3rem)'));
+    }
+
+    public function testLengthAcceptsCalc(): void
+    {
+        $this->assertTrue(_pp_validate_length('calc(100% - 2rem)'));
+    }
+
+    public function testLengthAcceptsCalcWithMultiplication(): void
+    {
+        $this->assertTrue(_pp_validate_length('calc(1.5rem * 2)'));
+    }
+
+    public function testLengthRejectsVarInsideClamp(): void
+    {
+        $this->assertFalse(_pp_validate_length('clamp(1rem, var(--attacker-token), 10rem)'));
+    }
+
+    public function testLengthRejectsVarInsideCalc(): void
+    {
+        $this->assertFalse(_pp_validate_length('calc(var(--space-md) + 1rem)'));
+    }
+
+    public function testLengthRejectsEnvInsideClamp(): void
+    {
+        $this->assertFalse(_pp_validate_length('clamp(0px, env(safe-area-inset-top), 100px)'));
+    }
+
+    public function testLengthRejectsUrlInsideCalc(): void
+    {
+        $this->assertFalse(_pp_validate_length('calc(url(evil) + 1rem)'));
+    }
+
+    public function testLengthRejectsArbitraryFunction(): void
+    {
+        $this->assertFalse(_pp_validate_length('clamp(1rem, max(2vw, 3rem), 5rem)'));
+    }
+
+    public function testLengthRejectsBareNumberNonZero(): void
+    {
+        $this->assertFalse(_pp_validate_length('16'));
+    }
+
     // ── Type-specific validation: font-family ───────────────────────────────
 
     public function testFontFamilyValidStack(): void
@@ -766,5 +823,84 @@ class ApplyTest extends TestCase
         $tokens = pp_design_tokens();
         $this->assertArrayHasKey('--btn-padding-x', $tokens);
         $this->assertSame('length', $tokens['--btn-padding-x']['type']);
+    }
+
+    // ── Font apply tests ─────────────────────────────────────────────────
+
+    public function testEnqueueFontValid(): void
+    {
+        // Clear any existing fonts.
+        pp_set_font_urls([]);
+
+        $result = pp_validate_apply('enqueue_font', ['url' => 'https://fonts.googleapis.com/css2?family=Inter']);
+        $this->assertTrue($result);
+    }
+
+    public function testEnqueueFontRejectsNonHttps(): void
+    {
+        pp_set_font_urls([]);
+        $result = pp_validate_apply('enqueue_font', ['url' => 'http://fonts.googleapis.com/css2?family=Inter']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+    }
+
+    public function testEnqueueFontRejectsInvalidUrl(): void
+    {
+        pp_set_font_urls([]);
+        $result = pp_validate_apply('enqueue_font', ['url' => 'not-a-url']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+    }
+
+    public function testEnqueueFontRejectsDuplicate(): void
+    {
+        pp_set_font_urls(['https://fonts.googleapis.com/css2?family=Inter']);
+        $result = pp_validate_apply('enqueue_font', ['url' => 'https://fonts.googleapis.com/css2?family=Inter']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('duplicate_font', $result->get_error_code());
+    }
+
+    public function testEnqueueFontRejectsOverLimit(): void
+    {
+        pp_set_font_urls([
+            'https://fonts.example.com/1',
+            'https://fonts.example.com/2',
+            'https://fonts.example.com/3',
+            'https://fonts.example.com/4',
+            'https://fonts.example.com/5',
+        ]);
+        $result = pp_validate_apply('enqueue_font', ['url' => 'https://fonts.example.com/6']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('font_limit', $result->get_error_code());
+    }
+
+    public function testEnqueueFontExecute(): void
+    {
+        pp_set_font_urls([]);
+        $result = pp_execute_apply('enqueue_font', ['url' => 'https://fonts.googleapis.com/css2?family=Inter']);
+        $this->assertTrue($result['ok']);
+        $this->assertContains('https://fonts.googleapis.com/css2?family=Inter', pp_get_font_urls());
+    }
+
+    public function testRemoveFontExecute(): void
+    {
+        pp_set_font_urls(['https://fonts.googleapis.com/css2?family=Inter']);
+        $result = pp_execute_apply('remove_font', ['url' => 'https://fonts.googleapis.com/css2?family=Inter']);
+        $this->assertTrue($result['ok']);
+        $this->assertEmpty(pp_get_font_urls());
+    }
+
+    public function testRemoveFontRejectsNotFound(): void
+    {
+        pp_set_font_urls([]);
+        $result = pp_validate_apply('remove_font', ['url' => 'https://fonts.googleapis.com/not-enqueued']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('font_not_found', $result->get_error_code());
+    }
+
+    public function testResetFontsExecute(): void
+    {
+        pp_set_font_urls(['https://fonts.example.com/1', 'https://fonts.example.com/2']);
+        $result = pp_execute_apply('reset_fonts', []);
+        $this->assertTrue($result['ok']);
+        $this->assertEmpty(pp_get_font_urls());
     }
 }

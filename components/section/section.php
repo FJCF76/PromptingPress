@@ -35,12 +35,21 @@ if (!in_array($variant, $allowed_variants, true)) {
 
 $variant_class = $variant !== 'default' ? ' pp-section--' . $variant : '';
 $bg_image_class = $background_image ? ' section--has-bg-image' : '';
-$bg_image_style = $background_image
-    ? sprintf(' style="background-image:url(%s);"', esc_url($background_image))
-    : '';
+
+// Style slot overrides (per-instance visual customization).
+$slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'section');
+
+$inline_styles = [];
+if ($slot_style) {
+    $inline_styles[] = $slot_style;
+}
+if ($background_image) {
+    $inline_styles[] = 'background-image:url(' . esc_url($background_image) . ')';
+}
+$style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"' : '';
 
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="section section--<?php echo esc_attr($layout); ?><?php echo esc_attr($variant_class); ?><?php echo esc_attr($bg_image_class); ?>" data-pp-component="section"<?php echo $bg_image_style; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="section section--<?php echo esc_attr($layout); ?><?php echo esc_attr($variant_class); ?><?php echo esc_attr($bg_image_class); ?>" data-pp-component="section"<?php echo $style_attr; ?>>
     <?php if ($background_image) : ?>
         <div class="section__overlay" aria-hidden="true"></div>
     <?php endif; ?>

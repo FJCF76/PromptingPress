@@ -55,16 +55,20 @@ $split_ratio_attr    = ($variant === 'split' && $split_ratio !== '50-50') ? ' da
 $vertical_align_attr = (in_array($variant, ['cover', 'split'], true) && $vertical_align !== 'center') ? ' data-pp-vertical-align="' . esc_attr($vertical_align) . '"' : '';
 $proof_markup        = trim((string) $proof);
 
-// Cover variant: image becomes a background-image with overlay.
-$cover_style = '';
-if ($variant === 'cover' && $image_url) {
-    $cover_style = sprintf(
-        ' style="background-image:url(%s);"',
-        esc_url($image_url)
-    );
+// Style slot overrides (per-instance visual customization).
+$slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'hero');
+
+// Build inline style attribute: merge slot vars + cover background-image.
+$inline_styles = [];
+if ($slot_style) {
+    $inline_styles[] = $slot_style;
 }
+if ($variant === 'cover' && $image_url) {
+    $inline_styles[] = 'background-image:url(' . esc_url($image_url) . ')';
+}
+$style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"' : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="hero hero--<?php echo esc_attr($variant); ?>" data-pp-component="hero"<?php echo $spacing_attr; ?><?php echo $width_attr; ?><?php echo $split_ratio_attr; ?><?php echo $vertical_align_attr; ?><?php echo $cover_style; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="hero hero--<?php echo esc_attr($variant); ?>" data-pp-component="hero"<?php echo $spacing_attr; ?><?php echo $width_attr; ?><?php echo $split_ratio_attr; ?><?php echo $vertical_align_attr; ?><?php echo $style_attr; ?>>
     <?php if ($variant === 'cover') : ?>
         <div class="hero__overlay" aria-hidden="true"></div>
     <?php endif; ?>

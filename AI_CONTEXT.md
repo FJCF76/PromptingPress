@@ -20,6 +20,8 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 
 **To retheme:** Read `ai-instructions/retheme.md`. Update the 33 design tokens via `update_design_token` apply (overrides stored in database, defaults in `assets/css/base.css`).
 
+**To style a specific component instance:** Read `ai-instructions/style-component.md`. Use the `style_component` action to set per-instance CSS custom properties (style slots) without editing CSS files.
+
 **To provision a new WordPress site:** Read `ai-instructions/bootstrap.md` for the full state contract and WP-CLI verification commands.
 
 **Composition vs templates:** Use composition for all content-driven pages. Use template files only for structural or dynamic pages (archives, single posts, search results, 404).
@@ -56,7 +58,7 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 | /tests/e2e/              | Playwright E2E tests            | Yes — requires Docker (wp-env)   |
 | .wp-env.json             | wp-env Docker config            | Yes — test environment only      |
 | /lib/wp.php              | WP function wrappers (read + write) | Only to add pp_* functions   |
-| /lib/actions.php         | Typed action model (13 actions) | Add actions following the contract |
+| /lib/actions.php         | Typed action model (14 actions) | Add actions following the contract |
 | /lib/cli.php             | WP-CLI `wp pp action` commands  | Yes                              |
 | /lib/setup.php           | Theme activation bootstrap      | Only to add idempotent setup     |
 | /lib/components.php      | Component loader                | No                               |
@@ -124,7 +126,9 @@ Every visual change maps to one surface. Writing to the wrong surface creates sp
 | Change | Surface | Method |
 |---|---|---|
 | Page layout / content | `_pp_composition` post meta | Actions: `update_composition`, `add_component`, `update_component` |
+| Per-instance visual styling | `_pp_composition` post meta (`style` key) | Action: `style_component` (patch style slots on a single component instance) |
 | Site-wide colors, spacing, fonts | `pp_token_overrides` option (defaults in `base.css`) | Apply: `update_design_token`, `reset_design_token`, `reset_all_design_tokens` |
+| Custom font loading | `pp_font_urls` option | Apply: `enqueue_font`, `remove_font`, `reset_fonts` |
 | Component-specific CSS | `assets/css/components.css` | Direct file edit (BEM, tokens only) |
 | Site name / tagline | WordPress options | Action: `update_site_option` |
 
@@ -132,7 +136,7 @@ Every visual change maps to one surface. Writing to the wrong surface creates sp
 
 **Stable IDs:** Every composition component gets a persisted `pp-XXXXXXXX` ID on save. Use these for CSS targeting, never positional selectors.
 
-**Guardrails:** `lib/guardrails.php` provides `pp_check_custom_css_conflicts()` and `pp_validate_composition_styling()`. CLI: `wp pp check conflicts`, `wp pp check page --post_id=N`, `wp pp validate site`.
+**Guardrails:** `lib/guardrails.php` provides `pp_check_custom_css_conflicts()`, `pp_validate_composition_styling()`, and `pp_classify_surface()`. CLI: `wp pp check conflicts`, `wp pp check page --post_id=N`, `wp pp check surface <path>`, `wp pp validate site`. Surface classification integrated into preflight — core files are blocked with routing guidance toward approved database-backed surfaces.
 
 ---
 
@@ -185,6 +189,11 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_create_page($title, $status)` | Creates page with Composition template. Returns post ID\|WP_Error |
 | `pp_publish_page($post_id)`    | Sets post_status to 'publish'. Returns true\|WP_Error |
 | `pp_update_site_option($key, $value)` | Updates whitelisted option. Returns true\|WP_Error |
+| `pp_get_style_slots($component_name)` | Returns style_slots from component's schema.json. Returns `[]` for unknown components |
+| `pp_get_style_recipes($component_name)` | Returns recipes from component's schema.json. Returns `[]` for unknown components |
+| `pp_render_style_vars($style, $component_name)` | Validates style slots against schema, returns CSS custom property string for inline style attribute |
+| `pp_get_font_urls()` | Returns array of custom font URLs from `pp_font_urls` option |
+| `pp_set_font_urls($urls)` | Writes font URL array to `pp_font_urls` option |
 
 ### Apply layer (lib/apply.php)
 
@@ -204,6 +213,9 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `update_design_token` | design | option: `pp_token_overrides` | token (string, required), value (string, required) |
 | `reset_design_token` | design | option: `pp_token_overrides` | token (string, required) |
 | `reset_all_design_tokens` | design | option: `pp_token_overrides` | (none) |
+| `enqueue_font` | design | option: `pp_font_urls` | url (string, required, HTTPS only). Max 5 fonts |
+| `remove_font` | design | option: `pp_font_urls` | url (string, required) |
+| `reset_fonts` | design | option: `pp_font_urls` | (none) |
 
 **CLI:** `wp pp apply list\|preview\|execute\|restore` (requires manage_options capability).
 
@@ -256,6 +268,48 @@ Token overrides survive theme updates — `base.css` is overwritten on update, b
 
 ---
 
+## Style slots (per-instance styling)
+
+Style slots allow per-instance visual customization of components without CSS edits. Each component declares allowed CSS custom properties in its `schema.json` under `styling.style_slots`. Only declared slots are accepted — arbitrary CSS is rejected.
+
+**58 style slots** across 4 v1 components: hero (14), section (13), grid (16), cta (15).
+
+**How it works:**
+1. Composition entries gain an optional `style` key alongside `props`
+2. The `style_component` action patches style slots on a specific component instance
+3. Component PHP outputs style overrides as CSS custom properties on the wrapper element
+4. `components.css` uses fallback pattern: `var(--hero-padding-top, var(--space-xl))` — no override = global token fires
+
+**Example composition entry with style:**
+```json
+{
+  "component": "hero",
+  "props": { "id": "pp-a1b2c3d4", "title": "Welcome" },
+  "style": { "--hero-padding-top": "8rem", "--hero-bg": "#1a1a2e", "--hero-text": "#f0f0f0" }
+}
+```
+
+**Style recipes:** Named shorthand stored in `schema.json` under `styling.recipes`. Recipes expand into explicit slot values. Use via `style_component` action with `recipe` param. Explicit `style` overrides recipe values. Recipes are inspectable: `inspect-composition` shows active recipe + overrides.
+
+**CLI:**
+```bash
+# Apply style slots to a component
+wp pp action execute style_component --run-id=<uuid> --params='{"post_id":19,"component_id":"pp-a1b2c3d4","style":{"--hero-bg":"#1a1a2e","--hero-padding-top":"8rem"}}'
+
+# Apply a recipe + override
+wp pp action execute style_component --run-id=<uuid> --params='{"post_id":19,"component_id":"pp-a1b2c3d4","recipe":"dark-spacious","style":{"--hero-title-size":"clamp(3rem, 6vw, 5rem)"}}'
+
+# Inspect available slots and recipes per component
+wp pp operate inspect-composition 19
+```
+
+**Helpers in lib/wp.php:**
+- `pp_get_style_slots(string $component_name): array` — reads style_slots from schema
+- `pp_get_style_recipes(string $component_name): array` — reads recipes from schema
+- `pp_render_style_vars(array $style, string $component_name): string` — validates + renders CSS custom property string
+
+---
+
 ## Composition model
 
 Pages using the **Composition** template store their layout in `_pp_composition` post meta.
@@ -264,12 +318,14 @@ Pages using the **Composition** template store their layout in `_pp_composition`
 
 ```json
 [
-  { "component": "hero", "props": { "id": "top", "title": "Welcome", "variant": "cover", "image_url": "/path/to/bg.jpg" } },
+  { "component": "hero", "props": { "id": "top", "title": "Welcome", "variant": "cover", "image_url": "/path/to/bg.jpg" }, "style": { "--hero-padding-top": "8rem", "--hero-bg": "#1a1a2e" } },
   { "component": "section", "props": { "id": "about", "body": "<p>Content here.</p>", "layout": "text-only" } },
   { "component": "stats", "props": { "variant": "dark", "items": [{ "number": "50+", "label": "Clients" }] } },
   { "component": "cta", "props": { "title": "Go", "button_text": "Click", "button_url": "/", "theme": "inverted" } }
 ]
 ```
+
+**Note:** The `style` key is optional. Components without it render using global token defaults. Style overrides are per-instance and stored alongside props in the composition.
 
 **Rules:**
 - `component` must match a registered component name (a folder in `components/`)
@@ -319,7 +375,7 @@ All mutations go through typed actions. AJAX handlers, WP-CLI, and future AI cal
 **Execute always validates first.** Callers never need to pre-validate.
 
 **Registry functions:**
-- `pp_get_registered_actions()` — all 13 actions
+- `pp_get_registered_actions()` — all 14 actions
 - `pp_get_action($name)` — single action definition or null
 - `pp_validate_action($name, $params)` — structural + semantic validation, returns true|WP_Error
 - `pp_preview_action($name, $params)` — validates, computes diff, never writes
@@ -342,6 +398,7 @@ All mutations go through typed actions. AJAX handlers, WP-CLI, and future AI cal
 | `restore_page` | page | post_id (req) | Restores page from trash. Only works on trashed pages |
 | `unpublish_page` | page | post_id (req) | Sets status back to draft. Only works on published pages |
 | `clear_custom_css` | site | (none) | Removes all Custom CSS from WordPress Customizer |
+| `style_component` | section | post_id (req), component_id or component_index, style, recipe | **Patch** style slots on a component instance. `style` is a map of slot name → value (or null to remove). Optional `recipe` expands named shorthand into slot values before merging explicit overrides. Only schema-declared style slots are accepted |
 
 ### WP-CLI
 
@@ -351,6 +408,7 @@ wp pp action preview <name> --params='{"key":"val"}'  # validate + diff, never w
 wp pp action execute <name> --params='{"key":"val"}'  # validate + execute
 wp pp check conflicts                                 # Custom CSS conflict detection
 wp pp check page --post_id=42                         # composition styling validation
+wp pp check surface lib/wp.php                        # surface classification (safe/extension/core)
 wp pp validate site                                   # full site validation battery
 
 # Semantic composition operator

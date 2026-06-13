@@ -18,6 +18,10 @@ pp_base_template(function () {
             continue;
         }
         $props = isset($item['props']) && is_array($item['props']) ? $item['props'] : [];
+        $style = isset($item['style']) && is_array($item['style']) ? $item['style'] : [];
+        if ($style) {
+            $props['__pp_style'] = $style;
+        }
         pp_get_component((string) $item['component'], $props);
     }
 });

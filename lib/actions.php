@@ -577,13 +577,14 @@ pp_register_action('reorder_components', [
 
 pp_register_action('update_component', [
     'scope'       => 'section',
-    'description' => 'Updates a single component\'s props via shallow merge (patch, not replace). Accepts component_id (stable pp-<hex8>) or component_index (0-based). component_id takes precedence when both are provided.',
-    'semantics'   => 'Patch. Props are shallow-merged into existing props. Unspecified props unchanged. null removes a prop. Validates the merged composition via pp_validate_composition(). Target component by component_id or component_index.',
+    'description' => 'Updates a single component\'s props via shallow merge (patch, not replace). Optionally accepts style to also update per-instance style slots in the same call. Accepts component_id (stable pp-<hex8>) or component_index (0-based). component_id takes precedence when both are provided.',
+    'semantics'   => 'Patch. Props are shallow-merged into existing props. Unspecified props unchanged. null removes a prop. Optional style param shallow-merges style slots (same as style_component). Validates the merged composition via pp_validate_composition(). Target component by component_id or component_index.',
     'params'      => [
         'post_id'         => ['type' => 'int',    'required' => true],
         'component_index' => ['type' => 'int',    'required' => false],
         'component_id'    => ['type' => 'string', 'required' => false],
         'props'           => ['type' => 'array',  'required' => true],
+        'style'           => ['type' => 'array',  'required' => false],
     ],
     'validate' => function (array $params) {
         $exists = _pp_validate_page_exists($params['post_id']);
@@ -612,6 +613,15 @@ pp_register_action('update_component', [
         $test_composition = $composition;
         $test_composition[$params['component_index']]['props'] = $merged;
 
+        // Validate optional style param.
+        if (!empty($params['style'])) {
+            $merged_style = _pp_merge_component_props(
+                $composition[$params['component_index']]['style'] ?? [],
+                $params['style']
+            );
+            $test_composition[$params['component_index']]['style'] = $merged_style;
+        }
+
         return pp_validate_composition($test_composition);
     },
     'preview' => function (array $params): array {
@@ -620,9 +630,17 @@ pp_register_action('update_component', [
         $before_props = $composition[$params['component_index']]['props'] ?? [];
         $after_props  = _pp_merge_component_props($before_props, $params['props']);
 
+        $changes = _pp_diff_props($before_props, $after_props, $params['component_index']);
+
+        if (!empty($params['style'])) {
+            $before_style = $composition[$params['component_index']]['style'] ?? [];
+            $after_style  = _pp_merge_component_props($before_style, $params['style']);
+            $changes = array_merge($changes, _pp_diff_style($before_style, $after_style, $params['component_index']));
+        }
+
         return _pp_action_preview('update_component', 'section',
             ['post_id' => $params['post_id'], 'component_index' => $params['component_index']],
-            $before_props, $after_props, _pp_diff_props($before_props, $after_props, $params['component_index'])
+            $before_props, $after_props, $changes
         );
     },
     'execute' => function (array $params): array {
@@ -633,6 +651,20 @@ pp_register_action('update_component', [
 
         $composition[$params['component_index']]['props'] = $after_props;
 
+        $changes = _pp_diff_props($before_props, $after_props, $params['component_index']);
+
+        // Merge optional style.
+        if (!empty($params['style'])) {
+            $before_style = $composition[$params['component_index']]['style'] ?? [];
+            $after_style  = _pp_merge_component_props($before_style, $params['style']);
+            if (empty($after_style)) {
+                unset($composition[$params['component_index']]['style']);
+            } else {
+                $composition[$params['component_index']]['style'] = $after_style;
+            }
+            $changes = array_merge($changes, _pp_diff_style($before_style, $after_style, $params['component_index']));
+        }
+
         $result = pp_update_composition($params['post_id'], $composition);
         if (is_wp_error($result)) {
             return _pp_action_error('update_component', 'section', $result->get_error_message());
@@ -640,7 +672,7 @@ pp_register_action('update_component', [
 
         return _pp_action_result('update_component', 'section',
             ['post_id' => $params['post_id'], 'component_index' => $params['component_index']],
-            _pp_diff_props($before_props, $after_props, $params['component_index'])
+            $changes
         );
     },
 ]);
@@ -759,6 +791,129 @@ pp_register_action('unpublish_page', [
     },
 ]);
 
+// ── Action: style_component ────────────────────────────────────────────────
+// Scope: section | Semantics: patch (shallow merge, null removes)
+// Updates per-instance style slot overrides via schema-validated CSS custom properties.
+
+pp_register_action('style_component', [
+    'scope'       => 'section',
+    'description' => 'Updates a component instance\'s per-instance style overrides via shallow merge. Optionally accepts a recipe name that expands into slot values (explicit style overrides recipe slots). Use wp pp operate inspect-composition to see available slots and recipes.',
+    'semantics'   => 'Patch. Recipe expands first, then explicit style values override. null removes a slot. Validates against schema.json style_slots for the target component type.',
+    'params'      => [
+        'post_id'         => ['type' => 'int',    'required' => true],
+        'component_id'    => ['type' => 'string', 'required' => false],
+        'component_index' => ['type' => 'int',    'required' => false],
+        'style'           => ['type' => 'array',  'required' => false],
+        'recipe'          => ['type' => 'string', 'required' => false],
+    ],
+    'validate' => function (array $params) {
+        if (empty($params['style']) && empty($params['recipe'])) {
+            return new WP_Error('missing_style', 'Either style or recipe is required.');
+        }
+
+        $exists = _pp_validate_page_exists($params['post_id']);
+        if (is_wp_error($exists)) {
+            return $exists;
+        }
+
+        $resolved = _pp_resolve_id_param($params, $params['post_id']);
+        if (is_wp_error($resolved)) {
+            return $resolved;
+        }
+
+        $composition = pp_get_composition($params['post_id']);
+        $count = count($composition);
+
+        if ($params['component_index'] < 0 || $params['component_index'] >= $count) {
+            return new WP_Error('index_out_of_bounds', sprintf('Component index %d is out of bounds (0..%d).', $params['component_index'], $count - 1));
+        }
+
+        $component_name = $composition[$params['component_index']]['component'] ?? '';
+        $available_slots = pp_get_style_slots($component_name);
+
+        if (empty($available_slots)) {
+            return new WP_Error('no_style_slots', sprintf('Component "%s" has no declared style slots.', $component_name));
+        }
+
+        // Expand recipe if provided.
+        if (!empty($params['recipe'])) {
+            $recipes = pp_get_style_recipes($component_name);
+            if (!isset($recipes[$params['recipe']])) {
+                $available_recipes = implode(', ', array_keys($recipes));
+                return new WP_Error('invalid_recipe', sprintf(
+                    'Component "%s" has no recipe "%s". Available: %s',
+                    $component_name, $params['recipe'], $available_recipes ?: '(none)'
+                ));
+            }
+        }
+
+        // Build merged style (recipe + explicit overrides) and validate all slots.
+        $merged = _pp_expand_recipe_and_merge($params, $component_name);
+        foreach ($merged as $slot_name => $slot_value) {
+            if ($slot_name === '__recipe') {
+                continue;
+            }
+            if ($slot_value === null) {
+                continue;
+            }
+            if (!isset($available_slots[$slot_name])) {
+                $available = implode(', ', array_keys($available_slots));
+                return new WP_Error('invalid_style_slot', sprintf(
+                    'Component "%s" has no style slot "%s". Available: %s',
+                    $component_name, $slot_name, $available
+                ));
+            }
+            $slot_type = $available_slots[$slot_name]['type'] ?? null;
+            $validation = _pp_validate_token_value((string) $slot_value, $slot_type);
+            if (is_wp_error($validation)) {
+                return new WP_Error('invalid_style_value', sprintf(
+                    'Style slot "%s": %s', $slot_name, $validation->get_error_message()
+                ));
+            }
+        }
+
+        return true;
+    },
+    'preview' => function (array $params): array {
+        _pp_resolve_id_param($params, $params['post_id']);
+        $composition    = pp_get_composition($params['post_id']);
+        $component_name = $composition[$params['component_index']]['component'] ?? '';
+        $before_style   = $composition[$params['component_index']]['style'] ?? [];
+        $merged_input   = _pp_expand_recipe_and_merge($params, $component_name);
+        $after_style    = _pp_merge_component_props($before_style, $merged_input);
+
+        return _pp_action_preview('style_component', 'section',
+            ['post_id' => $params['post_id'], 'component_index' => $params['component_index']],
+            $before_style, $after_style,
+            _pp_diff_style($before_style, $after_style, $params['component_index'])
+        );
+    },
+    'execute' => function (array $params): array {
+        _pp_resolve_id_param($params, $params['post_id']);
+        $composition    = pp_get_composition($params['post_id']);
+        $component_name = $composition[$params['component_index']]['component'] ?? '';
+        $before_style   = $composition[$params['component_index']]['style'] ?? [];
+        $merged_input   = _pp_expand_recipe_and_merge($params, $component_name);
+        $after_style    = _pp_merge_component_props($before_style, $merged_input);
+
+        if (empty($after_style)) {
+            unset($composition[$params['component_index']]['style']);
+        } else {
+            $composition[$params['component_index']]['style'] = $after_style;
+        }
+
+        $result = pp_update_composition($params['post_id'], $composition);
+        if (is_wp_error($result)) {
+            return _pp_action_error('style_component', 'section', $result->get_error_message());
+        }
+
+        return _pp_action_result('style_component', 'section',
+            ['post_id' => $params['post_id'], 'component_index' => $params['component_index']],
+            _pp_diff_style($before_style, $after_style, $params['component_index'])
+        );
+    },
+]);
+
 // ── Action: clear_custom_css ───────────────────────────────────────────────
 // Scope: site | Semantics: removes all Custom CSS from the WordPress Customizer
 // Params: none
@@ -863,6 +1018,58 @@ function _pp_merge_component_props(array $existing, array $new): array {
         }
     }
     return $merged;
+}
+
+/**
+ * Expands a recipe (if present) and merges with explicit style overrides.
+ *
+ * Recipe slots expand first, then explicit style values override.
+ * Adds __recipe tracking key when a recipe is used.
+ *
+ * @param array  $params          Action params (may have 'recipe' and/or 'style').
+ * @param string $component_name  Component name for recipe lookup.
+ * @return array  Merged style array ready for shallow-merge into existing style.
+ */
+function _pp_expand_recipe_and_merge(array $params, string $component_name): array {
+    $result = [];
+
+    // Expand recipe slots first.
+    if (!empty($params['recipe'])) {
+        $recipes = pp_get_style_recipes($component_name);
+        if (isset($recipes[$params['recipe']])) {
+            $result = $recipes[$params['recipe']]['slots'] ?? [];
+            $result['__recipe'] = $params['recipe'];
+        }
+    }
+
+    // Explicit style overrides recipe slots.
+    if (!empty($params['style'])) {
+        foreach ($params['style'] as $key => $value) {
+            $result[$key] = $value;
+        }
+    }
+
+    return $result;
+}
+
+/**
+ * Computes a style-level diff for the changes array.
+ */
+function _pp_diff_style(array $before, array $after, int $index): array {
+    $changes = [];
+    $all_keys = array_unique(array_merge(array_keys($before), array_keys($after)));
+    foreach ($all_keys as $key) {
+        $from = $before[$key] ?? null;
+        $to   = $after[$key] ?? null;
+        if ($from !== $to) {
+            $changes[] = [
+                'path' => 'composition[' . $index . '].style.' . $key,
+                'from' => $from,
+                'to'   => $to,
+            ];
+        }
+    }
+    return $changes;
 }
 
 /**

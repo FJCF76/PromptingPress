@@ -139,4 +139,61 @@ class ComponentPropsTest extends TestCase
             'embed'   => ['embed', ['content' => '<p>Embed</p>']],
         ];
     }
+
+    // ── pp_render_style_vars() ───────────────────────────────────────────
+
+    public function testRenderStyleVarsBasic(): void
+    {
+        $result = pp_render_style_vars(
+            ['--hero-bg' => '#1a1a2e', '--hero-padding-top' => '8rem'],
+            'hero'
+        );
+        $this->assertStringContainsString('--hero-bg: #1a1a2e', $result);
+        $this->assertStringContainsString('--hero-padding-top: 8rem', $result);
+    }
+
+    public function testRenderStyleVarsEmpty(): void
+    {
+        $result = pp_render_style_vars([], 'hero');
+        $this->assertSame('', $result);
+    }
+
+    public function testRenderStyleVarsSkipsUnknownSlot(): void
+    {
+        $result = pp_render_style_vars(
+            ['--hero-bg' => '#1a1a2e', '--hero-display' => 'none'],
+            'hero'
+        );
+        $this->assertStringContainsString('--hero-bg', $result);
+        $this->assertStringNotContainsString('--hero-display', $result);
+    }
+
+    public function testRenderStyleVarsSkipsRecipeKey(): void
+    {
+        $result = pp_render_style_vars(
+            ['__recipe' => 'dark-spacious', '--hero-bg' => '#1a1a2e'],
+            'hero'
+        );
+        $this->assertStringNotContainsString('__recipe', $result);
+        $this->assertStringContainsString('--hero-bg', $result);
+    }
+
+    public function testRenderStyleVarsRejectsInjection(): void
+    {
+        $result = pp_render_style_vars(
+            ['--hero-bg' => '#fff; background-image: url(evil)'],
+            'hero'
+        );
+        // Semicolon in value triggers injection guard — slot is skipped.
+        $this->assertSame('', $result);
+    }
+
+    public function testRenderStyleVarsUnknownComponent(): void
+    {
+        $result = pp_render_style_vars(
+            ['--fake-bg' => '#000'],
+            'nonexistent'
+        );
+        $this->assertSame('', $result);
+    }
 }

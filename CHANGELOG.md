@@ -4,6 +4,75 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.7.0] — 2026-06-13 — Instance-Scoped Style Slots
+
+### Every component instance can now look different without touching CSS
+
+PromptingPress sites no longer all look the same. An AI agent can make this page's hero dark and spacious while that page's hero is tight and accent-bordered, all through the existing composition data model. No CSS file edits, no custom classes, no inline style hacks.
+
+58 style slots across 4 components (hero: 14, section: 13, grid: 16, cta: 15) let agents control padding, colors, typography, borders, and radii per component instance. Each slot is declared in `schema.json`, validated against type-safe rules, stored in composition post meta alongside props, and rendered as CSS custom properties with global token fallbacks. When no override is set, the global design token fires. When an override is set, it wins for that instance only.
+
+Style recipes provide named shorthand: `dark-spacious` expands to `--hero-bg: #1a1a2e; --hero-text: #f0f0f0; --hero-padding-top: 6rem; --hero-padding-bottom: 6rem`. Apply a recipe, then override individual slots. The recipe name tracks in the composition data so `inspect-composition` shows what's active.
+
+Font loading no longer requires editing `functions.php`. Three new applies (`enqueue_font`, `remove_font`, `reset_fonts`) manage Google/Bunny font URLs in the database, max 5, HTTPS-only. Fonts enqueue before `pp-base` automatically.
+
+Surface classification guards against core file edits. `wp pp check surface lib/wp.php` returns `core` with routing guidance toward the correct approved surface. Preflight blocks core-file mutations with actionable error messages.
+
+### The 4 numbers that matter
+
+Source: `php vendor/bin/phpunit` + `npm test` on the repo, `wp pp action` on dev site.
+
+| Metric | Before (v0.6.0) | After (v0.7.0) | Delta |
+|--------|-----------------|-----------------|-------|
+| Style slots available | 0 | 58 | +58 |
+| PHP tests | 485 | 546 | +61 |
+| JS tests | 67 | 128 | +61 |
+| Schema-declared recipes | 0 | 10 | +10 |
+
+An agent can now achieve 20 distinct visual treatments per page through `style_component` alone. Previously, every page built from the same components looked identical.
+
+### What this means for site builders
+
+Every PromptingPress component is now a canvas, not a stamp. The AI can make a hero feel like a premium landing page (dark background, oversized title, tight content column) or a grid feel like a product showcase (dark section with light cards, generous spacing, rounded corners), all through the operating loop. Run `wp pp operate inspect-composition <page>` to see every available slot with its current value and default.
+
+### Added
+- `styling.style_slots` in schema.json for hero (14), section (13), grid (16), cta (15)
+- `styling.recipes` in schema.json — 2-3 recipes per component (dark-spacious, accent-bordered, compact, etc.)
+- `pp_get_style_slots(string $component)` — reads style slot registry from schema cache
+- `pp_get_style_recipes(string $component)` — reads recipe definitions from schema
+- `pp_render_style_vars(array $style, string $component)` — validates slots, escapes values, returns CSS custom property string
+- `style_component` action — PATCH semantics, validates slot names + values, supports recipe expansion, null removes slots
+- `enqueue_font` / `remove_font` / `reset_fonts` applies — database-backed font URL management (max 5, HTTPS-only)
+- `pp_get_font_urls()` / `pp_set_font_urls()` — font URL CRUD
+- `pp_classify_surface(string $path)` — returns `safe` / `extension` / `core` with routing guidance
+- `wp pp check surface <path>` CLI command
+- Surface classification check (Check 7) in `pp_preflight()`
+- `clamp()`, `calc()`, and unitless `0` support in `_pp_validate_length()` with positive-pattern regex (no nested `var()`)
+- CSS fallback pattern for all 58 slots in `components.css` including variant cascade fix (~20 variant rules)
+- CSS lint test verifying every slot uses the `var(--slot, fallback)` pattern
+- `ai-instructions/style-component.md` workflow guide
+
+### Changed
+- Composition entries accept optional `style` key at same level as `props`
+- `pp_validate_composition()` validates style keys against component schema
+- `pp_normalize_composition()` strips invalid/empty style entries
+- `update_component` action accepts optional `style` param (convenience: set props + style in one call)
+- `inspect-composition` output includes available style_slots, current values, defaults, active recipe, and available recipes per component
+- `templates/composition.php` passes `$item['style']` to components via `$props['__pp_style']`
+- `templates/front-page.php` passes `$item['style']` to components via `$props['__pp_style']`
+- AJAX preview handler in `lib/admin.php` passes style data to components
+- hero.php, section.php, grid.php, cta.php read `$props['__pp_style']` and render as inline CSS custom properties
+- `functions.php` enqueues database-backed font URLs before `pp-base`
+- `AI_CONTEXT.md` updated with style slot system, new actions, new applies
+- `ai-instructions/retheme.md` updated with style slot workflow
+
+### Tests
+- 546 PHP tests, 2078 assertions (was 485 tests, 1494 assertions)
+- 128 JS tests (was 67)
+- New: style slot schema validation, rendering pipeline, injection prevention, style_component action (validate/preview/execute/null-removal), recipe expansion + merge + tracking, font apply lifecycle, surface classification, CSS fallback lint
+
+---
+
 ## [v0.6.0] — 2026-06-12 — Semantic Composition Operator
 
 ### AI agents can now read and write individual composition fields by name

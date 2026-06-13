@@ -46,7 +46,45 @@
   "styling": {
     "root_class": "grid",
     "variant_classes": ["grid--steps", "grid--dark", "grid--inverted"],
-    "tokens": ["--space-xl", "--space-2xl", "--space-3xl", "--color-bg", "--color-surface", "--color-border", "--color-bg-inverted"]
+    "tokens": ["--space-xl", "--space-2xl", "--space-3xl", "--color-bg", "--color-surface", "--color-border", "--color-bg-inverted"],
+    "style_slots": {
+      "--grid-padding-top": { "type": "length", "default": "var(--space-xl)", "description": "Top padding of the grid section" },
+      "--grid-padding-bottom": { "type": "length", "default": "var(--space-xl)", "description": "Bottom padding of the grid section" },
+      "--grid-bg": { "type": "color", "default": "transparent", "description": "Background color" },
+      "--grid-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Heading text color" },
+      "--grid-heading-size": { "type": "length", "default": "inherit", "description": "Heading font size" },
+      "--grid-gap": { "type": "length", "default": "var(--space-lg)", "description": "Gap between grid cards" },
+      "--grid-card-bg": { "type": "color", "default": "var(--color-surface)", "description": "Card background color" },
+      "--grid-card-border": { "type": "color", "default": "var(--color-border)", "description": "Card border color" },
+      "--grid-card-radius": { "type": "length", "default": "var(--radius)", "description": "Card border radius" },
+      "--grid-card-padding": { "type": "length", "default": "var(--space-md)", "description": "Card body padding" },
+      "--grid-card-gap": { "type": "length", "default": "var(--space-sm)", "description": "Gap between card body elements" },
+      "--grid-item-title-size": { "type": "length", "default": "1.25rem", "description": "Card title font size" },
+      "--grid-item-title-color": { "type": "color", "default": "var(--color-text)", "description": "Card title text color" },
+      "--grid-item-text-color": { "type": "color", "default": "var(--color-muted)", "description": "Card description text color" },
+      "--grid-link-color": { "type": "color", "default": "var(--color-accent)", "description": "Card link color" },
+      "--grid-step-color": { "type": "color", "default": "var(--color-accent)", "description": "Step number color (steps variant)" }
+    },
+    "recipes": {
+      "dark-showcase": {
+        "description": "Dark background with light cards for product showcase",
+        "slots": {
+          "--grid-bg": "#1a1a2e",
+          "--grid-heading-color": "#f0f0f0",
+          "--grid-card-bg": "#ffffff",
+          "--grid-gap": "2.5rem",
+          "--grid-card-radius": "1rem"
+        }
+      },
+      "dense-cards": {
+        "description": "Tight card spacing for compact layouts",
+        "slots": {
+          "--grid-gap": "1rem",
+          "--grid-card-padding": "1rem",
+          "--grid-card-gap": "0.5rem"
+        }
+      }
+    }
   },
   "safe_to_edit": ["grid.php", "../../assets/css/components.css (COMPONENT: grid section)"],
   "do_not_touch": ["schema.json without updating AI_CONTEXT.md"]

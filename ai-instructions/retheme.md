@@ -54,31 +54,21 @@ Replace `system-ui, sans-serif` with your chosen web font name, e.g.:
 
 ---
 
-## Step 3 — Enqueue the font in functions.php
+## Step 3 — Enqueue the font via apply (no file edits needed)
 
-Open `functions.php`. Inside the `wp_enqueue_scripts` action, add a `wp_enqueue_style` call:
+Use the `enqueue_font` apply to add fonts without editing functions.php. Font URLs are stored in the database and survive theme updates.
 
 **Google Fonts example:**
-```php
-wp_enqueue_style(
-    'pp-google-fonts',
-    'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Playfair+Display:wght@700&display=swap',
-    [],
-    null
-);
+```bash
+wp pp apply execute enqueue_font --run-id=<uuid> --params='{"url":"https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Playfair+Display:wght@700&display=swap"}'
 ```
 
 **Bunny Fonts (GDPR-friendly) example:**
-```php
-wp_enqueue_style(
-    'pp-bunny-fonts',
-    'https://fonts.bunny.net/css?family=inter:400,600,700|playfair-display:700',
-    [],
-    null
-);
+```bash
+wp pp apply execute enqueue_font --run-id=<uuid> --params='{"url":"https://fonts.bunny.net/css?family=inter:400,600,700|playfair-display:700"}'
 ```
 
-Add this before the `pp-base` enqueue so the font loads first.
+Fonts are enqueued before `pp-base` so they load first. Max 5 font URLs. HTTPS only. To remove: `remove_font`. To clear all: `reset_fonts`.
 
 ---
 
@@ -120,9 +110,9 @@ The output should be empty. If it returns matches, replace each with the corresp
 | lib/*.php                | WP abstraction — not styling |
 | templates/*.php          | Page layout — not styling |
 | schema.json files        | Machine-readable contracts — not styling |
-| functions.php            | Only add the font enqueue, nothing else |
+| functions.php            | Use `enqueue_font` apply instead of editing directly |
 
-The entire visual output of the site flows through the 33 CSS variables. Editing anything outside `assets/css/base.css` is unnecessary for a retheme.
+The entire visual output of the site flows through the 33 CSS variables and the apply/action model. Editing files directly is unnecessary for a retheme — use `update_design_token` for global tokens, `enqueue_font` for fonts, and `style_component` for per-instance visual overrides.
 
 ---
 

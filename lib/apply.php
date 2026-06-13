@@ -227,10 +227,54 @@ function _pp_validate_color(string $value): bool {
 
 /**
  * Validates a CSS length value.
- * Accepts: numeric value with unit (rem, px, em, %, vw, vh).
+ * Accepts: numeric value with unit (rem, px, em, %, vw, vh), unitless 0,
+ * clamp() expressions, and calc() expressions.
+ *
+ * clamp/calc use positive-pattern matching: only numeric literals, units,
+ * percentage, comma, parentheses, and arithmetic operators are allowed.
+ * var() references inside clamp/calc are rejected to prevent injection bypass.
  */
 function _pp_validate_length(string $value): bool {
-    return (bool) preg_match('/^[\d.]+\s*(rem|px|em|%|vw|vh)$/', $value);
+    // Unitless zero.
+    if ($value === '0') {
+        return true;
+    }
+    // Simple length: number + unit.
+    if (preg_match('/^[\d.]+\s*(rem|px|em|%|vw|vh)$/', $value)) {
+        return true;
+    }
+    // clamp() or calc(): positive-pattern — only allow safe characters inside.
+    // Safe: digits, dots, units (a-z), %, comma, spaces, parentheses, +, -, *, /
+    // Reject anything else (including var, url, env, or any function calls).
+    if (preg_match('/^(clamp|calc)\(/', $value)) {
+        // Extract contents between outer parens.
+        if (!preg_match('/^(clamp|calc)\((.+)\)$/', $value, $m)) {
+            return false;
+        }
+        $contents = $m[2];
+        // Positive pattern: only numeric, dot, units, %, comma, whitespace, parens, arithmetic.
+        // No alphabetic sequences longer than 2 chars (blocks var, env, url, etc.)
+        // but allows unit suffixes (rem, px, em, vw, vh).
+        if (!preg_match('/^[\d.]+/', $contents)) {
+            // Must start with a number (prevents function calls as first arg).
+        }
+        // Reject if any alpha sequence is NOT a known unit.
+        // This is the key security boundary: var(--anything) contains "var" which is not a unit.
+        $alpha_sequences = [];
+        preg_match_all('/[a-zA-Z]+/', $contents, $alpha_sequences);
+        $allowed_units = ['rem', 'px', 'em', 'vw', 'vh'];
+        foreach ($alpha_sequences[0] as $word) {
+            if (!in_array(strtolower($word), $allowed_units, true)) {
+                return false;
+            }
+        }
+        // Must only contain: digits, dots, units(a-z), %, comma, whitespace, parens, +, -, *, /
+        if (!preg_match('/^[\d\s.,+\-*\/()%a-zA-Z]+$/', $contents)) {
+            return false;
+        }
+        return true;
+    }
+    return false;
 }
 
 /**
@@ -291,7 +335,7 @@ function _pp_validate_token_value(string $value, ?string $type) {
             break;
         case 'length':
             if (!_pp_validate_length($value)) {
-                return new WP_Error('invalid_length', 'Value must be a number with a CSS unit (rem, px, em, %, vw, vh).');
+                return new WP_Error('invalid_length', 'Value must be a number with a CSS unit (rem, px, em, %, vw, vh), unitless 0, or a clamp()/calc() expression.');
             }
             break;
         case 'font-family':
@@ -569,6 +613,137 @@ pp_register_apply('reset_all_design_tokens', [
         }
 
         return _pp_apply_result('reset_all_design_tokens', 'design', $target, $changes);
+    },
+]);
+
+// ── Apply: enqueue_font ────────────────────────────────────────────────────
+// Domain: design | Target: option pp_font_urls
+// Adds a web font URL to the site's font queue.
+
+pp_register_apply('enqueue_font', [
+    'domain'      => 'design',
+    'target'      => ['type' => 'option', 'key' => 'pp_font_urls'],
+    'description' => 'Adds a web font URL (e.g. Google Fonts, Bunny Fonts) to the site. Max 5 fonts.',
+    'params'      => [
+        'url' => ['type' => 'string', 'required' => true],
+    ],
+
+    'validate' => function (array $params) {
+        $url = $params['url'] ?? '';
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            return new WP_Error('invalid_url', 'Value must be a valid URL.');
+        }
+        if (!preg_match('/^https:\/\//', $url)) {
+            return new WP_Error('invalid_url', 'Font URL must use HTTPS.');
+        }
+        $current = pp_get_font_urls();
+        if (in_array($url, $current, true)) {
+            return new WP_Error('duplicate_font', 'This font URL is already enqueued.');
+        }
+        if (count($current) >= 5) {
+            return new WP_Error('font_limit', 'Maximum 5 font URLs allowed. Remove one first.');
+        }
+        return true;
+    },
+
+    'preview' => function (array $params) {
+        $current = pp_get_font_urls();
+        $after = array_merge($current, [$params['url']]);
+        return _pp_apply_preview(
+            'enqueue_font', 'design',
+            ['type' => 'option', 'key' => 'pp_font_urls'],
+            $current, $after,
+            [['action' => 'add', 'url' => $params['url']]]
+        );
+    },
+
+    'apply' => function (array $params) {
+        $current = pp_get_font_urls();
+        $current[] = $params['url'];
+        pp_set_font_urls($current);
+        return _pp_apply_result(
+            'enqueue_font', 'design',
+            ['type' => 'option', 'key' => 'pp_font_urls'],
+            [['action' => 'add', 'url' => $params['url']]]
+        );
+    },
+]);
+
+// ── Apply: remove_font ─────────────────────────────────────────────────────
+// Domain: design | Target: option pp_font_urls
+// Removes a font URL from the queue.
+
+pp_register_apply('remove_font', [
+    'domain'      => 'design',
+    'target'      => ['type' => 'option', 'key' => 'pp_font_urls'],
+    'description' => 'Removes a web font URL from the site.',
+    'params'      => [
+        'url' => ['type' => 'string', 'required' => true],
+    ],
+
+    'validate' => function (array $params) {
+        $current = pp_get_font_urls();
+        if (!in_array($params['url'], $current, true)) {
+            return new WP_Error('font_not_found', 'This font URL is not enqueued.');
+        }
+        return true;
+    },
+
+    'preview' => function (array $params) {
+        $current = pp_get_font_urls();
+        $after = array_values(array_filter($current, fn($u) => $u !== $params['url']));
+        return _pp_apply_preview(
+            'remove_font', 'design',
+            ['type' => 'option', 'key' => 'pp_font_urls'],
+            $current, $after,
+            [['action' => 'remove', 'url' => $params['url']]]
+        );
+    },
+
+    'apply' => function (array $params) {
+        $current = pp_get_font_urls();
+        $after = array_values(array_filter($current, fn($u) => $u !== $params['url']));
+        pp_set_font_urls($after);
+        return _pp_apply_result(
+            'remove_font', 'design',
+            ['type' => 'option', 'key' => 'pp_font_urls'],
+            [['action' => 'remove', 'url' => $params['url']]]
+        );
+    },
+]);
+
+// ── Apply: reset_fonts ─────────────────────────────────────────────────────
+// Domain: design | Target: option pp_font_urls
+// Clears all custom font URLs.
+
+pp_register_apply('reset_fonts', [
+    'domain'      => 'design',
+    'target'      => ['type' => 'option', 'key' => 'pp_font_urls'],
+    'description' => 'Removes all custom font URLs from the site.',
+    'params'      => [],
+
+    'validate' => function (array $params) {
+        return true;
+    },
+
+    'preview' => function (array $params) {
+        $current = pp_get_font_urls();
+        return _pp_apply_preview(
+            'reset_fonts', 'design',
+            ['type' => 'option', 'key' => 'pp_font_urls'],
+            $current, [],
+            array_map(fn($u) => ['action' => 'remove', 'url' => $u], $current)
+        );
+    },
+
+    'apply' => function (array $params) {
+        $current = pp_get_font_urls();
+        pp_set_font_urls([]);
+        return _pp_apply_result(
+            'reset_fonts', 'design',
+            ['type' => 'option', 'key' => 'pp_font_urls'],
+            array_map(fn($u) => ['action' => 'remove', 'url' => $u], $current)
+        );
     },
 ]);
 

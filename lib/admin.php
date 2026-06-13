@@ -79,6 +79,10 @@ function pp_normalize_composition(array $items): array {
             $items[$i]['component'] = $item['type'];
             unset($items[$i]['type']);
         }
+        // Strip empty style arrays (no overrides = no key).
+        if (isset($items[$i]['style']) && is_array($items[$i]['style']) && empty($items[$i]['style'])) {
+            unset($items[$i]['style']);
+        }
     }
     return $items;
 }
@@ -119,6 +123,43 @@ function pp_validate_composition(array $items) {
                     return new WP_Error(
                         'invalid_composition',
                         sprintf('Component "%s" is missing required prop "%s".', $name, $prop_name)
+                    );
+                }
+            }
+        }
+
+        // Validate optional style key against schema-declared style slots.
+        if (isset($item['style']) && is_array($item['style']) && !empty($item['style'])) {
+            $available_slots = $schema['styling']['style_slots'] ?? [];
+            foreach ($item['style'] as $slot_name => $slot_value) {
+                // Skip __recipe tracking key.
+                if ($slot_name === '__recipe') {
+                    continue;
+                }
+                if (!isset($available_slots[$slot_name])) {
+                    $available = implode(', ', array_keys($available_slots));
+                    return new WP_Error(
+                        'invalid_style_slot',
+                        sprintf(
+                            'Component "%s" has no style slot "%s". Available slots: %s',
+                            $name,
+                            $slot_name,
+                            $available ?: '(none)'
+                        )
+                    );
+                }
+                // Validate value using same injection guard + type validators as tokens.
+                $slot_type  = $available_slots[$slot_name]['type'] ?? null;
+                $validation = _pp_validate_token_value((string) $slot_value, $slot_type);
+                if (is_wp_error($validation)) {
+                    return new WP_Error(
+                        'invalid_style_value',
+                        sprintf(
+                            'Component "%s" style slot "%s": %s',
+                            $name,
+                            $slot_name,
+                            $validation->get_error_message()
+                        )
                     );
                 }
             }
@@ -505,6 +546,10 @@ add_action('wp_ajax_pp_preview_composition', function () {
         foreach ($composition as $item) {
             $name  = isset($item['component']) ? (string) $item['component'] : '';
             $props = isset($item['props']) && is_array($item['props']) ? $item['props'] : [];
+            $style = isset($item['style']) && is_array($item['style']) ? $item['style'] : [];
+            if ($style) {
+                $props['__pp_style'] = $style;
+            }
             if ($name !== '') {
                 pp_get_component($name, $props);
             }

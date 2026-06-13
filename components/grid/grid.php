@@ -29,8 +29,12 @@ $is_steps      = $variant === 'steps';
 $variant_class = $is_steps ? ' grid--steps' : '';
 $theme_class   = $theme !== 'default' ? ' grid--' . $theme : '';
 
+// Style slot overrides (per-instance visual customization).
+$slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'grid');
+$style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
+
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($variant_class); ?><?php echo esc_attr($theme_class); ?>" data-pp-component="grid">
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($variant_class); ?><?php echo esc_attr($theme_class); ?>" data-pp-component="grid"<?php echo $style_attr; ?>>
     <div class="container">
 
         <?php if ($title) : ?>

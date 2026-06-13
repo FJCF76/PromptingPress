@@ -274,6 +274,29 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
         }
     }
 
+    // Check 7: Surface classification (when planned_files provided)
+    if (!empty($planned_files)) {
+        $core_blocked = [];
+        foreach ($planned_files as $file) {
+            $surface = pp_classify_surface($file);
+            if ($surface['classification'] === 'core') {
+                $core_blocked[] = ['path' => $file, 'guidance' => $surface['guidance']];
+            }
+        }
+
+        if (!empty($core_blocked)) {
+            $blocked_paths = array_map(fn($b) => $b['path'], $core_blocked);
+            $guidance = $core_blocked[0]['guidance']; // Show first guidance as representative.
+            $checks[] = [
+                'check'   => 'surface',
+                'pass'    => false,
+                'message' => 'Core file(s) in planned mutations: ' . implode(', ', $blocked_paths) . '. ' . $guidance,
+            ];
+        } else {
+            $checks[] = ['check' => 'surface', 'pass' => true, 'message' => 'All planned files are safe or extension surfaces.'];
+        }
+    }
+
     $all_pass = empty(array_filter($checks, fn($c) => !$c['pass']));
 
     return [
@@ -952,11 +975,41 @@ function pp_inspect_composition(int $post_id): array|WP_Error {
             }
         }
 
+        // Style slot information: available slots with current overrides and defaults.
+        $available_slots = pp_get_style_slots($type);
+        $current_style   = $item['style'] ?? [];
+        $style_slots     = [];
+        foreach ($available_slots as $slot_name => $slot_def) {
+            $style_slots[] = [
+                'slot'    => $slot_name,
+                'type'    => $slot_def['type'],
+                'default' => $slot_def['default'],
+                'current' => $current_style[$slot_name] ?? null,
+            ];
+        }
+
+        // Active recipe tracking.
+        $active_recipe = $current_style['__recipe'] ?? null;
+
+        // Available recipes.
+        $available_recipes = [];
+        $recipes = pp_get_style_recipes($type);
+        foreach ($recipes as $recipe_name => $recipe_def) {
+            $available_recipes[] = [
+                'name'        => $recipe_name,
+                'description' => $recipe_def['description'] ?? '',
+                'slot_count'  => count($recipe_def['slots'] ?? []),
+            ];
+        }
+
         $targets[] = [
-            'component_type' => $type,
-            'component_id'   => $component_id,
-            'index'          => $index,
-            'fields'         => $fields,
+            'component_type'    => $type,
+            'component_id'      => $component_id,
+            'index'             => $index,
+            'fields'            => $fields,
+            'style_slots'       => $style_slots,
+            'active_recipe'     => $active_recipe,
+            'available_recipes' => $available_recipes,
         ];
     }
 

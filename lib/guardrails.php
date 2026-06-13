@@ -126,6 +126,101 @@ function pp_admin_notice_css_conflicts(): void {
 }
 
 /**
+ * Classifies a path as safe, extension, or core.
+ *
+ * - safe: database operations (composition data, token overrides, font URLs)
+ * - extension: components/, templates/, assets/css/ (theme extension files)
+ * - core: lib/, functions.php, style.css, AI_RULES.md (theme internals)
+ *
+ * Paths are normalized relative to the theme root. Absolute paths under the
+ * theme directory are converted to relative paths automatically.
+ *
+ * @param  string $path  File path (relative to theme root, or absolute).
+ * @return array{classification: string, guidance: string}
+ */
+function pp_classify_surface(string $path): array {
+    // Normalize: strip theme directory prefix if absolute.
+    $theme_dir = get_template_directory();
+    if (str_starts_with($path, $theme_dir)) {
+        $path = ltrim(substr($path, strlen($theme_dir)), '/');
+    }
+
+    // Normalize leading slashes and resolve . / ..
+    $path = ltrim($path, '/');
+
+    // Remove any ../ traversal attempts for safety.
+    $path = str_replace('../', '', $path);
+
+    // Database-backed surfaces are "safe" — but they don't have file paths.
+    // This function classifies file paths, so "safe" means extension files
+    // that are explicitly designed for customization.
+
+    // Core files: lib/*, functions.php, style.css, AI_RULES.md, AI_CONTEXT.md
+    $core_patterns = [
+        '#^lib/#',
+        '#^functions\.php$#',
+        '#^style\.css$#',
+        '#^AI_RULES\.md$#',
+        '#^AI_CONTEXT\.md$#',
+        '#^phpunit\.xml$#',
+        '#^composer\.json$#',
+        '#^package\.json$#',
+    ];
+
+    foreach ($core_patterns as $pattern) {
+        if (preg_match($pattern, $path)) {
+            return [
+                'classification' => 'core',
+                'guidance'       => _pp_surface_guidance($path),
+            ];
+        }
+    }
+
+    // Extension files: components/*, templates/*, assets/*
+    $extension_patterns = [
+        '#^components/#',
+        '#^templates/#',
+        '#^assets/#',
+    ];
+
+    foreach ($extension_patterns as $pattern) {
+        if (preg_match($pattern, $path)) {
+            return [
+                'classification' => 'extension',
+                'guidance'       => 'Extension file. Editable but may be overwritten by theme updates. Prefer database-backed surfaces (style_component, update_design_token) when possible.',
+            ];
+        }
+    }
+
+    // Everything else defaults to core (conservative).
+    return [
+        'classification' => 'core',
+        'guidance'       => _pp_surface_guidance($path),
+    ];
+}
+
+/**
+ * Returns routing guidance for a core file, pointing toward the correct approved surface.
+ *
+ * @param  string $path  Relative path within the theme.
+ * @return string        Human-readable guidance message.
+ */
+function _pp_surface_guidance(string $path): string {
+    // Route toward specific approved surfaces based on what the file controls.
+    if (str_starts_with($path, 'lib/')) {
+        return "Blocked: {$path} is a core theme file. To change spacing/colors, use style_component action on the target component instance. To change the color palette, use update_design_token apply.";
+    }
+    if ($path === 'functions.php') {
+        return "Blocked: functions.php is a core theme file. To add fonts, use enqueue_font apply. To change tokens, use update_design_token apply.";
+    }
+    if ($path === 'style.css') {
+        return "Blocked: style.css contains theme metadata only. To change design tokens, use update_design_token apply.";
+    }
+
+    return "Blocked: {$path} is a core theme file. Use approved database-backed surfaces (actions, applies) instead of direct file edits.";
+}
+
+/**
  * Validates composition styling for ambiguous targeting.
  *
  * Flags duplicate component types that lack stable IDs — these cannot be

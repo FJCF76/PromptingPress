@@ -24,14 +24,15 @@ class ActionsTest extends TestCase
 
     // ── Registry tests ─────────────────────────────────────────────────────
 
-    public function testRegistryReturnsAllThirteenActions(): void
+    public function testRegistryReturnsAllFourteenActions(): void
     {
         $actions = pp_get_registered_actions();
-        $this->assertCount(13, $actions);
+        $this->assertCount(14, $actions);
         $expected = [
             'create_page', 'update_site_option', 'update_page_title',
             'update_composition', 'publish_page', 'add_component',
             'remove_component', 'reorder_components', 'update_component',
+            'style_component',
             'trash_page', 'restore_page', 'unpublish_page', 'clear_custom_css',
         ];
         foreach ($expected as $name) {
@@ -1134,5 +1135,200 @@ class ActionsTest extends TestCase
         $this->assertSame('Original B', $items[1]['text']);
         // title prop should be preserved (not in the patch)
         $this->assertSame('Cards', $comp[0]['props']['title']);
+    }
+
+    // ── style_component action ───────────────────────────────────────────
+
+    public function testStyleComponentValidateAcceptsValidSlots(): void
+    {
+        $post_id = pp_create_page('Style test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--hero-bg' => '#1a1a2e', '--hero-padding-top' => '8rem'],
+        ]);
+        $this->assertTrue($result);
+    }
+
+    public function testStyleComponentRejectsUnknownSlot(): void
+    {
+        $post_id = pp_create_page('Style test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--hero-display' => 'none'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_style_slot', $result->get_error_code());
+    }
+
+    public function testStyleComponentRejectsInvalidValue(): void
+    {
+        $post_id = pp_create_page('Style test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--hero-bg' => 'not-a-color'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_style_value', $result->get_error_code());
+    }
+
+    public function testStyleComponentExecuteMergesStyle(): void
+    {
+        $post_id = pp_create_page('Style test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        // Set initial style.
+        $result = pp_execute_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--hero-bg' => '#1a1a2e', '--hero-padding-top' => '8rem'],
+        ]);
+        $this->assertTrue($result['ok']);
+
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('#1a1a2e', $comp[0]['style']['--hero-bg']);
+        $this->assertSame('8rem', $comp[0]['style']['--hero-padding-top']);
+
+        // Patch: change one, add one, leave the other.
+        $result = pp_execute_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--hero-bg' => '#0d1117', '--hero-text' => '#f0f0f0'],
+        ]);
+        $this->assertTrue($result['ok']);
+
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('#0d1117', $comp[0]['style']['--hero-bg']);
+        $this->assertSame('#f0f0f0', $comp[0]['style']['--hero-text']);
+        $this->assertSame('8rem', $comp[0]['style']['--hero-padding-top']); // preserved
+    }
+
+    public function testStyleComponentNullRemovesSlot(): void
+    {
+        $post_id = pp_create_page('Style test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello'],
+             'style' => ['--hero-bg' => '#1a1a2e', '--hero-padding-top' => '8rem']],
+        ]);
+
+        $result = pp_execute_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--hero-bg' => null],
+        ]);
+        $this->assertTrue($result['ok']);
+
+        $comp = pp_get_composition($post_id);
+        $this->assertArrayNotHasKey('--hero-bg', $comp[0]['style']);
+        $this->assertSame('8rem', $comp[0]['style']['--hero-padding-top']);
+    }
+
+    public function testStyleComponentByComponentId(): void
+    {
+        $post_id = pp_create_page('Style test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_execute_action('style_component', [
+            'post_id'      => $post_id,
+            'component_id' => 'pp-aabb1122',
+            'style'        => ['--hero-bg' => '#1a1a2e'],
+        ]);
+        $this->assertTrue($result['ok']);
+
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('#1a1a2e', $comp[0]['style']['--hero-bg']);
+    }
+
+    // ── Recipe support ───────────────────────────────────────────────────
+
+    public function testRecipeExpansion(): void
+    {
+        $post_id = pp_create_page('Recipe test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_execute_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'recipe'          => 'dark-spacious',
+        ]);
+        $this->assertTrue($result['ok']);
+
+        $comp = pp_get_composition($post_id);
+        $style = $comp[0]['style'];
+        $this->assertSame('#0d1117', $style['--hero-bg']);
+        $this->assertSame('#f0f0f0', $style['--hero-text']);
+        $this->assertSame('6rem', $style['--hero-padding-top']);
+        $this->assertSame('dark-spacious', $style['__recipe']);
+    }
+
+    public function testRecipePlusOverride(): void
+    {
+        $post_id = pp_create_page('Recipe override test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_execute_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'recipe'          => 'dark-spacious',
+            'style'           => ['--hero-bg' => '#222222'], // override recipe's bg
+        ]);
+        $this->assertTrue($result['ok']);
+
+        $comp = pp_get_composition($post_id);
+        $style = $comp[0]['style'];
+        $this->assertSame('#222222', $style['--hero-bg']); // overridden
+        $this->assertSame('#f0f0f0', $style['--hero-text']); // from recipe
+        $this->assertSame('dark-spacious', $style['__recipe']);
+    }
+
+    public function testInvalidRecipeRejected(): void
+    {
+        $post_id = pp_create_page('Recipe test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'recipe'          => 'nonexistent-recipe',
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_recipe', $result->get_error_code());
+    }
+
+    public function testInspectCompositionShowsAvailableRecipes(): void
+    {
+        $post_id = pp_create_page('Recipe inspect');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_inspect_composition($post_id);
+        $this->assertArrayHasKey('available_recipes', $result[0]);
+        $this->assertCount(3, $result[0]['available_recipes']); // hero has 3 recipes
+        $this->assertSame('dark-spacious', $result[0]['available_recipes'][0]['name']);
     }
 }

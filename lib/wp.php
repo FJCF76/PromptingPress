@@ -273,6 +273,76 @@ function pp_invalidate_design_tokens_cache(): void {
 }
 
 /**
+ * Returns the declared style slots for a component type.
+ *
+ * Reads from the cached schema registry (pp_get_registered_components).
+ * Each slot has: type, default, description.
+ *
+ * @param string $component_name  Component name, e.g. 'hero'.
+ * @return array  Associative array of slot name => definition, or empty array if component has no slots.
+ */
+function pp_get_style_slots(string $component_name): array {
+    $components = pp_get_registered_components();
+    if (!isset($components[$component_name])) {
+        return [];
+    }
+    return $components[$component_name]['styling']['style_slots'] ?? [];
+}
+
+/**
+ * Returns the declared style recipes for a component type.
+ *
+ * @param string $component_name  Component name, e.g. 'hero'.
+ * @return array  Associative array of recipe name => definition, or empty array.
+ */
+function pp_get_style_recipes(string $component_name): array {
+    $components = pp_get_registered_components();
+    if (!isset($components[$component_name])) {
+        return [];
+    }
+    return $components[$component_name]['styling']['recipes'] ?? [];
+}
+
+/**
+ * Renders style slot overrides as a CSS custom property string.
+ *
+ * Validates each property against the component's declared style slots.
+ * Unknown properties and the __recipe tracking key are silently skipped.
+ * Values containing injection characters ({, }, ;, <, >) are skipped.
+ *
+ * @param array  $style           Style overrides, e.g. ['--hero-bg' => '#1a1a2e'].
+ * @param string $component_name  Component name, e.g. 'hero'.
+ * @return string  CSS custom property declarations, e.g. "--hero-bg: #1a1a2e; --hero-padding-top: 8rem"
+ */
+function pp_render_style_vars(array $style, string $component_name): string {
+    if (empty($style)) {
+        return '';
+    }
+
+    $slots      = pp_get_style_slots($component_name);
+    $properties = [];
+
+    foreach ($style as $name => $value) {
+        // Skip __recipe tracking key — not a CSS property.
+        if ($name === '__recipe') {
+            continue;
+        }
+        // Only render declared style slots (defensive — validated at action layer).
+        if (!isset($slots[$name])) {
+            continue;
+        }
+        $value = (string) $value;
+        // Injection guard: reject { } ; < > (same guard as _pp_validate_token_value).
+        if (preg_match('/[{};<>]/', $value)) {
+            continue;
+        }
+        $properties[] = esc_attr($name) . ': ' . esc_attr($value);
+    }
+
+    return implode('; ', $properties);
+}
+
+/**
  * Returns all design token overrides from the database.
  * These are site-specific values that override the product defaults in base.css.
  *
@@ -335,6 +405,26 @@ function pp_clear_all_token_overrides(): int {
         pp_invalidate_design_tokens_cache();
     }
     return $count;
+}
+
+/**
+ * Returns custom font URLs from the database.
+ *
+ * @return array  Array of URL strings.
+ */
+function pp_get_font_urls(): array {
+    $urls = get_option('pp_font_urls', []);
+    return is_array($urls) ? $urls : [];
+}
+
+/**
+ * Sets the custom font URLs in the database.
+ *
+ * @param array $urls  Array of URL strings.
+ * @return bool  True on success.
+ */
+function pp_set_font_urls(array $urls): bool {
+    return update_option('pp_font_urls', array_values($urls), true);
 }
 
 /**

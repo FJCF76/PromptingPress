@@ -53,7 +53,44 @@
   "styling": {
     "root_class": "cta",
     "variant_classes": ["cta--full-width", "cta--inline", "cta--dark", "cta--inverted"],
-    "tokens": ["--space-xl", "--space-2xl", "--space-3xl", "--color-surface", "--color-bg-inverted", "--color-accent", "--overlay-bg"]
+    "tokens": ["--space-xl", "--space-2xl", "--space-3xl", "--color-surface", "--color-bg-inverted", "--color-accent", "--overlay-bg"],
+    "style_slots": {
+      "--cta-padding-top": { "type": "length", "default": "var(--space-xl)", "description": "Top padding of the CTA section" },
+      "--cta-padding-bottom": { "type": "length", "default": "var(--space-xl)", "description": "Bottom padding of the CTA section" },
+      "--cta-bg": { "type": "color", "default": "transparent", "description": "Background color" },
+      "--cta-text": { "type": "color", "default": "var(--color-text)", "description": "Title text color" },
+      "--cta-title-size": { "type": "length", "default": "inherit", "description": "Title font size" },
+      "--cta-body-color": { "type": "color", "default": "var(--color-muted)", "description": "Body text color" },
+      "--cta-body-size": { "type": "length", "default": "inherit", "description": "Body text font size" },
+      "--cta-inner-gap": { "type": "length", "default": "var(--space-lg)", "description": "Gap between inner elements" },
+      "--cta-accent": { "type": "color", "default": "var(--color-accent)", "description": "Button background and border color" },
+      "--cta-accent-hover": { "type": "color", "default": "var(--color-accent-hover)", "description": "Button hover background color" },
+      "--cta-border-color": { "type": "color", "default": "transparent", "description": "Top and bottom border color" },
+      "--cta-border-width": { "type": "length", "default": "0", "description": "Top and bottom border width" },
+      "--cta-radius": { "type": "length", "default": "0", "description": "Border radius" },
+      "--cta-content-width": { "type": "length", "default": "40rem", "description": "Title max width" },
+      "--cta-overlay-bg": { "type": "color", "default": "var(--overlay-bg)", "description": "Background image overlay color" }
+    },
+    "recipes": {
+      "dark-bold": {
+        "description": "Bold dark background with light text for high-conversion CTAs",
+        "slots": {
+          "--cta-bg": "#1a1a2e",
+          "--cta-text": "#ffffff",
+          "--cta-body-color": "#c8d6e5",
+          "--cta-padding-top": "5rem",
+          "--cta-padding-bottom": "5rem"
+        }
+      },
+      "accent-framed": {
+        "description": "Accent border framing with rounded corners",
+        "slots": {
+          "--cta-border-color": "#6366f1",
+          "--cta-border-width": "3px",
+          "--cta-radius": "1rem"
+        }
+      }
+    }
   },
   "safe_to_edit": ["cta.php", "../../assets/css/components.css (COMPONENT: cta section)"],
   "do_not_touch": ["schema.json without updating README.md"]

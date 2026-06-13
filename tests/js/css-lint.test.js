@@ -55,6 +55,35 @@ describe('CSS lint: no modern CSS features', () => {
     });
 });
 
+describe('CSS lint: style slot fallback patterns', () => {
+    const SCHEMA_COMPONENTS = ['hero', 'section', 'grid', 'cta'];
+    const stripped = stripComments(COMPONENTS_CSS);
+
+    // Load all style slots from schema.json files.
+    const allSlots = [];
+    SCHEMA_COMPONENTS.forEach(component => {
+        const schemaPath = path.resolve(__dirname, `../../components/${component}/schema.json`);
+        const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'));
+        const slots = schema.styling?.style_slots || {};
+        Object.keys(slots).forEach(slotName => {
+            allSlots.push({ component, slotName });
+        });
+    });
+
+    test('schema declares 58 total style slots', () => {
+        expect(allSlots.length).toBe(58);
+    });
+
+    allSlots.forEach(({ component, slotName }) => {
+        test(`${slotName} has var(${slotName}, ...) fallback in components.css`, () => {
+            // Look for var(--slot-name, at least once in the CSS.
+            // The slot name appears inside a var() with a comma (indicating a fallback).
+            const pattern = new RegExp(`var\\(${slotName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')},`);
+            expect(stripped).toMatch(pattern);
+        });
+    });
+});
+
 describe('CSS lint: no raw hex in components.css', () => {
     test('components.css has no raw hex color values', () => {
         const stripped = stripComments(COMPONENTS_CSS);

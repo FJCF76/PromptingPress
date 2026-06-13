@@ -520,6 +520,44 @@ class PP_Check_Command extends WP_CLI_Command {
             }
         }
     }
+
+    /**
+     * Classifies a file path as safe, extension, or core.
+     *
+     * Reports the surface classification and routing guidance for a given
+     * file path. Helps agents understand which files they can edit directly
+     * vs. which require approved database-backed surfaces.
+     *
+     * ## OPTIONS
+     *
+     * <path>
+     * : File path to classify (relative to theme root, or absolute).
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp check surface lib/wp.php
+     *     wp pp check surface components/hero/hero.php
+     *     wp pp check surface assets/css/base.css
+     *
+     */
+    public function surface($args, $assoc_args) {
+        $path = $args[0] ?? '';
+        if ($path === '') {
+            WP_CLI::error('Path argument is required.');
+        }
+
+        $result = pp_classify_surface($path);
+
+        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        if ($result['classification'] === 'core') {
+            WP_CLI::warning('Core file — do not edit directly.');
+        } elseif ($result['classification'] === 'extension') {
+            WP_CLI::warning('Extension file — prefer database-backed surfaces when possible.');
+        } else {
+            WP_CLI::success('Safe surface.');
+        }
+    }
 }
 
 WP_CLI::add_command('pp check', 'PP_Check_Command');

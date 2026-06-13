@@ -7,7 +7,7 @@
  */
 
 // ── Theme version (single source of truth — keep in sync with style.css) ──
-define('PP_VERSION', '0.6.0');
+define('PP_VERSION', '0.7.0');
 
 // ── Load lib files ─────────────────────────────────────────────────────────
 require_once get_template_directory() . '/lib/wp.php';
@@ -69,10 +69,21 @@ add_action('wp_enqueue_scripts', function () {
         $base_ver .= '.' . substr(md5(serialize($overrides)), 0, 8);
     }
 
+    // Custom font URLs from database (enqueued before pp-base so fonts load early).
+    $font_urls = pp_get_font_urls();
+    foreach ($font_urls as $i => $font_url) {
+        wp_enqueue_style(
+            'pp-font-' . $i,
+            $font_url,
+            [],
+            null
+        );
+    }
+
     wp_enqueue_style(
         'pp-base',
         $dir . '/assets/css/base.css',
-        [],
+        $font_urls ? ['pp-font-0'] : [],
         $base_ver
     );
 

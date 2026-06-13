@@ -180,6 +180,194 @@ class SchemaValidationTest extends TestCase
         }
     }
 
+    // ── Style slot schema validation ────────────────────────────────────
+
+    /**
+     * Tests that all 4 v1 components have style_slots declared in schema.json.
+     */
+    public function testStyleSlotsExistForV1Components(): void
+    {
+        $expected = [
+            'hero'    => 14,
+            'section' => 13,
+            'grid'    => 16,
+            'cta'     => 15,
+        ];
+
+        foreach ($expected as $component => $count) {
+            $schemaFile = $this->themeRoot . "/components/{$component}/schema.json";
+            $schema     = json_decode(file_get_contents($schemaFile), true);
+
+            $this->assertArrayHasKey('styling', $schema, "{$component} schema must have a styling key.");
+            $this->assertArrayHasKey('style_slots', $schema['styling'], "{$component} must have style_slots.");
+            $this->assertCount(
+                $count,
+                $schema['styling']['style_slots'],
+                "{$component} must have exactly {$count} style slots."
+            );
+        }
+    }
+
+    /**
+     * Tests that every declared style slot has the required keys: type, default, description.
+     */
+    public function testStyleSlotStructure(): void
+    {
+        $components = ['hero', 'section', 'grid', 'cta'];
+        $validTypes = ['color', 'length', 'number'];
+
+        foreach ($components as $component) {
+            $schemaFile = $this->themeRoot . "/components/{$component}/schema.json";
+            $schema     = json_decode(file_get_contents($schemaFile), true);
+            $slots      = $schema['styling']['style_slots'] ?? [];
+
+            foreach ($slots as $slotName => $slotDef) {
+                $this->assertStringStartsWith(
+                    "--{$component}-",
+                    $slotName,
+                    "Slot {$slotName} must be namespaced to its component (--{$component}-*)."
+                );
+                $this->assertArrayHasKey('type', $slotDef, "Slot {$slotName} must declare a type.");
+                $this->assertContains($slotDef['type'], $validTypes, "Slot {$slotName} type must be color, length, or number.");
+                $this->assertArrayHasKey('default', $slotDef, "Slot {$slotName} must declare a default value.");
+                $this->assertArrayHasKey('description', $slotDef, "Slot {$slotName} must have a description.");
+                $this->assertNotEmpty($slotDef['description'], "Slot {$slotName} description must not be empty.");
+            }
+        }
+    }
+
+    /**
+     * Tests that pp_get_style_slots() returns correct data for hero.
+     */
+    public function testGetStyleSlotsReturnsHeroSlots(): void
+    {
+        // pp_get_style_slots depends on pp_get_registered_components which uses get_template_directory().
+        // We test the function indirectly by reading schema directly.
+        $schemaFile = $this->themeRoot . '/components/hero/schema.json';
+        $schema     = json_decode(file_get_contents($schemaFile), true);
+        $slots      = $schema['styling']['style_slots'] ?? [];
+
+        $this->assertArrayHasKey('--hero-padding-top', $slots);
+        $this->assertArrayHasKey('--hero-bg', $slots);
+        $this->assertArrayHasKey('--hero-text', $slots);
+        $this->assertArrayHasKey('--hero-title-size', $slots);
+        $this->assertEquals('length', $slots['--hero-padding-top']['type']);
+        $this->assertEquals('color', $slots['--hero-bg']['type']);
+    }
+
+    /**
+     * Tests that style slot names don't collide across components.
+     */
+    public function testStyleSlotNamesAreUniqueAcrossComponents(): void
+    {
+        $allSlots   = [];
+        $components = ['hero', 'section', 'grid', 'cta'];
+
+        foreach ($components as $component) {
+            $schemaFile = $this->themeRoot . "/components/{$component}/schema.json";
+            $schema     = json_decode(file_get_contents($schemaFile), true);
+            $slots      = array_keys($schema['styling']['style_slots'] ?? []);
+
+            foreach ($slots as $slot) {
+                $this->assertArrayNotHasKey(
+                    $slot,
+                    $allSlots,
+                    "Style slot {$slot} is declared in multiple components."
+                );
+                $allSlots[$slot] = $component;
+            }
+        }
+    }
+
+    // ── Composition style validation ────────────────────────────────────
+
+    public function testCompositionValidWithStyleSlots(): void
+    {
+        $composition = [
+            [
+                'component' => 'hero',
+                'props'     => ['title' => 'Test'],
+                'style'     => ['--hero-bg' => '#1a1a2e', '--hero-padding-top' => '8rem'],
+            ],
+        ];
+        $result = pp_validate_composition($composition);
+        $this->assertTrue($result);
+    }
+
+    public function testCompositionValidWithoutStyle(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['title' => 'Test']],
+        ];
+        $result = pp_validate_composition($composition);
+        $this->assertTrue($result);
+    }
+
+    public function testCompositionRejectsUnknownStyleSlot(): void
+    {
+        $composition = [
+            [
+                'component' => 'hero',
+                'props'     => ['title' => 'Test'],
+                'style'     => ['--hero-display' => 'none'],
+            ],
+        ];
+        $result = pp_validate_composition($composition);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertEquals('invalid_style_slot', $result->get_error_code());
+        $this->assertStringContainsString('--hero-display', $result->get_error_message());
+        $this->assertStringContainsString('--hero-bg', $result->get_error_message());
+    }
+
+    public function testCompositionRejectsInvalidStyleValue(): void
+    {
+        $composition = [
+            [
+                'component' => 'hero',
+                'props'     => ['title' => 'Test'],
+                'style'     => ['--hero-bg' => 'not-a-color'],
+            ],
+        ];
+        $result = pp_validate_composition($composition);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertEquals('invalid_style_value', $result->get_error_code());
+    }
+
+    public function testCompositionRejectsInjectionInStyleValue(): void
+    {
+        $composition = [
+            [
+                'component' => 'hero',
+                'props'     => ['title' => 'Test'],
+                'style'     => ['--hero-bg' => '#fff; background-image: url(evil)'],
+            ],
+        ];
+        $result = pp_validate_composition($composition);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+    }
+
+    public function testCompositionAllowsRecipeTrackingKey(): void
+    {
+        $composition = [
+            [
+                'component' => 'hero',
+                'props'     => ['title' => 'Test'],
+                'style'     => ['__recipe' => 'dark-spacious', '--hero-bg' => '#1a1a2e'],
+            ],
+        ];
+        $result = pp_validate_composition($composition);
+        $this->assertTrue($result);
+    }
+
+    public function testNormalizeCompositionStripsEmptyStyle(): void
+    {
+        $items = [
+            ['component' => 'hero', 'props' => ['title' => 'Test'], 'style' => []],
+        ];
+        $normalized = pp_normalize_composition($items);
+        $this->assertArrayNotHasKey('style', $normalized[0]);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
 
     private function removeDir(string $dir): void

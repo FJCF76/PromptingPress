@@ -1247,4 +1247,74 @@ class OperateTest extends TestCase
         $comp = pp_get_composition($post_id);
         $this->assertSame('Fast performance', $comp[2]['props']['items'][0]['text']);
     }
+
+    // ── Inspect composition: style slots ─────────────────────────────────
+
+    public function testInspectCompositionIncludesStyleSlots(): void
+    {
+        $post_id = pp_create_page('Style inspect test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_inspect_composition($post_id);
+        $this->assertCount(1, $result);
+        $this->assertArrayHasKey('style_slots', $result[0]);
+        $this->assertCount(14, $result[0]['style_slots']); // hero has 14 slots
+
+        // Verify slot structure.
+        $first_slot = $result[0]['style_slots'][0];
+        $this->assertArrayHasKey('slot', $first_slot);
+        $this->assertArrayHasKey('type', $first_slot);
+        $this->assertArrayHasKey('default', $first_slot);
+        $this->assertArrayHasKey('current', $first_slot);
+        $this->assertNull($first_slot['current']); // no overrides set
+    }
+
+    public function testInspectCompositionShowsCurrentStyleValues(): void
+    {
+        $post_id = pp_create_page('Style inspect test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello'],
+             'style' => ['--hero-bg' => '#1a1a2e']],
+        ]);
+
+        $result = pp_inspect_composition($post_id);
+        $slots = $result[0]['style_slots'];
+
+        // Find the --hero-bg slot.
+        $bg_slot = null;
+        foreach ($slots as $s) {
+            if ($s['slot'] === '--hero-bg') {
+                $bg_slot = $s;
+                break;
+            }
+        }
+        $this->assertNotNull($bg_slot);
+        $this->assertSame('#1a1a2e', $bg_slot['current']);
+        $this->assertSame('var(--color-bg)', $bg_slot['default']);
+    }
+
+    public function testInspectCompositionShowsActiveRecipe(): void
+    {
+        $post_id = pp_create_page('Recipe inspect test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello'],
+             'style' => ['__recipe' => 'dark-spacious', '--hero-bg' => '#1a1a2e']],
+        ]);
+
+        $result = pp_inspect_composition($post_id);
+        $this->assertSame('dark-spacious', $result[0]['active_recipe']);
+    }
+
+    public function testInspectCompositionNoRecipeWhenNone(): void
+    {
+        $post_id = pp_create_page('No recipe test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_inspect_composition($post_id);
+        $this->assertNull($result[0]['active_recipe']);
+    }
 }

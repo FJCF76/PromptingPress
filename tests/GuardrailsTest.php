@@ -414,4 +414,132 @@ class GuardrailsTest extends TestCase
         $this->assertStringContainsString('.cta', $comment);
         $this->assertStringContainsString('PP WARNING', $comment);
     }
+
+    // ── Surface Classification ──────────────────────────────────────────────
+
+    public function testCoreFilesClassifiedAsCore(): void
+    {
+        $core_paths = [
+            'lib/wp.php',
+            'lib/apply.php',
+            'lib/actions.php',
+            'lib/operate.php',
+            'functions.php',
+            'style.css',
+            'AI_RULES.md',
+            'AI_CONTEXT.md',
+            'phpunit.xml',
+            'composer.json',
+            'package.json',
+        ];
+
+        foreach ($core_paths as $path) {
+            $result = pp_classify_surface($path);
+            $this->assertSame('core', $result['classification'], "Expected '{$path}' to be classified as core");
+            $this->assertNotEmpty($result['guidance'], "Expected guidance for '{$path}'");
+        }
+    }
+
+    public function testExtensionFilesClassifiedAsExtension(): void
+    {
+        $extension_paths = [
+            'components/hero/hero.php',
+            'components/section/schema.json',
+            'templates/composition.php',
+            'assets/css/components.css',
+            'assets/css/base.css',
+            'assets/js/main.js',
+        ];
+
+        foreach ($extension_paths as $path) {
+            $result = pp_classify_surface($path);
+            $this->assertSame('extension', $result['classification'], "Expected '{$path}' to be classified as extension");
+        }
+    }
+
+    public function testAbsolutePathNormalized(): void
+    {
+        $theme_dir = get_template_directory();
+        $result = pp_classify_surface($theme_dir . '/lib/wp.php');
+        $this->assertSame('core', $result['classification']);
+    }
+
+    public function testUnknownPathDefaultsToCore(): void
+    {
+        $result = pp_classify_surface('random-file.txt');
+        $this->assertSame('core', $result['classification']);
+    }
+
+    public function testGuidanceRoutesLibToStyleComponent(): void
+    {
+        $result = pp_classify_surface('lib/wp.php');
+        $this->assertStringContainsString('style_component', $result['guidance']);
+    }
+
+    public function testGuidanceRoutesFunctionsPhpToApply(): void
+    {
+        $result = pp_classify_surface('functions.php');
+        $this->assertStringContainsString('enqueue_font', $result['guidance']);
+    }
+
+    public function testGuidanceRoutesStyleCssToTokenApply(): void
+    {
+        $result = pp_classify_surface('style.css');
+        $this->assertStringContainsString('update_design_token', $result['guidance']);
+    }
+
+    // ── Preflight Surface Integration ───────────────────────────────────────
+
+    public function testPreflightBlocksCoreFiles(): void
+    {
+        $result = pp_preflight([
+            'planned_files' => ['lib/wp.php'],
+        ]);
+
+        $surface_check = null;
+        foreach ($result['checks'] as $check) {
+            if ($check['check'] === 'surface') {
+                $surface_check = $check;
+                break;
+            }
+        }
+
+        $this->assertNotNull($surface_check, 'Expected a surface check in preflight results');
+        $this->assertFalse($surface_check['pass'], 'Expected surface check to fail for core file');
+        $this->assertStringContainsString('lib/wp.php', $surface_check['message']);
+        $this->assertFalse($result['ok'], 'Expected preflight to fail overall');
+    }
+
+    public function testPreflightAllowsExtensionFiles(): void
+    {
+        $result = pp_preflight([
+            'planned_files' => ['assets/css/base.css'],
+        ]);
+
+        $surface_check = null;
+        foreach ($result['checks'] as $check) {
+            if ($check['check'] === 'surface') {
+                $surface_check = $check;
+                break;
+            }
+        }
+
+        $this->assertNotNull($surface_check, 'Expected a surface check in preflight results');
+        $this->assertTrue($surface_check['pass'], 'Expected surface check to pass for extension file');
+    }
+
+    public function testPreflightOmitsSurfaceCheckWithoutPlannedFiles(): void
+    {
+        $result = pp_preflight([]);
+
+        $has_surface_check = false;
+        foreach ($result['checks'] as $check) {
+            if ($check['check'] === 'surface') {
+                $has_surface_check = true;
+                break;
+            }
+        }
+
+        $this->assertFalse($has_surface_check, 'Expected no surface check when no planned_files');
+    }
 }
