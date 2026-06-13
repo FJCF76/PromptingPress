@@ -66,6 +66,7 @@ Preflight checks:
 4. **Drift** — no overlapping drift between manifest and your planned file mutations
 5. **Theme writable** — theme directory is writable for file-based applies
 6. **Target page** — (for page operations) post exists and has a composition
+7. **Surface classification** — (when `planned_files` provided) classifies each path as safe/extension/core; core files fail preflight with routing guidance toward the correct approved surface
 
 **If PREFLIGHT fails**: STOP. Do not proceed to APPLY. Report the failure in HANDOFF.
 

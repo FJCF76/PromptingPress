@@ -68,7 +68,7 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 | AI_RULES.md              | AI coding rules and invariants  | Only to update invariants        |
 | /lib/ai-context.php      | AI site context layer             | Extend for new context sources     |
 | /lib/ai-provider.php     | LLM provider proxy (streaming)    | Extend for new providers           |
-| /lib/ai-settings.php     | AI settings page (admin only)     | Yes                                |
+| /lib/screenshot.php      | Screenshot capture (browser integration) | Extend for new capture modes   |
 | /lib/ai-chat.php         | AI chat page + AJAX handlers      | Yes                                |
 | /ai-stream.php           | SSE streaming endpoint            | Thin transport only                |
 | /assets/js/pp-ai-chat.js | AI chat UI (streaming, proposals) | Yes                                |
@@ -439,7 +439,7 @@ The 3 mutation AJAX handlers (`pp_save_composition`, `pp_save_title`, `pp_publis
 
 ---
 
-## AI Chat (lib/ai-chat.php, lib/ai-context.php, lib/ai-provider.php, lib/ai-settings.php)
+## AI Chat (lib/ai-chat.php, lib/ai-context.php, lib/ai-provider.php)
 
 An in-admin AI chat that can read site state, answer questions, and propose/execute mutations through the action/apply contracts.
 

@@ -17,7 +17,7 @@ The format is AI-native: the same JSON a human edits in the admin meta box is wh
 
 ```json
 [
-  { "component": "hero",    "props": { "title": "Welcome", "variant": "centered" } },
+  { "component": "hero",    "props": { "title": "Welcome", "variant": "centered" }, "style": { "--hero-bg": "#0d1117", "--hero-text": "#f0f0f0" } },
   { "component": "section", "props": { "body": "<p>Content.</p>" } },
   { "component": "faq",     "props": { "items": [{ "question": "Q?", "answer": "A." }] } },
   { "component": "cta",     "props": { "title": "Go", "button_text": "Click", "button_url": "/" } }
@@ -26,6 +26,7 @@ The format is AI-native: the same JSON a human edits in the admin meta box is wh
 
 - `component` — must match a registered component name (a folder in `components/`)
 - `props` — must satisfy required props from that component's `schema.json`
+- `style` — (optional) per-instance CSS custom property overrides, validated against the component's `schema.json` → `styling.style_slots`. Only declared slots are accepted. Use `style_component` action to set these; see `ai-instructions/style-component.md`
 - Order in the array = render order on the page
 - Any registered component can appear any number of times in any order
 
@@ -211,12 +212,12 @@ See `ai-instructions/build-landing-page.md` → Step 5 for the full verification
 
 ## What NOT to store in _pp_composition
 
-- Layout, spacing, or visual decisions (those belong in CSS / design tokens)
+- Arbitrary CSS (only schema-declared style slots are allowed in the `style` key)
 - Navigation or footer configuration (nav and footer are injected by `pp_base_template` automatically)
 - ACF field data (use `pp_field()` in templates or component props for that)
 
-The database stores page data (composition + component content).
-Files store everything visual.
+The database stores page data (composition + component content + per-instance style overrides).
+Files store global visual defaults (tokens, component CSS).
 
 ---
 

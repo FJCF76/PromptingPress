@@ -33,14 +33,15 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 /components/{name}/        Component partials + schema.json
 /templates/                Page layout files
 /lib/wp.php                WP abstraction layer (pp_* functions only)
-/lib/actions.php           Typed action model (12 actions, validate/preview/execute)
+/lib/actions.php           Typed action model (14 actions, validate/preview/execute)
 /lib/apply.php             Apply layer (file + option mutations, validate/preview/execute)
-/lib/cli.php               WP-CLI commands (wp pp action + wp pp apply)
+/lib/cli.php               WP-CLI commands (wp pp action + wp pp apply + wp pp check)
 /lib/admin.php             Composition editor: meta box, AJAX adapters → action layer
 /lib/ai-chat.php           AI chat admin page + AJAX handlers (execute, fallback)
 /lib/ai-context.php        AI site context layer (system prompt, page/media context)
 /lib/ai-provider.php       LLM provider proxy (streaming + non-streaming)
-/lib/ai-settings.php       AI settings page (BYOK provider config)
+/lib/guardrails.php        CSS conflict detection + surface classification guardrail
+/lib/operate.php           Operating loop: inspect, preflight, run tokens, validation
 /lib/setup.php             Theme activation bootstrap: homepage provisioning
 /lib/components.php        Component auto-loader (don't edit)
 /assets/css/base.css       Design token defaults — 33 CSS variables
@@ -77,7 +78,7 @@ Pages using the Composition template store their layout in `_pp_composition` pos
 ```json
 [
   { "component": "hero", "props": { "title": "Welcome", "variant": "centered" } },
-  { "component": "section", "props": { "body": "<p>Content.</p>", "layout": "text-only" } },
+  { "component": "section", "props": { "body": "<p>Content.</p>", "layout": "text-only" }, "style": { "--section-bg": "#f0f4ff" } },
   { "component": "faq", "props": { "items": [{ "question": "Q?", "answer": "A." }] } },
   { "component": "cta", "props": { "title": "Ready?", "button_text": "Go", "button_url": "/" } }
 ]
@@ -107,14 +108,14 @@ No build step required for the site itself. Vanilla PHP, CSS, and JS. npm is use
 
 ## Tests
 
-**PHP tests** (component loader, WP abstraction layer, invariant rules, schema validation, 12 typed actions, apply layer with file I/O, AI context assembly, provider error handling, proposal parsing):
+**PHP tests** (component loader, WP abstraction layer, invariant rules, schema validation, 14 typed actions, apply layer with file I/O, AI context assembly, provider error handling, proposal parsing, style slots, surface classification, font applies):
 
 ```bash
 composer install
 composer test
 ```
 
-**JS tests** (JSON context parser, composition validator, accordion data, insert-position walker — 56 tests):
+**JS tests** (JSON context parser, composition validator, accordion data, insert-position walker, CSS lint — 128 tests):
 
 ```bash
 npm install
