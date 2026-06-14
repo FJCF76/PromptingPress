@@ -315,12 +315,23 @@ AI_RULES.md                Hard coding invariants
 
 ### Installation
 
+1. Download the latest release ZIP from [GitHub Releases](https://github.com/FJCF76/PromptingPress/releases/latest)
+2. In WordPress admin: **Appearance → Themes → Add New → Upload Theme**
+3. Upload the ZIP file and activate PromptingPress
+
+On activation, PromptingPress creates a Home page with the Composition template and assigns it as the static front page.
+
+<details>
+<summary><strong>Developer install (clone the repo)</strong></summary>
+
 ```bash
 cd wp-content/themes/
 git clone https://github.com/FJCF76/PromptingPress.git promptingpress
 ```
 
-Activate the theme in Appearance > Themes. On activation, PromptingPress creates a Home page with the Composition template and assigns it as the static front page.
+This gives you the full repo with tests, dev tooling, and git history. Useful for contributing, inspecting source, or running the test suite locally.
+
+</details>
 
 ### AI chat setup
 
