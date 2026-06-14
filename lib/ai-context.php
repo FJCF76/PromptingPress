@@ -53,6 +53,30 @@ function pp_ai_system_prompt(): string {
         foreach ($components as $name => $schema) {
             $props = pp_ai_condense_schema($schema);
             $parts[] = "- **{$name}**: {$props}";
+
+            $slots = pp_get_style_slots($name);
+            if ($slots) {
+                $slot_parts = [];
+                foreach ($slots as $slot_name => $slot_def) {
+                    $slot_parts[] = "{$slot_name} ({$slot_def['type']}, default: {$slot_def['default']})";
+                }
+                $parts[] = "  Style slots: " . implode(', ', $slot_parts);
+            }
+
+            $recipes = pp_get_style_recipes($name);
+            if ($recipes) {
+                $recipe_parts = [];
+                $first = true;
+                foreach ($recipes as $recipe_name => $recipe_def) {
+                    if ($first && !empty($recipe_def['description'])) {
+                        $recipe_parts[] = "{$recipe_name} (\"{$recipe_def['description']}\")";
+                        $first = false;
+                    } else {
+                        $recipe_parts[] = $recipe_name;
+                    }
+                }
+                $parts[] = "  Recipes: " . implode(', ', $recipe_parts);
+            }
         }
     }
     $parts[] = '';
@@ -179,7 +203,12 @@ function pp_ai_condense_schema(array $schema): string {
         // Per-prop 'required' (PromptingPress) or top-level array (JSON Schema)
         $is_required = !empty($prop_def['required']) || in_array($prop_name, $top_required, true);
         $marker = $is_required ? '' : '?';
-        $parts[] = "{$prop_name}{$marker}: {$type}";
+        if ($type === 'enum' && !empty($prop_def['values']) && is_array($prop_def['values'])) {
+            $enum_str = '"' . implode('"|"', $prop_def['values']) . '"';
+            $parts[] = "{$prop_name}{$marker}: {$enum_str}";
+        } else {
+            $parts[] = "{$prop_name}{$marker}: {$type}";
+        }
     }
 
     return implode(', ', $parts);
@@ -291,10 +320,15 @@ function pp_ai_site_context(): array {
  * Includes component type and key distinguishing props so the AI can
  * unambiguously target components when a page has duplicates.
  */
-function _pp_summarize_component(array $item): string {
+function _pp_summarize_component(array $item, ?array $inspect_target = null): string {
     $name  = $item['component'] ?? 'unknown';
     $props = $item['props'] ?? [];
-    $parts = [$name];
+
+    $name_str = $name;
+    if ($inspect_target && !empty($inspect_target['component_id'])) {
+        $name_str .= " ({$inspect_target['component_id']})";
+    }
+    $parts = [$name_str];
 
     // Variant or layout (the main structural differentiator)
     if (!empty($props['variant'])) {
@@ -320,7 +354,43 @@ function _pp_summarize_component(array $item): string {
         }
     }
 
-    return implode(' | ', $parts);
+    $summary = implode(' | ', $parts);
+
+    if ($inspect_target) {
+        // Style line: recipe + overridden slots
+        $style_parts = [];
+        if (!empty($inspect_target['active_recipe'])) {
+            $style_parts[] = "recipe: {$inspect_target['active_recipe']}";
+        }
+        if (!empty($inspect_target['style_slots'])) {
+            foreach ($inspect_target['style_slots'] as $slot) {
+                if ($slot['current'] !== null && $slot['current'] !== $slot['default']) {
+                    $style_parts[] = "{$slot['slot']}: {$slot['current']}";
+                }
+            }
+        }
+        if ($style_parts) {
+            $summary .= "\n      Style: " . implode(' | ', $style_parts);
+        }
+
+        // Editable line: deduplicated field names by type
+        if (!empty($inspect_target['fields'])) {
+            $seen = [];
+            $editable_parts = [];
+            foreach ($inspect_target['fields'] as $f) {
+                $key = $f['field'];
+                if (!isset($seen[$key])) {
+                    $seen[$key] = true;
+                    $editable_parts[] = "{$f['field']} ({$f['field_type']})";
+                }
+            }
+            if ($editable_parts) {
+                $summary .= "\n      Editable: " . implode(', ', $editable_parts);
+            }
+        }
+    }
+
+    return $summary;
 }
 
 // ── Message Formatting ─────────────────────────────────────────────────────
@@ -348,9 +418,15 @@ function pp_ai_format_messages(string $system, array $conversation, ?int $page_i
 
             // Component index summary for unambiguous targeting
             if (!empty($page_ctx['composition'])) {
+                $inspect_data = pp_inspect_composition($page_id);
+                if (is_wp_error($inspect_data)) {
+                    $inspect_data = null;
+                }
+
                 $system_content .= "Components (use component_index to target):\n";
                 foreach ($page_ctx['composition'] as $idx => $item) {
-                    $summary = _pp_summarize_component($item);
+                    $target = ($inspect_data && isset($inspect_data[$idx])) ? $inspect_data[$idx] : null;
+                    $summary = _pp_summarize_component($item, $target);
                     $system_content .= "  [{$idx}] {$summary}\n";
                 }
             }

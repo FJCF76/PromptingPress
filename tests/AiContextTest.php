@@ -357,4 +357,124 @@ class AiContextTest extends TestCase
         $this->assertArrayHasKey('tokens', $ctx);
         $this->assertEquals('Test Site', $ctx['site']['name']);
     }
+
+    // ── Style Slots & Recipes in System Prompt ──────────────────────────
+
+    public function testSystemPromptContainsStyleSlotsForStyledComponents(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        $this->assertStringContainsString('--hero-bg', $prompt);
+        $this->assertStringContainsString('Style slots:', $prompt);
+    }
+
+    public function testSystemPromptContainsRecipesForStyledComponents(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        $this->assertStringContainsString('dark-spacious', $prompt);
+        $this->assertStringContainsString('Recipes:', $prompt);
+    }
+
+    public function testSystemPromptOmitsStyleSlotsForUnstyled(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        $lines = explode("\n", $prompt);
+        foreach ($lines as $i => $line) {
+            if (str_contains($line, '**faq**') || str_contains($line, '**embed**')) {
+                $next = $lines[$i + 1] ?? '';
+                $this->assertStringNotContainsString('Style slots:', $next);
+            }
+        }
+    }
+
+    // ── Enum Values in Condensed Schema ──────────────────────────────────
+
+    public function testCondenseSchemaRendersEnumValues(): void
+    {
+        $schema = [
+            'props' => [
+                'variant' => [
+                    'type' => 'enum',
+                    'values' => ['left', 'centered', 'split', 'cover'],
+                    'required' => false,
+                ],
+            ],
+        ];
+        $result = pp_ai_condense_schema($schema);
+        $this->assertStringContainsString('"left"|"centered"|"split"|"cover"', $result);
+        $this->assertStringNotContainsString('enum', $result);
+    }
+
+    public function testCondenseSchemaFallsBackForNonEnum(): void
+    {
+        $schema = [
+            'props' => [
+                'title' => ['type' => 'string', 'required' => true],
+            ],
+        ];
+        $result = pp_ai_condense_schema($schema);
+        $this->assertStringContainsString('title: string', $result);
+    }
+
+    // ── Inspect Data in Page Context ────────────────────────────────────
+
+    public function testFormatMessagesPageContextIncludesInspectData(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][60] = [
+            'post_type'   => 'page',
+            'post_title'  => 'Styled Page',
+            'post_status' => 'publish',
+        ];
+        $GLOBALS['_pp_test_store']['post_meta'][60]['_pp_composition'] = wp_json_encode([
+            [
+                'component' => 'hero',
+                'props' => ['id' => 'pp-test123', 'title' => 'Welcome', 'variant' => 'split'],
+                'style' => ['--hero-bg' => '#0d1117', '--hero-text' => '#f0f0f0', '__recipe' => 'dark-spacious'],
+            ],
+        ]);
+
+        $messages = pp_ai_format_messages('System', [], 60);
+        $system = $messages[0]['content'];
+
+        $this->assertStringContainsString('pp-test123', $system);
+        $this->assertStringContainsString('recipe: dark-spacious', $system);
+        $this->assertStringContainsString('--hero-bg: #0d1117', $system);
+        $this->assertStringContainsString('Editable:', $system);
+        $this->assertStringContainsString('title (string)', $system);
+    }
+
+    public function testFormatMessagesPageContextHandlesNoStyleOverrides(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][61] = [
+            'post_type'   => 'page',
+            'post_title'  => 'Plain Page',
+            'post_status' => 'publish',
+        ];
+        $GLOBALS['_pp_test_store']['post_meta'][61]['_pp_composition'] = wp_json_encode([
+            [
+                'component' => 'hero',
+                'props' => ['title' => 'Hello'],
+            ],
+        ]);
+
+        $messages = pp_ai_format_messages('System', [], 61);
+        $system = $messages[0]['content'];
+
+        $this->assertStringContainsString('[0] hero', $system);
+        $this->assertStringNotContainsString('Style:', $system);
+    }
+
+    public function testFormatMessagesPageContextHandlesInspectError(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][62] = [
+            'post_type'   => 'page',
+            'post_title'  => 'Error Page',
+            'post_status' => 'publish',
+        ];
+        $GLOBALS['_pp_test_store']['post_meta'][62]['_pp_composition'] = 'NOT_VALID_JSON{{{';
+
+        $messages = pp_ai_format_messages('System', [], 62);
+        $system = $messages[0]['content'];
+
+        $this->assertStringContainsString('Error Page', $system);
+    }
 }
