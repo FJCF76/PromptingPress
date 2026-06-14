@@ -297,6 +297,22 @@ function serializeAccordionData(components) {
     return JSON.stringify(arr, null, 2);
 }
 
+/**
+ * Detect when DOM-read array items would lose content compared to originals.
+ * Returns true if all new items are empty objects but at least one original
+ * had content — indicating a sync bug, not a legitimate user edit.
+ *
+ * @param {Array<Object>} newItems  - Items read from the DOM
+ * @param {*}             origItems - Original field value (from CodeMirror JSON)
+ * @returns {boolean}
+ */
+function wouldLoseArrayData(newItems, origItems) {
+    return newItems.length > 0 &&
+        Array.isArray(origItems) && origItems.length > 0 &&
+        newItems.every(function (item) { return Object.keys(item).length === 0; }) &&
+        origItems.some(function (orig) { return orig && Object.keys(orig).length > 0; });
+}
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 var _logic = {
@@ -305,6 +321,7 @@ var _logic = {
     getInsertPosition:       getInsertPosition,
     buildAccordionData:      buildAccordionData,
     serializeAccordionData:  serializeAccordionData,
+    wouldLoseArrayData:      wouldLoseArrayData,
 };
 
 /* istanbul ignore next */

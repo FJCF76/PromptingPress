@@ -321,11 +321,16 @@
                     $arrayItems.each(function (itemIdx) {
                         var item = {};
                         subKeys.forEach(function (sk) {
-                            var $input = $(this).find('[data-field="' + field.name + '.' + sk + '"][data-comp="' + compIdx + '"]');
+                            var $input = $(this).find('[data-field="' + sk + '"][data-comp="' + compIdx + '"]');
                             if ($input.length) item[sk] = $input.val();
                         }.bind(this));
                         items.push(item);
                     });
+                    if (logic.wouldLoseArrayData(items, field.value)) {
+                        console.warn('pp-editor: data-loss guard fired for "' + field.name +
+                            '" — all ' + items.length + ' items read as empty but originals had content. Sync skipped.');
+                        return;
+                    }
                     field.value = items;
                     field.userTouched = true;
                 } else {

@@ -13,6 +13,7 @@ const {
     getInsertPosition,
     buildAccordionData,
     serializeAccordionData,
+    wouldLoseArrayData,
 } = require('../../assets/js/pp-editor-logic.js');
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -55,7 +56,25 @@ const SECTION = {
     },
 };
 
-const REGISTRY = [HERO, FAQ, SECTION];
+const GRID = {
+    name: 'grid',
+    schema: {
+        props: {
+            title: { type: 'string', required: false },
+            items: {
+                type: 'array', required: true,
+                items: {
+                    title:    { type: 'string', required: false },
+                    text:     { type: 'string', required: false },
+                    image_url:{ type: 'string', required: false },
+                    link_url: { type: 'string', required: false },
+                },
+            },
+        },
+    },
+};
+
+const REGISTRY = [HERO, FAQ, SECTION, GRID];
 
 // ─── getJsonContextFromText ───────────────────────────────────────────────────
 
@@ -490,5 +509,82 @@ describe('serializeAccordionData', () => {
         expect(reparsed).toHaveLength(2);
         expect(reparsed[0].component).toBe('hero');
         expect(reparsed[1].component).toBe('faq');
+    });
+
+    test('round-trip: grid with multiple items preserves all sub-fields', () => {
+        const original = [{
+            component: 'grid',
+            props: {
+                title: 'Features',
+                items: [
+                    { title: 'Fast', text: 'Lightning speed', image_url: '/img/fast.png', link_url: '/fast' },
+                    { title: 'Safe', text: 'Enterprise security', image_url: '/img/safe.png', link_url: '/safe' },
+                    { title: 'Easy', text: 'One-click setup', image_url: '/img/easy.png', link_url: '/easy' },
+                ],
+            },
+        }];
+        const json = JSON.stringify(original);
+        const data = buildAccordionData(json, REGISTRY);
+        const serialized = serializeAccordionData(data.components);
+        const reparsed = JSON.parse(serialized);
+        expect(reparsed[0].props.items).toHaveLength(3);
+        expect(reparsed[0].props.items[0]).toEqual({ title: 'Fast', text: 'Lightning speed', image_url: '/img/fast.png', link_url: '/fast' });
+        expect(reparsed[0].props.items[1]).toEqual({ title: 'Safe', text: 'Enterprise security', image_url: '/img/safe.png', link_url: '/safe' });
+        expect(reparsed[0].props.items[2]).toEqual({ title: 'Easy', text: 'One-click setup', image_url: '/img/easy.png', link_url: '/easy' });
+    });
+
+    test('round-trip: hero + grid mixed — hero edit does not lose grid items', () => {
+        const original = [
+            { component: 'hero', props: { title: 'Welcome', subtitle: 'To our site' } },
+            { component: 'grid', props: { items: [{ title: 'Card 1', text: 'Content 1' }, { title: 'Card 2', text: 'Content 2' }] } },
+        ];
+        const json = JSON.stringify(original);
+        const data = buildAccordionData(json, REGISTRY);
+        // Simulate editing the hero title
+        data.components[0].fields.find(f => f.name === 'title').value = 'New Welcome';
+        data.components[0].fields.find(f => f.name === 'title').userTouched = true;
+        const serialized = serializeAccordionData(data.components);
+        const reparsed = JSON.parse(serialized);
+        expect(reparsed[0].props.title).toBe('New Welcome');
+        expect(reparsed[1].props.items).toEqual([{ title: 'Card 1', text: 'Content 1' }, { title: 'Card 2', text: 'Content 2' }]);
+    });
+});
+
+// ─── wouldLoseArrayData ──────────────────────────────────────────────────────
+
+describe('wouldLoseArrayData', () => {
+    test('all new items empty + originals had content → true', () => {
+        const newItems = [{}, {}, {}];
+        const origItems = [{ question: 'Q?', answer: 'A.' }, { question: 'Q2?', answer: 'A2.' }, { question: 'Q3?', answer: 'A3.' }];
+        expect(wouldLoseArrayData(newItems, origItems)).toBe(true);
+    });
+
+    test('new items have content (normal edit) → false', () => {
+        const newItems = [{ question: 'Updated Q', answer: 'Updated A' }];
+        const origItems = [{ question: 'Q?', answer: 'A.' }];
+        expect(wouldLoseArrayData(newItems, origItems)).toBe(false);
+    });
+
+    test('originals were already empty array → false', () => {
+        const newItems = [{}, {}];
+        const origItems = [];
+        expect(wouldLoseArrayData(newItems, origItems)).toBe(false);
+    });
+
+    test('originals undefined (new component, no prior data) → false', () => {
+        const newItems = [{}, {}];
+        expect(wouldLoseArrayData(newItems, undefined)).toBe(false);
+    });
+
+    test('items array is empty (all items removed via button) → false', () => {
+        const newItems = [];
+        const origItems = [{ question: 'Q?', answer: 'A.' }];
+        expect(wouldLoseArrayData(newItems, origItems)).toBe(false);
+    });
+
+    test('some items empty, others have content (partial edit) → false', () => {
+        const newItems = [{ question: 'Edited Q' }, {}, { question: 'Another Q', answer: 'Another A' }];
+        const origItems = [{ question: 'Q1' }, { question: 'Q2' }, { question: 'Q3', answer: 'A3' }];
+        expect(wouldLoseArrayData(newItems, origItems)).toBe(false);
     });
 });
