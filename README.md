@@ -2,9 +2,9 @@
 
 # PromptingPress
 
-### WordPress pages that AI agents can actually understand.
+### WordPress pages that AI agents can understand — and fast sites that skip the builder bloat.
 
-**A structured composition layer for WordPress. Pages are typed components + JSON data. Design lives in tokens. Every edit goes through a validated action layer. AI can inspect, propose, and apply changes through predictable interfaces — no reverse-engineering of theme clutter required.**
+**A lightweight composition layer for WordPress. Pages are typed components + structured JSON. Design lives in tokens. The frontend ships ~75 KB of CSS and 1.5 KB of vanilla JS — no framework, no bundler, no builder runtime. AI can inspect, edit, and maintain pages through predictable interfaces instead of reverse-engineering theme clutter.**
 
 ---
 
@@ -20,47 +20,53 @@
 
 ---
 
-## What PromptingPress does
+## ⚡ Fast, structured WordPress without builder bloat
 
-Most WordPress themes store layout intent across theme files, block metadata, visual builder state, plugin abstractions, and settings pages. A human learns where things live over time. An AI agent re-infers everything from scratch on every session — and traditional WordPress gives it very little to work with.
+Most visual builders solve human editing by adding hidden state, heavy abstractions, serialized layouts, and frontend overhead. Pages get harder for AI to reason about — and slower than they need to be.
 
-**PromptingPress makes page structure explicit and machine-readable.** Pages are JSON arrays of typed components. Design rules are CSS custom properties. Every mutation goes through a validated action layer with preview and rollback. An AI agent can read `AI_CONTEXT.md`, understand the entire site, and make confident edits without knowing WordPress internals.
+PromptingPress goes the other direction:
 
-This is not a visual page builder. This is not a generic AI website builder. This is the structural layer that makes WordPress workable for AI-led page creation and maintenance.
+- **Explicit composition data** — pages are JSON arrays, not serialized builder state
+- **Typed components with schemas** — AI knows what's editable and what values are valid
+- **File-owned design rules** — 33 CSS tokens, no visual overrides to hunt down
+- **Minimal frontend assumptions** — no framework, no bundler, no builder runtime on the visitor-facing site
+- **Fast, maintainable WordPress output** — the architecture is designed to stay lean
 
----
-
-## The old way vs. PromptingPress
-
-| Traditional WordPress theme | PromptingPress |
-|---|---|
-| Layout scattered across blocks, builders, shortcodes, and theme options | Page layout is one JSON array in post meta — inspectable, diffable, version-controllable |
-| Ad hoc theme files, no contracts on what a component accepts | Every component has a `schema.json` with typed props, required fields, and validation |
-| `get_header()`, `the_content()`, `wp_nav_menu()` called from templates | Templates use `pp_*` wrappers only — `lib/wp.php` is the single WordPress contact surface |
-| Colors and spacing set through visual overrides or inline CSS | 33 design tokens in one CSS file; site overrides stored in the database, survive theme updates |
-| AI reads the codebase and guesses what's editable | AI reads `AI_CONTEXT.md` + component schemas and knows exactly what's editable and how |
-| Changes via file edits, block editor, or plugin-specific APIs | Every change goes through one typed action layer — validate, preview, execute, rollback |
-
-> **When page structure is explicit and every edit path is validated, AI stops guessing and starts operating.**
+> **The same design that makes pages AI-editable also makes them fast. Structured data and isolated components have no runtime overhead to carry.**
 
 ---
 
-## How AI works with PromptingPress
+## 🔄 The old way vs. PromptingPress
+
+| | Traditional WordPress theme | PromptingPress |
+|---|---|---|
+| 🧠 **AI readability** | AI reads the codebase and guesses what's editable | AI reads `AI_CONTEXT.md` + component schemas and knows exactly what's editable and how |
+| 🧩 **Page structure** | Layout scattered across blocks, builders, shortcodes, and theme options | Page layout is one JSON array in post meta — inspectable, diffable, version-controllable |
+| 🛡️ **Edit safety** | Changes via file edits, block editor, or plugin-specific APIs | Every change goes through one typed action layer — validate, preview, execute, rollback |
+| 🪶 **Frontend weight** | Builder runtime, serialized markup, framework dependencies | ~75 KB CSS + 1.5 KB vanilla JS. No framework. No bundler. No builder runtime. |
+| 🎨 **Design control** | Colors and spacing set through visual overrides or inline CSS | 33 design tokens in one CSS file; site overrides in the database, survive theme updates |
+| 📄 **Component contracts** | Ad hoc theme files, no contracts on what a component accepts | Every component has `schema.json` with typed props, required fields, and validation |
+
+> **When page structure is explicit and every edit path is validated, AI stops guessing and starts operating — and the frontend stays lean.**
+
+---
+
+## 🔧 How AI works with PromptingPress
 
 ```mermaid
 flowchart TD
-    subgraph Entry["AI entry points"]
+    subgraph Entry["🔧 AI entry points"]
         CLI["WP-CLI\nwp pp action · wp pp operate"]
         Chat["In-admin AI Chat\nstreaming proposals + approval"]
         Editor["Composition Editor\naccordion UI + JSON toggle"]
     end
 
-    subgraph Orient["Orientation"]
+    subgraph Orient["🧭 Orientation"]
         CTX["AI_CONTEXT.md\nfile map · component index · API reference"]
         Schema["schema.json per component\ntyped props · required fields · enums"]
     end
 
-    subgraph Mutation["Validated mutation layer"]
+    subgraph Mutation["🛡️ Validated mutation layer"]
         Action["Typed action layer\n14 actions · validate · preview · execute"]
         Apply["Apply layer\ndesign tokens · file mutations · backup + rollback"]
         Guard["Guardrails\nsurface classification · CSS conflict detection · data-loss guard"]
@@ -71,10 +77,10 @@ flowchart TD
         Tokens["Design token overrides\nwp_options · survives theme updates"]
     end
 
-    subgraph Render["Output"]
+    subgraph Render["⚡ Output"]
         Templates["Templates\npp_* wrappers only"]
         Components["Component partials\nisolated PHP · CSS variables only"]
-        Frontend["WordPress frontend"]
+        Frontend["WordPress frontend\n~75 KB CSS · 1.5 KB JS · zero frameworks"]
     end
 
     CLI --> Action
@@ -92,13 +98,13 @@ flowchart TD
     Components --> Frontend
 ```
 
-**Every path from AI intent to rendered page goes through the same validated layer.** CLI, chat, and editor are different interfaces into one mutation system. Nothing bypasses validation. Nothing writes directly to files or post meta without going through the action model.
+**Every path from AI intent to rendered page goes through the same validated layer.** CLI, chat, and editor are different interfaces into one mutation system. Nothing bypasses validation. The output is plain WordPress — fast, cacheable, no builder runtime.
 
 ---
 
-## What AI can safely work with
+## 🧩 The operating model
 
-### Compositions — pages as structured data
+### 🧠 Compositions — pages as structured data
 
 Every page using the Composition template stores its layout in `_pp_composition` post meta:
 
@@ -119,7 +125,7 @@ No blocks. No shortcodes. No visual-builder serialization. AI can read, write, d
 
 ---
 
-### Typed components — contracts, not conventions
+### 🧩 Typed components — contracts, not conventions
 
 11 components, each isolated in its own directory with a `schema.json`:
 
@@ -143,7 +149,24 @@ The auto-loader picks up any new component at `/components/{name}/{name}.php` �
 
 ---
 
-### Design tokens — visual system without file edits
+### 🪶 Lightweight rendering — no builder runtime on the frontend
+
+Components are plain PHP partials that render semantic HTML with CSS custom properties. No React. No Vue. No jQuery. No builder framework. No shortcode parser. The visitor-facing site loads:
+
+| Asset | Size | What it does |
+|-------|------|-------------|
+| `base.css` | 8 KB | Design tokens — 33 CSS custom properties |
+| `components.css` | 63 KB | All 11 component styles, CSS variables only |
+| `utilities.css` | 2 KB | Layout helpers |
+| `main.js` | 1.5 KB | Hamburger nav toggle — one IIFE, zero dependencies |
+
+No build step. No transpilation. No bundler. What you write is what ships.
+
+**Why this matters:** The same architecture that makes pages easy for AI to understand also keeps the frontend lean. Structured data and isolated PHP components don't carry runtime overhead. Pages load fast because there's nothing unnecessary to load.
+
+---
+
+### 🎨 Design tokens — visual system without file edits
 
 33 CSS custom properties control the entire visual system: colors, typography, spacing, borders, measures. Product defaults live in `assets/css/base.css`. Site-specific overrides are stored in the database and **survive theme updates** — no file to lose when the theme ZIP gets replaced.
 
@@ -163,22 +186,7 @@ wp pp apply execute update_design_token \
 
 ---
 
-### WP abstraction layer — WordPress knowledge not required
-
-`lib/wp.php` is the only file that calls WordPress functions directly. Every template and component uses `pp_*` wrappers. The entire WordPress dependency surface is one file.
-
-| Instead of | AI writes |
-|---|---|
-| `get_the_title()` | `pp_title()` |
-| `get_post_meta($id, '_pp_composition', true)` | `pp_get_composition($id)` |
-| `wp_nav_menu(...)` | `pp_nav_menu($location)` |
-| `the_content()` | `pp_content()` |
-
-**Why this matters:** AI can edit templates and components without learning WordPress's function signature jungle. Templates are also testable without bootstrapping WP — the abstraction layer mocks cleanly.
-
----
-
-### Action/apply layer — one validated write path
+### 🛡️ Validated action/apply layer — one write path
 
 Every mutation — from CLI, from AI chat, from the editor — goes through the same typed action system:
 
@@ -201,7 +209,24 @@ wp pp action execute add_component \
 
 ---
 
-### AI chat — structured proposals, not raw text
+### 🧭 AI_CONTEXT.md — orientation in seconds
+
+`AI_CONTEXT.md` is a machine-readable site map: file responsibilities, component index, WP abstraction API, composition format, design tokens, mutation surfaces, and coding rules. An AI agent reads one file and knows the entire system — what's editable, how to edit it, and what constraints apply.
+
+`lib/wp.php` is the only file that calls WordPress functions directly. Every template and component uses `pp_*` wrappers:
+
+| Instead of | AI writes |
+|---|---|
+| `get_the_title()` | `pp_title()` |
+| `get_post_meta($id, '_pp_composition', true)` | `pp_get_composition($id)` |
+| `wp_nav_menu(...)` | `pp_nav_menu($location)` |
+| `the_content()` | `pp_content()` |
+
+**Why this matters:** AI can edit templates without learning WordPress's function signature jungle. The abstraction layer also means templates are testable without bootstrapping WordPress.
+
+---
+
+### 💬 AI chat — structured proposals, not raw text
 
 An in-admin chat at PromptingPress > AI Chat. The AI reads your real site state — pages, compositions, media library, design tokens — and proposes changes as structured mutation cards with Apply/Cancel buttons.
 
@@ -211,11 +236,11 @@ Multi-step proposals show numbered steps with "Apply All." After applying, the A
 
 ---
 
-### Agent operating framework — safety-gated autonomous work
+### 🔒 Agent operating framework — safety-gated autonomous work
 
 For AI agents running autonomously: an 8-step operating loop with enforcement.
 
-**INSPECT** > **PLAN** > **EDIT** > **PREFLIGHT** > **APPLY** > **SCREENSHOT** > **REVIEW** > **HANDOFF**
+**INSPECT** → **PLAN** → **EDIT** → **PREFLIGHT** → **APPLY** → **SCREENSHOT** → **REVIEW** → **HANDOFF**
 
 Run tokens (UUID v4 state files) enforce step ordering — an agent can't apply without inspecting first, can't execute a file mutation without passing preflight. Drift detection compares live theme files against the last sync. Three playbooks ship for common operations: create-page, revise-section, inspect-fix.
 
@@ -223,7 +248,7 @@ Run tokens (UUID v4 state files) enforce step ordering — an agent can't apply 
 
 ---
 
-## Example workflow
+## 📋 Example workflow
 
 **Scenario:** An AI agent adds a features section to an existing landing page.
 
@@ -247,13 +272,14 @@ Run tokens (UUID v4 state files) enforce step ordering — an agent can't apply 
    → validated, written to _pp_composition, confirmed
 
 6. Page renders through WordPress with the new grid section
+   → plain HTML + CSS custom properties, no builder runtime
 ```
 
-No theme files were edited. No WordPress internals were called. No visual builder state was generated. The composition changed; the page reflects it.
+No theme files were edited. No WordPress internals were called. No visual builder state was generated. The composition changed; the page reflects it — fast.
 
 ---
 
-## Architecture
+## 🏗️ Architecture
 
 ```
 /components/{name}/        Component partials + schema.json
@@ -279,7 +305,7 @@ AI_RULES.md                Hard coding invariants
 
 ---
 
-## Quick start
+## 🚀 Quick start
 
 ### Requirements
 
@@ -300,7 +326,7 @@ Activate the theme in Appearance > Themes. On activation, PromptingPress creates
 
 Configure an LLM provider in Settings > Connectors (WordPress 7.0 Connectors API — Anthropic, Google, or OpenAI). Then open PromptingPress > AI Chat.
 
-### First CLI session
+### 🔧 First CLI session
 
 ```bash
 # See what's available
@@ -325,7 +351,7 @@ wp pp integrity check
 
 ---
 
-## Architectural rules
+## 📏 Architectural rules
 
 Enforced by `AI_RULES.md` and verified by automated tests:
 
@@ -337,7 +363,7 @@ Enforced by `AI_RULES.md` and verified by automated tests:
 
 ---
 
-## Tests
+## ✅ Tests
 
 **572 PHP tests, 2158 assertions** — component loader, WP abstraction, schema validation, 14 typed actions, apply layer, AI context, proposal parsing, style slots, surface classification, font management, integrity, operating loop:
 
@@ -361,7 +387,7 @@ npm run env:stop
 
 ---
 
-## Project status
+## 📌 Project status
 
 PromptingPress is in active development by a single developer. It is not yet packaged for broad distribution. The current focus is making the AI-agent workflow reliable and the composition model complete.
 
@@ -376,6 +402,7 @@ See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 thro
 - WP-CLI interface for all operations
 - 720+ automated tests across PHP, JS, and E2E
 - Theme integrity checking with build manifests
+- ~75 KB frontend CSS, 1.5 KB JS — no framework, no bundler
 
 See [open issues](https://github.com/FJCF76/PromptingPress/issues) for planned work.
 
@@ -389,8 +416,8 @@ GPL-2.0-or-later. See [LICENSE](LICENSE).
 
 <div align="center">
 
-**PromptingPress** — Structured WordPress for AI agents.
+**PromptingPress** — Structured WordPress for AI agents. Lightweight by design.
 
-*Built with [WordPress](https://wordpress.org) + [Vitest](https://vitest.dev) + [Playwright](https://playwright.dev)*
+*Built with [WordPress](https://wordpress.org) · Vanilla PHP + CSS + JS · [Vitest](https://vitest.dev) · [Playwright](https://playwright.dev)*
 
 </div>
