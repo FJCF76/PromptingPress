@@ -12,6 +12,11 @@ if (!defined('WP_DEBUG')) {
     define('WP_DEBUG', true);
 }
 
+// PP_VERSION — normally defined in functions.php, which isn't loaded by tests.
+if (!defined('PP_VERSION')) {
+    define('PP_VERSION', '0.8.0');
+}
+
 // ── WP_Error stub ───────────────────────────────────────────────────────────
 // Minimal stub for action layer tests. Supports get_error_message/code.
 if (!class_exists('WP_Error')) {

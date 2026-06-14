@@ -303,3 +303,174 @@ function pp_validate_composition_smells(array $composition): array {
 
     return $warnings;
 }
+
+// ── Theme Integrity ──────────────────────────────────────────────────────
+
+/**
+ * Checks shipped theme files against the integrity manifest.
+ *
+ * Loads integrity-manifest.json from the theme root, validates its JSON
+ * and schema, hashes all current theme files, and compares. Stores the
+ * result in the 'pp_theme_integrity' option.
+ *
+ * @return array|null  Result array with status/modified/missing/extra, or
+ *                     null if no manifest exists (pre-integrity theme).
+ */
+function pp_check_theme_integrity(): ?array {
+    $theme_path = get_template_directory();
+    $manifest_path = $theme_path . '/integrity-manifest.json';
+
+    // No manifest = pre-integrity theme version. No opinion.
+    if (!file_exists($manifest_path)) {
+        return null;
+    }
+
+    $now = gmdate('c');
+
+    // Read and validate JSON.
+    $raw = file_get_contents($manifest_path);
+    $manifest = json_decode($raw, true);
+
+    if (!is_array($manifest)) {
+        $result = [
+            'status'     => 'invalid_manifest',
+            'checked_at' => $now,
+            'version'    => PP_VERSION,
+            'modified'   => [],
+            'missing'    => [],
+            'extra'      => [],
+            'error'      => 'Invalid JSON: ' . (json_last_error_msg() ?: 'decode returned null'),
+        ];
+        update_option('pp_theme_integrity', $result, true);
+        return $result;
+    }
+
+    // Schema validation: require version (string) and file_hashes (non-empty object).
+    if (!isset($manifest['version']) || !is_string($manifest['version'])) {
+        $result = [
+            'status'     => 'invalid_manifest',
+            'checked_at' => $now,
+            'version'    => PP_VERSION,
+            'modified'   => [],
+            'missing'    => [],
+            'extra'      => [],
+            'error'      => 'Missing or invalid required key: version',
+        ];
+        update_option('pp_theme_integrity', $result, true);
+        return $result;
+    }
+
+    if (!isset($manifest['file_hashes']) || !is_array($manifest['file_hashes']) || empty($manifest['file_hashes'])) {
+        $result = [
+            'status'     => 'invalid_manifest',
+            'checked_at' => $now,
+            'version'    => PP_VERSION,
+            'modified'   => [],
+            'missing'    => [],
+            'extra'      => [],
+            'error'      => 'Missing or empty required key: file_hashes',
+        ];
+        update_option('pp_theme_integrity', $result, true);
+        return $result;
+    }
+
+    $manifest_hashes = $manifest['file_hashes'];
+
+    // Hash current theme files.
+    $current_hashes = _pp_hash_all_theme_files($theme_path);
+
+    // Compare.
+    $modified = [];
+    $missing  = [];
+    $extra    = [];
+
+    foreach ($manifest_hashes as $path => $expected_hash) {
+        if (!isset($current_hashes[$path])) {
+            $missing[] = $path;
+        } elseif ($current_hashes[$path] !== $expected_hash) {
+            $modified[] = $path;
+        }
+    }
+
+    foreach ($current_hashes as $path => $hash) {
+        if (!isset($manifest_hashes[$path])) {
+            $extra[] = $path;
+        }
+    }
+
+    $status = (empty($modified) && empty($missing) && empty($extra)) ? 'safe' : 'unsafe';
+
+    $result = [
+        'status'     => $status,
+        'checked_at' => $now,
+        'version'    => $manifest['version'],
+        'modified'   => $modified,
+        'missing'    => $missing,
+        'extra'      => $extra,
+        'error'      => null,
+    ];
+
+    update_option('pp_theme_integrity', $result, true);
+    return $result;
+}
+
+/**
+ * Renders a persistent admin notice when theme files have drifted from the
+ * shipped baseline, or when the integrity manifest is invalid.
+ *
+ * Reads the stored option (no file I/O). Clears stale results when the
+ * theme version has changed (the old status no longer applies).
+ *
+ * Hooked via add_action('admin_notices', ...) in functions.php.
+ */
+function pp_admin_notice_theme_integrity(): void {
+    $option = get_option('pp_theme_integrity');
+    if (!is_array($option) || empty($option['status'])) {
+        return;
+    }
+
+    // Version mismatch = theme was updated. Old status is stale — clear it.
+    if (($option['version'] ?? '') !== PP_VERSION) {
+        delete_option('pp_theme_integrity');
+        return;
+    }
+
+    $status = $option['status'];
+
+    if ($status === 'unsafe') {
+        $modified_count = count($option['modified'] ?? []);
+        $missing_count  = count($option['missing'] ?? []);
+        $extra_count    = count($option['extra'] ?? []);
+
+        $parts = [];
+        if ($modified_count) {
+            $parts[] = $modified_count . ' modified';
+        }
+        if ($missing_count) {
+            $parts[] = $missing_count . ' missing';
+        }
+        if ($extra_count) {
+            $parts[] = $extra_count . ' extra';
+        }
+
+        echo '<div class="notice notice-error">';
+        echo '<p><strong>PromptingPress:</strong> Theme files have been modified locally';
+        if ($parts) {
+            echo ' (' . implode(', ', $parts) . ')';
+        }
+        echo '. Updating the theme will overwrite these changes. ';
+        echo 'Run <code>wp pp integrity check</code> for details.</p>';
+        echo '</div>';
+        return;
+    }
+
+    if ($status === 'invalid_manifest') {
+        echo '<div class="notice notice-warning">';
+        echo '<p><strong>PromptingPress:</strong> Cannot verify theme file integrity &mdash; ';
+        echo 'the shipped integrity manifest is invalid or unreadable (version ' . esc_html(PP_VERSION) . '). ';
+        echo 'Restore <code>integrity-manifest.json</code> from the matching GitHub release, ';
+        echo 'then run <code>wp pp integrity check</code>.</p>';
+        echo '</div>';
+        return;
+    }
+}

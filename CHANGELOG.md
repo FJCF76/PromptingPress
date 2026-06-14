@@ -4,6 +4,53 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.8.0] — 2026-06-14 — Theme Integrity Status
+
+### Know before you update: which shipped files changed on disk
+
+PromptingPress now ships an integrity manifest inside every package. The manifest records the MD5 hash of every file at build time. After installation, `wp pp integrity check` compares live files against that baseline and reports modified, missing, or extra files. A persistent admin notice warns site owners when theme files have been modified locally, because a theme update replaces the entire directory and would silently overwrite those changes.
+
+The check runs automatically on theme activation and after theme updates. Between checks, the admin notice reads from a stored option (no file hashing on every page load). When the theme version changes, stale results clear automatically. The CLI offers two commands: `check` runs a full comparison and updates the stored status, `status` reads the last result without touching the filesystem.
+
+### The 4 numbers that matter
+
+Source: `php vendor/bin/phpunit` on the repo, `wp pp integrity check` on dev site.
+
+| Metric | Before (v0.7.0) | After (v0.8.0) | Delta |
+|--------|-----------------|-----------------|-------|
+| PHP tests | 546 | 572 | +26 |
+| PHP assertions | 2078 | 2158 | +80 |
+| Files tracked in manifest | 0 | 95 | +95 |
+| CLI exit codes for integrity | 0 | 4 | +4 |
+
+Every file that ships in the package is now tracked. An AI agent, deploy script, or manual edit that modifies a theme file will be caught before the next update overwrites it.
+
+### What this means for site builders
+
+Before updating PromptingPress, check the admin dashboard. If you see a red notice, your theme files have been modified since installation. Run `wp pp integrity check` to see exactly which files changed, which are missing, and which extra files exist that would be lost on update. Move custom work to a child theme or plugin before proceeding. If you see a yellow notice, the manifest itself is unreadable. Restore it from the matching GitHub release.
+
+### Added
+- `integrity-manifest.json` generated at build time inside the theme package (95 files hashed)
+- `_pp_hash_all_theme_files(string $theme_path)` — extension-agnostic file hasher with `.distignore`-equivalent skip list
+- `pp_check_theme_integrity()` — loads manifest, validates JSON + schema, compares hashes, stores result in `pp_theme_integrity` option
+- `pp_admin_notice_theme_integrity()` — persistent admin notice: red (`notice-error`) for modified files, yellow (`notice-warning`) for invalid manifest
+- `wp pp integrity check` CLI command — full integrity comparison with exit codes: 0 (safe), 1 (unsafe), 2 (invalid manifest), 3 (no manifest)
+- `wp pp integrity status` CLI command — reads stored result without file I/O, warns about staleness on version mismatch
+- Lifecycle hooks: `after_switch_theme` runs integrity check, `upgrader_process_complete` clears stale results and re-checks, `switch_theme` cleans up option
+
+### Changed
+- `scripts/package.sh` generates `integrity-manifest.json` from staged package directory between rsync and ZIP creation
+- `.distignore` and `.gitignore` exclude `integrity-manifest.json` (build artifact, not tracked in repo)
+- Version mismatch between stored result and `PP_VERSION` auto-clears stale integrity status on admin page load
+
+### Tests
+- 572 PHP tests, 2158 assertions (was 546 tests, 2078 assertions)
+- New: 8 tests for `_pp_hash_all_theme_files()` (all file types, skip dirs, skip files, skip manifest, skip dotfiles, skip ZIP pattern, sorted keys, unreadable files)
+- New: 12 tests for `pp_check_theme_integrity()` (no manifest, invalid JSON, missing schema keys, empty file_hashes, safe match, modified/missing/extra detection, multiple drift types, option storage, error field)
+- New: 6 tests for `pp_admin_notice_theme_integrity()` (missing option, safe status, unsafe notice, invalid manifest notice, version mismatch clear, post-clear silence)
+
+---
+
 ## [v0.7.0] — 2026-06-13 — Instance-Scoped Style Slots
 
 ### Every component instance can now look different without touching CSS

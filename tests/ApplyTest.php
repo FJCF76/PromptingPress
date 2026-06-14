@@ -903,4 +903,185 @@ class ApplyTest extends TestCase
         $this->assertTrue($result['ok']);
         $this->assertEmpty(pp_get_font_urls());
     }
+
+    // ── _pp_hash_all_theme_files() tests ────────────────────────────────────
+
+    public function testHashAllThemeFilesReturnsHashesForAllFileTypes(): void
+    {
+        $dir = sys_get_temp_dir() . '/pp-hash-test-' . getmypid() . '-' . mt_rand();
+        mkdir($dir, 0755, true);
+
+        // Create files of various types.
+        file_put_contents($dir . '/test.php', '<?php echo "hi";');
+        file_put_contents($dir . '/style.css', 'body { color: red; }');
+        file_put_contents($dir . '/app.js', 'console.log("hi");');
+        file_put_contents($dir . '/data.json', '{"key": "val"}');
+        file_put_contents($dir . '/README.md', '# Readme');
+        file_put_contents($dir . '/notes.txt', 'notes');
+        file_put_contents($dir . '/LICENSE', 'MIT');
+
+        $hashes = _pp_hash_all_theme_files($dir);
+
+        $this->assertArrayHasKey('test.php', $hashes);
+        $this->assertArrayHasKey('style.css', $hashes);
+        $this->assertArrayHasKey('app.js', $hashes);
+        $this->assertArrayHasKey('data.json', $hashes);
+        $this->assertArrayHasKey('README.md', $hashes);
+        $this->assertArrayHasKey('notes.txt', $hashes);
+        $this->assertArrayHasKey('LICENSE', $hashes);
+
+        // Each hash should be a 32-char MD5.
+        foreach ($hashes as $hash) {
+            $this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $hash);
+        }
+
+        $this->recursiveDelete($dir);
+    }
+
+    public function testHashAllThemeFilesSkipsDistignoreDirs(): void
+    {
+        $dir = sys_get_temp_dir() . '/pp-hash-test-' . getmypid() . '-' . mt_rand();
+        mkdir($dir . '/scripts', 0755, true);
+        mkdir($dir . '/tests', 0755, true);
+        mkdir($dir . '/node_modules', 0755, true);
+        mkdir($dir . '/vendor', 0755, true);
+        mkdir($dir . '/.git', 0755, true);
+
+        file_put_contents($dir . '/keep.php', '<?php');
+        file_put_contents($dir . '/scripts/build.sh', '#!/bin/bash');
+        file_put_contents($dir . '/tests/Test.php', '<?php');
+        file_put_contents($dir . '/node_modules/pkg.js', 'module');
+        file_put_contents($dir . '/vendor/lib.php', '<?php');
+        file_put_contents($dir . '/.git/config', '[core]');
+
+        $hashes = _pp_hash_all_theme_files($dir);
+
+        $this->assertArrayHasKey('keep.php', $hashes);
+        $this->assertArrayNotHasKey('scripts/build.sh', $hashes);
+        $this->assertArrayNotHasKey('tests/Test.php', $hashes);
+        $this->assertArrayNotHasKey('node_modules/pkg.js', $hashes);
+        $this->assertArrayNotHasKey('vendor/lib.php', $hashes);
+        $this->assertArrayNotHasKey('.git/config', $hashes);
+
+        $this->recursiveDelete($dir);
+    }
+
+    public function testHashAllThemeFilesSkipsDistignoreFiles(): void
+    {
+        $dir = sys_get_temp_dir() . '/pp-hash-test-' . getmypid() . '-' . mt_rand();
+        mkdir($dir, 0755, true);
+
+        file_put_contents($dir . '/keep.php', '<?php');
+        file_put_contents($dir . '/composer.json', '{}');
+        file_put_contents($dir . '/package.json', '{}');
+        file_put_contents($dir . '/CLAUDE.md', '# Claude');
+        file_put_contents($dir . '/.distignore', '# dist');
+        file_put_contents($dir . '/phpunit.xml', '<phpunit/>');
+
+        $hashes = _pp_hash_all_theme_files($dir);
+
+        $this->assertArrayHasKey('keep.php', $hashes);
+        $this->assertArrayNotHasKey('composer.json', $hashes);
+        $this->assertArrayNotHasKey('package.json', $hashes);
+        $this->assertArrayNotHasKey('CLAUDE.md', $hashes);
+        $this->assertArrayNotHasKey('.distignore', $hashes);
+        $this->assertArrayNotHasKey('phpunit.xml', $hashes);
+
+        $this->recursiveDelete($dir);
+    }
+
+    public function testHashAllThemeFilesSkipsIntegrityManifest(): void
+    {
+        $dir = sys_get_temp_dir() . '/pp-hash-test-' . getmypid() . '-' . mt_rand();
+        mkdir($dir, 0755, true);
+
+        file_put_contents($dir . '/keep.php', '<?php');
+        file_put_contents($dir . '/integrity-manifest.json', '{"version":"0.7.0"}');
+
+        $hashes = _pp_hash_all_theme_files($dir);
+
+        $this->assertArrayHasKey('keep.php', $hashes);
+        $this->assertArrayNotHasKey('integrity-manifest.json', $hashes);
+
+        $this->recursiveDelete($dir);
+    }
+
+    public function testHashAllThemeFilesSkipsDotfiles(): void
+    {
+        $dir = sys_get_temp_dir() . '/pp-hash-test-' . getmypid() . '-' . mt_rand();
+        mkdir($dir, 0755, true);
+
+        file_put_contents($dir . '/keep.php', '<?php');
+        file_put_contents($dir . '/.DS_Store', 'binary');
+        file_put_contents($dir . '/.phpunit.result.cache', 'cache');
+
+        $hashes = _pp_hash_all_theme_files($dir);
+
+        $this->assertArrayHasKey('keep.php', $hashes);
+        $this->assertArrayNotHasKey('.DS_Store', $hashes);
+        $this->assertArrayNotHasKey('.phpunit.result.cache', $hashes);
+
+        $this->recursiveDelete($dir);
+    }
+
+    public function testHashAllThemeFilesSkipsZipPattern(): void
+    {
+        $dir = sys_get_temp_dir() . '/pp-hash-test-' . getmypid() . '-' . mt_rand();
+        mkdir($dir, 0755, true);
+
+        file_put_contents($dir . '/keep.php', '<?php');
+        file_put_contents($dir . '/promptingpress-0.7.0.zip', 'PK');
+
+        $hashes = _pp_hash_all_theme_files($dir);
+
+        $this->assertArrayHasKey('keep.php', $hashes);
+        $this->assertArrayNotHasKey('promptingpress-0.7.0.zip', $hashes);
+
+        $this->recursiveDelete($dir);
+    }
+
+    public function testHashAllThemeFilesReturnsSortedKeys(): void
+    {
+        $dir = sys_get_temp_dir() . '/pp-hash-test-' . getmypid() . '-' . mt_rand();
+        mkdir($dir . '/lib', 0755, true);
+        mkdir($dir . '/components', 0755, true);
+
+        file_put_contents($dir . '/lib/wp.php', '<?php');
+        file_put_contents($dir . '/components/hero.php', '<?php');
+        file_put_contents($dir . '/functions.php', '<?php');
+
+        $hashes = _pp_hash_all_theme_files($dir);
+        $keys = array_keys($hashes);
+        $sorted = $keys;
+        sort($sorted);
+
+        $this->assertSame($sorted, $keys);
+
+        $this->recursiveDelete($dir);
+    }
+
+    public function testHashAllThemeFilesTreatsUnreadableAsFalse(): void
+    {
+        $dir = sys_get_temp_dir() . '/pp-hash-test-' . getmypid() . '-' . mt_rand();
+        mkdir($dir, 0755, true);
+
+        file_put_contents($dir . '/readable.php', '<?php');
+        file_put_contents($dir . '/unreadable.php', '<?php');
+        chmod($dir . '/unreadable.php', 0000);
+
+        $hashes = _pp_hash_all_theme_files($dir);
+
+        $this->assertArrayHasKey('readable.php', $hashes);
+        $this->assertNotFalse($hashes['readable.php']);
+
+        // If the file is truly unreadable (depends on test runner not being root),
+        // md5_file returns false and we store false.
+        if (!is_readable($dir . '/unreadable.php')) {
+            $this->assertArrayHasKey('unreadable.php', $hashes);
+            $this->assertFalse($hashes['unreadable.php']);
+        }
+
+        chmod($dir . '/unreadable.php', 0644);
+        $this->recursiveDelete($dir);
+    }
 }

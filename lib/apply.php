@@ -836,3 +836,78 @@ function _pp_hash_theme_files(string $theme_path): array {
     ksort($hashes);
     return $hashes;
 }
+
+/**
+ * Hashes ALL theme files for integrity checking (no extension filter).
+ * Applies .distignore-equivalent exclusions so dev/repo installs produce
+ * the same file set as the build-time manifest.
+ *
+ * @param string $theme_path  Absolute path to theme directory.
+ * @return array  Map of relative_path => md5 hash (false if unreadable).
+ */
+function _pp_hash_all_theme_files(string $theme_path): array {
+    $hashes = [];
+
+    // Directories excluded from the package (mirrors .distignore).
+    $skip_dirs = [
+        '.git', 'node_modules', 'vendor', 'tests', 'scripts',
+        'test-results', 'playwright-report', 'content',
+        '.github', '.gstack', '.gstack-screenshots', '.context',
+    ];
+
+    // Individual files excluded from the package (mirrors .distignore).
+    $skip_files = [
+        'composer.json', 'composer.lock', 'composer.phar',
+        'package.json', 'package-lock.json', 'phpunit.xml',
+        'vitest.config.js', '.wp-env.json', '.distignore',
+        'CLAUDE.md', 'TODOS.md', '.phpunit.result.cache',
+        'integrity-manifest.json',
+    ];
+
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveCallbackFilterIterator(
+            new RecursiveDirectoryIterator($theme_path, RecursiveDirectoryIterator::SKIP_DOTS),
+            function ($current, $key, $iterator) use ($skip_dirs) {
+                if ($current->isDir()) {
+                    $name = $current->getFilename();
+                    // Skip directories matching the exclusion list or starting with a dot.
+                    if (in_array($name, $skip_dirs, true) || str_starts_with($name, '.')) {
+                        return false;
+                    }
+                    return true;
+                }
+                return true;
+            }
+        )
+    );
+
+    foreach ($iterator as $file) {
+        if (!$file->isFile()) {
+            continue;
+        }
+        $filename = $file->getFilename();
+
+        // Skip dotfiles.
+        if (str_starts_with($filename, '.')) {
+            continue;
+        }
+
+        // Skip ZIP build artifacts.
+        if (preg_match('/^promptingpress-.*\.zip$/', $filename)) {
+            continue;
+        }
+
+        $relative = ltrim(str_replace($theme_path, '', $file->getPathname()), '/');
+
+        // Skip individually excluded files.
+        if (in_array($relative, $skip_files, true)) {
+            continue;
+        }
+
+        $hash = md5_file($file->getPathname());
+        $hashes[$relative] = $hash !== false ? $hash : false;
+    }
+
+    ksort($hashes);
+    return $hashes;
+}

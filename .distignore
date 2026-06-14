@@ -47,5 +47,8 @@ TODOS.md
 # Previously built ZIPs
 promptingpress-*.zip
 
+# Integrity manifest (build artifact, regenerated each package)
+integrity-manifest.json
+
 # Hidden files/folders (catch-all)
 .*

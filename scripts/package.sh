@@ -73,6 +73,32 @@ rsync -a --exclude-from=.distignore ./ "$DEST/"
 # Remove any leftover hidden files the catch-all might miss
 find "$DEST" -name '.*' -not -name '.' -not -name '..' -exec rm -rf {} + 2>/dev/null || true
 
+# ── 4b. Generate integrity manifest ─────────────────────────────────
+# Hash every file in the staged package directory BEFORE writing the
+# manifest, so the manifest itself is not included in the hash set.
+MANIFEST="$DEST/integrity-manifest.json"
+{
+    echo '{'
+    echo "  \"version\": \"$VERSION\","
+    echo "  \"generated\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
+    echo '  "file_hashes": {'
+    FIRST=1
+    while IFS= read -r -d '' file; do
+        relative="${file#"$DEST/"}"
+        hash=$(md5sum "$file" | cut -d' ' -f1)
+        if [ "$FIRST" -eq 1 ]; then
+            FIRST=0
+        else
+            echo ','
+        fi
+        printf '    "%s": "%s"' "$relative" "$hash"
+    done < <(find "$DEST" -type f -not -name 'integrity-manifest.json' -print0 | sort -z)
+    echo ''
+    echo '  }'
+    echo '}'
+} > "$MANIFEST"
+echo "Integrity manifest: $(grep -c '": "' "$MANIFEST") files hashed"
+
 # Create the ZIP
 (cd "$STAGING" && zip -qr "$THEME_DIR/$ZIP_NAME" promptingpress/)
 

@@ -1018,3 +1018,111 @@ class PP_Sync_Command extends WP_CLI_Command {
 }
 
 WP_CLI::add_command('pp sync', 'PP_Sync_Command');
+
+/**
+ * Theme integrity commands — compare live files against the shipped baseline manifest.
+ */
+class PP_Integrity_Command {
+
+    /**
+     * Run a full integrity check against the shipped manifest.
+     *
+     * Hashes all current theme files, compares against integrity-manifest.json,
+     * and stores the result in the pp_theme_integrity option.
+     *
+     * ## EXIT CODES
+     *
+     * 0 — safe (all files match)
+     * 1 — unsafe (modified, missing, or extra files detected)
+     * 2 — invalid manifest (JSON parse error or schema validation failure)
+     * 3 — no manifest found (pre-integrity theme version)
+     *
+     * @subcommand check
+     */
+    public function check($args, $assoc_args): void {
+        $result = pp_check_theme_integrity();
+
+        if ($result === null) {
+            WP_CLI::line('No integrity manifest found. This theme version predates integrity tracking.');
+            WP_CLI::halt(3);
+            return;
+        }
+
+        if ($result['status'] === 'invalid_manifest') {
+            WP_CLI::error(sprintf(
+                'Integrity manifest is invalid (theme version %s): %s',
+                PP_VERSION,
+                $result['error'] ?? 'Unknown error'
+            ), false);
+            WP_CLI::halt(2);
+            return;
+        }
+
+        // Print the result as formatted JSON.
+        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        if ($result['status'] === 'safe') {
+            WP_CLI::success('All theme files match the shipped manifest.');
+            return;
+        }
+
+        // Status is 'unsafe'.
+        if (!empty($result['modified'])) {
+            WP_CLI::warning('Modified files (hash mismatch):');
+            foreach ($result['modified'] as $path) {
+                WP_CLI::line('  - ' . $path);
+            }
+        }
+
+        if (!empty($result['missing'])) {
+            WP_CLI::warning('Missing files (in manifest but not on disk):');
+            foreach ($result['missing'] as $path) {
+                WP_CLI::line('  - ' . $path);
+            }
+        }
+
+        if (!empty($result['extra'])) {
+            WP_CLI::warning('Extra files (on disk but not in manifest):');
+            foreach ($result['extra'] as $path) {
+                WP_CLI::line('  - ' . $path);
+            }
+            WP_CLI::line('These files are not part of the shipped theme. A theme update or reinstall');
+            WP_CLI::line('replaces the entire theme directory and will delete them.');
+            WP_CLI::line('Recommendation: move extra files to a child theme, plugin, or wp-content/.');
+        }
+
+        WP_CLI::halt(1);
+    }
+
+    /**
+     * Print the stored integrity status (read-only, no file hashing).
+     *
+     * Reads the pp_theme_integrity option and prints it. Does NOT run a new
+     * check or modify the stored option. If the stored version differs from
+     * the current PP_VERSION, prints a staleness warning.
+     *
+     * @subcommand status
+     */
+    public function status($args, $assoc_args): void {
+        $option = get_option('pp_theme_integrity');
+
+        if (!is_array($option) || empty($option['status'])) {
+            WP_CLI::line('No integrity check results stored. Run `wp pp integrity check` first.');
+            return;
+        }
+
+        // Staleness warning — read-only, does NOT delete or update the option.
+        $stored_version = $option['version'] ?? 'unknown';
+        if ($stored_version !== PP_VERSION) {
+            WP_CLI::warning(sprintf(
+                'Results are from version %s, current theme is %s — run `wp pp integrity check` to refresh.',
+                $stored_version,
+                PP_VERSION
+            ));
+        }
+
+        WP_CLI::line(json_encode($option, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
+}
+
+WP_CLI::add_command('pp integrity', 'PP_Integrity_Command');

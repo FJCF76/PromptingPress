@@ -63,3 +63,47 @@ function pp_setup_homepage(): void {
 }
 
 add_action('after_switch_theme', 'pp_setup_homepage');
+
+// ── Theme Integrity Lifecycle ────────────────────────────────────────────────
+
+/**
+ * Run an integrity check when the theme is activated.
+ * Fires after after_switch_theme, so pp_setup_homepage runs first.
+ */
+add_action('after_switch_theme', function () {
+    pp_check_theme_integrity();
+}, 20);
+
+/**
+ * Run an integrity check after a theme update via the WP upgrader.
+ * Clears stale results first, then checks against the new manifest.
+ */
+add_action('upgrader_process_complete', function ($upgrader, $hook_extra) {
+    if (!isset($hook_extra['type']) || $hook_extra['type'] !== 'theme') {
+        return;
+    }
+
+    // Check if this theme was updated.
+    $this_theme = get_option('stylesheet');
+    $updated    = false;
+
+    if (isset($hook_extra['themes']) && is_array($hook_extra['themes'])) {
+        $updated = in_array($this_theme, $hook_extra['themes'], true);
+    } elseif (isset($hook_extra['theme'])) {
+        $updated = ($hook_extra['theme'] === $this_theme);
+    }
+
+    if (!$updated) {
+        return;
+    }
+
+    delete_option('pp_theme_integrity');
+    pp_check_theme_integrity();
+}, 10, 2);
+
+/**
+ * Clean up the integrity option when switching away from this theme.
+ */
+add_action('switch_theme', function () {
+    delete_option('pp_theme_integrity');
+});

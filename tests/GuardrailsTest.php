@@ -542,4 +542,358 @@ class GuardrailsTest extends TestCase
 
         $this->assertFalse($has_surface_check, 'Expected no surface check when no planned_files');
     }
+
+    // ── Theme Integrity Check ──────────────────────────────────────────────
+
+    private string $integrityDir;
+
+    private function setupIntegrityDir(): void
+    {
+        $this->integrityDir = sys_get_temp_dir() . '/pp-integrity-test-' . getmypid() . '-' . mt_rand();
+        mkdir($this->integrityDir, 0755, true);
+        $GLOBALS['_pp_test_template_dir'] = $this->integrityDir;
+    }
+
+    private function teardownIntegrityDir(): void
+    {
+        if (isset($this->integrityDir) && is_dir($this->integrityDir)) {
+            $this->recursiveDeleteDir($this->integrityDir);
+        }
+        unset($GLOBALS['_pp_test_template_dir']);
+        unset($GLOBALS['_pp_test_store']['options']['pp_theme_integrity']);
+    }
+
+    private function recursiveDeleteDir(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+        foreach (scandir($dir) as $item) {
+            if ($item === '.' || $item === '..') {
+                continue;
+            }
+            $path = $dir . '/' . $item;
+            is_dir($path) ? $this->recursiveDeleteDir($path) : unlink($path);
+        }
+        rmdir($dir);
+    }
+
+    private function writeManifest(array $manifest): void
+    {
+        file_put_contents(
+            $this->integrityDir . '/integrity-manifest.json',
+            json_encode($manifest, JSON_PRETTY_PRINT)
+        );
+    }
+
+    public function testIntegrityCheckReturnsNullWhenNoManifest(): void
+    {
+        $this->setupIntegrityDir();
+
+        $result = pp_check_theme_integrity();
+        $this->assertNull($result);
+
+        $this->teardownIntegrityDir();
+    }
+
+    public function testIntegrityCheckReturnsInvalidManifestOnBadJson(): void
+    {
+        $this->setupIntegrityDir();
+        file_put_contents($this->integrityDir . '/integrity-manifest.json', 'not json{{{');
+
+        $result = pp_check_theme_integrity();
+
+        $this->assertSame('invalid_manifest', $result['status']);
+        $this->assertSame(PP_VERSION, $result['version']);
+        $this->assertStringContainsString('Invalid JSON', $result['error']);
+
+        $this->teardownIntegrityDir();
+    }
+
+    public function testIntegrityCheckReturnsInvalidManifestOnMissingVersion(): void
+    {
+        $this->setupIntegrityDir();
+        $this->writeManifest(['file_hashes' => ['a.php' => 'abc123']]);
+
+        $result = pp_check_theme_integrity();
+
+        $this->assertSame('invalid_manifest', $result['status']);
+        $this->assertStringContainsString('version', $result['error']);
+
+        $this->teardownIntegrityDir();
+    }
+
+    public function testIntegrityCheckReturnsInvalidManifestOnMissingFileHashes(): void
+    {
+        $this->setupIntegrityDir();
+        $this->writeManifest(['version' => '0.7.0']);
+
+        $result = pp_check_theme_integrity();
+
+        $this->assertSame('invalid_manifest', $result['status']);
+        $this->assertStringContainsString('file_hashes', $result['error']);
+
+        $this->teardownIntegrityDir();
+    }
+
+    public function testIntegrityCheckReturnsInvalidManifestOnEmptyFileHashes(): void
+    {
+        $this->setupIntegrityDir();
+        $this->writeManifest(['version' => '0.7.0', 'file_hashes' => []]);
+
+        $result = pp_check_theme_integrity();
+
+        $this->assertSame('invalid_manifest', $result['status']);
+        $this->assertStringContainsString('file_hashes', $result['error']);
+
+        $this->teardownIntegrityDir();
+    }
+
+    public function testIntegrityCheckReturnsSafeWhenAllMatch(): void
+    {
+        $this->setupIntegrityDir();
+
+        file_put_contents($this->integrityDir . '/functions.php', '<?php echo "hi";');
+        $hash = md5_file($this->integrityDir . '/functions.php');
+
+        $this->writeManifest([
+            'version' => PP_VERSION,
+            'file_hashes' => ['functions.php' => $hash],
+        ]);
+
+        $result = pp_check_theme_integrity();
+
+        $this->assertSame('safe', $result['status']);
+        $this->assertEmpty($result['modified']);
+        $this->assertEmpty($result['missing']);
+        $this->assertEmpty($result['extra']);
+        $this->assertNull($result['error']);
+
+        $this->teardownIntegrityDir();
+    }
+
+    public function testIntegrityCheckDetectsModifiedFile(): void
+    {
+        $this->setupIntegrityDir();
+
+        file_put_contents($this->integrityDir . '/functions.php', '<?php echo "modified";');
+
+        $this->writeManifest([
+            'version' => PP_VERSION,
+            'file_hashes' => ['functions.php' => 'original_hash_that_wont_match'],
+        ]);
+
+        $result = pp_check_theme_integrity();
+
+        $this->assertSame('unsafe', $result['status']);
+        $this->assertContains('functions.php', $result['modified']);
+
+        $this->teardownIntegrityDir();
+    }
+
+    public function testIntegrityCheckDetectsMissingFile(): void
+    {
+        $this->setupIntegrityDir();
+
+        // File in manifest but not on disk.
+        $this->writeManifest([
+            'version' => PP_VERSION,
+            'file_hashes' => ['deleted-file.php' => 'abc123'],
+        ]);
+
+        $result = pp_check_theme_integrity();
+
+        $this->assertSame('unsafe', $result['status']);
+        $this->assertContains('deleted-file.php', $result['missing']);
+
+        $this->teardownIntegrityDir();
+    }
+
+    public function testIntegrityCheckDetectsExtraFile(): void
+    {
+        $this->setupIntegrityDir();
+
+        file_put_contents($this->integrityDir . '/tracked.php', '<?php');
+        file_put_contents($this->integrityDir . '/extra.php', '<?php // extra');
+
+        $hash = md5_file($this->integrityDir . '/tracked.php');
+
+        $this->writeManifest([
+            'version' => PP_VERSION,
+            'file_hashes' => ['tracked.php' => $hash],
+        ]);
+
+        $result = pp_check_theme_integrity();
+
+        $this->assertSame('unsafe', $result['status']);
+        $this->assertContains('extra.php', $result['extra']);
+
+        $this->teardownIntegrityDir();
+    }
+
+    public function testIntegrityCheckDetectsMultipleDriftTypes(): void
+    {
+        $this->setupIntegrityDir();
+
+        file_put_contents($this->integrityDir . '/modified.php', '<?php // changed');
+        file_put_contents($this->integrityDir . '/extra.php', '<?php // new');
+
+        $this->writeManifest([
+            'version' => PP_VERSION,
+            'file_hashes' => [
+                'modified.php' => 'wrong_hash',
+                'deleted.php'  => 'abc123',
+            ],
+        ]);
+
+        $result = pp_check_theme_integrity();
+
+        $this->assertSame('unsafe', $result['status']);
+        $this->assertContains('modified.php', $result['modified']);
+        $this->assertContains('deleted.php', $result['missing']);
+        $this->assertContains('extra.php', $result['extra']);
+
+        $this->teardownIntegrityDir();
+    }
+
+    public function testIntegrityCheckStoresResultInOption(): void
+    {
+        $this->setupIntegrityDir();
+
+        file_put_contents($this->integrityDir . '/ok.php', '<?php');
+        $hash = md5_file($this->integrityDir . '/ok.php');
+
+        $this->writeManifest([
+            'version' => PP_VERSION,
+            'file_hashes' => ['ok.php' => $hash],
+        ]);
+
+        pp_check_theme_integrity();
+
+        $stored = get_option('pp_theme_integrity');
+        $this->assertIsArray($stored);
+        $this->assertSame('safe', $stored['status']);
+
+        $this->teardownIntegrityDir();
+    }
+
+    public function testIntegrityCheckErrorFieldSetOnInvalidManifest(): void
+    {
+        $this->setupIntegrityDir();
+        file_put_contents($this->integrityDir . '/integrity-manifest.json', '{"version": 123}');
+
+        $result = pp_check_theme_integrity();
+
+        $this->assertSame('invalid_manifest', $result['status']);
+        $this->assertNotNull($result['error']);
+        $this->assertNotEmpty($result['error']);
+
+        $this->teardownIntegrityDir();
+    }
+
+    // ── Theme Integrity Admin Notice ────────────────────────────────────────
+
+    public function testIntegrityNoticeShowsNothingWhenOptionMissing(): void
+    {
+        unset($GLOBALS['_pp_test_store']['options']['pp_theme_integrity']);
+
+        ob_start();
+        pp_admin_notice_theme_integrity();
+        $output = ob_get_clean();
+
+        $this->assertEmpty($output);
+    }
+
+    public function testIntegrityNoticeShowsNothingWhenSafe(): void
+    {
+        $GLOBALS['_pp_test_store']['options']['pp_theme_integrity'] = [
+            'status'  => 'safe',
+            'version' => PP_VERSION,
+        ];
+
+        ob_start();
+        pp_admin_notice_theme_integrity();
+        $output = ob_get_clean();
+
+        $this->assertEmpty($output);
+    }
+
+    public function testIntegrityNoticeShowsRedWarningWhenUnsafe(): void
+    {
+        $GLOBALS['_pp_test_store']['options']['pp_theme_integrity'] = [
+            'status'   => 'unsafe',
+            'version'  => PP_VERSION,
+            'modified' => ['lib/wp.php'],
+            'missing'  => [],
+            'extra'    => ['components/custom.php'],
+        ];
+
+        ob_start();
+        pp_admin_notice_theme_integrity();
+        $output = ob_get_clean();
+
+        $this->assertStringContainsString('notice-error', $output);
+        $this->assertStringContainsString('1 modified', $output);
+        $this->assertStringContainsString('1 extra', $output);
+        $this->assertStringContainsString('wp pp integrity check', $output);
+    }
+
+    public function testIntegrityNoticeShowsYellowWarningWhenInvalidManifest(): void
+    {
+        $GLOBALS['_pp_test_store']['options']['pp_theme_integrity'] = [
+            'status'  => 'invalid_manifest',
+            'version' => PP_VERSION,
+            'error'   => 'Invalid JSON',
+        ];
+
+        ob_start();
+        pp_admin_notice_theme_integrity();
+        $output = ob_get_clean();
+
+        $this->assertStringContainsString('notice-warning', $output);
+        $this->assertStringContainsString(PP_VERSION, $output);
+        $this->assertStringContainsString('integrity-manifest.json', $output);
+    }
+
+    public function testIntegrityNoticeDeletesOptionOnVersionMismatch(): void
+    {
+        $GLOBALS['_pp_test_store']['options']['pp_theme_integrity'] = [
+            'status'  => 'unsafe',
+            'version' => '0.0.0-old',
+            'modified' => ['lib/wp.php'],
+            'missing'  => [],
+            'extra'    => [],
+        ];
+
+        ob_start();
+        pp_admin_notice_theme_integrity();
+        $output = ob_get_clean();
+
+        // Should produce no output and delete the option.
+        $this->assertEmpty($output);
+        $this->assertFalse(get_option('pp_theme_integrity'));
+    }
+
+    public function testIntegrityNoticeShowsNothingAfterVersionMismatchClear(): void
+    {
+        $GLOBALS['_pp_test_store']['options']['pp_theme_integrity'] = [
+            'status'  => 'unsafe',
+            'version' => '0.0.0-old',
+            'modified' => ['lib/wp.php'],
+            'missing'  => [],
+            'extra'    => [],
+        ];
+
+        // First call clears stale option.
+        ob_start();
+        pp_admin_notice_theme_integrity();
+        ob_get_clean();
+
+        // Second call should see no option and produce no output.
+        ob_start();
+        pp_admin_notice_theme_integrity();
+        $output = ob_get_clean();
+
+        $this->assertEmpty($output);
+    }
 }
