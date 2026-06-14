@@ -40,9 +40,9 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 /lib/ai-chat.php           AI chat admin page + AJAX handlers (execute, fallback)
 /lib/ai-context.php        AI site context layer (system prompt, page/media context)
 /lib/ai-provider.php       LLM provider proxy (streaming + non-streaming)
-/lib/guardrails.php        CSS conflict detection + surface classification guardrail
+/lib/guardrails.php        CSS conflict detection, surface classification, theme integrity
 /lib/operate.php           Operating loop: inspect, preflight, run tokens, validation
-/lib/setup.php             Theme activation bootstrap: homepage provisioning
+/lib/setup.php             Theme activation bootstrap, homepage provisioning, integrity hooks
 /lib/components.php        Component auto-loader (don't edit)
 /assets/css/base.css       Design token defaults — 33 CSS variables
 /assets/css/components.css Component styles (CSS variables only, no raw hex)
@@ -108,7 +108,7 @@ No build step required for the site itself. Vanilla PHP, CSS, and JS. npm is use
 
 ## Tests
 
-**PHP tests** (component loader, WP abstraction layer, invariant rules, schema validation, 14 typed actions, apply layer with file I/O, AI context assembly, provider error handling, proposal parsing, style slots, surface classification, font applies):
+**PHP tests** (component loader, WP abstraction layer, invariant rules, schema validation, 14 typed actions, apply layer with file I/O, AI context assembly, provider error handling, proposal parsing, style slots, surface classification, font applies, theme integrity):
 
 ```bash
 composer install

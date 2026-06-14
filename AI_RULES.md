@@ -98,10 +98,10 @@ Requires Docker. Tests cover workspace init, preview updates, save rejection, au
 | /assets/js/main.js       | Nav toggle, active link         | Yes                              |
 | /lib/wp.php              | WP function wrappers (read + write) | Only to add pp_ functions   |
 | /lib/actions.php         | Typed action model (14 actions) | Add actions following the contract |
-| /lib/guardrails.php      | CSS conflict detection + surface classification | Extend for new checks |
+| /lib/guardrails.php      | CSS conflict detection, surface classification, theme integrity | Extend for new checks |
 | /lib/operate.php         | Operating loop: inspect, preflight, run tokens | Extend for new checks |
 | /lib/apply.php           | Apply layer (file + option mutations) | Add applies following the contract |
-| /lib/cli.php             | WP-CLI `wp pp action` + `wp pp apply` + `wp pp check` | Yes        |
+| /lib/cli.php             | WP-CLI `wp pp action` + `wp pp apply` + `wp pp check` + `wp pp integrity` | Yes        |
 | /lib/components.php      | Component loader                | No                               |
 | /lib/ai-context.php      | AI site context layer             | Extend for new context sources     |
 | /lib/ai-provider.php     | LLM provider proxy                | Extend for new providers           |

@@ -136,7 +136,9 @@ Every visual change maps to one surface. Writing to the wrong surface creates sp
 
 **Stable IDs:** Every composition component gets a persisted `pp-XXXXXXXX` ID on save. Use these for CSS targeting, never positional selectors.
 
-**Guardrails:** `lib/guardrails.php` provides `pp_check_custom_css_conflicts()`, `pp_validate_composition_styling()`, and `pp_classify_surface()`. CLI: `wp pp check conflicts`, `wp pp check page --post_id=N`, `wp pp check surface <path>`, `wp pp validate site`. Surface classification integrated into preflight — core files are blocked with routing guidance toward approved database-backed surfaces.
+**Guardrails:** `lib/guardrails.php` provides `pp_check_custom_css_conflicts()`, `pp_validate_composition_styling()`, `pp_classify_surface()`, and `pp_check_theme_integrity()`. CLI: `wp pp check conflicts`, `wp pp check page --post_id=N`, `wp pp check surface <path>`, `wp pp validate site`. Surface classification integrated into preflight — core files are blocked with routing guidance toward approved database-backed surfaces.
+
+**Theme integrity:** `pp_check_theme_integrity()` compares live theme files against the shipped `integrity-manifest.json` (generated at build time). Stores result in `pp_theme_integrity` option. `pp_admin_notice_theme_integrity()` shows a persistent red admin notice when files have been modified, or a yellow notice when the manifest is invalid. CLI: `wp pp integrity check` (exit 0=safe, 1=unsafe, 2=invalid manifest, 3=no manifest), `wp pp integrity status` (read-only). Checks run automatically on theme activation and after theme updates.
 
 ---
 
@@ -418,6 +420,10 @@ wp pp operate patch <page> --target=hero.subtitle --value="New"           # appl
 
 # Component ID targeting (alternative to index)
 wp pp action execute update_component --params='{"post_id":19,"component_id":"pp-a1b2c3d4","props":{"subtitle":"Via ID"}}'
+
+# Theme integrity
+wp pp integrity check                                 # compare live files against shipped manifest (exit 0/1/2/3)
+wp pp integrity status                                # read stored result without file I/O
 ```
 
 ### Semantic selectors
