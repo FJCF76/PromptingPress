@@ -59,8 +59,11 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 | .wp-env.json             | wp-env Docker config            | Yes — test environment only      |
 | /lib/wp.php              | WP function wrappers (read + write) | Only to add pp_* functions   |
 | /lib/actions.php         | Typed action model (14 actions) | Add actions following the contract |
-| /lib/cli.php             | WP-CLI `wp pp action` commands  | Yes                              |
-| /lib/setup.php           | Theme activation bootstrap      | Only to add idempotent setup     |
+| /lib/apply.php           | Apply layer (file + option mutations) | Add applies following the contract |
+| /lib/cli.php             | WP-CLI `wp pp action` + `wp pp apply` + `wp pp check` + `wp pp integrity` | Yes |
+| /lib/guardrails.php      | CSS conflict detection, surface classification, theme integrity | Extend for new checks |
+| /lib/operate.php         | Operating loop: inspect, preflight, run tokens | Extend for new checks |
+| /lib/setup.php           | Theme activation bootstrap, homepage provisioning, integrity hooks | Only to add idempotent setup |
 | /lib/components.php      | Component loader                | No                               |
 | /lib/helpers.php         | Utility functions               | Yes — only to add                |
 | functions.php            | WP registration                 | Only to add                      |

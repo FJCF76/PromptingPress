@@ -35,7 +35,7 @@ PromptingPress flips this: the structure itself is the documentation. An AI can 
 /lib/wp.php                WP abstraction layer (pp_* functions only)
 /lib/actions.php           Typed action model (14 actions, validate/preview/execute)
 /lib/apply.php             Apply layer (file + option mutations, validate/preview/execute)
-/lib/cli.php               WP-CLI commands (wp pp action + wp pp apply + wp pp check)
+/lib/cli.php               WP-CLI commands (wp pp action + wp pp apply + wp pp check + wp pp integrity)
 /lib/admin.php             Composition editor: meta box, AJAX adapters → action layer
 /lib/ai-chat.php           AI chat admin page + AJAX handlers (execute, fallback)
 /lib/ai-context.php        AI site context layer (system prompt, page/media context)
