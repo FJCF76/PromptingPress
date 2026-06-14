@@ -4,6 +4,41 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.8.1] — 2026-06-14 — Non-Destructive Dashboard Saves
+
+### Editing one field no longer erases another
+
+A `data-field` attribute mismatch between the accordion editor's render and read paths caused array field content (grid cards, FAQ answers) to silently zero out whenever any scalar field was saved. The render path wrote `data-field="question"` but the read path searched for `data-field="items.question"` — a selector that matched nothing. Every array item read back as `{}`, and the full-composition save persisted the damage.
+
+The fix is a 1-character selector change plus a data-loss guard. The guard detects when ALL DOM-read items are empty objects but the original composition had content, logs a warning, and skips the sync for that field. Partial edits (some items empty, others populated) pass through normally — the guard only fires on total loss.
+
+### The 4 numbers that matter
+
+Source: `npm test` + `php vendor/bin/phpunit` on the repo.
+
+| Metric | Before (v0.8.0) | After (v0.8.1) | Delta |
+|--------|-----------------|-----------------|-------|
+| JS tests | 136 | 141 | +5 |
+| JS assertions (guard) | 0 | 6 | +6 |
+| DOM selector tests | 0 | 5 | +5 |
+| PHP tests | 572 | 572 | 0 |
+
+### Fixed
+- Array field sync selector in `syncAccordionToJson` changed from `field.name + '.' + sk` to `sk` — matches the `data-field` attributes rendered by `buildFieldHtml` (#73)
+
+### Added
+- `wouldLoseArrayData(newItems, origItems)` pure guard function in `pp-editor-logic.js` — returns `true` when all new items are empty objects but originals had content
+- Guard wiring in `syncAccordionToJson` — logs `console.warn` and preserves original `field.value` when guard fires
+- DOM selector alignment test (`pp-editor-dom.test.js`) — jsdom+jQuery round-trip proving fixed selector finds elements and broken selector finds nothing
+- 6 unit tests for `wouldLoseArrayData` covering all-empty, normal edit, empty originals, undefined originals, empty array, and partial empty cases
+- 2 round-trip tests for grid and hero+grid mixed compositions
+- `jquery` and `jsdom` devDependencies for DOM-level testing
+
+### Closes
+- #73
+
+---
+
 ## [v0.8.0] — 2026-06-14 — Theme Integrity Status
 
 ### Know before you update: which shipped files changed on disk
