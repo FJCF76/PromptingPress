@@ -350,6 +350,54 @@ body.pp-ai-chat-page #wpcontent {
     opacity: 0.5;
 }
 
+/* Per-step warning (amber, reuses rejected step palette) */
+.pp-ai-step-warning {
+    background: #fef8ee;
+    border-left: 3px solid #dba617;
+    color: #1d2327;
+    font-size: 12px;
+    padding: 4px 8px;
+    margin-top: 4px;
+}
+
+/* Diff display (monospace, from=strikethrough, to=bold) */
+.pp-ai-step-diff {
+    font-size: 12px;
+    font-family: monospace;
+    color: #1d2327;
+    margin-top: 4px;
+}
+
+.pp-ai-step-diff-from {
+    color: #646970;
+    text-decoration: line-through;
+}
+
+.pp-ai-step-diff-to {
+    font-weight: 600;
+}
+
+/* Card-level multi-step banner */
+.pp-ai-card-warning {
+    background: #fef8ee;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: #996800;
+}
+
+/* Post-apply footer links */
+.pp-ai-post-apply-links {
+    margin-top: 8px;
+    font-size: 13px;
+}
+
+.pp-ai-post-apply-links a {
+    color: #2271b1;
+    padding: 12px 0;
+    display: inline-block;
+}
+
 /* ── Input Area ───────────────────────────────────────────────────────────── */
 
 .pp-ai-chat-input-area {

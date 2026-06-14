@@ -6,6 +6,37 @@
  * Falls back to standard AJAX if SSE streaming fails.
  * Conversation persists in localStorage across reloads.
  */
+
+// ── Testable helpers (used by IIFE, exported for tests) ──────────────────────
+
+var PP_CHAT_IMPACT_WARNINGS = {
+    'update_composition': 'Replaces entire page composition',
+    'reset_all_design_tokens': 'Resets ALL token overrides to defaults',
+    'clear_custom_css': 'Removes ALL Custom CSS',
+    'remove_component': 'Removes component from page'
+};
+
+function ppChatGetImpactWarning(name) {
+    return PP_CHAT_IMPACT_WARNINGS[name] || null;
+}
+
+function ppChatFormatDiffValue(val) {
+    if (val === null || val === undefined) return '(none)';
+    if (typeof val === 'object') {
+        var s = JSON.stringify(val);
+        return s.length > 80 ? s.substring(0, 77) + '...' : s;
+    }
+    return String(val);
+}
+
+function ppChatShouldShowMultiStepWarning(steps) {
+    return steps && steps.length >= 3;
+}
+
+function ppChatIsRevertEligible(steps) {
+    return steps && steps.length === 1 && steps[0].name === 'update_design_token';
+}
+
 (function () {
     'use strict';
 
@@ -364,6 +395,51 @@
 
     // ── Proposal Card Rendering ────────────────────────────────────────
 
+    function renderDiffLine(change) {
+        var div = document.createElement('div');
+        var label = document.createTextNode(change.path + ': ');
+        div.appendChild(label);
+
+        var fromSpan = document.createElement('span');
+        fromSpan.className = 'pp-ai-step-diff-from';
+        fromSpan.textContent = ppChatFormatDiffValue(change.from);
+        div.appendChild(fromSpan);
+
+        div.appendChild(document.createTextNode(' \u2192 '));
+
+        var toSpan = document.createElement('span');
+        toSpan.className = 'pp-ai-step-diff-to';
+        toSpan.textContent = ppChatFormatDiffValue(change.to);
+        div.appendChild(toSpan);
+
+        return div;
+    }
+
+    function fetchPreview(step) {
+        var data = new FormData();
+        data.append('action', 'pp_ai_preview');
+        data.append('nonce', config.executeNonce);
+        data.append('type', step.type);
+        data.append('name', step.name);
+
+        var params = step.params || {};
+        Object.keys(params).forEach(function (key) {
+            var val = params[key];
+            if (typeof val === 'object') {
+                data.append('params[' + key + ']', JSON.stringify(val));
+            } else {
+                data.append('params[' + key + ']', val);
+            }
+        });
+
+        return fetch(config.ajaxUrl, {
+            method: 'POST',
+            credentials: 'same-origin',
+            body: data
+        })
+        .then(function (r) { return r.json(); });
+    }
+
     function renderProposal(proposal) {
         var card = document.createElement('div');
         card.className = 'pp-ai-proposal-card';
@@ -372,6 +448,16 @@
         title.className = 'pp-ai-proposal-title';
         title.textContent = 'Proposed Changes';
         card.appendChild(title);
+
+        var steps = proposal.steps || [];
+
+        // Card-level multi-step warning (3+ steps)
+        if (ppChatShouldShowMultiStepWarning(steps)) {
+            var cardWarning = document.createElement('div');
+            cardWarning.className = 'pp-ai-card-warning';
+            cardWarning.textContent = '\u26A0 Multi-step edit \u2014 review each step';
+            card.appendChild(cardWarning);
+        }
 
         // Show rejected steps as unsupported
         var rejected = proposal.rejected || [];
@@ -392,12 +478,12 @@
             card.appendChild(rejDiv);
         });
 
-        var steps = proposal.steps || [];
         var stepElements = [];
+        var diffAreas = [];
 
         steps.forEach(function (step, i) {
             var stepDiv = document.createElement('div');
-            stepDiv.className = 'pp-ai-proposal-step';
+            stepDiv.className = 'pp-ai-proposal-step pp-ai-step-executing';
 
             var stepLabel = document.createElement('div');
             stepLabel.className = 'pp-ai-proposal-step-label';
@@ -409,12 +495,73 @@
             stepMeta.textContent = step.type + ': ' + step.name;
             stepDiv.appendChild(stepMeta);
 
+            // Per-step impact warning (between meta and diff)
+            var warning = ppChatGetImpactWarning(step.name);
+            if (warning) {
+                var warnDiv = document.createElement('div');
+                warnDiv.className = 'pp-ai-step-warning';
+                warnDiv.textContent = '\u26A0 ' + warning;
+                stepDiv.appendChild(warnDiv);
+            }
+
+            // Diff area placeholder
+            var diffArea = document.createElement('div');
+            diffArea.className = 'pp-ai-step-diff';
+            diffArea.textContent = 'Loading preview\u2026';
+            stepDiv.appendChild(diffArea);
+
             card.appendChild(stepDiv);
             stepElements.push(stepDiv);
+            diffAreas.push(diffArea);
         });
 
-        // Only show Apply/Cancel if there are valid steps
-        if (steps.length > 0) {
+        messagesEl.appendChild(card);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+
+        // If no valid steps, nothing to preview or apply
+        if (steps.length === 0) return;
+
+        // Fetch previews in parallel
+        var previewPromises = steps.map(function (step) {
+            return fetchPreview(step).then(function (resp) {
+                return { success: resp.success, data: resp.data };
+            }).catch(function (err) {
+                return { success: false, data: err.message || 'Preview request failed' };
+            });
+        });
+
+        Promise.all(previewPromises).then(function (results) {
+            var anyFailed = false;
+
+            results.forEach(function (result, i) {
+                stepElements[i].classList.remove('pp-ai-step-executing');
+                diffAreas[i].textContent = '';
+
+                if (result.success && result.data && result.data.changes) {
+                    // Store preview data on the step for Apply to use
+                    steps[i]._previewChanges = result.data.changes;
+
+                    result.data.changes.forEach(function (change) {
+                        diffAreas[i].appendChild(renderDiffLine(change));
+                    });
+                    if (result.data.changes.length === 0) {
+                        diffAreas[i].textContent = '(no changes)';
+                    }
+                } else {
+                    anyFailed = true;
+                    stepElements[i].classList.add('pp-ai-step-failed');
+                    diffAreas[i].textContent = typeof result.data === 'string'
+                        ? result.data
+                        : (result.data && result.data.message) || 'Preview failed';
+                }
+            });
+
+            if (anyFailed) {
+                addStatusMessage('Preview failed \u2014 fix errors and try again.', true);
+                return;
+            }
+
+            // All previews succeeded — add Apply/Cancel buttons
             var actions = document.createElement('div');
             actions.className = 'pp-ai-proposal-actions';
 
@@ -422,7 +569,7 @@
             applyBtn.className = 'button button-primary pp-ai-proposal-apply';
             applyBtn.textContent = steps.length > 1 ? 'Apply All' : 'Apply';
             applyBtn.addEventListener('click', function () {
-                executeProposal(steps, stepElements, applyBtn, cancelBtn);
+                executeProposal(steps, stepElements, applyBtn, cancelBtn, card);
             });
 
             var cancelBtn = document.createElement('button');
@@ -438,10 +585,8 @@
             actions.appendChild(applyBtn);
             actions.appendChild(cancelBtn);
             card.appendChild(actions);
-        }
-
-        messagesEl.appendChild(card);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        });
     }
 
     function addStatusMessage(text, isError) {
@@ -454,17 +599,103 @@
 
     // ── Proposal Execution ─────────────────────────────────────────────
 
-    function executeProposal(steps, stepElements, applyBtn, cancelBtn) {
+    function executeProposal(steps, stepElements, applyBtn, cancelBtn, card) {
         applyBtn.disabled = true;
         cancelBtn.disabled = true;
 
         var applied = [];
-        executeStep(steps, stepElements, 0, applied);
+        executeStep(steps, stepElements, 0, applied, card);
     }
 
-    function executeStep(steps, stepElements, index, applied) {
+    function buildPostApplyCard(card, applied, steps) {
+        // Clear existing card content and build post-apply summary
+        card.innerHTML = '';
+
+        var successDiv = document.createElement('div');
+        successDiv.className = 'pp-ai-status';
+        successDiv.textContent = '\u2713 All changes applied successfully.';
+        card.appendChild(successDiv);
+
+        applied.forEach(function (step) {
+            var lineDiv = document.createElement('div');
+            lineDiv.className = 'pp-ai-status';
+            lineDiv.textContent = '\u2713 Applied: ' + (step.description || step.name);
+            card.appendChild(lineDiv);
+        });
+
+        var linksDiv = document.createElement('div');
+        linksDiv.className = 'pp-ai-post-apply-links';
+        var hasLinks = false;
+
+        // View Page link — find a post_id from any step
+        var postId = null;
+        for (var i = 0; i < applied.length; i++) {
+            if (applied[i].params && applied[i].params.post_id) {
+                postId = applied[i].params.post_id;
+                break;
+            }
+        }
+        if (postId && config.siteUrl) {
+            var viewLink = document.createElement('a');
+            viewLink.href = config.siteUrl + '?p=' + postId;
+            viewLink.target = '_blank';
+            viewLink.textContent = 'View Page \u2192';
+            linksDiv.appendChild(viewLink);
+            hasLinks = true;
+        }
+
+        // Reset to default link — single-step update_design_token only
+        if (ppChatIsRevertEligible(steps)) {
+            var originalStep = steps[0];
+            var resetLink = document.createElement('a');
+            resetLink.href = '#';
+            resetLink.textContent = 'Reset to default';
+            resetLink.style.marginLeft = hasLinks ? '16px' : '0';
+            resetLink.addEventListener('click', function (e) {
+                e.preventDefault();
+                resetLink.textContent = 'Resetting\u2026';
+                resetLink.style.pointerEvents = 'none';
+
+                var resetData = new FormData();
+                resetData.append('action', 'pp_ai_execute');
+                resetData.append('nonce', config.executeNonce);
+                resetData.append('type', 'apply');
+                resetData.append('name', 'reset_design_token');
+                resetData.append('params[token]', originalStep.params.token);
+
+                fetch(config.ajaxUrl, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    body: resetData
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (resp) {
+                    if (resp.success) {
+                        resetLink.textContent = 'Reset applied \u2713';
+                    } else {
+                        resetLink.textContent = 'Reset failed';
+                        resetLink.style.color = '#d63638';
+                    }
+                })
+                .catch(function () {
+                    resetLink.textContent = 'Reset failed';
+                    resetLink.style.color = '#d63638';
+                });
+            });
+            linksDiv.appendChild(resetLink);
+            hasLinks = true;
+        }
+
+        if (hasLinks) {
+            card.appendChild(linksDiv);
+        }
+    }
+
+    function executeStep(steps, stepElements, index, applied, card) {
         if (index >= steps.length) {
-            addStatusMessage('All changes applied successfully.');
+            // Build post-apply summary inside the card
+            buildPostApplyCard(card, applied, steps);
+
             // Inject confirmation into conversation so the AI knows mutations were applied
             var summary = applied.map(function (s) { return s.description || s.name; }).join('; ');
             conversation.push({ role: 'user', content: '[Applied changes: ' + summary + ']' });
@@ -482,7 +713,7 @@
         data.append('type', step.type);
         data.append('name', step.name);
 
-        // Flatten params for FormData
+        // Flatten params for FormData — same params as previewed
         var params = step.params || {};
         Object.keys(params).forEach(function (key) {
             var val = params[key];
@@ -503,9 +734,8 @@
             if (resp.success) {
                 stepElements[index].classList.remove('pp-ai-step-executing');
                 stepElements[index].classList.add('pp-ai-step-done');
-                addStatusMessage('Applied: ' + (step.description || step.name));
                 applied.push(step);
-                executeStep(steps, stepElements, index + 1, applied);
+                executeStep(steps, stepElements, index + 1, applied, card);
             } else {
                 stepElements[index].classList.remove('pp-ai-step-executing');
                 stepElements[index].classList.add('pp-ai-step-failed');
@@ -858,3 +1088,14 @@
     inputEl.focus();
 
 })();
+
+// Module exports for tests
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        IMPACT_WARNINGS: PP_CHAT_IMPACT_WARNINGS,
+        getImpactWarning: ppChatGetImpactWarning,
+        formatDiffValue: ppChatFormatDiffValue,
+        shouldShowMultiStepWarning: ppChatShouldShowMultiStepWarning,
+        isRevertEligible: ppChatIsRevertEligible
+    };
+}
