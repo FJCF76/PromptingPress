@@ -129,6 +129,19 @@ body.pp-ai-chat-page #wpcontent {
     gap: 16px;
 }
 
+.pp-ai-chat-messages:empty {
+    justify-content: center;
+    align-items: center;
+}
+
+.pp-ai-chat-messages:empty::before {
+    content: 'Ask me to change colors, layouts, or content\2026';
+    color: #a7aaad;
+    font-size: 14px;
+    text-align: center;
+    pointer-events: none;
+}
+
 /* ── Message Bubbles ──────────────────────────────────────────────────────── */
 
 .pp-ai-msg {
