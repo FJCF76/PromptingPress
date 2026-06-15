@@ -277,7 +277,7 @@ Token overrides survive theme updates — `base.css` is overwritten on update, b
 
 Style slots allow per-instance visual customization of components without CSS edits. Each component declares allowed CSS custom properties in its `schema.json` under `styling.style_slots`. Only declared slots are accepted — arbitrary CSS is rejected.
 
-**58 style slots** across 4 v1 components: hero (14), section (13), grid (16), cta (15).
+**59 style slots** across 4 v1 components: hero (14), section (13), grid (17), cta (15).
 
 **How it works:**
 1. Composition entries gain an optional `style` key alongside `props`
@@ -495,11 +495,14 @@ The chat uses POST-based SSE streaming (nonce in request body, never in URL):
 Assembled by `pp_ai_system_prompt()`:
 - Site identity (name, tagline, URL)
 - Page inventory (titles, statuses, IDs)
-- Component catalog (names + prop schemas, condensed)
+- Component catalog (names + prop schemas with enum values, style slots, and recipes)
 - Action signatures (names, scopes, param types)
 - Apply signatures (names, domains, param types)
 - Design token inventory (33 tokens with current effective values and types)
+- Style slot value rules (type-specific guidance for the LLM)
 - Response format instructions (conversational vs structured proposal)
+
+When page context is included, each component's summary shows: active recipe, overridden style slots with current values, and editable field names per component type.
 
 ### Proposal flow
 
@@ -532,6 +535,9 @@ The chat UI renders this as a card with Apply/Cancel buttons. On Apply, each ste
 | `pp_ai_sanitize_base_url($value)` | Sanitize callback: overrides base URL for known providers, passes through for Custom |
 | `pp_ai_maybe_migrate_provider()` | One-time migration from legacy provider strings to provider keys |
 | `pp_ai_parse_error_response($code, $body)` | Parses HTTP error into user-facing message with "Check AI Settings" phrase |
+| `_pp_attempt_style_repair($slot, $component)` | Levenshtein-based fuzzy match for misspelled slot names (threshold ≤ 3) |
+| `_pp_build_friendly_error($error_code, $user_message, $alternatives, $raw_error)` | Structured error builder returning `{error_code, user_message, alternatives, raw_error}` |
+| `_pp_suggest_alternative_value($value, $type)` | CSS keyword detection with contextual alternative suggestions |
 
 ### Conversation persistence
 

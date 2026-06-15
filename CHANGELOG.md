@@ -4,6 +4,74 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.8.2] — 2026-06-15 — AI Context Quality + Visual Accountability
+
+### The chat now knows what it's editing — and shows you what will change before it happens
+
+The admin AI chat suffered from two blind spots: the LLM couldn't see style slots, recipes, or enum values in the system prompt (forcing it to guess and learn from validation errors), and the proposal card executed mutations without showing before/after state. Both are fixed.
+
+The system prompt now includes per-component style slot inventories, recipe definitions with descriptions, pipe-separated enum values instead of bare type strings, and per-instance inspect data (active recipe, overridden slots, editable fields) in page context. The model proposes correct `style_component` calls on the first attempt instead of round-tripping through validation errors.
+
+The proposal card now fetches a preview before showing Apply — each step displays before/after diffs inline. High-impact actions (`update_composition`, `reset_all_design_tokens`, `clear_custom_css`, `remove_component`) show amber warnings. After applying, a "View Page" link opens the affected page. Single-step token changes get a "Reset to default" shortcut.
+
+When an invalid style slot name is close to a valid one (Levenshtein distance ≤ 3), the validation error now suggests the correct name. CSS keywords like `red` or `bold` get contextual alternatives ("Did you mean `#ff0000`?"). All validation errors return structured objects with `error_code`, `user_message`, `alternatives`, and `raw_error`.
+
+### The 5 numbers that matter
+
+Source: `php vendor/bin/phpunit` + `npx vitest run` on the repo.
+
+| Metric | Before (v0.8.1) | After (v0.8.2) | Delta |
+|--------|-----------------|-----------------|-------|
+| PHP tests | 572 | 607 | +35 |
+| JS tests | 141 | 180 | +39 |
+| Style slots | 58 | 59 | +1 |
+| Proposal card preview lines | 0 | per-step | new |
+| AI context: style slot visibility | none | 59 slots + 9 recipes | new |
+
+### What this means for site builders
+
+Open the AI chat, ask "make the hero section dark with more padding," and the model proposes the right `style_component` call with correct slot names on the first try. The proposal card shows you exactly what will change before you click Apply. If you don't like it, click "View Page" to check, then ask the chat to adjust.
+
+### Added
+- Style slot inventories injected into system prompt component catalog (59 slots across 4 components)
+- Recipe definitions with descriptions in system prompt (9 recipes across 4 components)
+- Enum prop values rendered as `"left"|"centered"|"split"|"cover"` instead of `string` in condensed schemas
+- Per-instance inspect data in page context: active recipe, overridden style slots, editable field names per type
+- `--grid-heading-max-width` style slot (59th slot) for grid component heading width control
+- Style slot value rules injected into system prompt (slot type guidance for the LLM)
+- `_pp_attempt_style_repair()` — Levenshtein-based fuzzy matching for misspelled slot names (threshold ≤ 3)
+- `_pp_build_friendly_error()` — structured error builder returning `{error_code, user_message, alternatives, raw_error}`
+- `_pp_suggest_alternative_value()` — CSS keyword detection with contextual alternative suggestions
+- `ppChatRenderPreviewError()` — preview error rendering in proposal card
+- Proposal card preview: each step fetches `pp_ai_preview` and displays before/after diffs before Apply is available
+- Impact warnings on high-impact actions: amber banner for `update_composition`, `reset_all_design_tokens`, `clear_custom_css`, `remove_component`
+- Multi-step proposals (3+ steps) show card-level warning
+- "View Page" link after successful apply
+- "Reset to default" shortcut after single-step `update_design_token` apply
+- ARIA attributes on chat UI: `aria-live="polite"`, `role="status"`, `aria-label` on interactive elements
+- Focus management improvements for keyboard navigation in chat
+- Empty state guidance message in chat
+- Arrow separator between diff from/to values in proposal steps
+
+### Changed
+- `pp_ai_condense_schema()` renders enum values as pipe-separated quoted strings
+- `pp_ai_system_prompt()` appends style slot and recipe sections per styled component
+- `_pp_summarize_component()` includes recipe, overridden slots, and editable fields (balanced verbosity)
+- `pp_ai_format_messages()` calls `pp_inspect_composition()` for page context enrichment
+
+### Fixed
+- Preview error states disable Apply button for entire proposal (no partial application)
+- Error text in failed proposal steps uses prose styling instead of monospace
+
+### Tests
+- 607 PHP tests, 2239 assertions (was 572 tests, 2158 assertions)
+- 180 JS tests (was 141)
+- New PHP: 8 tests for AI context enrichment (style slots in prompt, recipes in prompt, enum rendering, inspect data in page context, graceful error handling)
+- New PHP: 27 tests for style repair, friendly errors, and alternative suggestions
+- New JS: 38 tests for proposal card (preview fetch, warning map, Apply binding, View Page link, token reset, multi-step warning)
+
+---
+
 ## [v0.8.1] — 2026-06-14 — Non-Destructive Dashboard Saves
 
 ### Editing one field no longer erases another

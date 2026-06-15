@@ -19,12 +19,29 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 
 == Changelog ==
 
+= 0.8.2 =
+* AI context enrichment: style slots, recipes, enum values, and inspect data in system prompt
+* Proposal card with preview diffs, impact warnings, and post-apply confirmation
+* Style slot validation repair with fuzzy matching and friendly error messages
+* 59 style slots across 4 components (was 58)
+* 607 PHP tests, 180 JS tests
+
+= 0.8.1 =
+* Non-destructive dashboard saves: array field sync selector fix + data-loss guard
+
+= 0.8.0 =
+* Theme integrity checking with build-time manifests
+* Admin notice for modified theme files
+
+= 0.7.0 =
+* 58 per-instance style slots across 4 components
+* Style recipes for named visual shorthand
+* Font management applies (enqueue, remove, reset)
+* Surface classification guardrails
+
 = 0.4.0 =
-* Component-based rendering with 11 reusable components
-* AI chat interface with BYOK (bring your own key) model support
-* Composition editor with accordion UI, JSON toggle, and live preview
-* Design token system with 18 CSS variables
-* Agent operating framework with inspect/plan/edit/preflight/apply loop
+* WP 7.0 Connectors integration for AI provider credentials
+* Theme packaging infrastructure (ZIP distribution via GitHub releases)
 
 == Resources ==
 

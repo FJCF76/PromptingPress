@@ -12,8 +12,8 @@
 [![PHP 8.0+](https://img.shields.io/badge/PHP-8.0+-777BB4?style=flat-square&logo=php&logoColor=white)](https://php.net)
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
-[![Tests](https://img.shields.io/badge/Tests-720+_passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-0.8.1-6366F1?style=flat-square)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/Tests-790+_passing-22C55E?style=flat-square)](tests/)
+[![Version](https://img.shields.io/badge/version-0.8.2-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -170,7 +170,7 @@ No build step. No transpilation. No bundler. What you write is what ships.
 
 33 CSS custom properties control the entire visual system: colors, typography, spacing, borders, measures. Product defaults live in `assets/css/base.css`. Site-specific overrides are stored in the database and **survive theme updates** — no file to lose when the theme ZIP gets replaced.
 
-58 per-instance style slots let AI make this page's hero dark and spacious while that page's hero is tight and accent-bordered — all through composition data, no CSS edits. 10 named recipes (like `dark-spacious` or `compact`) expand to multiple slot values at once.
+59 per-instance style slots let AI make this page's hero dark and spacious while that page's hero is tight and accent-bordered — all through composition data, no CSS edits. 10 named recipes (like `dark-spacious` or `compact`) expand to multiple slot values at once.
 
 ```bash
 # Preview a token change without applying
@@ -376,13 +376,13 @@ Enforced by `AI_RULES.md` and verified by automated tests:
 
 ## ✅ Tests
 
-**572 PHP tests, 2158 assertions** — component loader, WP abstraction, schema validation, 14 typed actions, apply layer, AI context, proposal parsing, style slots, surface classification, font management, integrity, operating loop:
+**607 PHP tests, 2239 assertions** — component loader, WP abstraction, schema validation, 14 typed actions, apply layer, AI context, proposal parsing, style slots, surface classification, font management, integrity, operating loop:
 
 ```bash
 composer install && composer test
 ```
 
-**141 JS tests** — JSON context, composition validator, accordion data, insert position, data-loss guard, DOM selector alignment, CSS lint, packaging:
+**180 JS tests** — JSON context, composition validator, accordion data, insert position, data-loss guard, DOM selector alignment, CSS lint, packaging, proposal card:
 
 ```bash
 npm install && npm test
@@ -402,16 +402,16 @@ npm run env:stop
 
 PromptingPress is in active development by a single developer. It is not yet packaged for broad distribution. The current focus is making the AI-agent workflow reliable and the composition model complete.
 
-See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 through v0.8.1.
+See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 through v0.8.2.
 
-**What exists today (v0.8.1):**
-- 11 components with schema contracts and 58 per-instance style slots
+**What exists today (v0.8.2):**
+- 11 components with schema contracts and 59 per-instance style slots
 - Typed action/apply layer with validation, preview, and rollback
 - Semantic composition patching — target fields by name, not index
 - In-admin AI chat with structured mutation proposals
 - Agent operating framework with step enforcement and drift detection
 - WP-CLI interface for all operations
-- 720+ automated tests across PHP, JS, and E2E
+- 790+ automated tests across PHP, JS, and E2E
 - Theme integrity checking with build manifests
 - ~75 KB frontend CSS, 1.5 KB JS — no framework, no bundler
 
