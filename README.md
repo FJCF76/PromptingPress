@@ -170,7 +170,7 @@ No build step. No transpilation. No bundler. What you write is what ships.
 
 33 CSS custom properties control the entire visual system: colors, typography, spacing, borders, measures. Product defaults live in `assets/css/base.css`. Site-specific overrides are stored in the database and **survive theme updates** — no file to lose when the theme ZIP gets replaced.
 
-59 per-instance style slots let AI make this page's hero dark and spacious while that page's hero is tight and accent-bordered — all through composition data, no CSS edits. 10 named recipes (like `dark-spacious` or `compact`) expand to multiple slot values at once.
+59 per-instance style slots let AI make this page's hero dark and spacious while that page's hero is tight and accent-bordered — all through composition data, no CSS edits. 9 named recipes (like `dark-spacious` or `compact`) expand to multiple slot values at once.
 
 ```bash
 # Preview a token change without applying

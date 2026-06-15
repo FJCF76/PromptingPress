@@ -41,6 +41,7 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 
 = 0.4.0 =
 * WP 7.0 Connectors integration for AI provider credentials
+* Anthropic-native streaming transport
 * Theme packaging infrastructure (ZIP distribution via GitHub releases)
 
 == Resources ==
