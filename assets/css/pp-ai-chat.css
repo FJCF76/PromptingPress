@@ -95,7 +95,7 @@ body.pp-ai-chat-page #wpcontent {
 #pp-ai-chat-app .pp-ai-chat-selector:focus {
     border-color: #2271b1;
     box-shadow: 0 0 0 1px #2271b1;
-    outline: none;
+    outline: 2px solid transparent;
 }
 
 .pp-ai-chat-selector--static {
@@ -217,7 +217,7 @@ body.pp-ai-chat-page #wpcontent {
 }
 
 .pp-ai-msg-assistant .pp-ai-msg-body code {
-    background: #f0f0f1;
+    background: #dcdcde;
     padding: 1px 5px;
     border-radius: 3px;
     font-size: 13px;
@@ -424,6 +424,11 @@ body.pp-ai-chat-page #wpcontent {
     display: inline-block;
 }
 
+.pp-ai-post-apply-links a:hover,
+.pp-ai-post-apply-links a:focus {
+    text-decoration: underline;
+}
+
 .pp-ai-post-apply-links a.pp-ai-link-error {
     color: #d63638;
 }
@@ -455,11 +460,23 @@ body.pp-ai-chat-page #wpcontent {
 .pp-ai-chat-input-area textarea:focus {
     border-color: #2271b1;
     box-shadow: 0 0 0 1px #2271b1;
-    outline: none;
+    outline: 2px solid transparent;
+}
+
+.pp-ai-chat-input-area textarea:disabled {
+    background: #f0f0f1;
+    color: #a7aaad;
+    cursor: default;
 }
 
 .pp-ai-chat-input-area .button {
     height: 40px;
     padding: 0 20px;
     flex-shrink: 0;
+}
+
+#pp-ai-chat-app .button:disabled {
+    opacity: 0.6;
+    cursor: default;
+    pointer-events: none;
 }
