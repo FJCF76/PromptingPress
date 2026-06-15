@@ -373,6 +373,13 @@ body.pp-ai-chat-page #wpcontent {
     text-decoration: line-through;
 }
 
+.pp-ai-step-diff-from::after {
+    content: ' \2192 ';
+    text-decoration: none;
+    color: #8c8f94;
+    display: inline-block;
+}
+
 .pp-ai-step-diff-to {
     font-weight: 600;
 }
