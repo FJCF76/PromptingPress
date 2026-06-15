@@ -60,7 +60,6 @@ describe('package.sh smoke test', () => {
       'promptingpress/index.php',
       'promptingpress/functions.php',
       'promptingpress/readme.txt',
-      'promptingpress/screenshot.png',
       'promptingpress/LICENSE',
       'promptingpress/comments.php',
     ];
