@@ -398,6 +398,10 @@ body.pp-ai-chat-page #wpcontent {
     display: inline-block;
 }
 
+.pp-ai-post-apply-links a.pp-ai-link-error {
+    color: #d63638;
+}
+
 /* ── Input Area ───────────────────────────────────────────────────────────── */
 
 .pp-ai-chat-input-area {

@@ -674,12 +674,12 @@ function ppChatIsRevertEligible(steps) {
                         resetLink.textContent = 'Reset applied \u2713';
                     } else {
                         resetLink.textContent = 'Reset failed';
-                        resetLink.style.color = '#d63638';
+                        resetLink.className = 'pp-ai-link-error';
                     }
                 })
                 .catch(function () {
                     resetLink.textContent = 'Reset failed';
-                    resetLink.style.color = '#d63638';
+                    resetLink.className = 'pp-ai-link-error';
                 });
             });
             linksDiv.appendChild(resetLink);
