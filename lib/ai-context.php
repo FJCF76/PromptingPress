@@ -160,6 +160,9 @@ function pp_ai_system_prompt(): string {
     $parts[] = 'You can include multiple steps in a single proposal for complex requests.';
     $parts[] = 'Always explain what the proposal will do before the JSON block.';
     $parts[] = '';
+    $parts[] = '### Style slot value rules';
+    $parts[] = 'Style slot values must match the declared type (color, length, number, duration, font-family). CSS keywords like `none`, `unset`, `initial`, and `auto` are **not accepted** — they will fail validation. If a user asks to "remove" or "disable" a constraint (e.g. remove a max-width), do not propose a CSS keyword. Instead, set the slot to the maximum practical value for the type (e.g. `100%` for a max-width length slot) and explain what the slot supports. If the requested change is genuinely not possible through the exposed style slots, say so clearly and offer the closest achievable alternative.';
+    $parts[] = '';
 
     // Image selection rules
     $parts[] = '## Image Selection Rules';

@@ -310,6 +310,26 @@ class ApplyTest extends TestCase
         $this->assertFalse(_pp_validate_length('16'));
     }
 
+    public function testLengthRejectsCssKeywordNone(): void
+    {
+        $this->assertFalse(_pp_validate_length('none'));
+    }
+
+    public function testLengthRejectsCssKeywordAuto(): void
+    {
+        $this->assertFalse(_pp_validate_length('auto'));
+    }
+
+    public function testLengthRejectsCssKeywordInherit(): void
+    {
+        $this->assertFalse(_pp_validate_length('inherit'));
+    }
+
+    public function testLengthRejectsCssKeywordUnset(): void
+    {
+        $this->assertFalse(_pp_validate_length('unset'));
+    }
+
     // ── Type-specific validation: font-family ───────────────────────────────
 
     public function testFontFamilyValidStack(): void

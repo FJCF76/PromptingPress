@@ -42,6 +42,7 @@ const {
     formatDiffValue,
     shouldShowMultiStepWarning,
     isRevertEligible,
+    renderPreviewError,
 } = require('../../assets/js/pp-ai-chat.js');
 
 // ─── IMPACT_WARNINGS map ────────────────────────────────────────────────────
@@ -205,5 +206,76 @@ describe('isRevertEligible', function () {
 
     test('returns falsy for null', function () {
         expect(isRevertEligible(null)).toBeFalsy();
+    });
+});
+
+// ─── renderPreviewError ────────────────────────────────────────────────────
+
+describe('renderPreviewError', function () {
+    test('structured error shows user_message not raw error', function () {
+        var diffArea = document.createElement('div');
+        renderPreviewError(diffArea, {
+            error_code: 'invalid_style_slot',
+            user_message: 'That style property isn\'t available on the hero component.',
+            alternatives: ['--hero-bg', '--hero-text'],
+            raw_error: 'Component "hero" has no style slot "--hero-display". Available: --hero-bg, --hero-text'
+        });
+
+        var msgEl = diffArea.querySelector('.pp-ai-preview-error-message');
+        expect(msgEl).not.toBeNull();
+        expect(msgEl.textContent).toContain('isn\'t available');
+        expect(msgEl.textContent).not.toContain('Component "hero" has no style slot');
+    });
+
+    test('structured error shows alternatives', function () {
+        var diffArea = document.createElement('div');
+        renderPreviewError(diffArea, {
+            error_code: 'invalid_style_slot',
+            user_message: 'Not available.',
+            alternatives: ['--hero-bg', '--hero-text', '--hero-padding-top'],
+            raw_error: 'raw'
+        });
+
+        var altEl = diffArea.querySelector('.pp-ai-preview-error-alternatives');
+        expect(altEl).not.toBeNull();
+        expect(altEl.textContent).toContain('--hero-bg');
+        expect(altEl.textContent).toContain('--hero-text');
+        expect(altEl.textContent).toContain('--hero-padding-top');
+    });
+
+    test('structured error without alternatives omits alternatives element', function () {
+        var diffArea = document.createElement('div');
+        renderPreviewError(diffArea, {
+            error_code: 'no_style_slots',
+            user_message: 'This component doesn\'t support style customization.',
+            alternatives: [],
+            raw_error: 'raw'
+        });
+
+        var altEl = diffArea.querySelector('.pp-ai-preview-error-alternatives');
+        expect(altEl).toBeNull();
+        expect(diffArea.querySelector('.pp-ai-preview-error-message').textContent).toContain('doesn\'t support');
+    });
+
+    test('plain string error renders as text content', function () {
+        var diffArea = document.createElement('div');
+        renderPreviewError(diffArea, 'Permission denied.');
+
+        expect(diffArea.textContent).toBe('Permission denied.');
+        expect(diffArea.querySelector('.pp-ai-preview-error-message')).toBeNull();
+    });
+
+    test('fallback for unexpected data shape', function () {
+        var diffArea = document.createElement('div');
+        renderPreviewError(diffArea, { message: 'Something went wrong' });
+
+        expect(diffArea.textContent).toBe('Something went wrong');
+    });
+
+    test('null data shows generic fallback', function () {
+        var diffArea = document.createElement('div');
+        renderPreviewError(diffArea, null);
+
+        expect(diffArea.textContent).toBe('Preview failed');
     });
 });

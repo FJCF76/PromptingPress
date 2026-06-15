@@ -349,6 +349,19 @@ body.pp-ai-chat-page #wpcontent {
     color: #d63638;
 }
 
+.pp-ai-preview-error-message {
+    font-size: 13px;
+    color: #1d2327;
+    margin-bottom: 4px;
+}
+
+.pp-ai-preview-error-alternatives {
+    font-size: 12px;
+    font-family: monospace;
+    color: #646970;
+    word-break: break-all;
+}
+
 .pp-ai-step-rejected {
     border-left-color: #dba617;
     background: #fef8ee;

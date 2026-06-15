@@ -504,7 +504,6 @@
 }
 
 .section__body,
-.grid__heading,
 .table-section__heading,
 .faq__heading,
 .logos__heading,
@@ -717,6 +716,7 @@
 .grid__heading {
   color: var(--grid-heading-color, var(--color-text));
   font-size: var(--grid-heading-size, inherit);
+  max-width: var(--grid-heading-max-width, 40rem);
   margin-bottom: var(--space-lg);
 }
 

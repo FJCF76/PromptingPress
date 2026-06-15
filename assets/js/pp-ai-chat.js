@@ -37,6 +37,34 @@ function ppChatIsRevertEligible(steps) {
     return steps && steps.length === 1 && steps[0].name === 'update_design_token';
 }
 
+/**
+ * Renders a user-friendly error message in a preview diff area.
+ * Handles structured errors (from _pp_build_friendly_error) and plain strings.
+ */
+function ppChatRenderPreviewError(diffArea, data) {
+    // Structured error from style_component repair path.
+    if (data && typeof data === 'object' && data.user_message) {
+        var msgEl = document.createElement('div');
+        msgEl.className = 'pp-ai-preview-error-message';
+        msgEl.textContent = data.user_message;
+        diffArea.appendChild(msgEl);
+
+        // Show alternatives if available.
+        if (data.alternatives && data.alternatives.length > 0) {
+            var altEl = document.createElement('div');
+            altEl.className = 'pp-ai-preview-error-alternatives';
+            altEl.textContent = 'Available: ' + data.alternatives.join(', ');
+            diffArea.appendChild(altEl);
+        }
+        return;
+    }
+
+    // Plain string error (non-style_component actions).
+    diffArea.textContent = typeof data === 'string'
+        ? data
+        : (data && data.message) || 'Preview failed';
+}
+
 (function () {
     'use strict';
 
@@ -550,9 +578,7 @@ function ppChatIsRevertEligible(steps) {
                 } else {
                     anyFailed = true;
                     stepElements[i].classList.add('pp-ai-step-failed');
-                    diffAreas[i].textContent = typeof result.data === 'string'
-                        ? result.data
-                        : (result.data && result.data.message) || 'Preview failed';
+                    ppChatRenderPreviewError(diffAreas[i], result.data);
                 }
             });
 
@@ -1099,6 +1125,7 @@ if (typeof module !== 'undefined' && module.exports) {
         getImpactWarning: ppChatGetImpactWarning,
         formatDiffValue: ppChatFormatDiffValue,
         shouldShowMultiStepWarning: ppChatShouldShowMultiStepWarning,
-        isRevertEligible: ppChatIsRevertEligible
+        isRevertEligible: ppChatIsRevertEligible,
+        renderPreviewError: ppChatRenderPreviewError
     };
 }

@@ -367,6 +367,12 @@ class AiContextTest extends TestCase
         $this->assertStringContainsString('Style slots:', $prompt);
     }
 
+    public function testSystemPromptContainsGridHeadingMaxWidthSlot(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        $this->assertStringContainsString('--grid-heading-max-width', $prompt);
+    }
+
     public function testSystemPromptContainsRecipesForStyledComponents(): void
     {
         $prompt = pp_ai_system_prompt();
@@ -476,5 +482,17 @@ class AiContextTest extends TestCase
         $system = $messages[0]['content'];
 
         $this->assertStringContainsString('Error Page', $system);
+    }
+
+    // ── Style Slot Value Rules in System Prompt ────────────────────────
+
+    public function testSystemPromptContainsStyleSlotValueRules(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        $this->assertStringContainsString('Style slot value rules', $prompt);
+        $this->assertStringContainsString('none', $prompt);
+        $this->assertStringContainsString('unset', $prompt);
+        $this->assertStringContainsString('not accepted', $prompt);
+        $this->assertStringContainsString('100%', $prompt);
     }
 }

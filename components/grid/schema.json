@@ -53,6 +53,7 @@
       "--grid-bg": { "type": "color", "default": "transparent", "description": "Background color" },
       "--grid-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Heading text color" },
       "--grid-heading-size": { "type": "length", "default": "inherit", "description": "Heading font size" },
+      "--grid-heading-max-width": { "type": "length", "default": "40rem", "description": "Heading maximum width — increase to let long headings use available horizontal space" },
       "--grid-gap": { "type": "length", "default": "var(--space-lg)", "description": "Gap between grid cards" },
       "--grid-card-bg": { "type": "color", "default": "var(--color-surface)", "description": "Card background color" },
       "--grid-card-border": { "type": "color", "default": "var(--color-border)", "description": "Card border color" },

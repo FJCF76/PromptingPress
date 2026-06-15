@@ -2,8 +2,6 @@
 
 ## P3
 
-- **ARIA live region on chat messages container** — Add `aria-live="polite"` to `#pp-ai-messages` in `lib/ai-chat.php:158` so screen readers announce new messages and proposal cards as they appear. Surfaced by design audit (2026-06-15, FINDING-004).
-
 - **Server-driven action warning metadata** — The proposal card's impact warning map (Item 5b of the admin chat context sprint) is a static JS lookup of 4 hardcoded action names (`update_composition`, `reset_all_design_tokens`, `clear_custom_css`, `remove_component`). When a new destructive action is registered in PHP, the JS map silently misses it. Fix: add an optional `destructive: true` flag to `pp_register_action()` / `pp_register_apply()`, surface registered destructive flags in the frontend config object, and have JS read from config instead of the hardcoded map. Start point: `lib/actions.php` pp_register_action(), `assets/js/pp-ai-chat.js` warning map. Depends on Item 5b shipping first. Flagged by outside voice during /plan-eng-review (2026-06-14).
 
 - **Partial data loss guard for array field sync** — The `wouldLoseArrayData` guard (added in the composition editor safety sprint, issue #73) only catches total loss (ALL items read as empty). Partial loss (e.g., 3 of 4 items empty due to a future sync bug) is not guarded because it's indistinguishable from legitimate editing. If partial loss is observed in practice, add a per-item heuristic: "items lost N of M sub-fields" with a configurable threshold. Start point: `wouldLoseArrayData()` in `assets/js/pp-editor-logic.js`. Depends on observing partial loss in production or dogfooding.
@@ -13,6 +11,12 @@
 - **In-progress step reporting for operating loop** — Add structured observability so agents can report which loop step they're currently executing, not just what they completed. Currently `pp_validate_loop_run()` only checks post-mortem completeness. A step-reporting mechanism (e.g., `pp_report_step($step, $status)` writing to a run log) would help debug loops that fail mid-way. Natural v1 enhancement after dogfooding reveals which mid-loop failures are hardest to diagnose. Surfaced by independent review during /plan-eng-review (2026-06-01).
 
 - **Evaluate `--measure-centered` value** — After visual validation on dev, test whether centered section body can tighten from `56rem` to a ch-based value (e.g., `75ch` or `80ch`). The `--measure-centered` token in `assets/css/base.css` was set to `56rem` as a safe default (preserves existing layout). A tighter value may produce better reading measure for centered marketing intros, but needs visual validation first. See issue #53.
+
+- **New Chat confirmation dialog** — Clicking "New Chat" immediately clears all messages without confirmation. Add a simple `confirm()` or inline prompt when a conversation exists (1+ messages). Low severity — conversations are ephemeral in v1 (no server-side history). Surfaced by live design audit (2026-06-15, FINDING-L04).
+
+- **Error status message structural differentiation** — Error status messages in chat are distinguished only by red text color (`#d63638`). Add a left border or background tint so colorblind users can identify errors without relying on color alone. `role="alert"` already handles screen readers. Surfaced by live design audit (2026-06-15, FINDING-L05).
+
+- **Markdown h4/h5 heading visual distinction in assistant messages** — Both render identically (14px, 600 weight). Rarely used in practice by AI responses. If needed, differentiate h4 at 14px and h5 at 13px or italic. Surfaced by live design audit (2026-06-15, FINDING-L07).
 
 ## P2
 

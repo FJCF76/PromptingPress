@@ -365,6 +365,241 @@ function _pp_attachment_exists_by_url(string $url): bool {
     return (int) $count > 0;
 }
 
+// ── Style Repair Helper ───────────────────────────────────────────────────
+// When the LLM proposes an invalid style slot name, attempt to find the
+// closest match via Levenshtein distance. Returns repaired params or null.
+
+function _pp_attempt_style_repair(string $error_code, array $params): ?array {
+    if ($error_code !== 'invalid_style_slot') {
+        return null;
+    }
+
+    $style = $params['style'] ?? [];
+    if (empty($style) || !is_array($style)) {
+        return null;
+    }
+
+    $post_id         = $params['post_id'] ?? 0;
+    $component_index = $params['component_index'] ?? 0;
+    $composition     = pp_get_composition($post_id);
+    $component_name  = $composition[$component_index]['component'] ?? '';
+    $available_slots = pp_get_style_slots($component_name);
+
+    if (empty($available_slots)) {
+        return null;
+    }
+
+    $available_names = array_keys($available_slots);
+    $repaired        = [];
+    $did_repair      = false;
+
+    foreach ($style as $slot_name => $slot_value) {
+        if ($slot_name === '__recipe' || isset($available_slots[$slot_name])) {
+            $repaired[$slot_name] = $slot_value;
+            continue;
+        }
+
+        // Find closest match by Levenshtein distance.
+        $best_match    = null;
+        $best_distance = PHP_INT_MAX;
+        $tie_count     = 0;
+        foreach ($available_names as $candidate) {
+            $dist = levenshtein($slot_name, $candidate);
+            if ($dist < $best_distance) {
+                $best_distance = $dist;
+                $best_match    = $candidate;
+                $tie_count     = 1;
+            } elseif ($dist === $best_distance) {
+                $tie_count++;
+            }
+        }
+
+        // Accept repair only if distance is reasonable (≤ 40% of slot name length)
+        // AND the match is unambiguous (no tie with another slot at the same distance).
+        $threshold = max(3, (int) ceil(strlen($slot_name) * 0.4));
+        if ($best_match !== null && $best_distance <= $threshold && $tie_count === 1) {
+            $repaired[$best_match] = $slot_value;
+            $did_repair = true;
+        } else {
+            // No close match, or ambiguous tie — repair fails.
+            return null;
+        }
+    }
+
+    if (!$did_repair) {
+        return null;
+    }
+
+    $repaired_params          = $params;
+    $repaired_params['style'] = $repaired;
+    return $repaired_params;
+}
+
+/**
+ * Builds a structured, user-friendly error response for preview failures.
+ * Returns an associative array with error_code, user_message, and alternatives.
+ */
+function _pp_build_friendly_error(WP_Error $error, array $params): array {
+    $code    = $error->get_error_code();
+    $raw_msg = $error->get_error_message();
+
+    switch ($code) {
+        case 'invalid_style_slot':
+            $component_name = '';
+            $available      = [];
+            $composition    = pp_get_composition($params['post_id'] ?? 0);
+            $idx            = $params['component_index'] ?? 0;
+            if (isset($composition[$idx])) {
+                $component_name = $composition[$idx]['component'] ?? '';
+                $slots          = pp_get_style_slots($component_name);
+                $available      = array_keys($slots);
+            }
+            return [
+                'error_code'   => $code,
+                'user_message' => sprintf(
+                    'That style property isn\'t available on the %s component. Try one of the available style slots listed below.',
+                    $component_name ?: 'selected'
+                ),
+                'alternatives' => $available,
+                'raw_error'    => $raw_msg,
+            ];
+
+        case 'invalid_style_value':
+            // Extract the slot name, type, and description from schema.
+            $slot_name   = '';
+            $type_hint   = '';
+            $slot_desc   = '';
+            $slot_default = '';
+            if (preg_match('/^Style slot "([^"]+)"/', $raw_msg, $m)) {
+                $slot_name = $m[1];
+                $composition = pp_get_composition($params['post_id'] ?? 0);
+                $idx         = $params['component_index'] ?? 0;
+                $comp_name   = $composition[$idx]['component'] ?? '';
+                $slots       = pp_get_style_slots($comp_name);
+                $type_hint    = $slots[$slot_name]['type'] ?? '';
+                $slot_desc    = $slots[$slot_name]['description'] ?? '';
+                $slot_default = $slots[$slot_name]['default'] ?? '';
+            }
+
+            // Detect CSS keyword removal attempts (none, unset, initial, auto, inherit).
+            $attempted_value = '';
+            $style = $params['style'] ?? [];
+            if ($slot_name && isset($style[$slot_name])) {
+                $attempted_value = strtolower(trim((string) $style[$slot_name]));
+            }
+            $css_keywords = ['none', 'unset', 'initial', 'auto', 'inherit', 'revert'];
+
+            if ($attempted_value && in_array($attempted_value, $css_keywords, true)) {
+                // User tried to remove/disable a constraint via CSS keyword.
+                $suggestion = _pp_suggest_alternative_value($type_hint, $slot_desc, $slot_default);
+                if ($suggestion) {
+                    return [
+                        'error_code'   => $code,
+                        'user_message' => sprintf(
+                            'CSS keywords like "%s" aren\'t supported for style slots. %s',
+                            $attempted_value,
+                            $suggestion
+                        ),
+                        'alternatives' => [],
+                        'raw_error'    => $raw_msg,
+                    ];
+                }
+            }
+
+            $format_hints = [
+                'color'       => 'Use hex (#1a1a2e), rgb(), rgba(), hsl(), or hsla() format.',
+                'length'      => 'Use a number with a unit like rem, px, em, %, vw, or vh (e.g. 4rem, 200px).',
+                'number'      => 'Use a plain number without units (e.g. 650, 1.6).',
+                'duration'    => 'Use a number with ms or s (e.g. 300ms, 0.3s).',
+                'font-family' => 'Use a comma-separated list of font names.',
+            ];
+            return [
+                'error_code'   => $code,
+                'user_message' => sprintf(
+                    'The value for %s isn\'t in the right format. %s',
+                    $slot_name ? '"' . $slot_name . '"' : 'the style slot',
+                    $format_hints[$type_hint] ?? 'Check the expected format and try again.'
+                ),
+                'alternatives' => [],
+                'raw_error'    => $raw_msg,
+            ];
+
+        case 'no_style_slots':
+            return [
+                'error_code'   => $code,
+                'user_message' => 'This component doesn\'t support style customization. Try editing its content properties instead.',
+                'alternatives' => [],
+                'raw_error'    => $raw_msg,
+            ];
+
+        case 'invalid_recipe':
+            $available_recipes = [];
+            $composition = pp_get_composition($params['post_id'] ?? 0);
+            $idx         = $params['component_index'] ?? 0;
+            if (isset($composition[$idx])) {
+                $comp_name = $composition[$idx]['component'] ?? '';
+                $recipes   = pp_get_style_recipes($comp_name);
+                $available_recipes = array_keys($recipes);
+            }
+            return [
+                'error_code'   => $code,
+                'user_message' => sprintf(
+                    'That recipe doesn\'t exist. Available recipes: %s',
+                    $available_recipes ? implode(', ', $available_recipes) : '(none)'
+                ),
+                'alternatives' => $available_recipes,
+                'raw_error'    => $raw_msg,
+            ];
+
+        default:
+            return [
+                'error_code'   => $code,
+                'user_message' => $raw_msg,
+                'alternatives' => [],
+                'raw_error'    => $raw_msg,
+            ];
+    }
+}
+
+/**
+ * Suggests a valid alternative value when a CSS keyword was rejected.
+ * Uses the slot's type and description to pick a practical suggestion.
+ */
+function _pp_suggest_alternative_value(string $type, string $description, string $default): ?string {
+    $desc_lower = strtolower($description);
+
+    if ($type === 'length') {
+        // Max-width / width constraints: suggest 100% to "use all available space".
+        if (strpos($desc_lower, 'max') !== false || strpos($desc_lower, 'width') !== false) {
+            return 'Try setting it to "100%" to use all available horizontal space.';
+        }
+        // Padding / gap / spacing: suggest "0" to remove.
+        if (strpos($desc_lower, 'padding') !== false || strpos($desc_lower, 'gap') !== false || strpos($desc_lower, 'spacing') !== false || strpos($desc_lower, 'margin') !== false) {
+            return 'Try setting it to "0" to remove the spacing.';
+        }
+        // Radius: suggest "0" to remove.
+        if (strpos($desc_lower, 'radius') !== false) {
+            return 'Try setting it to "0" to remove the rounding.';
+        }
+        // Generic length: suggest a large value.
+        return 'This slot requires a numeric value with a CSS unit (e.g. 100%, 9999px, 0).';
+    }
+
+    if ($type === 'color') {
+        return 'Try "transparent" for an invisible color, or a hex/rgb value.';
+    }
+
+    if ($type === 'number') {
+        return 'This slot requires a plain number (e.g. 0, 1, 650).';
+    }
+
+    if ($type === 'duration') {
+        return 'Try "0s" to disable the duration, or a value like "300ms".';
+    }
+
+    return null;
+}
+
 // ── AJAX: Preview Action/Apply ─────────────────────────────────────────────
 
 add_action('wp_ajax_pp_ai_preview', function () {
@@ -395,6 +630,26 @@ add_action('wp_ajax_pp_ai_preview', function () {
     }
 
     if (is_wp_error($result)) {
+        // For style_component errors, attempt repair before giving up.
+        if ($name === 'style_component') {
+            $repaired_params = _pp_attempt_style_repair($result->get_error_code(), $params);
+            if ($repaired_params !== null) {
+                $retry = $type === 'action'
+                    ? pp_preview_action($name, $repaired_params)
+                    : pp_preview_apply($name, $repaired_params);
+
+                if (!is_wp_error($retry)) {
+                    // Repair succeeded — return preview with a repair note.
+                    $retry['repaired'] = true;
+                    wp_send_json_success($retry);
+                }
+                // Repair attempt also failed — fall through to friendly error.
+            }
+
+            // Return structured error for style_component failures.
+            wp_send_json_error(_pp_build_friendly_error($result, $params));
+        }
+
         wp_send_json_error($result->get_error_message());
     }
 
