@@ -343,6 +343,12 @@ body.pp-ai-chat-page #wpcontent {
     background: #fcf0f1;
 }
 
+.pp-ai-step-failed .pp-ai-step-diff {
+    font-family: inherit;
+    font-size: 13px;
+    color: #d63638;
+}
+
 .pp-ai-step-rejected {
     border-left-color: #dba617;
     background: #fef8ee;
