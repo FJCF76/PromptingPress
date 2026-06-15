@@ -580,6 +580,7 @@ function ppChatIsRevertEligible(steps) {
                 applyBtn.disabled = true;
                 cancelBtn.disabled = true;
                 addStatusMessage('Proposal cancelled.');
+                inputEl.focus();
             });
 
             actions.appendChild(applyBtn);
@@ -592,6 +593,7 @@ function ppChatIsRevertEligible(steps) {
     function addStatusMessage(text, isError) {
         var div = document.createElement('div');
         div.className = 'pp-ai-status' + (isError ? ' pp-ai-status-error' : '');
+        if (isError) div.setAttribute('role', 'alert');
         div.textContent = text;
         messagesEl.appendChild(div);
         messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -701,6 +703,7 @@ function ppChatIsRevertEligible(steps) {
             conversation.push({ role: 'user', content: '[Applied changes: ' + summary + ']' });
             conversation.push({ role: 'assistant', content: 'Changes applied successfully.' });
             saveState();
+            inputEl.focus();
             return;
         }
 

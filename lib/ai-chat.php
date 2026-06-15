@@ -136,6 +136,7 @@ function pp_ai_chat_page(): void {
                 <div class="pp-ai-chat-header">
                     <h2>AI Chat</h2>
                     <?php if ($is_multi_provider): ?>
+                        <label for="pp-ai-provider-select" class="screen-reader-text"><?php esc_html_e('AI Provider', 'promptingpress'); ?></label>
                         <select id="pp-ai-provider-select" class="pp-ai-chat-selector">
                             <?php foreach ($configured_connectors as $pid => $pdata): ?>
                                 <option value="<?php echo esc_attr($pid); ?>" <?php selected($pid, $ai_config['provider']); ?>>
@@ -148,6 +149,7 @@ function pp_ai_chat_page(): void {
                             <?php echo esc_html(reset($configured_connectors)['name']); ?>
                         </span>
                     <?php endif; ?>
+                    <label for="pp-ai-model-select" class="screen-reader-text"><?php esc_html_e('AI Model', 'promptingpress'); ?></label>
                     <select id="pp-ai-model-select" class="pp-ai-chat-selector">
                         <option value="<?php echo esc_attr($ai_config['model']); ?>" selected>
                             <?php echo esc_html($model_display); ?>
@@ -155,8 +157,9 @@ function pp_ai_chat_page(): void {
                     </select>
                     <button id="pp-ai-new-chat" class="button pp-ai-new-chat" title="Start a new conversation">New Chat</button>
                 </div>
-                <div id="pp-ai-messages" class="pp-ai-chat-messages"></div>
+                <div id="pp-ai-messages" class="pp-ai-chat-messages" role="log" aria-live="polite" aria-label="<?php esc_attr_e('Chat messages', 'promptingpress'); ?>"></div>
                 <div class="pp-ai-chat-input-area">
+                    <label for="pp-ai-input" class="screen-reader-text"><?php esc_html_e('Chat message', 'promptingpress'); ?></label>
                     <textarea id="pp-ai-input" placeholder="Ask about your site or request a change..." rows="2"></textarea>
                     <button id="pp-ai-send" class="button button-primary">Send</button>
                 </div>
