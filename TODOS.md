@@ -2,6 +2,8 @@
 
 ## P3
 
+- **ARIA live region on chat messages container** — Add `aria-live="polite"` to `#pp-ai-messages` in `lib/ai-chat.php:158` so screen readers announce new messages and proposal cards as they appear. Surfaced by design audit (2026-06-15, FINDING-004).
+
 - **Server-driven action warning metadata** — The proposal card's impact warning map (Item 5b of the admin chat context sprint) is a static JS lookup of 4 hardcoded action names (`update_composition`, `reset_all_design_tokens`, `clear_custom_css`, `remove_component`). When a new destructive action is registered in PHP, the JS map silently misses it. Fix: add an optional `destructive: true` flag to `pp_register_action()` / `pp_register_apply()`, surface registered destructive flags in the frontend config object, and have JS read from config instead of the hardcoded map. Start point: `lib/actions.php` pp_register_action(), `assets/js/pp-ai-chat.js` warning map. Depends on Item 5b shipping first. Flagged by outside voice during /plan-eng-review (2026-06-14).
 
 - **Partial data loss guard for array field sync** — The `wouldLoseArrayData` guard (added in the composition editor safety sprint, issue #73) only catches total loss (ALL items read as empty). Partial loss (e.g., 3 of 4 items empty due to a future sync bug) is not guarded because it's indistinguishable from legitimate editing. If partial loss is observed in practice, add a per-item heuristic: "items lost N of M sub-fields" with a configurable threshold. Start point: `wouldLoseArrayData()` in `assets/js/pp-editor-logic.js`. Depends on observing partial loss in production or dogfooding.
