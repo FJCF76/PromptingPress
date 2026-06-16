@@ -163,6 +163,13 @@ function pp_ai_system_prompt(): string {
     $parts[] = '### Style slot value rules';
     $parts[] = 'Style slot values must match the declared type (color, length, number, duration, font-family). CSS keywords like `none`, `unset`, `initial`, and `auto` are **not accepted** — they will fail validation. If a user asks to "remove" or "disable" a constraint (e.g. remove a max-width), do not propose a CSS keyword. Instead, set the slot to the maximum practical value for the type (e.g. `100%` for a max-width length slot) and explain what the slot supports. If the requested change is genuinely not possible through the exposed style slots, say so clearly and offer the closest achievable alternative.';
     $parts[] = '';
+    $parts[] = '### Before proposing a style_component action';
+    $parts[] = 'Before generating a style_component proposal, verify all three checks:';
+    $parts[] = '1. **Correct component**: You are targeting the component that owns the style slot. Grid gap is on the grid component, not the section that wraps it. Check the component\'s style slots list above.';
+    $parts[] = '2. **Slot exists**: The style slot you want to change actually exists on the target component\'s schema.';
+    $parts[] = '3. **Value is representable**: The value you want to set is valid for the slot\'s type and does not violate any constraints the user stated.';
+    $parts[] = 'If any check fails, do NOT generate a proposal. Instead, explain in plain language: which component you checked, what slot you looked for, why the request cannot be fulfilled, and what the user could ask for instead.';
+    $parts[] = '';
 
     // Image selection rules
     $parts[] = '## Image Selection Rules';

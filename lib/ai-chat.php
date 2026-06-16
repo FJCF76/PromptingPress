@@ -447,21 +447,79 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
         case 'invalid_style_slot':
             $component_name = '';
             $available      = [];
+            $available_slots = [];
             $composition    = pp_get_composition($params['post_id'] ?? 0);
             $idx            = $params['component_index'] ?? 0;
             if (isset($composition[$idx])) {
-                $component_name = $composition[$idx]['component'] ?? '';
-                $slots          = pp_get_style_slots($component_name);
-                $available      = array_keys($slots);
+                $component_name  = $composition[$idx]['component'] ?? '';
+                $available_slots = pp_get_style_slots($component_name);
+                $available       = array_keys($available_slots);
             }
+
+            // Cross-component hint: does this slot exist on a different component?
+            $cross_hints  = (object) [];
+            $style        = $params['style'] ?? [];
+            $invalid_slots = array_diff(array_keys($style), $available);
+            $all_components = pp_get_registered_components();
+            foreach ($invalid_slots as $invalid_slot) {
+                $suffix = preg_replace('/^--[a-z]+-/', '--*-', $invalid_slot);
+                foreach ($all_components as $other_name => $other_schema) {
+                    if ($other_name === $component_name) continue;
+                    $other_slots = pp_get_style_slots($other_name);
+                    // Exact match
+                    if (isset($other_slots[$invalid_slot])) {
+                        $cross_hints->{$invalid_slot} = [
+                            'component' => $other_name,
+                            'slot'      => $invalid_slot,
+                            'match'     => 'exact',
+                        ];
+                        break;
+                    }
+                    // Suffix match: strip component prefix, compare
+                    foreach ($other_slots as $other_slot_name => $other_slot_def) {
+                        $other_suffix = preg_replace('/^--[a-z]+-/', '--*-', $other_slot_name);
+                        if ($suffix === $other_suffix) {
+                            $cross_hints->{$invalid_slot} = [
+                                'component' => $other_name,
+                                'slot'      => $other_slot_name,
+                                'match'     => 'suffix',
+                            ];
+                            break 2;
+                        }
+                    }
+                }
+            }
+
+            // Build user-facing message with slot descriptions instead of raw names.
+            $descriptions = [];
+            foreach ($available_slots as $slot_name => $slot_def) {
+                $desc = $slot_def['description'] ?? $slot_name;
+                $descriptions[] = $desc;
+            }
+
+            $hints_array = (array) $cross_hints;
+            $has_hints = $hints_array !== [];
+            if ($has_hints) {
+                $first_hint = reset($hints_array);
+                $user_message = sprintf(
+                    'I tried to change a setting on the %s component, but it isn\'t available there. It does exist on the %s component. You could ask me to change it there instead.',
+                    $component_name ?: 'selected',
+                    $first_hint['component']
+                );
+            } else {
+                $user_message = sprintf(
+                    'I tried to change a style setting that the %s component doesn\'t support. Available settings: %s.',
+                    $component_name ?: 'selected',
+                    $descriptions ? implode(', ', $descriptions) : '(none)'
+                );
+            }
+
             return [
-                'error_code'   => $code,
-                'user_message' => sprintf(
-                    'That style property isn\'t available on the %s component. Try one of the available style slots listed below.',
-                    $component_name ?: 'selected'
-                ),
-                'alternatives' => $available,
-                'raw_error'    => $raw_msg,
+                'error_code'            => $code,
+                'user_message'          => $user_message,
+                'alternatives'          => $available,
+                'cross_component_hints' => $cross_hints,
+                'raw_error'             => $raw_msg,
             ];
 
         case 'invalid_style_value':
@@ -494,14 +552,15 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
                 $suggestion = _pp_suggest_alternative_value($type_hint, $slot_desc, $slot_default);
                 if ($suggestion) {
                     return [
-                        'error_code'   => $code,
-                        'user_message' => sprintf(
-                            'CSS keywords like "%s" aren\'t supported for style slots. %s',
+                        'error_code'            => $code,
+                        'user_message'          => sprintf(
+                            'The value "%s" can\'t be used for style settings. %s',
                             $attempted_value,
                             $suggestion
                         ),
-                        'alternatives' => [],
-                        'raw_error'    => $raw_msg,
+                        'alternatives'          => [],
+                        'cross_component_hints' => (object) [],
+                        'raw_error'             => $raw_msg,
                     ];
                 }
             }
@@ -514,22 +573,24 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
                 'font-family' => 'Use a comma-separated list of font names.',
             ];
             return [
-                'error_code'   => $code,
-                'user_message' => sprintf(
+                'error_code'            => $code,
+                'user_message'          => sprintf(
                     'The value for %s isn\'t in the right format. %s',
                     $slot_name ? '"' . $slot_name . '"' : 'the style slot',
                     $format_hints[$type_hint] ?? 'Check the expected format and try again.'
                 ),
-                'alternatives' => [],
-                'raw_error'    => $raw_msg,
+                'alternatives'          => [],
+                'cross_component_hints' => (object) [],
+                'raw_error'             => $raw_msg,
             ];
 
         case 'no_style_slots':
             return [
-                'error_code'   => $code,
-                'user_message' => 'This component doesn\'t support style customization. Try editing its content properties instead.',
-                'alternatives' => [],
-                'raw_error'    => $raw_msg,
+                'error_code'            => $code,
+                'user_message'          => 'This change can\'t be made with the current component settings. This component doesn\'t support style customization. Try editing its content properties instead.',
+                'alternatives'          => [],
+                'cross_component_hints' => (object) [],
+                'raw_error'             => $raw_msg,
             ];
 
         case 'invalid_recipe':
@@ -542,21 +603,23 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
                 $available_recipes = array_keys($recipes);
             }
             return [
-                'error_code'   => $code,
-                'user_message' => sprintf(
+                'error_code'            => $code,
+                'user_message'          => sprintf(
                     'That recipe doesn\'t exist. Available recipes: %s',
                     $available_recipes ? implode(', ', $available_recipes) : '(none)'
                 ),
-                'alternatives' => $available_recipes,
-                'raw_error'    => $raw_msg,
+                'alternatives'          => $available_recipes,
+                'cross_component_hints' => (object) [],
+                'raw_error'             => $raw_msg,
             ];
 
         default:
             return [
-                'error_code'   => $code,
-                'user_message' => $raw_msg,
-                'alternatives' => [],
-                'raw_error'    => $raw_msg,
+                'error_code'            => $code,
+                'user_message'          => $raw_msg,
+                'alternatives'          => [],
+                'cross_component_hints' => (object) [],
+                'raw_error'             => $raw_msg,
             ];
     }
 }

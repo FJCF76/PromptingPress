@@ -49,12 +49,45 @@ function ppChatRenderPreviewError(diffArea, data) {
         msgEl.textContent = data.user_message;
         diffArea.appendChild(msgEl);
 
-        // Show alternatives if available.
-        if (data.alternatives && data.alternatives.length > 0) {
-            var altEl = document.createElement('div');
-            altEl.className = 'pp-ai-preview-error-alternatives';
-            altEl.textContent = 'Available: ' + data.alternatives.join(', ');
-            diffArea.appendChild(altEl);
+        // Cross-component hint.
+        var hints = data.cross_component_hints;
+        if (hints && typeof hints === 'object') {
+            var hintKeys = Object.keys(hints);
+            if (hintKeys.length > 0) {
+                var hintEl = document.createElement('div');
+                hintEl.className = 'pp-ai-preview-error-hint';
+                var first = hints[hintKeys[0]];
+                hintEl.textContent = 'This setting exists on the ' + first.component + ' component.';
+                diffArea.appendChild(hintEl);
+            }
+        }
+
+        // Technical details in a native <details> disclosure.
+        if ((data.alternatives && data.alternatives.length > 0) || data.raw_error) {
+            var details = document.createElement('details');
+            details.className = 'pp-ai-preview-error-detail';
+            var summary = document.createElement('summary');
+            summary.textContent = 'Show technical details';
+            details.appendChild(summary);
+
+            var content = document.createElement('div');
+            var lines = [];
+            if (data.raw_error) {
+                lines.push(data.raw_error);
+            }
+            if (hints && typeof hints === 'object') {
+                var hKeys = Object.keys(hints);
+                for (var h = 0; h < hKeys.length; h++) {
+                    var hint = hints[hKeys[h]];
+                    lines.push('Available on ' + hint.component + ': ' + hint.slot);
+                }
+            }
+            if (data.alternatives && data.alternatives.length > 0) {
+                lines.push('Available slots: ' + data.alternatives.join(', '));
+            }
+            content.textContent = lines.join('\n');
+            details.appendChild(content);
+            diffArea.appendChild(details);
         }
         return;
     }
@@ -63,6 +96,38 @@ function ppChatRenderPreviewError(diffArea, data) {
     diffArea.textContent = typeof data === 'string'
         ? data
         : (data && data.message) || 'Preview failed';
+}
+
+/**
+ * Determines the CSS class for a failed step based on error type and cross-component hints.
+ */
+function ppChatGetErrorStepClass(data) {
+    if (!data || typeof data !== 'object') return 'pp-ai-step-failed';
+    var code = data.error_code || '';
+    if (code === 'no_style_slots') return 'pp-ai-step-impossible';
+    if (code === 'invalid_style_slot') {
+        var hints = data.cross_component_hints;
+        if (hints && typeof hints === 'object' && Object.keys(hints).length > 0) {
+            return 'pp-ai-step-fixable';
+        }
+        return 'pp-ai-step-impossible';
+    }
+    if (code === 'invalid_style_value' || code === 'invalid_recipe') return 'pp-ai-step-fixable';
+    return 'pp-ai-step-failed';
+}
+
+/**
+ * Derives a contextual status bar message from the first failed step's error data.
+ */
+function ppChatGetStatusMessage(data) {
+    if (!data || typeof data !== 'object') return 'Some changes couldn\'t be previewed. See details above.';
+    var code = data.error_code || '';
+    var hints = data.cross_component_hints;
+    var hasHints = hints && typeof hints === 'object' && Object.keys(hints).length > 0;
+    if (hasHints) return 'That setting lives on a different component. See details above.';
+    if (code === 'no_style_slots' || code === 'invalid_style_slot') return 'This change isn\'t possible with the current component settings.';
+    if (code === 'invalid_style_value') return 'The value format needs adjustment. See suggestions above.';
+    return 'Some changes couldn\'t be previewed. See details above.';
 }
 
 (function () {
@@ -560,6 +625,7 @@ function ppChatRenderPreviewError(diffArea, data) {
 
         Promise.all(previewPromises).then(function (results) {
             var anyFailed = false;
+            var firstFailedData = null;
 
             results.forEach(function (result, i) {
                 stepElements[i].classList.remove('pp-ai-step-executing');
@@ -577,13 +643,15 @@ function ppChatRenderPreviewError(diffArea, data) {
                     }
                 } else {
                     anyFailed = true;
-                    stepElements[i].classList.add('pp-ai-step-failed');
+                    var errorClass = ppChatGetErrorStepClass(result.data);
+                    stepElements[i].classList.add(errorClass);
                     ppChatRenderPreviewError(diffAreas[i], result.data);
+                    if (!firstFailedData) firstFailedData = result.data;
                 }
             });
 
             if (anyFailed) {
-                addStatusMessage('Preview failed \u2014 fix errors and try again.', true);
+                addStatusMessage(ppChatGetStatusMessage(firstFailedData), true);
                 return;
             }
 
@@ -1126,6 +1194,8 @@ if (typeof module !== 'undefined' && module.exports) {
         formatDiffValue: ppChatFormatDiffValue,
         shouldShowMultiStepWarning: ppChatShouldShowMultiStepWarning,
         isRevertEligible: ppChatIsRevertEligible,
-        renderPreviewError: ppChatRenderPreviewError
+        renderPreviewError: ppChatRenderPreviewError,
+        getErrorStepClass: ppChatGetErrorStepClass,
+        getStatusMessage: ppChatGetStatusMessage
     };
 }

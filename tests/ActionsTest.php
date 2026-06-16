@@ -1564,6 +1564,156 @@ class ActionsTest extends TestCase
         $this->assertNotEmpty($result['alternatives']);
     }
 
+    // ── Cross-Component Hints ───────────────────────────────────────────
+
+    public function testCrossComponentExactMatch(): void
+    {
+        $post_id = pp_create_page('Cross-comp test');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
+        ]);
+
+        $error  = new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--grid-gap".');
+        $result = _pp_build_friendly_error($error, [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--grid-gap' => '2rem'],
+        ]);
+
+        $hints = (array) $result['cross_component_hints'];
+        $this->assertArrayHasKey('--grid-gap', $hints);
+        $this->assertSame('grid', $hints['--grid-gap']['component']);
+        $this->assertSame('exact', $hints['--grid-gap']['match']);
+    }
+
+    public function testCrossComponentSuffixMatch(): void
+    {
+        $post_id = pp_create_page('Cross-comp suffix test');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
+        ]);
+
+        $error  = new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--section-gap".');
+        $result = _pp_build_friendly_error($error, [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--section-gap' => '2rem'],
+        ]);
+
+        $hints = (array) $result['cross_component_hints'];
+        $this->assertArrayHasKey('--section-gap', $hints);
+        $this->assertSame('grid', $hints['--section-gap']['component']);
+        $this->assertSame('suffix', $hints['--section-gap']['match']);
+        $this->assertSame('--grid-gap', $hints['--section-gap']['slot']);
+    }
+
+    public function testCrossComponentNoMatch(): void
+    {
+        $post_id = pp_create_page('Cross-comp no match');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
+        ]);
+
+        $error  = new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--section-zindex".');
+        $result = _pp_build_friendly_error($error, [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--section-zindex' => '10'],
+        ]);
+
+        $hints = (array) $result['cross_component_hints'];
+        $this->assertEmpty($hints);
+    }
+
+    public function testCrossComponentMultipleInvalidSlotsPartialMatch(): void
+    {
+        $post_id = pp_create_page('Cross-comp partial');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
+        ]);
+
+        $error  = new WP_Error('invalid_style_slot', 'Multiple invalid slots');
+        $result = _pp_build_friendly_error($error, [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--grid-gap' => '2rem', '--section-zindex' => '10'],
+        ]);
+
+        $hints = (array) $result['cross_component_hints'];
+        $this->assertArrayHasKey('--grid-gap', $hints);
+        $this->assertArrayNotHasKey('--section-zindex', $hints);
+    }
+
+    public function testCrossComponentUserMessageUsesDescriptions(): void
+    {
+        $post_id = pp_create_page('Cross-comp desc test');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
+        ]);
+
+        // No cross-hint: message should list descriptions, not raw slot names.
+        $error  = new WP_Error('invalid_style_slot', 'Invalid slot');
+        $result = _pp_build_friendly_error($error, [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--section-zindex' => '10'],
+        ]);
+
+        // user_message should not contain raw slot names like --section-bg.
+        $this->assertStringNotContainsString('--section-bg', $result['user_message']);
+        $this->assertStringContainsString('section', $result['user_message']);
+    }
+
+    public function testCrossComponentUserMessageWithHintText(): void
+    {
+        $post_id = pp_create_page('Cross-comp hint msg');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
+        ]);
+
+        $error  = new WP_Error('invalid_style_slot', 'Invalid slot');
+        $result = _pp_build_friendly_error($error, [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--grid-gap' => '2rem'],
+        ]);
+
+        $this->assertStringContainsString('grid', $result['user_message']);
+        $this->assertStringContainsString('change it there instead', $result['user_message']);
+    }
+
+    public function testCrossComponentHintsFieldIsAlwaysObject(): void
+    {
+        // Test with invalid_style_value (no cross hints expected).
+        $post_id = pp_create_page('Hints shape test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+        ]);
+
+        $error  = new WP_Error('invalid_style_value', 'Style slot "--hero-bg": invalid');
+        $result = _pp_build_friendly_error($error, [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--hero-bg' => 'red'],
+        ]);
+
+        $this->assertArrayHasKey('cross_component_hints', $result);
+        $hints = $result['cross_component_hints'];
+        // Must be an object (stdClass), not an array.
+        $this->assertInstanceOf(\stdClass::class, $hints);
+        $this->assertEmpty((array) $hints);
+
+        // Also check no_style_slots.
+        $error2  = new WP_Error('no_style_slots', 'No slots');
+        $result2 = _pp_build_friendly_error($error2, ['post_id' => 1, 'component_index' => 0]);
+        $this->assertInstanceOf(\stdClass::class, $result2['cross_component_hints']);
+
+        // Also check default case.
+        $error3  = new WP_Error('unknown_error', 'Something');
+        $result3 = _pp_build_friendly_error($error3, []);
+        $this->assertInstanceOf(\stdClass::class, $result3['cross_component_hints']);
+    }
+
     // ── CSS Keyword Rejection + Alternative Suggestions ─────────────────
 
     public function testFriendlyErrorForCssKeywordNoneOnMaxWidthSlot(): void

@@ -362,6 +362,38 @@ body.pp-ai-chat-page #wpcontent {
     word-break: break-all;
 }
 
+.pp-ai-step-impossible {
+    border-left-color: #8c8f94;
+    background: #f0f0f1;
+}
+
+.pp-ai-step-fixable {
+    border-left-color: #dba617;
+    background: #fef8ee;
+}
+
+.pp-ai-preview-error-hint {
+    font-size: 13px;
+    color: #2271b1;
+    font-style: italic;
+    margin: 4px 0;
+}
+
+.pp-ai-preview-error-detail summary {
+    font-size: 12px;
+    color: #646970;
+    cursor: pointer;
+    margin-top: 6px;
+}
+
+.pp-ai-preview-error-detail > div {
+    font-family: monospace;
+    font-size: 12px;
+    color: #646970;
+    white-space: pre-wrap;
+    margin-top: 4px;
+}
+
 .pp-ai-step-rejected {
     border-left-color: #dba617;
     background: #fef8ee;

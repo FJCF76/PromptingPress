@@ -43,6 +43,8 @@ const {
     shouldShowMultiStepWarning,
     isRevertEligible,
     renderPreviewError,
+    getErrorStepClass,
+    getStatusMessage,
 } = require('../../assets/js/pp-ai-chat.js');
 
 // ─── IMPACT_WARNINGS map ────────────────────────────────────────────────────
@@ -227,20 +229,24 @@ describe('renderPreviewError', function () {
         expect(msgEl.textContent).not.toContain('Component "hero" has no style slot');
     });
 
-    test('structured error shows alternatives', function () {
+    test('structured error shows alternatives in details disclosure', function () {
         var diffArea = document.createElement('div');
         renderPreviewError(diffArea, {
             error_code: 'invalid_style_slot',
             user_message: 'Not available.',
             alternatives: ['--hero-bg', '--hero-text', '--hero-padding-top'],
+            cross_component_hints: {},
             raw_error: 'raw'
         });
 
-        var altEl = diffArea.querySelector('.pp-ai-preview-error-alternatives');
-        expect(altEl).not.toBeNull();
-        expect(altEl.textContent).toContain('--hero-bg');
-        expect(altEl.textContent).toContain('--hero-text');
-        expect(altEl.textContent).toContain('--hero-padding-top');
+        var detailEl = diffArea.querySelector('.pp-ai-preview-error-detail');
+        expect(detailEl).not.toBeNull();
+        expect(detailEl.textContent).toContain('--hero-bg');
+        expect(detailEl.textContent).toContain('--hero-text');
+        expect(detailEl.textContent).toContain('--hero-padding-top');
+        var summary = detailEl.querySelector('summary');
+        expect(summary).not.toBeNull();
+        expect(summary.textContent).toBe('Show technical details');
     });
 
     test('structured error without alternatives omits alternatives element', function () {
@@ -277,5 +283,103 @@ describe('renderPreviewError', function () {
         renderPreviewError(diffArea, null);
 
         expect(diffArea.textContent).toBe('Preview failed');
+    });
+
+    test('cross-component hint element rendered when hints present', function () {
+        var diffArea = document.createElement('div');
+        renderPreviewError(diffArea, {
+            error_code: 'invalid_style_slot',
+            user_message: 'Not available on section.',
+            alternatives: ['--section-bg'],
+            cross_component_hints: { '--grid-gap': { component: 'grid', slot: '--grid-gap', match: 'exact' } },
+            raw_error: 'raw'
+        });
+
+        var hintEl = diffArea.querySelector('.pp-ai-preview-error-hint');
+        expect(hintEl).not.toBeNull();
+        expect(hintEl.textContent).toContain('grid');
+    });
+
+    test('cross-component hint element absent when no hints', function () {
+        var diffArea = document.createElement('div');
+        renderPreviewError(diffArea, {
+            error_code: 'invalid_style_slot',
+            user_message: 'Not available.',
+            alternatives: ['--hero-bg'],
+            cross_component_hints: {},
+            raw_error: 'raw'
+        });
+
+        var hintEl = diffArea.querySelector('.pp-ai-preview-error-hint');
+        expect(hintEl).toBeNull();
+    });
+
+    test('grouped alternatives in details disclosure with descriptions', function () {
+        var diffArea = document.createElement('div');
+        renderPreviewError(diffArea, {
+            error_code: 'invalid_style_slot',
+            user_message: 'Not available.',
+            alternatives: ['--hero-bg', '--hero-text'],
+            cross_component_hints: {},
+            raw_error: 'raw error text'
+        });
+
+        var detailEl = diffArea.querySelector('.pp-ai-preview-error-detail');
+        expect(detailEl).not.toBeNull();
+        expect(detailEl.textContent).toContain('--hero-bg');
+        expect(detailEl.textContent).toContain('--hero-text');
+    });
+});
+
+// ─── getErrorStepClass ────────────────────────────────────────────────────
+
+describe('getErrorStepClass', function () {
+    test('returns pp-ai-step-impossible for no_style_slots', function () {
+        expect(getErrorStepClass({ error_code: 'no_style_slots' })).toBe('pp-ai-step-impossible');
+    });
+
+    test('returns pp-ai-step-fixable for invalid_style_slot with cross-component hint', function () {
+        expect(getErrorStepClass({
+            error_code: 'invalid_style_slot',
+            cross_component_hints: { '--grid-gap': { component: 'grid', slot: '--grid-gap', match: 'exact' } }
+        })).toBe('pp-ai-step-fixable');
+    });
+
+    test('returns pp-ai-step-impossible for invalid_style_slot without hints', function () {
+        expect(getErrorStepClass({
+            error_code: 'invalid_style_slot',
+            cross_component_hints: {}
+        })).toBe('pp-ai-step-impossible');
+    });
+
+    test('returns pp-ai-step-fixable for invalid_style_value', function () {
+        expect(getErrorStepClass({ error_code: 'invalid_style_value' })).toBe('pp-ai-step-fixable');
+    });
+});
+
+// ─── getStatusMessage ────────────────────────────────────────────────────
+
+describe('getStatusMessage', function () {
+    test('cross-component hint message', function () {
+        var msg = getStatusMessage({
+            error_code: 'invalid_style_slot',
+            cross_component_hints: { '--grid-gap': { component: 'grid' } }
+        });
+        expect(msg).toContain('different component');
+    });
+
+    test('impossible message for no_style_slots', function () {
+        var msg = getStatusMessage({ error_code: 'no_style_slots', cross_component_hints: {} });
+        expect(msg).toContain('isn\'t possible');
+    });
+
+    test('fixable message for invalid_style_value', function () {
+        var msg = getStatusMessage({ error_code: 'invalid_style_value', cross_component_hints: {} });
+        expect(msg).toContain('value format');
+    });
+
+    test('fallback message for unknown error', function () {
+        var msg = getStatusMessage({ error_code: 'something_else', cross_component_hints: {} });
+        expect(msg).toContain('couldn\'t be previewed');
     });
 });
