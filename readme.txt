@@ -19,6 +19,13 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 
 == Changelog ==
 
+= 0.8.3 =
+* System prompt hardening with pre-proposal verification checklist
+* Cross-component slot search with guided error recovery
+* Impossible vs fixable error state visual distinction
+* Contextual status bar messages
+* 614 PHP tests, 191 JS tests
+
 = 0.8.2 =
 * AI context enrichment: style slots, recipes, enum values, and inspect data in system prompt
 * Proposal card with preview diffs, impact warnings, and post-apply confirmation

@@ -500,6 +500,7 @@ Assembled by `pp_ai_system_prompt()`:
 - Apply signatures (names, domains, param types)
 - Design token inventory (33 tokens with current effective values and types)
 - Style slot value rules (type-specific guidance for the LLM)
+- Pre-proposal verification checklist (target correct component, confirm slot exists, confirm value is representable)
 - Response format instructions (conversational vs structured proposal)
 
 When page context is included, each component's summary shows: active recipe, overridden style slots with current values, and editable field names per component type.
@@ -512,7 +513,7 @@ When the AI proposes a mutation, it outputs structured JSON:
 {"proposal": true, "steps": [{"type": "action", "name": "add_component", "params": {"post_id": 4, "component": "faq", "props": {"items": []}}, "description": "Add FAQ section"}]}
 ```
 
-The chat UI renders this as a proposal card. Before showing Apply, each step fetches a preview via `pp_ai_preview` — displaying before/after diffs inline. High-impact actions (`update_composition`, `reset_all_design_tokens`, `clear_custom_css`, `remove_component`) show amber warnings. Multi-step proposals (3+ steps) show a card-level warning. If preview fails for any step, Apply is disabled for the entire proposal.
+The chat UI renders this as a proposal card. Before showing Apply, each step fetches a preview via `pp_ai_preview` — displaying before/after diffs inline. High-impact actions (`update_composition`, `reset_all_design_tokens`, `clear_custom_css`, `remove_component`) show amber warnings. Multi-step proposals (3+ steps) show a card-level warning. If preview fails for any step, Apply is disabled and the error card shows guided recovery: a plain-language explanation, cross-component hints when a slot exists on a different component, and expandable technical details. Error steps are visually classified as impossible (grey) or fixable (amber).
 
 On Apply, each step executes via `wp_ajax_pp_ai_execute`, which delegates to `pp_execute_action()` or `pp_execute_apply()`. After successful execution, the card shows per-step confirmation, a "View Page" link to the affected page, and (for single-step `update_design_token`) a "Reset to default" shortcut. Applied changes are injected back into the conversation context so the AI knows about its own mutations.
 
@@ -538,7 +539,8 @@ On Apply, each step executes via `wp_ajax_pp_ai_execute`, which delegates to `pp
 | `pp_ai_maybe_migrate_provider()` | One-time migration from legacy provider strings to provider keys |
 | `pp_ai_parse_error_response($code, $body)` | Parses HTTP error into user-facing message with "Check AI Settings" phrase |
 | `_pp_attempt_style_repair(string $error_code, array $params)` | Levenshtein-based fuzzy match for misspelled slot names (threshold ≤ 3). Returns repair suggestion array or null |
-| `_pp_build_friendly_error(WP_Error $error, array $params)` | Structured error builder returning `{error_code, user_message, alternatives, raw_error}` |
+| `_pp_build_friendly_error(WP_Error $error, array $params)` | Structured error builder returning `{error_code, user_message, alternatives, cross_component_hints, raw_error}` |
+| `_pp_search_cross_component_slots(array $invalid_slots, string $source_component)` | Searches all registered components for slots matching the invalid names. Returns `{slot: {component, slot, match_type}}` |
 | `_pp_suggest_alternative_value(string $type, string $description, string $default)` | CSS keyword detection with contextual alternative suggestions. Returns suggestion string or null |
 
 ### Conversation persistence
