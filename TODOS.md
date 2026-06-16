@@ -14,8 +14,6 @@
 
 - **New Chat confirmation dialog** — Clicking "New Chat" immediately clears all messages without confirmation. Add a simple `confirm()` or inline prompt when a conversation exists (1+ messages). Low severity — conversations are ephemeral in v1 (no server-side history). Surfaced by live design audit (2026-06-15, FINDING-L04).
 
-- **Error status message structural differentiation** — Error status messages in chat are distinguished only by red text color (`#d63638`). Add a left border or background tint so colorblind users can identify errors without relying on color alone. `role="alert"` already handles screen readers. Surfaced by live design audit (2026-06-15, FINDING-L05).
-
 - **Markdown h4/h5 heading visual distinction in assistant messages** — Both render identically (14px, 600 weight). Rarely used in practice by AI responses. If needed, differentiate h4 at 14px and h5 at 13px or italic. Surfaced by live design audit (2026-06-15, FINDING-L07).
 
 ## P2
@@ -23,3 +21,7 @@
 - **Wire `component_id` into `reorder_components` and `add_component`** — v1 only wired `component_id` addressing into `update_component` and `remove_component`. `reorder_components` takes an `order[]` array (positional) and `add_component` takes a `position` param. Both would need new semantics (e.g., "insert after component_id X") rather than just replacing index with ID. Deferred from Semantic Composition Operator v1 sprint (2026-06-12).
 
 - **Concurrent edit hash check for patch** — `pp_patch_composition()` currently has a TOCTOU gap: the composition can change between preview and apply. Add a content hash to `inspect-composition` output, accept it as an optional `--etag` flag on `patch`, and reject the apply if the composition changed. Single-operator use makes this low-risk for v1 but should be addressed before multi-operator scenarios. Deferred from Semantic Composition Operator v1 sprint (2026-06-12).
+
+## Completed
+
+- **Error status message structural differentiation** — Error steps now use `.pp-ai-step-impossible` (grey border/background) and `.pp-ai-step-fixable` (amber border/background) for structural visual differentiation beyond color alone. **Completed:** v0.8.3 (2026-06-16)

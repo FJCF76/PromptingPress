@@ -4,6 +4,37 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.8.3] — 2026-06-16 — Schema Awareness + Guided Recovery UX
+
+### The AI checks the schema before proposing, and explains when changes aren't possible
+
+The system prompt now includes a pre-proposal verification checklist: before generating a `style_component` proposal, the LLM must confirm the target component owns the slot, the slot exists in the schema, and the value is representable. If any check fails, the LLM explains conversationally instead of generating a broken proposal.
+
+When validation catches an invalid style slot, the error handler now searches all registered components for a matching slot (exact name first, then prefix-stripped suffix match). Cross-component hints tell the user where the slot actually lives: "This setting exists on the grid component, not the section."
+
+The proposal card distinguishes impossible requests (grey border, neutral background) from fixable ones (amber border, attention background). Each error step shows a plain-language explanation, and a native `<details>` disclosure hides the raw technical details (slot names, alternatives list) behind "Show technical details". The status bar now shows contextual messages derived from the first failed step instead of the generic "Preview failed."
+
+### Changes
+
+- **System prompt hardening**: 3-point pre-proposal verification checklist in `lib/ai-context.php`
+- **Cross-component slot search**: exact-name and suffix-match strategies in `lib/ai-chat.php`
+- **Guided error card**: `renderPreviewError()` renders structured error with hint, alternatives, and `<details>` disclosure
+- **Error state CSS**: `.pp-ai-step-impossible` (grey #8c8f94) and `.pp-ai-step-fixable` (amber #dba617)
+- **Contextual status messages**: `getStatusMessage()` returns situation-specific text per error type
+- **16 new tests**: 7 PHP tests for cross-component hints, 9 JS tests for error card rendering
+
+### The 5 numbers that matter
+
+| Metric | Value |
+|--------|-------|
+| Files changed | 6 (4 source + 2 test) |
+| Lines added | 472 |
+| Lines removed | 46 |
+| PHP tests | 614 passing |
+| JS tests | 191 passing |
+
+---
+
 ## [v0.8.2] — 2026-06-15 — AI Context Quality + Visual Accountability
 
 ### The chat now knows what it's editing — and shows you what will change before it happens
