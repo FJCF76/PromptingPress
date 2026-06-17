@@ -9,6 +9,10 @@ body.pp-ai-chat-page #wpcontent {
     padding-left: 20px;
 }
 
+body.pp-ai-chat-page #wpfooter {
+    display: none;
+}
+
 /* ── Chat App Container ───────────────────────────────────────────────────── */
 
 .pp-ai-chat-wrap {
@@ -135,6 +139,15 @@ body.pp-ai-chat-page #wpcontent {
 }
 
 .pp-ai-chat-messages:empty::before {
+    content: '\1F4AC';
+    font-size: 40px;
+    display: block;
+    margin-bottom: 12px;
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+.pp-ai-chat-messages:empty::after {
     content: 'Ask me to change colors, layouts, or content\2026';
     color: #a7aaad;
     font-size: 14px;
@@ -492,7 +505,7 @@ body.pp-ai-chat-page #wpcontent {
 .pp-ai-chat-input-area textarea {
     flex: 1;
     resize: none;
-    font-size: 14px;
+    font-size: 16px;
     line-height: 1.5;
     padding: 8px 12px;
     border: 1px solid #8c8f94;
@@ -524,4 +537,32 @@ body.pp-ai-chat-page #wpcontent {
     opacity: 0.6;
     cursor: default;
     pointer-events: none;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 960px) {
+    .pp-ai-chat-wrap {
+        margin: 0 20px;
+    }
+}
+
+@media (max-width: 782px) {
+    /* WP admin bar is 46px on mobile, not 32px */
+    #pp-ai-chat-app {
+        height: calc(100vh - 46px - 60px);
+    }
+
+    .pp-ai-chat-wrap {
+        margin: 0 10px;
+    }
+
+    .pp-ai-chat-header {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .pp-ai-new-chat {
+        margin-left: 0;
+    }
 }
