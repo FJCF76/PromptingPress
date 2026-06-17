@@ -457,6 +457,41 @@ if (!function_exists('wp_untrash_post')) {
     }
 }
 
+// ── wp_get_upload_dir stub ────────────────────────────────────────────────
+if (!function_exists('wp_get_upload_dir')) {
+    function wp_get_upload_dir(): array {
+        return [
+            'baseurl' => 'https://example.com/wp-content/uploads',
+            'basedir' => sys_get_temp_dir() . '/pp-test-uploads',
+        ];
+    }
+}
+
+// ── WP_Query stub (supports meta_query IN for attachment lookup) ──────────
+if (!class_exists('WP_Query')) {
+    class WP_Query {
+        public array $posts = [];
+
+        public function __construct(array $args = []) {
+            // Support meta_query IN comparison for _wp_attached_file lookups.
+            if (
+                isset($args['post_type']) && $args['post_type'] === 'attachment'
+                && isset($args['meta_query'][0]['key'])
+                && $args['meta_query'][0]['key'] === '_wp_attached_file'
+                && isset($args['meta_query'][0]['compare'])
+                && $args['meta_query'][0]['compare'] === 'IN'
+            ) {
+                $search_values = $args['meta_query'][0]['value'] ?? [];
+                foreach ($GLOBALS['_pp_test_store']['post_meta'] as $post_id => $meta) {
+                    if (isset($meta['_wp_attached_file']) && in_array($meta['_wp_attached_file'], $search_values, true)) {
+                        $this->posts[] = $post_id;
+                    }
+                }
+            }
+        }
+    }
+}
+
 // ABSPATH stub for target discovery.
 if (!defined('ABSPATH')) {
     define('ABSPATH', '/var/www/html/');
@@ -619,3 +654,4 @@ require_once dirname(__DIR__) . '/lib/screenshot.php';
 require_once dirname(__DIR__) . '/lib/ai-context.php';
 require_once dirname(__DIR__) . '/lib/ai-provider.php';
 require_once dirname(__DIR__) . '/lib/ai-chat.php';
+require_once dirname(__DIR__) . '/lib/post-apply-validate.php';

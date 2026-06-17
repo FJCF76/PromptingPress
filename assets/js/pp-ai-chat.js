@@ -130,6 +130,42 @@ function ppChatGetStatusMessage(data) {
     return 'Some changes couldn\'t be previewed. See details above.';
 }
 
+/**
+ * Appends validation items (errors or warnings) to a container.
+ * Shows first 5 inline; collapses the rest in a <details> disclosure (D6).
+ */
+function ppChatAppendValidationItems(container, items, className) {
+    if (!items || !items.length) return;
+
+    var MAX_INLINE = 5;
+    var shown = items.slice(0, MAX_INLINE);
+    var overflow = items.slice(MAX_INLINE);
+
+    shown.forEach(function (item) {
+        var div = document.createElement('div');
+        div.className = className;
+        div.textContent = item.message;
+        container.appendChild(div);
+    });
+
+    if (overflow.length > 0) {
+        var details = document.createElement('details');
+        details.className = 'pp-ai-preview-error-detail';
+        var summary = document.createElement('summary');
+        summary.textContent = 'Show ' + overflow.length + ' more ' + (className.indexOf('warning') !== -1 ? 'warning' : 'error') + (overflow.length === 1 ? '' : 's');
+        details.appendChild(summary);
+
+        overflow.forEach(function (item) {
+            var div = document.createElement('div');
+            div.className = className;
+            div.textContent = item.message;
+            details.appendChild(div);
+        });
+
+        container.appendChild(details);
+    }
+}
+
 (function () {
     'use strict';
 
@@ -707,10 +743,49 @@ function ppChatGetStatusMessage(data) {
         // Clear existing card content and build post-apply summary
         card.innerHTML = '';
 
-        var successDiv = document.createElement('div');
-        successDiv.className = 'pp-ai-status';
-        successDiv.textContent = '\u2713 All changes applied successfully.';
-        card.appendChild(successDiv);
+        // Last-step-wins (D2): use the final step's validation for the card state.
+        var lastValidation = null;
+        for (var vi = applied.length - 1; vi >= 0; vi--) {
+            if (applied[vi]._validation) {
+                lastValidation = applied[vi]._validation;
+                break;
+            }
+        }
+
+        // Validation section (replaces the old unconditional success message).
+        var validationSection = document.createElement('div');
+        validationSection.setAttribute('role', 'status');
+        validationSection.setAttribute('aria-live', 'polite');
+
+        if (!lastValidation || lastValidation.ok) {
+            // Passed (possibly with warnings).
+            var hasWarnings = lastValidation && lastValidation.warnings && lastValidation.warnings.length > 0;
+
+            var statusDiv = document.createElement('div');
+            statusDiv.className = hasWarnings ? 'pp-ai-step-warning' : 'pp-ai-step-done';
+            statusDiv.textContent = hasWarnings
+                ? '\u2713 Changes applied with warnings.'
+                : '\u2713 All changes applied successfully.';
+            validationSection.appendChild(statusDiv);
+
+            if (hasWarnings) {
+                ppChatAppendValidationItems(validationSection, lastValidation.warnings, 'pp-ai-step-warning');
+            }
+        } else {
+            // Failed.
+            var errorDiv = document.createElement('div');
+            errorDiv.className = 'pp-ai-step-failed';
+            errorDiv.textContent = '\u2717 Changes applied but rendered page validation failed.';
+            validationSection.appendChild(errorDiv);
+
+            ppChatAppendValidationItems(validationSection, lastValidation.errors, 'pp-ai-step-failed');
+
+            if (lastValidation.warnings && lastValidation.warnings.length > 0) {
+                ppChatAppendValidationItems(validationSection, lastValidation.warnings, 'pp-ai-step-warning');
+            }
+        }
+
+        card.appendChild(validationSection);
 
         applied.forEach(function (step) {
             var lineDiv = document.createElement('div');
@@ -792,10 +867,25 @@ function ppChatGetStatusMessage(data) {
             // Build post-apply summary inside the card
             buildPostApplyCard(card, applied, steps);
 
-            // Inject confirmation into conversation so the AI knows mutations were applied
+            // Inject confirmation into conversation so the AI knows mutations were applied.
+            // Last-step-wins (D2): condition the assistant message on the final validation.
             var summary = applied.map(function (s) { return s.description || s.name; }).join('; ');
             conversation.push({ role: 'user', content: '[Applied changes: ' + summary + ']' });
-            conversation.push({ role: 'assistant', content: 'Changes applied successfully.' });
+
+            var lastVal = null;
+            for (var lvi = applied.length - 1; lvi >= 0; lvi--) {
+                if (applied[lvi]._validation) { lastVal = applied[lvi]._validation; break; }
+            }
+
+            if (!lastVal || (lastVal.ok && (!lastVal.warnings || lastVal.warnings.length === 0))) {
+                conversation.push({ role: 'assistant', content: 'Changes applied successfully.' });
+            } else if (lastVal.ok && lastVal.warnings && lastVal.warnings.length > 0) {
+                var warnSummary = lastVal.warnings.map(function (w) { return w.message; }).join('; ');
+                conversation.push({ role: 'assistant', content: 'Changes applied with warnings: ' + warnSummary });
+            } else {
+                var errSummary = lastVal.errors.map(function (e) { return e.message; }).join('; ');
+                conversation.push({ role: 'assistant', content: 'Changes applied but rendered page validation failed: ' + errSummary + '. The page may still have broken images or missing content.' });
+            }
             saveState();
             inputEl.focus();
             return;
@@ -831,6 +921,7 @@ function ppChatGetStatusMessage(data) {
             if (resp.success) {
                 stepElements[index].classList.remove('pp-ai-step-executing');
                 stepElements[index].classList.add('pp-ai-step-done');
+                step._validation = resp.data && resp.data.validation ? resp.data.validation : null;
                 applied.push(step);
                 executeStep(steps, stepElements, index + 1, applied, card);
             } else {
@@ -1196,6 +1287,7 @@ if (typeof module !== 'undefined' && module.exports) {
         isRevertEligible: ppChatIsRevertEligible,
         renderPreviewError: ppChatRenderPreviewError,
         getErrorStepClass: ppChatGetErrorStepClass,
-        getStatusMessage: ppChatGetStatusMessage
+        getStatusMessage: ppChatGetStatusMessage,
+        appendValidationItems: ppChatAppendValidationItems
     };
 }

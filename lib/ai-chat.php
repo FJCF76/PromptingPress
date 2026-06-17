@@ -764,6 +764,25 @@ add_action('wp_ajax_pp_ai_execute', function () {
         wp_send_json_error($result['error'] ?? 'Execution failed.');
     }
 
+    // Post-apply validation — wrapped in try/catch so validation failure
+    // never swallows the successful apply response (D1).
+    $validation = null;
+    if (isset($params['post_id'])) {
+        try {
+            $validation = pp_post_apply_validate((int) $params['post_id']);
+        } catch (\Throwable $e) {
+            $validation = [
+                'ok'       => false,
+                'warnings' => [],
+                'errors'   => [[
+                    'check'   => 'validation_error',
+                    'message' => 'Validation failed: ' . $e->getMessage(),
+                ]],
+            ];
+        }
+    }
+
+    $result['validation'] = $validation;
     wp_send_json_success($result);
 });
 

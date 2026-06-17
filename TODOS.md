@@ -12,6 +12,8 @@
 
 - **Evaluate `--measure-centered` value** — After visual validation on dev, test whether centered section body can tighten from `56rem` to a ch-based value (e.g., `75ch` or `80ch`). The `--measure-centered` token in `assets/css/base.css` was set to `56rem` as a safe default (preserves existing layout). A tighter value may produce better reading measure for centered marketing intros, but needs visual validation first. See issue #53.
 
+- **`wp pp validate page` CLI command** — Expose `pp_post_apply_validate()` via WP-CLI: `wp pp validate page --post_id=N [--component-index=M]`. Reuses the existing validation function from `lib/post-apply-validate.php`. Useful for batch validation, CI checks, and debugging. Depends on post-apply validation shipping (issue #75).
+
 - **New Chat confirmation dialog** — Clicking "New Chat" immediately clears all messages without confirmation. Add a simple `confirm()` or inline prompt when a conversation exists (1+ messages). Low severity — conversations are ephemeral in v1 (no server-side history). Surfaced by live design audit (2026-06-15, FINDING-L04).
 
 - **Markdown h4/h5 heading visual distinction in assistant messages** — Both render identically (14px, 600 weight). Rarely used in practice by AI responses. If needed, differentiate h4 at 14px and h5 at 13px or italic. Surfaced by live design audit (2026-06-15, FINDING-L07).
