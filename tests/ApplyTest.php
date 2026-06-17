@@ -434,13 +434,119 @@ class ApplyTest extends TestCase
         $this->assertTrue($result['ok']);
         $this->assertEquals('update_design_token', $result['apply']);
         $this->assertEquals('design', $result['domain']);
-        $this->assertCount(1, $result['changes']);
+        // 1 base change + 4 derived accent family tokens auto-updated
+        $this->assertCount(5, $result['changes']);
         $this->assertEquals('#3157f4', $result['changes'][0]['from']);
         $this->assertEquals('#b45309', $result['changes'][0]['to']);
 
-        // Verify the override is in the database
+        // Verify the override and derived tokens are in the database
         $overrides = pp_get_token_overrides();
         $this->assertEquals('#b45309', $overrides['--color-accent']);
+        $this->assertArrayHasKey('--color-accent-hover', $overrides);
+        $this->assertArrayHasKey('--color-accent-strong', $overrides);
+        $this->assertArrayHasKey('--color-border-accent', $overrides);
+        $this->assertArrayHasKey('--color-surface-accent', $overrides);
+    }
+
+    public function testAccentFamilyDerivation(): void
+    {
+        $result = pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#7a4f2e']);
+
+        $this->assertTrue($result['ok']);
+        $overrides = pp_get_token_overrides();
+
+        // All derived tokens should be brown-family, not blue
+        $hover = _pp_hex_to_rgb($overrides['--color-accent-hover']);
+        $strong = _pp_hex_to_rgb($overrides['--color-accent-strong']);
+        $border = _pp_hex_to_rgb($overrides['--color-border-accent']);
+        $surface = _pp_hex_to_rgb($overrides['--color-surface-accent']);
+
+        // Hover and strong should be darker than base (lower R channel for brown)
+        $base = _pp_hex_to_rgb('#7a4f2e');
+        $this->assertLessThan($base[0], $hover[0], 'Hover should be darker');
+        $this->assertLessThan($hover[0], $strong[0], 'Strong should be darker than hover');
+
+        // Border-accent should be lighter (pastel)
+        $this->assertGreaterThan($base[0], $border[0], 'Border-accent should be lighter');
+
+        // Surface-accent should be very light
+        $this->assertGreaterThan(200, $surface[0], 'Surface-accent should be very light');
+    }
+
+    public function testTextFamilyDerivation(): void
+    {
+        $result = pp_execute_apply('update_design_token', ['token' => '--color-text', 'value' => '#1a1208']);
+        $this->assertTrue($result['ok']);
+
+        $overrides = pp_get_token_overrides();
+        $this->assertArrayHasKey('--color-text-secondary', $overrides);
+
+        // Secondary should be lighter than text
+        $text = _pp_hex_to_rgb('#1a1208');
+        $secondary = _pp_hex_to_rgb($overrides['--color-text-secondary']);
+        $this->assertGreaterThan($text[0], $secondary[0]);
+    }
+
+    public function testNonFamilyTokenDoesNotDerive(): void
+    {
+        $result = pp_execute_apply('update_design_token', ['token' => '--color-bg', 'value' => '#f0f0f0']);
+        $this->assertTrue($result['ok']);
+        // Only 1 change (no derived tokens for --color-bg)
+        $this->assertCount(1, $result['changes']);
+    }
+
+    public function testFallbackDerivationSkipsExistingOverrides(): void
+    {
+        // Pre-set an explicit override for --color-accent-strong (a blue the AI chose)
+        pp_set_token_override('--color-accent-strong', '#2744b7');
+
+        // Now update the base accent to brown
+        $result = pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#7a4f2e']);
+        $this->assertTrue($result['ok']);
+
+        // The explicit --color-accent-strong override should be preserved (NOT overwritten)
+        $overrides = pp_get_token_overrides();
+        $this->assertEquals('#2744b7', $overrides['--color-accent-strong'],
+            'Existing override must not be overwritten by derivation');
+
+        // Other derived tokens without overrides should still be auto-derived
+        $this->assertArrayHasKey('--color-accent-hover', $overrides);
+        $this->assertArrayHasKey('--color-border-accent', $overrides);
+        $this->assertArrayHasKey('--color-surface-accent', $overrides);
+
+        // Changes should NOT include --color-accent-strong (it was skipped)
+        $changed_tokens = array_column($result['changes'], 'token');
+        $this->assertNotContains('--color-accent-strong', $changed_tokens);
+        // But should include the other 3 derived + 1 base = 4 changes
+        $this->assertCount(4, $result['changes']);
+    }
+
+    public function testFallbackDerivationReturnsStaleWarnings(): void
+    {
+        // Pre-set a blue override for a derived token
+        pp_set_token_override('--color-accent-strong', '#2744b7');
+
+        // Update base to brown — hue drift should trigger a stale warning
+        $result = pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#7a4f2e']);
+        $this->assertTrue($result['ok']);
+        $this->assertArrayHasKey('stale_warnings', $result);
+        $this->assertNotEmpty($result['stale_warnings']);
+
+        // The warning should be about --color-accent-strong
+        $warned_tokens = array_column($result['stale_warnings'], 'token');
+        $this->assertContains('--color-accent-strong', $warned_tokens);
+    }
+
+    public function testNoStaleWarningsWhenCoherent(): void
+    {
+        // Pre-set a brown override that's coherent with brown base (same hue family)
+        pp_set_token_override('--color-accent-strong', '#563820');
+
+        // Update base to similar brown — hue drift should be small, no warning
+        $result = pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#7a4f2e']);
+        $this->assertTrue($result['ok']);
+        $this->assertArrayNotHasKey('stale_warnings', $result,
+            'Coherent overrides should not produce stale warnings');
     }
 
     public function testExecuteComplexValueRgba(): void
@@ -558,12 +664,13 @@ class ApplyTest extends TestCase
 
     public function testResetAllDesignTokensClearsAll(): void
     {
+        // Setting --color-accent also auto-derives 4 family tokens (5 total + 1 for --color-bg = 6)
         pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309']);
         pp_execute_apply('update_design_token', ['token' => '--color-bg', 'value' => '#000000']);
 
         $result = pp_execute_apply('reset_all_design_tokens', []);
         $this->assertTrue($result['ok']);
-        $this->assertCount(2, $result['changes']);
+        $this->assertCount(6, $result['changes']);
         $this->assertSame([], pp_get_token_overrides());
     }
 

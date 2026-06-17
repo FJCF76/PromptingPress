@@ -908,6 +908,30 @@ function ppChatAppendValidationItems(container, items, className) {
 
         card.appendChild(validationSection);
 
+        // Stale token warnings — advisory only, never block the apply.
+        // Collect all stale warnings, then filter out any that were explicitly
+        // updated by a later step in the same proposal (the AI fixed them).
+        var allStaleWarnings = [];
+        var explicitlyUpdated = {};
+        applied.forEach(function (step) {
+            if (step.params && step.params.token) {
+                explicitlyUpdated[step.params.token] = true;
+            }
+            if (step._staleWarnings) {
+                step._staleWarnings.forEach(function (w) { allStaleWarnings.push(w); });
+            }
+        });
+        var staleWarnings = allStaleWarnings.filter(function (w) {
+            return !explicitlyUpdated[w.token];
+        });
+        if (staleWarnings.length === 0) staleWarnings = null;
+        if (staleWarnings) {
+            var staleItems = staleWarnings.map(function (w) {
+                return { message: w.token + ' (' + w.current + ') may not match the new palette \u2014 review if unintended.' };
+            });
+            ppChatAppendValidationItems(validationSection, staleItems, 'pp-ai-step-warning');
+        }
+
         applied.forEach(function (step) {
             var lineDiv = document.createElement('div');
             lineDiv.className = 'pp-ai-status';
@@ -998,8 +1022,26 @@ function ppChatAppendValidationItems(container, items, className) {
                 if (applied[lvi]._validation) { lastVal = applied[lvi]._validation; break; }
             }
 
+            // Collect stale token warnings for conversation context.
+            // Filter out tokens the AI explicitly updated in this proposal.
+            var convStale = [];
+            var convExplicit = {};
+            applied.forEach(function (s) {
+                if (s.params && s.params.token) convExplicit[s.params.token] = true;
+                if (s._staleWarnings) {
+                    s._staleWarnings.forEach(function (w) { convStale.push(w); });
+                }
+            });
+            convStale = convStale.filter(function (w) { return !convExplicit[w.token]; });
+            var staleSuffix = '';
+            if (convStale.length > 0) {
+                staleSuffix = ' Note: some existing token overrides may not match the new palette: ' +
+                    convStale.map(function (w) { return w.token; }).join(', ') +
+                    '. These were kept as-is — update them if the visual result looks inconsistent.';
+            }
+
             if (!lastVal || (lastVal.ok && (!lastVal.warnings || lastVal.warnings.length === 0))) {
-                conversation.push({ role: 'assistant', content: 'Changes applied successfully.' });
+                conversation.push({ role: 'assistant', content: 'Changes applied successfully.' + staleSuffix });
             } else if (lastVal.ok && lastVal.warnings && lastVal.warnings.length > 0) {
                 var warnSummary = lastVal.warnings.map(function (w) { return w.message; }).join('; ');
                 conversation.push({ role: 'assistant', content: 'Changes applied with warnings: ' + warnSummary });
@@ -1043,6 +1085,7 @@ function ppChatAppendValidationItems(container, items, className) {
                 stepElements[index].classList.remove('pp-ai-step-executing');
                 stepElements[index].classList.add('pp-ai-step-done');
                 step._validation = resp.data && resp.data.validation ? resp.data.validation : null;
+                step._staleWarnings = resp.data && resp.data.stale_warnings ? resp.data.stale_warnings : null;
                 applied.push(step);
                 executeStep(steps, stepElements, index + 1, applied, card);
             } else {

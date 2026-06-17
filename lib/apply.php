@@ -463,12 +463,34 @@ pp_register_apply('update_design_token', [
                 sprintf('Verification failed: token "%s" not set to expected value after write.', $token));
         }
 
-        return _pp_apply_result(
+        $changes = [['token' => $token, 'from' => $old_value, 'to' => $value]];
+
+        // Fallback-only derivation: auto-derive family tokens only when they
+        // have NO existing override in the DB.  Tokens with explicit overrides
+        // are respected (the AI or user chose them intentionally).
+        $existing_overrides = pp_get_token_overrides();
+        $derived = pp_derive_family_tokens($token, $value);
+        foreach ($derived as $derived_token => $derived_value) {
+            if (isset($existing_overrides[$derived_token])) {
+                continue; // respect existing override
+            }
+            pp_set_token_override($derived_token, $derived_value);
+            $changes[] = ['token' => $derived_token, 'from' => null, 'to' => $derived_value];
+        }
+
+        // Check coherence of existing overrides that were skipped above.
+        $stale_warnings = pp_check_token_coherence($token, $value);
+
+        $result = _pp_apply_result(
             'update_design_token',
             'design',
             $target,
-            [['token' => $token, 'from' => $old_value, 'to' => $value]]
+            $changes
         );
+        if (!empty($stale_warnings)) {
+            $result['stale_warnings'] = $stale_warnings;
+        }
+        return $result;
     },
 ]);
 

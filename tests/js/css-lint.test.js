@@ -39,7 +39,7 @@ describe('CSS lint: positional selectors', () => {
 
 describe('CSS lint: no modern CSS features', () => {
     const MODERN_FEATURES = [
-        { name: 'color-mix()', pattern: /color-mix\s*\(/ },
+        // color-mix() intentionally allowed — used for token-adaptive button shadows/focus rings.
         { name: 'backdrop-filter', pattern: /backdrop-filter\s*:/ },
         { name: 'mask-image', pattern: /mask-image\s*:/ },
         { name: ':has()', pattern: /:has\s*\(/ },

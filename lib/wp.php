@@ -407,6 +407,199 @@ function pp_clear_all_token_overrides(): int {
     return $count;
 }
 
+// ── Token Family Derivation ─────────────────────────────────────────────────
+// When a base token changes, derived tokens must update to stay visually coherent.
+
+/**
+ * Parses a hex color string to [r, g, b] (0-255 each).
+ *
+ * @param string $hex  e.g. '#7a4f2e' or '7a4f2e'.
+ * @return array{int, int, int}|null  [r, g, b] or null if unparseable.
+ */
+function _pp_hex_to_rgb(string $hex): ?array {
+    $hex = ltrim($hex, '#');
+    if (strlen($hex) === 3) {
+        $hex = $hex[0] . $hex[0] . $hex[1] . $hex[1] . $hex[2] . $hex[2];
+    }
+    if (strlen($hex) !== 6 || !ctype_xdigit($hex)) {
+        return null;
+    }
+    return [
+        (int) hexdec(substr($hex, 0, 2)),
+        (int) hexdec(substr($hex, 2, 2)),
+        (int) hexdec(substr($hex, 4, 2)),
+    ];
+}
+
+/**
+ * Converts [r, g, b] (0-255) to a hex color string.
+ */
+function _pp_rgb_to_hex(int $r, int $g, int $b): string {
+    return sprintf('#%02x%02x%02x', max(0, min(255, $r)), max(0, min(255, $g)), max(0, min(255, $b)));
+}
+
+/**
+ * Mixes a color with another at a given ratio (0.0 = all $base, 1.0 = all $mix).
+ *
+ * @param array{int,int,int} $base  RGB of the base color.
+ * @param array{int,int,int} $mix   RGB of the mix color.
+ * @param float              $ratio 0.0–1.0 blend factor toward $mix.
+ * @return string  Hex color.
+ */
+function _pp_color_mix(array $base, array $mix, float $ratio): string {
+    $r = (int) round($base[0] + ($mix[0] - $base[0]) * $ratio);
+    $g = (int) round($base[1] + ($mix[1] - $base[1]) * $ratio);
+    $b = (int) round($base[2] + ($mix[2] - $base[2]) * $ratio);
+    return _pp_rgb_to_hex($r, $g, $b);
+}
+
+/**
+ * Token family definitions: base token → derived tokens with mix ratios.
+ *
+ * Each derived token is produced by mixing the base color with black or white.
+ * Ratios are calibrated against the product defaults in base.css so the visual
+ * relationships hold regardless of the chosen accent/text hue.
+ *
+ * @return array<string, array<string, array{mix: 'black'|'white', ratio: float}>>
+ */
+function pp_token_families(): array {
+    return [
+        '--color-accent' => [
+            '--color-accent-hover'   => ['mix' => 'black', 'ratio' => 0.15],
+            '--color-accent-strong'  => ['mix' => 'black', 'ratio' => 0.30],
+            '--color-border-accent'  => ['mix' => 'white', 'ratio' => 0.55],
+            '--color-surface-accent' => ['mix' => 'white', 'ratio' => 0.88],
+        ],
+        '--color-text' => [
+            '--color-text-secondary' => ['mix' => 'white', 'ratio' => 0.20],
+        ],
+    ];
+}
+
+/**
+ * Derives related tokens from a base token value.
+ *
+ * @param string $base_token  e.g. '--color-accent'.
+ * @param string $base_value  Hex color value for the base token.
+ * @return array<string, string>  Derived token name => hex value. Empty if not a family base or not a valid hex.
+ */
+function pp_derive_family_tokens(string $base_token, string $base_value): array {
+    $families = pp_token_families();
+    if (!isset($families[$base_token])) {
+        return [];
+    }
+
+    $rgb = _pp_hex_to_rgb($base_value);
+    if ($rgb === null) {
+        return [];
+    }
+
+    $black = [0, 0, 0];
+    $white = [255, 255, 255];
+    $derived = [];
+
+    foreach ($families[$base_token] as $derived_token => $recipe) {
+        $mix_color = $recipe['mix'] === 'black' ? $black : $white;
+        $derived[$derived_token] = _pp_color_mix($rgb, $mix_color, $recipe['ratio']);
+    }
+
+    return $derived;
+}
+
+/**
+ * Extracts the hue (0–360) from an RGB triplet.
+ * Returns null for achromatic colors (saturation near zero).
+ */
+function _pp_rgb_to_hue(array $rgb): ?float {
+    $r = $rgb[0] / 255;
+    $g = $rgb[1] / 255;
+    $b = $rgb[2] / 255;
+    $max = max($r, $g, $b);
+    $min = min($r, $g, $b);
+    $delta = $max - $min;
+
+    if ($delta < 0.02) {
+        return null; // achromatic
+    }
+
+    if ($max === $r) {
+        $h = 60 * fmod(($g - $b) / $delta, 6);
+    } elseif ($max === $g) {
+        $h = 60 * (($b - $r) / $delta + 2);
+    } else {
+        $h = 60 * (($r - $g) / $delta + 4);
+    }
+
+    return $h < 0 ? $h + 360 : $h;
+}
+
+/**
+ * Checks whether existing derived token overrides are coherent with a new base value.
+ *
+ * Returns warnings for tokens whose hue drifts more than 30° from the new base,
+ * suggesting they may be stale from a previous palette. Only checks tokens that
+ * already have an override in the database (unset tokens get auto-derived, so they
+ * can't be stale).
+ *
+ * @param string $base_token  e.g. '--color-accent'.
+ * @param string $base_value  New hex value for the base token.
+ * @return array<array{token: string, current: string, expected: string, message: string}>
+ */
+function pp_check_token_coherence(string $base_token, string $base_value): array {
+    $families = pp_token_families();
+    if (!isset($families[$base_token])) {
+        return [];
+    }
+
+    $base_rgb = _pp_hex_to_rgb($base_value);
+    if ($base_rgb === null) {
+        return [];
+    }
+    $base_hue = _pp_rgb_to_hue($base_rgb);
+
+    $overrides = pp_get_token_overrides();
+    $derived = pp_derive_family_tokens($base_token, $base_value);
+    $warnings = [];
+
+    foreach ($families[$base_token] as $derived_token => $_recipe) {
+        // Only warn about tokens that already have overrides (those are the ones we skip)
+        if (!isset($overrides[$derived_token])) {
+            continue;
+        }
+
+        $current_rgb = _pp_hex_to_rgb($overrides[$derived_token]);
+        if ($current_rgb === null) {
+            continue;
+        }
+        $current_hue = _pp_rgb_to_hue($current_rgb);
+
+        // Skip achromatic comparisons (grays have no meaningful hue)
+        if ($base_hue === null || $current_hue === null) {
+            continue;
+        }
+
+        // Circular hue distance
+        $distance = abs($current_hue - $base_hue);
+        if ($distance > 180) {
+            $distance = 360 - $distance;
+        }
+
+        if ($distance > 30) {
+            $warnings[] = [
+                'token'    => $derived_token,
+                'current'  => $overrides[$derived_token],
+                'expected' => $derived[$derived_token] ?? $overrides[$derived_token],
+                'message'  => sprintf(
+                    '%s (%s) may be stale — hue differs %.0f° from %s (%s). Consider updating it.',
+                    $derived_token, $overrides[$derived_token], $distance, $base_token, $base_value
+                ),
+            ];
+        }
+    }
+
+    return $warnings;
+}
+
 /**
  * Returns custom font URLs from the database.
  *
