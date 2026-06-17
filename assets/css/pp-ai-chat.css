@@ -323,10 +323,6 @@ body.pp-ai-chat-page #wpfooter {
     margin: 4px 0;
     max-width: 90%;
     align-self: flex-start;
-    max-height: 70vh;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
 }
 
 .pp-ai-proposal-title {
@@ -439,9 +435,6 @@ body.pp-ai-chat-page #wpfooter {
     margin-top: 12px;
     padding-top: 12px;
     border-top: 1px solid #f0f0f1;
-    position: sticky;
-    bottom: 0;
-    background: #fff;
 }
 
 .pp-ai-proposal-cancelled {
