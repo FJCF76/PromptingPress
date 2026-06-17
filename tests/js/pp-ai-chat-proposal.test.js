@@ -45,6 +45,7 @@ const {
     renderPreviewError,
     getErrorStepClass,
     getStatusMessage,
+    buildCompositionSummary,
 } = require('../../assets/js/pp-ai-chat.js');
 
 // ─── IMPACT_WARNINGS map ────────────────────────────────────────────────────
@@ -381,5 +382,108 @@ describe('getStatusMessage', function () {
     test('fallback message for unknown error', function () {
         var msg = getStatusMessage({ error_code: 'something_else', cross_component_hints: {} });
         expect(msg).toContain('couldn\'t be previewed');
+    });
+});
+
+// ─── buildCompositionSummary ───────────────────────────────────────────────
+
+describe('buildCompositionSummary', function () {
+    test('reports component count change', function () {
+        var result = buildCompositionSummary(
+            [{ component: 'hero', props: {} }],
+            [{ component: 'hero', props: {} }, { component: 'cta', props: {} }]
+        );
+        expect(result.fromCount).toBe(1);
+        expect(result.toCount).toBe(2);
+        expect(result.lines[0]).toContain('1');
+        expect(result.lines[0]).toContain('2');
+    });
+
+    test('identifies added components', function () {
+        var result = buildCompositionSummary(
+            [{ component: 'hero', props: {} }],
+            [{ component: 'hero', props: {} }, { component: 'cta', props: {} }, { component: 'stats', props: {} }]
+        );
+        expect(result.lines.join('\n')).toContain('+ Added: cta, stats');
+    });
+
+    test('identifies removed components', function () {
+        var result = buildCompositionSummary(
+            [{ component: 'hero', props: {} }, { component: 'grid', props: {} }, { component: 'cta', props: {} }],
+            [{ component: 'hero', props: {} }]
+        );
+        expect(result.lines.join('\n')).toContain('Removed: grid, cta');
+    });
+
+    test('detects reordered components', function () {
+        var result = buildCompositionSummary(
+            [{ component: 'hero', props: {} }, { component: 'cta', props: {} }],
+            [{ component: 'cta', props: {} }, { component: 'hero', props: {} }]
+        );
+        expect(result.lines.join('\n')).toContain('reordered');
+    });
+
+    test('does not report reorder when types differ', function () {
+        var result = buildCompositionSummary(
+            [{ component: 'hero', props: {} }],
+            [{ component: 'cta', props: {} }]
+        );
+        expect(result.lines.join('\n')).not.toContain('reordered');
+    });
+
+    test('detects content changes in text fields', function () {
+        var result = buildCompositionSummary(
+            [{ component: 'hero', props: { title: 'Old Title' } }],
+            [{ component: 'hero', props: { title: 'New Title' } }]
+        );
+        expect(result.lines.join('\n')).toContain('Content changes in 1 component');
+    });
+
+    test('shows component type list', function () {
+        var result = buildCompositionSummary(
+            [],
+            [{ component: 'hero', props: {} }, { component: 'services', props: {} }, { component: 'cta', props: {} }]
+        );
+        expect(result.lines.join('\n')).toContain('hero');
+        expect(result.lines.join('\n')).toContain('services');
+        expect(result.lines.join('\n')).toContain('cta');
+    });
+
+    test('handles empty from array (new page)', function () {
+        var result = buildCompositionSummary(
+            [],
+            [{ component: 'hero', props: {} }, { component: 'cta', props: {} }]
+        );
+        expect(result.fromCount).toBe(0);
+        expect(result.toCount).toBe(2);
+        expect(result.lines[0]).toContain('0');
+    });
+
+    test('handles large HVAC-style homepage composition', function () {
+        var from = [{ component: 'hero', props: { title: 'Old Hero' } }];
+        var to = [
+            { component: 'hero', props: { title: 'Expert HVAC Services' } },
+            { component: 'services', props: { title: 'Our Services' } },
+            { component: 'stats', props: { title: 'Why Choose Us' } },
+            { component: 'testimonials', props: { title: 'Customer Reviews' } },
+            { component: 'cta', props: { title: 'Get a Free Quote' } },
+            { component: 'grid', props: { title: 'Service Areas' } },
+            { component: 'section', props: { title: 'About Us' } },
+            { component: 'cta', props: { title: 'Emergency Service' } },
+        ];
+        var result = buildCompositionSummary(from, to);
+        expect(result.fromCount).toBe(1);
+        expect(result.toCount).toBe(8);
+        expect(result.lines[0]).toContain('1');
+        expect(result.lines[0]).toContain('8');
+        // Should report multiple additions
+        expect(result.lines.join('\n')).toContain('+ Added');
+        expect(result.lines.join('\n')).toContain('Content changes');
+    });
+
+    test('handles null/undefined inputs gracefully', function () {
+        var result = buildCompositionSummary(null, null);
+        expect(result.fromCount).toBe(0);
+        expect(result.toCount).toBe(0);
     });
 });

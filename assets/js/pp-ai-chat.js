@@ -29,6 +29,85 @@ function ppChatFormatDiffValue(val) {
     return String(val);
 }
 
+/**
+ * Builds a human-readable summary of a composition replacement.
+ * Compares from/to arrays by component type to identify adds, removes,
+ * reorders, and content changes.
+ *
+ * Returns an object: { lines: string[], fromCount: number, toCount: number }
+ */
+function ppChatBuildCompositionSummary(from, to) {
+    var fromArr = Array.isArray(from) ? from : [];
+    var toArr = Array.isArray(to) ? to : [];
+    var lines = [];
+
+    lines.push('Full composition replacement: ' + fromArr.length + ' \u2192 ' + toArr.length + ' components');
+
+    // Build type lists
+    var fromTypes = fromArr.map(function (c) { return (c && c.component) || '(unknown)'; });
+    var toTypes = toArr.map(function (c) { return (c && c.component) || '(unknown)'; });
+
+    // Count occurrences
+    var fromCounts = {};
+    var toCounts = {};
+    fromTypes.forEach(function (t) { fromCounts[t] = (fromCounts[t] || 0) + 1; });
+    toTypes.forEach(function (t) { toCounts[t] = (toCounts[t] || 0) + 1; });
+
+    // Identify added types (in to but not enough in from)
+    var added = [];
+    var removed = [];
+    var allTypes = {};
+    Object.keys(fromCounts).forEach(function (t) { allTypes[t] = true; });
+    Object.keys(toCounts).forEach(function (t) { allTypes[t] = true; });
+
+    Object.keys(allTypes).forEach(function (t) {
+        var diff = (toCounts[t] || 0) - (fromCounts[t] || 0);
+        if (diff > 0) {
+            for (var i = 0; i < diff; i++) added.push(t);
+        } else if (diff < 0) {
+            for (var i = 0; i < -diff; i++) removed.push(t);
+        }
+    });
+
+    if (added.length > 0) lines.push('+ Added: ' + added.join(', '));
+    if (removed.length > 0) lines.push('\u2212 Removed: ' + removed.join(', '));
+
+    // Detect reorder: same multiset of types but different sequence
+    var fromSorted = fromTypes.slice().sort().join(',');
+    var toSorted = toTypes.slice().sort().join(',');
+    if (fromSorted === toSorted && fromTypes.join(',') !== toTypes.join(',')) {
+        lines.push('\u21C5 Components reordered');
+    }
+
+    // Detect major content changes in shared components (by index, matching types)
+    var contentChanges = 0;
+    var maxCheck = Math.min(fromArr.length, toArr.length);
+    for (var i = 0; i < maxCheck; i++) {
+        if (fromTypes[i] === toTypes[i]) {
+            var fromProps = (fromArr[i] && fromArr[i].props) || {};
+            var toProps = (toArr[i] && toArr[i].props) || {};
+            // Check key text fields for changes
+            var textKeys = ['title', 'heading', 'text', 'content', 'description', 'subtitle', 'label'];
+            for (var k = 0; k < textKeys.length; k++) {
+                var key = textKeys[k];
+                if (fromProps[key] !== toProps[key] && (fromProps[key] || toProps[key])) {
+                    contentChanges++;
+                    break;
+                }
+            }
+        }
+    }
+    if (contentChanges > 0) {
+        lines.push('\u270E Content changes in ' + contentChanges + ' component' + (contentChanges > 1 ? 's' : ''));
+    }
+
+    // Component list
+    lines.push('');
+    lines.push('Components: ' + toTypes.join(' \u2192 '));
+
+    return { lines: lines, fromCount: fromArr.length, toCount: toArr.length };
+}
+
 function ppChatShouldShowMultiStepWarning(steps) {
     return steps && steps.length >= 3;
 }
@@ -544,6 +623,43 @@ function ppChatAppendValidationItems(container, items, className) {
         return div;
     }
 
+    function renderCompositionDiff(diffArea, change) {
+        var summary = ppChatBuildCompositionSummary(change.from, change.to);
+
+        // Summary section
+        var summaryDiv = document.createElement('div');
+        summaryDiv.className = 'pp-ai-composition-summary';
+        summary.lines.forEach(function (line) {
+            if (line === '') {
+                summaryDiv.appendChild(document.createElement('br'));
+            } else {
+                var p = document.createElement('div');
+                p.textContent = line;
+                summaryDiv.appendChild(p);
+            }
+        });
+        diffArea.appendChild(summaryDiv);
+
+        // Expandable raw JSON
+        var details = document.createElement('details');
+        details.className = 'pp-ai-composition-raw';
+
+        var summaryEl = document.createElement('summary');
+        var jsonStr = JSON.stringify(change.to, null, 2);
+        summaryEl.textContent = 'View raw composition JSON (' + summary.toCount + ' components, ' +
+            Math.round(jsonStr.length / 1024) + ' KB)';
+        details.appendChild(summaryEl);
+
+        var pre = document.createElement('pre');
+        pre.className = 'pp-ai-composition-json';
+        var code = document.createElement('code');
+        code.textContent = jsonStr;
+        pre.appendChild(code);
+        details.appendChild(pre);
+
+        diffArea.appendChild(details);
+    }
+
     function fetchPreview(step) {
         var data = new FormData();
         data.append('action', 'pp_ai_preview');
@@ -672,7 +788,12 @@ function ppChatAppendValidationItems(container, items, className) {
                     steps[i]._previewChanges = result.data.changes;
 
                     result.data.changes.forEach(function (change) {
-                        diffAreas[i].appendChild(renderDiffLine(change));
+                        if (steps[i].name === 'update_composition' && change.path === 'composition' &&
+                            Array.isArray(change.from) && Array.isArray(change.to)) {
+                            renderCompositionDiff(diffAreas[i], change);
+                        } else {
+                            diffAreas[i].appendChild(renderDiffLine(change));
+                        }
                     });
                     if (result.data.changes.length === 0) {
                         diffAreas[i].textContent = '(no changes)';
@@ -1288,6 +1409,7 @@ if (typeof module !== 'undefined' && module.exports) {
         renderPreviewError: ppChatRenderPreviewError,
         getErrorStepClass: ppChatGetErrorStepClass,
         getStatusMessage: ppChatGetStatusMessage,
-        appendValidationItems: ppChatAppendValidationItems
+        appendValidationItems: ppChatAppendValidationItems,
+        buildCompositionSummary: ppChatBuildCompositionSummary
     };
 }
