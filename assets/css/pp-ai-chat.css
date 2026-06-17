@@ -538,8 +538,7 @@ body.pp-ai-chat-page #wpfooter {
 
 #pp-ai-chat-app .button:disabled {
     opacity: 0.6;
-    cursor: default;
-    pointer-events: none;
+    cursor: not-allowed;
 }
 
 /* ── Responsive ──────────────────────────────────────────────────────────── */
