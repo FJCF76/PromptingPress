@@ -14,6 +14,8 @@ The system respects intentional choices: if a derived token already has an expli
 
 Button and CTA shadows no longer use hardcoded blue `rgba()` values. Ten instances are converted to `color-mix(in srgb, var(--color-accent-strong) N%, transparent)`, so shadows adapt to whatever palette is active.
 
+No new commands or flags. Token family derivation fires automatically on `update_design_token` applies. Stale warnings appear in the chat UI and feed into the AI conversation for the next turn.
+
 ### Changes
 
 - **Token family derivation**: `pp_token_families()`, `pp_derive_family_tokens()`, `pp_check_token_coherence()` in `lib/wp.php`

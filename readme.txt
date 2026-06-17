@@ -19,6 +19,13 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 
 == Changelog ==
 
+= 0.8.4 =
+* Token family derivation: changing a base color auto-derives related tokens
+* Fallback-only semantics: existing overrides preserved, stale warnings surfaced
+* Post-apply rendered HTML validation with DOM inspection
+* Adaptive CSS: hardcoded blue shadows replaced with token-adaptive color-mix()
+* 641 PHP tests, 208 JS tests
+
 = 0.8.3 =
 * System prompt hardening with pre-proposal verification checklist
 * Cross-component slot search with guided error recovery

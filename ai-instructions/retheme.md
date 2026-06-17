@@ -4,9 +4,9 @@ Follow these steps to change the visual design of the site. You can change the e
 
 ---
 
-## Step 1 — Edit the 8 color tokens in assets/css/base.css
+## Step 1 — Edit the 8 base color tokens in assets/css/base.css
 
-Open `/assets/css/base.css`. Find the `:root` block and change these 8 properties:
+Open `/assets/css/base.css`. Find the `:root` block and change these 8 properties. When using the programmatic path (`update_design_token`), changing `--color-accent` auto-derives the four accent variants and changing `--color-text` auto-derives `--color-text-secondary`:
 
 ```css
 --color-bg:           #ffffff;  /* Page background */
@@ -130,3 +130,5 @@ wp pp apply restore --run-id=<uuid>                                             
 Or from PHP: `pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309'])`.
 
 The apply layer validates token names, enforces type-specific value constraints, and verifies the write via database read-back. Use this path when rethemeing programmatically (e.g. from an AI interface).
+
+**Token family derivation:** When you change `--color-accent`, four derived tokens (`--color-accent-hover`, `--color-accent-strong`, `--color-border-accent`, `--color-surface-accent`) are auto-filled if they have no existing override. Changing `--color-text` auto-derives `--color-text-secondary`. Existing overrides are preserved. If a preserved override's hue drifts significantly from the new base, the apply returns a stale warning so the caller can decide whether to update it.

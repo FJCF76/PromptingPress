@@ -72,6 +72,7 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 | /lib/ai-context.php      | AI site context layer             | Extend for new context sources     |
 | /lib/ai-provider.php     | LLM provider proxy (streaming)    | Extend for new providers           |
 | /lib/screenshot.php      | Screenshot capture (browser integration) | Extend for new capture modes   |
+| /lib/post-apply-validate.php | Post-apply DOM validation       | Extend for new checks              |
 | /lib/ai-chat.php         | AI chat page + AJAX handlers      | Yes                                |
 | /ai-stream.php           | SSE streaming endpoint            | Thin transport only                |
 | /assets/js/pp-ai-chat.js | AI chat UI (streaming, proposals) | Yes                                |
@@ -197,6 +198,10 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_get_style_slots($component_name)` | Returns style_slots from component's schema.json. Returns `[]` for unknown components |
 | `pp_get_style_recipes($component_name)` | Returns recipes from component's schema.json. Returns `[]` for unknown components |
 | `pp_render_style_vars($style, $component_name)` | Validates style slots against schema, returns CSS custom property string for inline style attribute |
+| `pp_token_families()` | Returns token family definitions: base token to derived tokens with mix ratios |
+| `pp_derive_family_tokens($base_token, $value)` | Derives related tokens from a base token value (e.g., accent to hover/strong/border/surface) |
+| `pp_check_token_coherence($base_token, $value)` | Returns stale warnings for existing derived overrides whose hue drifts >30 degrees from the new base |
+| `pp_post_apply_validate($post_id, $target)` | Validates rendered page after apply: DOM inspection for broken images, empty content, missing components |
 | `pp_get_font_urls()` | Returns array of custom font URLs from `pp_font_urls` option |
 | `pp_set_font_urls($urls)` | Writes font URL array to `pp_font_urls` option |
 
@@ -268,6 +273,8 @@ Button:     --btn-padding-y, --btn-padding-x
 Shape:      --radius, --max-width, --measure-body, --measure-body-wide, --measure-centered,
             --transition, --overlay-bg
 ```
+
+**Token families:** Changing a base token (`--color-accent` or `--color-text`) auto-derives related tokens (hover, strong, border-accent, surface-accent, text-secondary) when they have no existing override. Existing overrides are preserved. If a preserved override's hue drifts more than 30 degrees from the new base, the apply returns a stale warning so the AI can offer to update it.
 
 Token overrides survive theme updates — `base.css` is overwritten on update, but overrides persist in the database. See `ai-instructions/retheme.md` for the full retheme workflow.
 
@@ -515,7 +522,7 @@ When the AI proposes a mutation, it outputs structured JSON:
 
 The chat UI renders this as a proposal card. Before showing Apply, each step fetches a preview via `pp_ai_preview` — displaying before/after diffs inline. High-impact actions (`update_composition`, `reset_all_design_tokens`, `clear_custom_css`, `remove_component`) show amber warnings. Multi-step proposals (3+ steps) show a card-level warning. If preview fails for any step, Apply is disabled and the error card shows guided recovery: a plain-language explanation, cross-component hints when a slot exists on a different component, and expandable technical details. Error steps are visually classified as impossible (grey) or fixable (amber).
 
-On Apply, each step executes via `wp_ajax_pp_ai_execute`, which delegates to `pp_execute_action()` or `pp_execute_apply()`. After successful execution, the card shows per-step confirmation, a "View Page" link to the affected page, and (for single-step `update_design_token`) a "Reset to default" shortcut. Applied changes are injected back into the conversation context so the AI knows about its own mutations.
+On Apply, each step executes via `wp_ajax_pp_ai_execute`, which delegates to `pp_execute_action()` or `pp_execute_apply()`. After successful execution, `pp_post_apply_validate()` inspects the rendered page via DOMDocument: checking images, background-image URLs, link hrefs, and component render count. Validation results appear in the card as green (passed), amber (warnings), or red (errors). The card also shows per-step confirmation, a "View Page" link to the affected page, and (for single-step `update_design_token`) a "Reset to default" shortcut. Design token applies show stale coherence warnings when existing derived overrides may not match the new palette. Applied changes are injected back into the conversation context so the AI knows about its own mutations.
 
 ### Context functions
 

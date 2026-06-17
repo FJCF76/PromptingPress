@@ -23,7 +23,7 @@ Before modifying any component styling or composition: run `wp pp check conflict
 - Every component has schema.json before it ships.
 - No raw hex in components.css — only CSS variables from base.css.
 - No positional selectors (nth-of-type, nth-child) for targeting components. Use stable IDs.
-- No modern CSS features: color-mix(), backdrop-filter, mask-image, :has(), @container.
+- No modern CSS features: backdrop-filter, mask-image, :has(), @container. Exception: `color-mix(in srgb, ...)` is allowed for token-adaptive shadows and fades in `components.css`.
 - No writing to WordPress Custom CSS (Appearance > Additional CSS) for theme styling. All styling through tokens or components.css.
 - Every composition component has a persisted stable ID. IDs are auto-assigned on save.
 
