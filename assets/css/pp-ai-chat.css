@@ -329,6 +329,9 @@ body.pp-ai-chat-page #wpfooter {
 .pp-ai-proposal-step-label {
     font-size: 14px;
     color: #1d2327;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-weight: 500;
 }
 
