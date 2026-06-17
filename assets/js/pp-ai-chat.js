@@ -922,7 +922,7 @@ function ppChatAppendValidationItems(container, items, className) {
             }
         });
         var staleWarnings = allStaleWarnings.filter(function (w) {
-            return !explicitlyUpdated[w.token];
+            return w && w.token && !explicitlyUpdated[w.token];
         });
         if (staleWarnings.length === 0) staleWarnings = null;
         if (staleWarnings) {
@@ -1032,7 +1032,7 @@ function ppChatAppendValidationItems(container, items, className) {
                     s._staleWarnings.forEach(function (w) { convStale.push(w); });
                 }
             });
-            convStale = convStale.filter(function (w) { return !convExplicit[w.token]; });
+            convStale = convStale.filter(function (w) { return w && w.token && !convExplicit[w.token]; });
             var staleSuffix = '';
             if (convStale.length > 0) {
                 staleSuffix = ' Note: some existing token overrides may not match the new palette: ' +

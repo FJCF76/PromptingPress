@@ -4,6 +4,37 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.8.4] — 2026-06-17 — Token Family Derivation + Palette Coherence Warnings
+
+### Changing one color now updates related tokens automatically, and warns when old ones look stale
+
+When the AI (or user) changes a base color token like `--color-accent`, four derived tokens (hover, strong, border-accent, surface-accent) are now auto-filled if they don't already have an explicit override. This fixes the stale-token bug where changing a palette direction left related tokens pointing at the old color.
+
+The system respects intentional choices: if a derived token already has an explicit override in the database, it is left alone. Instead of silently overwriting, the apply handler returns advisory "stale warnings" when an existing override's hue drifts more than 30 degrees from the new base. These warnings surface in the chat UI as amber cards and feed into the AI's conversation context, so the next turn can offer to update them.
+
+Button and CTA shadows no longer use hardcoded blue `rgba()` values. Ten instances are converted to `color-mix(in srgb, var(--color-accent-strong) N%, transparent)`, so shadows adapt to whatever palette is active.
+
+### Changes
+
+- **Token family derivation**: `pp_token_families()`, `pp_derive_family_tokens()`, `pp_check_token_coherence()` in `lib/wp.php`
+- **Fallback-only apply handler**: derivation only fills unset tokens; existing overrides preserved (`lib/apply.php`)
+- **Stale warning UI**: amber cards in post-apply card, filtered against explicitly-updated tokens in multi-step proposals (`assets/js/pp-ai-chat.js`)
+- **Adaptive CSS**: 10 hardcoded blue rgba() values converted to color-mix() with token references (`assets/css/components.css`)
+- **CSS lint update**: color-mix() removed from banned modern features list (`tests/js/css-lint.test.js`)
+- **10 new tests**: 7 PHP tests (derivation, fallback skip, stale warnings, coherence), 3 existing tests updated
+
+### The 5 numbers that matter
+
+| Metric | Value |
+|--------|-------|
+| Files changed | 6 (4 source + 2 test) |
+| Lines added | 383 |
+| Lines removed | 18 |
+| PHP tests | 641 passing |
+| JS tests | 208 passing |
+
+---
+
 ## [v0.8.3] — 2026-06-16 — Schema Awareness + Guided Recovery UX
 
 ### The AI checks the schema before proposing, and explains when changes aren't possible
