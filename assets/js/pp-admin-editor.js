@@ -27,6 +27,8 @@
     var lastCursor   = null;  // preserved across focus loss
     var isSyncingFromAccordion = false;  // guard flag to prevent sync loops
     var currentView  = 'accordion';      // 'accordion' or 'json'
+    var invariantBlocked = false;
+    var lastInvariantResult = null;
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -242,6 +244,10 @@
      */
     function renderAccordion(expandedMap) {
         if (!cm) return;
+        if (invariantBlocked) {
+            showSerializationNotice(lastInvariantResult);
+            return;
+        }
         var $container = $('#pp-accordion-view');
         var data = logic.buildAccordionData(cm.getValue(), components);
 
@@ -347,6 +353,10 @@
         isSyncingFromAccordion = true;
         try { cm.setValue(json); }
         finally { isSyncingFromAccordion = false; }
+        // The change handler skips validation/preview while syncing from the
+        // accordion (isSyncingFromAccordion guard), so drive them here once.
+        runValidation();
+        runPreview();
     }, 300);
 
     function initViewToggle() {
@@ -686,9 +696,9 @@
         $(window).on('resize', debounce(sizeEditor, 100));
 
         cm.on('change', function () {
+            if (isSyncingFromAccordion) return;
             runValidation();
             runPreview();
-            // Do not re-render accordion when the change came from accordion sync
         });
         cm.on('cursorActivity', function () {
             lastCursor = cm.getCursor();
@@ -734,7 +744,26 @@
         })
         .done(function (res) {
             if (res.success) {
-                setSaveStatus('is-saved', 'Draft saved');
+                // Refresh CM from server-returned normalized composition
+                if (res.data && res.data.composition) {
+                    isSyncingFromAccordion = true;
+                    try { cm.setValue(JSON.stringify(res.data.composition, null, 2)); }
+                    finally { isSyncingFromAccordion = false; }
+                }
+
+                if (invariantBlocked) {
+                    var inv = logic.checkSerializationInvariant(cm.getValue(), components);
+                    if (inv.safe) {
+                        clearSerializationNotice();
+                        setSaveStatus('is-saved', 'Drift resolved');
+                    } else {
+                        lastInvariantResult = inv;
+                        showSerializationNotice(inv);
+                        setSaveStatus('is-saved', 'Draft saved');
+                    }
+                } else {
+                    setSaveStatus('is-saved', 'Draft saved');
+                }
                 setTimeout(function () { setSaveStatus('', ''); }, 3000);
             } else {
                 var msg = res.data || 'Save failed.';
@@ -809,6 +838,13 @@
                 postLink    = res.data.post_link;
                 previewLink = res.data.preview_link;
 
+                // Refresh CM from server-returned normalized composition
+                if (res.data.composition) {
+                    isSyncingFromAccordion = true;
+                    try { cm.setValue(JSON.stringify(res.data.composition, null, 2)); }
+                    finally { isSyncingFromAccordion = false; }
+                }
+
                 $btn.text('Update').data('status', 'publish');
 
                 $('#pp-view-link')
@@ -817,7 +853,19 @@
 
                 $('#pp-status-badge').remove();
 
-                setSaveStatus('is-saved', wasPublished ? 'Updated' : 'Published');
+                if (invariantBlocked) {
+                    var inv = logic.checkSerializationInvariant(cm.getValue(), components);
+                    if (inv.safe) {
+                        clearSerializationNotice();
+                        setSaveStatus('is-saved', 'Drift resolved');
+                    } else {
+                        lastInvariantResult = inv;
+                        showSerializationNotice(inv);
+                        setSaveStatus('is-saved', wasPublished ? 'Updated' : 'Published');
+                    }
+                } else {
+                    setSaveStatus('is-saved', wasPublished ? 'Updated' : 'Published');
+                }
                 setTimeout(function () { setSaveStatus('', ''); }, 3000);
             } else {
                 var msg = res.data || (wasPublished ? 'Update failed.' : 'Publish failed.');
@@ -895,10 +943,16 @@
 
                 // Narrow pane responsive class
                 var $accordion = $('#pp-accordion-view');
+                var $serErr = $('.pp-serialization-error');
                 if (newLeft < 300) {
                     $accordion.addClass('pp-accordion--narrow');
                 } else {
                     $accordion.removeClass('pp-accordion--narrow');
+                }
+                if (newLeft < 400) {
+                    $serErr.addClass('pp-serialization-error--narrow');
+                } else {
+                    $serErr.removeClass('pp-serialization-error--narrow');
                 }
 
                 if (cm) cm.refresh();
@@ -926,6 +980,121 @@
         }, 100));
     }
 
+    // ── Serialization invariant notice ──────────────────────────────────────
+
+    function showSerializationNotice(invariant) {
+        console.error('Serialization invariant failed:', invariant.diffs);
+
+        // Force JSON-only mode
+        $('#pp-accordion-view').hide();
+        $('#pp-json-view').show();
+        currentView = 'json';
+        $('#pp-view-toggle').hide();
+        if (cm) cm.refresh();
+
+        var $pane = $('.pp-pane--editor');
+        if (!$pane.length) return;
+
+        // Build diff table rows + card markup
+        var diffs = invariant.diffs || [];
+        var tableRows = '';
+        var cards = '';
+        diffs.forEach(function (d) {
+            var compMatch = d.path.match(/^\[(\d+)\]/);
+            var compLabel = compMatch ? 'Component ' + compMatch[1] : '\u2014';
+            var before = d.before === undefined ? '<em>(absent)</em>' : '<code>' + esc(JSON.stringify(d.before)) + '</code>';
+            var after = d.after === undefined ? '<em>(absent)</em>' : '<code>' + esc(JSON.stringify(d.after)) + '</code>';
+            var badge = '<span class="pp-diff-badge pp-diff-badge--' + d.changeType + '">' + d.changeType + '</span>';
+
+            tableRows += '<tr><td>' + esc(compLabel) + '</td><td><code>' + esc(d.path) + '</code></td><td>' + before + '</td><td>' + after + '</td><td>' + badge + '</td></tr>';
+            cards += '<div class="pp-diff-card"><div class="pp-diff-card__component">' + esc(compLabel) + '</div><div class="pp-diff-card__path">' + esc(d.path) + '</div><div class="pp-diff-card__values">' + before + ' <span class="pp-diff-card__arrow">\u2192</span> ' + after + ' ' + badge + '</div></div>';
+        });
+
+        var html = '<div class="pp-serialization-error">' +
+            '<div class="pp-serialization-error__header">\u26A0 Accordion unavailable for this composition</div>' +
+            '<div class="pp-serialization-error__subtext">Opening this composition in the accordion editor would change its structure. Edit JSON directly below, then save to re-check.</div>' +
+            '<details open><summary>Structural drift details (' + diffs.length + ' diff' + (diffs.length !== 1 ? 's' : '') + ')</summary>' +
+            '<table><thead><tr><th>Component</th><th>Path</th><th>Before</th><th>After</th><th>Change</th></tr></thead><tbody>' + tableRows + '</tbody></table>' +
+            cards +
+            '</details>' +
+            '<button type="button" class="pp-toolbar-btn pp-copy-issue-btn">Copy as GitHub Issue</button>' +
+            '</div>';
+
+        var $existing = $pane.find('.pp-serialization-error');
+        if ($existing.length) {
+            $existing.replaceWith(html);
+        } else {
+            $pane.find('.pp-pane-header').after(html);
+        }
+
+        // Narrow-pane check
+        var paneWidth = $pane[0].offsetWidth;
+        var $notice = $pane.find('.pp-serialization-error');
+        if (paneWidth < 400) {
+            $notice.addClass('pp-serialization-error--narrow');
+        } else {
+            $notice.removeClass('pp-serialization-error--narrow');
+        }
+
+        // Copy as GitHub Issue button
+        $notice.find('.pp-copy-issue-btn').off('click').on('click', function () {
+            var $btn = $(this);
+            var pageTitle = $('#pp-page-title').val() || 'Untitled';
+            var md = logic.formatDiffsForIssue(diffs, pageTitle, postId);
+
+            function onSuccess() {
+                $btn.after('<span class="pp-copy-success">\u2713 Copied!</span>');
+                setTimeout(function () { $btn.siblings('.pp-copy-success').remove(); }, 2000);
+            }
+            function onFail() {
+                $btn.after('<span class="pp-copy-success" style="color:#fca5a5">Copy failed</span>');
+                setTimeout(function () { $btn.siblings('.pp-copy-success').remove(); }, 2000);
+            }
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(md).then(onSuccess, function () {
+                    // Fallback for clipboard API denial
+                    try {
+                        var ta = document.createElement('textarea');
+                        ta.value = md;
+                        ta.style.position = 'fixed';
+                        ta.style.left = '-9999px';
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(ta);
+                        onSuccess();
+                    } catch (e) { onFail(); }
+                });
+            } else {
+                // Fallback for non-HTTPS (no clipboard API)
+                try {
+                    var ta = document.createElement('textarea');
+                    ta.value = md;
+                    ta.style.position = 'fixed';
+                    ta.style.left = '-9999px';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    onSuccess();
+                } catch (e) { onFail(); }
+            }
+        });
+    }
+
+    function clearSerializationNotice() {
+        $('.pp-serialization-error').remove();
+        invariantBlocked = false;
+        lastInvariantResult = null;
+        $('#pp-json-view').hide();
+        $('#pp-accordion-view').show();
+        currentView = 'accordion';
+        $('#pp-view-toggle').text('JSON').show();
+        renderAccordion();
+        if (cm) cm.refresh();
+    }
+
     // ── Boot ──────────────────────────────────────────────────────────────────
 
     $(function () {
@@ -936,8 +1105,18 @@
         initTitleEditor();
         initPublishButton();
         $('#pp-save-btn').on('click', doSaveDraft);
-        // Render accordion on load (default view)
-        renderAccordion();
+
+        // Invariant check before rendering accordion
+        if (cm) {
+            var invariant = logic.checkSerializationInvariant(cm.getValue(), components);
+            if (!invariant.safe) {
+                invariantBlocked = true;
+                lastInvariantResult = invariant;
+                showSerializationNotice(invariant);
+            } else {
+                renderAccordion();
+            }
+        }
     });
 
 })(jQuery);

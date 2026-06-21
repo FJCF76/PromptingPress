@@ -330,7 +330,8 @@ add_action('wp_ajax_pp_save_composition', function () {
         wp_send_json_error($result['error']);
     }
 
-    wp_send_json_success('Saved.');
+    $saved = pp_get_composition($post_id);
+    wp_send_json_success(['composition' => $saved]);
 });
 
 // ── Admin Page Registration ───────────────────────────────────────────────────
@@ -640,10 +641,12 @@ add_action('wp_ajax_pp_publish_page', function (): void {
         wp_send_json_error($pub_result['error']);
     }
 
+    $saved = pp_get_composition($post_id);
     wp_send_json_success([
         'status'       => 'publish',
         'post_link'    => (string) (get_permalink($post_id) ?: ''),
         'preview_link' => (string) (get_preview_post_link($post_id) ?: ''),
+        'composition'  => $saved,
     ]);
 });
 

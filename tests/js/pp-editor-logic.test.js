@@ -14,6 +14,9 @@ const {
     buildAccordionData,
     serializeAccordionData,
     wouldLoseArrayData,
+    deepDiff,
+    checkSerializationInvariant,
+    formatDiffsForIssue,
 } = require('../../assets/js/pp-editor-logic.js');
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -74,7 +77,16 @@ const GRID = {
     },
 };
 
-const REGISTRY = [HERO, FAQ, SECTION, GRID];
+const FOOTER = {
+    name: 'footer',
+    schema: {
+        props: {
+            location: { type: 'string', required: false, default: 'footer' },
+        },
+    },
+};
+
+const REGISTRY = [HERO, FAQ, SECTION, GRID, FOOTER];
 
 // ─── getJsonContextFromText ───────────────────────────────────────────────────
 
@@ -586,5 +598,214 @@ describe('wouldLoseArrayData', () => {
         const newItems = [{ question: 'Edited Q' }, {}, { question: 'Another Q', answer: 'Another A' }];
         const origItems = [{ question: 'Q1' }, { question: 'Q2' }, { question: 'Q3', answer: 'A3' }];
         expect(wouldLoseArrayData(newItems, origItems)).toBe(false);
+    });
+});
+
+// ─── extraKeys pass-through ─────────────────────────────────────────────────
+
+describe('extraKeys pass-through', () => {
+    test('composition with style key survives round-trip', () => {
+        const original = [{ component: 'hero', props: { title: 'Hi' }, style: { background: '#000' } }];
+        const json = JSON.stringify(original);
+        const data = buildAccordionData(json, REGISTRY);
+        expect(data.components[0].extraKeys).toEqual({ style: { background: '#000' } });
+        const serialized = serializeAccordionData(data.components);
+        const reparsed = JSON.parse(serialized);
+        expect(reparsed[0].style).toEqual({ background: '#000' });
+    });
+
+    test('multiple extra keys preserved', () => {
+        const original = [{ component: 'hero', props: { title: 'Hi' }, style: { color: 'red' }, meta: { version: 2 } }];
+        const json = JSON.stringify(original);
+        const data = buildAccordionData(json, REGISTRY);
+        const serialized = serializeAccordionData(data.components);
+        const reparsed = JSON.parse(serialized);
+        expect(reparsed[0].style).toEqual({ color: 'red' });
+        expect(reparsed[0].meta).toEqual({ version: 2 });
+    });
+
+    test('no extra keys → clean round-trip', () => {
+        const original = [{ component: 'hero', props: { title: 'Hi' } }];
+        const json = JSON.stringify(original);
+        const data = buildAccordionData(json, REGISTRY);
+        expect(data.components[0].extraKeys).toEqual({});
+        const serialized = serializeAccordionData(data.components);
+        const reparsed = JSON.parse(serialized);
+        expect(Object.keys(reparsed[0])).toEqual(['component', 'props']);
+    });
+});
+
+// ─── deepDiff ───────────────────────────────────────────────────────────────
+
+describe('deepDiff', () => {
+    test('identical objects → empty array', () => {
+        expect(deepDiff({ a: 1, b: 'x' }, { a: 1, b: 'x' }, '')).toEqual([]);
+    });
+
+    test('added key detected', () => {
+        const diffs = deepDiff({ a: 1 }, { a: 1, b: 2 }, '');
+        expect(diffs).toHaveLength(1);
+        expect(diffs[0]).toEqual({ path: 'b', before: undefined, after: 2, changeType: 'added' });
+    });
+
+    test('removed key detected', () => {
+        const diffs = deepDiff({ a: 1, b: 2 }, { a: 1 }, '');
+        expect(diffs).toHaveLength(1);
+        expect(diffs[0]).toEqual({ path: 'b', before: 2, after: undefined, changeType: 'removed' });
+    });
+
+    test('changed value detected', () => {
+        const diffs = deepDiff({ a: 1 }, { a: 2 }, '');
+        expect(diffs).toHaveLength(1);
+        expect(diffs[0]).toEqual({ path: 'a', before: 1, after: 2, changeType: 'changed' });
+    });
+
+    test('nested object diff → dotted path', () => {
+        const diffs = deepDiff({ x: { y: 1 } }, { x: { y: 2 } }, '');
+        expect(diffs).toHaveLength(1);
+        expect(diffs[0].path).toBe('x.y');
+        expect(diffs[0].changeType).toBe('changed');
+    });
+
+    test('array item diff → indexed path', () => {
+        const diffs = deepDiff([1, 2, 3], [1, 9, 3], '');
+        expect(diffs).toHaveLength(1);
+        expect(diffs[0].path).toBe('[1]');
+        expect(diffs[0].before).toBe(2);
+        expect(diffs[0].after).toBe(9);
+    });
+
+    test('type mismatch detected (string→array)', () => {
+        const diffs = deepDiff({ items: 'not-an-array' }, { items: [] }, '');
+        expect(diffs).toHaveLength(1);
+        expect(diffs[0].changeType).toBe('type_mismatch');
+    });
+
+    test('null handling', () => {
+        const diffs = deepDiff({ a: null }, { a: 'value' }, '');
+        expect(diffs).toHaveLength(1);
+        expect(diffs[0].changeType).toBe('changed');
+        expect(diffs[0].before).toBeNull();
+    });
+});
+
+// ─── checkSerializationInvariant ────────────────────────────────────────────
+
+describe('checkSerializationInvariant', () => {
+    test('clean hero composition passes', () => {
+        const json = JSON.stringify([{ component: 'hero', props: { title: 'Hello' } }]);
+        const result = checkSerializationInvariant(json, REGISTRY);
+        expect(result.safe).toBe(true);
+    });
+
+    test('clean faq composition passes', () => {
+        const json = JSON.stringify([{ component: 'faq', props: { items: [{ question: 'Q?', answer: 'A.' }] } }]);
+        const result = checkSerializationInvariant(json, REGISTRY);
+        expect(result.safe).toBe(true);
+    });
+
+    test('clean section composition passes', () => {
+        const json = JSON.stringify([{ component: 'section', props: { body: '<p>Hi</p>' } }]);
+        const result = checkSerializationInvariant(json, REGISTRY);
+        expect(result.safe).toBe(true);
+    });
+
+    test('clean grid composition passes', () => {
+        const json = JSON.stringify([{ component: 'grid', props: { items: [{ title: 'A', text: 'B' }] } }]);
+        const result = checkSerializationInvariant(json, REGISTRY);
+        expect(result.safe).toBe(true);
+    });
+
+    test('absent optional fields NOT materialized — invariant passes', () => {
+        // hero has optional subtitle; omitting it should NOT cause drift
+        const json = JSON.stringify([{ component: 'hero', props: { title: 'Hi' } }]);
+        const result = checkSerializationInvariant(json, REGISTRY);
+        expect(result.safe).toBe(true);
+    });
+
+    test('nested arrays round-trip cleanly — invariant passes', () => {
+        const json = JSON.stringify([{ component: 'faq', props: { items: [{ question: 'Q?', answer: 'A.' }] } }]);
+        const result = checkSerializationInvariant(json, REGISTRY);
+        expect(result.safe).toBe(true);
+    });
+
+    test('schema defaults for absent fields NOT emitted — invariant passes', () => {
+        // section has optional layout (default: 'text-only') — omitting it should not cause drift
+        const json = JSON.stringify([{ component: 'section', props: { body: '<p>Text</p>' } }]);
+        const result = checkSerializationInvariant(json, REGISTRY);
+        expect(result.safe).toBe(true);
+    });
+
+    test('pass-through props (not in schema) survive — invariant passes', () => {
+        const json = JSON.stringify([{ component: 'hero', props: { title: 'Hi', custom_flag: true } }]);
+        const result = checkSerializationInvariant(json, REGISTRY);
+        expect(result.safe).toBe(true);
+    });
+
+    test('unknown components survive — invariant passes', () => {
+        const json = JSON.stringify([{ component: 'ghost', props: { foo: 'bar' } }]);
+        const result = checkSerializationInvariant(json, REGISTRY);
+        expect(result.safe).toBe(true);
+    });
+
+    test('empty composition passes', () => {
+        const result = checkSerializationInvariant('[]', REGISTRY);
+        expect(result.safe).toBe(true);
+    });
+
+    test('empty string is safe (no composition yet)', () => {
+        expect(checkSerializationInvariant('', REGISTRY).safe).toBe(true);
+        expect(checkSerializationInvariant('   ', REGISTRY).safe).toBe(true);
+        expect(checkSerializationInvariant(null, REGISTRY).safe).toBe(true);
+        expect(checkSerializationInvariant(undefined, REGISTRY).safe).toBe(true);
+    });
+
+    test('invalid JSON returns error, not crash', () => {
+        const result = checkSerializationInvariant('{broken', REGISTRY);
+        expect(result.safe).toBe(false);
+        expect(result.error).toBeDefined();
+    });
+
+    test('style key round-trip preserved', () => {
+        const json = JSON.stringify([{ component: 'hero', props: { title: 'Hi' }, style: { bg: '#000' } }]);
+        const result = checkSerializationInvariant(json, REGISTRY);
+        expect(result.safe).toBe(true);
+    });
+
+    test('missing props key caught — round-trip adds props: {}', () => {
+        const json = JSON.stringify([{ component: 'footer' }]);
+        const result = checkSerializationInvariant(json, REGISTRY);
+        expect(result.safe).toBe(false);
+        expect(result.diffs.some(d => d.path.includes('props') && d.changeType === 'added')).toBe(true);
+    });
+});
+
+// ─── formatDiffsForIssue ────────────────────────────────────────────────────
+
+describe('formatDiffsForIssue', () => {
+    test('single diff → valid markdown with table', () => {
+        const diffs = [{ path: '[0].props', before: undefined, after: {}, changeType: 'added' }];
+        const md = formatDiffsForIssue(diffs, 'Test Page', 42);
+        expect(md).toContain('## Accordion serialization drift');
+        expect(md).toContain('Post ID: 42');
+        expect(md).toContain('| Component 0 |');
+        expect(md).toContain('added');
+    });
+
+    test('multiple diffs grouped by component', () => {
+        const diffs = [
+            { path: '[0].props', before: undefined, after: {}, changeType: 'added' },
+            { path: '[1].style', before: { bg: '#000' }, after: undefined, changeType: 'removed' },
+        ];
+        const md = formatDiffsForIssue(diffs, 'Multi Page', 99);
+        expect(md).toContain('Component 0');
+        expect(md).toContain('Component 1');
+    });
+
+    test('special characters in values escaped for table', () => {
+        const diffs = [{ path: '[0].props.text', before: 'a|b', after: 'c|d', changeType: 'changed' }];
+        const md = formatDiffsForIssue(diffs, 'Pipe Page', 7);
+        // Pipe chars should be escaped in table cells
+        expect(md).toContain('\\|');
     });
 });

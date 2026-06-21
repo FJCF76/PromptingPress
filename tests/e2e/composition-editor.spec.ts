@@ -227,4 +227,165 @@ test.describe('Composition Editor', () => {
     await page.goto(`/?page_id=${pageId}`);
     await expect(page.locator('.hero__title')).toContainText('Updated By Accordion');
   });
+
+  // ── Serialization Invariant Gate Tests ──────────────────────────────────
+
+  // Fixture: footer component without props key — triggers invariant drift
+  // because the round-trip adds `props: {}`.
+  const FOOTER_NO_PROPS_JSON = JSON.stringify([{ component: 'footer' }]);
+
+  // Fixture: footer component WITH props key — passes invariant.
+  const FOOTER_WITH_PROPS_JSON = JSON.stringify([
+    { component: 'footer', props: { location: 'footer' } },
+  ]);
+
+  /**
+   * Set composition via WP-CLI post meta (bypasses editor validation).
+   * Uses wp db query to insert raw JSON, avoiding sanitize_meta filter
+   * which would reject a JSON string without the expected structure.
+   */
+  function setCompositionMeta(postId: number, json: string): void {
+    // Use wp option as a staging mechanism: write to a temp option, then copy to post meta
+    // This avoids shell quoting issues with complex JSON
+    const b64 = Buffer.from(json).toString('base64');
+    execSync(
+      `npx wp-env run cli wp eval 'update_post_meta(${postId}, "_pp_composition", base64_decode("${b64}"));'`,
+      { cwd: process.cwd() },
+    );
+  }
+
+  // ── Test 7: Happy path — valid composition loads accordion normally ───
+
+  test('invariant gate: valid composition renders accordion normally', async ({ page }) => {
+    pageId = createPage('E2E Invariant Happy');
+
+    // Inject a valid composition that passes invariant check
+    setCompositionMeta(pageId, FOOTER_WITH_PROPS_JSON);
+
+    // Open workspace — invariant passes, accordion should render
+    await openWorkspace(page, pageId);
+
+    // Verify: accordion visible, toggle visible, no serialization error notice
+    await expect(page.locator('#pp-accordion-view')).toBeVisible();
+    await expect(page.locator('#pp-view-toggle')).toBeVisible();
+    await expect(page.locator('.pp-serialization-error')).not.toBeAttached();
+  });
+
+  // ── Test 8: Blocked path — missing props triggers invariant gate ──────
+
+  test('invariant gate: missing props key blocks accordion', async ({ page }) => {
+    pageId = createPage('E2E Invariant Blocked');
+
+    // Inject composition with missing props key via WP-CLI
+    setCompositionMeta(pageId, FOOTER_NO_PROPS_JSON);
+
+    // Open workspace — invariant check runs at boot
+    await openWorkspace(page, pageId);
+
+    // Verify: accordion hidden, toggle hidden
+    await expect(page.locator('#pp-accordion-view')).not.toBeVisible();
+    await expect(page.locator('#pp-view-toggle')).not.toBeVisible();
+
+    // Verify: notice panel is present with expected content
+    const notice = page.locator('.pp-serialization-error');
+    await expect(notice).toBeVisible();
+    await expect(notice.locator('.pp-serialization-error__header')).toContainText('Accordion unavailable');
+    await expect(notice.locator('.pp-serialization-error__subtext')).toContainText('Edit JSON directly below');
+
+    // Verify: diff table shows the props addition
+    await expect(notice.locator('table')).toBeVisible();
+    await expect(notice.locator('td code').first()).toContainText(/props/);
+    await expect(notice.locator('.pp-diff-badge--added').first()).toBeVisible();
+
+    // Verify: JSON editor is visible and editable
+    // Note: #pp-json-view has display:block but 0 height because CodeMirror
+    // inside uses position:absolute filling .pp-pane-body directly
+    await expect(page.locator('.CodeMirror')).toBeVisible();
+
+    // Verify: Copy as GitHub Issue button present
+    await expect(notice.locator('.pp-copy-issue-btn')).toBeVisible();
+  });
+
+  // ── Test 9: Save unlocks accordion ────────────────────────────────────
+
+  test('invariant gate: save resolves drift and restores accordion', async ({ page }) => {
+    pageId = createPage('E2E Invariant Save Unlock');
+
+    // Inject composition with missing props key
+    setCompositionMeta(pageId, FOOTER_NO_PROPS_JSON);
+
+    // Open workspace — should be blocked
+    await openWorkspace(page, pageId);
+    await expect(page.locator('.pp-serialization-error')).toBeVisible();
+    await expect(page.locator('#pp-view-toggle')).not.toBeVisible();
+
+    // Save — server adds props.id, CM refreshes, invariant re-checks
+    await page.locator('#pp-save-btn').click();
+
+    // Wait for "Drift resolved" feedback
+    await expect(page.locator('#pp-save-status')).toContainText('Drift resolved', { timeout: 10000 });
+
+    // Verify: notice removed, accordion restored, toggle visible
+    await expect(page.locator('.pp-serialization-error')).not.toBeAttached();
+    await expect(page.locator('#pp-accordion-view')).toBeVisible();
+    await expect(page.locator('#pp-view-toggle')).toBeVisible();
+    await expect(page.locator('#pp-view-toggle')).toHaveText('JSON');
+  });
+
+  // ── Test 10: Publish unlocks accordion ────────────────────────────────
+
+  test('invariant gate: publish resolves drift and restores accordion', async ({ page }) => {
+    pageId = createPage('E2E Invariant Publish Unlock');
+
+    // Inject composition with missing props key
+    setCompositionMeta(pageId, FOOTER_NO_PROPS_JSON);
+
+    // Open workspace — should be blocked
+    await openWorkspace(page, pageId);
+    await expect(page.locator('.pp-serialization-error')).toBeVisible();
+    await expect(page.locator('#pp-view-toggle')).not.toBeVisible();
+
+    // Publish — server adds props.id, CM refreshes, invariant re-checks
+    await page.locator('#pp-publish-btn').click();
+
+    // Wait for "Drift resolved" feedback
+    await expect(page.locator('#pp-save-status')).toContainText('Drift resolved', { timeout: 10000 });
+
+    // Verify: notice removed, accordion restored, toggle visible
+    await expect(page.locator('.pp-serialization-error')).not.toBeAttached();
+    await expect(page.locator('#pp-accordion-view')).toBeVisible();
+    await expect(page.locator('#pp-view-toggle')).toBeVisible();
+    await expect(page.locator('#pp-view-toggle')).toHaveText('JSON');
+  });
+
+  // ── Test 11: Copy as GitHub Issue ─────────────────────────────────────
+
+  test('invariant gate: copy as GitHub issue produces valid markdown', async ({ page, context }) => {
+    pageId = createPage('E2E Copy Issue');
+
+    // Inject composition with missing props key
+    setCompositionMeta(pageId, FOOTER_NO_PROPS_JSON);
+
+    // Grant clipboard permissions (Chromium-based)
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+
+    // Open workspace — should be blocked
+    await openWorkspace(page, pageId);
+    await expect(page.locator('.pp-serialization-error')).toBeVisible();
+
+    // Click "Copy as GitHub Issue"
+    await page.locator('.pp-copy-issue-btn').click();
+
+    // Wait for "Copied!" feedback
+    await expect(page.locator('.pp-copy-success')).toContainText('Copied!', { timeout: 5000 });
+
+    // Read clipboard content
+    const clipboardContent = await page.evaluate(() => navigator.clipboard.readText());
+
+    // Verify markdown content includes expected fields
+    expect(clipboardContent).toContain('E2E Copy Issue');
+    expect(clipboardContent).toContain('Component 0');
+    expect(clipboardContent).toContain('props');
+    expect(clipboardContent).toContain('added');
+  });
 });

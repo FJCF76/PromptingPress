@@ -266,10 +266,19 @@ function buildAccordionData(jsonString, componentRegistry) {
             });
         }
 
+        // Preserve top-level keys other than component/props (e.g. style)
+        var extraKeys = {};
+        Object.keys(item).forEach(function (k) {
+            if (k !== 'component' && k !== 'props') {
+                extraKeys[k] = item[k];
+            }
+        });
+
         result.components.push({
             name: compName,
             fields: fields,
-            props: props
+            props: props,
+            extraKeys: extraKeys
         });
     });
 
@@ -292,7 +301,14 @@ function serializeAccordionData(components) {
             if (!field.userTouched) return;
             props[field.name] = field.value;
         });
-        return { component: comp.name, props: props };
+        var entry = { component: comp.name, props: props };
+        // Re-emit extra top-level keys (e.g. style) preserved by buildAccordionData
+        if (comp.extraKeys) {
+            Object.keys(comp.extraKeys).forEach(function (k) {
+                entry[k] = comp.extraKeys[k];
+            });
+        }
+        return entry;
     });
     return JSON.stringify(arr, null, 2);
 }
@@ -313,15 +329,175 @@ function wouldLoseArrayData(newItems, origItems) {
         origItems.some(function (orig) { return orig && Object.keys(orig).length > 0; });
 }
 
+/**
+ * Recursively compare two values and return an array of differences.
+ *
+ * @param {*} a       First value
+ * @param {*} b       Second value
+ * @param {string} path  Dot-separated path prefix (start with '')
+ * @returns {Array<{path: string, before: *, after: *, changeType: string}>}
+ */
+function deepDiff(a, b, path) {
+    var diffs = [];
+    if (path === undefined) path = '';
+
+    // Both null/undefined and equal primitives
+    if (a === b) return diffs;
+
+    // Handle null
+    if (a === null || b === null) {
+        if (a !== b) {
+            diffs.push({ path: path, before: a, after: b, changeType: 'changed' });
+        }
+        return diffs;
+    }
+
+    // Type mismatch
+    var typeA = Array.isArray(a) ? 'array' : typeof a;
+    var typeB = Array.isArray(b) ? 'array' : typeof b;
+    if (typeA !== typeB) {
+        diffs.push({ path: path, before: a, after: b, changeType: 'type_mismatch' });
+        return diffs;
+    }
+
+    // Primitives
+    if (typeA !== 'object' && typeA !== 'array') {
+        if (a !== b) {
+            diffs.push({ path: path, before: a, after: b, changeType: 'changed' });
+        }
+        return diffs;
+    }
+
+    // Arrays
+    if (typeA === 'array') {
+        var maxLen = Math.max(a.length, b.length);
+        for (var i = 0; i < maxLen; i++) {
+            var itemPath = path ? path + '[' + i + ']' : '[' + i + ']';
+            if (i >= a.length) {
+                diffs.push({ path: itemPath, before: undefined, after: b[i], changeType: 'added' });
+            } else if (i >= b.length) {
+                diffs.push({ path: itemPath, before: a[i], after: undefined, changeType: 'removed' });
+            } else {
+                diffs = diffs.concat(deepDiff(a[i], b[i], itemPath));
+            }
+        }
+        return diffs;
+    }
+
+    // Objects
+    var allKeys = {};
+    Object.keys(a).forEach(function (k) { allKeys[k] = true; });
+    Object.keys(b).forEach(function (k) { allKeys[k] = true; });
+
+    Object.keys(allKeys).forEach(function (key) {
+        var subPath = path ? path + '.' + key : key;
+        if (!(key in a)) {
+            diffs.push({ path: subPath, before: undefined, after: b[key], changeType: 'added' });
+        } else if (!(key in b)) {
+            diffs.push({ path: subPath, before: a[key], after: undefined, changeType: 'removed' });
+        } else {
+            diffs = diffs.concat(deepDiff(a[key], b[key], subPath));
+        }
+    });
+
+    return diffs;
+}
+
+/**
+ * Check whether the serialization round-trip preserves a composition exactly.
+ *
+ * @param {string} jsonString         Raw JSON from CodeMirror
+ * @param {Array}  componentRegistry  Registered component definitions
+ * @returns {{safe: boolean, diffs?: Array, original?: *, roundTripped?: *}}
+ */
+function checkSerializationInvariant(jsonString, componentRegistry) {
+    // Empty or whitespace-only compositions have no structure to drift —
+    // the accordion renders an empty component list, which is safe.
+    if (!jsonString || !jsonString.trim()) {
+        return { safe: true };
+    }
+
+    var original;
+    try {
+        original = JSON.parse(jsonString);
+    } catch (e) {
+        return { safe: false, diffs: [{ path: '', before: jsonString, after: null, changeType: 'changed' }], error: e.message };
+    }
+
+    var data = buildAccordionData(jsonString, componentRegistry);
+    if (data.errors.length) {
+        return { safe: false, diffs: [{ path: '', before: null, after: null, changeType: 'changed' }], error: data.errors.join('; ') };
+    }
+
+    var serialized = serializeAccordionData(data.components);
+    var roundTripped;
+    try {
+        roundTripped = JSON.parse(serialized);
+    } catch (e) {
+        return { safe: false, diffs: [{ path: '', before: original, after: serialized, changeType: 'changed' }], error: e.message };
+    }
+
+    var diffs = deepDiff(original, roundTripped, '');
+    if (diffs.length === 0) {
+        return { safe: true };
+    }
+    return { safe: false, diffs: diffs, original: original, roundTripped: roundTripped };
+}
+
+/**
+ * Format serialization diffs as a GitHub issue markdown report.
+ *
+ * @param {Array}  diffs      Array of diff objects from deepDiff
+ * @param {string} pageTitle  Page title for the issue
+ * @param {number} postId     WordPress post ID
+ * @returns {string} Markdown-formatted issue body
+ */
+function formatDiffsForIssue(diffs, pageTitle, postId) {
+    var title = 'Accordion serialization drift on "' + pageTitle + '"';
+    var lines = [
+        '## ' + title,
+        '',
+        '**Page:** ' + pageTitle + ' (Post ID: ' + postId + ')',
+        '',
+        '### Structural diffs',
+        '',
+        '| Component | Path | Before | After | Change |',
+        '|-----------|------|--------|-------|--------|'
+    ];
+
+    diffs.forEach(function (d) {
+        var compMatch = d.path.match(/^\[(\d+)\]/);
+        var compLabel = compMatch ? 'Component ' + compMatch[1] : '—';
+        var before = d.before === undefined ? '_(absent)_' : ('`' + JSON.stringify(d.before) + '`');
+        var after = d.after === undefined ? '_(absent)_' : ('`' + JSON.stringify(d.after) + '`');
+        // Escape pipe characters in values
+        before = before.replace(/\|/g, '\\|');
+        after = after.replace(/\|/g, '\\|');
+        lines.push('| ' + compLabel + ' | `' + d.path + '` | ' + before + ' | ' + after + ' | ' + d.changeType + ' |');
+    });
+
+    lines.push('');
+    lines.push('### Expected behavior');
+    lines.push('');
+    lines.push('The accordion round-trip (`buildAccordionData → serializeAccordionData`) should preserve the composition exactly. Any structural difference means the accordion editor would silently alter the composition on save.');
+    lines.push('');
+    lines.push('**Labels:** `bug`, `editor`, `serialization`');
+
+    return lines.join('\n');
+}
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 var _logic = {
-    getJsonContextFromText:  getJsonContextFromText,
-    validateCompositionData: validateCompositionData,
-    getInsertPosition:       getInsertPosition,
-    buildAccordionData:      buildAccordionData,
-    serializeAccordionData:  serializeAccordionData,
-    wouldLoseArrayData:      wouldLoseArrayData,
+    getJsonContextFromText:         getJsonContextFromText,
+    validateCompositionData:        validateCompositionData,
+    getInsertPosition:              getInsertPosition,
+    buildAccordionData:             buildAccordionData,
+    serializeAccordionData:         serializeAccordionData,
+    wouldLoseArrayData:             wouldLoseArrayData,
+    deepDiff:                       deepDiff,
+    checkSerializationInvariant:    checkSerializationInvariant,
+    formatDiffsForIssue:            formatDiffsForIssue,
 };
 
 /* istanbul ignore next */
