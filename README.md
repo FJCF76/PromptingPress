@@ -383,13 +383,13 @@ Enforced by `AI_RULES.md` and verified by automated tests:
 composer install && composer test
 ```
 
-**208 JS tests** — JSON context, composition validator, accordion data, insert position, data-loss guard, DOM selector alignment, CSS lint, packaging, proposal card, guided error card, post-apply validation:
+**236 JS tests** — JSON context, composition validator, accordion data, insert position, data-loss guard, DOM selector alignment, serialization invariant (deep diff + round-trip gate), CSS lint, packaging, proposal card, guided error card, post-apply validation:
 
 ```bash
 npm install && npm test
 ```
 
-**7 E2E tests** — full composition editor round-trip against a live WordPress instance (requires Docker):
+**11 E2E tests** — full composition editor round-trip, including the serialization gate, against a live WordPress instance (requires Docker):
 
 ```bash
 npm run env:start   # boot wp-env container

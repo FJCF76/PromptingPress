@@ -72,7 +72,7 @@ npm test            # run once
 npm run test:watch  # watch mode
 ```
 
-The logic under test is in `assets/js/pp-editor-logic.js`. When editing `getJsonContextFromText`, `validateCompositionData`, `getInsertPosition`, `buildAccordionData`, or `serializeAccordionData`, run tests before committing.
+The logic under test is in `assets/js/pp-editor-logic.js`. When editing `getJsonContextFromText`, `validateCompositionData`, `getInsertPosition`, `buildAccordionData`, `serializeAccordionData`, `deepDiff`, `checkSerializationInvariant`, or `formatDiffsForIssue`, run tests before committing.
 
 ## E2E tests
 
@@ -80,11 +80,11 @@ Playwright tests in `tests/e2e/` run against a live WordPress instance via wp-en
 
 ```
 npm run env:start   # boot Docker WordPress on port 8889
-npm run test:e2e    # 7 tests covering editor round-trip + CLI actions
+npm run test:e2e    # 15 tests: editor round-trip, serialization gate, CLI actions, post-apply validation
 npm run env:stop    # tear down
 ```
 
-Requires Docker. Tests cover workspace init, preview updates, save rejection, autosave skip, front-end rendering, and accordion round-trip.
+Requires Docker. Tests cover workspace init, preview updates, save rejection, autosave skip, front-end rendering, accordion round-trip, and the serialization gate (blocked state, save/publish restore, copy-as-issue).
 
 ## File responsibilities
 
