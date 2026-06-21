@@ -668,11 +668,13 @@ body.pp-workspace-page #wpfooter {
     border-radius: 3px;
 }
 
-/* Narrow-pane: stacked card layout below 400px */
+/* Narrow-pane: stacked card layout below 400px.
+   Base (wide-mode) default first, then the --narrow modifier, so the modifier
+   wins on source order — both selectors have equal specificity (0,2,0). */
+.pp-serialization-error .pp-diff-card { display: none; }
 .pp-serialization-error--narrow table,
 .pp-serialization-error--narrow thead { display: none; }
 .pp-serialization-error--narrow .pp-diff-card { display: block; }
-.pp-serialization-error .pp-diff-card { display: none; }
 .pp-diff-card {
     border: 1px solid #1e2a45;
     border-radius: 3px;
