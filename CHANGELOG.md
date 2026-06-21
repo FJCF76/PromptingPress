@@ -4,6 +4,29 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.9.0] — 2026-06-21 — Editor Serialization Safety Gate
+
+### The composition editor can no longer silently corrupt a page on save
+
+Opening a page in the accordion editor and saving it back used to risk quietly changing the page's structure: optional fields could be materialized, nested arrays dropped, or extra top-level keys like `style` lost. The accordion now runs a round-trip check before it opens. It parses the stored JSON, rebuilds the accordion, serializes it back, and compares. If anything would change, the accordion does not open.
+
+When that happens you get an honest fallback instead of a broken edit. The editor stays in JSON-only mode and shows an "Accordion unavailable for this composition" panel with a per-component diff table: which field, before, after, and the kind of change. A "Copy as GitHub Issue" button turns that diff into a ready-to-file report. Your JSON is untouched and fully editable. Saving or publishing re-runs the check against the server-normalized composition, and the accordion comes back automatically once the round-trip is clean again.
+
+Editing a field in the accordion also updates the live preview again (a regression where preview stopped refreshing after accordion edits is fixed), and empty or brand-new pages no longer trip the gate.
+
+No new commands or settings. The gate runs automatically when you open a composition; the JSON editor is always available as the fallback.
+
+### Changes
+
+- **Added:** serialization round-trip invariant gate in the composition editor — blocks the accordion when opening would alter structure, with a per-component diff table and one-click GitHub issue report; JSON view remains the safe fallback.
+- **Added:** save/publish now return the server-normalized composition, so the editor re-checks against persisted state and restores the accordion once drift is resolved.
+- **Fixed:** live preview now refreshes when you edit fields in the accordion.
+- **Fixed:** empty, new, and whitespace-only compositions no longer trigger a false invariant failure.
+- **Fixed:** narrow editor pane now shows the diff as stacked cards (previously the diff disappeared at narrow widths); diff-table labels meet AA contrast.
+- **Tests:** 23 new unit tests and 5 new end-to-end tests covering the gate's blocked, save-restore, publish-restore, and copy-issue paths.
+
+---
+
 ## [v0.8.4] — 2026-06-17 — Token Family Derivation + Palette Coherence Warnings
 
 ### Changing one color now updates related tokens automatically, and warns when old ones look stale
