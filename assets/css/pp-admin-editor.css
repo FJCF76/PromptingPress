@@ -635,7 +635,7 @@ body.pp-workspace-page #wpfooter {
 }
 .pp-serialization-error th {
     text-align: left;
-    color: #6b7280;
+    color: #9ca3af; /* AA-safe muted label color (same as pane labels), not #6b7280 (~3.8:1 at 10px) */
     font-weight: 600;
     padding: 4px 8px;
     border-bottom: 1px solid #2d2d4e;
