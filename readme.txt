@@ -2,7 +2,7 @@
 Contributors: fjcf76
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 0.9.0
+Stable tag: 0.10.0
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -19,6 +19,13 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 4. Activate the theme.
 
 == Changelog ==
+
+= 0.10.0 =
+* CI now runs the full unit suite on every push and gates releases — a failing test can't reach a published theme
+* End-to-end tests run against WordPress 7.0 with a nightly full run and a non-blocking push smoke check
+* Destructive AI actions derive their warnings from the action registry, so new destructive actions always warn
+* Version consistency enforced across style.css, functions.php, package.json, README, and readme.txt
+* 645 PHP tests, 247 JS tests
 
 = 0.9.0 =
 * Editor serialization safety gate: the accordion blocks rather than silently corrupting a composition on open, with a JSON-only fallback and per-component diff table

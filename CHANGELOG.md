@@ -4,6 +4,25 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.10.0] — 2026-06-22 — Shipping Confidence: Enforced Tests + WP 7.0 E2E
+
+This release hardens how PromptingPress ships rather than adding user-facing surface. The full unit suite (645 PHP + 247 JS) now runs in CI on every push and again as a gate before any release ZIP is built, so a red test can no longer reach a published theme. The end-to-end suite runs against WordPress 7.0 (the version the theme actually requires) instead of 6.7, with a non-blocking smoke check on push and a nightly full run. Destructive AI actions now derive their confirmation warnings from the action/apply registry, so a newly added destructive capability can never silently ship without a warning. Version numbers are kept consistent across all five locations (style.css, functions.php, package.json, README badge, readme.txt) by an enforced check.
+
+No new end-user features. If you build with PromptingPress, the change you feel is fewer broken releases and AI edits that warn before they destroy.
+
+### Changes
+
+- **Added:** CI unit-test gate — `composer test` + `npm test` run on every push to main and as a hard gate in the release workflow before the ZIP is built.
+- **Added:** end-to-end CI workflow — `@smoke` subset on push (non-blocking signal) plus a nightly full Playwright run against WordPress 7.0, with traces uploaded on failure.
+- **Added:** server-driven destructive-action warnings — the chat UI now reads `impact_warning` strings from the action/apply registries, with a registry-coverage test that fails CI if a known destructive capability lacks a warning. Closes #74.
+- **Added:** shared PHP/JS composition-validation contract — golden fixtures asserted by both validators so they cannot silently drift.
+- **Changed:** E2E now targets WordPress 7.0 (matching `Requires at least: 7.0`); fixed the action-layer test to pass the now-required `--run-id`. Fixes #79.
+- **Changed:** version-consistency check extended from 3 files to 5 (adds README badge + readme.txt Stable tag), enforced in `package.sh`, CI, and release.
+- **Fixed:** README/readme.txt version drift (advertised 0.8.4 while the code was 0.9.0).
+- **Tests:** 645 PHP + 247 JS passing. One E2E broken-media validation check is quarantined pending investigation (#83).
+
+---
+
 ## [v0.9.0] — 2026-06-21 — Editor Serialization Safety Gate
 
 ### The composition editor can no longer silently corrupt a page on save
