@@ -1,5 +1,5 @@
 {
-  "core": "WordPress/WordPress#6.7",
+  "core": "WordPress/WordPress#7.0",
   "themes": ["."],
   "port": 8889,
   "testsPort": 8890,
