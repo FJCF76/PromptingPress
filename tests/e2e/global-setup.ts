@@ -6,6 +6,16 @@ import fs from 'fs';
 const authFile = path.join(__dirname, '.auth', 'admin.json');
 
 setup('authenticate as admin', async ({ page }) => {
+  // Activate the theme so its functions.php (and thus lib/cli.php) loads — that's
+  // what registers the `wp pp ...` WP-CLI commands and the admin chat page. A
+  // fresh CI wp-env does NOT auto-activate the mounted theme (a local env may
+  // already have it active from prior use), so without this the specs fail with
+  // "'pp' is not a registered wp command".
+  execSync(
+    'npx wp-env run cli wp theme activate PromptingPress',
+    { cwd: process.cwd(), stdio: 'ignore' }
+  );
+
   // Configure a dummy AI connector so the admin chat UI (#pp-ai-messages)
   // renders. pp_ai_is_configured() requires a connector with an API key set;
   // a fresh wp-env has none. The validation specs intercept network routes, so
