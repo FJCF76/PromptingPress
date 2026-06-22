@@ -12,7 +12,7 @@
 [![PHP 8.0+](https://img.shields.io/badge/PHP-8.0+-777BB4?style=flat-square&logo=php&logoColor=white)](https://php.net)
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
-[![Tests](https://img.shields.io/badge/Tests-877+_passing-22C55E?style=flat-square)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-892+_passing-22C55E?style=flat-square)](tests/)
 [![Version](https://img.shields.io/badge/version-0.9.0-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
