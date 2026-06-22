@@ -75,7 +75,7 @@ test.describe('Composition Editor', () => {
 
   // ── Test 1: Workspace visibility ──────────────────────────────────────────
 
-  test('workspace loads and initializes for composition page', async ({ page }) => {
+  test('workspace loads and initializes for composition page @smoke', async ({ page }) => {
     pageId = createPage('E2E Workspace Test');
     await openWorkspace(page, pageId);
 
@@ -154,7 +154,7 @@ test.describe('Composition Editor', () => {
 
   // ── Test 5: Front-end renders components after publish ────────────────────
 
-  test('front-end renders components in correct order after publish', async ({ page }) => {
+  test('front-end renders components in correct order after publish @smoke', async ({ page }) => {
     pageId = createPage('E2E Render Test');
     await openWorkspace(page, pageId);
 

@@ -77,7 +77,7 @@ test.describe('Action Layer CLI', () => {
     }
   });
 
-  test('create_page + add_component renders on front-end', async ({ page }) => {
+  test('create_page + add_component renders on front-end @smoke', async ({ page }) => {
     // 0. Obtain a run token (INSPECT step) — required by the action layer.
     const runId = ppOperateInspect();
 
