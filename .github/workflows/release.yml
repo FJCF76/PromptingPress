@@ -24,6 +24,31 @@ jobs:
           fi
           echo "Tag-version check: OK ($TAG_VERSION)"
 
+      # Hard test gate: a broken release literally cannot be packaged or published.
+      # PHP 8.3 because PHPUnit 10 requires PHP 8.1+ (theme runtime minimum is 8.0).
+      - name: Set up PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: PHP unit tests
+        run: composer test
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: JS unit tests
+        run: npm test
+
       - name: Build theme ZIP
         run: bash scripts/package.sh
 
