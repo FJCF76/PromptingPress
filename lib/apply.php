@@ -575,7 +575,8 @@ pp_register_apply('reset_design_token', [
 // Domain: design | Clears all token overrides, reverting to product defaults
 
 pp_register_apply('reset_all_design_tokens', [
-    'domain'      => 'design',
+    'domain'         => 'design',
+    'impact_warning' => 'Resets ALL token overrides to defaults',
     'target'      => ['type' => 'option', 'key' => 'pp_token_overrides'],
     'description' => 'Clears all design token overrides, reverting the entire site to product defaults.',
     'params'      => [],

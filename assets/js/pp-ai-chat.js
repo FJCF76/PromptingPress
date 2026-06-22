@@ -9,15 +9,14 @@
 
 // ── Testable helpers (used by IIFE, exported for tests) ──────────────────────
 
-var PP_CHAT_IMPACT_WARNINGS = {
-    'update_composition': 'Replaces entire page composition',
-    'reset_all_design_tokens': 'Resets ALL token overrides to defaults',
-    'clear_custom_css': 'Removes ALL Custom CSS',
-    'remove_component': 'Removes component from page'
-};
-
+// Destructive-action warnings are server-driven: the action + apply registries
+// (lib/actions.php / lib/apply.php) declare 'impact_warning' strings, surfaced
+// via wp_localize_script as window.ppAiChat.impact_warnings. No hardcoded list
+// here, so a newly-registered destructive capability can't silently lose its
+// warning. Returns null (no warning) for any name without a server entry.
 function ppChatGetImpactWarning(name) {
-    return PP_CHAT_IMPACT_WARNINGS[name] || null;
+    var warnings = (typeof window !== 'undefined' && window.ppAiChat && window.ppAiChat.impact_warnings) || {};
+    return warnings[name] || null;
 }
 
 function ppChatFormatDiffValue(val) {
@@ -1444,7 +1443,6 @@ function ppChatAppendValidationItems(container, items, className) {
 // Module exports for tests
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-        IMPACT_WARNINGS: PP_CHAT_IMPACT_WARNINGS,
         getImpactWarning: ppChatGetImpactWarning,
         formatDiffValue: ppChatFormatDiffValue,
         shouldShowMultiStepWarning: ppChatShouldShowMultiStepWarning,

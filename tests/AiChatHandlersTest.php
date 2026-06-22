@@ -234,4 +234,73 @@ class AiChatHandlersTest extends TestCase
             );
         }
     }
+
+    // ── Destructive-action warning registry (#74) ───────────────────────────
+    //
+    // The chat UI surfaces an impact warning for destructive capabilities. The
+    // single source of truth is the 'impact_warning' key on action/apply
+    // definitions. This registry-coverage test fails CI if a known-destructive
+    // capability ever ships without a warning — the desync class D6 closes.
+
+    /** Capabilities that MUST always carry an impact_warning. */
+    private const KNOWN_DESTRUCTIVE = [
+        'update_composition',       // action — replaces the whole page
+        'remove_component',         // action — drops a component
+        'clear_custom_css',         // action — wipes all Custom CSS
+        'reset_all_design_tokens',  // apply  — resets every token override
+    ];
+
+    /**
+     * Builds the same {name: warning} map that lib/ai-chat.php localizes into
+     * window.ppAiChat.impact_warnings, aggregating both registries.
+     */
+    private function buildImpactWarnings(): array
+    {
+        $warnings = [];
+        foreach (pp_get_registered_actions() as $name => $def) {
+            if (!empty($def['impact_warning'])) {
+                $warnings[$name] = $def['impact_warning'];
+            }
+        }
+        foreach (pp_get_registered_applies() as $name => $def) {
+            if (!empty($def['impact_warning'])) {
+                $warnings[$name] = $def['impact_warning'];
+            }
+        }
+        return $warnings;
+    }
+
+    public function testKnownDestructiveCapabilitiesAllCarryImpactWarning(): void
+    {
+        $warnings = $this->buildImpactWarnings();
+        foreach (self::KNOWN_DESTRUCTIVE as $name) {
+            $this->assertArrayHasKey(
+                $name,
+                $warnings,
+                "Destructive capability '{$name}' is missing an 'impact_warning' — the chat UI would show no warning before it runs."
+            );
+            $this->assertNotEmpty($warnings[$name], "impact_warning for '{$name}' must be non-empty.");
+        }
+    }
+
+    public function testImpactWarningsAreServerDrivenFromDefinitions(): void
+    {
+        // The map must derive from the definitions, not a hardcoded list:
+        // every entry traces back to an action/apply that declares it.
+        $warnings = $this->buildImpactWarnings();
+        $defs = array_merge(pp_get_registered_actions(), pp_get_registered_applies());
+        foreach ($warnings as $name => $text) {
+            $this->assertArrayHasKey($name, $defs, "Warning for unknown capability '{$name}'.");
+            $this->assertSame($defs[$name]['impact_warning'], $text);
+        }
+    }
+
+    public function testNonDestructiveActionsHaveNoImpactWarning(): void
+    {
+        // A normal, non-destructive action must NOT carry a warning (so the UI
+        // stays quiet for safe operations).
+        $actions = pp_get_registered_actions();
+        $this->assertArrayHasKey('update_component', $actions);
+        $this->assertArrayNotHasKey('impact_warning', $actions['update_component']);
+    }
 }

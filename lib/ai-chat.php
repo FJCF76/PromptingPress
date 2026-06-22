@@ -83,12 +83,29 @@ add_action('admin_enqueue_scripts', function (string $hook) {
         ];
     }
 
+    // Destructive-action warnings, server-driven from the action + apply
+    // registries (single source of truth). Any action/apply that declares an
+    // 'impact_warning' string surfaces in the chat proposal UI — no hardcoded
+    // JS list to drift when a new destructive capability is registered.
+    $impact_warnings = [];
+    foreach (pp_get_registered_actions() as $pp_act_name => $pp_act_def) {
+        if (!empty($pp_act_def['impact_warning'])) {
+            $impact_warnings[$pp_act_name] = $pp_act_def['impact_warning'];
+        }
+    }
+    foreach (pp_get_registered_applies() as $pp_apply_name => $pp_apply_def) {
+        if (!empty($pp_apply_def['impact_warning'])) {
+            $impact_warnings[$pp_apply_name] = $pp_apply_def['impact_warning'];
+        }
+    }
+
     wp_localize_script('pp-ai-chat', 'ppAiChat', [
         'streamUrl'        => get_template_directory_uri() . '/ai-stream.php',
         'ajaxUrl'          => admin_url('admin-ajax.php'),
         'streamNonce'      => wp_create_nonce('pp_ai_stream'),
         'executeNonce'     => wp_create_nonce('pp_ai_execute'),
         'configured'       => pp_ai_is_configured(),
+        'impact_warnings'  => $impact_warnings,
         'connectorsUrl'    => admin_url('options-connectors.php'),
         'siteUrl'          => site_url(),
         'pages'            => $pages,

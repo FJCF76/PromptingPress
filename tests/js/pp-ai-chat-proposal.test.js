@@ -2,8 +2,7 @@
  * Tests for proposal card helpers in assets/js/pp-ai-chat.js
  *
  * Covers:
- *   IMPACT_WARNINGS       — static warning map for high-impact actions
- *   getImpactWarning      — lookup by action name
+ *   getImpactWarning      — server-driven lookup (window.ppAiChat.impact_warnings)
  *   formatDiffValue       — string/object/null formatting for diff display
  *   shouldShowMultiStepWarning — 3+ step threshold
  *   isRevertEligible      — single-step update_design_token detection
@@ -32,12 +31,19 @@ dom.window.ppAiChat = {
     executeNonce: 'test-nonce',
     siteUrl: 'http://example.com',
     streamUrl: '/wp-admin/admin-ajax.php?action=pp_ai_stream',
-    streamNonce: 'stream-nonce'
+    streamNonce: 'stream-nonce',
+    // Server-driven destructive warnings (mirrors what lib/ai-chat.php localizes
+    // from the action + apply registries). The original 4 are the regression set.
+    impact_warnings: {
+        update_composition: 'Replaces entire page composition',
+        reset_all_design_tokens: 'Resets ALL token overrides to defaults',
+        clear_custom_css: 'Removes ALL Custom CSS',
+        remove_component: 'Removes component from page'
+    }
 };
 global.window.ppAiChat = dom.window.ppAiChat;
 
 const {
-    IMPACT_WARNINGS,
     getImpactWarning,
     formatDiffValue,
     shouldShowMultiStepWarning,
@@ -48,39 +54,25 @@ const {
     buildCompositionSummary,
 } = require('../../assets/js/pp-ai-chat.js');
 
-// ─── IMPACT_WARNINGS map ────────────────────────────────────────────────────
-
-describe('IMPACT_WARNINGS', function () {
-    test('contains update_composition', function () {
-        expect(IMPACT_WARNINGS['update_composition']).toBe('Replaces entire page composition');
-    });
-
-    test('contains reset_all_design_tokens', function () {
-        expect(IMPACT_WARNINGS['reset_all_design_tokens']).toBe('Resets ALL token overrides to defaults');
-    });
-
-    test('contains clear_custom_css', function () {
-        expect(IMPACT_WARNINGS['clear_custom_css']).toBe('Removes ALL Custom CSS');
-    });
-
-    test('contains remove_component', function () {
-        expect(IMPACT_WARNINGS['remove_component']).toBe('Removes component from page');
-    });
-
-    test('does not contain normal actions like update_component', function () {
-        expect(IMPACT_WARNINGS['update_component']).toBeUndefined();
-    });
-});
-
-// ─── getImpactWarning ────────────────────────────────────────────────────────
+// ─── getImpactWarning (server-driven from window.ppAiChat.impact_warnings) ────
 
 describe('getImpactWarning', function () {
-    test('returns warning text for update_composition', function () {
+    // REGRESSION: the original 4 destructive warnings must still render after
+    // the move from a hardcoded JS map to the server-driven registry.
+    test('returns warning text for update_composition (regression)', function () {
         expect(getImpactWarning('update_composition')).toBe('Replaces entire page composition');
     });
 
-    test('returns warning text for reset_all_design_tokens', function () {
+    test('returns warning text for reset_all_design_tokens apply (regression)', function () {
         expect(getImpactWarning('reset_all_design_tokens')).toBe('Resets ALL token overrides to defaults');
+    });
+
+    test('returns warning text for clear_custom_css (regression)', function () {
+        expect(getImpactWarning('clear_custom_css')).toBe('Removes ALL Custom CSS');
+    });
+
+    test('returns warning text for remove_component (regression)', function () {
+        expect(getImpactWarning('remove_component')).toBe('Removes component from page');
     });
 
     test('returns null for normal action (update_component)', function () {
@@ -93,6 +85,18 @@ describe('getImpactWarning', function () {
 
     test('returns null for empty string', function () {
         expect(getImpactWarning('')).toBeNull();
+    });
+
+    // Safe fallback: if the server provided no map at all, lookups must not
+    // throw — they degrade to "no warning".
+    test('returns null (no crash) when impact_warnings is absent', function () {
+        const saved = global.window.ppAiChat.impact_warnings;
+        delete global.window.ppAiChat.impact_warnings;
+        try {
+            expect(getImpactWarning('update_composition')).toBeNull();
+        } finally {
+            global.window.ppAiChat.impact_warnings = saved;
+        }
     });
 });
 

@@ -314,7 +314,8 @@ pp_register_action('update_page_title', [
 // Scope: page | Semantics: replace entire composition array
 
 pp_register_action('update_composition', [
-    'scope'       => 'page',
+    'scope'          => 'page',
+    'impact_warning' => 'Replaces entire page composition',
     'description' => 'Replaces the entire composition array for a page. Each item is {"component": "name", "props": {...}}.',
     'semantics'   => 'Replace. The full composition array is replaced. Pass the complete array, not a partial update. Items use {"component", "props"} shape.',
     'params'      => [
@@ -455,7 +456,8 @@ pp_register_action('add_component', [
 // Scope: page | Semantics: remove by index, validates index in bounds
 
 pp_register_action('remove_component', [
-    'scope'       => 'page',
+    'scope'          => 'page',
+    'impact_warning' => 'Removes component from page',
     'description' => 'Removes a component from a page composition. Accepts component_id (stable pp-<hex8>) or component_index (0-based). component_id takes precedence when both are provided.',
     'semantics'   => 'Remove by component_id or 0-based index. Validates target is valid. Remaining components shift down.',
     'params'      => [
@@ -921,7 +923,8 @@ pp_register_action('style_component', [
 // After conflict detection flags issues, this action closes the loop.
 
 pp_register_action('clear_custom_css', [
-    'scope'       => 'site',
+    'scope'          => 'site',
+    'impact_warning' => 'Removes ALL Custom CSS',
     'description' => 'Removes all Custom CSS from the WordPress Customizer. Use after conflict detection flags split-authority issues.',
     'semantics'   => 'Destructive clear. No params. Removes wp_get_custom_css() content entirely.',
     'params'      => [],
