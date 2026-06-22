@@ -20,10 +20,16 @@ fi
 echo "Version: $VERSION"
 
 # ── 2. Version consistency check ─────────────────────────────────────────
-# style.css must match functions.php PP_VERSION and package.json version.
+# style.css must match functions.php PP_VERSION, package.json version, the
+# README.md version badge, and the readme.txt Stable tag. This single gate
+# runs at package time, so it also guards `npm run package`, the push CI job
+# (package.test.js runs this script), and the release workflow (release.yml
+# runs this script before uploading the ZIP) — no duplicated check elsewhere.
 
 PP_VERSION=$(grep -m1 "define('PP_VERSION'" functions.php | grep -oP "'[0-9]+\.[0-9]+\.[0-9]+'" | tr -d "'")
 PKG_VERSION=$(grep -m1 '"version"' package.json | grep -oP '[0-9]+\.[0-9]+\.[0-9]+')
+README_VERSION=$(grep -m1 -oP 'version-\K[0-9]+\.[0-9]+\.[0-9]+' README.md)
+READMETXT_VERSION=$(grep -m1 -oP '^Stable tag:[[:space:]]*\K[0-9]+\.[0-9]+\.[0-9]+' readme.txt)
 
 MISMATCH=0
 if [[ "$VERSION" != "$PP_VERSION" ]]; then
@@ -32,6 +38,14 @@ if [[ "$VERSION" != "$PP_VERSION" ]]; then
 fi
 if [[ "$VERSION" != "$PKG_VERSION" ]]; then
     echo "ERROR: style.css Version ($VERSION) != package.json version ($PKG_VERSION)" >&2
+    MISMATCH=1
+fi
+if [[ "$VERSION" != "$README_VERSION" ]]; then
+    echo "ERROR: style.css Version ($VERSION) != README.md badge version ($README_VERSION)" >&2
+    MISMATCH=1
+fi
+if [[ "$VERSION" != "$READMETXT_VERSION" ]]; then
+    echo "ERROR: style.css Version ($VERSION) != readme.txt Stable tag ($READMETXT_VERSION)" >&2
     MISMATCH=1
 fi
 if [[ "$MISMATCH" -eq 1 ]]; then

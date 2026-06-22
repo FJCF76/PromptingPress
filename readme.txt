@@ -2,6 +2,7 @@
 Contributors: fjcf76
 Requires at least: 7.0
 Tested up to: 7.0
+Stable tag: 0.9.0
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -18,6 +19,12 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 4. Activate the theme.
 
 == Changelog ==
+
+= 0.9.0 =
+* Editor serialization safety gate: the accordion blocks rather than silently corrupting a composition on open, with a JSON-only fallback and per-component diff table
+* One-click "Copy as GitHub Issue" from the diff; save/publish re-check against server-normalized state and restore the accordion once clean
+* Live preview refreshes on accordion edits; empty/new compositions no longer trip the gate
+* 641 PHP tests, 236 JS tests
 
 = 0.8.4 =
 * Token family derivation: changing a base color auto-derives related tokens

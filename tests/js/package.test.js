@@ -1,9 +1,37 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execSync } from 'child_process';
-import { existsSync, unlinkSync } from 'fs';
+import { existsSync, unlinkSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 
 const ROOT = resolve(import.meta.dirname, '../..');
+
+describe('version consistency', () => {
+  const read = (rel) => readFileSync(resolve(ROOT, rel), 'utf-8');
+  const SEMVER = /(\d+\.\d+\.\d+)/;
+
+  const styleVersion = read('style.css').match(/^Version:\s*(\d+\.\d+\.\d+)/m)?.[1];
+
+  it('style.css declares a version', () => {
+    expect(styleVersion).toMatch(SEMVER);
+  });
+
+  // Authoritative gate lives in scripts/package.sh; this mirrors the 5-file
+  // invariant at the unit-test layer so drift fails fast with a clear message
+  // on every push (package.test.js runs in the CI `tests` job).
+  const sources = {
+    'functions.php PP_VERSION': () =>
+      read('functions.php').match(/define\('PP_VERSION',\s*'(\d+\.\d+\.\d+)'/)?.[1],
+    'package.json version': () => read('package.json').match(/"version":\s*"(\d+\.\d+\.\d+)"/)?.[1],
+    'README.md badge': () => read('README.md').match(/version-(\d+\.\d+\.\d+)/)?.[1],
+    'readme.txt Stable tag': () => read('readme.txt').match(/^Stable tag:\s*(\d+\.\d+\.\d+)/m)?.[1],
+  };
+
+  for (const [label, get] of Object.entries(sources)) {
+    it(`${label} matches style.css (${styleVersion})`, () => {
+      expect(get()).toBe(styleVersion);
+    });
+  }
+});
 
 describe('package.sh smoke test', () => {
   let zipName;
