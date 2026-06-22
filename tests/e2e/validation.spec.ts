@@ -105,8 +105,8 @@ test.describe('Post-Apply Validation', () => {
   // post-apply validation returns validation.ok === true — the `missing_local_media`
   // check does NOT fire for an unresolvable local image URL. Unclear yet whether
   // that's a product gap in pp_post_apply_validate() or a test-setup mismatch in how
-  // the broken image is attached. Tracked in GitHub issue (see T8). Re-enable once
-  // resolved. All other E2E specs pass on WP 7.0.
+  // the broken image is attached. Tracked in #83. Re-enable once resolved.
+  // All other E2E specs pass on WP 7.0.
   test.fixme('broken media: missing image triggers validation error', async ({
     page,
   }) => {

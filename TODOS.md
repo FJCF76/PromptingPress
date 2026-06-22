@@ -2,7 +2,9 @@
 
 ## P3
 
-- **Server-driven action warning metadata** — The proposal card's impact warning map (Item 5b of the admin chat context sprint) is a static JS lookup of 4 hardcoded action names (`update_composition`, `reset_all_design_tokens`, `clear_custom_css`, `remove_component`). When a new destructive action is registered in PHP, the JS map silently misses it. Fix: add an optional `destructive: true` flag to `pp_register_action()` / `pp_register_apply()`, surface registered destructive flags in the frontend config object, and have JS read from config instead of the hardcoded map. Start point: `lib/actions.php` pp_register_action(), `assets/js/pp-ai-chat.js` warning map. Depends on Item 5b shipping first. Flagged by outside voice during /plan-eng-review (2026-06-14).
+- **Refactor E2E setup: move wp-env CLI calls out of test bodies** — E2E specs call `wp pp ...` via `execSync('npx wp-env run cli ...')` inline (e.g. `tests/e2e/actions.spec.ts`, plus the create/setComposition helpers). This couples every browser test to a live Docker/wp-env, duplicates setup plumbing, and makes the CI E2E workflow harder to stabilize. Move them into shared fixtures / `global-setup`. Do only if needed to stabilize `.github/workflows/e2e.yml`. See #81. Surfaced by /plan-eng-review D2 spike (2026-06-22).
+
+- **Promote E2E @smoke check to required** — The push `@smoke` check (`.github/workflows/e2e.yml`) is non-blocking. Promote it to a required status check once it holds green on main for 2 weeks with zero flakes — only meaningful if a PR + branch-protection model is adopted (repo currently ships direct to main). Builds on #12. See #82. Surfaced by /plan-eng-review (2026-06-22).
 
 - **Partial data loss guard for array field sync** — The `wouldLoseArrayData` guard (added in the composition editor safety sprint, issue #73) only catches total loss (ALL items read as empty). Partial loss (e.g., 3 of 4 items empty due to a future sync bug) is not guarded because it's indistinguishable from legitimate editing. If partial loss is observed in practice, add a per-item heuristic: "items lost N of M sub-fields" with a configurable threshold. Start point: `wouldLoseArrayData()` in `assets/js/pp-editor-logic.js`. Depends on observing partial loss in production or dogfooding.
 
@@ -24,6 +26,10 @@
 
 - **Concurrent edit hash check for patch** — `pp_patch_composition()` currently has a TOCTOU gap: the composition can change between preview and apply. Add a content hash to `inspect-composition` output, accept it as an optional `--etag` flag on `patch`, and reject the apply if the composition changed. Single-operator use makes this low-risk for v1 but should be addressed before multi-operator scenarios. Deferred from Semantic Composition Operator v1 sprint (2026-06-12).
 
+- **Investigate broken-media missing_local_media validation on WP 7.0** — The E2E spec `validation.spec.ts › broken media` is quarantined (`test.fixme`): `style_component` succeeds but post-apply validation returns `ok=true` — `missing_local_media` does not fire for an unresolvable local image URL. Determine whether it's a product gap in `pp_post_apply_validate()` or a test-setup mismatch, then re-enable. See #83. Surfaced by /plan-eng-review D2 spike (2026-06-22).
+
 ## Completed
+
+- **Server-driven action warning metadata** — Destructive-action warnings are now server-driven from the action/apply registries (`impact_warning` key on `pp_register_action()` / `pp_register_apply()`), aggregated and localized via `ppAiChat.impact_warnings`; the hardcoded JS map is gone. A registry-coverage test fails CI if a known-destructive capability ships without a warning. **Completed:** 2026-06-22, #74
 
 - **Error status message structural differentiation** — Error steps now use `.pp-ai-step-impossible` (grey border/background) and `.pp-ai-step-fixable` (amber border/background) for structural visual differentiation beyond color alone. **Completed:** v0.8.3 (2026-06-16)
