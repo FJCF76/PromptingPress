@@ -377,25 +377,27 @@ Enforced by `AI_RULES.md` and verified by automated tests:
 
 ## ✅ Tests
 
-**641 PHP tests, 2336 assertions** — component loader, WP abstraction, schema validation, 14 typed actions, apply layer, token family derivation, AI context, proposal parsing, style slots, cross-component hints, surface classification, font management, integrity, operating loop:
+**645 PHP tests, 2364 assertions** — component loader, WP abstraction, schema validation, 14 typed actions, apply layer, token family derivation, AI context, proposal parsing, style slots, cross-component hints, surface classification, font management, integrity, operating loop, server-driven destructive-action warnings:
 
 ```bash
 composer install && composer test
 ```
 
-**236 JS tests** — JSON context, composition validator, accordion data, insert position, data-loss guard, DOM selector alignment, serialization invariant (deep diff + round-trip gate), CSS lint, packaging, proposal card, guided error card, post-apply validation:
+**247 JS tests** — JSON context, composition validator, accordion data, insert position, data-loss guard, DOM selector alignment, serialization invariant (deep diff + round-trip gate), CSS lint, packaging, proposal card, guided error card, post-apply validation, shared PHP/JS validation contract, server-driven warning lookup:
 
 ```bash
 npm install && npm test
 ```
 
-**11 E2E tests** — full composition editor round-trip, including the serialization gate, against a live WordPress instance (requires Docker):
+**15 E2E specs** — composition editor round-trip (including the serialization gate), post-apply validation, and the action-layer CLI, run with Playwright against a live **WordPress 7.0** instance (requires Docker). One broken-media validation check is currently quarantined (issue #83):
 
 ```bash
-npm run env:start   # boot wp-env container
+npm run env:start   # boot wp-env container (WordPress 7.0)
 npm run test:e2e    # Playwright against http://localhost:8889
 npm run env:stop
 ```
+
+**Continuous integration** — `composer test` + `npm test` run on every push to `main` and gate every release before the ZIP is built, so a failing test can't reach a published theme. End-to-end runs in CI too: a non-blocking `@smoke` subset on push, plus a nightly full suite on WordPress 7.0.
 
 ---
 
@@ -414,7 +416,7 @@ See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 thro
 - In-admin AI chat with structured mutation proposals and guided error recovery
 - Agent operating framework with step enforcement and drift detection
 - WP-CLI interface for all operations
-- 849+ automated tests across PHP, JS, and E2E
+- 892+ automated tests across PHP, JS, and E2E, enforced by CI on every push and release
 - Theme integrity checking with build manifests
 - ~75 KB frontend CSS, 1.5 KB JS — no framework, no bundler
 
