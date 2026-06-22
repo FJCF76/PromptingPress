@@ -24,7 +24,11 @@ jobs:
           fi
           echo "Tag-version check: OK ($TAG_VERSION)"
 
-      # Hard test gate: a broken release literally cannot be packaged or published.
+      # Test backstop: blocks the ZIP build/upload if tests fail. NOTE: this job
+      # runs on `release: published`, so the GitHub Release entry already exists by
+      # now — a failure leaves a release with no asset, it does not un-publish it.
+      # The primary pre-release gate is the `tests` job in ai-ready-check.yml, which
+      # runs on every push to main before a release is ever cut.
       # PHP 8.3 because PHPUnit 10 requires PHP 8.1+ (theme runtime minimum is 8.0).
       - name: Set up PHP 8.3
         uses: shivammathur/setup-php@v2

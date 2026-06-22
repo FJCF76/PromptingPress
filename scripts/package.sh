@@ -28,7 +28,7 @@ echo "Version: $VERSION"
 
 PP_VERSION=$(grep -m1 "define('PP_VERSION'" functions.php | grep -oP "'[0-9]+\.[0-9]+\.[0-9]+'" | tr -d "'")
 PKG_VERSION=$(grep -m1 '"version"' package.json | grep -oP '[0-9]+\.[0-9]+\.[0-9]+')
-README_VERSION=$(grep -m1 -oP 'version-\K[0-9]+\.[0-9]+\.[0-9]+' README.md)
+README_VERSION=$(grep -m1 -oP 'badge/version-\K[0-9]+\.[0-9]+\.[0-9]+' README.md)
 READMETXT_VERSION=$(grep -m1 -oP '^Stable tag:[[:space:]]*\K[0-9]+\.[0-9]+\.[0-9]+' readme.txt)
 
 MISMATCH=0

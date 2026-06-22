@@ -15,12 +15,6 @@ function wpCli(cmd: string): string {
 }
 
 /**
- * Run `wp pp operate inspect` and return its run_id. The action layer requires
- * a run token with a completed INSPECT step (step-ordering enforcement); the
- * token persists across wp-env CLI invocations, so one run-id covers a whole
- * create → add → publish sequence.
- */
-/**
  * Extract the first balanced JSON object from wp-env CLI output. wp-env wraps
  * command output with status lines ("ℹ Starting...", "✔ Ran ... --params={...}")
  * and wp-cli adds a trailing "Success:" line — any of which can contain braces —
@@ -49,6 +43,12 @@ function parseCliJson(raw: string, what: string): Record<string, unknown> {
   throw new Error(`Unbalanced JSON in ${what} output: ${raw}`);
 }
 
+/**
+ * Run `wp pp operate inspect` and return its run_id. The action layer requires
+ * a run token with a completed INSPECT step (step-ordering enforcement); the
+ * token persists across wp-env CLI invocations, so one run-id covers a whole
+ * create → add → publish sequence.
+ */
 function ppOperateInspect(): string {
   const data = parseCliJson(wpCli('wp pp operate inspect'), 'operate inspect');
   if (!data.run_id) throw new Error('operate inspect returned no run_id');

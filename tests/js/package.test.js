@@ -22,7 +22,7 @@ describe('version consistency', () => {
     'functions.php PP_VERSION': () =>
       read('functions.php').match(/define\('PP_VERSION',\s*'(\d+\.\d+\.\d+)'/)?.[1],
     'package.json version': () => read('package.json').match(/"version":\s*"(\d+\.\d+\.\d+)"/)?.[1],
-    'README.md badge': () => read('README.md').match(/version-(\d+\.\d+\.\d+)/)?.[1],
+    'README.md badge': () => read('README.md').match(/badge\/version-(\d+\.\d+\.\d+)/)?.[1],
     'readme.txt Stable tag': () => read('readme.txt').match(/^Stable tag:\s*(\d+\.\d+\.\d+)/m)?.[1],
   };
 
