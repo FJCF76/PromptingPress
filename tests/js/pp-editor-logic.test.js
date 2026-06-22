@@ -19,6 +19,9 @@ const {
     formatDiffsForIssue,
 } = require('../../assets/js/pp-editor-logic.js');
 
+const fs = require('fs');
+const path = require('path');
+
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
 const HERO = {
@@ -807,5 +810,39 @@ describe('formatDiffsForIssue', () => {
         const md = formatDiffsForIssue(diffs, 'Pipe Page', 7);
         // Pipe chars should be escaped in table cells
         expect(md).toContain('\\|');
+    });
+});
+
+// ─── Shared PHP<->JS validation contract (D5) ────────────────────────────────
+//
+// Golden fixtures in tests/fixtures/composition-validation-cases.json are
+// asserted by BOTH this test and tests/SchemaValidationTest.php. If
+// validateCompositionData drifts from pp_validate_composition on any
+// shared-contract rule, one side fails. Known intentional asymmetries
+// (blank required prop = JS-only stricter; style-slot validation = PHP-only)
+// are documented in the fixture and deliberately excluded from this set.
+describe('shared PHP<->JS validation contract (D5)', () => {
+    const fixture = JSON.parse(
+        fs.readFileSync(
+            path.resolve(__dirname, '../fixtures/composition-validation-cases.json'),
+            'utf-8'
+        )
+    );
+    const registry = fixture.registry;
+
+    test('fixture defines cases', () => {
+        expect(Array.isArray(fixture.cases)).toBe(true);
+        expect(fixture.cases.length).toBeGreaterThan(0);
+    });
+
+    fixture.cases.forEach((c) => {
+        test(c.name, () => {
+            const errors = validateCompositionData(JSON.stringify(c.composition), registry);
+            if (c.expectValid) {
+                expect(errors).toEqual([]);
+            } else {
+                expect(errors.length).toBeGreaterThan(0);
+            }
+        });
     });
 });

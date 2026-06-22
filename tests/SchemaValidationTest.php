@@ -368,6 +368,41 @@ class SchemaValidationTest extends TestCase
         $this->assertArrayNotHasKey('style', $normalized[0]);
     }
 
+    // ── Shared PHP<->JS validation contract (D5) ──────────────────────────
+    //
+    // Golden fixtures in tests/fixtures/composition-validation-cases.json are
+    // asserted by BOTH this test and tests/js/pp-editor-logic.test.js. If
+    // pp_validate_composition drifts from validateCompositionData on any
+    // shared-contract rule, one side fails. Known intentional asymmetries
+    // (blank required prop = JS-only; style-slot validation = PHP-only) are
+    // documented in the fixture and deliberately excluded from this set.
+
+    public function testSharedValidationContractCases(): void
+    {
+        $path = __DIR__ . '/fixtures/composition-validation-cases.json';
+        $this->assertFileExists($path, 'Shared validation fixture is missing.');
+
+        $data = json_decode(file_get_contents($path), true);
+        $this->assertIsArray($data['cases'] ?? null, 'Fixture must define a cases[] array.');
+        $this->assertNotEmpty($data['cases'], 'Fixture must define at least one case.');
+
+        foreach ($data['cases'] as $case) {
+            $result = pp_validate_composition($case['composition']);
+            if ($case['expectValid']) {
+                $this->assertTrue(
+                    $result === true,
+                    "PHP validator should ACCEPT shared-contract case: {$case['name']}"
+                );
+            } else {
+                $this->assertInstanceOf(
+                    \WP_Error::class,
+                    $result,
+                    "PHP validator should REJECT shared-contract case: {$case['name']}"
+                );
+            }
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
 
     private function removeDir(string $dir): void
