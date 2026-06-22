@@ -23,3 +23,6 @@ tests/e2e/.auth/
 
 # Integrity manifest (build artifact)
 integrity-manifest.json
+
+# gstack tooling output
+.gstack-screenshots/
