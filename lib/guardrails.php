@@ -411,6 +411,14 @@ function pp_check_theme_integrity(): ?array {
     ];
 
     update_option('pp_theme_integrity', $result, true);
+
+    // Drift is gone — clear any stale "last update blocked" record so the admin
+    // notice self-heals (via the daily cron, activation, post-update, or CLI)
+    // once the files are restored. Only the unsafe state is worth surfacing.
+    if ($status === 'safe') {
+        delete_option('pp_last_blocked_update');
+    }
+
     return $result;
 }
 
@@ -473,4 +481,40 @@ function pp_admin_notice_theme_integrity(): void {
         echo '</div>';
         return;
     }
+}
+
+/**
+ * Renders a persistent admin notice when a theme update was blocked because
+ * local files had drifted from the shipped baseline.
+ *
+ * This is a separate notice from pp_admin_notice_theme_integrity() on purpose:
+ * a blocked SILENT auto-update never surfaces a live WP_Error to a human, so
+ * this is the only place the site owner learns when, why, and which files
+ * caused the block. Reads the stored option (no file I/O).
+ *
+ * Hooked via add_action('admin_notices', ...) in functions.php.
+ */
+function pp_admin_notice_last_blocked_update(): void {
+    $blocked = get_option('pp_last_blocked_update');
+    if (!is_array($blocked) || empty($blocked['timestamp'])) {
+        return;
+    }
+
+    if (($blocked['status'] ?? '') === 'invalid_manifest') {
+        $reason = 'theme file integrity could not be verified';
+    } else {
+        $parts = [];
+        if (!empty($blocked['modified'])) { $parts[] = count($blocked['modified']) . ' modified'; }
+        if (!empty($blocked['missing']))  { $parts[] = count($blocked['missing'])  . ' missing'; }
+        if (!empty($blocked['extra']))    { $parts[] = count($blocked['extra'])    . ' extra'; }
+        $reason = 'local theme files had changed'
+            . ($parts ? ' (' . implode(', ', $parts) . ')' : '');
+    }
+
+    echo '<div class="notice notice-error">';
+    echo '<p><strong>PromptingPress:</strong> A theme update was blocked on ';
+    echo esc_html($blocked['timestamp']) . ' because ' . esc_html($reason) . '. ';
+    echo 'Updating would have overwritten or deleted those changes. ';
+    echo 'Run <code>wp pp integrity check</code> for the file list.</p>';
+    echo '</div>';
 }

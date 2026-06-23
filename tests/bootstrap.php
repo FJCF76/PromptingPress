@@ -104,7 +104,15 @@ if (!function_exists('get_the_content')) {
 }
 
 if (!function_exists('apply_filters')) {
-    function apply_filters(string $tag, $value) {
+    // Override-aware stub: tests can register a return value per filter tag via
+    // $GLOBALS['_pp_test_store']['filters'][$tag]. Without an override, returns
+    // the passed default (the normal "no callbacks attached" behavior).
+    function apply_filters(string $tag, $value, ...$args) {
+        $overrides = $GLOBALS['_pp_test_store']['filters'] ?? [];
+        if (array_key_exists($tag, $overrides)) {
+            $override = $overrides[$tag];
+            return is_callable($override) ? $override($value, ...$args) : $override;
+        }
         return $value;
     }
 }
@@ -641,6 +649,39 @@ if (!function_exists('wp_date')) {
     }
 }
 
+// ── WP-Cron stubs (stateful via $GLOBALS['_pp_test_store']['cron']) ──────────
+// Mirror the options-store pattern so cron scheduling/unscheduling is testable.
+
+if (!defined('DAY_IN_SECONDS')) {
+    define('DAY_IN_SECONDS', 86400);
+}
+
+if (!function_exists('wp_next_scheduled')) {
+    function wp_next_scheduled(string $hook, array $args = []) {
+        return $GLOBALS['_pp_test_store']['cron'][$hook] ?? false;
+    }
+}
+
+if (!function_exists('wp_schedule_event')) {
+    function wp_schedule_event(int $timestamp, string $recurrence, string $hook, array $args = []): bool {
+        // Faithful to real WP: a second call DOES schedule again (WP does not
+        // dedup). We count calls so idempotency tests prove the caller's
+        // wp_next_scheduled guard rather than a stub that silently dedups.
+        $GLOBALS['_pp_test_store']['cron_calls'][$hook] =
+            ($GLOBALS['_pp_test_store']['cron_calls'][$hook] ?? 0) + 1;
+        $GLOBALS['_pp_test_store']['cron'][$hook] = $timestamp;
+        return true;
+    }
+}
+
+if (!function_exists('wp_clear_scheduled_hook')) {
+    function wp_clear_scheduled_hook(string $hook, array $args = []): int {
+        $existed = isset($GLOBALS['_pp_test_store']['cron'][$hook]) ? 1 : 0;
+        unset($GLOBALS['_pp_test_store']['cron'][$hook]);
+        return $existed;
+    }
+}
+
 // Load the theme library files.
 require_once dirname(__DIR__) . '/lib/wp.php';
 require_once dirname(__DIR__) . '/lib/helpers.php';
@@ -655,3 +696,4 @@ require_once dirname(__DIR__) . '/lib/ai-context.php';
 require_once dirname(__DIR__) . '/lib/ai-provider.php';
 require_once dirname(__DIR__) . '/lib/ai-chat.php';
 require_once dirname(__DIR__) . '/lib/post-apply-validate.php';
+require_once dirname(__DIR__) . '/lib/setup.php';
