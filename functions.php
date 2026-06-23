@@ -7,7 +7,7 @@
  */
 
 // ── Theme version (single source of truth — keep in sync with style.css) ──
-define('PP_VERSION', '0.10.0');
+define('PP_VERSION', '0.11.0');
 
 // ── Load lib files ─────────────────────────────────────────────────────────
 require_once get_template_directory() . '/lib/wp.php';
@@ -35,6 +35,7 @@ if (defined('WP_CLI') && WP_CLI) {
 // ── Admin notices ─────────────────────────────────────────────────────────
 add_action('admin_notices', 'pp_admin_notice_css_conflicts');
 add_action('admin_notices', 'pp_admin_notice_theme_integrity');
+add_action('admin_notices', 'pp_admin_notice_last_blocked_update');
 
 // ── Theme setup ────────────────────────────────────────────────────────────
 add_action('after_setup_theme', function () {

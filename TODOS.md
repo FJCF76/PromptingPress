@@ -2,6 +2,8 @@
 
 ## P3
 
+- **Supported extension points for site-specific structural changes** — The v0.11.0 upgrade-safety guardrails make parent-theme `templates/`/`components/`/`assets/` inspect-only for site work, and the AI is told to "STOP and escalate" when a site genuinely needs a structural (template/component) change. That's tenable only if there's an eventual supported path; otherwise every real structural customization becomes a release request. Design a child-theme or runtime override layer (deliberately excluded from the v0.11.0 sprint to keep it focused). Depends on observing how often escalations actually arise in practice. Surfaced by /plan-eng-review outside-voice (Codex), 2026-06-24.
+
 - **Refactor E2E setup: move wp-env CLI calls out of test bodies** — E2E specs call `wp pp ...` via `execSync('npx wp-env run cli ...')` inline (e.g. `tests/e2e/actions.spec.ts`, plus the create/setComposition helpers). This couples every browser test to a live Docker/wp-env, duplicates setup plumbing, and makes the CI E2E workflow harder to stabilize. Move them into shared fixtures / `global-setup`. Do only if needed to stabilize `.github/workflows/e2e.yml`. See #81. Surfaced by /plan-eng-review D2 spike (2026-06-22).
 
 - **Promote E2E @smoke check to required** — The push `@smoke` check (`.github/workflows/e2e.yml`) is non-blocking. Promote it to a required status check once it holds green on main for 2 weeks with zero flakes — only meaningful if a PR + branch-protection model is adopted (repo currently ships direct to main). Builds on #12. See #82. Surfaced by /plan-eng-review (2026-06-22).

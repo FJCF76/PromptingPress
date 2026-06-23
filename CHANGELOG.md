@@ -4,6 +4,88 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.11.0] — 2026-06-24 — Upgrade-Safety Guardrails: Updates Stop Before They Overwrite Your Work
+
+**Theme updates now refuse to run when they'd silently destroy local changes.**
+**The integrity warning went from a passive notice to an actual stop sign.**
+
+Before this release, PromptingPress could detect that theme files had drifted from
+the shipped baseline, but nothing stopped an update from replacing the whole theme
+directory and wiping those edits — the warning only told you after the damage was
+done. Now an update to the active PromptingPress theme is blocked before any file is
+written if local files are modified, missing, or extra. The block returns a clear
+error naming how many files changed, points you at `wp pp integrity check` for the
+list, and explains how to keep the changes (move them into design tokens,
+compositions, or content) or override the block deliberately.
+
+A daily background check keeps the "theme files modified" status current, so the
+admin warning reflects reality without waiting for you to re-activate the theme or
+run a CLI command. And because a silent auto-update never shows a live error to a
+human, a blocked update is recorded and surfaced on the admin screen: when it
+happened, why, and which files caused it.
+
+Alongside the enforcement, the AI guidance was corrected. The theme's
+`templates/`, `components/`, and `assets/` directories are release artifacts —
+editing them to customize a single site loses the work on the next update. The
+docs now treat those paths as inspect-only for site work and route site changes
+through design tokens (`update_design_token`), fonts (`enqueue_font`), and
+compositions, which survive updates.
+
+### The numbers that matter
+
+Source: the PHPUnit suite (`vendor/bin/phpunit`) and the integrity guard's branch
+coverage.
+
+| Metric | Before (v0.10.0) | After (v0.11.0) | Δ |
+|---|---|---|---|
+| Theme update blocked on local drift | no | yes | new guardrail |
+| Integrity status refresh | activation / update / manual | + daily cron | continuous |
+| Blocked-update visibility | none | admin notice + stored record | new |
+| PHP unit tests | 645 | 671 | +26 |
+
+The 26 new tests cover every branch of the pre-update guard (safe / no-manifest /
+corrupt-manifest / modified / missing / extra / bypass), the theme-detection helper
+against single, bulk, and auto-update hook shapes, and the cron schedule / clear
+lifecycle.
+
+### What this means for site builders
+
+If you customize a PromptingPress site the supported way — tokens, fonts,
+compositions — nothing changes and updates keep flowing. If files in the theme
+directory have been hand-edited, the next update stops and tells you, instead of
+quietly erasing them. To update anyway, restore the files or add a
+`pp_allow_unsafe_theme_update` filter returning true.
+
+### Itemized changes
+
+#### Added
+- Pre-update guard on `upgrader_pre_install`: blocks updates/installs of the active
+  PromptingPress theme when integrity is `unsafe` (modified/missing/extra) or the
+  manifest is corrupt; allows when clean or when no manifest exists. Override via the
+  `pp_allow_unsafe_theme_update` filter.
+- Daily `pp_daily_integrity_check` WP-Cron event running `pp_check_theme_integrity()`,
+  scheduled idempotently on theme activation and cleared on theme switch.
+- `pp_last_blocked_update` record + a dedicated admin notice surfacing a blocked
+  update's date, reason, and affected-file counts.
+- `tests/SetupTest.php` — 24 tests for the guard, the theme-detection helper, the
+  cron lifecycle, and last-blocked persistence.
+
+#### Changed
+- AI docs (`AI_RULES.md`, `AI_CONTEXT.md`, `ai-instructions/retheme.md`,
+  `ai-instructions/build-landing-page.md`): parent-theme `templates/`,
+  `components/`, and `assets/` are inspect-only for site customization; site styling
+  goes through `update_design_token` / `enqueue_font` / compositions. Editing those
+  files is framed as release/product development; a governing statement scopes the
+  per-component `safe_to_edit` fields the same way.
+
+#### For contributors
+- Shared `_pp_is_active_theme_update()` helper detects the active-theme update across
+  WordPress's differing `hook_extra` shapes (matches on theme slug, not `type`, so
+  bulk updates are covered) and is reused by the existing
+  `upgrader_process_complete` handler.
+- Test bootstrap gained stateful WP-Cron stubs and an override-aware `apply_filters`
+  stub; `lib/setup.php` is now loaded in the test harness.
+
 ## [v0.10.0] — 2026-06-22 — Shipping Confidence: Enforced Tests + WP 7.0 E2E
 
 This release hardens how PromptingPress ships rather than adding user-facing surface. The full unit suite (645 PHP + 247 JS) now runs in CI on every push and again as a gate before any release ZIP is built, so a red test can no longer reach a published theme. The end-to-end suite runs against WordPress 7.0 (the version the theme actually requires) instead of 6.7, with a non-blocking smoke check on push and a nightly full run. Destructive AI actions now derive their confirmation warnings from the action/apply registry, so a newly added destructive capability can never silently ship without a warning. Version numbers are kept consistent across all five locations (style.css, functions.php, package.json, README badge, readme.txt) by an enforced check.

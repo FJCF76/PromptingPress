@@ -2,7 +2,7 @@
 Contributors: fjcf76
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 0.10.0
+Stable tag: 0.11.0
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -19,6 +19,13 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 4. Activate the theme.
 
 == Changelog ==
+
+= 0.11.0 =
+* Theme updates are now blocked when local theme files have been changed, so an update can't silently overwrite or delete your edits — with a clear notice listing the affected files and an override filter
+* A daily integrity check keeps the "theme files modified" warning current without waiting for an activation or manual check
+* If an update is blocked (including a silent auto-update), the admin screen shows when it happened and why
+* AI guidance now treats theme template/component/asset files as inspect-only for site work — site changes go through design tokens, fonts, and compositions that survive updates
+* 671 PHP tests, 247 JS tests
 
 = 0.10.0 =
 * CI now runs the full unit suite on every push and gates releases — a failing test can't reach a published theme
