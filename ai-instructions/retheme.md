@@ -1,12 +1,31 @@
 # Retheme PromptingPress
 
-Follow these steps to change the visual design of the site. You can change the entire color scheme, fonts, shape language, and spacing scale by editing a single file.
+Change the entire color scheme, fonts, shape language, and spacing scale through
+33 design tokens.
+
+**To retheme a SITE, use the apply/DB path — do not edit `base.css`.** Token values
+for a specific site are set with `update_design_token` (stored in the
+`pp_token_overrides` database option) and **survive theme updates**. `base.css` is a
+release artifact: a theme update overwrites it, so editing it on a live install
+loses your changes. Jump to **"Programmatic path (use this to retheme a site)"** below.
+
+**Editing `base.css` directly (Steps 1, 2, 4) is product/release development only** —
+changing the theme's shipped *defaults* as part of a release, not customizing a site.
+If you are customizing a site, use the apply path instead; if a site retheme seems to
+require a `base.css` edit, STOP and escalate.
+
+The token names, families, and value rules are the same on both paths, so Steps 1–4
+double as the reference for what each token does.
 
 ---
 
-## Step 1 — Edit the 8 base color tokens in assets/css/base.css
+## Step 1 (release dev) — The 8 base color tokens in assets/css/base.css
 
-Open `/assets/css/base.css`. Find the `:root` block and change these 8 properties. When using the programmatic path (`update_design_token`), changing `--color-accent` auto-derives the four accent variants and changing `--color-text` auto-derives `--color-text-secondary`:
+These are the theme's shipped color defaults. For a SITE, set these values via
+`update_design_token` instead (see the programmatic path below) — editing `base.css`
+here changes the product default and is overwritten on update. When using the
+programmatic path, changing `--color-accent` auto-derives the four accent variants and
+changing `--color-text` auto-derives `--color-text-secondary`:
 
 ```css
 --color-bg:           #ffffff;  /* Page background */
@@ -36,9 +55,11 @@ Example retheme — warm neutral:
 
 ---
 
-## Step 2 — Replace the font tokens
+## Step 2 (release dev) — The font tokens
 
-Still in `assets/css/base.css`, change:
+For a SITE, set fonts via the `enqueue_font` apply (Step 3) and the font-family token
+via `update_design_token` — not by editing `base.css`. As a release default, in
+`assets/css/base.css`:
 
 ```css
 --font-body:    system-ui, sans-serif;
@@ -72,9 +93,10 @@ Fonts are enqueued before `pp-base` so they load first. Max 5 font URLs. HTTPS o
 
 ---
 
-## Step 4 — Adjust --radius for shape language
+## Step 4 (release dev) — Adjust --radius for shape language
 
-In `assets/css/base.css`:
+For a SITE, set `--radius` via `update_design_token`. As a release default, in
+`assets/css/base.css`:
 
 ```css
 --radius: 0.375rem;  /* Current: subtle rounding */
@@ -116,9 +138,9 @@ The entire visual output of the site flows through the 33 CSS variables and the 
 
 ---
 
-## Programmatic alternative
+## Programmatic path (use this to retheme a site)
 
-Tokens can also be changed via the apply layer without manually editing base.css. Overrides are stored in the database (`pp_token_overrides` option) and survive theme updates:
+This is the path for site retheming. Tokens are changed via the apply layer without editing base.css. Overrides are stored in the database (`pp_token_overrides` option) and survive theme updates:
 
 ```bash
 wp pp apply execute update_design_token --params='{"token":"--color-accent","value":"#b45309"}'

@@ -27,6 +27,31 @@ Before modifying any component styling or composition: run `wp pp check conflict
 - No writing to WordPress Custom CSS (Appearance > Additional CSS) for theme styling. All styling through tokens or components.css.
 - Every composition component has a persisted stable ID. IDs are auto-assigned on save.
 
+## Parent-theme files are inspect-only for site customization
+
+The parent-theme directories `templates/`, `components/`, and `assets/` are
+**release artifacts**. A theme update replaces the entire theme directory, so any
+local edit to those files is silently overwritten or deleted on the next update.
+
+- **Inspect freely, edit never (for a site).** Read `templates/`, `components/`,
+  and `assets/` to understand how the site renders. Do not edit them to customize a
+  specific site.
+- **Site customization goes through applies + the database**, which survive theme
+  updates: design tokens via `update_design_token` (`pp_token_overrides`), fonts via
+  `enqueue_font`, and content/layout via compositions. That is the supported path.
+- **Editing those paths is a release-level / product change** — developing
+  PromptingPress itself, not customizing a site. It belongs in a theme release.
+- **If a site-specific visual or rendering change cannot be expressed** through
+  tokens, applies, or compositions, **STOP and escalate.** Do not edit the
+  parent-theme file directly.
+
+**Scope of `safe_to_edit` and the instruction guides.** The `safe_to_edit` fields
+in each component's `schema.json`, and any "edit / open / create a file in
+`templates/` | `components/` | `assets/`" step across `ai-instructions/*.md`,
+describe **product/release-development scope** (authoring or improving the theme
+itself). They are NOT permission to edit parent-theme files for site customization —
+for site work those paths remain inspect-only.
+
 ## Design system
 
 To restyle the site, read `ai-instructions/retheme.md`.
@@ -88,14 +113,18 @@ Requires Docker. Tests cover workspace init, preview updates, save rejection, au
 
 ## File responsibilities
 
+"Safe to edit?" below means safe for **release/product development** (changing the
+theme itself). For **site customization**, the parent-theme rows (`templates/`,
+`components/`, `assets/`) are **inspect-only** — use applies/DB or escalate.
+
 | File/Folder              | Purpose                         | Safe to edit?                    |
 |--------------------------|---------------------------------|----------------------------------|
-| /templates/              | Page layouts                    | Yes                              |
-| /components/             | Reusable sections               | Yes                              |
-| /assets/css/base.css     | Design token defaults           | Yes — tokens only                |
-| /assets/css/components.css | Component styles              | Yes                              |
-| /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Yes — run npm test after         |
-| /assets/js/main.js       | Nav toggle, active link         | Yes                              |
+| /templates/              | Page layouts                    | Release-level only — inspect for site work |
+| /components/             | Reusable sections               | Release-level only — inspect for site work |
+| /assets/css/base.css     | Design token defaults           | Release-level only — site tokens via update_design_token |
+| /assets/css/components.css | Component styles              | Release-level only — inspect for site work |
+| /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Release-level only — run npm test after |
+| /assets/js/main.js       | Nav toggle, active link         | Release-level only — inspect for site work |
 | /lib/wp.php              | WP function wrappers (read + write) | Only to add pp_ functions   |
 | /lib/actions.php         | Typed action model (14 actions) | Add actions following the contract |
 | /lib/guardrails.php      | CSS conflict detection, surface classification, theme integrity | Extend for new checks |

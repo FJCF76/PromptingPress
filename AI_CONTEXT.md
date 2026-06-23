@@ -5,11 +5,26 @@
 This is a WordPress site using the PromptingPress theme. WordPress handles the backend
 (admin, database, media, plugins). This theme handles the frontend rendering only.
 
-**To add a page:** Create or edit a file in `/templates/`. Call `pp_get_component()` for
-each section. Register the template in WP Admin (Pages → Edit → Page Attributes → Template).
+**Site customization vs. product development — read this first.** The parent-theme
+directories `templates/`, `components/`, and `assets/` are **release artifacts**: a
+theme update replaces the whole directory, so local edits are overwritten or deleted.
+For **site customization**, treat them as **inspect-only** — change a site through
+applies + the database (design tokens via `update_design_token`, fonts via
+`enqueue_font`, content/layout via compositions), which survive updates. Editing
+those files is **product/release development** (changing the theme itself). If a
+site-specific change can only be done by editing one of those files, **STOP and
+escalate** rather than editing it. See `AI_RULES.md` → "Parent-theme files are
+inspect-only for site customization."
 
-**To edit a component:** Open `/components/{name}/{name}.php`. Props are documented in
-`schema.json` in the same folder. CSS is in `/assets/css/components.css`.
+The page/component/template workflows below are **product-development procedures**
+(authoring or improving the theme), not site-customization steps.
+
+**To add a page (product dev):** Create or edit a file in `/templates/`. Call
+`pp_get_component()` for each section. Register the template in WP Admin (Pages →
+Edit → Page Attributes → Template).
+
+**To edit a component (product dev):** Open `/components/{name}/{name}.php`. Props are
+documented in `schema.json` in the same folder. CSS is in `/assets/css/components.css`.
 
 **To add a page:** Follow the steps in `ai-instructions/add-page.md`.
 
@@ -45,15 +60,21 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 
 ## File responsibility
 
+"Safe to edit?" means safe for **release/product development**. For **site
+customization**, the parent-theme rows (`templates/`, `components/`, `assets/`) are
+**inspect-only** — use applies/DB or escalate (see AI_RULES.md). This includes the
+`safe_to_edit` fields in each `schema.json`: those describe product-dev scope, not
+site-customization permission.
+
 | File/Folder              | Purpose                         | Safe to edit?                    |
 |--------------------------|---------------------------------|----------------------------------|
-| /templates/              | Page layouts                    | Yes                              |
-| /components/             | Reusable sections               | Yes                              |
-| /assets/css/base.css     | Design token defaults (33 CSS vars) | Yes — tokens only             |
-| /assets/css/components.css | Component styles              | Yes                              |
-| /assets/css/utilities.css | Spacing / text utilities       | Yes                              |
-| /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Yes — run npm test after         |
-| /assets/js/main.js       | Nav toggle, active link         | Yes                              |
+| /templates/              | Page layouts                    | Release-level only — inspect for site work |
+| /components/             | Reusable sections               | Release-level only — inspect for site work |
+| /assets/css/base.css     | Design token defaults (33 CSS vars) | Release-level only — site tokens via update_design_token |
+| /assets/css/components.css | Component styles              | Release-level only — inspect for site work |
+| /assets/css/utilities.css | Spacing / text utilities       | Release-level only — inspect for site work |
+| /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Release-level only — run npm test after |
+| /assets/js/main.js       | Nav toggle, active link         | Release-level only — inspect for site work |
 | /tests/js/               | Vitest unit tests               | Yes — add tests for logic changes |
 | /tests/e2e/              | Playwright E2E tests            | Yes — requires Docker (wp-env)   |
 | .wp-env.json             | wp-env Docker config            | Yes — test environment only      |

@@ -184,4 +184,4 @@ Use: customer-specific language, concrete feature descriptions, and real pricing
 - **Reorder components:** Rearrange the `pp_get_component()` calls inside `pp_base_template()`
 - **Remove a component:** Delete that `pp_get_component()` call
 - **Add a component:** Insert a new `pp_get_component()` call (see `ai-instructions/add-component.md`)
-- **Restyle:** Edit `assets/css/base.css` tokens (see `ai-instructions/retheme.md`)
+- **Restyle:** Set design tokens via the `update_design_token` apply — overrides are stored in the database and survive theme updates (see `ai-instructions/retheme.md`). Do not edit `assets/css/base.css` for a site; that is release-level only and is overwritten on update.
