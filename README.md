@@ -417,7 +417,7 @@ See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 thro
 - Agent operating framework with step enforcement and drift detection
 - WP-CLI interface for all operations
 - 918+ automated tests across PHP, JS, and E2E, enforced by CI on every push and release
-- Theme integrity enforcement — a build manifest of file hashes detects local drift; a daily check keeps the warning current, and a theme update is blocked before it can overwrite or delete modified files (override with the `pp_allow_unsafe_theme_update` filter)
+- Theme integrity enforcement — a build manifest of file hashes detects local drift; a daily check keeps the warning current, and a theme update is blocked before it can overwrite or delete modified files (override with the `pp_allow_unsafe_theme_update` filter). See [docs/upgrade-safety.md](docs/upgrade-safety.md)
 - ~75 KB frontend CSS, 1.5 KB JS — no framework, no bundler
 
 See [open issues](https://github.com/FJCF76/PromptingPress/issues) for planned work.
