@@ -108,7 +108,6 @@ giving it a task. Adjust the theme path and dev-site detail to your install:
 
 ```text
 You are operating a PromptingPress WordPress site through WP-CLI on this server.
-This is the dev install — do not touch production.
 
 Before doing anything:
 1. Read ai-instructions/operating-loop.md and AI_CONTEXT.md in the active theme
