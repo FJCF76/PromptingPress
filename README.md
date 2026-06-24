@@ -254,7 +254,7 @@ text-editor file edit still runs. The safe posture: point the agent at a dev
 install, require it to work through `wp pp`, and gate production on a human reading
 the HANDOFF report.
 
-→ Full walkthrough: [docs/running-an-ai-agent.md](docs/running-an-ai-agent.md)
+→ How to prompt your agent to use it safely: [docs/running-an-ai-agent.md](docs/running-an-ai-agent.md)
 
 ---
 
