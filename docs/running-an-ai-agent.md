@@ -139,8 +139,7 @@ Stop and ask me before continuing if:
 - the task needs anything outside PromptingPress' validated surface (installing
   plugins, editing wp-config.php, database changes, deploys, DNS).
 
-Do not mark work VERIFIED without screenshots and a fully evaluated checklist. I
-will read your HANDOFF before anything is promoted to production.
+Do not mark work VERIFIED without screenshots and a fully evaluated checklist.
 ```
 
 This is the layer that closes the "I'll just edit the file" gap at the instruction
