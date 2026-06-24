@@ -238,13 +238,23 @@ Multi-step proposals show numbered steps with "Apply All." After applying, the A
 
 ### 🔒 Agent operating framework — safety-gated autonomous work
 
-For AI agents running autonomously: an 8-step operating loop with enforcement.
+The intended operator is an autonomous coding agent (Claude Code or similar) with
+shell + WP-CLI access, typically over SSH to a VPS. It changes the site through an
+8-step loop instead of editing files:
 
 **INSPECT** → **PLAN** → **EDIT** → **PREFLIGHT** → **APPLY** → **SCREENSHOT** → **REVIEW** → **HANDOFF**
 
-Run tokens (UUID v4 state files) enforce step ordering — an agent can't apply without inspecting first, can't execute a file mutation without passing preflight. Drift detection compares live theme files against the last sync. Three playbooks ship for common operations: create-page, revise-section, inspect-fix.
+Run tokens (UUID v4 state files) enforce ordering on the `wp pp` surface: `action execute` refuses to run before INSPECT, `apply execute` refuses before PREFLIGHT, and every mutating command fails without a `--run-id`. Preflight classifies off-limits (core) files and blocks the apply; screenshots plus a checklist produce visual evidence; HANDOFF is the report you review. Three playbooks ship: create-page, revise-section, inspect-fix.
 
-**Why this matters:** Autonomous agents can operate on live sites without skipping safety checks. The framework catches the "I'll just write the file directly" shortcut before it does damage.
+**What this is and isn't:** safety-gated autonomous operation, not permissionless
+self-modification. The loop makes the structured path the easy one and catches the
+"I'll just write the file directly" shortcut (preflight surface classification plus
+integrity drift detection). It does **not** sandbox the shell — a raw `wp eval` or a
+text-editor file edit still runs. The safe posture: point the agent at a dev
+install, require it to work through `wp pp`, and gate production on a human reading
+the HANDOFF report.
+
+→ Full walkthrough: [docs/running-an-ai-agent.md](docs/running-an-ai-agent.md)
 
 ---
 
