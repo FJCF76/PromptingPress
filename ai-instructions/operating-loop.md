@@ -48,7 +48,7 @@ Based on the brief/task and the inspect result, declare:
 ### 3. EDIT
 **Role**: Implementer. Execute only what was planned.
 
-Call PromptingPress typed actions (`wp pp action execute --action=<name> --params='...'`) to make the planned mutations. Do not deviate from the plan. If you discover the plan is insufficient, loop back to PLAN — do not improvise at EDIT.
+Call PromptingPress typed actions (`wp pp action execute <name> --run-id=<uuid> --params='...'`, where `<name>` is positional) to make the planned mutations. Do not deviate from the plan. If you discover the plan is insufficient, loop back to PLAN — do not improvise at EDIT.
 
 **Required output**: `edit_result` — list of actions executed and their results.
 
@@ -79,7 +79,7 @@ Preflight checks:
 ### 5. APPLY
 **Role**: Operator. Commit the mutation.
 
-Run: `wp pp apply execute --apply=<name> --params='...'`
+Run: `wp pp apply execute <name> --run-id=<uuid> --params='...'` (where `<name>` is positional)
 
 Token overrides are stored in the database. Use `reset_design_token` or `reset_all_design_tokens` to revert.
 
