@@ -83,6 +83,123 @@ file map and component reference live in
 
 ---
 
+## How to prompt the agent
+
+### The prompt is doing real work here
+
+Because PromptingPress is not a shell sandbox, nothing forces the agent onto the
+safe `wp pp` surface except (a) the OS limits you set up around it and (b) your
+prompt. The prompt is what binds the agent to the operating loop. Once the agent
+commits to working through `wp pp`, PromptingPress takes over inside that surface:
+run tokens enforce ordering, preflight classifies off-limits files, and the
+integrity guard catches a file edited outside the loop.
+
+So the division of labor is: **your prompt keeps the agent on the rails; the
+framework enforces the rails.** A vague "fix my homepage" to an agent with a shell
+is an invitation to open a file and edit it. An explicit operating contract is what
+keeps it on the validated path. The prompt is necessary, not sufficient — pair it
+with the OS-level controls (run on dev, separate user owning the theme files,
+scoped DB user); see [What this does and does not guarantee](#what-this-does-and-does-not-guarantee).
+
+### Give the agent this operating contract
+
+Paste this at the start of a Claude Code session (or any SSH/WP-CLI agent) before
+giving it a task. Adjust the theme path and dev-site detail to your install:
+
+```text
+You are operating a PromptingPress WordPress site through WP-CLI on this server.
+This is the dev install — do not touch production.
+
+Before doing anything:
+1. Read ai-instructions/operating-loop.md and AI_CONTEXT.md in the active theme
+   directory. operating-loop.md is your operating contract; AI_CONTEXT.md is the
+   site map and component/action reference. Follow the loop; do not reorder it.
+2. Always start with `wp pp operate inspect` (use --post_id=<id> for a page). Take
+   the run_id it returns and pass it as --run-id on every command that changes state.
+
+Hard rules:
+- Never edit theme files directly. No text editor, no `wp eval`, no shell
+  redirection into templates/, components/, or assets/. Those are release artifacts
+  and get overwritten on update.
+- Make every change through PromptingPress typed actions and applies
+  (`wp pp action execute <name> --run-id=<uuid> --params='...'`,
+  `wp pp apply execute <name> --run-id=<uuid> --params='...'`), compositions, and
+  design tokens. Never raw file writes.
+- Run `wp pp apply preflight --run-id=<uuid>` before any apply. If preflight fails,
+  STOP — do not work around it.
+- Capture screenshots (`wp pp screenshot capture --post_id=<id> --playbook=<name>`)
+  as evidence before you claim anything renders correctly.
+- End every task with a HANDOFF report: status (VERIFIED / NEEDS_VISUAL_VERIFICATION
+  / SCREENSHOT_FAILED), what changed (actions, applies, files), screenshot paths,
+  checklist/review results, drift and preflight status, and any concerns.
+
+Stop and ask me before continuing if:
+- preflight fails,
+- detected drift overlaps the files you planned to change,
+- a visual review fails twice,
+- the task needs anything outside PromptingPress' validated surface (installing
+  plugins, editing wp-config.php, database changes, deploys, DNS).
+
+Do not mark work VERIFIED without screenshots and a fully evaluated checklist. I
+will read your HANDOFF before anything is promoted to production.
+```
+
+This is the layer that closes the "I'll just edit the file" gap at the instruction
+level. The framework closes it again inside the `wp pp` surface, and the OS controls
+close it a third time. Defense in depth, not one rule.
+
+### Task prompts
+
+Once the contract is set, keep task prompts short and concrete. Name the page, the
+change, and let the contract carry the safety steps.
+
+**Revise a homepage section:**
+
+```text
+On the dev homepage (post 74), rewrite the hero subtitle to "Structured WordPress
+for AI agents" and cut the features grid to its three strongest items. Follow the
+revise-section playbook. Hand off with desktop and mobile screenshots.
+```
+
+**Create a new page:**
+
+```text
+Create a "Pricing" page from this brief: three tiers (Free, Pro, Team), a short
+intro, and a CTA to the contact page. Use the create-page playbook — inspect, plan
+the composition, build it with typed actions, preflight, apply, screenshot, hand off.
+```
+
+**Inspect and fix a visual issue:**
+
+```text
+The About page (post 31) looks broken on mobile — the CTA button overflows its
+container at 375px. Use the inspect-fix playbook: inspect for smells, propose a fix
+through design tokens or the composition (not a CSS file edit), preflight, apply,
+re-screenshot mobile, hand off. If the only fix is a core-file change, stop and tell
+me instead of editing it.
+```
+
+### What to require before you accept the work
+
+Treat the HANDOFF as the deliverable, not the chat summary. Before you call a task
+done, the agent must give you:
+
+- **A HANDOFF report.** No "done!" without one.
+- **Screenshot paths, or an explicit `NEEDS_VISUAL_VERIFICATION` status.** If no
+  browser was configured, the agent must say so — not silently claim it looks good.
+- **The checklist/review result** — which hard gates passed, which soft gates were
+  noted.
+- **Drift and preflight status** — preflight passed; any drift recorded; nothing
+  overlapping the change.
+- **Unresolved concerns**, called out explicitly.
+
+Reject any `VERIFIED` that arrives without screenshots and a fully evaluated
+checklist — that status has specific requirements, and "looks fine" is not one of
+them. If anything is `NEEDS_VISUAL_VERIFICATION` or `SCREENSHOT_FAILED`, you are the
+visual reviewer before this reaches production.
+
+---
+
 ## Step 1 — Inspect (and get the run token)
 
 Always start here. Inspect is read-only and returns the whole operating picture:
