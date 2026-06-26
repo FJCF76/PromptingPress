@@ -258,6 +258,18 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
         }
     }
 
+    // Navigation readiness (warning-grade): surface empty/incomplete nav config for
+    // the locations this composition references. Never an error — it does not gate
+    // the apply's success, only informs the operator.
+    foreach (pp_check_nav_readiness($composition) as $nav_check) {
+        if (!$nav_check['pass']) {
+            $warnings[] = [
+                'check'   => 'nav_readiness',
+                'message' => $nav_check['message'],
+            ];
+        }
+    }
+
     return [
         'ok'       => empty($errors),
         'warnings' => $warnings,

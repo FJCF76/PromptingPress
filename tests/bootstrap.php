@@ -218,6 +218,36 @@ if (!function_exists('update_post_meta')) {
     }
 }
 
+// ── Navigation stubs (stateful via $GLOBALS['_pp_test_store']) ───────────────
+// Drive nav state per test:
+//   ['registered_nav_menus'] => ['primary' => 'Primary', ...]  (default: primary + footer)
+//   ['nav_menu_locations']   => ['primary' => 5]               (location => menu_id; empty = none assigned)
+//   ['nav_menu_items']       => [5 => [ ...items ]]            (menu_id => items; [] = empty menu)
+if (!function_exists('get_registered_nav_menus')) {
+    function get_registered_nav_menus(): array {
+        return $GLOBALS['_pp_test_store']['registered_nav_menus']
+            ?? ['primary' => 'Primary Navigation', 'footer' => 'Footer Navigation'];
+    }
+}
+
+if (!function_exists('get_nav_menu_locations')) {
+    function get_nav_menu_locations(): array {
+        return $GLOBALS['_pp_test_store']['nav_menu_locations'] ?? [];
+    }
+}
+
+if (!function_exists('has_nav_menu')) {
+    function has_nav_menu(string $location): bool {
+        return isset($GLOBALS['_pp_test_store']['nav_menu_locations'][$location]);
+    }
+}
+
+if (!function_exists('wp_get_nav_menu_items')) {
+    function wp_get_nav_menu_items($menu) {
+        return $GLOBALS['_pp_test_store']['nav_menu_items'][$menu] ?? false;
+    }
+}
+
 if (!function_exists('get_posts')) {
     function get_posts(array $args = []): array {
         $results = [];

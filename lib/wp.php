@@ -164,8 +164,80 @@ function pp_get_composition(int $post_id): array {
     if (!$raw) {
         return [];
     }
+    // Normal storage is a JSON string (pp_update_composition). Be defensive about
+    // callers/fixtures that persist an already-decoded array.
+    if (is_array($raw)) {
+        return $raw;
+    }
     $items = json_decode($raw, true);
     return is_array($items) ? $items : [];
+}
+
+/**
+ * Diagnoses navigation readiness for the locations a composition actually uses.
+ *
+ * Scoped to locations REFERENCED by `nav` components in the composition (a nav
+ * component defaults to the 'primary' location). Registered-but-unused locations
+ * are intentionally NOT flagged — that avoids false failures on, e.g., a site
+ * that registers a footer menu it never renders.
+ *
+ * For each referenced location it flags, in order:
+ *   - reference to an UNREGISTERED location (a real config error),
+ *   - a registered location with NO menu assigned,
+ *   - an assigned menu that resolves to ZERO items.
+ * A ready location reports a passing row. Every row is severity=warning: nav
+ * readiness is an operator-facing diagnostic, never a gate on content mutations.
+ *
+ * @param array $composition  Component objects (e.g. from pp_get_composition()).
+ * @return array[]  Rows: ['check'=>'nav_readiness','pass'=>bool,'severity'=>'warning','message'=>string].
+ */
+function pp_check_nav_readiness(array $composition): array {
+    // Collect locations referenced by nav components (nav defaults to 'primary').
+    // Defensive: a malformed composition that bypassed validation may carry
+    // non-array items or props, so guard both before indexing.
+    $referenced = [];
+    foreach ($composition as $item) {
+        if (!is_array($item) || ($item['component'] ?? '') !== 'nav') {
+            continue;
+        }
+        $props = is_array($item['props'] ?? null) ? $item['props'] : [];
+        $referenced[$props['location'] ?? 'primary'] = true;
+    }
+    if (empty($referenced)) {
+        return []; // No nav rendered — nothing to diagnose.
+    }
+
+    $registered = array_keys(get_registered_nav_menus());
+    $locations  = get_nav_menu_locations(); // location => menu_id
+    $checks     = [];
+
+    foreach (array_keys($referenced) as $loc) {
+        // $loc is operator/AI-controlled composition data — escape it for display
+        // (messages may be rendered in the admin UI). Raw $loc is used for lookups.
+        $safe_loc = esc_html((string) $loc);
+
+        if (!in_array($loc, $registered, true)) {
+            $checks[] = ['check' => 'nav_readiness', 'pass' => false, 'severity' => 'warning',
+                'message' => 'Navigation references unregistered location "' . $safe_loc . '". Register it in functions.php or fix the nav component\'s location.'];
+            continue;
+        }
+        if (!has_nav_menu($loc)) {
+            $checks[] = ['check' => 'nav_readiness', 'pass' => false, 'severity' => 'warning',
+                'message' => 'Navigation location "' . $safe_loc . '" has no menu assigned. Assign one under Appearance → Menus.'];
+            continue;
+        }
+        $menu_id = $locations[$loc] ?? 0;
+        $items   = $menu_id ? wp_get_nav_menu_items($menu_id) : false;
+        if (empty($items)) {
+            $checks[] = ['check' => 'nav_readiness', 'pass' => false, 'severity' => 'warning',
+                'message' => 'Navigation menu assigned to "' . $safe_loc . '" is empty. Add items under Appearance → Menus.'];
+            continue;
+        }
+        $checks[] = ['check' => 'nav_readiness', 'pass' => true, 'severity' => 'warning',
+            'message' => 'Navigation location "' . $safe_loc . '" is ready (' . count($items) . ' item(s)).'];
+    }
+
+    return $checks;
 }
 
 /**

@@ -318,6 +318,10 @@ class PostApplyValidateTest extends TestCase
         $this->setComposition([
             ['component' => 'nav', 'props' => [], 'style' => []],
         ]);
+        // Make the referenced nav location ready so the only warning under test is
+        // the bare-# href (otherwise nav_readiness adds a "no menu assigned" warning).
+        $GLOBALS['_pp_test_store']['nav_menu_locations'] = ['primary' => 1];
+        $GLOBALS['_pp_test_store']['nav_menu_items']     = [1 => [['id' => 1]]];
 
         $result = pp_post_apply_validate($this->postId);
 

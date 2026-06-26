@@ -297,7 +297,20 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
         }
     }
 
-    $all_pass = empty(array_filter($checks, fn($c) => !$c['pass']));
+    // Check 8: Navigation readiness (warning-grade, advisory — never blocks a mutation).
+    // Scoped to nav locations the target page's composition actually references.
+    if (isset($context['post_id'])) {
+        foreach (pp_check_nav_readiness(pp_get_composition($context['post_id'])) as $nav_check) {
+            $checks[] = $nav_check;
+        }
+    }
+
+    // ok ignores severity=warning rows: warnings surface problems (pass=false) without
+    // blocking the apply. Checks without a severity are treated as errors (legacy behavior).
+    $all_pass = empty(array_filter(
+        $checks,
+        fn($c) => !$c['pass'] && (($c['severity'] ?? 'error') !== 'warning')
+    ));
 
     return [
         'ok'     => $all_pass,
