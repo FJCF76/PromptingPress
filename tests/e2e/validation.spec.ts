@@ -366,4 +366,77 @@ test.describe('Post-Apply Validation', () => {
     // would use step 2's clean validation for the card state.
     expect(callCount).toBe(2);
   });
+
+  // @smoke — exercises both action commands the v0.12.0 presentation-controls
+  // sprint touches: a PROP (button_variant, via update_component) and a STYLE SLOT
+  // (the new --cta-shadow type, via style_component), then asserts both reach the
+  // rendered page. This is the cross-layer "apply → render" proof for the new
+  // bounded style surface and the button variant contract.
+  test('@smoke style apply: button_variant + shadow render on the page', async ({
+    page,
+  }) => {
+    // 1. Page with a single CTA component.
+    pageId = createPage('E2E Style Apply Smoke');
+    setComposition(pageId, [
+      {
+        component: 'cta',
+        props: {
+          id: 'pp-smoke01',
+          title: 'Smoke CTA',
+          button_text: 'Go',
+          button_url: '#',
+        },
+      },
+    ]);
+
+    // 2. Admin chat to pick up the execute nonce.
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    const dispatch = (pid: number, name: string, key: string, value: unknown) =>
+      page.evaluate(
+        async (args: { pid: number; name: string; key: string; value: unknown }) => {
+          const config = (window as any).ppAiChat;
+          const data = new FormData();
+          data.append('action', 'pp_ai_execute');
+          data.append('nonce', config.executeNonce);
+          data.append('type', 'action');
+          data.append('name', args.name);
+          data.append('params[post_id]', String(args.pid));
+          data.append('params[component_index]', '0');
+          data.append('params[' + args.key + ']', JSON.stringify(args.value));
+          const resp = await fetch(config.ajaxUrl, {
+            method: 'POST',
+            credentials: 'same-origin',
+            body: data,
+          });
+          return resp.json();
+        },
+        { pid, name, key, value },
+      );
+
+    // 3a. update_component sets the button_variant PROP.
+    const r1 = await dispatch(pageId, 'update_component', 'props', {
+      button_variant: 'outline',
+    });
+    expect(r1.success).toBe(true);
+
+    // 3b. style_component sets the --cta-shadow STYLE SLOT (new shadow type).
+    const r2 = await dispatch(pageId, 'style_component', 'style', {
+      '--cta-shadow': 'var(--shadow-md)',
+    });
+    expect(r2.success).toBe(true);
+
+    // 4. Front-end render: the button carries .btn--outline and the section carries
+    //    the inline --cta-shadow custom property (proving both reached the DOM).
+    await page.goto(`/?page_id=${pageId}`);
+    const cta = page.locator('.cta[data-pp-component="cta"]');
+    await expect(cta).toBeVisible({ timeout: 10000 });
+
+    await expect(page.locator('.cta__button.btn--outline')).toBeVisible();
+
+    const styleAttr = (await cta.getAttribute('style')) || '';
+    expect(styleAttr).toContain('--cta-shadow');
+    expect(styleAttr).toContain('var(--shadow-md)');
+  });
 });
