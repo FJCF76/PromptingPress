@@ -37,6 +37,8 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 
 **To style a specific component instance:** Read `ai-instructions/style-component.md`. Use the `style_component` action to set per-instance CSS custom properties (style slots) without editing CSS files.
 
+**To validate a site (CSS conflicts, navigation readiness, rendered review):** Read `ai-instructions/validate-site.md`. Run `wp pp validate site`; navigation readiness (empty/unassigned menus) surfaces automatically in preflight and post-apply output.
+
 **To provision a new WordPress site:** Read `ai-instructions/bootstrap.md` for the full state contract and WP-CLI verification commands.
 
 **Composition vs templates:** Use composition for all content-driven pages. Use template files only for structural or dynamic pages (archives, single posts, search results, 404).

@@ -109,6 +109,65 @@ and `*-shadow` slots.
 
 ---
 
+## Worked example -- shadows, button variants, and text roles (v0.12.0)
+
+These three controls reach the page through **two different actions**. Slots
+(shadow, border, radius, color) go through `style_component`. Props (button
+variant, typography role) go through `update_component`. Mixing them up is the
+most common mistake -- `style_component` rejects anything that is not a declared
+style slot.
+
+**1. Add a drop shadow + rounded corners to a CTA (style slots).**
+```bash
+wp pp action execute style_component --run-id=<uuid> --params='{
+  "post_id": 19,
+  "component_id": "pp-a1b2c3d4",
+  "style": {
+    "--cta-shadow": "var(--shadow-md)",
+    "--cta-radius": "1rem"
+  }
+}'
+```
+Shadow values are bounded: a preset (`var(--shadow-none|sm|md|lg)` or `none`) or a
+single-layer `box-shadow` like `0 4px 12px rgba(0,0,0,0.1)`. `inset`, multi-layer
+shadows, and `url()` are rejected. The same `*-shadow` / `*-border-color` /
+`*-border-width` / `*-radius` slots exist on hero, section, grid (card), and cta.
+
+**2. Switch the CTA button to an outline variant (a prop).**
+```bash
+wp pp action execute update_component --run-id=<uuid> --params='{
+  "post_id": 19,
+  "component_id": "pp-a1b2c3d4",
+  "props": { "button_variant": "outline" }
+}'
+```
+`button_variant` accepts `primary` (default), `secondary`, `outline`, `ghost`. Per
+-instance button color still comes from the `--cta-accent` style slot.
+
+**3. Tag a grid card's text with a typography role (an item field).**
+`text_role` lives on each item inside the grid's `items` array, not as a top-level
+prop. Patch the whole `items` array via `update_component` (a prop shallow-merge
+replaces the array wholesale, so include every item you want to keep):
+```bash
+wp pp action execute update_component --run-id=<uuid> --params='{
+  "post_id": 19,
+  "component_id": "pp-grid5678",
+  "props": {
+    "items": [
+      { "title": "v0.12.0", "text": "Shipped 2026-06-26", "text_role": "kicker" }
+    ]
+  }
+}'
+```
+`text_role` accepts `mono`, `meta`, `label`, `kicker`. An unknown role is ignored
+(the card renders default body text).
+
+**Verify all three:** re-run `wp pp operate inspect-composition <page_id>` and load
+the page. The CTA section carries the `--cta-shadow` / `--cta-radius` inline custom
+properties and a `.btn--outline` button; the grid card text carries `.text-kicker`.
+
+---
+
 ## What NOT to do
 
 - Do not edit `assets/css/components.css` to change per-instance appearance -- use style slots
