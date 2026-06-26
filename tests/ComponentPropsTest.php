@@ -196,4 +196,77 @@ class ComponentPropsTest extends TestCase
         );
         $this->assertSame('', $result);
     }
+
+    // ── CTA button_variant (prop, set via update_component) ──────────────
+
+    private function ctaProps(array $extra = []): array
+    {
+        return array_merge(['title' => 'T', 'button_text' => 'Go', 'button_url' => '#'], $extra);
+    }
+
+    public function testCtaButtonVariantPrimaryIsBareBtn(): void
+    {
+        $html = $this->render('cta', $this->ctaProps(['button_variant' => 'primary']));
+        $this->assertStringContainsString('class="cta__button btn"', $html);
+        $this->assertStringNotContainsString('btn--', $html);
+    }
+
+    public function testCtaButtonVariantSecondary(): void
+    {
+        $html = $this->render('cta', $this->ctaProps(['button_variant' => 'secondary']));
+        $this->assertStringContainsString('btn--secondary', $html);
+    }
+
+    public function testCtaButtonVariantOutline(): void
+    {
+        $html = $this->render('cta', $this->ctaProps(['button_variant' => 'outline']));
+        $this->assertStringContainsString('btn--outline', $html);
+    }
+
+    public function testCtaButtonVariantGhost(): void
+    {
+        $html = $this->render('cta', $this->ctaProps(['button_variant' => 'ghost']));
+        $this->assertStringContainsString('btn--ghost', $html);
+    }
+
+    public function testCtaButtonVariantInvalidFallsBackToPrimary(): void
+    {
+        $html = $this->render('cta', $this->ctaProps(['button_variant' => 'neon']));
+        $this->assertStringContainsString('class="cta__button btn"', $html);
+        $this->assertStringNotContainsString('btn--', $html);
+    }
+
+    public function testCtaButtonVariantDefaultsToPrimary(): void
+    {
+        $html = $this->render('cta', $this->ctaProps());
+        $this->assertStringContainsString('class="cta__button btn"', $html);
+        $this->assertStringNotContainsString('btn--', $html);
+    }
+
+    // ── CRITICAL regression: button enrichment must not break --cta-accent ──
+    //
+    // The shared .btn was tokenized with --btn-* defaults. Existing compositions
+    // and the dark-bold/accent-framed recipes color the CTA button via the
+    // component-scoped `.cta .btn { background-color: var(--cta-accent, ...) }`
+    // override. This proves that path still works end to end: the slot still
+    // renders as an inline custom property AND the CSS still consumes it.
+
+    public function testCtaAccentOnlyCompositionStillRendersAccentCustomProperty(): void
+    {
+        $html = $this->render('cta', $this->ctaProps([
+            '__pp_style' => ['--cta-accent' => '#ff0000'],
+        ]));
+        $this->assertStringContainsString('--cta-accent: #ff0000', $html);
+    }
+
+    public function testCtaBtnCssStillConsumesCtaAccentAfterEnrichment(): void
+    {
+        $css = file_get_contents(dirname(__DIR__) . '/assets/css/components.css');
+        $this->assertMatchesRegularExpression(
+            '/\.cta\s+\.btn\s*\{[^}]*var\(\s*--cta-accent/s',
+            $css,
+            'The component-scoped .cta .btn override must still consume var(--cta-accent) '
+            . 'after the shared button was tokenized — otherwise old compositions lose their color.'
+        );
+    }
 }

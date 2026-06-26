@@ -48,6 +48,13 @@
       "required": false,
       "default": "",
       "description": "Optional background image URL. When set, renders as a CSS background-image with a dark overlay. Text automatically uses light colors for contrast."
+    },
+    "button_variant": {
+      "type": "enum",
+      "values": ["primary", "secondary", "outline", "ghost"],
+      "required": false,
+      "default": "primary",
+      "description": "Button style. 'primary' = filled accent (bare .btn). 'secondary' = muted surface fill. 'outline' = accent border, transparent fill. 'ghost' = borderless text button. Set via update_component (a prop, not a style slot)."
     }
   },
   "styling": {
@@ -68,6 +75,7 @@
       "--cta-border-color": { "type": "color", "default": "transparent", "description": "Top and bottom border color" },
       "--cta-border-width": { "type": "length", "default": "0", "description": "Top and bottom border width" },
       "--cta-radius": { "type": "length", "default": "0", "description": "Border radius" },
+      "--cta-shadow": { "type": "shadow", "default": "none", "description": "Box shadow of the CTA section (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" },
       "--cta-content-width": { "type": "length", "default": "40rem", "description": "Title max width" },
       "--cta-overlay-bg": { "type": "color", "default": "var(--overlay-bg)", "description": "Background image overlay color" }
     },

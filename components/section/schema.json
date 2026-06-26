@@ -69,7 +69,8 @@
       "--section-border-width": { "type": "length", "default": "0", "description": "Top and bottom border width" },
       "--section-radius": { "type": "length", "default": "0", "description": "Border radius" },
       "--section-image-radius": { "type": "length", "default": "var(--radius)", "description": "Image border radius" },
-      "--section-overlay-bg": { "type": "color", "default": "var(--overlay-bg)", "description": "Background image overlay color" }
+      "--section-overlay-bg": { "type": "color", "default": "var(--overlay-bg)", "description": "Background image overlay color" },
+      "--section-shadow": { "type": "shadow", "default": "none", "description": "Box shadow of the section (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" }
     },
     "recipes": {
       "accent-panel": {

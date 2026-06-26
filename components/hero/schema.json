@@ -115,7 +115,11 @@
       "--hero-content-gap": { "type": "length", "default": "var(--space-md)", "description": "Gap between content elements" },
       "--hero-content-width": { "type": "length", "default": "var(--measure-centered)", "description": "Max width of the content column" },
       "--hero-overlay-bg": { "type": "color", "default": "var(--overlay-bg)", "description": "Cover variant overlay background" },
-      "--hero-image-radius": { "type": "length", "default": "var(--radius)", "description": "Split variant image border radius" }
+      "--hero-image-radius": { "type": "length", "default": "var(--radius)", "description": "Split variant image border radius" },
+      "--hero-border-color": { "type": "color", "default": "transparent", "description": "Border color of the hero section" },
+      "--hero-border-width": { "type": "length", "default": "0", "description": "Border width of the hero section" },
+      "--hero-radius": { "type": "length", "default": "0", "description": "Border radius of the hero section" },
+      "--hero-shadow": { "type": "shadow", "default": "none", "description": "Box shadow of the hero section (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" }
     },
     "recipes": {
       "dark-spacious": {

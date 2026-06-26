@@ -16,11 +16,19 @@ $button_url       = $props['button_url']       ?? '#';
 $variant          = $props['variant']          ?? 'full-width';
 $theme            = $props['theme']            ?? 'default';
 $background_image = $props['background_image'] ?? '';
+$button_variant   = $props['button_variant']   ?? 'primary';
 
 $allowed_variants = ['full-width', 'inline'];
 if (!in_array($variant, $allowed_variants, true)) {
     $variant = 'full-width';
 }
+
+$allowed_button_variants = ['primary', 'secondary', 'outline', 'ghost'];
+if (!in_array($button_variant, $allowed_button_variants, true)) {
+    $button_variant = 'primary';
+}
+// primary is the bare .btn; other variants add a .btn--{variant} modifier.
+$button_variant_class = $button_variant !== 'primary' ? ' btn--' . $button_variant : '';
 
 $allowed_themes = ['default', 'dark', 'inverted'];
 if (!in_array($theme, $allowed_themes, true)) {
@@ -59,7 +67,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                 <?php endif; ?>
             </div>
 
-            <a href="<?php echo esc_url($button_url); ?>" class="cta__button btn">
+            <a href="<?php echo esc_url($button_url); ?>" class="cta__button btn<?php echo esc_attr($button_variant_class); ?>">
                 <?php echo esc_html($button_text); ?>
             </a>
         </div>

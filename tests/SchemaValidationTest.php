@@ -188,10 +188,10 @@ class SchemaValidationTest extends TestCase
     public function testStyleSlotsExistForV1Components(): void
     {
         $expected = [
-            'hero'    => 14,
-            'section' => 13,
-            'grid'    => 17,
-            'cta'     => 15,
+            'hero'    => 18,
+            'section' => 14,
+            'grid'    => 19,
+            'cta'     => 16,
         ];
 
         foreach ($expected as $component => $count) {
@@ -214,7 +214,7 @@ class SchemaValidationTest extends TestCase
     public function testStyleSlotStructure(): void
     {
         $components = ['hero', 'section', 'grid', 'cta'];
-        $validTypes = ['color', 'length', 'number'];
+        $validTypes = ['color', 'length', 'number', 'shadow'];
 
         foreach ($components as $component) {
             $schemaFile = $this->themeRoot . "/components/{$component}/schema.json";
@@ -228,7 +228,7 @@ class SchemaValidationTest extends TestCase
                     "Slot {$slotName} must be namespaced to its component (--{$component}-*)."
                 );
                 $this->assertArrayHasKey('type', $slotDef, "Slot {$slotName} must declare a type.");
-                $this->assertContains($slotDef['type'], $validTypes, "Slot {$slotName} type must be color, length, or number.");
+                $this->assertContains($slotDef['type'], $validTypes, "Slot {$slotName} type must be color, length, number, or shadow.");
                 $this->assertArrayHasKey('default', $slotDef, "Slot {$slotName} must declare a default value.");
                 $this->assertArrayHasKey('description', $slotDef, "Slot {$slotName} must have a description.");
                 $this->assertNotEmpty($slotDef['description'], "Slot {$slotName} description must not be empty.");
@@ -275,6 +275,45 @@ class SchemaValidationTest extends TestCase
                     "Style slot {$slot} is declared in multiple components."
                 );
                 $allSlots[$slot] = $component;
+            }
+        }
+    }
+
+    /**
+     * Decision 4 (eng review): every styleable component must declare the common
+     * visual-control slots — border-color, border-width, radius, shadow — in its
+     * own namespace. An explicit map (not a fragile suffix rule) preserves grid's
+     * historical card-namespaced name (--grid-card-border) while enforcing full,
+     * consistent coverage. Dropping one of these slots, or adding a styleable
+     * component without them, fails CI. Pairs with StyleSlotContractTest, which
+     * proves each declared slot is actually consumed in CSS.
+     */
+    public function testCommonVisualSlotConformance(): void
+    {
+        $expected = [
+            'hero'    => ['--hero-border-color', '--hero-border-width', '--hero-radius', '--hero-shadow'],
+            'section' => ['--section-border-color', '--section-border-width', '--section-radius', '--section-shadow'],
+            'grid'    => ['--grid-card-border', '--grid-card-border-width', '--grid-card-radius', '--grid-card-shadow'],
+            'cta'     => ['--cta-border-color', '--cta-border-width', '--cta-radius', '--cta-shadow'],
+        ];
+        // concept index → required type: [border-color, border-width, radius, shadow].
+        $types = ['color', 'length', 'length', 'shadow'];
+
+        foreach ($expected as $component => $slotNames) {
+            $schemaFile = $this->themeRoot . "/components/{$component}/schema.json";
+            $slots      = json_decode(file_get_contents($schemaFile), true)['styling']['style_slots'] ?? [];
+
+            foreach ($slotNames as $i => $slotName) {
+                $this->assertArrayHasKey(
+                    $slotName,
+                    $slots,
+                    "{$component} must declare the common visual slot {$slotName}."
+                );
+                $this->assertSame(
+                    $types[$i],
+                    $slots[$slotName]['type'] ?? null,
+                    "Slot {$slotName} must be type {$types[$i]}."
+                );
             }
         }
     }
@@ -357,6 +396,24 @@ class SchemaValidationTest extends TestCase
         ];
         $result = pp_validate_composition($composition);
         $this->assertTrue($result);
+    }
+
+    /**
+     * 8A+ (eng review): the seeded homepage composition is written to the DB by
+     * lib/setup.php directly, bypassing the validating action/apply write path.
+     * This is the one ingestion path that skips validation, so we guard it here:
+     * the static default must itself be valid, or setup.php would persist a
+     * composition the rest of the system considers invalid.
+     */
+    public function testDefaultHomepageCompositionPassesValidation(): void
+    {
+        $composition = pp_default_homepage_composition();
+        $this->assertNotEmpty($composition, 'The seeded homepage composition must not be empty.');
+        $this->assertTrue(
+            pp_validate_composition($composition) === true,
+            'pp_default_homepage_composition() must pass pp_validate_composition() — '
+            . 'setup.php seeds it without going through the validating write path.'
+        );
     }
 
     public function testNormalizeCompositionStripsEmptyStyle(): void

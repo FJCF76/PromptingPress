@@ -309,6 +309,58 @@ function _pp_validate_number(string $value): bool {
 }
 
 /**
+ * Validates a CSS box-shadow value for the bounded `shadow` slot type.
+ *
+ * Accepts ONE of:
+ *  - A preset reference from the exact allowlist: var(--shadow-none|sm|md|lg),
+ *    or the bare keyword `none`.
+ *  - A single-layer box-shadow: 2-4 length values (offset-x offset-y [blur]
+ *    [spread]) followed by a color. Offsets may be negative; blur and spread
+ *    must be non-negative. Lengths are unitless 0 or px/rem. The color must
+ *    pass _pp_validate_color() (hex / rgb(a) / hsl(a) — same rule as color slots).
+ *
+ * Rejects: `inset`, multi-layer shadows (comma-separated layers), url(), and any
+ * var() outside the preset allowlist. The {};<> injection guard runs upstream in
+ * _pp_validate_token_value().
+ */
+function _pp_validate_shadow(string $value): bool {
+    $value = trim($value);
+
+    // Preset allowlist + the `none` keyword.
+    $presets = ['none', 'var(--shadow-none)', 'var(--shadow-sm)', 'var(--shadow-md)', 'var(--shadow-lg)'];
+    if (in_array($value, $presets, true)) {
+        return true;
+    }
+
+    // No inset, no url(), and no var() other than the presets handled above.
+    if (preg_match('/\binset\b/i', $value) || stripos($value, 'url(') !== false || stripos($value, 'var(') !== false) {
+        return false;
+    }
+
+    // Single layer only: <lengths> <color>, color anchored at the end.
+    if (!preg_match('/^(.+?)\s+(#[0-9a-fA-F]{3,8}|rgba?\([^()]*\)|hsla?\([^()]*\))$/', $value, $m)) {
+        return false;
+    }
+    if (!_pp_validate_color($m[2])) {
+        return false;
+    }
+
+    $lengths = preg_split('/\s+/', trim($m[1]));
+    $count   = count($lengths);
+    if ($count < 2 || $count > 4) {
+        return false;
+    }
+    foreach ($lengths as $i => $len) {
+        // Offsets (positions 0,1) may be negative; blur/spread (2,3) must not.
+        $pattern = $i < 2 ? '/^-?(0|[\d.]+(px|rem))$/' : '/^(0|[\d.]+(px|rem))$/';
+        if (!preg_match($pattern, $len)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
  * Validates a token value based on its type.
  *
  * @return true|WP_Error
@@ -351,6 +403,11 @@ function _pp_validate_token_value(string $value, ?string $type) {
         case 'number':
             if (!_pp_validate_number($value)) {
                 return new WP_Error('invalid_number', 'Value must be a unitless number (e.g. 650, 1.6).');
+            }
+            break;
+        case 'shadow':
+            if (!_pp_validate_shadow($value)) {
+                return new WP_Error('invalid_shadow', 'Value must be a shadow preset (var(--shadow-none|sm|md|lg) or none) or a single-layer box-shadow: 2-4 lengths (px/rem, blur/spread non-negative) followed by a color. No inset, multi-layer, or url().');
             }
             break;
         case 'raw':

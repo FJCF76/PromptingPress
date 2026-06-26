@@ -60,6 +60,29 @@
 .text-center { text-align: center; }
 .text-sm     { font-size: 0.875rem; }
 
+/* Typography roles — technical/secondary text surfaces. Themeable via the
+   --text-* / --font-mono tokens in base.css. Applied by components through an
+   optional `text_role` item prop, or used directly as utilities. */
+.text-mono {
+  font-family: var(--font-mono);
+}
+.text-meta {
+  font-size: var(--text-meta-size);
+  color: var(--text-meta-color);
+}
+.text-label {
+  font-size: var(--text-label-size);
+  font-weight: var(--text-label-weight);
+  letter-spacing: var(--text-label-spacing);
+}
+.text-kicker {
+  font-size: var(--text-kicker-size);
+  font-weight: var(--text-kicker-weight);
+  letter-spacing: var(--text-kicker-spacing);
+  text-transform: uppercase;
+  color: var(--text-kicker-color);
+}
+
 /* ==========================================================================
    Display Utilities
    ========================================================================== */

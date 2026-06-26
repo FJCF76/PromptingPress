@@ -912,6 +912,83 @@ class ApplyTest extends TestCase
         $this->assertInstanceOf(WP_Error::class, $result);
     }
 
+    // ── Shadow Type Validation ───────────────────────────────────────────
+
+    public function testValidateShadowAcceptsPresets(): void
+    {
+        foreach (['none', 'var(--shadow-none)', 'var(--shadow-sm)', 'var(--shadow-md)', 'var(--shadow-lg)'] as $preset) {
+            $this->assertTrue(_pp_validate_shadow($preset), "Preset {$preset} should be accepted.");
+        }
+    }
+
+    public function testValidateShadowAcceptsBoundedFreeform(): void
+    {
+        $this->assertTrue(_pp_validate_shadow('0 1px 2px rgba(0,0,0,0.1)'));
+        $this->assertTrue(_pp_validate_shadow('0 4px 6px 0 rgba(0, 0, 0, 0.15)'));
+        $this->assertTrue(_pp_validate_shadow('-2px -2px 4px hsla(0, 0%, 0%, 0.2)'));
+        $this->assertTrue(_pp_validate_shadow('0 2px #000'));
+    }
+
+    public function testValidateShadowRejectsInset(): void
+    {
+        $this->assertFalse(_pp_validate_shadow('inset 0 1px 2px rgba(0,0,0,0.1)'));
+    }
+
+    public function testValidateShadowRejectsMultiLayer(): void
+    {
+        $this->assertFalse(_pp_validate_shadow('0 1px 2px #000, 0 2px 4px #000'));
+    }
+
+    public function testValidateShadowRejectsUrl(): void
+    {
+        $this->assertFalse(_pp_validate_shadow('0 1px 2px url(evil) rgba(0,0,0,0.1)'));
+    }
+
+    public function testValidateShadowRejectsArbitraryVar(): void
+    {
+        // Only the preset allowlist passes; an arbitrary var() must be rejected.
+        $this->assertFalse(_pp_validate_shadow('0 1px var(--attacker) rgba(0,0,0,0.1)'));
+        $this->assertFalse(_pp_validate_shadow('var(--shadow-evil)'));
+    }
+
+    public function testValidateShadowRejectsNegativeBlur(): void
+    {
+        // Offsets may be negative; blur (3rd value) must not.
+        $this->assertFalse(_pp_validate_shadow('0 1px -2px rgba(0,0,0,0.1)'));
+    }
+
+    public function testValidateShadowRejectsTooFewOrManyLengths(): void
+    {
+        $this->assertFalse(_pp_validate_shadow('1px rgba(0,0,0,0.1)'));               // 1 length
+        $this->assertFalse(_pp_validate_shadow('0 1px 2px 3px 4px rgba(0,0,0,0.1)')); // 5 lengths
+    }
+
+    public function testValidateShadowRejectsMissingColor(): void
+    {
+        $this->assertFalse(_pp_validate_shadow('0 1px 2px'));
+    }
+
+    public function testValidateTokenValuePassesForShadowType(): void
+    {
+        $this->assertTrue(_pp_validate_token_value('var(--shadow-md)', 'shadow'));
+        $this->assertTrue(_pp_validate_token_value('0 1px 2px rgba(0,0,0,0.1)', 'shadow'));
+    }
+
+    public function testValidateTokenValueFailsForInvalidShadow(): void
+    {
+        $result = _pp_validate_token_value('inset 0 0 5px red', 'shadow');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_shadow', $result->get_error_code());
+    }
+
+    public function testValidateShadowInjectionBlockedUpstream(): void
+    {
+        // The {};<> guard runs before the type switch in _pp_validate_token_value.
+        $result = _pp_validate_token_value('0 1px 2px rgba(0,0,0,0.1); evil', 'shadow');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('injection', $result->get_error_code());
+    }
+
     // ── New Token Declarations ───────────────────────────────────────────
 
     public function testNewTokensFontWeightHeadingExists(): void

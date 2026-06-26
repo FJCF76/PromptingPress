@@ -51,6 +51,9 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                     $image_alt   = $item['image_alt'] ?? '';
                     $link_url    = $item['link_url']  ?? '';
                     $link_text   = $item['link_text'] ?? 'Read more';
+                    $text_role   = $item['text_role'] ?? '';
+                    $allowed_text_roles = ['mono', 'meta', 'label', 'kicker'];
+                    $text_role_class = in_array($text_role, $allowed_text_roles, true) ? ' text-' . $text_role : '';
                 ?>
                     <li class="grid__item">
                         <?php if ($is_steps) : ?>
@@ -74,7 +77,7 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                             <?php endif; ?>
 
                             <?php if ($item_text) : ?>
-                                <p class="grid__item-text"><?php echo esc_html($item_text); ?></p>
+                                <p class="grid__item-text<?php echo esc_attr($text_role_class); ?>"><?php echo esc_html($item_text); ?></p>
                             <?php endif; ?>
 
                             <?php if ($link_url) : ?>

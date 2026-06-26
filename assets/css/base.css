@@ -54,6 +54,24 @@
   --measure-centered:  56rem;     /* length: Centered section body — preserves current layout width */
   --transition: 150ms ease; /* raw: Default transition for interactive states */
   --overlay-bg: rgba(0, 0, 0, 0.55); /* color: Dark scrim over background images for text readability */
+
+  /* Elevation — presets for the bounded `shadow` style-slot type */
+  --shadow-none: none;                              /* shadow: No elevation */
+  --shadow-sm:   0 1px 2px rgba(16, 24, 40, 0.06);  /* shadow: Subtle lift (cards, inputs) */
+  --shadow-md:   0 4px 12px rgba(16, 24, 40, 0.10); /* shadow: Standard elevation (raised sections) */
+  --shadow-lg:   0 12px 32px rgba(16, 24, 40, 0.16);/* shadow: Strong elevation (modals, hero callouts) */
+
+  /* Typography roles — technical/secondary text surfaces beyond body/heading */
+  --font-mono: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace; /* font-family: Mono / code text */
+  --text-meta-size:      0.8125rem;        /* length: Meta text (timestamps, captions) */
+  --text-meta-color:     var(--color-muted); /* color: Meta text color */
+  --text-label-size:     0.8125rem;        /* length: Label text */
+  --text-label-weight:   600;              /* number: Label font weight */
+  --text-label-spacing:  0.01em;           /* length: Label letter spacing */
+  --text-kicker-size:    0.75rem;          /* length: Kicker / eyebrow text */
+  --text-kicker-weight:  700;              /* number: Kicker font weight */
+  --text-kicker-spacing: 0.08em;           /* length: Kicker letter spacing */
+  --text-kicker-color:   var(--color-accent); /* color: Kicker text color */
 }
 
 /* Responsive breakpoints (reference — use in media queries):
@@ -180,7 +198,7 @@ em {
 
 code,
 pre {
-  font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.9em;
 }
 

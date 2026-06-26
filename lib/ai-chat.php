@@ -677,6 +677,10 @@ function _pp_suggest_alternative_value(string $type, string $description, string
         return 'Try "0s" to disable the duration, or a value like "300ms".';
     }
 
+    if ($type === 'shadow') {
+        return 'Try a preset: "var(--shadow-sm)", "var(--shadow-md)", "var(--shadow-lg)", or "none". Or a single-layer box-shadow like "0 4px 12px rgba(0,0,0,0.1)".';
+    }
+
     return null;
 }
 

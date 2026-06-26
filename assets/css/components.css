@@ -10,19 +10,25 @@
 
 /* ==========================================================================
    SHARED: Button
-   .btn and .btn--outline used across hero, cta, and grid.
+   .btn is the shared base; variants .btn--secondary / .btn--outline / .btn--ghost
+   (primary = bare .btn) are selected per-instance via the `button_variant` prop.
+   The --btn-* tokens default to the historical hard-coded values, so an unset
+   button renders byte-identically. They are NOT exposed as component style_slots:
+   per-instance button color stays on component-scoped rules (e.g. .cta .btn), so
+   a section's __pp_style cannot leak into nested buttons.
    ========================================================================== */
 
 .btn {
   display: inline-block;
   padding: var(--btn-padding-y) var(--btn-padding-x);
-  background-color: var(--color-accent);
-  color: var(--color-bg);
+  background-color: var(--btn-bg, var(--color-accent));
+  color: var(--btn-text, var(--color-bg));
   font-weight: 600;
   font-size: 1rem;
   text-decoration: none;
-  border: 2px solid var(--color-accent);
-  border-radius: var(--radius);
+  border: 2px solid var(--btn-border-color, var(--color-accent));
+  border-radius: var(--btn-radius, var(--radius));
+  box-shadow: var(--btn-shadow, none);
   cursor: pointer;
   transition: background-color var(--transition), border-color var(--transition), color var(--transition);
   min-height: 44px; /* accessibility: 44px min touch target */
@@ -48,6 +54,32 @@
 .btn--outline:hover {
   background-color: var(--color-accent);
   color: var(--color-bg);
+}
+
+/* Secondary: muted surface fill, used for lower-emphasis actions. */
+.btn--secondary {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+.btn--secondary:hover {
+  background-color: var(--color-border);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+/* Ghost: borderless text-style button for tertiary actions. */
+.btn--ghost {
+  background-color: transparent;
+  color: var(--color-accent);
+  border-color: transparent;
+}
+
+.btn--ghost:hover {
+  background-color: var(--color-surface);
+  border-color: transparent;
+  color: var(--color-accent);
 }
 
 /* ==========================================================================
@@ -196,6 +228,9 @@
   padding-top: var(--hero-padding-top, var(--space-xl));
   padding-bottom: var(--hero-padding-bottom, var(--space-xl));
   background-color: var(--hero-bg, var(--color-bg));
+  border: var(--hero-border-width, 0) solid var(--hero-border-color, transparent);
+  border-radius: var(--hero-radius, 0);
+  box-shadow: var(--hero-shadow, none);
 }
 
 @media (min-width: 768px) {
@@ -501,6 +536,7 @@
   border-top: var(--section-border-width, 0) solid var(--section-border-color, transparent);
   border-bottom: var(--section-border-width, 0) solid var(--section-border-color, transparent);
   border-radius: var(--section-radius, 0);
+  box-shadow: var(--section-shadow, none);
 }
 
 .section__body,
@@ -744,8 +780,9 @@
   display: flex;
   flex-direction: column;
   background-color: var(--grid-card-bg, var(--color-surface));
-  border: 1px solid var(--grid-card-border, var(--color-border));
+  border: var(--grid-card-border-width, 1px) solid var(--grid-card-border, var(--color-border));
   border-radius: var(--grid-card-radius, var(--radius));
+  box-shadow: var(--grid-card-shadow, none);
   overflow: hidden;
   transition: transform var(--transition);
 }
@@ -980,6 +1017,7 @@
   border-top: var(--cta-border-width, 0) solid var(--cta-border-color, transparent);
   border-bottom: var(--cta-border-width, 0) solid var(--cta-border-color, transparent);
   border-radius: var(--cta-radius, 0);
+  box-shadow: var(--cta-shadow, none);
 }
 
 .cta__inner {
