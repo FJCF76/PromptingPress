@@ -4,6 +4,94 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.12.0] — 2026-06-26 — Generic Presentation Controls: Bounded Style Flexibility the AI Can Actually Use
+
+**The site-builder AI can now set shadows, button variants, and technical text styles through typed, bounded controls.**
+**A contract test guarantees every style slot a component declares actually reaches the page.**
+
+This release widens what the AI can safely style without turning the theme into a
+freeform CSS editor. Components gain a bounded `shadow` control (a preset like
+`var(--shadow-md)` or a single-layer box-shadow, validated and injection-guarded),
+plus consistent border-color, border-width, radius, and shadow slots across the
+hero, section, grid, and CTA. The shared button picks up a token contract with two
+new variants (`secondary`, `ghost`) selectable per CTA, on top of the existing
+`primary` and `outline` — without breaking any composition that already sets a
+button color. Typography moves past body and headings: mono, meta, label, and
+kicker roles are exposed as tokens and utility classes, and grid cards can tag
+their text with a role.
+
+The headline reliability change is a contract test: a style slot a component
+declares in its schema must actually be consumed in that component's CSS, on a
+property compatible with its type. A slot the AI can set but the renderer silently
+ignores now fails the build instead of shipping. Operators also get navigation
+readiness diagnostics that flag an empty or unconfigured menu for the locations a
+page actually uses, surfaced through the existing preflight and post-apply checks.
+
+### The numbers that matter
+
+Source: the PHPUnit suite (`vendor/bin/phpunit`) and the Vitest suite (`npm test`).
+
+| Metric | Before (v0.11.0) | After (v0.12.0) | Δ |
+|---|---|---|---|
+| Per-component style slots | 59 | 67 | +8 |
+| Slot value types | color / length / number | + shadow | bounded new type |
+| Button variants | primary / outline | + secondary / ghost | reusable contract |
+| Typography roles | body / heading | + mono / meta / label / kicker | new surface |
+| Nav readiness diagnostics | none | preflight + post-apply | new |
+| PHP unit tests | 671 | 715 | +44 |
+
+The new `StyleSlotContractTest` is the keystone: it parses each component's CSS
+block and proves every declared slot is consumed there on a type-compatible
+property, so an accepted-but-dropped slot can never reach production silently.
+
+### What this means for site builders
+
+The AI gets a wider, still-safe palette: drop shadows, outline and ghost buttons,
+and mono or label text, all through typed slots and props rather than raw CSS. The
+bounds are real (no `inset`, no multi-layer shadows, no arbitrary CSS), so the
+flexibility cannot become a foot-gun. Existing sites are unaffected: the shared
+button was tokenized to render identically when untouched, and old `--cta-accent`
+button colors keep working. If a page renders a nav menu that has no items
+assigned, preflight now tells you, instead of shipping an empty menu.
+
+### Itemized changes
+
+#### Added
+- Bounded `shadow` style-slot type (`_pp_validate_shadow` in `lib/apply.php`):
+  accepts `var(--shadow-none|sm|md|lg)` or `none`, or a single-layer `box-shadow`
+  (2-4 px/rem lengths + an rgb/rgba/hsl/hsla color); rejects `inset`, multi-layer,
+  `url()`, and arbitrary `var()`. Backed by `--shadow-none|sm|md|lg` tokens.
+- Namespaced `border-color`, `border-width`, `radius`, and `shadow` style slots
+  across `hero`, `section`, `grid` (card), and `cta`, consumed in `components.css`.
+- Shared button token contract (`--btn-bg/-border-color/-text/-radius/-shadow`) with
+  new `.btn--secondary` / `.btn--ghost` variants; a `button_variant` prop on CTA
+  (primary/secondary/outline/ghost) set via `update_component`.
+- Typography roles: `--font-mono` plus meta/label/kicker tokens, `.text-mono` /
+  `.text-meta` / `.text-label` / `.text-kicker` utilities, and an optional grid item
+  `text_role` reflected in rendered output.
+- `pp_check_nav_readiness()` (`lib/wp.php`): warning-grade diagnostics for the nav
+  locations a composition references (unassigned menu, empty menu, unregistered
+  location), surfaced through `pp_preflight()` and post-apply validation.
+- New tests: `StyleSlotContractTest`, `NavReadinessTest`, `TypographyRoleTest`, plus
+  shadow, button-variant, and `--cta-accent` regression cases. PHP 671 → 715.
+
+#### Changed
+- The shared `.btn` is tokenized so an unstyled button renders byte-identically;
+  variant defaults live on the `.btn--*` rules and per-instance CTA color stays on
+  the component-scoped `.cta .btn` path, so section styles never leak into buttons.
+- `code` / `pre` now consume `var(--font-mono)` instead of a hard-coded stack.
+
+#### Fixed
+- `pp_get_composition()` returns an already-decoded array defensively instead of
+  calling `json_decode()` on it; nav diagnostics skip non-array items/props.
+- The validation-failure helper now suggests a valid value for `shadow` slots.
+
+#### For contributors
+- `SchemaValidationTest` enforces the `shadow` type and a common-visual-slot
+  conformance check across the four styleable components.
+- Test bootstrap gained `get_registered_nav_menus` / `get_nav_menu_locations` /
+  `has_nav_menu` / `wp_get_nav_menu_items` stubs.
+
 ## [v0.11.0] — 2026-06-24 — Upgrade-Safety Guardrails: Updates Stop Before They Overwrite Your Work
 
 **Theme updates now refuse to run when they'd silently destroy local changes.**
