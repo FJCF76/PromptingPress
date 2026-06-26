@@ -4,6 +4,36 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.12.1] — 2026-06-26 — Docs: AI Guides for the New Presentation Controls
+
+**The site-builder AI now ships with guides for the v0.12.0 controls.**
+**No code change — this release exists so the documentation reaches the deployed theme.**
+
+The v0.12.0 presentation controls (shadows, button variants, typography roles, nav
+diagnostics) shipped before their AI-facing guides were written. This patch carries
+those guides into the distributed theme so an AI agent installing PromptingPress
+reads accurate instructions for the new controls.
+
+`ai-instructions/style-component.md` gains a worked example that sets a shadow slot
+through `style_component` and a `button_variant` prop through `update_component`,
+making the props-vs-slots distinction explicit. `ai-instructions/validate-site.md`
+documents the navigation readiness diagnostics (what they flag, where they surface,
+how to fix). Component READMEs, `AI_CONTEXT.md`, and `AI_RULES.md` are corrected for
+the new design-token count (45) and style-slot count (67).
+
+No theme behavior changed. If you already run v0.12.0, the only difference in v0.12.1
+is more accurate in-repo documentation for the AI.
+
+### Itemized changes
+
+#### Changed
+- `ai-instructions/style-component.md`: added the `shadow` slot type, a props-vs-slots
+  note, and a worked example for shadows + button variants + text roles.
+- `ai-instructions/validate-site.md`: added a navigation readiness section.
+- `ai-instructions/retheme.md`, `AI_CONTEXT.md`, `AI_RULES.md`, `README.md`,
+  `components/cta/README.md`, `components/grid/README.md`: documented `button_variant`
+  and `text_role`, and corrected the token (45) and style-slot (67) counts.
+
 ## [v0.12.0] — 2026-06-26 — Generic Presentation Controls: Bounded Style Flexibility the AI Can Actually Use
 
 **The site-builder AI can now set shadows, button variants, and technical text styles through typed, bounded controls.**
