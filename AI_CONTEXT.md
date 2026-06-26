@@ -33,7 +33,7 @@ documented in `schema.json` in the same folder. CSS is in `/assets/css/component
 **To add a component:** Follow the steps in `ai-instructions/add-component.md`. The
 auto-loader picks up any component at `/components/{name}/{name}.php` — no registration needed.
 
-**To retheme:** Read `ai-instructions/retheme.md`. Update the 33 design tokens via `update_design_token` apply (overrides stored in database, defaults in `assets/css/base.css`).
+**To retheme:** Read `ai-instructions/retheme.md`. Update the 45 design tokens via `update_design_token` apply (overrides stored in database, defaults in `assets/css/base.css`).
 
 **To style a specific component instance:** Read `ai-instructions/style-component.md`. Use the `style_component` action to set per-instance CSS custom properties (style slots) without editing CSS files.
 
@@ -280,7 +280,7 @@ not ACF fields. `pp_field()` returns null when ACF is not installed.
 
 ## Design tokens
 
-33 CSS custom properties control the entire visual system. Product defaults live in `assets/css/base.css`. Site-specific overrides are stored in the `pp_token_overrides` database option and output as inline CSS after the base stylesheet (CSS cascade resolves precedence automatically).
+45 CSS custom properties control the entire visual system. Product defaults live in `assets/css/base.css`. Site-specific overrides are stored in the `pp_token_overrides` database option and output as inline CSS after the base stylesheet (CSS cascade resolves precedence automatically).
 
 To change a token: use `pp_execute_apply('update_design_token', ['token' => '...', 'value' => '...'])`. To revert: use `reset_design_token` or `reset_all_design_tokens`.
 
@@ -305,7 +305,7 @@ Token overrides survive theme updates — `base.css` is overwritten on update, b
 
 Style slots allow per-instance visual customization of components without CSS edits. Each component declares allowed CSS custom properties in its `schema.json` under `styling.style_slots`. Only declared slots are accepted — arbitrary CSS is rejected.
 
-**59 style slots** across 4 v1 components: hero (14), section (13), grid (17), cta (15).
+**67 style slots** across 4 v1 components: hero (18), section (14), grid (19), cta (16).
 
 **How it works:**
 1. Composition entries gain an optional `style` key alongside `props`
@@ -526,7 +526,7 @@ Assembled by `pp_ai_system_prompt()`:
 - Component catalog (names + prop schemas with enum values, style slots, and recipes)
 - Action signatures (names, scopes, param types)
 - Apply signatures (names, domains, param types)
-- Design token inventory (33 tokens with current effective values and types)
+- Design token inventory (45 tokens with current effective values and types)
 - Style slot value rules (type-specific guidance for the LLM)
 - Pre-proposal verification checklist (target correct component, confirm slot exists, confirm value is representable)
 - Response format instructions (conversational vs structured proposal)

@@ -11,11 +11,23 @@ Call-to-action block. Place at the bottom of a page or between sections to drive
 | `button_text` | string | Yes      | —              | Button label |
 | `button_url`  | string | Yes      | —              | Button URL |
 | `variant`     | enum   | No       | `'full-width'` | Layout variant |
+| `button_variant` | enum | No      | `'primary'`    | Button style: `primary` / `secondary` / `outline` / `ghost` |
 
-## Variants
+## Layout variants
 
 - **full-width** — Centered block with `--color-surface` background. Used at section breaks.
 - **inline** — Flex row: text on left, button on right. Used for inline nudges (e.g. "back to archive").
+
+## Button variants (`button_variant`)
+
+Selects the shared button style. Set as a prop via `update_component`.
+
+- **primary** — Filled accent button (the bare `.btn`).
+- **secondary** — Muted surface fill for lower-emphasis actions.
+- **outline** — Accent border, transparent fill.
+- **ghost** — Borderless text-style button for tertiary actions.
+
+Per-instance button color is still set through the `--cta-accent` style slot.
 
 ## Usage
 

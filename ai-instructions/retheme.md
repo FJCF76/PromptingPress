@@ -1,7 +1,7 @@
 # Retheme PromptingPress
 
-Change the entire color scheme, fonts, shape language, and spacing scale through
-33 design tokens.
+Change the entire color scheme, fonts, shape language, spacing scale, and shadows
+through 45 design tokens.
 
 **To retheme a SITE, use the apply/DB path — do not edit `base.css`.** Token values
 for a specific site are set with `update_design_token` (stored in the

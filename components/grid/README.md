@@ -18,6 +18,7 @@ Each item in `items`:
 | `image_url` | string | No       | `''`           | Card image URL |
 | `link_url`  | string | No       | `''`           | Card link URL (shown only if set) |
 | `link_text` | string | No       | `'Read more'`  | Card link label |
+| `text_role` | enum   | No       | —              | Typography role for the card text: `mono` / `meta` / `label` / `kicker` |
 
 ## Responsive behavior
 
@@ -64,4 +65,5 @@ Cards in this component must represent real content objects. If you're placing i
 
 Styles in `assets/css/components.css` under `/* === COMPONENT: grid === */`.
 
-Card hover state: `translateY(-2px)` — subtle lift. No shadow by default.
+Card hover state: `translateY(-2px)` — subtle lift. No shadow by default; set a
+`--grid-card-shadow` style slot (e.g. `var(--shadow-md)`) for elevated cards.

@@ -44,7 +44,7 @@ PromptingPress goes the other direction:
 | 🧩 **Page structure** | Layout scattered across blocks, builders, shortcodes, and theme options | Page layout is one JSON array in post meta — inspectable, diffable, version-controllable |
 | 🛡️ **Edit safety** | Changes via file edits, block editor, or plugin-specific APIs | Every change goes through one typed action layer — validate, preview, execute, rollback |
 | 🪶 **Frontend weight** | Builder runtime, serialized markup, framework dependencies | ~75 KB CSS + 1.5 KB vanilla JS. No framework. No bundler. No builder runtime. |
-| 🎨 **Design control** | Colors and spacing set through visual overrides or inline CSS | 33 design tokens in one CSS file; site overrides in the database, survive theme updates |
+| 🎨 **Design control** | Colors and spacing set through visual overrides or inline CSS | 45 design tokens in one CSS file; site overrides in the database, survive theme updates |
 | 📄 **Component contracts** | Ad hoc theme files, no contracts on what a component accepts | Every component has `schema.json` with typed props, required fields, and validation |
 
 > **When page structure is explicit and every edit path is validated, AI stops guessing and starts operating — and the frontend stays lean.**
@@ -155,7 +155,7 @@ Components are plain PHP partials that render semantic HTML with CSS custom prop
 
 | Asset | Size | What it does |
 |-------|------|-------------|
-| `base.css` | 8 KB | Design tokens — 33 CSS custom properties |
+| `base.css` | 9 KB | Design tokens — 45 CSS custom properties |
 | `components.css` | 63 KB | All 11 component styles, CSS variables only |
 | `utilities.css` | 2 KB | Layout helpers |
 | `main.js` | 1.5 KB | Hamburger nav toggle — one IIFE, zero dependencies |
@@ -168,9 +168,9 @@ No build step. No transpilation. No bundler. What you write is what ships.
 
 ### 🎨 Design tokens — visual system without file edits
 
-33 CSS custom properties control the entire visual system: colors, typography, spacing, borders, measures. Product defaults live in `assets/css/base.css`. Site-specific overrides are stored in the database and **survive theme updates** — no file to lose when the theme ZIP gets replaced.
+45 CSS custom properties control the entire visual system: colors, typography (including mono/meta/label/kicker roles), spacing, borders, shadows, measures. Product defaults live in `assets/css/base.css`. Site-specific overrides are stored in the database and **survive theme updates** — no file to lose when the theme ZIP gets replaced.
 
-59 per-instance style slots let AI make this page's hero dark and spacious while that page's hero is tight and accent-bordered — all through composition data, no CSS edits. 9 named recipes (like `dark-spacious` or `compact`) expand to multiple slot values at once.
+67 per-instance style slots let AI make this page's hero dark and spacious while that page's hero is tight, accent-bordered, and lifted with a drop shadow — all through composition data, no CSS edits. 9 named recipes (like `dark-spacious` or `compact`) expand to multiple slot values at once.
 
 ```bash
 # Preview a token change without applying
@@ -182,7 +182,7 @@ wp pp apply execute update_design_token \
   --params='{"token":"--color-accent","value":"#b45309"}'
 ```
 
-**Why this matters:** An AI agent can retheme an entire site by updating 33 tokens — with preview, backup, and rollback on every change. No CSS files to parse, no specificity wars, no visual editor toggles to find.
+**Why this matters:** An AI agent can retheme an entire site by updating 45 tokens — with preview, backup, and rollback on every change. No CSS files to parse, no specificity wars, no visual editor toggles to find.
 
 ---
 
@@ -418,7 +418,7 @@ PromptingPress is in active development by a single developer. It is not yet pac
 See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 through v0.11.0.
 
 **What exists today (v0.11.0):**
-- 11 components with schema contracts and 59 per-instance style slots
+- 11 components with schema contracts and 67 per-instance style slots
 - Typed action/apply layer with validation, preview, and rollback
 - Token family derivation — changing one color updates related tokens automatically
 - Post-apply validation — DOM inspection verifies rendered page after mutations

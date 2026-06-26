@@ -78,6 +78,18 @@ Check that `current` values reflect your changes and the `active_recipe` shows c
 | `color` | `#1a1a2e`, `rgb(26, 26, 46)`, `var(--color-bg)` | `_pp_validate_color()` |
 | `length` | `8rem`, `50%`, `clamp(3rem, 6vw, 5rem)`, `calc(100% - 2rem)`, `0` | `_pp_validate_length()` |
 | `number` | `700`, `1.5` | `_pp_validate_number()` |
+| `shadow` | `var(--shadow-sm)`, `var(--shadow-md)`, `var(--shadow-lg)`, `none`, `0 4px 12px rgba(0,0,0,0.1)` | `_pp_validate_shadow()` |
+
+The `shadow` type is bounded: a preset (`var(--shadow-none\|sm\|md\|lg)` or `none`)
+or a single-layer `box-shadow` (2-4 px/rem lengths plus an rgb/rgba/hsl/hsla color).
+`inset`, multi-layer shadows, and `url()` are rejected. The hero, section, grid (card),
+and cta components each expose namespaced `*-border-color`, `*-border-width`, `*-radius`,
+and `*-shadow` slots.
+
+> **Button and text styling are PROPS, not style slots.** A CTA's button style
+> (`button_variant`: primary/secondary/outline/ghost) and a grid item's typography
+> role (`text_role`: mono/meta/label/kicker) are set with `update_component` (props),
+> not `style_component`. `style_component` only accepts schema-declared style slots.
 
 ---
 
