@@ -4,6 +4,38 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.13.0] — 2026-06-28 — Brand Book Fidelity via Safe Surfaces: Honored Slots, Token Locking, and Screenshot Readiness
+
+**The release promise — "Brand Book fidelity via safe surfaces" — now holds where it leaked.** An operator or AI can drive per-instance color through typed style slots and have them actually render on every breakpoint, apply design tokens concurrently without losing writes, give the hero's inner surface its own slots, and check screenshot readiness before claiming a change is verified.
+
+This release closes the four defensibility gaps (#84, #24, #86, #97) and the cross-block-override class behind them (#61), then hardens the same class across six more slot/variant locations found by a dev smoke test that replicated a professional benchmark site.
+
+**Style slots: 67 → 73.** The hero's inner proof/artifact surface gains six per-instance slots (`--hero-surface-bg`, `-padding`, `-border-color`, `-border-width`, `-radius`, `-shadow`), each defaulting to its current value (#24). A schema-derived test now fails if the documented slot count ever drifts from the schemas.
+
+**No more silently-lost token writes.** Every writer of `pp_token_overrides` (`pp_set_token_override`, `pp_clear_token_override`, `pp_clear_all_token_overrides`) now serializes its read-modify-write behind an install-scoped MySQL `GET_LOCK`, with a bounded timeout, a cache-authoritative in-lock re-read, and `finally` release. Lock acquisition failure returns an explicit status instead of clobbering a concurrent write (#97).
+
+**Per-instance color slots survive the desktop cascade.** The "premium typography" media rules hardcoded foreground tokens over declared slots at ≥768px, so dark-band headings, body text, and card text rendered with the global token instead of the slot the author set. `--grid-heading-color`, `--section-title-color`, `--section-text`, `--grid-item-title-color`, `--grid-item-text-color`, `--cta-body-color`, and the card-background slot `--grid-card-bg` are now honored at every breakpoint, and a whole-stylesheet contract test fails closed if any rule reclobbers them (#86, #61).
+
+**Screenshot readiness is now checkable and honest.** New `wp pp screenshot doctor [--probe]` resolves `PP_BROWSER_CMD`, reports the context it tested (CLI vs web) with remediation, and `wp pp apply preflight` surfaces a non-blocking readiness warning. A failed native capture returns an explicit status (`SCREENSHOT_FAILED` / `NEEDS_VISUAL_VERIFICATION`) — a missing browser never lets a run claim native `VERIFIED` (#84).
+
+### Itemized changes
+
+#### Added
+- `wp pp screenshot doctor [--probe]` — diagnoses capture readiness (shared `PP_BROWSER_CMD` resolver, CLI-vs-web context, remediation). Non-blocking readiness warning added to `wp pp apply preflight`. (#84)
+- Six `--hero-surface-*` per-instance style slots on the hero inner surface, defaulting to current values. (#24)
+- `docs/screenshot-setup.md` — `PP_BROWSER_CMD` setup and the adapter CLI contract.
+- Tests: `TokenLockTest` (GET_LOCK order, acquisition-failure, release-on-throw, cache-authoritative re-read, install-scoped name), `style-render.spec.ts` E2E render-proof, a whole-stylesheet cross-block override guard and a secondary-button gradient guard, and a schema-derived slot-count test.
+
+#### Changed
+- Token writes serialized behind an install-scoped `GET_LOCK` with bounded timeout, in-lock authoritative re-read, and `finally` release. (#97)
+- `ai-instructions/operating-loop.md`: corrected `apply restore` (resets to product defaults — not a per-change undo) and the `apply execute` description; documented `screenshot doctor`, readiness warning, and status vocabulary.
+- `AI_CONTEXT.md` / `README.md`: style-slot count 67 → 73 (hero 24); current test counts.
+
+#### Fixed
+- Per-instance color slots clobbered by the desktop typography cascade — heading, body, card-title, card-text, and CTA-body slots now honored at all breakpoints. (#86, #61)
+- `--grid-card-bg` ignored on default grids (cards rendered light on dark bands, first card auto-highlighted) — the late `background` shorthand now routes through the slot.
+- Secondary/ghost hero CTA rendered as a filled primary (low-contrast accent-on-accent) — the premium-CTA gradient is now scoped away from outline/ghost/secondary variants, and the hero outline foreground tracks `--hero-text` for guaranteed contrast.
+
 ## [v0.12.1] — 2026-06-26 — Docs: AI Guides for the New Presentation Controls
 
 **The site-builder AI now ships with guides for the v0.12.0 controls.**
