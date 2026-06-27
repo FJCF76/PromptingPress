@@ -92,7 +92,9 @@ Run: `wp pp screenshot capture --post_id=<id> --playbook=<name>`
 
 This captures screenshots at both viewports (1280px desktop + 375px mobile) unless the playbook declares otherwise.
 
-**Three status paths**:
+To diagnose capture readiness BEFORE you reach this step, run `wp pp screenshot doctor` (add `--probe` to attempt a real capture). It reports whether `PP_BROWSER_CMD` resolves, from where, and in which context (CLI vs web), with remediation. `wp pp apply preflight` also surfaces a non-blocking screenshot-readiness warning — a missing browser never blocks a typed mutation, it only means you cannot reach native `VERIFIED`. Setup: `docs/screenshot-setup.md`.
+
+**Three status paths** (the capture command returns the matching `status` in its result):
 - **Browser configured and capture succeeds**: Continue to REVIEW with screenshots.
 - **Browser not configured** (PP_BROWSER_CMD not set): Skip to HANDOFF with status `NEEDS_VISUAL_VERIFICATION`.
 - **Browser configured but capture fails**: Retry once per the failure subcategory rules. If still fails, proceed to HANDOFF with status `SCREENSHOT_FAILED`.
@@ -177,9 +179,10 @@ Three playbooks are available. Each one customizes the loop for a specific opera
 | `wp pp action execute <name> --run-id=<uuid> --params='...'` | EDIT | Required | Execute a typed action |
 | `wp pp apply preflight --run-id=<uuid>` | PREFLIGHT | Required | Run safety checks, record PREFLIGHT |
 | `wp pp apply preflight --run-id=<uuid> --planned-files='[...]'` | PREFLIGHT | Required | With drift overlap detection |
-| `wp pp apply execute <name> --run-id=<uuid> --params='...'` | APPLY | Required | Commit file mutation |
-| `wp pp apply restore --run-id=<uuid>` | APPLY | Required | Roll back to latest backup |
+| `wp pp apply execute <name> --run-id=<uuid> --params='...'` | APPLY | Required | Commit a typed apply (DB-backed token/font override) |
+| `wp pp apply restore --run-id=<uuid> [--token=<name>]` | APPLY | Required | Reset token overrides to product defaults — all, or one with `--token`. NOT a per-change undo: it discards current overrides rather than reverting to a prior snapshot. |
 | `wp pp screenshot capture --post_id=<id> --playbook=<name>` | SCREENSHOT | — | Capture both viewports |
 | `wp pp screenshot capture --capture-url=<url> --width=<px>` | SCREENSHOT | — | Capture single URL |
+| `wp pp screenshot doctor [--probe]` | SCREENSHOT | — | Diagnose capture readiness (PP_BROWSER_CMD + context) |
 | `wp pp operate checklist --playbook=<name>` | REVIEW | — | Get playbook checklist |
 | `wp pp operate validate --run='...'` | HANDOFF | — | Validate loop run completeness |
