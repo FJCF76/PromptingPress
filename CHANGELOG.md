@@ -4,6 +4,17 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.13.1] — 2026-06-28 — Docs: Correct the Design-Token Count the AI Reads
+
+**Patch release so the corrected AI-facing docs reach the distributed theme.** No code change.
+
+The AI instruction docs shipped inside the theme described `assets/css/base.css` as having "33 CSS variables" in three places — a stale count that contradicted the "45 design tokens" stated elsewhere in the same files. An AI agent installing v0.13.0 read the wrong number. v0.13.1 carries the fix into the release artifact.
+
+### Itemized changes
+
+#### Changed
+- `AI_CONTEXT.md`, `README.md`, `ai-instructions/retheme.md`: corrected the base.css token count (33 → 45 design tokens), matching `AI_RULES.md` and the rest of the docs.
+
 ## [v0.13.0] — 2026-06-28 — Brand Book Fidelity via Safe Surfaces: Honored Slots, Token Locking, and Screenshot Readiness
 
 **The release promise — "Brand Book fidelity via safe surfaces" — now holds where it leaked.** An operator or AI can drive per-instance color through typed style slots and have them actually render on every breakpoint, apply design tokens concurrently without losing writes, give the hero's inner surface its own slots, and check screenshot readiness before claiming a change is verified.
