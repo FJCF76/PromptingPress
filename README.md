@@ -28,7 +28,7 @@ PromptingPress goes the other direction:
 
 - **Explicit composition data** — pages are JSON arrays, not serialized builder state
 - **Typed components with schemas** — AI knows what's editable and what values are valid
-- **File-owned design rules** — 33 CSS tokens, no visual overrides to hunt down
+- **File-owned design rules** — 45 design tokens, no visual overrides to hunt down
 - **Minimal frontend assumptions** — no framework, no bundler, no builder runtime on the visitor-facing site
 - **Fast, maintainable WordPress output** — the architecture is designed to stay lean
 
