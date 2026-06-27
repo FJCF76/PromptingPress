@@ -428,55 +428,161 @@ function pp_get_token_overrides(): array {
     return $overrides;
 }
 
+// ── Token-override write serialization (#97) ────────────────────────────────
+// All three writers below do a read-modify-write on the single `pp_token_overrides`
+// option. Concurrent applies (agents are told to parallelize tool calls) otherwise
+// last-writer-wins and silently lose updates. We serialize the critical section with
+// a connection-scoped MySQL advisory lock (GET_LOCK).
+
+/**
+ * Bounded GET_LOCK wait (seconds) so a stuck holder cannot block an apply forever.
+ * Override with the PP_TOKEN_LOCK_TIMEOUT constant.
+ */
+function _pp_token_lock_timeout(): int {
+    return defined('PP_TOKEN_LOCK_TIMEOUT') ? (int) PP_TOKEN_LOCK_TIMEOUT : 5;
+}
+
+/**
+ * Install-scoped advisory lock name for the pp_token_overrides option. Includes DB
+ * name + blog id so writers on the SAME store serialize while unrelated sites/installs
+ * never collide. MySQL caps lock names at 64 chars; the md5 slice keeps it bounded.
+ */
+function _pp_token_lock_name(): string {
+    global $wpdb;
+    $db   = defined('DB_NAME') ? DB_NAME : (isset($wpdb->dbname) ? $wpdb->dbname : 'db');
+    $blog = function_exists('get_current_blog_id') ? (int) get_current_blog_id() : 0;
+    return 'pp_tokovr_' . substr(md5($db . '|' . $blog), 0, 32);
+}
+
+/**
+ * Runs $mutator inside a serialized critical section for pp_token_overrides.
+ *
+ * Acquires the advisory lock with a bounded timeout, runs the mutator, and releases
+ * in `finally` so normal AND exception unwinding both free it. This is not an absolute
+ * guarantee — a hard fatal/SIGKILL or a persistent connection can still strand a lock —
+ * so the bounded acquire timeout and MySQL's connection-close auto-release are the
+ * backstops. On acquisition failure the mutator does NOT run and $fail_value is returned
+ * (explicit failure, never a silent partial write). Degrades to running the mutator
+ * directly when no $wpdb is present (unit context); production always has $wpdb.
+ *
+ * @param callable $mutator     Performs the cache-authoritative read/modify/write.
+ * @param mixed    $fail_value  Returned if the lock cannot be acquired.
+ * @return mixed
+ */
+function _pp_with_token_lock(callable $mutator, $fail_value) {
+    global $wpdb;
+    $has_db = isset($wpdb) && is_object($wpdb) && method_exists($wpdb, 'get_var');
+    if (!$has_db) {
+        return $mutator(null);
+    }
+
+    $name = $wpdb->prepare('%s', _pp_token_lock_name());
+    // GET_LOCK: 1 = acquired, 0 = timed out, NULL = error.
+    // GET_LOCK: '1' acquired, '0' timed out (another writer holds it), NULL on error
+    // (killed connection, OOM, privilege) or on a backend without GET_LOCK. WordPress
+    // core requires MySQL/MariaDB, which always support GET_LOCK, so any non-'1' result
+    // means we could not safely serialize. Skip the write and surface an explicit
+    // failure for the caller to retry, rather than write unlocked and risk a lost
+    // update — NULL most often means the DB is unhealthy, exactly when the race bites.
+    $got = $wpdb->get_var("SELECT GET_LOCK($name, " . _pp_token_lock_timeout() . ")");
+    if ($got !== '1' && $got !== 1) {
+        $reason = ($got === '0' || $got === 0)
+            ? 'lock busy (GET_LOCK timed out after ' . _pp_token_lock_timeout() . 's)'
+            : 'lock unavailable (GET_LOCK returned ' . var_export($got, true) . ')';
+        error_log('PromptingPress: pp_token_overrides ' . $reason
+            . '; token write skipped to avoid a lost update.');
+        return $fail_value;
+    }
+
+    try {
+        return $mutator($wpdb);
+    } finally {
+        $wpdb->query("SELECT RELEASE_LOCK($name)");
+    }
+}
+
+/**
+ * Reads pp_token_overrides authoritatively inside the lock. Reads the single option
+ * row straight from the DB (bypassing the options cache) so a concurrent writer's
+ * just-committed value is visible and a stale cached map can't overwrite a newer one
+ * inside the critical section. Reads exactly the one row rather than busting the whole
+ * `alloptions` autoload cache.
+ *
+ * @param object|null $wpdb  The DB handle inside the lock, or null in unit context.
+ */
+function _pp_read_token_overrides_locked($wpdb = null): array {
+    if (is_object($wpdb) && method_exists($wpdb, 'get_var')) {
+        $raw = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+                'pp_token_overrides'
+            )
+        );
+        if ($raw === null) {
+            return [];
+        }
+        $value = maybe_unserialize($raw);
+        return is_array($value) ? $value : [];
+    }
+    // No DB handle (unit context): fall back to the cached/stubbed option.
+    return pp_get_token_overrides();
+}
+
 /**
  * Sets a single design token override in the database.
  *
  * @param string $token  CSS custom property name (e.g. '--color-accent').
  * @param string $value  The override value.
- * @return bool  True on success.
+ * @return bool  True on success; false if the write failed or the lock was not acquired.
  */
 function pp_set_token_override(string $token, string $value): bool {
-    $overrides = pp_get_token_overrides();
-    $overrides[$token] = $value;
-    $result = update_option('pp_token_overrides', $overrides, true);
-    pp_invalidate_design_tokens_cache();
-    return $result;
+    return _pp_with_token_lock(function ($wpdb) use ($token, $value) {
+        $overrides = _pp_read_token_overrides_locked($wpdb);
+        $overrides[$token] = $value;
+        $result = update_option('pp_token_overrides', $overrides, true);
+        pp_invalidate_design_tokens_cache();
+        return $result;
+    }, false);
 }
 
 /**
  * Clears a single design token override, reverting it to the product default.
  *
  * @param string $token  CSS custom property name.
- * @return bool  True if the token was present and removed, false if it didn't exist.
+ * @return bool  True if the token was present and removed; false if absent or unlocked.
  */
 function pp_clear_token_override(string $token): bool {
-    $overrides = pp_get_token_overrides();
-    if (!array_key_exists($token, $overrides)) {
-        return false;
-    }
-    unset($overrides[$token]);
-    if (empty($overrides)) {
-        delete_option('pp_token_overrides');
-    } else {
-        update_option('pp_token_overrides', $overrides, true);
-    }
-    pp_invalidate_design_tokens_cache();
-    return true;
+    return _pp_with_token_lock(function ($wpdb) use ($token) {
+        $overrides = _pp_read_token_overrides_locked($wpdb);
+        if (!array_key_exists($token, $overrides)) {
+            return false;
+        }
+        unset($overrides[$token]);
+        if (empty($overrides)) {
+            delete_option('pp_token_overrides');
+        } else {
+            update_option('pp_token_overrides', $overrides, true);
+        }
+        pp_invalidate_design_tokens_cache();
+        return true;
+    }, false);
 }
 
 /**
  * Clears all design token overrides, reverting the entire site to product defaults.
  *
- * @return int  Number of overrides that were cleared.
+ * @return int  Number of overrides that were cleared (0 if none or lock not acquired).
  */
 function pp_clear_all_token_overrides(): int {
-    $overrides = pp_get_token_overrides();
-    $count = count($overrides);
-    if ($count > 0) {
-        delete_option('pp_token_overrides');
-        pp_invalidate_design_tokens_cache();
-    }
-    return $count;
+    return _pp_with_token_lock(function ($wpdb) {
+        $overrides = _pp_read_token_overrides_locked($wpdb);
+        $count = count($overrides);
+        if ($count > 0) {
+            delete_option('pp_token_overrides');
+            pp_invalidate_design_tokens_cache();
+        }
+        return $count;
+    }, 0);
 }
 
 // ── Token Family Derivation ─────────────────────────────────────────────────

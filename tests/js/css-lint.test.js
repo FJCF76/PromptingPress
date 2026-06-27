@@ -70,8 +70,8 @@ describe('CSS lint: style slot fallback patterns', () => {
         });
     });
 
-    test('schema declares 67 total style slots', () => {
-        expect(allSlots.length).toBe(67);
+    test('schema declares 73 total style slots', () => {
+        expect(allSlots.length).toBe(73);
     });
 
     allSlots.forEach(({ component, slotName }) => {
@@ -81,6 +81,41 @@ describe('CSS lint: style slot fallback patterns', () => {
             const pattern = new RegExp(`var\\(${slotName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')},`);
             expect(stripped).toMatch(pattern);
         });
+    });
+});
+
+describe('CSS lint: secondary/ghost buttons never get a filled gradient', () => {
+    // Regression guard for the secondary-CTA contrast bug: the "premium CTA"
+    // and "elevation correction" cascade blocks apply a gradient background to
+    // `main .btn`. Because `main` is a type selector, `main .btn` and
+    // `main .btn--outline` have IDENTICAL specificity (0,1,1), so a later
+    // bare-`main .btn` gradient rule re-fills the transparent outline/ghost
+    // variants by source order — orange text on an orange fill, ~1.3:1.
+    // Any rule that sets a gradient background and matches a bare `main .btn`
+    // MUST exclude the transparent variants.
+    test('no bare `main .btn` gradient rule catches outline/ghost/secondary', () => {
+        const css = stripComments(COMPONENTS_CSS);
+        // Match innermost rules: selectors { body-without-braces }.
+        const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+        const offenders = [];
+        let m;
+        while ((m = ruleRe.exec(css)) !== null) {
+            const selector = m[1];
+            const body = m[2];
+            const setsGradient = /background(-image)?\s*:\s*[^;]*gradient/i.test(body);
+            if (!setsGradient) continue;
+            // Does any selector in the list target a bare `main .btn` (not the
+            // outline/ghost/secondary variant, and without a :not() exclusion)?
+            const catchesBareMainBtn = selector.split(',').some(sel => {
+                const s = sel.trim();
+                if (!/(^|\s)main\s+\.btn(\b|:|$)/.test(s)) return false;
+                if (/\.btn--(outline|ghost|secondary)/.test(s)) return false; // targets a variant explicitly
+                if (/:not\(\.btn--(outline|ghost|secondary)\)/.test(s)) return false; // excludes them
+                return true;
+            });
+            if (catchesBareMainBtn) offenders.push(selector.trim().split('\n')[0].slice(0, 80));
+        }
+        expect(offenders).toEqual([]);
     });
 });
 

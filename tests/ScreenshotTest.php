@@ -82,6 +82,109 @@ class ScreenshotTest extends TestCase
         $this->assertEquals('no_browser', $result['error']);
     }
 
+    // ── Readiness / doctor / status (#84) ───────────────────────────────────
+
+    public function testNoBrowserCarriesNeedsVisualVerificationStatus(): void
+    {
+        // Operating model (operating-loop.md): an unconfigured browser means capture was
+        // never attempted -> NEEDS_VISUAL_VERIFICATION, NOT SCREENSHOT_FAILED.
+        putenv('PP_BROWSER_CMD');
+        $result = pp_screenshot_capture([
+            'url'    => 'https://example.com',
+            'width'  => 1280,
+            'height' => 800,
+            'output' => $this->screenshotDir . '/test.png',
+        ]);
+        $this->assertSame('NEEDS_VISUAL_VERIFICATION', $result['status']);
+    }
+
+    public function testConfiguredButFailedCaptureCarriesScreenshotFailedStatus(): void
+    {
+        // Browser IS configured but the capture itself fails -> SCREENSHOT_FAILED, the
+        // explicit machine-readable status so the loop never claims a false VERIFIED.
+        putenv('PP_BROWSER_CMD=/bin/false');
+        try {
+            $result = pp_screenshot_capture([
+                'url'    => 'https://example.com',
+                'width'  => 1280,
+                'height' => 800,
+                'output' => $this->screenshotDir . '/test.png',
+            ]);
+            $this->assertSame('SCREENSHOT_FAILED', $result['status']);
+        } finally {
+            putenv('PP_BROWSER_CMD');
+        }
+    }
+
+    public function testReadinessReportsNotReadyAndContextWhenUnconfigured(): void
+    {
+        putenv('PP_BROWSER_CMD');
+        $readiness = pp_screenshot_readiness();
+        $this->assertFalse($readiness['ready']);
+        $this->assertSame('cli', $readiness['context']); // PHPUnit runs under the CLI SAPI
+        $this->assertNull($readiness['source']);
+        $this->assertStringContainsString('PP_BROWSER_CMD', $readiness['message']);
+    }
+
+    public function testReadinessReadyWhenEnvConfigured(): void
+    {
+        putenv('PP_BROWSER_CMD=/bin/true');
+        try {
+            $readiness = pp_screenshot_readiness(); // capability only, no probe
+            $this->assertTrue($readiness['ready']);
+            $this->assertSame('env', $readiness['source']);
+            $this->assertSame('/bin/true', $readiness['browser_cmd']);
+        } finally {
+            putenv('PP_BROWSER_CMD');
+        }
+    }
+
+    public function testPreflightSurfacesScreenshotReadinessAsNonBlockingWarning(): void
+    {
+        putenv('PP_BROWSER_CMD');
+        $result = pp_preflight([]);
+        $shotChecks = array_values(array_filter(
+            $result['checks'],
+            fn ($c) => ($c['check'] ?? '') === 'screenshot_readiness'
+        ));
+        $this->assertCount(1, $shotChecks, 'Preflight must surface a screenshot readiness check.');
+        // Warning severity is what makes it advisory: pp_preflight ignores severity=warning
+        // rows when computing `ok`, so an unready browser never blocks a typed mutation.
+        $this->assertSame('warning', $shotChecks[0]['severity']);
+        $this->assertFalse($shotChecks[0]['pass'], 'With no browser, the readiness check should fail...');
+        // ...but it must NOT block. Prove the behavior, not just the label: rebuild the
+        // blocking set exactly as pp_preflight does (non-warning failures) and assert the
+        // readiness check is never in it, regardless of other checks' state.
+        $blocking = array_filter(
+            $result['checks'],
+            fn ($c) => !$c['pass'] && (($c['severity'] ?? 'error') !== 'warning')
+        );
+        $this->assertNotContains(
+            'screenshot_readiness',
+            array_column($blocking, 'check'),
+            'An unready browser (warning) must never be a blocking preflight failure.'
+        );
+    }
+
+    public function testReadinessProbeReflectsCaptureOutcome(): void
+    {
+        // --probe runs a real capture; a failing adapter must flip ready to false and
+        // report the probe failure (no false VERIFIED off a broken capture).
+        putenv('PP_BROWSER_CMD=/bin/false');
+        try {
+            $readiness = pp_screenshot_readiness(true);
+            $this->assertFalse($readiness['ready'], 'A failing probe must report not-ready.');
+            $this->assertIsArray($readiness['probe']);
+            $this->assertFalse($readiness['probe']['ok'], 'The probe sub-result must record the failure.');
+        } finally {
+            putenv('PP_BROWSER_CMD');
+            // Clean up any probe artifact the capture attempt may have created.
+            foreach (glob(pp_screenshot_dir() . '/.doctor-probe-*.png') ?: [] as $f) {
+                @unlink($f);
+            }
+        }
+    }
+
     // ── Directory ──────────────────────────────────────────────────────────
 
     public function testScreenshotDirCreatesDirectory(): void

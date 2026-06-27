@@ -894,6 +894,34 @@ class PP_Screenshot_Command extends WP_CLI_Command {
             WP_CLI::halt(1);
         }
     }
+
+    /**
+     * Diagnoses screenshot-capture readiness for the current runtime context.
+     *
+     * Reports whether PP_BROWSER_CMD resolves, from where (constant vs env), and in which
+     * context (CLI `wp` vs web PHP — they can resolve different config). With --probe it
+     * attempts a real minimal capture to confirm the adapter actually launches and writes
+     * a file. Read-only: never mutates the site. Exits 1 when not ready so scripts and the
+     * operating loop can gate visual-proof steps on it.
+     *
+     * ## OPTIONS
+     *
+     * [--probe]
+     * : Attempt a real minimal capture against the home URL to confirm the adapter runs.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp screenshot doctor
+     *     wp pp screenshot doctor --probe
+     *
+     */
+    public function doctor($args, $assoc_args) {
+        $readiness = pp_screenshot_readiness(isset($assoc_args['probe']));
+        WP_CLI::line(json_encode($readiness, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        if (!$readiness['ready']) {
+            WP_CLI::halt(1);
+        }
+    }
 }
 
 WP_CLI::add_command('pp screenshot', 'PP_Screenshot_Command');

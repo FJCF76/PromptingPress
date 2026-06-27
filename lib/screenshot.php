@@ -71,22 +71,113 @@ function pp_screenshot_spec(int $post_id, string $playbook): array {
  * @param array $spec  Screenshot spec: url, width, height, output.
  * @return array{ok: bool, path: ?string, error: ?string, failure_reason: ?string}
  */
-function pp_screenshot_capture(array $spec): array {
-    // Resolve browser command: constant, then env var
-    $browser_cmd = null;
+/**
+ * Resolves the configured browser command: PP_BROWSER_CMD constant first, then the
+ * environment variable. Single source of truth shared by capture and doctor so the two
+ * cannot drift.
+ *
+ * @return array{cmd: ?string, source: ?string}  source is 'constant' | 'env' | null.
+ */
+function pp_screenshot_resolve_browser_cmd(): array {
     if (defined('PP_BROWSER_CMD') && PP_BROWSER_CMD) {
-        $browser_cmd = PP_BROWSER_CMD;
-    } elseif (getenv('PP_BROWSER_CMD')) {
-        $browser_cmd = getenv('PP_BROWSER_CMD');
+        return ['cmd' => PP_BROWSER_CMD, 'source' => 'constant'];
+    }
+    $env = getenv('PP_BROWSER_CMD');
+    if ($env) {
+        return ['cmd' => $env, 'source' => 'env'];
+    }
+    return ['cmd' => null, 'source' => null];
+}
+
+/**
+ * Reports screenshot-capture readiness for the CURRENT runtime context (CLI `wp` and
+ * web PHP can resolve different env/config, so the reported context matters). Capability
+ * detection only by default; pass $probe=true to actually attempt a tiny capture and
+ * confirm the adapter launches, writes a file, and exits cleanly.
+ *
+ * Basis for both `wp pp screenshot doctor` and the non-blocking preflight readiness
+ * warning. Never mutates the site and never blocks anything.
+ *
+ * @param bool $probe  When true, run a real minimal capture against the home URL.
+ * @return array{ready: bool, source: ?string, context: string, browser_cmd: ?string,
+ *               probe: ?array, message: string}
+ */
+function pp_screenshot_readiness(bool $probe = false): array {
+    $resolved = pp_screenshot_resolve_browser_cmd();
+    $context  = (php_sapi_name() === 'cli') ? 'cli' : 'web';
+
+    if ($resolved['cmd'] === null) {
+        return [
+            'ready'       => false,
+            'source'      => null,
+            'context'     => $context,
+            'browser_cmd' => null,
+            'probe'       => null,
+            'message'     => 'PP_BROWSER_CMD is not configured for the ' . $context . ' context. '
+                . 'Set it as an environment variable visible to this context, or define it in '
+                . 'wp-config.php (PHP constant). Required adapter shape: '
+                . '<url> --width=<px> --height=<px> --output=<path>. See docs/screenshot-setup.md.',
+        ];
     }
 
+    $result = [
+        'ready'       => true,
+        'source'      => $resolved['source'],
+        'context'     => $context,
+        'browser_cmd' => $resolved['cmd'],
+        'probe'       => null,
+        'message'     => 'PP_BROWSER_CMD resolved from ' . $resolved['source'] . ' for the '
+            . $context . ' context.',
+    ];
+
+    if ($probe) {
+        // Unpredictable name so a pre-placed symlink at a guessable path can't redirect
+        // the capture write (TOCTOU) in a shared screenshot directory.
+        $suffix  = function_exists('random_bytes') ? bin2hex(random_bytes(8)) : uniqid('', true);
+        $tmp     = pp_screenshot_dir() . '/.doctor-probe-' . $suffix . '.png';
+        $capture = pp_screenshot_capture([
+            'url'    => function_exists('home_url') ? home_url('/') : '/',
+            'width'  => 320,
+            'height' => 240,
+            'output' => $tmp,
+        ]);
+        if (file_exists($tmp)) {
+            @unlink($tmp);
+        }
+        $result['probe'] = [
+            'ok'      => $capture['ok'],
+            'error'   => $capture['error'] ?? null,
+            'message' => $capture['message'] ?? null,
+        ];
+        $result['ready'] = $capture['ok'];
+        if (!$capture['ok']) {
+            $result['message'] = 'PP_BROWSER_CMD is set (' . $resolved['source'] . ') but a probe '
+                . 'capture in the ' . $context . ' context failed: '
+                . ($capture['message'] ?? $capture['error'] ?? 'unknown')
+                . '. Fix the adapter before relying on native screenshot evidence.';
+        }
+    }
+
+    return $result;
+}
+
+function pp_screenshot_capture(array $spec): array {
+    $resolved    = pp_screenshot_resolve_browser_cmd();
+    $browser_cmd = $resolved['cmd'];
+
     if ($browser_cmd === null) {
+        // Per the operating model (ai-instructions/operating-loop.md): a browser that is
+        // not configured means capture was never attempted -> NEEDS_VISUAL_VERIFICATION,
+        // distinct from SCREENSHOT_FAILED (configured but the capture itself failed).
         return [
             'ok'             => false,
             'path'           => null,
             'error'          => 'no_browser',
             'failure_reason' => null,
-            'message'        => 'PP_BROWSER_CMD is not configured. Set it as an environment variable or define it in wp-config.php.',
+            'status'         => 'NEEDS_VISUAL_VERIFICATION',
+            'message'        => 'PP_BROWSER_CMD is not configured. Set it as an environment variable '
+                . 'or define it in wp-config.php, then run `wp pp screenshot doctor` to verify. '
+                . 'Required adapter shape: <url> --width=<px> --height=<px> --output=<path>.',
         ];
     }
 
@@ -101,6 +192,7 @@ function pp_screenshot_capture(array $spec): array {
             'path'           => null,
             'error'          => 'invalid_spec',
             'failure_reason' => 'browser_error',
+            'status'         => 'SCREENSHOT_FAILED',
             'message'        => 'Screenshot spec requires url and output fields.',
         ];
     }
@@ -116,6 +208,7 @@ function pp_screenshot_capture(array $spec): array {
             'path'           => null,
             'error'          => 'dir_not_writable',
             'failure_reason' => 'empty_output',
+            'status'         => 'SCREENSHOT_FAILED',
             'message'        => 'Screenshot output directory is not writable: ' . $output_dir,
         ];
     }
@@ -140,6 +233,7 @@ function pp_screenshot_capture(array $spec): array {
             'path'           => null,
             'error'          => 'browser_error',
             'failure_reason' => 'browser_error',
+            'status'         => 'SCREENSHOT_FAILED',
             'message'        => 'Browser exited with code ' . $exit_code . '. Output: ' . implode("\n", $exec_output),
         ];
     }
@@ -151,6 +245,7 @@ function pp_screenshot_capture(array $spec): array {
             'path'           => null,
             'error'          => 'empty_output',
             'failure_reason' => 'empty_output',
+            'status'         => 'SCREENSHOT_FAILED',
             'message'        => 'Browser reported success but output file does not exist: ' . $output,
         ];
     }
@@ -161,6 +256,7 @@ function pp_screenshot_capture(array $spec): array {
             'path'           => null,
             'error'          => 'empty_output',
             'failure_reason' => 'empty_output',
+            'status'         => 'SCREENSHOT_FAILED',
             'message'        => 'Browser reported success but output file is zero bytes: ' . $output,
         ];
     }
@@ -173,6 +269,7 @@ function pp_screenshot_capture(array $spec): array {
         'path'           => $output,
         'error'          => null,
         'failure_reason' => null,
+        'status'         => 'CAPTURED',
     ];
 }
 

@@ -403,12 +403,16 @@
   gap: var(--space-md);
   justify-content: center;
   min-height: 100%;
-  padding: var(--space-lg);
-  border: 1px solid var(--color-border);
-  border-radius: calc(var(--radius) * 2);
-  background:
-    linear-gradient(180deg, var(--color-bg) 0%, var(--color-surface) 100%);
-  box-shadow: 0 20px 50px rgba(16, 24, 40, 0.08);
+  /* Inner proof/artifact surface — per-instance style slots (#24). Each falls back to
+     the original "soft SaaS" treatment so unset heroes render unchanged; the site-builder
+     AI overrides these to reach a Brand Book target (e.g. a 2px brutalist artifact). */
+  padding: var(--hero-surface-padding, var(--space-lg));
+  border: var(--hero-surface-border-width, 1px) solid
+    var(--hero-surface-border-color, var(--color-border));
+  border-radius: var(--hero-surface-radius, calc(var(--radius) * 2));
+  background: var(--hero-surface-bg,
+    linear-gradient(180deg, var(--color-bg) 0%, var(--color-surface) 100%));
+  box-shadow: var(--hero-surface-shadow, 0 20px 50px rgba(16, 24, 40, 0.08));
 }
 
 .hero__surface > * {
@@ -465,14 +469,31 @@
   border-radius: var(--hero-image-radius, var(--radius));
 }
 
-/* Hero accent: scoped button colors via style slots */
-.hero .btn {
+/* Hero accent: scoped button colors via style slots.
+   Only FILLED buttons take the accent as a background. Outline/ghost variants
+   must keep their transparent fill so the secondary CTA stays visually distinct
+   from the primary (a `.hero .btn` background here outranks `.btn--outline`'s
+   transparent and would otherwise flatten both CTAs into identical filled buttons). */
+.hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
   background-color: var(--hero-accent, var(--color-accent));
   border-color: var(--hero-accent, var(--color-accent));
 }
-.hero .btn:hover {
+.hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   background-color: var(--hero-accent-hover, var(--color-accent-hover));
   border-color: var(--hero-accent-hover, var(--color-accent-hover));
+}
+/* Outline (secondary) hero CTA: foreground tracks --hero-text, which is defined
+   to contrast --hero-bg, so the ghost button stays readable on any hero palette
+   (the accent is not guaranteed to contrast the hero background). On hover it
+   fills with the accent and flips text to the hero background color. */
+.hero .btn--outline {
+  color: var(--hero-text, var(--color-text));
+  border-color: var(--hero-text, var(--color-text));
+}
+.hero .btn--outline:hover {
+  background-color: var(--hero-accent, var(--color-accent));
+  border-color: var(--hero-accent, var(--color-accent));
+  color: var(--hero-bg, var(--color-bg));
 }
 
 /* Split ratio: grid column ratios at desktop */
@@ -1795,7 +1816,7 @@
 }
 
 .grid--steps .grid__item-title {
-  color: var(--color-text);
+  color: var(--grid-item-title-color, var(--color-text));
 }
 
 @media (max-width: 767px) {
@@ -2096,15 +2117,29 @@
   main > .grid .grid__heading,
   main > .faq .faq__heading {
     margin-bottom: 1.65rem;
-    color: var(--color-text);
     font-size: clamp(2.25rem, 3vw, 2.62rem);
     font-weight: 560;
     line-height: 1.12;
   }
 
+  /* Per-instance heading-color slots must survive this desktop typography rule (#86).
+     Color is split per selector so each component's slot wins instead of a shared
+     hardcoded var(--color-text). faq has no heading-color slot, so it keeps the token. */
+  main > .grid .grid__heading {
+    color: var(--grid-heading-color, var(--color-text));
+  }
+
+  main > .section .section__title {
+    color: var(--section-title-color, var(--color-text));
+  }
+
+  main > .faq .faq__heading {
+    color: var(--color-text);
+  }
+
   main > .section .section__content,
   main > .section .section__content p {
-    color: var(--color-text-secondary);
+    color: var(--section-text, var(--color-text-secondary));
     font-size: 1.065rem;
     font-weight: 430;
     line-height: 1.76;
@@ -2119,7 +2154,7 @@
   }
 
   main > .grid .grid__item-title {
-    color: var(--color-text);
+    color: var(--grid-item-title-color, var(--color-text));
     font-size: 1.13rem;
     font-weight: 670;
     line-height: 1.28;
@@ -2130,7 +2165,7 @@
   }
 
   main > .grid .grid__item-text {
-    color: var(--color-text-secondary);
+    color: var(--grid-item-text-color, var(--color-text-secondary));
     font-size: 1.005rem;
     font-weight: 430;
     line-height: 1.68;
@@ -2167,7 +2202,7 @@
   }
 
   main > .cta .cta__body {
-    color: var(--color-text-secondary);
+    color: var(--cta-body-color, var(--color-text-secondary));
     font-size: 1.04rem;
     font-weight: 430;
     line-height: 1.66;
@@ -2223,9 +2258,13 @@ main > .grid .grid__item {
 }
 
 main > .grid:not(.grid--steps) .grid__item {
+  /* The decorative 1px rule stays; the fill layer routes through the
+     per-instance card-bg slot so a set --grid-card-bg (e.g. a dark-band card
+     color) is honored instead of being clobbered by this late cascade rule.
+     Unset keeps the original bg→surface gradient. */
   background:
     linear-gradient(90deg, rgba(37, 99, 235, 0.028) 1px, transparent 1px) 0 0 / 3rem 100%,
-    linear-gradient(180deg, var(--color-bg) 0%, var(--color-surface) 100%);
+    var(--grid-card-bg, linear-gradient(180deg, var(--color-bg) 0%, var(--color-surface) 100%));
 }
 
 main > .grid:not(.grid--steps) .grid__item::before {
@@ -2240,9 +2279,12 @@ main > .grid:not(.grid--steps) .grid__item::before {
 
 main > .grid:not(.grid--steps) .grid__item:first-child {
   border-color: var(--color-border-accent);
+  /* Featured-card accent fill is the DEFAULT; a per-instance --grid-card-bg
+     overrides it so the first card stays uniform with the rest when an author
+     sets an explicit card color (e.g. uniform dark cards on a dark band). */
   background:
     linear-gradient(90deg, rgba(37, 99, 235, 0.055) 1px, transparent 1px) 0 0 / 2.75rem 100%,
-    linear-gradient(180deg, var(--color-surface-accent) 0%, var(--color-surface) 100%);
+    var(--grid-card-bg, linear-gradient(180deg, var(--color-surface-accent) 0%, var(--color-surface) 100%));
   box-shadow:
     inset 0 0 0 1px rgba(37, 99, 235, 0.055),
     0 18px 42px rgba(37, 99, 235, 0.10);
@@ -2254,7 +2296,7 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
 }
 
 main > .grid:not(.grid--steps) .grid__item:first-child .grid__item-title {
-  color: var(--color-text);
+  color: var(--grid-item-title-color, var(--color-text));
 }
 
 main > .grid .grid__item-link {
@@ -2324,7 +2366,13 @@ main > .grid .grid__item-link::after {
   }
 }
 
-/* True final cascade: premium CTA treatment. */
+/* True final cascade: premium CTA treatment.
+   Layout/typography apply to every button. The FILLED treatment (gradient
+   background-image, accent border, light text) applies to primary buttons only:
+   outline/ghost/secondary variants are transparent by design, and a gradient
+   background-IMAGE here would paint over their transparent background-COLOR
+   (a different layer that `background-color: transparent` cannot clear),
+   flattening them into low-contrast filled buttons. */
 main .btn {
   display: inline-flex;
   align-items: center;
@@ -2332,14 +2380,7 @@ main .btn {
   min-width: 13.25rem;
   min-height: 3rem;
   padding: 0.82rem 1.18rem;
-  border: 1px solid var(--color-accent-strong);
   border-radius: 6px;
-  background:
-    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 10px 24px color-mix(in srgb, var(--color-accent-strong) 16%, transparent);
-  color: var(--color-bg);
   font-size: 0.96rem;
   font-weight: 640;
   line-height: 1.2;
@@ -2352,7 +2393,17 @@ main .btn {
     transform var(--transition);
 }
 
-main .btn:hover {
+main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
+  border: 1px solid var(--color-accent-strong);
+  background:
+    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 10px 24px color-mix(in srgb, var(--color-accent-strong) 16%, transparent);
+  color: var(--color-bg);
+}
+
+main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   border-color: var(--color-accent);
   background:
     linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-hover) 100%);
@@ -2364,13 +2415,22 @@ main .btn:hover {
   text-decoration: none;
 }
 
+main .btn:hover {
+  transform: translateY(-1px);
+  text-decoration: none;
+}
+
 main .btn:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 4px;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    0 0 0 4px color-mix(in srgb, var(--color-accent) 14%, transparent),
-    0 14px 30px color-mix(in srgb, var(--color-accent-strong) 20%, transparent);
+}
+
+/* Outline/ghost keep a transparent fill inside the premium cascade — this clears
+   the gradient background-IMAGE layer the filled rule would otherwise leave on
+   them, so the variant's own foreground/border treatment stays readable. */
+main .btn--outline,
+main .btn--ghost {
+  background: transparent;
 }
 
 #home-hero .hero__cta-group .btn,
@@ -2479,8 +2539,12 @@ main .btn:focus-visible {
   }
 }
 
-/* True final cascade: CTA color and elevation correction. */
-main .btn,
+/* True final cascade: CTA color and elevation correction.
+   Scoped away from outline/ghost/secondary: this block re-applies the gradient
+   fill and has the SAME specificity as `main .btn--outline` (both 0,1,1, since
+   `main` is a type selector), so without the :not() it would win by source order
+   and re-fill the transparent variants — the secondary-CTA contrast bug. */
+main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary),
 #home-hero .hero__cta-group .btn,
 #how-hero .hero__cta-group .btn,
 #agencies-hero .hero__cta-group .btn,
@@ -2497,7 +2561,7 @@ main .btn,
     0 10px 22px color-mix(in srgb, var(--color-accent-strong) 14%, transparent);
 }
 
-main .btn:hover,
+main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover,
 #home-hero .hero__cta-group .btn:hover,
 #how-hero .hero__cta-group .btn:hover,
 #agencies-hero .hero__cta-group .btn:hover,
@@ -2641,7 +2705,7 @@ main .btn,
 #how-cta .cta__body,
 #agencies-cta .cta__body,
 #implementers-cta .cta__body {
-  color: var(--color-text-secondary);
+  color: var(--cta-body-color, var(--color-text-secondary));
 }
 
 @media (max-width: 767px) {
@@ -2696,7 +2760,7 @@ main .btn,
   #agencies-cta .cta__body,
   #implementers-cta .cta__body {
     max-width: 19.75rem;
-    color: var(--color-text-secondary);
+    color: var(--cta-body-color, var(--color-text-secondary));
     font-size: 1.015rem;
     font-weight: 450;
     line-height: 1.52;

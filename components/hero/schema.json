@@ -119,7 +119,13 @@
       "--hero-border-color": { "type": "color", "default": "transparent", "description": "Border color of the hero section" },
       "--hero-border-width": { "type": "length", "default": "0", "description": "Border width of the hero section" },
       "--hero-radius": { "type": "length", "default": "0", "description": "Border radius of the hero section" },
-      "--hero-shadow": { "type": "shadow", "default": "none", "description": "Box shadow of the hero section (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" }
+      "--hero-shadow": { "type": "shadow", "default": "none", "description": "Box shadow of the hero section (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" },
+      "--hero-surface-bg": { "type": "color", "default": "soft surface gradient", "description": "Background of the inner proof/artifact surface panel (set a solid color to replace the default gradient)" },
+      "--hero-surface-padding": { "type": "length", "default": "var(--space-lg)", "description": "Padding inside the inner hero surface panel" },
+      "--hero-surface-border-color": { "type": "color", "default": "var(--color-border)", "description": "Border color of the inner hero surface panel" },
+      "--hero-surface-border-width": { "type": "length", "default": "1px", "description": "Border width of the inner hero surface panel" },
+      "--hero-surface-radius": { "type": "length", "default": "calc(var(--radius) * 2)", "description": "Border radius of the inner hero surface panel" },
+      "--hero-surface-shadow": { "type": "shadow", "default": "0 20px 50px rgba(16, 24, 40, 0.08)", "description": "Box shadow of the inner hero surface panel (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" }
     },
     "recipes": {
       "dark-spacious": {

@@ -320,6 +320,27 @@ if (!function_exists('delete_option')) {
     }
 }
 
+if (!function_exists('maybe_serialize')) {
+    function maybe_serialize($data) {
+        return (is_array($data) || is_object($data)) ? serialize($data) : $data;
+    }
+}
+
+if (!function_exists('maybe_unserialize')) {
+    function maybe_unserialize($data) {
+        if (is_string($data)) {
+            $trimmed = trim($data);
+            if ($trimmed !== '') {
+                $result = @unserialize($trimmed);
+                if ($result !== false || $trimmed === serialize(false)) {
+                    return $result;
+                }
+            }
+        }
+        return $data;
+    }
+}
+
 if (!function_exists('wp_unslash')) {
     function wp_unslash($value) {
         return is_string($value) ? stripslashes($value) : $value;

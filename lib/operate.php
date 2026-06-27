@@ -305,6 +305,21 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
         }
     }
 
+    // Check 9: Screenshot readiness (warning-grade, advisory — never blocks a mutation).
+    // The operating loop forbids native VERIFIED without screenshots, so surface capture
+    // readiness BEFORE mutation. A missing browser is a capability warning, not a gate:
+    // typed mutations may still proceed; the run just cannot claim native VERIFIED.
+    $shot = pp_screenshot_readiness();
+    $checks[] = [
+        'check'    => 'screenshot_readiness',
+        'pass'     => $shot['ready'],
+        'severity' => 'warning',
+        'message'  => $shot['ready']
+            ? 'Native screenshot capture is ready (' . $shot['message'] . ').'
+            : $shot['message'] . ' Typed mutations may still proceed; native VERIFIED requires a '
+              . 'working capture — run `wp pp screenshot doctor` to diagnose.',
+    ];
+
     // ok ignores severity=warning rows: warnings surface problems (pass=false) without
     // blocking the apply. Checks without a severity are treated as errors (legacy behavior).
     $all_pass = empty(array_filter(

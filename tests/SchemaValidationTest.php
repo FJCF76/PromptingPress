@@ -188,7 +188,7 @@ class SchemaValidationTest extends TestCase
     public function testStyleSlotsExistForV1Components(): void
     {
         $expected = [
-            'hero'    => 18,
+            'hero'    => 24,
             'section' => 14,
             'grid'    => 19,
             'cta'     => 16,
@@ -204,6 +204,59 @@ class SchemaValidationTest extends TestCase
                 $count,
                 $schema['styling']['style_slots'],
                 "{$component} must have exactly {$count} style slots."
+            );
+        }
+    }
+
+    /**
+     * The schemas are the single source of truth for the style-slot count. The count is
+     * also restated in prose in AI_CONTEXT.md and README.md, which silently drift when a
+     * slot is added. This derives the real count from the schemas and asserts the docs
+     * match — so adding a slot fails the build until the docs are updated, killing the
+     * hand-maintained magic numbers.
+     */
+    public function testDocsStyleSlotCountMatchesSchema(): void
+    {
+        $components = ['hero', 'section', 'grid', 'cta'];
+        $perComponent = [];
+        foreach ($components as $component) {
+            $schema = json_decode(
+                file_get_contents($this->themeRoot . "/components/{$component}/schema.json"),
+                true
+            );
+            $perComponent[$component] = count($schema['styling']['style_slots'] ?? []);
+        }
+        $total = array_sum($perComponent);
+
+        // AI_CONTEXT.md: the bolded total AND the per-component breakdown must both match.
+        $aiContext = file_get_contents($this->themeRoot . '/AI_CONTEXT.md');
+        $this->assertStringContainsString(
+            "**{$total} style slots**",
+            $aiContext,
+            "AI_CONTEXT.md must state the schema-derived total of {$total} style slots."
+        );
+        $breakdown = sprintf(
+            'hero (%d), section (%d), grid (%d), cta (%d)',
+            $perComponent['hero'], $perComponent['section'], $perComponent['grid'], $perComponent['cta']
+        );
+        $this->assertStringContainsString(
+            $breakdown,
+            $aiContext,
+            "AI_CONTEXT.md per-component breakdown must match the schemas: {$breakdown}."
+        );
+
+        // README.md: every "<n> per-instance style slots" must equal the schema total.
+        $readme = file_get_contents($this->themeRoot . '/README.md');
+        $this->assertSame(
+            1,
+            preg_match_all('/(\d+) per-instance style slots/', $readme, $matches) > 0 ? 1 : 0,
+            'README.md must state the per-instance style-slot count.'
+        );
+        foreach ($matches[1] as $stated) {
+            $this->assertSame(
+                $total,
+                (int) $stated,
+                "README.md states {$stated} per-instance style slots but the schemas declare {$total}."
             );
         }
     }

@@ -97,7 +97,100 @@ class StyleSlotContractTest extends TestCase
         }
     }
 
+    /**
+     * 3. Cross-block override guard (#86): a slot can be CONSUMED inside its component
+     * block (so checks 1-2 pass) yet still be CLOBBERED by a rule elsewhere in the
+     * stylesheet that targets the same element and re-sets the property to a non-slot
+     * value. The #86 bug was exactly that — the desktop "premium typography" rule
+     * (outside the COMPONENT: grid block) hardcoded `color: var(--color-text)` on
+     * `.grid__heading`, burying the dark-band heading on desktop while mobile passed.
+     *
+     * For each entry in the contract map, scan EVERY rule in the whole stylesheet whose
+     * selector targets the mapped class. Any declaration of the mapped property on that
+     * selector MUST consume the slot var; a non-slot value fails the build. This is
+     * fail-closed: an unexplained hardcoded color on a slotted heading is rejected, not
+     * silently allowed.
+     *
+     * Scope/limitation: keyed on the theme's BEM heading classes (how headings are
+     * actually rendered — see grid.php `class="grid__heading"`). Element-only overrides
+     * (e.g. a bare `main h2 { color }`) are out of scope by design; widening to element
+     * selectors would false-fail on every generic heading rule.
+     */
+    public function testSlottedPropertyNotClobberedAnywhereInStylesheet(): void
+    {
+        $css = $this->stripComments($this->css);
+        // Innermost rules only: `[^{}]` stops at braces, so rules nested in @media match
+        // individually while the @media wrapper (its body holds braces) does not.
+        preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $rules, PREG_SET_ORDER);
+
+        foreach (self::CROSS_BLOCK_SLOT_CONTRACT as $selectorToken => [$slot, $property]) {
+            $declsSeen = 0;
+            foreach ($rules as $rule) {
+                $selector = $rule[1];
+                $body     = $rule[2];
+                if (strpos($selector, $selectorToken) === false) {
+                    continue;
+                }
+                // Property declarations in this rule, excluding hyphenated namesakes
+                // (so `color` never matches `background-color` / `border-color`).
+                if (!preg_match_all(
+                    '/(?<![-a-z])' . preg_quote($property, '/') . '\s*:\s*([^;}]+)/i',
+                    $body,
+                    $decls
+                )) {
+                    continue;
+                }
+                $declsSeen += count($decls[1]);
+                foreach ($decls[1] as $value) {
+                    $consumesSlot = (bool) preg_match(
+                        '/var\(\s*' . preg_quote($slot, '/') . '\b/',
+                        $value
+                    );
+                    $this->assertTrue(
+                        $consumesSlot,
+                        "Rule `" . trim($selector) . "` sets `{$property}` to a value that does NOT "
+                        . "consume `{$slot}` (`" . trim($value) . "`). This clobbers the per-instance "
+                        . "slot for elements matching `{$selectorToken}` (cross-block override, the #86 "
+                        . "class of bug). Either route the value through `var({$slot}, …)` or remove the "
+                        . "declaration from this selector."
+                    );
+                }
+            }
+
+            // Fail-closed: the guard is only meaningful if the slot is actually consumed
+            // on the mapped selector somewhere. If a refactor removed every consumption,
+            // the loop above would pass vacuously — so require at least one declaration.
+            $this->assertGreaterThan(
+                0,
+                $declsSeen,
+                "No `{$property}` declaration found on any `{$selectorToken}` rule. The "
+                . "cross-block guard for `{$slot}` would pass vacuously — the slot must be "
+                . "consumed on its selector, or the contract entry is stale."
+            );
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Cross-block override contract: `selector class token => [slot, property]`.
+     * These slots are consumed both inside their COMPONENT block AND in the global
+     * "premium typography" media rules, so they are the ones at risk of a cross-block
+     * clobber. Extend this map when a new slot becomes reachable outside its block.
+     */
+    private const CROSS_BLOCK_SLOT_CONTRACT = [
+        '.grid__heading'     => ['--grid-heading-color', 'color'],
+        '.section__title'    => ['--section-title-color', 'color'],
+        // Body/content + card text slots are ALSO re-declared in the desktop
+        // "premium typography" media rules. The original #86 fix only covered
+        // the two heading slots above; these four were left clobbered (desktop
+        // hardcoded a token, ignoring the per-instance slot) until caught by a
+        // dev smoke test against a dark-band benchmark. Same cross-block class.
+        '.section__content'  => ['--section-text', 'color'],
+        '.grid__item-title'  => ['--grid-item-title-color', 'color'],
+        '.grid__item-text'   => ['--grid-item-text-color', 'color'],
+        '.cta__body'         => ['--cta-body-color', 'color'],
+    ];
 
     /**
      * Property → compatible slot types. Properties absent from this map are
