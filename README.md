@@ -415,18 +415,22 @@ npm run env:stop
 
 PromptingPress is in active development by a single developer. It is not yet packaged for broad distribution. The current focus is making the AI-agent workflow reliable and the composition model complete.
 
-See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 through v0.11.0.
+See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 through v0.13.1.
 
-**What exists today (v0.11.0):**
-- 11 components with schema contracts and 73 per-instance style slots
+**What exists today (v0.13.1):**
+- 11 components with schema contracts and 73 per-instance style slots, plus named recipes
+- A contract test that guarantees every style slot a component declares actually reaches the page, honored at every breakpoint
 - Typed action/apply layer with validation, preview, and rollback
+- Bounded presentation controls — button variants, typography roles, shadow/border/radius slots
 - Token family derivation — changing one color updates related tokens automatically
+- Concurrency-safe design-token writes — applies serialize behind advisory locking so parallel edits never lose data
 - Post-apply validation — DOM inspection verifies rendered page after mutations
+- Screenshot-readiness diagnostics (`wp pp screenshot doctor`) for the verify-with-evidence loop, with honest VERIFIED / NEEDS_VISUAL_VERIFICATION / SCREENSHOT_FAILED status
 - Semantic composition patching — target fields by name, not index
 - In-admin AI chat with structured mutation proposals and guided error recovery
 - Agent operating framework with step enforcement and drift detection
 - WP-CLI interface for all operations
-- 918+ automated tests across PHP, JS, and E2E, enforced by CI on every push and release
+- 990+ automated tests across PHP, JS, and E2E, enforced by CI on every push and release
 - Theme integrity enforcement — a build manifest of file hashes detects local drift; a daily check keeps the warning current, and a theme update is blocked before it can overwrite or delete modified files (override with the `pp_allow_unsafe_theme_update` filter). See [docs/upgrade-safety.md](docs/upgrade-safety.md)
 - ~75 KB frontend CSS, 1.5 KB JS — no framework, no bundler
 
