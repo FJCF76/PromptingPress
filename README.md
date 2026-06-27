@@ -307,7 +307,7 @@ No theme files were edited. No WordPress internals were called. No visual builde
 /lib/guardrails.php        Surface classification, CSS conflicts, integrity checks
 /lib/setup.php             Theme activation, homepage provisioning, integrity lifecycle (daily cron + pre-update block)
 /lib/components.php        Component auto-loader (stable contract — don't edit)
-/assets/css/base.css       Design token defaults (33 CSS variables)
+/assets/css/base.css       Design token defaults (45 design tokens)
 /assets/css/components.css Component styles (CSS variables only, no raw hex)
 /ai-instructions/          Task-specific AI workflow guides (13 files)
 AI_CONTEXT.md              Machine-readable site map — AI starts here

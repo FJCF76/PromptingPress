@@ -72,7 +72,7 @@ site-customization permission.
 |--------------------------|---------------------------------|----------------------------------|
 | /templates/              | Page layouts                    | Release-level only — inspect for site work |
 | /components/             | Reusable sections               | Release-level only — inspect for site work |
-| /assets/css/base.css     | Design token defaults (33 CSS vars) | Release-level only — site tokens via update_design_token |
+| /assets/css/base.css     | Design token defaults (45 design tokens) | Release-level only — site tokens via update_design_token |
 | /assets/css/components.css | Component styles              | Release-level only — inspect for site work |
 | /assets/css/utilities.css | Spacing / text utilities       | Release-level only — inspect for site work |
 | /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Release-level only — run npm test after |
