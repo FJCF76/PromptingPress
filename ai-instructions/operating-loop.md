@@ -151,7 +151,7 @@ Report:
 
 Two complementary enforcement mechanisms protect the loop:
 
-1. **Run tokens (real-time ordering):** `wp pp operate inspect` creates a state file tracking completed steps. Mutating commands (`action execute`, `apply preflight`, `apply execute`, `apply restore`) require `--run-id` and check the state file before proceeding. This prevents out-of-order CLI calls.
+1. **Run tokens (real-time ordering):** `wp pp operate inspect` creates a state file tracking completed steps. Mutating commands (`action execute`, `apply preflight`, `apply execute`, `apply restore`, `apply reset`) require `--run-id` and check the state file before proceeding. This prevents out-of-order CLI calls.
 
 2. **`wp pp operate validate` (post-hoc completeness):** Validates the finished run manifest — checks that all 8 steps ran, required outputs are present, viewports match the playbook, hard-gate checklist items were evaluated, and retry count is within bounds. This catches incomplete runs at HANDOFF.
 
@@ -180,7 +180,8 @@ Three playbooks are available. Each one customizes the loop for a specific opera
 | `wp pp apply preflight --run-id=<uuid>` | PREFLIGHT | Required | Run safety checks, record PREFLIGHT |
 | `wp pp apply preflight --run-id=<uuid> --planned-files='[...]'` | PREFLIGHT | Required | With drift overlap detection |
 | `wp pp apply execute <name> --run-id=<uuid> --params='...'` | APPLY | Required | Commit a typed apply (DB-backed token/font override) |
-| `wp pp apply restore --run-id=<uuid> [--token=<name>]` | APPLY | Required | Reset token overrides to product defaults — all, or one with `--token`. NOT a per-change undo: it discards current overrides rather than reverting to a prior snapshot. |
+| `wp pp apply restore --run-id=<uuid> [--token=<name>]` | APPLY | Required | Per-run rollback: reverts the tokens THIS run changed (primary + derived) to the snapshot frozen at the run's preflight; tokens the run never touched are preserved. `--token` restores that token and its derived family from the snapshot. Short-lived: only works within the run-token TTL; fails closed (changes nothing) if the snapshot is missing/expired/corrupt or from another install — it never falls back to product defaults. |
+| `wp pp apply reset --run-id=<uuid> [--token=<name>]` | APPLY | Required | Reset token overrides to product defaults — all, or one with `--token`. This is the deliberate "back to base.css" path, NOT a per-run undo. Use `apply restore` to undo a specific run. |
 | `wp pp screenshot capture --post_id=<id> --playbook=<name>` | SCREENSHOT | — | Capture both viewports |
 | `wp pp screenshot capture --capture-url=<url> --width=<px>` | SCREENSHOT | — | Capture single URL |
 | `wp pp screenshot doctor [--probe]` | SCREENSHOT | — | Diagnose capture readiness (PP_BROWSER_CMD + context) |
