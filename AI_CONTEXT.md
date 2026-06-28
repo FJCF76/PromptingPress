@@ -373,7 +373,9 @@ It returns `[]` when meta is absent or invalid JSON.
 
 **To write a composition as AI (preferred):**
 ```bash
-wp pp action execute update_composition --params='{"post_id":4,"composition":[{"component":"hero","props":{"title":"Hello"}}]}'
+# Mutating actions require --run-id and a PREFLIGHT covering the target post first:
+#   wp pp operate inspect  →  wp pp apply preflight --run-id=<uuid> --post_id=4  →  the action below
+wp pp action execute update_composition --run-id=<uuid> --params='{"post_id":4,"composition":[{"component":"hero","props":{"title":"Hello"}}]}'
 ```
 
 **Direct meta write (legacy, bypasses validation):**
@@ -439,8 +441,8 @@ All mutations go through typed actions. AJAX handlers, WP-CLI, and future AI cal
 
 ```bash
 wp pp action list                                    # all actions with scope and params
-wp pp action preview <name> --params='{"key":"val"}'  # validate + diff, never writes
-wp pp action execute <name> --params='{"key":"val"}'  # validate + execute
+wp pp action preview <name> --params='{"key":"val"}'  # validate + diff, never writes (no run-id)
+wp pp action execute <name> --run-id=<uuid> --params='{"key":"val"}'  # mutates: needs INSPECT + a covering PREFLIGHT
 wp pp check conflicts                                 # Custom CSS conflict detection
 wp pp check page --post_id=42                         # composition styling validation
 wp pp check surface lib/wp.php                        # surface classification (safe/extension/core)
@@ -448,11 +450,11 @@ wp pp validate site                                   # full site validation bat
 
 # Semantic composition operator
 wp pp operate inspect-composition <page>              # editable targets with selectors and current values
-wp pp operate patch <page> --target=hero.subtitle --value="New" --preview  # field-level diff, no write
-wp pp operate patch <page> --target=hero.subtitle --value="New"           # apply through action path
+wp pp operate patch <page> --target=hero.subtitle --value="New" --preview  # field-level diff, no write (no run-id)
+wp pp operate patch <page> --target=hero.subtitle --value="New" --run-id=<uuid>  # mutates: needs INSPECT + a covering PREFLIGHT
 
 # Component ID targeting (alternative to index)
-wp pp action execute update_component --params='{"post_id":19,"component_id":"pp-a1b2c3d4","props":{"subtitle":"Via ID"}}'
+wp pp action execute update_component --run-id=<uuid> --params='{"post_id":19,"component_id":"pp-a1b2c3d4","props":{"subtitle":"Via ID"}}'
 
 # Theme integrity
 wp pp integrity check                                 # compare live files against shipped manifest (exit 0/1/2/3)
