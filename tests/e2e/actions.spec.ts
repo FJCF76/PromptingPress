@@ -62,6 +62,31 @@ function ppAction(name: string, params: Record<string, unknown>, runId: string):
   return parseCliJson(raw, `action ${name}`);
 }
 
+/**
+ * Run `wp pp apply preflight` and record coverage for the run. Pass a postId to
+ * cover page/section mutations on that page; omit it for a site-scoped preflight
+ * (e.g. before create_page). #96: every DB-backed mutation needs a covering
+ * preflight first.
+ */
+function ppPreflight(runId: string, postId?: number): void {
+  const target = postId !== undefined ? ` --post_id=${postId}` : '';
+  wpCli(`wp pp apply preflight --run-id=${runId}${target}`);
+}
+
+/**
+ * Run a wp-env CLI command that is EXPECTED to fail (non-zero exit), returning
+ * the combined stderr+stdout so the caller can assert on the error message.
+ * Throws if the command unexpectedly succeeds.
+ */
+function wpCliExpectFail(cmd: string): string {
+  try {
+    execSync(`npx wp-env run cli ${cmd}`, { cwd: process.cwd(), encoding: 'utf-8', stdio: 'pipe' });
+  } catch (e: any) {
+    return `${e.stderr ?? ''}${e.stdout ?? ''}`;
+  }
+  throw new Error(`Expected command to fail but it succeeded: ${cmd}`);
+}
+
 /** Delete a page via WP-CLI inside wp-env. */
 function deletePage(id: number): void {
   execSync(`npx wp-env run cli wp post delete ${id} --force`, { cwd: process.cwd() });
@@ -81,13 +106,20 @@ test.describe('Action Layer CLI', () => {
     // 0. Obtain a run token (INSPECT step) — required by the action layer.
     const runId = ppOperateInspect();
 
-    // 1. Create a page via the action layer
-    const createResult = ppAction('create_page', { title: 'E2E Action Test' }, runId);
+    // 1. Site-scoped preflight, then create a page WITH a composition so it can
+    //    later clear a page-scoped preflight (#96: mutations need a covering
+    //    preflight; create_page is site-scoped).
+    ppPreflight(runId);
+    const createResult = ppAction('create_page', {
+      title: 'E2E Action Test',
+      composition: [{ component: 'hero', props: { title: 'Seed Hero' } }],
+    }, runId);
     expect(createResult.ok).toBe(true);
     pageId = (createResult.target as any).post_id;
     expect(pageId).toBeGreaterThan(0);
 
-    // 2. Add a hero component via the action layer
+    // 2. Preflight the new page, then add a hero component and publish.
+    ppPreflight(runId, pageId);
     const addResult = ppAction('add_component', {
       post_id: pageId,
       component: 'hero',
@@ -95,14 +127,105 @@ test.describe('Action Layer CLI', () => {
     }, runId);
     expect(addResult.ok).toBe(true);
 
-    // 3. Publish the page via the action layer
     const pubResult = ppAction('publish_page', { post_id: pageId }, runId);
     expect(pubResult.ok).toBe(true);
 
-    // 4. Navigate to the page and verify the hero renders
+    // 3. Navigate to the page and verify the hero renders
     await page.goto(`/?page_id=${pageId}`);
-    const hero = page.locator('.hero');
+    const hero = page.locator('.hero').first();
     await expect(hero).toBeVisible({ timeout: 10000 });
-    await expect(hero.locator('.hero__title')).toContainText('CLI Hero Title');
+    await expect(page.locator('.hero__title').first()).toContainText('Seed Hero');
+  });
+});
+
+/**
+ * #96: every DB-backed mutation (action execute, operate patch) refuses to run
+ * until the run has a completed PREFLIGHT covering its target. Previews stay
+ * read-only and ungated.
+ */
+test.describe('Preflight-before-mutation gate (#96)', () => {
+  let pageId = 0;
+
+  test.afterEach(() => {
+    if (pageId) {
+      try { deletePage(pageId); } catch { /* already cleaned */ }
+      pageId = 0;
+    }
+  });
+
+  test('action execute with INSPECT but no PREFLIGHT is blocked', () => {
+    const runId = ppOperateInspect();
+    ppPreflight(runId); // site preflight only
+    const created = ppAction('create_page', {
+      title: 'Gate Test Page',
+      composition: [{ component: 'hero', props: { title: 'Seed' } }],
+    }, runId);
+    pageId = (created.target as any).post_id;
+
+    // No page-scoped preflight for pageId yet → page mutation must be refused.
+    const json = JSON.stringify({ post_id: pageId, title: 'Renamed' }).replace(/'/g, "'\\''");
+    const err = wpCliExpectFail(`wp pp action execute update_page_title --run-id=${runId} --params='${json}'`);
+    expect(err).toContain('no completed PREFLIGHT covering post ' + pageId);
+    expect(err).toContain('wp pp apply preflight');
+  });
+
+  test('action execute succeeds after a covering PREFLIGHT', () => {
+    const runId = ppOperateInspect();
+    ppPreflight(runId);
+    const created = ppAction('create_page', {
+      title: 'Gate Test Page 2',
+      composition: [{ component: 'hero', props: { title: 'Seed' } }],
+    }, runId);
+    pageId = (created.target as any).post_id;
+
+    ppPreflight(runId, pageId); // now covers the page
+    const renamed = ppAction('update_page_title', { post_id: pageId, title: 'Renamed OK' }, runId);
+    expect(renamed.ok).toBe(true);
+  });
+
+  test('operate patch mutation is blocked without a covering PREFLIGHT', () => {
+    const runId = ppOperateInspect();
+    ppPreflight(runId);
+    const created = ppAction('create_page', {
+      title: 'Patch Gate Page',
+      composition: [{ component: 'hero', props: { title: 'Seed', subtitle: 'before' } }],
+    }, runId);
+    pageId = (created.target as any).post_id;
+
+    const err = wpCliExpectFail(
+      `wp pp operate patch ${pageId} --target=hero.subtitle --value="after" --run-id=${runId}`,
+    );
+    expect(err).toContain('no completed PREFLIGHT covering post ' + pageId);
+  });
+
+  test('operate patch --preview is read-only and needs no run-id', () => {
+    const runId = ppOperateInspect();
+    ppPreflight(runId);
+    const created = ppAction('create_page', {
+      title: 'Patch Preview Page',
+      composition: [{ component: 'hero', props: { title: 'Seed', subtitle: 'before' } }],
+    }, runId);
+    pageId = (created.target as any).post_id;
+
+    // No run-id, no preflight — preview must still work.
+    const raw = wpCli(`wp pp operate patch ${pageId} --target=hero.subtitle --value="after" --preview`);
+    const result = parseCliJson(raw, 'patch preview');
+    expect(result.ok).toBe(true);
+  });
+
+  test('action preview needs no run-id and never mutates', () => {
+    const runId = ppOperateInspect();
+    ppPreflight(runId);
+    const created = ppAction('create_page', {
+      title: 'Action Preview Page',
+      composition: [{ component: 'hero', props: { title: 'before' } }],
+    }, runId);
+    pageId = (created.target as any).post_id;
+
+    // No run-id passed to preview at all.
+    const json = JSON.stringify({ post_id: pageId, title: 'previewed' }).replace(/'/g, "'\\''");
+    const raw = wpCli(`wp pp action preview update_page_title --params='${json}'`);
+    const result = parseCliJson(raw, 'action preview');
+    expect(result.ok).toBe(true);
   });
 });

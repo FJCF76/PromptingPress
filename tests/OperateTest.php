@@ -427,6 +427,34 @@ class OperateTest extends TestCase
         $this->assertTrue($check['pass']);
     }
 
+    public function testPreflightTargetPagePassesForJsonStringComposition(): void
+    {
+        // Regression (#96): production stores _pp_composition as a JSON STRING
+        // (pp_update_composition), not a raw array. The target_page check must
+        // pass for that real format — otherwise no real page could ever clear
+        // preflight and page-scoped mutations would be permanently blocked.
+        $post_id = wp_insert_post([
+            'post_type'   => 'page',
+            'post_title'  => 'JSON String Page',
+            'post_status' => 'publish',
+        ]);
+        update_post_meta($post_id, '_pp_composition', wp_json_encode([
+            ['component' => 'hero', 'props' => ['title' => 'Hello']],
+        ]));
+
+        $result = pp_preflight(['post_id' => $post_id]);
+        $check = null;
+        foreach ($result['checks'] as $c) {
+            if ($c['check'] === 'target_page') {
+                $check = $c;
+                break;
+            }
+        }
+
+        $this->assertNotNull($check);
+        $this->assertTrue($check['pass'], 'target_page must pass for JSON-string composition');
+    }
+
     public function testPreflightTargetPageFailsForNonExistentPost(): void
     {
         $result = pp_preflight(['post_id' => 99999]);
@@ -1443,5 +1471,165 @@ class OperateTest extends TestCase
         // The error path must not truncate or recreate the file.
         $this->assertSame($corrupt, file_get_contents($path));
         @unlink($path);
+    }
+
+    // ── Preflight-before-mutation coverage (#96) ──────────────────────────────
+
+    public function testRecordPreflightWithPostIdRecordsCoverageStepAndSnapshot(): void
+    {
+        $run_id = pp_operate_create_run();
+        $this->assertTrue(pp_operate_record_preflight($run_id, 42, ['--color-accent' => '#111']));
+
+        $data = json_decode(file_get_contents(pp_operate_run_path($run_id)), true);
+        $this->assertContains('PREFLIGHT', $data['steps_completed']);
+        $this->assertSame([42], $data['preflight_post_ids']);
+        $this->assertArrayNotHasKey('preflight_site', $data);
+        // Snapshot committed in the same atomic write.
+        $this->assertSame(['--color-accent' => '#111'], pp_operate_get_token_snapshot($run_id));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRecordPreflightWithoutPostIdRecordsSiteGrain(): void
+    {
+        $run_id = pp_operate_create_run();
+        $this->assertTrue(pp_operate_record_preflight($run_id, null, []));
+
+        $data = json_decode(file_get_contents(pp_operate_run_path($run_id)), true);
+        $this->assertContains('PREFLIGHT', $data['steps_completed']);
+        $this->assertTrue($data['preflight_site']);
+        $this->assertArrayNotHasKey('preflight_post_ids', $data);
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRecordPreflightDedupsPostId(): void
+    {
+        $run_id = pp_operate_create_run();
+        pp_operate_record_preflight($run_id, 7, []);
+        pp_operate_record_preflight($run_id, 7, []);
+        pp_operate_record_preflight($run_id, 9, []);
+
+        $data = json_decode(file_get_contents(pp_operate_run_path($run_id)), true);
+        $this->assertSame([7, 9], $data['preflight_post_ids']);
+        // PREFLIGHT step recorded once, not three times.
+        $this->assertSame(['INSPECT', 'PREFLIGHT'], $data['steps_completed']);
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRecordPreflightSnapshotIsFirstWriteWins(): void
+    {
+        $run_id = pp_operate_create_run();
+        pp_operate_record_preflight($run_id, null, ['--color-accent' => '#first']);
+        pp_operate_record_preflight($run_id, 4, ['--color-accent' => '#second']);
+        // Re-running preflight must never move the rollback baseline.
+        $this->assertSame(['--color-accent' => '#first'], pp_operate_get_token_snapshot($run_id));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRecordPreflightReturnsFalseForMissingRun(): void
+    {
+        // Valid UUID, no state file → fail-closed write.
+        $this->assertFalse(pp_operate_record_preflight('00000000-0000-4000-8000-000000000000', 5, []));
+    }
+
+    public function testPreflightCoversMatchingPostIdReturnsTrue(): void
+    {
+        $run_id = pp_operate_create_run();
+        pp_operate_record_preflight($run_id, 42, []);
+        $this->assertTrue(pp_operate_preflight_covers($run_id, 42));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testPreflightCoversRejectsDifferentPostId(): void
+    {
+        // CRITICAL false-pass guard: a preflight for post 4 must NOT unlock post 7.
+        $run_id = pp_operate_create_run();
+        pp_operate_record_preflight($run_id, 4, []);
+        $this->assertFalse(pp_operate_preflight_covers($run_id, 7));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testPreflightCoversPageNotCoveredBySiteOnlyPreflight(): void
+    {
+        // CRITICAL: a site-grain preflight must NOT cover a page mutation.
+        $run_id = pp_operate_create_run();
+        pp_operate_record_preflight($run_id, null, []);
+        $this->assertFalse(pp_operate_preflight_covers($run_id, 42));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testPreflightCoversSiteCoveredByNoPostPreflight(): void
+    {
+        $run_id = pp_operate_create_run();
+        pp_operate_record_preflight($run_id, null, []);
+        $this->assertTrue(pp_operate_preflight_covers($run_id, null));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testPreflightCoversSiteNotCoveredByPostOnlyPreflight(): void
+    {
+        // A site mutation needs a site preflight; a page preflight must not cover it.
+        $run_id = pp_operate_create_run();
+        pp_operate_record_preflight($run_id, 4, []);
+        $this->assertFalse(pp_operate_preflight_covers($run_id, null));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testPreflightCoversFalseForMissingRun(): void
+    {
+        $this->assertFalse(pp_operate_preflight_covers('00000000-0000-4000-8000-000000000000', 5));
+        $this->assertFalse(pp_operate_preflight_covers('00000000-0000-4000-8000-000000000000', null));
+    }
+
+    public function testPreflightRecordAndCoverageFailClosedOnExpiredRun(): void
+    {
+        // A failed/blocked atomic write must leave the gate fail-closed: no
+        // partial unlock. An expired run is the deterministic stand-in for a
+        // write that cannot commit — record returns false and coverage is false.
+        $run_id = pp_operate_create_run();
+        $path = pp_operate_run_path($run_id);
+        $data = json_decode(file_get_contents($path), true);
+        $data['created_at'] = time() - 10800; // 3h ago, past the 2h TTL.
+        file_put_contents($path, json_encode($data), LOCK_EX);
+
+        $this->assertFalse(pp_operate_record_preflight($run_id, 42, ['--color-accent' => '#111']));
+        $this->assertFalse(pp_operate_preflight_covers($run_id, 42));
+        @unlink($path);
+    }
+
+    public function testLoopOrderPreflightPrecedesEdit(): void
+    {
+        // Regression pin (#96): PREFLIGHT must come before EDIT, and EDIT must
+        // depend on preflight_result — the safety gate runs before any mutation.
+        $order = array_keys(pp_operate_loop_steps());
+        $this->assertLessThan(
+            array_search('EDIT', $order, true),
+            array_search('PREFLIGHT', $order, true),
+            'PREFLIGHT must precede EDIT in the operating loop'
+        );
+        $steps = pp_operate_loop_steps();
+        $this->assertContains('preflight_result', $steps['EDIT']['required_inputs']);
+        $this->assertContains('mutation_plan', $steps['PREFLIGHT']['required_inputs']);
+        $this->assertNotContains('edit_result', $steps['PREFLIGHT']['required_inputs']);
+    }
+
+    public function testAllRegisteredActionsHaveConsistentScopeAndPostIdParam(): void
+    {
+        // Guardrail: the preflight gate keys off post_id presence and asserts it
+        // matches the action's declared scope. That assertion is only sound if
+        // every registered action is consistent: page/section carry a required
+        // post_id param; site actions do not.
+        $actions = pp_get_registered_actions();
+        $this->assertNotEmpty($actions, 'No actions registered — test would be vacuous');
+
+        foreach ($actions as $name => $def) {
+            $scope    = $def['scope'] ?? 'unknown';
+            $hasParam = isset($def['params']['post_id']);
+            if (in_array($scope, ['page', 'section'], true)) {
+                $this->assertTrue($hasParam, "Action '$name' ($scope) must declare a post_id param");
+                $this->assertTrue(!empty($def['params']['post_id']['required']), "Action '$name' post_id must be required");
+            } elseif ($scope === 'site') {
+                $this->assertFalse($hasParam, "Site action '$name' must not declare a post_id param");
+            }
+        }
     }
 }

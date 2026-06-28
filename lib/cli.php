@@ -26,6 +26,56 @@ function _pp_cli_require_run_id(array $assoc_args): string {
 }
 
 /**
+ * Preflight-before-mutation gate (#96). Halts with an actionable WP_CLI::error
+ * unless the run has a completed PREFLIGHT covering the intended target: a
+ * specific $post_id for page/section mutations, or the site grain when $post_id
+ * is null. Shared by `action execute` and `operate patch`.
+ */
+function _pp_cli_require_preflight_covers(string $run_id, ?int $post_id): void {
+    if (pp_operate_preflight_covers($run_id, $post_id)) {
+        return;
+    }
+    $target = $post_id !== null ? 'post ' . $post_id : 'site-scoped changes';
+    $hint   = 'wp pp apply preflight --run-id=' . $run_id
+            . ($post_id !== null ? ' --post_id=' . $post_id : '');
+    WP_CLI::error('Run token "' . $run_id . '" has no completed PREFLIGHT covering ' . $target
+        . '. Mutating actions require a successful preflight first. Run `' . $hint . '`.');
+}
+
+/**
+ * Applies the preflight gate for a named registered action. Resolves the target
+ * post from $params (page/section actions carry a required post_id; site actions
+ * carry none), asserts that the action's declared scope is consistent with that
+ * presence so a misdeclared action can't be mis-gated, then enforces coverage.
+ */
+function _pp_cli_require_preflight_for_action(string $run_id, array $action, array $params): void {
+    $scope   = $action['scope'] ?? 'unknown';
+    $post_id = isset($params['post_id']) ? (int) $params['post_id'] : null;
+
+    // Fail closed on an unrecognized scope. The page/site assertions below only
+    // hold for the known scopes; a missing or mistyped scope would otherwise fall
+    // through to post_id-presence keying, letting a misdeclared page action be
+    // unlocked by a site-grain preflight. Refuse rather than guess the target.
+    if (!in_array($scope, ['page', 'section', 'site'], true)) {
+        WP_CLI::error('Action "' . ($action['name'] ?? '?') . '" has an unrecognized scope "'
+            . $scope . '"; refusing to resolve a preflight target. This is an action-registration bug.');
+    }
+
+    // Scope-consistency guardrail: page/section MUST carry post_id; site MUST NOT.
+    $is_page_scope = in_array($scope, ['page', 'section'], true);
+    if ($is_page_scope && $post_id === null) {
+        WP_CLI::error('Action "' . ($action['name'] ?? '?') . '" is ' . $scope
+            . '-scoped but no post_id was provided; cannot resolve a preflight target.');
+    }
+    if ($scope === 'site' && $post_id !== null) {
+        WP_CLI::error('Action "' . ($action['name'] ?? '?') . '" is site-scoped but a post_id '
+            . 'was provided; site actions are not page-targeted.');
+    }
+
+    _pp_cli_require_preflight_covers($run_id, $post_id);
+}
+
+/**
  * Parses the --params JSON argument. Shared by action and apply CLI commands.
  */
 function pp_cli_parse_params(array $assoc_args): array {
@@ -158,6 +208,22 @@ class PP_Action_Command extends WP_CLI_Command {
 
         list($name) = $args;
         $params = pp_cli_parse_params($assoc_args);
+
+        // Preflight-before-mutation gate (#96). Every `action execute` mutates
+        // DB-backed state, so require a completed PREFLIGHT covering this target
+        // before the write lands. Validate first so a malformed/nonexistent
+        // target surfaces its real error instead of a confusing "preflight a
+        // page that doesn't exist" message, and so the gate only demands a
+        // preflight for an action that would actually run. Unknown action names
+        // fall through to pp_execute_action's unknown_action error.
+        $action = pp_get_action($name);
+        if ($action !== null) {
+            $validation = pp_validate_action($name, $params);
+            if (is_wp_error($validation)) {
+                WP_CLI::error($validation->get_error_message());
+            }
+            _pp_cli_require_preflight_for_action($run_id, $action, $params);
+        }
 
         $result = pp_execute_action($name, $params);
 
@@ -546,18 +612,18 @@ class PP_Apply_Command extends WP_CLI_Command {
             WP_CLI::halt(1);
         }
 
-        // Record PREFLIGHT step only on success.
-        if (!pp_operate_record_step($run_id, 'PREFLIGHT')) {
-            WP_CLI::error('Could not record PREFLIGHT step for run token "' . $run_id . '". State file may be missing or expired. Re-run `wp pp operate inspect`.');
-        }
-
-        // Freeze the pre-apply token-override snapshot so `apply restore` can roll this
-        // run back to its starting state. First-write-wins inside the recorder, so
-        // re-running preflight never moves the baseline. Read under the token lock for
-        // an atomic baseline. If the baseline cannot be recorded the run has no rollback
-        // safety net, so fail here rather than letting it surface later as an apply gate.
-        if (!pp_operate_record_token_snapshot($run_id, pp_snapshot_token_overrides())) {
-            WP_CLI::error('Could not record the pre-apply rollback snapshot for run "' . $run_id . '". State file may be missing or expired. Re-run `wp pp operate inspect`.');
+        // Record PREFLIGHT only on success, in ONE atomic write: the PREFLIGHT
+        // step, the target this preflight covered (post_id for page/section work,
+        // or the site grain when no post is given), and the pre-apply token
+        // snapshot that `apply restore` rolls back to. Committing them together is
+        // load-bearing: mutating gates (action execute / operate patch) unlock on
+        // the recorded coverage alone, so a partial write must never leave the run
+        // unlocked. First-write-wins inside the recorder keeps the rollback
+        // baseline stable across re-runs; token overrides are read under the lock
+        // for an atomic baseline. If this cannot be recorded the run has neither a
+        // mutation unlock nor a rollback net, so fail here.
+        if (!pp_operate_record_preflight($run_id, $context['post_id'] ?? null, pp_snapshot_token_overrides())) {
+            WP_CLI::error('Could not record PREFLIGHT state for run token "' . $run_id . '". State file may be missing or expired. Re-run `wp pp operate inspect`.');
         }
     }
 }
@@ -897,12 +963,17 @@ class PP_Operate_Command extends WP_CLI_Command {
      * : The new value for the targeted field.
      *
      * [--preview]
-     * : Show the diff without writing.
+     * : Show the diff without writing. Read-only — needs no run token.
+     *
+     * [--run-id=<uuid>]
+     * : Run token from `wp pp operate inspect`. Required for the mutating path
+     * : (everything except --preview), which writes the composition and so must
+     * : sit behind a completed PREFLIGHT covering this page.
      *
      * ## EXAMPLES
      *
      *     wp pp operate patch 19 --target=hero.subtitle --value="New Subtitle" --preview
-     *     wp pp operate patch 19 --target=hero.subtitle --value="New Subtitle"
+     *     wp pp operate patch 19 --target=hero.subtitle --value="New Subtitle" --run-id=<uuid>
      *
      */
     public function patch($args, $assoc_args) {
@@ -922,6 +993,19 @@ class PP_Operate_Command extends WP_CLI_Command {
 
         if ($selector === '') {
             WP_CLI::error('--target is required.');
+        }
+
+        // Preflight-before-mutation gate (#96). The mutating path writes
+        // _pp_composition through the update_component action, so it must sit
+        // behind the same run-token discipline as `action execute`: a valid
+        // run-id, a completed INSPECT, and a PREFLIGHT covering this page. The
+        // --preview path stays read-only and ungated.
+        if (!$preview) {
+            $run_id = _pp_cli_require_run_id($assoc_args);
+            if (!pp_operate_check_step($run_id, 'INSPECT')) {
+                WP_CLI::error('Run token "' . $run_id . '" has no completed INSPECT step. Run `wp pp operate inspect` first.');
+            }
+            _pp_cli_require_preflight_covers($run_id, $post_id);
         }
 
         $result = pp_patch_composition($post_id, $selector, $value, $preview);
