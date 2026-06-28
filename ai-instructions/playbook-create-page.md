@@ -24,14 +24,16 @@ Map the brief to PromptingPress components:
 - Plan the composition array (component order, props)
 - Note any design token changes needed (stored in database, not file-based)
 
-### 3. EDIT
+### 3. PREFLIGHT
+Run a site-scoped `wp pp apply preflight --run-id=<uuid>` (no `--post_id` — the page does not exist yet). This covers the site-scoped page creation in EDIT. Creating a page through `create_page` with its composition inline is a single site-scoped mutation, so the site preflight is sufficient.
+
+### 4. EDIT
 Execute actions in order:
-1. `add_page` — Create the page with composition template
-2. `set_composition` — Set the full composition array
+1. `add_page` — Create the page with composition template (site-scoped; covered by the site PREFLIGHT above)
+2. `set_composition` — Set the full composition array. If you set composition as a separate page-scoped step (rather than inline at creation), first run `wp pp apply preflight --run-id=<uuid> --post_id=<new_page_id>` once the page exists, since page-scoped mutations require a PREFLIGHT covering that post.
 3. Any token updates if the brief requires brand changes
 
-### 4. PREFLIGHT
-Run `wp pp apply preflight` before any applies. Token applies are database-backed, so no `--planned-files` needed for design token changes.
+Token applies are database-backed, so no `--planned-files` is needed for design token changes.
 
 ### 5. APPLY
 Execute any file-based applies (e.g., `wp pp apply execute --apply=update_design_token --params='...'`).

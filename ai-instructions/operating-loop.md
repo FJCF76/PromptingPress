@@ -9,12 +9,14 @@ Phase: Strategist
   1. INSPECT    — Read current state before touching anything
   2. PLAN       — Declare what will change before changing it
 
+Phase: Operator (safety gate)
+  3. PREFLIGHT  — Check the environment can safely mutate, BEFORE any write
+
 Phase: Implementer
-  3. EDIT       — Execute via typed actions
+  4. EDIT       — Execute via typed actions (gated: needs a covering PREFLIGHT)
 
 Phase: Operator
-  4. PREFLIGHT  — Check environment can safely apply
-  5. APPLY      — Commit mutation with backup
+  5. APPLY      — Commit file/token mutation with backup
 
 Phase: Reviewer
   6. SCREENSHOT — Capture rendered state at declared viewports
@@ -23,6 +25,10 @@ Phase: Reviewer
 Phase: Operator
   8. HANDOFF    — Report what was done, verified, and what concerns remain
 ```
+
+PREFLIGHT runs before EDIT: every DB-backed mutation (typed actions and
+`operate patch`) requires a completed PREFLIGHT covering its target first. The
+old order let typed edits land before the safety gate; they no longer can.
 
 ## Step Details
 
@@ -45,36 +51,39 @@ Based on the brief/task and the inspect result, declare:
 
 **Required output**: `mutation_plan` — structured plan of intended changes.
 
-### 3. EDIT
-**Role**: Implementer. Execute only what was planned.
+### 3. PREFLIGHT
+**Role**: Operator. Safety gate before ANY mutation.
 
-Call PromptingPress typed actions (`wp pp action execute <name> --run-id=<uuid> --params='...'`, where `<name>` is positional) to make the planned mutations. Do not deviate from the plan. If you discover the plan is insufficient, loop back to PLAN — do not improvise at EDIT.
-
-**Required output**: `edit_result` — list of actions executed and their results.
-
-### 4. PREFLIGHT
-**Role**: Operator. Safety gate before apply.
-
-Run: `wp pp apply preflight` (optionally with `--planned-files='["assets/css/base.css"]'` for drift overlap detection).
+Run: `wp pp apply preflight --run-id=<uuid>` for site/token work, or
+`wp pp apply preflight --run-id=<uuid> --post_id=<id>` before mutating a specific
+page (optionally with `--planned-files='["assets/css/base.css"]'` for drift
+overlap detection). Pass `--post_id` for every page you intend to edit: the
+recorded coverage is what unlocks the typed mutations in EDIT for that page.
 
 Or call `pp_preflight()` programmatically with context.
 
 Preflight checks:
 1. **Target resolved** — site_url, wp_root, theme_path, environment
 2. **Capability** — manage_options or WP-CLI context
-3. **Backup writable** — backup directory probe
-4. **Drift** — no overlapping drift between manifest and your planned file mutations
-5. **Theme writable** — theme directory is writable for file-based applies
-6. **Target page** — (for page operations) post exists and has a composition
-7. **Surface classification** — (when `planned_files` provided) classifies each path as safe/extension/core; core files fail preflight with routing guidance toward the correct approved surface
+3. **Drift** — no overlapping drift between manifest and your planned file mutations
+4. **Theme writable** — theme directory is writable for file-based applies
+5. **Target page** — (for page operations) post exists and has a composition
+6. **Surface classification** — (when `planned_files` provided) classifies each path as safe/extension/core; core files fail preflight with routing guidance toward the correct approved surface
 
-**If PREFLIGHT fails**: STOP. Do not proceed to APPLY. Report the failure in HANDOFF.
+**If PREFLIGHT fails**: STOP. Do not proceed to EDIT or APPLY. Report the failure in HANDOFF.
 
 **If drift overlaps with planned files**: STOP and escalate to the human. Do not proceed.
 
 **If drift exists in non-overlapping files**: Proceed, but record the drift in your HANDOFF report.
 
 **Required output**: `preflight_result` — the full preflight result.
+
+### 4. EDIT
+**Role**: Implementer. Execute only what was planned.
+
+Call PromptingPress typed actions (`wp pp action execute <name> --run-id=<uuid> --params='...'`, where `<name>` is positional) to make the planned mutations. Each mutating action (and `wp pp operate patch`) is gated: it refuses to run unless the run has a completed PREFLIGHT covering its target (the `post_id` for page/section work, or a site-scoped preflight for site actions). Do not deviate from the plan. If you discover the plan is insufficient, loop back to PLAN — do not improvise at EDIT.
+
+**Required output**: `edit_result` — list of actions executed and their results.
 
 ### 5. APPLY
 **Role**: Operator. Commit the mutation.
@@ -108,7 +117,7 @@ Get the playbook checklist: `wp pp operate checklist --playbook=<name>`
 
 Evaluate screenshots against the checklist without referencing your own reasoning about what you changed. Look only at what is visible in the screenshot and whether it matches the checklist criteria.
 
-- **Hard gates** must pass. If any hard gate fails, loop back to step 2 (PLAN), not step 3 (EDIT).
+- **Hard gates** must pass. If any hard gate fails, loop back to step 2 (PLAN), not step 4 (EDIT).
 - **Soft gates** are noted but do not block.
 
 **Required output**: `review_result` — checklist evaluation with pass/fail per item.
@@ -139,7 +148,7 @@ Report:
 
 1. **Pass the run token.** Every `wp pp operate inspect` returns a `run_id`. Pass it to all subsequent mutating CLI commands via `--run-id`. Commands fail without it.
 2. **Inspect before editing.** Never modify state without reading it first.
-3. **Preflight before applying.** Never write to files without checking safety.
+3. **Preflight before mutating.** Never write to the database or files without a completed PREFLIGHT covering the target. Typed actions and `operate patch` are gated, not just file applies.
 4. **Screenshot before reviewing.** Visual verification is evidence, not assumption.
 5. **Hard gate failure loops to PLAN, not EDIT.** Rethink the approach, don't just retry.
 6. **Never claim VERIFIED without screenshots and a fully evaluated checklist.**
@@ -176,9 +185,11 @@ Three playbooks are available. Each one customizes the loop for a specific opera
 |---|---|---|---|
 | `wp pp operate inspect` | INSPECT | Returns it | Full site operating picture + run token |
 | `wp pp operate inspect --post_id=<id>` | INSPECT | Returns it | Include page-specific smells |
-| `wp pp action execute <name> --run-id=<uuid> --params='...'` | EDIT | Required | Execute a typed action |
-| `wp pp apply preflight --run-id=<uuid>` | PREFLIGHT | Required | Run safety checks, record PREFLIGHT |
+| `wp pp apply preflight --run-id=<uuid>` | PREFLIGHT | Required | Run safety checks, record a site-scoped PREFLIGHT |
+| `wp pp apply preflight --run-id=<uuid> --post_id=<id>` | PREFLIGHT | Required | Record a PREFLIGHT covering that page (unlocks its typed mutations) |
 | `wp pp apply preflight --run-id=<uuid> --planned-files='[...]'` | PREFLIGHT | Required | With drift overlap detection |
+| `wp pp action execute <name> --run-id=<uuid> --params='...'` | EDIT | Required | Execute a typed action (needs a PREFLIGHT covering its target) |
+| `wp pp operate patch <page> --target=... --value=... --run-id=<uuid>` | EDIT | Required (mutation) | Patch a composition field (needs a PREFLIGHT covering the page; `--preview` is read-only and ungated) |
 | `wp pp apply execute <name> --run-id=<uuid> --params='...'` | APPLY | Required | Commit a typed apply (DB-backed token/font override) |
 | `wp pp apply restore --run-id=<uuid> [--token=<name>]` | APPLY | Required | Per-run rollback: reverts the tokens THIS run changed (primary + derived) to the snapshot frozen at the run's preflight; tokens the run never touched are preserved. `--token` restores that token and its derived family from the snapshot. Short-lived: only works within the run-token TTL; fails closed (changes nothing) if the snapshot is missing/expired/corrupt or from another install — it never falls back to product defaults. |
 | `wp pp apply reset --run-id=<uuid> [--token=<name>]` | APPLY | Required | Reset token overrides to product defaults — all, or one with `--token`. This is the deliberate "back to base.css" path, NOT a per-run undo. Use `apply restore` to undo a specific run. |
