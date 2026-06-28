@@ -534,6 +534,7 @@ function pp_operate_create_run() {
     $state  = [
         'steps_completed' => [ 'INSPECT' ],
         'created_at'      => time(),
+        'site_id'         => pp_operate_site_id(),
     ];
 
     $path   = pp_operate_run_path( $run_id );
@@ -550,40 +551,146 @@ function pp_operate_create_run() {
 }
 
 /**
+ * Computes a stable identity for the current WordPress install.
+ *
+ * Run-state files live in the shared system temp dir, so two installs on the same
+ * host (e.g. dev + prod) share that directory. Binding each run to a site identity
+ * lets restore refuse to replay one install's snapshot against another. Uses the
+ * same inputs as the token advisory lock (site URL + DB name + blog id) so the two
+ * notions of "this install" stay consistent.
+ *
+ * @return string  An opaque, install-scoped identity hash.
+ */
+function pp_operate_site_id(): string {
+    $siteurl = function_exists( 'get_option' ) ? (string) get_option( 'siteurl', '' ) : '';
+    $db      = defined( 'DB_NAME' ) ? DB_NAME : 'db';
+    $blog    = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+    return substr( hash( 'sha256', $siteurl . '|' . $db . '|' . $blog ), 0, 32 );
+}
+
+/**
+ * Reads and validates a run-state file, returning the decoded state or null.
+ *
+ * Single source of truth for "is this run usable right now": returns null on an
+ * invalid run-id, a missing/corrupt/structurally-invalid file, an expired TTL
+ * (the stale file is unlinked), or a site-identity mismatch. A run file written by
+ * an older build (no site_id) is treated as a mismatch — fail-closed, drains within
+ * the TTL. Corrupt JSON returns null WITHOUT truncating or recreating the file.
+ *
+ * @param string $run_id  The run token UUID.
+ * @return array|null  The decoded state array, or null if the run is unusable.
+ */
+function pp_operate_read_state( string $run_id ): ?array {
+    if ( ! pp_operate_valid_run_id( $run_id ) ) {
+        return null;
+    }
+
+    $path = pp_operate_run_path( $run_id );
+    if ( ! file_exists( $path ) ) {
+        return null;
+    }
+
+    $data = json_decode( (string) file_get_contents( $path ), true );
+    if ( ! is_array( $data ) || ! isset( $data['steps_completed'] ) || ! isset( $data['created_at'] ) ) {
+        return null;
+    }
+
+    // Auto-expire after TTL. Clean up the stale file.
+    if ( ( time() - (int) $data['created_at'] ) > PP_OPERATE_RUN_TTL ) {
+        @unlink( $path );
+        return null;
+    }
+
+    // Site identity: a run from another install (shared temp dir) is not usable here.
+    if ( ! isset( $data['site_id'] ) || ! hash_equals( pp_operate_site_id(), (string) $data['site_id'] ) ) {
+        return null;
+    }
+
+    return $data;
+}
+
+/**
+ * Locked read-modify-write of a run-state file. Single critical-section helper behind
+ * pp_operate_record_step / record_token_snapshot / record_touched_tokens so the
+ * fopen+flock+validate+TTL+identity guards live in one place.
+ *
+ * The $mutator receives the decoded state array and returns the new array to persist,
+ * or false to abort the write (the caller then sees a false return). Returns false on
+ * invalid run-id, unopenable/unlockable file, structurally-invalid or expired state,
+ * site-identity mismatch, or mutator abort.
+ *
+ * @param string   $run_id
+ * @param callable $mutator  fn(array $data): array|false
+ * @return bool  True only on a confirmed write.
+ */
+function pp_operate_mutate_state( string $run_id, callable $mutator ): bool {
+    if ( ! pp_operate_valid_run_id( $run_id ) ) {
+        return false;
+    }
+
+    $path = pp_operate_run_path( $run_id );
+    $fh   = @fopen( $path, 'r+' );
+    if ( ! $fh ) {
+        return false;
+    }
+
+    if ( ! flock( $fh, LOCK_EX ) ) {
+        fclose( $fh );
+        return false;
+    }
+
+    $data = json_decode( stream_get_contents( $fh ), true );
+
+    $abort = static function ( $fh ) {
+        flock( $fh, LOCK_UN );
+        fclose( $fh );
+        return false;
+    };
+
+    if ( ! is_array( $data ) || ! isset( $data['steps_completed'] ) || ! isset( $data['created_at'] ) ) {
+        return $abort( $fh );
+    }
+    if ( ( time() - (int) $data['created_at'] ) > PP_OPERATE_RUN_TTL ) {
+        flock( $fh, LOCK_UN );
+        fclose( $fh );
+        @unlink( $path );
+        return false;
+    }
+    if ( ! isset( $data['site_id'] ) || ! hash_equals( pp_operate_site_id(), (string) $data['site_id'] ) ) {
+        return $abort( $fh );
+    }
+
+    $new = $mutator( $data );
+    if ( $new === false || ! is_array( $new ) ) {
+        return $abort( $fh );
+    }
+
+    ftruncate( $fh, 0 );
+    rewind( $fh );
+    fwrite( $fh, wp_json_encode( $new ) );
+    fflush( $fh );
+    flock( $fh, LOCK_UN );
+    fclose( $fh );
+
+    return true;
+}
+
+/**
  * Checks whether a required step has been completed for a run.
  *
- * Returns false if the run-id is invalid, state file is missing,
- * expired (>2 hours), contains invalid JSON, or does not include
- * the required step. Expired files are cleaned up automatically.
+ * Returns false if the run-id is invalid, the state file is missing, expired
+ * (>2 hours), corrupt, from a different install (site-identity mismatch), or does
+ * not include the required step. Expired files are cleaned up automatically.
  *
  * @param string $run_id        The run token UUID.
  * @param string $required_step The step name to check for (e.g. 'INSPECT', 'PREFLIGHT').
  * @return bool
  */
 function pp_operate_check_step( string $run_id, string $required_step ): bool {
-    if ( ! pp_operate_valid_run_id( $run_id ) ) {
+    $data = pp_operate_read_state( $run_id );
+    if ( $data === null ) {
         return false;
     }
-
-    $path = pp_operate_run_path( $run_id );
-
-    if ( ! file_exists( $path ) ) {
-        return false;
-    }
-
-    $raw  = file_get_contents( $path );
-    $data = json_decode( $raw, true );
-
-    if ( ! is_array( $data ) || ! isset( $data['steps_completed'] ) || ! isset( $data['created_at'] ) ) {
-        return false;
-    }
-
-    // Auto-expire after TTL. Clean up the stale file.
-    if ( ( time() - (int) $data['created_at'] ) > PP_OPERATE_RUN_TTL ) {
-        @unlink( $path );
-        return false;
-    }
-
     return in_array( $required_step, $data['steps_completed'], true );
 }
 
@@ -600,52 +707,109 @@ function pp_operate_check_step( string $run_id, string $required_step ): bool {
  * @return bool  True on success, false if state file missing/expired/corrupt/invalid run-id.
  */
 function pp_operate_record_step( string $run_id, string $step ): bool {
-    if ( ! pp_operate_valid_run_id( $run_id ) ) {
-        return false;
+    return pp_operate_mutate_state( $run_id, static function ( array $data ) use ( $step ) {
+        // Idempotent: don't duplicate.
+        if ( ! in_array( $step, $data['steps_completed'], true ) ) {
+            $data['steps_completed'][] = $step;
+        }
+        return $data;
+    } );
+}
+
+/**
+ * Freezes the pre-apply token-override snapshot for a run.
+ *
+ * Captured at the run's first PREFLIGHT; the snapshot is the source of prior values
+ * for restore. Idempotent and first-write-wins: once a token_snapshot is recorded it
+ * is never overwritten, so re-running preflight cannot move the rollback baseline.
+ * Pass the overrides read under the token lock so the baseline is atomic against
+ * concurrent applies.
+ *
+ * @param string $run_id     The run token UUID.
+ * @param array  $overrides  token => value map (the current pp_token_overrides).
+ * @return bool  True on a confirmed write (or no-op when already present); false if
+ *               the run state is missing/expired/corrupt or identity-mismatched.
+ */
+function pp_operate_record_token_snapshot( string $run_id, array $overrides ): bool {
+    return pp_operate_mutate_state( $run_id, static function ( array $data ) use ( $overrides ) {
+        if ( ! array_key_exists( 'token_snapshot', $data ) ) {
+            $data['token_snapshot'] = $overrides;
+        }
+        return $data;
+    } );
+}
+
+/**
+ * Returns the frozen pre-apply snapshot for a run, or null.
+ *
+ * Null (NOT []) when the run is unusable (missing/expired/corrupt/identity-mismatch)
+ * or no snapshot was recorded, or the stored snapshot is not an array. A valid run
+ * that captured an empty override map returns []. This null-vs-[] distinction is
+ * load-bearing: restore must fail-closed on null and clear-all on [].
+ *
+ * @param string $run_id  The run token UUID.
+ * @return array|null
+ */
+function pp_operate_get_token_snapshot( string $run_id ): ?array {
+    $data = pp_operate_read_state( $run_id );
+    if ( $data === null || ! array_key_exists( 'token_snapshot', $data ) || ! is_array( $data['token_snapshot'] ) ) {
+        return null;
     }
+    return $data['token_snapshot'];
+}
 
-    $path = pp_operate_run_path( $run_id );
+/**
+ * Records the token keys an apply wrote (primary + derived), deduped, for a run.
+ *
+ * The touched-key set scopes what restore is allowed to revert. Returns false (never
+ * silently) if the run state is missing/expired/corrupt or identity-mismatched, so the
+ * caller can surface that the change may not be reversible.
+ *
+ * @param string $run_id  The run token UUID.
+ * @param array  $keys    Token names written by the apply.
+ * @return bool  True only on a confirmed write.
+ */
+function pp_operate_record_touched_tokens( string $run_id, array $keys ): bool {
+    return pp_operate_mutate_state( $run_id, static function ( array $data ) use ( $keys ) {
+        $existing = isset( $data['touched_tokens'] ) && is_array( $data['touched_tokens'] )
+            ? $data['touched_tokens'] : [];
+        foreach ( $keys as $key ) {
+            if ( is_string( $key ) && ! in_array( $key, $existing, true ) ) {
+                $existing[] = $key;
+            }
+        }
+        $data['touched_tokens'] = array_values( $existing );
+        return $data;
+    } );
+}
 
-    $fh = @fopen( $path, 'r+' );
-    if ( ! $fh ) {
-        return false;
+/**
+ * Returns the touched-key set for a run, or null.
+ *
+ * Null when the run is unusable or no touched_tokens were recorded; a valid run that
+ * recorded none returns []. Restore fails-closed on null.
+ *
+ * @param string $run_id  The run token UUID.
+ * @return array|null
+ */
+function pp_operate_get_touched_tokens( string $run_id ): ?array {
+    $data = pp_operate_read_state( $run_id );
+    if ( $data === null || ! array_key_exists( 'touched_tokens', $data ) || ! is_array( $data['touched_tokens'] ) ) {
+        return null;
     }
+    return $data['touched_tokens'];
+}
 
-    if ( ! flock( $fh, LOCK_EX ) ) {
-        fclose( $fh );
-        return false;
-    }
-
-    $raw  = stream_get_contents( $fh );
-    $data = json_decode( $raw, true );
-
-    if ( ! is_array( $data ) || ! isset( $data['steps_completed'] ) || ! isset( $data['created_at'] ) ) {
-        flock( $fh, LOCK_UN );
-        fclose( $fh );
-        return false;
-    }
-
-    // Auto-expire after TTL.
-    if ( ( time() - (int) $data['created_at'] ) > PP_OPERATE_RUN_TTL ) {
-        flock( $fh, LOCK_UN );
-        fclose( $fh );
-        @unlink( $path );
-        return false;
-    }
-
-    // Idempotent: don't duplicate.
-    if ( ! in_array( $step, $data['steps_completed'], true ) ) {
-        $data['steps_completed'][] = $step;
-    }
-
-    ftruncate( $fh, 0 );
-    rewind( $fh );
-    fwrite( $fh, wp_json_encode( $data ) );
-    fflush( $fh );
-    flock( $fh, LOCK_UN );
-    fclose( $fh );
-
-    return true;
+/**
+ * True iff the run is currently usable as a rollback source: the state is valid for
+ * this install AND a frozen pre-apply snapshot exists. Used as execute()'s pre-mutation
+ * gate so a change that could not be rolled back is never applied in the first place.
+ *
+ * @param string $run_id  The run token UUID.
+ * @return bool
+ */
+function pp_operate_run_rollbackable( string $run_id ): bool {
+    return pp_operate_get_token_snapshot( $run_id ) !== null;
 }
 
 /**

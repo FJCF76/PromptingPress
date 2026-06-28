@@ -585,6 +585,84 @@ function pp_clear_all_token_overrides(): int {
     }, 0);
 }
 
+/**
+ * Reverts a scoped set of token overrides to the values held in a frozen snapshot.
+ *
+ * This is the rollback primitive behind `wp pp apply restore`. Unlike the whole-map
+ * writers above, it touches ONLY the keys in $touched_keys, so unrelated overrides
+ * (including ones written by later runs) are preserved:
+ *   - key present in $snapshot  → set the override to the snapshot value
+ *   - key absent from $snapshot → clear the override (the run created it)
+ *   - key not in $touched_keys  → left exactly as-is
+ *
+ * Runs inside the same advisory-lock critical section as the other writers, doing one
+ * read-modify-write of pp_token_overrides so the revert is atomic against concurrent
+ * applies. Fail-closed: every scoped snapshot value is validated against the live token
+ * registry BEFORE any write, and a single invalid entry (corrupt/hand-edited snapshot
+ * file) aborts the entire revert with NO mutation — never a partial restore.
+ *
+ * @param array $snapshot      token => value map captured pre-apply (the prior state).
+ * @param array $touched_keys  the keys this run wrote (primary + derived); the revert scope.
+ * @return bool  True on a confirmed write; false if the lock was not acquired OR a scoped
+ *               snapshot entry was invalid (in which case nothing is mutated).
+ */
+function pp_revert_tokens(array $snapshot, array $touched_keys): bool {
+    return _pp_with_token_lock(function ($wpdb) use ($snapshot, $touched_keys) {
+        $registry = pp_design_tokens();
+
+        // Pre-validate the whole scope BEFORE touching anything. Any scoped key that is
+        // present in the snapshot must be a registered token with a value valid for its
+        // type. One bad entry aborts with no write — fail-closed, no partial mutation.
+        foreach ($touched_keys as $key) {
+            if (!is_string($key) || !array_key_exists($key, $snapshot)) {
+                continue;
+            }
+            $value = $snapshot[$key];
+            if (!is_string($value) || !array_key_exists($key, $registry)
+                || _pp_validate_token_value($value, $registry[$key]['type'] ?? null) !== true) {
+                return false;
+            }
+        }
+
+        $overrides = _pp_read_token_overrides_locked($wpdb);
+        foreach ($touched_keys as $key) {
+            if (!is_string($key)) {
+                continue;
+            }
+            if (array_key_exists($key, $snapshot)) {
+                $overrides[$key] = $snapshot[$key];
+            } else {
+                // The run created this override; rolling back removes it.
+                unset($overrides[$key]);
+            }
+        }
+
+        if (empty($overrides)) {
+            delete_option('pp_token_overrides');
+        } else {
+            update_option('pp_token_overrides', $overrides, true);
+        }
+        pp_invalidate_design_tokens_cache();
+        return true;
+    }, false);
+}
+
+/**
+ * Reads the current token overrides under the advisory lock, for snapshotting.
+ *
+ * Used when freezing a run's pre-apply baseline: taking the read inside the lock means
+ * a concurrent apply cannot interleave and produce a baseline that never existed
+ * atomically. Degrades to the plain cached read if the lock cannot be acquired (a
+ * slightly racy baseline is still far better than no snapshot).
+ *
+ * @return array  token => value map.
+ */
+function pp_snapshot_token_overrides(): array {
+    return _pp_with_token_lock( function ( $wpdb ) {
+        return _pp_read_token_overrides_locked( $wpdb );
+    }, pp_get_token_overrides() );
+}
+
 // ── Token Family Derivation ─────────────────────────────────────────────────
 // When a base token changes, derived tokens must update to stay visually coherent.
 

@@ -1288,4 +1288,119 @@ class ApplyTest extends TestCase
         chmod($dir . '/unreadable.php', 0644);
         $this->recursiveDelete($dir);
     }
+
+    // ── pp_revert_tokens — scoped per-run rollback primitive (#101) ─────────
+
+    /** Helper: set the raw override map and refresh the token cache. */
+    private function setOverrides(array $map): void
+    {
+        $GLOBALS['_pp_test_store']['options']['pp_token_overrides'] = $map;
+        pp_invalidate_design_tokens_cache();
+    }
+
+    public function testRevertTokensRevertsTouchedAndPreservesUntouched(): void
+    {
+        // Snapshot = the run's pre-apply state (accent only). Live state has the run's
+        // accent change PLUS an unrelated later override (--color-text). Reverting the
+        // touched key must restore accent and leave --color-text untouched.
+        $snapshot = ['--color-accent' => '#b45309'];
+        $this->setOverrides(['--color-accent' => '#aaaaaa', '--color-text' => '#123456']);
+
+        $this->assertTrue(pp_revert_tokens($snapshot, ['--color-accent']));
+
+        $after = pp_get_token_overrides();
+        $this->assertSame('#b45309', $after['--color-accent']);
+        $this->assertSame('#123456', $after['--color-text'], 'untouched later override must survive');
+    }
+
+    public function testRevertTokensRemovesRunCreatedKeys(): void
+    {
+        // The run created --color-accent (absent from snapshot); rollback removes it.
+        $this->setOverrides(['--color-accent' => '#aaaaaa']);
+        $this->assertTrue(pp_revert_tokens([], ['--color-accent']));
+        $this->assertArrayNotHasKey('--color-accent', pp_get_token_overrides());
+    }
+
+    public function testRevertTokensCoreRegressionNoCollateralWipe(): void
+    {
+        // The #101 footgun: changing one token must NOT wipe unrelated overrides.
+        $snapshot = [
+            '--color-accent'         => '#b45309',
+            '--color-text'           => '#1a1a1a',
+            '--color-accent-strong'  => '#2744b7',
+        ];
+        // Run changed accent and derived a family member; the rest are unrelated.
+        $this->setOverrides([
+            '--color-accent'         => '#aaaaaa',
+            '--color-text'           => '#1a1a1a',
+            '--color-accent-strong'  => '#2744b7',
+            '--color-accent-hover'   => '#909090',
+        ]);
+        $touched = ['--color-accent', '--color-accent-hover'];
+
+        $this->assertTrue(pp_revert_tokens($snapshot, $touched));
+
+        $after = pp_get_token_overrides();
+        $this->assertSame('#b45309', $after['--color-accent'], 'accent reverted to snapshot');
+        $this->assertArrayNotHasKey('--color-accent-hover', $after, 'run-created derived key removed');
+        $this->assertSame('#1a1a1a', $after['--color-text'], 'unrelated override preserved');
+        $this->assertSame('#2744b7', $after['--color-accent-strong'], 'unrelated override preserved');
+    }
+
+    public function testRevertTokensFamilyFullCleanup(): void
+    {
+        // Snapshot empty: an update_design_token that derived a full family is rolled
+        // back by removing every touched key (primary + derived).
+        $this->setOverrides([
+            '--color-accent'         => '#aaaaaa',
+            '--color-accent-hover'   => '#8f8f8f',
+            '--color-accent-strong'  => '#777777',
+            '--color-border-accent'  => '#cccccc',
+            '--color-surface-accent' => '#eeeeee',
+        ]);
+        $touched = [
+            '--color-accent', '--color-accent-hover', '--color-accent-strong',
+            '--color-border-accent', '--color-surface-accent',
+        ];
+        $this->assertTrue(pp_revert_tokens([], $touched));
+        $this->assertSame([], pp_get_token_overrides());
+    }
+
+    public function testRevertTokensAbortsOnInvalidSnapshotValue(): void
+    {
+        // Fail-closed: a corrupt snapshot value aborts the whole revert with no write.
+        $this->setOverrides(['--color-accent' => '#aaaaaa']);
+        $this->assertFalse(pp_revert_tokens(['--color-accent' => 'not-a-color'], ['--color-accent']));
+        $this->assertSame('#aaaaaa', pp_get_token_overrides()['--color-accent']);
+    }
+
+    public function testRevertTokensAbortsOnUnregisteredToken(): void
+    {
+        // A token not in the registry aborts the revert; nothing is mutated.
+        $this->setOverrides(['--bogus-token' => '#aaaaaa']);
+        $this->assertFalse(pp_revert_tokens(['--bogus-token' => '#ffffff'], ['--bogus-token']));
+        $this->assertSame('#aaaaaa', pp_get_token_overrides()['--bogus-token']);
+    }
+
+    public function testRevertTokensInvalidEntryAbortsEntireScopeNoPartialWrite(): void
+    {
+        // One bad scoped entry must abort the WHOLE revert — the valid sibling in the
+        // same call is NOT applied. Proves no-partial-mutation on corrupt snapshots.
+        $this->setOverrides(['--color-accent' => '#aaaaaa', '--color-text' => '#bbbbbb']);
+        $snapshot = ['--color-accent' => '#b45309', '--color-text' => 'not-a-color'];
+        $this->assertFalse(pp_revert_tokens($snapshot, ['--color-accent', '--color-text']));
+        $after = pp_get_token_overrides();
+        $this->assertSame('#aaaaaa', $after['--color-accent'], 'valid sibling must NOT be applied when scope aborts');
+        $this->assertSame('#bbbbbb', $after['--color-text']);
+    }
+
+    public function testRevertTokensLeavesUntouchedKeysEntirely(): void
+    {
+        // Keys outside the touched scope are never inspected or changed.
+        $this->setOverrides(['--color-accent' => '#aaaaaa', '--color-text' => '#123456']);
+        $this->assertTrue(pp_revert_tokens(['--color-accent' => '#b45309', '--color-text' => '#000000'], ['--color-accent']));
+        $after = pp_get_token_overrides();
+        $this->assertSame('#b45309', $after['--color-accent']);
+        $this->assertSame('#123456', $after['--color-text'], 'snapshot value ignored for untouched key');
+    }
 }

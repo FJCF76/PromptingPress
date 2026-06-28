@@ -250,7 +250,7 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `remove_font` | design | option: `pp_font_urls` | url (string, required) |
 | `reset_fonts` | design | option: `pp_font_urls` | (none) |
 
-**CLI:** `wp pp apply list\|preview\|execute\|restore` (requires manage_options capability).
+**CLI:** `wp pp apply list\|preview\|execute\|restore\|reset` (requires manage_options capability). `restore` rolls a run's token changes back to its pre-apply snapshot; `reset` clears overrides to product defaults.
 
 ---
 

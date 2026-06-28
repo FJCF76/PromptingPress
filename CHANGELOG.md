@@ -4,6 +4,32 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.14.0] — 2026-06-28 — True Per-Run Rollback: `apply restore` Undoes a Run, Not the Whole Palette
+
+**`wp pp apply restore --run-id` now reverts exactly what a run changed instead of wiping every override to product defaults.** The old behavior was a reversibility footgun: a single `update_design_token` on `--color-accent` followed by `restore` reset all 14 existing token overrides and erased the operator's dark theme.
+
+`restore` is now a true per-run rollback. Each run freezes a snapshot of the token overrides at its preflight and records the keys every apply touches (the primary token plus any auto-derived family members). `restore` reverts only those touched keys to their snapshot values, removes tokens the run created, and leaves untouched overrides — including a later run's unrelated work — exactly as they were. `--token` narrows the rollback to one token and its derived family. The genuine "reset to product defaults" behavior moves to a new, honestly-named command, so neither verb lies about what it does.
+
+**Fails closed, every time.** If a run's snapshot or touched-key list is missing, expired, corrupt, swept from `/tmp`, or written by a different install, `restore` reports an error and changes nothing — it never falls back to a product-default reset and never partially mutates `pp_token_overrides`. `apply execute` now refuses to mutate a run that has no usable rollback snapshot, and if it can't record what it touched after a write it errors loudly rather than reporting a clean success.
+
+**Cross-install safety.** Run-state files in the shared system temp dir are now bound to a site identity (site URL + database + blog id), so a run-id created against one install cannot drive a restore on another install that shares `/tmp`.
+
+### Itemized changes
+
+#### Added
+- `wp pp apply reset --run-id [--token=<name>]` — the explicit "clear token overrides to product defaults" command (the old `restore` behavior, renamed so it no longer implies undo). (#101)
+- `pp_revert_tokens()` — a lock-atomic, fail-closed scoped revert primitive that pre-validates the whole scope and aborts with no write on any invalid snapshot value.
+- Run-state now records a frozen pre-apply token snapshot, the touched-key set per apply, and a site identity; new `pp_operate_*` helpers read/record them, all null-vs-empty distinct.
+- Tests: 44 new PHPUnit cases (no-collateral-wipe regression, touched-key scoping, family cleanup, single-token + derived, empty-snapshot, missing/corrupt/expired/foreign-identity fail-closed, no-partial-mutation, idempotency).
+
+#### Changed
+- `wp pp apply restore --run-id [--token=<name>]` is now a per-run rollback to the run's pre-apply snapshot, not a reset to product defaults. (#101)
+- `apply execute` gates on rollbackability before mutating and surfaces a loud error if the touched-key trail can't be recorded.
+- `ai-instructions/operating-loop.md` and `AI_CONTEXT.md`: document `restore` (per-run rollback) vs `reset` (product defaults), and the short-lived rollback window.
+
+#### Fixed
+- Data-loss footgun: `apply restore` no longer discards unrelated token overrides or wipes the palette to product defaults when undoing a run. (#101)
+
 ## [v0.13.1] — 2026-06-28 — Docs: Correct the Design-Token Count the AI Reads
 
 **Patch release so the corrected AI-facing docs reach the distributed theme.** No code change.
