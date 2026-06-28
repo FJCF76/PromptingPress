@@ -255,6 +255,7 @@ install, require it to work through `wp pp`, and gate production on a human read
 the HANDOFF report.
 
 → How to prompt your agent to use it safely: [docs/running-an-ai-agent.md](docs/running-an-ai-agent.md)
+→ Why a DB write can't land before the safety gate (the design): [docs/operating-loop-safety.md](docs/operating-loop-safety.md)
 
 ---
 

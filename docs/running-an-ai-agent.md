@@ -177,3 +177,4 @@ files and an agent that operates a site.
 - 🔁 The full loop and command reference: [`ai-instructions/operating-loop.md`](../ai-instructions/operating-loop.md)
 - 🧭 The site map and component/action list: [`AI_CONTEXT.md`](../AI_CONTEXT.md)
 - 🛡️ Why direct theme-file edits are blocked: [upgrade-safety.md](upgrade-safety.md)
+- 🔒 Why a DB write can't land before the safety gate: [operating-loop-safety.md](operating-loop-safety.md)
