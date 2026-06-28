@@ -314,6 +314,13 @@ class PP_Apply_Command extends WP_CLI_Command {
             WP_CLI::error('Run token "' . $run_id . '" has no completed PREFLIGHT step. Run `wp pp apply preflight --run-id=' . $run_id . '` first.');
         }
 
+        // Rollback-safety pre-gate: refuse to mutate unless this run is reversible
+        // (a usable pre-apply snapshot exists for THIS install). Reversibility metadata
+        // is a precondition of changing tokens, never an afterthought.
+        if (!pp_operate_run_rollbackable($run_id)) {
+            WP_CLI::error('Refusing to apply: run "' . $run_id . '" has no usable rollback snapshot, so this change could not be undone. Re-run `wp pp operate inspect` and `wp pp apply preflight`.');
+        }
+
         _pp_cli_require_apply_cap();
 
         list($name) = $args;
@@ -323,19 +330,117 @@ class PP_Apply_Command extends WP_CLI_Command {
 
         WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
-        if ($result['ok']) {
-            pp_operate_record_step($run_id, 'APPLY');
-            WP_CLI::success('Apply "' . $name . '" executed.');
-        } else {
+        if (!$result['ok']) {
             WP_CLI::halt(1);
         }
+
+        // Record the tokens this apply actually wrote (primary + derived) so restore
+        // reverts exactly this run's footprint. The mutation already persisted; if the
+        // touched-key trail cannot be recorded, surface a loud error instead of a clean
+        // success. Restore reads touched_tokens and fails-closed on null, so a missing
+        // trail can never become a silent partial rollback later.
+        $touched = array_column($result['changes'], 'token');
+        if (!pp_operate_record_touched_tokens($run_id, $touched)) {
+            WP_CLI::error('Apply "' . $name . '" persisted, but recording its touched tokens for run "' . $run_id . '" FAILED. `wp pp apply restore` may not be able to revert this change. Run state may be missing or corrupt; re-run `wp pp operate inspect` before making further changes.');
+        }
+
+        pp_operate_record_step($run_id, 'APPLY');
+        WP_CLI::success('Apply "' . $name . '" executed.');
     }
 
     /**
-     * Resets design tokens to product defaults.
+     * Rolls a run's token changes back to the snapshot taken at its preflight.
      *
-     * Design token overrides are stored in the database. Use reset_design_token
-     * or reset_all_design_tokens applies to revert to product defaults.
+     * This is a true per-run rollback, NOT a reset to product defaults. The tokens this
+     * run wrote (primary + auto-derived) are reverted to the values they held when the
+     * run's preflight ran; tokens the run created are removed; tokens the run never
+     * touched are left untouched, so unrelated overrides (including later runs' work)
+     * are preserved. To reset tokens to product defaults instead, use `wp pp apply reset`.
+     *
+     * Fails closed: if the run's frozen snapshot or touched-key list is missing, expired,
+     * corrupt, swept, or from a different install, restore reports an error and changes
+     * nothing — it never falls back to a product-default reset and never partially mutates.
+     *
+     * ## OPTIONS
+     *
+     * --run-id=<uuid>
+     * : Run token from `wp pp operate inspect`. Required.
+     *
+     * [--token=<name>]
+     * : Restore a single token and its derived family from the run snapshot. Omit to
+     *   restore everything the run touched.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp apply restore --run-id=<uuid> --token=--color-accent
+     *     wp pp apply restore --run-id=<uuid>
+     *
+     */
+    public function restore($args, $assoc_args) {
+        $run_id = _pp_cli_require_run_id($assoc_args);
+        if (!pp_operate_check_step($run_id, 'PREFLIGHT')) {
+            WP_CLI::error('Run token "' . $run_id . '" has no completed PREFLIGHT step. Run `wp pp apply preflight --run-id=' . $run_id . '` first.');
+        }
+
+        _pp_cli_require_apply_cap();
+
+        // Fail closed: both the frozen snapshot and the touched-key list must be usable
+        // for THIS install. Null from either covers missing/expired/corrupt/swept/identity
+        // mismatch. Never fall back to a product-default reset.
+        $snapshot = pp_operate_get_token_snapshot($run_id);
+        $touched  = pp_operate_get_touched_tokens($run_id);
+        if ($snapshot === null || $touched === null) {
+            WP_CLI::error('Run "' . $run_id . '" has no usable pre-apply snapshot; cannot roll back. The run state may be missing, expired, corrupt, or from a different site. Nothing was changed.');
+        }
+
+        // Scope the revert. Default: everything the run touched. With --token: that token
+        // plus its derived family, intersected with what the run actually touched.
+        if (isset($assoc_args['token'])) {
+            $token  = $assoc_args['token'];
+            $family = array_keys(pp_token_families()[$token] ?? []);
+            $wanted = array_merge([$token], $family);
+            $scope  = array_values(array_intersect($touched, $wanted));
+            if (empty($scope)) {
+                WP_CLI::success('Token "' . $token . '" was not changed by run "' . $run_id . '"; nothing to restore.');
+                return;
+            }
+        } else {
+            $scope = $touched;
+        }
+
+        if (empty($scope)) {
+            pp_operate_record_step($run_id, 'APPLY');
+            WP_CLI::success('Run "' . $run_id . '" changed no tokens; nothing to restore.');
+            return;
+        }
+
+        // Compute the effective change for reporting, then revert atomically.
+        $before = pp_get_token_overrides();
+        if (!pp_revert_tokens($snapshot, $scope)) {
+            WP_CLI::error('Could not acquire the token lock to roll back run "' . $run_id . '". Nothing was changed. Try again.');
+        }
+        $after = pp_get_token_overrides();
+
+        $changed = 0;
+        foreach ($scope as $key) {
+            if (($before[$key] ?? null) !== ($after[$key] ?? null)) {
+                $changed++;
+            }
+        }
+
+        pp_operate_record_step($run_id, 'APPLY');
+        WP_CLI::success($changed > 0
+            ? "Restored $changed token(s) to the pre-run snapshot."
+            : 'Tokens already matched the pre-run snapshot; nothing to restore.');
+    }
+
+    /**
+     * Resets design tokens to product defaults (NOT a per-run rollback).
+     *
+     * Clears token overrides so the site reverts to the values shipped in base.css.
+     * Use `wp pp apply restore` to undo a specific run instead. Token overrides are
+     * stored in the database; this calls the reset_design_token / reset_all_design_tokens
+     * applies.
      *
      * ## OPTIONS
      *
@@ -347,11 +452,11 @@ class PP_Apply_Command extends WP_CLI_Command {
      *
      * ## EXAMPLES
      *
-     *     wp pp apply restore --run-id=<uuid> --token=--color-accent
-     *     wp pp apply restore --run-id=<uuid>
+     *     wp pp apply reset --run-id=<uuid> --token=--color-accent
+     *     wp pp apply reset --run-id=<uuid>
      *
      */
-    public function restore($args, $assoc_args) {
+    public function reset($args, $assoc_args) {
         $run_id = _pp_cli_require_run_id($assoc_args);
         if (!pp_operate_check_step($run_id, 'PREFLIGHT')) {
             WP_CLI::error('Run token "' . $run_id . '" has no completed PREFLIGHT step. Run `wp pp apply preflight --run-id=' . $run_id . '` first.');
@@ -438,6 +543,12 @@ class PP_Apply_Command extends WP_CLI_Command {
         if (!pp_operate_record_step($run_id, 'PREFLIGHT')) {
             WP_CLI::error('Could not record PREFLIGHT step for run token "' . $run_id . '". State file may be missing or expired. Re-run `wp pp operate inspect`.');
         }
+
+        // Freeze the pre-apply token-override snapshot so `apply restore` can roll this
+        // run back to its starting state. First-write-wins inside the recorder, so
+        // re-running preflight never moves the baseline. Read under the token lock for
+        // an atomic baseline.
+        pp_operate_record_token_snapshot($run_id, pp_snapshot_token_overrides());
     }
 }
 
