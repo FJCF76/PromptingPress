@@ -4,6 +4,17 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.15.1] — 2026-06-29 — Docs: AI Command Reference Now Shows the Run Token Mutations Require
+
+**Patch release so the theme's AI-facing command reference matches the v0.15.0 gate.** No code change.
+
+`AI_CONTEXT.md` ships inside the theme as the reference an AI agent reads to operate the site. Four mutating examples (`action execute` and the `operate patch` apply path) still showed commands without `--run-id` — so an agent copying them after v0.15.0 would hit the preflight gate and fail. The examples now carry `--run-id=<uuid>` and a one-line note that mutations require a completed INSPECT plus a PREFLIGHT covering the target. Preview commands stay shown without a run token, because they are read-only.
+
+### Itemized changes
+
+#### Changed
+- `AI_CONTEXT.md`: `action execute` and the mutating `operate patch` examples now include `--run-id=<uuid>` and note the INSPECT + covering-PREFLIGHT requirement; preview examples remain run-token-free. Matches the v0.15.0 preflight-before-mutation gate. (#96)
+
 ## [v0.15.0] — 2026-06-29 — Preflight Before Mutation: No DB-Backed Write Lands Before the Safety Gate
 
 **Mutating `wp pp action execute` and `wp pp operate patch` now refuse to run until a preflight covering their target has passed.** Before this release a typed action could write `_pp_composition` to the database before `wp pp apply preflight` ever ran its target, drift, capability, and surface checks. The operating loop even documented it that way, listing EDIT before PREFLIGHT. A production page could be mutated before the gate that was supposed to protect it.
