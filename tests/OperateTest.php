@@ -1317,4 +1317,131 @@ class OperateTest extends TestCase
         $result = pp_inspect_composition($post_id);
         $this->assertNull($result[0]['active_recipe']);
     }
+
+    // ── Run Snapshot / Touched-Key / Site-Identity Tests (#101) ────────────
+
+    public function testCreateRunWritesSiteIdentity(): void
+    {
+        $run_id = pp_operate_create_run();
+        $data = json_decode(file_get_contents(pp_operate_run_path($run_id)), true);
+        $this->assertArrayHasKey('site_id', $data);
+        $this->assertSame(pp_operate_site_id(), $data['site_id']);
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRecordTokenSnapshotFreezesOverrides(): void
+    {
+        $run_id = pp_operate_create_run();
+        $this->assertTrue(pp_operate_record_token_snapshot($run_id, ['--color-accent' => '#111111']));
+        $this->assertSame(['--color-accent' => '#111111'], pp_operate_get_token_snapshot($run_id));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRecordTokenSnapshotIsFirstWriteWins(): void
+    {
+        $run_id = pp_operate_create_run();
+        pp_operate_record_token_snapshot($run_id, ['--color-accent' => '#111111']);
+        // A second capture must NOT move the baseline.
+        $this->assertTrue(pp_operate_record_token_snapshot($run_id, ['--color-accent' => '#999999']));
+        $this->assertSame(['--color-accent' => '#111111'], pp_operate_get_token_snapshot($run_id));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testGetTokenSnapshotNullWhenNeverRecorded(): void
+    {
+        $run_id = pp_operate_create_run();
+        $this->assertNull(pp_operate_get_token_snapshot($run_id));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testGetTokenSnapshotReturnsEmptyArrayForValidEmptyCapture(): void
+    {
+        // A run started from a clean base legitimately captures []. This MUST be
+        // distinguishable from "no snapshot" (null) so restore can clear-all safely.
+        $run_id = pp_operate_create_run();
+        pp_operate_record_token_snapshot($run_id, []);
+        $this->assertSame([], pp_operate_get_token_snapshot($run_id));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testGetTokenSnapshotNullForExpiredRun(): void
+    {
+        $run_id = pp_operate_create_run();
+        pp_operate_record_token_snapshot($run_id, ['--color-accent' => '#111111']);
+        $path = pp_operate_run_path($run_id);
+        $data = json_decode(file_get_contents($path), true);
+        $data['created_at'] = time() - 10800; // 3h ago
+        file_put_contents($path, json_encode($data), LOCK_EX);
+        $this->assertNull(pp_operate_get_token_snapshot($run_id));
+        @unlink($path);
+    }
+
+    public function testGetTokenSnapshotNullForForeignSiteIdentity(): void
+    {
+        $run_id = pp_operate_create_run();
+        pp_operate_record_token_snapshot($run_id, ['--color-accent' => '#111111']);
+        // Simulate restoring under a different install sharing the temp dir.
+        $GLOBALS['_pp_test_store']['options']['siteurl'] = 'https://other-install.example';
+        $this->assertNull(pp_operate_get_token_snapshot($run_id));
+        $this->assertFalse(pp_operate_check_step($run_id, 'INSPECT'));
+        $GLOBALS['_pp_test_store']['options']['siteurl'] = 'https://example.com';
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRecordTouchedTokensDedupsAndReturnsTrue(): void
+    {
+        $run_id = pp_operate_create_run();
+        $this->assertTrue(pp_operate_record_touched_tokens($run_id, ['--color-accent', '--color-accent-hover']));
+        $this->assertTrue(pp_operate_record_touched_tokens($run_id, ['--color-accent-hover', '--color-text']));
+        $this->assertSame(
+            ['--color-accent', '--color-accent-hover', '--color-text'],
+            pp_operate_get_touched_tokens($run_id)
+        );
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRecordTouchedTokensReturnsFalseForMissingFile(): void
+    {
+        // Valid UUID, no state file.
+        $this->assertFalse(pp_operate_record_touched_tokens('00000000-0000-4000-8000-000000000000', ['--color-accent']));
+    }
+
+    public function testRecordTouchedTokensReturnsFalseForForeignSiteIdentity(): void
+    {
+        $run_id = pp_operate_create_run();
+        $GLOBALS['_pp_test_store']['options']['siteurl'] = 'https://other-install.example';
+        $this->assertFalse(pp_operate_record_touched_tokens($run_id, ['--color-accent']));
+        $GLOBALS['_pp_test_store']['options']['siteurl'] = 'https://example.com';
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testGetTouchedTokensNullWhenAbsentEmptyWhenRecordedEmpty(): void
+    {
+        $run_id = pp_operate_create_run();
+        $this->assertNull(pp_operate_get_touched_tokens($run_id));
+        pp_operate_record_touched_tokens($run_id, []);
+        $this->assertSame([], pp_operate_get_touched_tokens($run_id));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRunRollbackableTrueOnlyWithSnapshot(): void
+    {
+        $run_id = pp_operate_create_run();
+        $this->assertFalse(pp_operate_run_rollbackable($run_id));
+        pp_operate_record_token_snapshot($run_id, []);
+        $this->assertTrue(pp_operate_run_rollbackable($run_id));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testGetTokenSnapshotLeavesCorruptFileIntact(): void
+    {
+        $fake_id = wp_generate_uuid4();
+        $path = pp_operate_run_path($fake_id);
+        $corrupt = 'NOT VALID JSON {{{';
+        file_put_contents($path, $corrupt, LOCK_EX);
+        $this->assertNull(pp_operate_get_token_snapshot($fake_id));
+        // The error path must not truncate or recreate the file.
+        $this->assertSame($corrupt, file_get_contents($path));
+        @unlink($path);
+    }
 }
