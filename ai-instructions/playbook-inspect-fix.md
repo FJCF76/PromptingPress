@@ -33,11 +33,11 @@ Declare the fix:
 - Why this is the root cause (not just a symptom)
 - What the fixed state should look like
 
-### 3. EDIT
-Execute the minimal fix. Do not refactor adjacent code. Do not "improve" unrelated sections.
+### 3. PREFLIGHT
+Run `wp pp apply preflight --run-id=<uuid>`, adding `--post_id=<page_id>` when the fix mutates a page's composition (and planned_files for file mutations). This records the PREFLIGHT covering the target and unlocks the fix in EDIT.
 
-### 4. PREFLIGHT
-Run preflight with planned_files if applicable.
+### 4. EDIT
+Execute the minimal fix. Do not refactor adjacent code. Do not "improve" unrelated sections. A composition fix is gated: it requires the page-covering PREFLIGHT from step 3.
 
 ### 5. APPLY
 Execute any file-based applies.

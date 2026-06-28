@@ -12,7 +12,7 @@ An agent setting up a fresh install should enforce each predicate, not follow st
 **Before making any changes to a PromptingPress site, read the operating loop contract.**
 
 The operating loop (`ai-instructions/operating-loop.md`) defines the 8-step process
-agents must follow: INSPECT → PLAN → EDIT → PREFLIGHT → APPLY → SCREENSHOT → REVIEW → HANDOFF.
+agents must follow: INSPECT → PLAN → PREFLIGHT → EDIT → APPLY → SCREENSHOT → REVIEW → HANDOFF.
 
 Three playbooks customize the loop for common operations:
 - `playbook-create-page.md` — Create a new page from a brief

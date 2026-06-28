@@ -30,15 +30,17 @@ function pp_operate_loop_steps(): array {
             'required_inputs'  => ['site_state'],
             'required_outputs' => ['mutation_plan'],
         ],
-        'EDIT' => [
-            'phase'            => 'implementer',
-            'required_inputs'  => ['mutation_plan'],
-            'required_outputs' => ['edit_result'],
-        ],
+        // PREFLIGHT precedes EDIT (#96): the safety gate runs before any DB-backed
+        // mutation, not after it. EDIT and APPLY both require preflight_result.
         'PREFLIGHT' => [
             'phase'            => 'operator',
-            'required_inputs'  => ['edit_result'],
+            'required_inputs'  => ['mutation_plan'],
             'required_outputs' => ['preflight_result'],
+        ],
+        'EDIT' => [
+            'phase'            => 'implementer',
+            'required_inputs'  => ['preflight_result'],
+            'required_outputs' => ['edit_result'],
         ],
         'APPLY' => [
             'phase'            => 'operator',
@@ -265,8 +267,14 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
         if ($post === null) {
             $checks[] = ['check' => 'target_page', 'pass' => false, 'message' => 'Post ID ' . $context['post_id'] . ' does not exist.'];
         } else {
-            $composition = get_post_meta($context['post_id'], '_pp_composition', true);
-            if (is_array($composition) && !empty($composition)) {
+            // Read through the canonical accessor: normal storage is a JSON string
+            // (pp_update_composition), so a raw get_post_meta + is_array() check
+            // would wrongly report "no composition" for every real page and, now
+            // that preflight gates mutations (#96), make page-scoped actions
+            // impossible. pp_get_composition decodes the string and still handles
+            // array fixtures.
+            $composition = pp_get_composition($context['post_id']);
+            if (!empty($composition)) {
                 $checks[] = ['check' => 'target_page', 'pass' => true, 'message' => 'Target page exists with composition: ' . $post->post_title];
             } else {
                 $checks[] = ['check' => 'target_page', 'pass' => false, 'message' => 'Post ID ' . $context['post_id'] . ' exists but has no composition.'];
@@ -756,6 +764,86 @@ function pp_operate_get_token_snapshot( string $run_id ): ?array {
         return null;
     }
     return $data['token_snapshot'];
+}
+
+/**
+ * Records a successful PREFLIGHT and everything that must be committed with it,
+ * in a SINGLE atomic mutation: the PREFLIGHT step, the target the preflight
+ * covered (a specific post_id for page/section work, or the site grain when no
+ * post is given), and the pre-apply token snapshot.
+ *
+ * Atomicity is load-bearing. `wp pp action execute` / `operate patch` unlock on
+ * the recorded coverage alone (pp_operate_preflight_covers), unlike `apply
+ * execute` which also checks the rollback snapshot. If coverage were written in a
+ * separate call from the snapshot and the snapshot write failed, a later mutating
+ * action could pass its gate even though the preflight command errored. Writing
+ * step + coverage + snapshot inside one pp_operate_mutate_state critical section
+ * means the run gains the complete post-preflight state or none of it, so any
+ * failure leaves BOTH the action gate and the apply gate fail-closed.
+ *
+ * Idempotent: the step and each covered post_id de-dupe; the token snapshot is
+ * first-write-wins, so re-running preflight never moves the rollback baseline.
+ *
+ * @param string   $run_id          The run token UUID.
+ * @param int|null $post_id         Target post for page/section preflight, or null for site grain.
+ * @param array    $token_overrides Current pp_token_overrides, read under the token lock.
+ * @return bool    True on a confirmed write; false if the run state is
+ *                 missing/expired/corrupt or identity-mismatched.
+ */
+function pp_operate_record_preflight( string $run_id, ?int $post_id, array $token_overrides ): bool {
+    return pp_operate_mutate_state( $run_id, static function ( array $data ) use ( $post_id, $token_overrides ) {
+        // PREFLIGHT step (idempotent) — keeps apply execute's check_step gate working.
+        if ( ! in_array( 'PREFLIGHT', $data['steps_completed'], true ) ) {
+            $data['steps_completed'][] = 'PREFLIGHT';
+        }
+
+        // Contextual coverage: a page/section preflight covers a specific post;
+        // a no-post preflight covers the site grain. Never let one stand in for
+        // the other — that is the page-scoped false-pass this guard prevents.
+        if ( $post_id !== null ) {
+            if ( ! isset( $data['preflight_post_ids'] ) || ! is_array( $data['preflight_post_ids'] ) ) {
+                $data['preflight_post_ids'] = [];
+            }
+            if ( ! in_array( $post_id, $data['preflight_post_ids'], true ) ) {
+                $data['preflight_post_ids'][] = $post_id;
+            }
+        } else {
+            $data['preflight_site'] = true;
+        }
+
+        // Pre-apply rollback baseline (first-write-wins, same as the legacy recorder).
+        if ( ! array_key_exists( 'token_snapshot', $data ) ) {
+            $data['token_snapshot'] = $token_overrides;
+        }
+
+        return $data;
+    } );
+}
+
+/**
+ * Whether this run has a completed PREFLIGHT covering the intended mutation target.
+ *
+ * Fail-closed: a missing/expired/corrupt/identity-mismatched run returns false.
+ * Strict and non-weakening:
+ *   - a page/section mutation (post_id given) requires a preflight recorded for
+ *     that exact post; a site-grain preflight does NOT cover it;
+ *   - a site mutation (post_id null) requires a site-grain preflight; a
+ *     page preflight does NOT cover it.
+ *
+ * @param string   $run_id  The run token UUID.
+ * @param int|null $post_id The mutation target post, or null for a site-scoped mutation.
+ * @return bool
+ */
+function pp_operate_preflight_covers( string $run_id, ?int $post_id ): bool {
+    $data = pp_operate_read_state( $run_id );
+    if ( $data === null ) {
+        return false;
+    }
+    if ( $post_id !== null ) {
+        $covered = $data['preflight_post_ids'] ?? [];
+        return is_array( $covered ) && in_array( $post_id, $covered, true );
+    }
+    return ! empty( $data['preflight_site'] );
 }
 
 /**

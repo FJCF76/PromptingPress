@@ -24,11 +24,11 @@ Capture a **before-screenshot**: `wp pp screenshot capture --post_id=<page_id> -
 - Note which other sections should remain unchanged (regression check)
 - If file mutations are needed, list planned_files
 
-### 3. EDIT
-Use `set_composition` to update the specific component's props. Do not rewrite the entire composition — modify only the target section.
+### 3. PREFLIGHT
+Run `wp pp apply preflight --run-id=<uuid> --post_id=<page_id>` (add planned_files if file mutations are needed). This records a PREFLIGHT covering the page and unlocks the typed mutation in EDIT. Without it, the edit refuses to run.
 
-### 4. PREFLIGHT
-Run `wp pp apply preflight` with planned_files if applicable.
+### 4. EDIT
+Use `set_composition` to update the specific component's props. Do not rewrite the entire composition — modify only the target section. The action is gated: it requires the page-covering PREFLIGHT from step 3.
 
 ### 5. APPLY
 Execute any file-based applies needed for the revision.
