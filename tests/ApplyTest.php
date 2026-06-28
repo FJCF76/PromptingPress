@@ -1366,20 +1366,32 @@ class ApplyTest extends TestCase
         $this->assertSame([], pp_get_token_overrides());
     }
 
-    public function testRevertTokensSkipsInvalidSnapshotValue(): void
+    public function testRevertTokensAbortsOnInvalidSnapshotValue(): void
     {
-        // A corrupt snapshot value must never be persisted; the key is left as-is.
+        // Fail-closed: a corrupt snapshot value aborts the whole revert with no write.
         $this->setOverrides(['--color-accent' => '#aaaaaa']);
-        $this->assertTrue(pp_revert_tokens(['--color-accent' => 'not-a-color'], ['--color-accent']));
+        $this->assertFalse(pp_revert_tokens(['--color-accent' => 'not-a-color'], ['--color-accent']));
         $this->assertSame('#aaaaaa', pp_get_token_overrides()['--color-accent']);
     }
 
-    public function testRevertTokensSkipsUnregisteredToken(): void
+    public function testRevertTokensAbortsOnUnregisteredToken(): void
     {
-        // A token not in the registry is never written from a snapshot.
+        // A token not in the registry aborts the revert; nothing is mutated.
         $this->setOverrides(['--bogus-token' => '#aaaaaa']);
-        $this->assertTrue(pp_revert_tokens(['--bogus-token' => '#ffffff'], ['--bogus-token']));
+        $this->assertFalse(pp_revert_tokens(['--bogus-token' => '#ffffff'], ['--bogus-token']));
         $this->assertSame('#aaaaaa', pp_get_token_overrides()['--bogus-token']);
+    }
+
+    public function testRevertTokensInvalidEntryAbortsEntireScopeNoPartialWrite(): void
+    {
+        // One bad scoped entry must abort the WHOLE revert — the valid sibling in the
+        // same call is NOT applied. Proves no-partial-mutation on corrupt snapshots.
+        $this->setOverrides(['--color-accent' => '#aaaaaa', '--color-text' => '#bbbbbb']);
+        $snapshot = ['--color-accent' => '#b45309', '--color-text' => 'not-a-color'];
+        $this->assertFalse(pp_revert_tokens($snapshot, ['--color-accent', '--color-text']));
+        $after = pp_get_token_overrides();
+        $this->assertSame('#aaaaaa', $after['--color-accent'], 'valid sibling must NOT be applied when scope aborts');
+        $this->assertSame('#bbbbbb', $after['--color-text']);
     }
 
     public function testRevertTokensLeavesUntouchedKeysEntirely(): void

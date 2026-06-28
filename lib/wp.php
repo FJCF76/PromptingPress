@@ -597,35 +597,40 @@ function pp_clear_all_token_overrides(): int {
  *
  * Runs inside the same advisory-lock critical section as the other writers, doing one
  * read-modify-write of pp_token_overrides so the revert is atomic against concurrent
- * applies. Snapshot values are validated against the live token registry before being
- * persisted, so a corrupted or hand-edited snapshot file can never write a malformed
- * override; an invalid entry is skipped (left at its current value), never written.
+ * applies. Fail-closed: every scoped snapshot value is validated against the live token
+ * registry BEFORE any write, and a single invalid entry (corrupt/hand-edited snapshot
+ * file) aborts the entire revert with NO mutation — never a partial restore.
  *
  * @param array $snapshot      token => value map captured pre-apply (the prior state).
  * @param array $touched_keys  the keys this run wrote (primary + derived); the revert scope.
- * @return bool  True on a confirmed write; false if the advisory lock was not acquired.
+ * @return bool  True on a confirmed write; false if the lock was not acquired OR a scoped
+ *               snapshot entry was invalid (in which case nothing is mutated).
  */
 function pp_revert_tokens(array $snapshot, array $touched_keys): bool {
     return _pp_with_token_lock(function ($wpdb) use ($snapshot, $touched_keys) {
-        $overrides = _pp_read_token_overrides_locked($wpdb);
-        $registry  = pp_design_tokens();
+        $registry = pp_design_tokens();
 
+        // Pre-validate the whole scope BEFORE touching anything. Any scoped key that is
+        // present in the snapshot must be a registered token with a value valid for its
+        // type. One bad entry aborts with no write — fail-closed, no partial mutation.
+        foreach ($touched_keys as $key) {
+            if (!is_string($key) || !array_key_exists($key, $snapshot)) {
+                continue;
+            }
+            $value = $snapshot[$key];
+            if (!is_string($value) || !array_key_exists($key, $registry)
+                || _pp_validate_token_value($value, $registry[$key]['type'] ?? null) !== true) {
+                return false;
+            }
+        }
+
+        $overrides = _pp_read_token_overrides_locked($wpdb);
         foreach ($touched_keys as $key) {
             if (!is_string($key)) {
                 continue;
             }
             if (array_key_exists($key, $snapshot)) {
-                $value = $snapshot[$key];
-                // Reject anything not a registered token or not a valid value for its
-                // type: a corrupt/hand-edited snapshot must not persist malformed data.
-                if (!is_string($value) || !array_key_exists($key, $registry)) {
-                    continue;
-                }
-                $type = $registry[$key]['type'] ?? null;
-                if (_pp_validate_token_value($value, $type) !== true) {
-                    continue;
-                }
-                $overrides[$key] = $value;
+                $overrides[$key] = $snapshot[$key];
             } else {
                 // The run created this override; rolling back removes it.
                 unset($overrides[$key]);

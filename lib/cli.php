@@ -361,6 +361,13 @@ class PP_Apply_Command extends WP_CLI_Command {
      * corrupt, swept, or from a different install, restore reports an error and changes
      * nothing — it never falls back to a product-default reset and never partially mutates.
      *
+     * Limitation: a run is fully reversible only if every `apply execute` recorded its
+     * touched keys. Token mutation (DB) and touched-key recording (run-state file) are
+     * separate stores and cannot be one transaction; if a touched-key write ever fails,
+     * `execute` errors loudly at that point, but a later restore replays whatever touched
+     * keys WERE recorded and cannot revert a change whose keys never landed. Re-run
+     * `wp pp operate inspect` after any such error rather than trusting restore.
+     *
      * ## OPTIONS
      *
      * --run-id=<uuid>
@@ -417,7 +424,7 @@ class PP_Apply_Command extends WP_CLI_Command {
         // Compute the effective change for reporting, then revert atomically.
         $before = pp_get_token_overrides();
         if (!pp_revert_tokens($snapshot, $scope)) {
-            WP_CLI::error('Could not acquire the token lock to roll back run "' . $run_id . '". Nothing was changed. Try again.');
+            WP_CLI::error('Could not roll back run "' . $run_id . '": the token lock was unavailable or the snapshot held invalid values. Nothing was changed.');
         }
         $after = pp_get_token_overrides();
 
@@ -547,8 +554,11 @@ class PP_Apply_Command extends WP_CLI_Command {
         // Freeze the pre-apply token-override snapshot so `apply restore` can roll this
         // run back to its starting state. First-write-wins inside the recorder, so
         // re-running preflight never moves the baseline. Read under the token lock for
-        // an atomic baseline.
-        pp_operate_record_token_snapshot($run_id, pp_snapshot_token_overrides());
+        // an atomic baseline. If the baseline cannot be recorded the run has no rollback
+        // safety net, so fail here rather than letting it surface later as an apply gate.
+        if (!pp_operate_record_token_snapshot($run_id, pp_snapshot_token_overrides())) {
+            WP_CLI::error('Could not record the pre-apply rollback snapshot for run "' . $run_id . '". State file may be missing or expired. Re-run `wp pp operate inspect`.');
+        }
     }
 }
 
