@@ -13,7 +13,7 @@
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
 [![Tests](https://img.shields.io/badge/Tests-970+_passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-0.14.0-6366F1?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.15.0-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -242,9 +242,9 @@ The intended operator is an autonomous coding agent (Claude Code or similar) wit
 shell + WP-CLI access, typically over SSH to a VPS. It changes the site through an
 8-step loop instead of editing files:
 
-**INSPECT** → **PLAN** → **EDIT** → **PREFLIGHT** → **APPLY** → **SCREENSHOT** → **REVIEW** → **HANDOFF**
+**INSPECT** → **PLAN** → **PREFLIGHT** → **EDIT** → **APPLY** → **SCREENSHOT** → **REVIEW** → **HANDOFF**
 
-Run tokens (UUID v4 state files) enforce ordering on the `wp pp` surface: `action execute` refuses to run before INSPECT, `apply execute` refuses before PREFLIGHT, and every mutating command fails without a `--run-id`. Preflight classifies off-limits (core) files and blocks the apply; screenshots plus a checklist produce visual evidence; HANDOFF is the report you review. Three playbooks ship: create-page, revise-section, inspect-fix.
+Run tokens (UUID v4 state files) enforce ordering on the `wp pp` surface: `action execute` refuses to run before INSPECT, and every DB-backed mutation (`action execute`, `operate patch`, `apply execute`) refuses to run before a PREFLIGHT covering its target — a specific `post_id` for page edits, or a site-scoped preflight for site/token changes. Every mutating command fails without a `--run-id`. Preflight classifies off-limits (core) files and blocks the apply; screenshots plus a checklist produce visual evidence; HANDOFF is the report you review. Three playbooks ship: create-page, revise-section, inspect-fix.
 
 **What this is and isn't:** safety-gated autonomous operation, not permissionless
 self-modification. The loop makes the structured path the easy one and catches the

@@ -4,6 +4,31 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.15.0] — 2026-06-29 — Preflight Before Mutation: No DB-Backed Write Lands Before the Safety Gate
+
+**Mutating `wp pp action execute` and `wp pp operate patch` now refuse to run until a preflight covering their target has passed.** Before this release a typed action could write `_pp_composition` to the database before `wp pp apply preflight` ever ran its target, drift, capability, and surface checks. The operating loop even documented it that way, listing EDIT before PREFLIGHT. A production page could be mutated before the gate that was supposed to protect it.
+
+Now the gate comes first. Each successful preflight records which target it covered: a specific `post_id` for page and section work, or the site grain for site-level actions. A mutating action checks that record and is refused, with an actionable error naming the exact preflight command to run, unless the run already preflighted that target. The matching is strict and non-weakening: a site preflight never unlocks a page mutation, and a preflight for post 4 never unlocks a write to post 7.
+
+**`wp pp operate patch` mutations now require a run token.** Patch was a second CLI path that wrote composition with no preflight at all. Its mutating form now takes `--run-id` and sits behind the same INSPECT plus covering-PREFLIGHT discipline as `action execute`. The `--preview` path stays read-only and needs no run token. This is a breaking change for any script that called `wp pp operate patch <page> --target=... --value=...` standalone to mutate.
+
+**The loop is reordered and the recorder is atomic.** PREFLIGHT now precedes EDIT in the operating loop and its docs. The preflight command commits the PREFLIGHT step, the target coverage, and the pre-apply rollback snapshot in a single locked write, so a partial failure leaves the run fail-closed for both the action gate and the apply gate, never half-unlocked.
+
+### Itemized changes
+
+#### Added
+- Preflight-before-mutation gate on `wp pp action execute`: a mutating action requires a completed PREFLIGHT covering its target (post or site) and validates the action first so a bad target shows its real error. (#96)
+- `--run-id` on the mutating `wp pp operate patch` path, gated on INSPECT + a covering PREFLIGHT; `--preview` stays read-only and ungated. (#96)
+- `pp_operate_record_preflight()` (single atomic write: PREFLIGHT step + target coverage + rollback snapshot) and `pp_operate_preflight_covers()` (strict, fail-closed page-vs-site matching).
+- Tests: new PHPUnit cases for coverage matching (including the post-4-must-not-unlock-post-7 and site-vs-page false-pass guards), atomic fail-closed behavior, loop-order, and all-registered-action scope consistency; new E2E specs asserting the gate blocks pre-preflight, unlocks after, and leaves previews open.
+
+#### Changed
+- Operating loop reordered so PREFLIGHT precedes EDIT; `ai-instructions/operating-loop.md`, the three playbooks, `bootstrap.md`, and `README.md` updated so no doc implies a DB mutation can happen before preflight. (#96)
+- `wp pp apply preflight` records the target it covered and folds the rollback snapshot into one atomic write.
+
+#### Fixed
+- `pp_preflight()` target_page check read `_pp_composition` as a raw array, but real pages store it as a JSON string, so it reported "no composition" for every real page. Now that preflight gates mutations this would have blocked all page-scoped actions; it now reads through `pp_get_composition()`. (#96)
+
 ## [v0.14.0] — 2026-06-28 — True Per-Run Rollback: `apply restore` Undoes a Run, Not the Whole Palette
 
 **`wp pp apply restore --run-id` now reverts exactly what a run changed instead of wiping every override to product defaults.** The old behavior was a reversibility footgun: a single `update_design_token` on `--color-accent` followed by `restore` reset all 14 existing token overrides and erased the operator's dark theme.
