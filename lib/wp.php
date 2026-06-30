@@ -877,18 +877,101 @@ function pp_set_font_urls(array $urls): bool {
 }
 
 /**
+ * Single source of truth for the site-option whitelist (a security boundary —
+ * the only WP options the AI/CLI surface may read or write). Maps each allowed
+ * key to its value type, used for server-side validation on write.
+ *
+ * Types: 'string' (free text) | 'attachment_id' (a positive int that resolves
+ * to a Media Library attachment — never a raw URL).
+ *
+ * @return array<string,string>  key => type
+ */
+function pp_allowed_site_options(): array {
+    return [
+        'blogname'        => 'string',
+        'blogdescription' => 'string',
+        'pp_logo_id'      => 'attachment_id',
+        'pp_logo_alt'     => 'string',
+    ];
+}
+
+/**
+ * Validates a site-option value against its declared type.
+ *
+ * @param string $key    Whitelisted option key (caller has already checked membership).
+ * @param string $value  Proposed value.
+ * @return true|WP_Error
+ */
+function pp_validate_site_option_value(string $key, string $value) {
+    $type = pp_allowed_site_options()[$key] ?? null;
+    if ($type === 'attachment_id') {
+        $id = (int) $value;
+        if ($id <= 0 || get_post_type($id) !== 'attachment' || !wp_attachment_is_image($id)) {
+            return new WP_Error('invalid_option_value', sprintf(
+                'Option "%s" requires a Media Library image attachment ID, got "%s".',
+                $key, $value
+            ));
+        }
+    }
+    return true;
+}
+
+/**
  * Returns a whitelisted WordPress option value.
- * Only allows: blogname, blogdescription.
+ * Whitelist is the single source pp_allowed_site_options().
  *
  * @param string $key  Option name (must be whitelisted).
  * @return string|WP_Error  Option value, or WP_Error if key not whitelisted.
  */
 function pp_site_option(string $key) {
-    $allowed = ['blogname', 'blogdescription'];
-    if (!in_array($key, $allowed, true)) {
+    if (!isset(pp_allowed_site_options()[$key])) {
         return new WP_Error('invalid_option', sprintf('Option "%s" is not whitelisted.', $key));
     }
     return (string) get_option($key, '');
+}
+
+/**
+ * Resolves the site logo for a nav/footer component into a render-ready shape.
+ * Attachment-ID only — never accepts a raw URL as input. The returned `url` is
+ * an OUTPUT, resolved from the attachment ID for the <img src>.
+ *
+ * Resolution order: explicit `logo_id` prop → `pp_logo_id` site option (the
+ * AI/CLI safe surface) → WP `custom_logo` theme-mod → text wordmark.
+ *
+ * Alt resolution: explicit `logo_alt` → the attachment's own alt metadata →
+ * the wordmark text. (In nav/footer the logo replaces the text wordmark, so a
+ * meaningful alt is correct; an empty decorative alt would only apply if a
+ * layout rendered both the image AND the visible site title together.)
+ *
+ * @param array $props  Component props (logo_id, logo_alt, logo_text).
+ * @return array{type:string,url:string,alt:string,text:string}
+ *         type is 'image' when an attachment resolved to a URL, else 'text'.
+ */
+function pp_resolve_logo(array $props): array {
+    $text = $props['logo_text'] ?? pp_site_title();
+
+    $id = 0;
+    if (!empty($props['logo_id'])) {
+        $id = (int) $props['logo_id'];
+    } elseif (($opt = get_option('pp_logo_id', '')) !== '') {
+        $id = (int) $opt;
+    } elseif (($mod = get_theme_mod('custom_logo')) !== false && $mod) {
+        $id = (int) $mod;
+    }
+
+    if ($id > 0) {
+        $url = wp_get_attachment_image_url($id, 'full');
+        if ($url) {
+            $alt = $props['logo_alt'] ?? '';
+            if ($alt === '') {
+                $meta_alt = (string) get_post_meta($id, '_wp_attachment_image_alt', true);
+                $alt = $meta_alt !== '' ? $meta_alt : $text;
+            }
+            return ['type' => 'image', 'url' => $url, 'alt' => $alt, 'text' => $text];
+        }
+    }
+
+    return ['type' => 'text', 'url' => '', 'alt' => $props['logo_alt'] ?? $text, 'text' => $text];
 }
 
 // ── Site-state write functions (persistence wrappers) ────────────────────────
@@ -971,16 +1054,24 @@ function pp_publish_page(int $post_id) {
 
 /**
  * Updates a whitelisted WordPress option.
- * Only allows: blogname, blogdescription.
+ * Whitelist is the single source pp_allowed_site_options(); value is validated
+ * against the key's declared type (e.g. pp_logo_id must be an attachment ID).
  *
  * @param string $key    Option name (must be whitelisted).
  * @param string $value  New option value.
  * @return true|WP_Error
  */
 function pp_update_site_option(string $key, string $value) {
-    $allowed = ['blogname', 'blogdescription'];
-    if (!in_array($key, $allowed, true)) {
+    if (!isset(pp_allowed_site_options()[$key])) {
         return new WP_Error('invalid_option', sprintf('Option "%s" is not whitelisted.', $key));
+    }
+    $valid = pp_validate_site_option_value($key, $value);
+    if (is_wp_error($valid)) {
+        return $valid;
+    }
+    // Normalize attachment IDs to a canonical integer string on store.
+    if ((pp_allowed_site_options()[$key] ?? null) === 'attachment_id') {
+        $value = (string) (int) $value;
     }
     update_option($key, $value);
     return true;

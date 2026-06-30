@@ -181,7 +181,7 @@ function pp_ai_system_prompt(): string {
     $parts[] = '  - section (layout: "image-left" or "image-right"): `image_url` + `image_alt`';
     $parts[] = '  - grid items (default variant only): `items[].image_url` + `items[].image_alt`';
     $parts[] = '  - logos items: `items[].image_url` + `items[].image_alt`';
-    $parts[] = '  - nav: `logo_url` + `logo_alt`';
+    $parts[] = '  - nav/footer: `logo_id` (Media Library attachment ID, not a URL) + `logo_alt`';
     $parts[] = '- Background images (no `image_alt` needed):';
     $parts[] = '  - hero (variant: "cover"): `image_url` rendered as CSS background-image';
     $parts[] = '  - section: `background_image`';
@@ -356,8 +356,9 @@ function _pp_summarize_component(array $item, ?array $inspect_target = null): st
         $parts[] = "title: \"{$title}\"";
     }
 
-    // Image filename (key for image-bearing components)
-    foreach (['image_url', 'background_image', 'logo_url'] as $img_prop) {
+    // Image filename (key for image-bearing components). logo_id is an
+    // attachment ID, not a URL, so it is not a basename source here.
+    foreach (['image_url', 'background_image'] as $img_prop) {
         if (!empty($props[$img_prop])) {
             $parts[] = basename($props[$img_prop]);
             break;

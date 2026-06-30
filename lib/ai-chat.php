@@ -321,7 +321,8 @@ function _pp_validate_media_urls_in_params(array $params) {
  */
 function _pp_extract_urls_from_params(array $params): array {
     $urls = [];
-    $url_props = ['image_url', 'background_image', 'logo_url'];
+    // logo_id is an attachment ID, not a URL — excluded from URL extraction.
+    $url_props = ['image_url', 'background_image'];
 
     // Direct props (flat)
     if (isset($params['props']) && is_array($params['props'])) {

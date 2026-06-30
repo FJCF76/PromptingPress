@@ -12,19 +12,19 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Logo text. Falls back to pp_site_title() when empty. Ignored when logo_url is set."
+      "description": "Logo text wordmark. Falls back to pp_site_title() when empty. Shown when no logo image resolves."
     },
-    "logo_url": {
-      "type": "string",
+    "logo_id": {
+      "type": "number",
       "required": false,
-      "default": "",
-      "description": "Logo image URL. When set, renders an img tag instead of text. Falls back to logo_text if empty."
+      "default": 0,
+      "description": "Media Library attachment ID for the logo image (NOT a URL). When it resolves to an image, renders an img tag instead of the text wordmark. Resolution order: this prop, then the pp_logo_id site option, then the WP custom_logo theme-mod."
     },
     "logo_alt": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Alt text for the logo image. Defaults to logo_text if empty."
+      "description": "Alt text for the logo image. Defaults to the attachment's own alt metadata, then logo_text/site title."
     }
   },
   "styling": {
