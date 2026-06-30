@@ -476,7 +476,33 @@ if (!function_exists('get_post')) {
 }
 
 if (!function_exists('get_post_type')) {
-    function get_post_type($post = null): string { return 'page'; }
+    // Store-aware: an ID present in the posts store returns its post_type
+    // (e.g. 'attachment' for logo tests); unknown IDs default to 'page'.
+    function get_post_type($post = null): string {
+        if (is_int($post) || (is_string($post) && ctype_digit($post))) {
+            $id = (int) $post;
+            return $GLOBALS['_pp_test_store']['posts'][$id]['post_type'] ?? 'page';
+        }
+        return 'page';
+    }
+}
+
+if (!function_exists('get_theme_mod')) {
+    function get_theme_mod(string $name, $default = false) {
+        return $GLOBALS['_pp_test_store']['theme_mods'][$name] ?? $default;
+    }
+}
+
+if (!function_exists('wp_get_attachment_image_url')) {
+    function wp_get_attachment_image_url($attachment_id, $size = 'thumbnail', $icon = false) {
+        return $GLOBALS['_pp_test_store']['attachment_urls'][(int) $attachment_id] ?? false;
+    }
+}
+
+if (!function_exists('wp_attachment_is_image')) {
+    function wp_attachment_is_image($attachment_id = null): bool {
+        return !empty($GLOBALS['_pp_test_store']['attachment_is_image'][(int) $attachment_id]);
+    }
 }
 
 if (!function_exists('get_page_template_slug')) {
