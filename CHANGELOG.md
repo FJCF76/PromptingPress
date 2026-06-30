@@ -4,6 +4,29 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.0] — 2026-06-30 — Brand Book Fidelity: The Site Logo Is Now a Safe Surface
+
+**The site logo can finally be set the safe way: an attachment ID, validated server-side, rendered in the nav and (opt-in) the footer.** Until now the nav only accepted a raw `logo_url`, and there was no safe path for an AI agent to set the site-wide logo at all. You can now point the logo at a Media Library image by ID through the `update_site_option` action (`pp_logo_id`) or a component prop (`logo_id`), and it resolves the same way everywhere.
+
+Setting the logo by attachment ID closes a real gap. A logo set this way gets WordPress' own validation for free: the value must be an actual image attachment, so a PDF, a video, a bogus ID, or a pasted URL is rejected at write time with a clear message instead of silently producing a broken or unsafe `<img>`. Resolution falls back gracefully: the explicit `logo_id`, then the `pp_logo_id` site option, then WordPress' native `custom_logo`, then the text wordmark. Alt text comes from the attachment's own metadata when you don't set it.
+
+The footer can now carry the logo too, opt-in via `show_logo` so existing footers are untouched. Both nav and footer share one resolver, so the fallback chain and alt handling never drift between them.
+
+### Itemized changes
+
+**Added**
+- `pp_logo_id` site option (Media Library attachment ID) settable through the `update_site_option` action — the safe surface for the site-wide logo.
+- `logo_id` prop on `nav` and `footer`; `show_logo` opt-in on `footer` (default off).
+- Server-side validation: a logo value must resolve to a real image attachment, rejected with a clear error otherwise.
+- Graceful resolution: explicit `logo_id` → `pp_logo_id` option → WordPress `custom_logo` → text wordmark, with alt text from attachment metadata.
+
+**Changed**
+- The logo input is now an attachment ID, never a raw URL. The old literal `logo_url` prop is gone; an arbitrary URL can no longer reach the logo `<img src>`.
+- The site-option allowlist is a single source of truth (`pp_allowed_site_options`) shared by every read and write path.
+
+**For contributors**
+- New `pp_allowed_site_options()`, `pp_validate_site_option_value()`, and `pp_resolve_logo()` in `lib/wp.php`; `tests/LogoTest.php` (21 cases) covers validation, the write path, the action, resolution, and footer gating.
+
 ## [v0.15.1] — 2026-06-29 — Docs: AI Command Reference Now Shows the Run Token Mutations Require
 
 **Patch release so the theme's AI-facing command reference matches the v0.15.0 gate.** No code change.
