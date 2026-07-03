@@ -6,7 +6,7 @@
 
 ## Rules for the implementing agent
 1. **Pick the lowest-numbered unchecked `status:ready` item.** Skip any item that is `status:blocked` / `needs-decision` / `investigation` / `discussion`, and any `status:needs-design` item whose design-gate comment is unresolved.
-2. **Read the issue's `> Order:` header first** — it names the blockers to do before it.
+2. **Read the issue's `**[Backlog metadata]**` header first** — its `depends-on:` line names the blockers to do before it.
 3. **Between every item: run the full suite green** (`composer test` + `npm test`) before starting the next. In a single sequential chain, an uncaught regression at step N poisons every later step.
 4. `security-sensitive` items require a security-aware review; do not ship the happy-path only.
 5. When an issue closes, its box here strikes through automatically; re-derive if `depends-on` changes.
@@ -105,5 +105,21 @@
 - **status:discussion (product/workflow, not code):** #38 (writable presentation path), #49 (target override), #59 (page-family drift), #72 (homepage CSS upgrade risk).
 
 ## Derivation / maintenance
-- Source of truth = `depends-on:` lines in issue bodies (see each `> Order:` header). Order = tiered topological sort, tie-break (unblock-count desc, size asc).
-- To regenerate after closures/edits: `gh issue list --state open --json number,title,labels,body`, parse `depends-on:`, topo-sort, re-emit. Re-pin this issue.
+
+**Source of truth** = the `> depends-on:` line inside each issue's `**[Backlog metadata]**` block (every open issue has exactly one; value is a comma-separated list of `#N` refs, or `none`). Order = tiered topological sort of that graph, tie-broken by (unblock-count desc, then `size:` asc), with `status:ready` items only.
+
+**Extract every edge** (proven to parse cleanly for all open issues except the index #141):
+
+```bash
+gh issue list --repo FJCF76/PromptingPress --state open --limit 200 --json number,body \
+  --jq '.[] | select(.number != 141)
+        | "\(.number): \(.body | capture("(?m)^> depends-on: (?<d>.+)$").d)"'
+```
+
+**Regenerate after closures/edits:**
+1. Run the command above to get `issue: deps` for every open issue.
+2. Also pull labels: `gh issue list --state open --limit 200 --json number,labels` — keep only `status:ready`; note `size:S|M|L` for tie-breaking and `security-sensitive` for the review flag.
+3. Build the DAG from the `#N` refs; topological-sort; within a layer sort by unblock-count (how many issues name this one) desc, then size asc.
+4. Re-emit this list and the pinned tracking issue #141; both are outputs, not hand-maintained.
+
+The current edge set (for reference): `3→41, 16→131, 51→119, 61→100, 62→134, 77→128, 83→128, 85→102, 87→119, 94→105, 100→99, 107→105, 111→{93,99}, 113→13, 133→13`; all others `none`. The graph is acyclic — every edge points to a more-foundational issue.
