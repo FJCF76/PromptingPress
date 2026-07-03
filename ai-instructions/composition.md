@@ -44,7 +44,7 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 | grid    | items[] {title, text, ...}              | title, variant, theme                                   |
 | table   | headers[], rows[][]                     | title, caption                                          |
 | cta     | title, button_text, button_url          | text, variant, theme, background_image                  |
-| nav     | (no required props)                     | logo_text, logo_url, logo_alt                           |
+| nav     | (no required props)                     | logo_text, logo_id, logo_alt                            |
 | footer  | (no required props)                     | location                                                |
 | stats   | items[] {number, label}                 | title, variant, background_image                        |
 | logos   | items[] {image_url, image_alt}          | title, variant                                          |

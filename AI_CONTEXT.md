@@ -114,7 +114,7 @@ site-customization permission.
 | grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {title, text, image_url, link_url, link_text}, title, variant, theme, id |
 | table     | components/table/table.php     | Data/comparison table, horizontal scroll mobile  | headers[] (req), rows[][] (req), title, caption    |
 | cta       | components/cta/cta.php         | Call-to-action block. Layout + color + bg-image  | title (req), button_text (req), button_url (req), text, variant, theme, background_image, id |
-| nav       | components/nav/nav.php         | Site header, logo, hamburger mobile nav          | location, logo_text, logo_url, logo_alt            |
+| nav       | components/nav/nav.php         | Site header, logo, hamburger mobile nav          | location, logo_text, logo_id, logo_alt             |
 | footer    | components/footer/footer.php   | Site footer with nav menu and copyright          | location                                           |
 | stats     | components/stats/stats.php     | Horizontal row of large-number metrics + labels  | items[] (req) {number, label}, title, variant, background_image, id |
 | logos     | components/logos/logos.php     | Flex-wrap image grid — logo strips or icon tiles | items[] (req) {image_url, image_alt, label?}, title, variant, id |
@@ -138,7 +138,7 @@ If adding background-image support to another component, follow this exact patte
 
 **Hero:** Variants `left`, `centered`, `split` (inline image), `cover` (fullscreen background-image with overlay). Supports dual CTA buttons (`cta_text` + `cta2_text`); secondary renders as outline/ghost style. Composition props: `spacing` (compact/default/spacious), `width` (narrow/default/full), `split_ratio` (50-50/60-40/40-60, split variant only), `vertical_align` (top/center/bottom, cover and split only), `proof` (HTML string for trust signals like logos/ratings, rendered after CTA group). Hero content uses `--measure-centered` (56rem) as default max-width.
 
-**Nav:** Supports image logos via `logo_url` + `logo_alt`. Falls back to `logo_text` (text) when `logo_url` is empty.
+**Nav/Footer:** Supports image logos via `logo_id` (Media Library attachment ID, not a URL) + `logo_alt`. Resolution: `logo_id` prop → `pp_logo_id` site option → WP `custom_logo` theme-mod → `logo_text` (text) wordmark. Footer logo is opt-in via `show_logo` (default off). Set the site-wide logo through the `update_site_option` action with key `pp_logo_id`.
 
 **Grid:** Variants `default` (card grid), `steps` (numbered process steps with arrow connectors at desktop). `theme` controls background color independently of layout variant.
 

@@ -233,22 +233,22 @@ pp_register_action('create_page', [
 ]);
 
 // ── Action: update_site_option ──────────────────────────────────────────────
-// Scope: site | Semantics: replace. Only blogname, blogdescription
+// Scope: site | Semantics: replace. Whitelist: pp_allowed_site_options()
 
 pp_register_action('update_site_option', [
     'scope'       => 'site',
-    'description' => 'Updates a whitelisted WordPress site option (blogname or blogdescription).',
-    'semantics'   => 'Replace. Key must be whitelisted (blogname, blogdescription). Value replaces entirely.',
+    'description' => 'Updates a whitelisted WordPress site option (blogname, blogdescription, pp_logo_id, pp_logo_alt). pp_logo_id takes a Media Library attachment ID (not a URL) to set the site logo.',
+    'semantics'   => 'Replace. Key must be whitelisted. Value replaces entirely and is validated against the key type (pp_logo_id must be an attachment ID).',
     'params'      => [
         'key'   => ['type' => 'string', 'required' => true],
         'value' => ['type' => 'string', 'required' => true],
     ],
     'validate' => function (array $params) {
-        $allowed = ['blogname', 'blogdescription'];
-        if (!in_array($params['key'], $allowed, true)) {
-            return new WP_Error('invalid_option', sprintf('Option "%s" is not whitelisted. Allowed: %s.', $params['key'], implode(', ', $allowed)));
+        $allowed = pp_allowed_site_options();
+        if (!isset($allowed[$params['key']])) {
+            return new WP_Error('invalid_option', sprintf('Option "%s" is not whitelisted. Allowed: %s.', $params['key'], implode(', ', array_keys($allowed))));
         }
-        return true;
+        return pp_validate_site_option_value($params['key'], (string) $params['value']);
     },
     'preview' => function (array $params): array {
         $current = pp_site_option($params['key']);

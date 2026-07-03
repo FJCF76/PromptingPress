@@ -7,6 +7,30 @@
       "required": false,
       "default": "footer",
       "description": "WP theme location slug for the footer nav menu."
+    },
+    "show_logo": {
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "description": "Opt-in: render the site logo in the footer. Defaults OFF so existing footers are unchanged. When true, uses the same resolution as the nav logo."
+    },
+    "logo_text": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Footer logo text wordmark (only when show_logo is true). Falls back to pp_site_title() when empty."
+    },
+    "logo_id": {
+      "type": "number",
+      "required": false,
+      "default": 0,
+      "description": "Media Library attachment ID for the footer logo image (NOT a URL; only when show_logo is true). Same resolution as nav: this prop, then the pp_logo_id site option, then the WP custom_logo theme-mod."
+    },
+    "logo_alt": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Alt text for the footer logo image. Defaults to the attachment's own alt metadata, then logo_text/site title."
     }
   },
   "styling": {
