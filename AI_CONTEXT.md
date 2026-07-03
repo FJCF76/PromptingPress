@@ -33,7 +33,7 @@ documented in `schema.json` in the same folder. CSS is in `/assets/css/component
 **To add a component:** Follow the steps in `ai-instructions/add-component.md`. The
 auto-loader picks up any component at `/components/{name}/{name}.php` — no registration needed.
 
-**To retheme:** Read `ai-instructions/retheme.md`. Update the 45 design tokens via `update_design_token` apply (overrides stored in database, defaults in `assets/css/base.css`).
+**To retheme:** Read `ai-instructions/retheme.md`. Update the 47 design tokens via `update_design_token` apply (overrides stored in database, defaults in `assets/css/base.css`).
 
 **To style a specific component instance:** Read `ai-instructions/style-component.md`. Use the `style_component` action to set per-instance CSS custom properties (style slots) without editing CSS files.
 
@@ -72,7 +72,7 @@ site-customization permission.
 |--------------------------|---------------------------------|----------------------------------|
 | /templates/              | Page layouts                    | Release-level only — inspect for site work |
 | /components/             | Reusable sections               | Release-level only — inspect for site work |
-| /assets/css/base.css     | Design token defaults (45 design tokens) | Release-level only — site tokens via update_design_token |
+| /assets/css/base.css     | Design token defaults (47 design tokens) | Release-level only — site tokens via update_design_token |
 | /assets/css/components.css | Component styles              | Release-level only — inspect for site work |
 | /assets/css/utilities.css | Spacing / text utilities       | Release-level only — inspect for site work |
 | /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Release-level only — run npm test after |
@@ -282,7 +282,7 @@ not ACF fields. `pp_field()` returns null when ACF is not installed.
 
 ## Design tokens
 
-45 CSS custom properties control the entire visual system. Product defaults live in `assets/css/base.css`. Site-specific overrides are stored in the `pp_token_overrides` database option and output as inline CSS after the base stylesheet (CSS cascade resolves precedence automatically).
+47 CSS custom properties control the entire visual system. Product defaults live in `assets/css/base.css`. Site-specific overrides are stored in the `pp_token_overrides` database option and output as inline CSS after the base stylesheet (CSS cascade resolves precedence automatically).
 
 To change a token: use `pp_execute_apply('update_design_token', ['token' => '...', 'value' => '...'])`. To revert: use `reset_design_token` or `reset_all_design_tokens`.
 
@@ -291,11 +291,19 @@ Colors:     --color-bg, --color-surface, --color-text, --color-muted,
             --color-border, --color-accent, --color-accent-hover, --color-bg-inverted
 Derived:    --color-text-secondary, --color-accent-strong, --color-border-accent, --color-surface-accent
 Spacing:    --space-xs, --space-sm, --space-md, --space-lg, --space-xl, --space-2xl, --space-3xl
-Typography: --font-body, --font-heading, --font-weight-heading, --line-height-body, --line-height-heading
+Typography: --font-body, --font-heading, --font-weight-heading, --line-height-body, --line-height-heading,
+            --font-mono
 Button:     --btn-padding-y, --btn-padding-x
 Shape:      --radius, --max-width, --measure-body, --measure-body-wide, --measure-centered,
             --transition, --overlay-bg
+Elevation:  --shadow-none, --shadow-sm, --shadow-md, --shadow-lg
+Text roles: --text-kicker-color, --text-kicker-size, --text-kicker-weight, --text-kicker-spacing,
+            --text-label-size, --text-label-weight, --text-label-spacing,
+            --text-meta-size, --text-meta-color
 ```
+
+> Source of truth: the `:root` block in `assets/css/base.css`, parsed by `pp_design_tokens()`.
+> Every token above is overridable via `update_design_token`. Regenerate this list from `base.css` rather than editing it by hand — `--breakpoint-*` live in a comment and are **not** overridable.
 
 **Token families:** Changing a base token (`--color-accent` or `--color-text`) auto-derives related tokens (hover, strong, border-accent, surface-accent, text-secondary) when they have no existing override. Existing overrides are preserved. If a preserved override's hue drifts more than 30 degrees from the new base, the apply returns a stale warning so the AI can offer to update it.
 
@@ -368,8 +376,7 @@ Pages using the **Composition** template store their layout in `_pp_composition`
 - Invalid compositions are rejected on save — the DB retains the last valid value
 - AI can write `_pp_composition` directly (via WP CLI or REST) — same format
 
-**To read the composition in PHP:** use `pp_composition()` from `lib/wp.php`.
-It returns `[]` when meta is absent or invalid JSON.
+**To read the composition in PHP:** use `pp_composition()` (no args — reads the current loop post) or `pp_get_composition($post_id)` (any post by ID) from `lib/wp.php`. Both return `[]` when meta is absent or invalid JSON. Off the main loop, always pass an explicit `$post_id` via `pp_get_composition()`.
 
 **To write a composition as AI (preferred):**
 ```bash
@@ -488,20 +495,27 @@ An in-admin AI chat that can read site state, answer questions, and propose/exec
 
 | Page | Menu location | Capability | Purpose |
 |------|---------------|------------|---------|
-| AI Chat | PromptingPress → AI Chat | `edit_posts` | Chat interface for conversational site editing |
-| AI Settings | PromptingPress → AI Settings | `manage_options` | BYOK provider config (provider dropdown, API key, model) |
+| AI Chat | PromptingPress → AI Chat | `edit_posts` | Chat interface for conversational site editing; the provider/model picker lives in-page |
 
-### Provider configuration
+There is no separate "AI Settings" page (the old `lib/ai-settings.php` was removed). LLM credentials are configured in **Settings → Connectors** (WordPress 7.0 core); the theme reads them via `wp_get_connectors()` and never stores an API key of its own.
 
-Stored in `wp_options`:
-- `pp_ai_provider` — provider key (default: `github_models`). Dropdown: GitHub Models or Custom / Manual
-- `pp_ai_base_url` — full endpoint URL. Hidden for GitHub Models (derived server-side via `pp_ai_sanitize_base_url()`). Editable for Custom
-- `pp_ai_api_key` — API key (server-side only, never sent to browser)
-- `pp_ai_model` — model ID (default: `openai/gpt-5-chat`). Curated dropdown for GitHub Models (GPT-5 Chat, GPT-5, GPT-4.1 + custom escape hatch). Free-text for Custom
+### Provider configuration (WordPress 7.0 Connectors)
 
-`pp_ai_get_providers()` is the single source of truth for provider labels, canonical base URLs, and curated model lists. The sanitize callback for `pp_ai_base_url` reads `$_POST['pp_ai_provider']` and overrides the submitted value with the canonical URL for known providers. JS controls field visibility; PHP controls values.
+The theme consumes WP 7.0 connectors rather than holding its own keys. `pp_ai_get_configured_connectors()` reads `wp_get_connectors()`, keeps the providers PP supports, and pulls each key from the connector's own `authentication.setting_name` option.
 
-Works with any OpenAI-compatible provider. GitHub Models is the default with a curated experience.
+PP recognizes three connector providers via `pp_ai_connector_providers()` (a base-URL / default-model map, since connectors don't expose endpoints):
+
+| Provider key | Base URL | Default model |
+|---|---|---|
+| `anthropic` | `https://api.anthropic.com/v1/messages` | `claude-sonnet-4-6` |
+| `openai` | `https://api.openai.com/v1/chat/completions` | `gpt-4o` |
+| `google` | `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` | `gemini-2.5-flash` |
+
+The user's active choice is stored in two `wp_options`:
+- `pp_ai_selected_provider` — one of the configured connector keys (falls back to the first configured connector when unset/invalid)
+- `pp_ai_selected_model` — model id (falls back to the provider's default; auto-corrected if it isn't in the provider's available list)
+
+The in-page picker switches these via the `pp_ai_switch_provider` AJAX handler (nonce `pp_ai_execute`, capability `edit_posts`). Available models come from WP 7.0's `ProviderRegistry` (`pp_ai_get_connector_models()`), falling back to the hardcoded default when the registry returns nothing. `pp_ai_is_configured()` is true when at least one recognized connector has a key.
 
 ### Streaming architecture
 
@@ -530,7 +544,7 @@ Assembled by `pp_ai_system_prompt()`:
 - Component catalog (names + prop schemas with enum values, style slots, and recipes)
 - Action signatures (names, scopes, param types)
 - Apply signatures (names, domains, param types)
-- Design token inventory (45 tokens with current effective values and types)
+- Design token inventory (47 tokens with current effective values and types)
 - Style slot value rules (type-specific guidance for the LLM)
 - Pre-proposal verification checklist (target correct component, confirm slot exists, confirm value is representable)
 - Response format instructions (conversational vs structured proposal)
@@ -564,12 +578,13 @@ On Apply, each step executes via `wp_ajax_pp_ai_execute`, which delegates to `pp
 | `pp_ai_completion($messages)` | Non-streaming completion (AJAX fallback) |
 | `pp_ai_parse_proposal($response)` | Parses response for action proposals |
 | `pp_ai_validate_proposal($proposal)` | Validates proposal against registered capabilities |
-| `pp_ai_is_configured()` | Returns true if API key is saved |
-| `pp_ai_get_config()` | Returns provider configuration array (provider, base_url, api_key, model with defaults) |
-| `pp_ai_get_providers()` | Returns provider registry: keys, labels, canonical base URLs, curated model lists |
-| `pp_ai_sanitize_base_url($value)` | Sanitize callback: overrides base URL for known providers, passes through for Custom |
-| `pp_ai_maybe_migrate_provider()` | One-time migration from legacy provider strings to provider keys |
-| `pp_ai_parse_error_response($code, $body)` | Parses HTTP error into user-facing message with "Check AI Settings" phrase |
+| `pp_ai_is_configured()` | Returns true if at least one recognized WP 7.0 connector has an API key |
+| `pp_ai_get_config()` | Returns active config array (provider, base_url, api_key, model) resolved from connectors + selection options |
+| `pp_ai_connector_providers()` | Hardcoded provider→(base_url, default_model, default_name) map for the supported connector providers |
+| `pp_ai_get_configured_connectors()` | Filters `wp_get_connectors()` to supported providers that have an API key set |
+| `pp_ai_get_connector_models($provider_id)` | Queries WP 7.0 `ProviderRegistry` for text-generation models of a provider |
+| `pp_ai_get_provider_models($provider_id)` | Models for a provider, falling back to the hardcoded default when the registry is empty |
+| `pp_ai_parse_error_response($code, $body)` | Parses an HTTP error into a user-facing message with a "Settings → Connectors" hint |
 | `_pp_attempt_style_repair(string $error_code, array $params)` | Levenshtein-based fuzzy match for misspelled slot names (threshold ≤ 3). Returns repair suggestion array or null |
 | `_pp_build_friendly_error(WP_Error $error, array $params)` | Structured error builder returning `{error_code, user_message, alternatives, cross_component_hints, raw_error}` |
 | (cross-component slot search) | Inline logic in `_pp_build_friendly_error()` that searches all registered components for slots matching invalid names. Produces `cross_component_hints` in the error response |
