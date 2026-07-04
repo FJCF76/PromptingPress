@@ -784,6 +784,18 @@ function _pp_user_meets_required_caps(array $required): bool {
     return true;
 }
 
+/**
+ * Returns $_POST['params'] unslashed once, as an array.
+ *
+ * WordPress magic-quotes every $_POST value (wp_magic_quotes()). Unslashing
+ * the whole params array here — rather than per-param-type inside
+ * pp_ai_coerce_params() — protects every plain string param, not just
+ * array-type params destined for json_decode there.
+ */
+function _pp_ai_get_unslashed_post_params(): array {
+    return isset($_POST['params']) ? wp_unslash((array) $_POST['params']) : [];
+}
+
 // ── AJAX: Preview Action/Apply ─────────────────────────────────────────────
 
 add_action('wp_ajax_pp_ai_preview', function () {
@@ -795,10 +807,7 @@ add_action('wp_ajax_pp_ai_preview', function () {
 
     $type   = sanitize_text_field($_POST['type'] ?? '');
     $name   = sanitize_text_field($_POST['name'] ?? '');
-    // Unslash once here rather than per-param-type in pp_ai_coerce_params(),
-    // so every plain string param (not just array-type params destined for
-    // json_decode) is protected from WordPress's magic-quotes on $_POST.
-    $params = isset($_POST['params']) ? wp_unslash((array) $_POST['params']) : [];
+    $params = _pp_ai_get_unslashed_post_params();
 
     if (!in_array($type, ['action', 'apply'], true)) {
         wp_send_json_error('Invalid type. Must be "action" or "apply".');
@@ -858,10 +867,7 @@ add_action('wp_ajax_pp_ai_execute', function () {
 
     $type   = sanitize_text_field($_POST['type'] ?? '');
     $name   = sanitize_text_field($_POST['name'] ?? '');
-    // Unslash once here rather than per-param-type in pp_ai_coerce_params(),
-    // so every plain string param (not just array-type params destined for
-    // json_decode) is protected from WordPress's magic-quotes on $_POST.
-    $params = isset($_POST['params']) ? wp_unslash((array) $_POST['params']) : [];
+    $params = _pp_ai_get_unslashed_post_params();
 
     if (!in_array($type, ['action', 'apply'], true)) {
         wp_send_json_error('Invalid type. Must be "action" or "apply".');

@@ -487,6 +487,22 @@ class AiChatHandlersTest extends TestCase
         $this->assertSame($composition, $params['composition']);
     }
 
+    public function testGetUnslashedPostParamsRestoresPlainStringValues(): void
+    {
+        // Regression (#125): before this fix, plain string params (e.g.
+        // update_page_title's 'title', type='string') were never unslashed
+        // anywhere — pp_ai_coerce_params() only ever touched array-type
+        // params. _pp_ai_get_unslashed_post_params() now unslashes the
+        // whole $_POST['params'] array once, covering plain strings too.
+        $original = 'It\'s "live" now';
+        $_POST['params'] = ['title' => addslashes($original)];
+
+        $params = _pp_ai_get_unslashed_post_params();
+
+        $this->assertSame($original, $params['title']);
+        unset($_POST['params']);
+    }
+
     // ── Proposal Parsing Integration ──────────────────────────────────────
 
     public function testProposalParsingIntegrationWithActionTypes(): void
