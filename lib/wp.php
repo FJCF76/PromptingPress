@@ -431,16 +431,40 @@ function pp_render_style_vars(array $style, string $component_name): string {
  * identical to every call site's prior behavior.
  *
  * For data: URIs, this only accepts image/{png,jpeg,jpg,gif,webp,svg+xml} —
- * never data:text/html or other schemes/types that could be misused outside
- * an image-rendering context. Base64 payloads are structurally validated
- * (their alphabet is inert in HTML-attribute and CSS-url() contexts, so no
- * further encoding is needed). Raw/percent-encoded SVG payloads are checked
- * for script-executing constructs as defense in depth — modern browsers
- * already disable script execution for SVGs rendered as an image (via
- * <img src> or CSS background-image; this is NOT true for <iframe>/<object>,
- * which this function's callers never use) — then percent-encoded for the
- * handful of characters that are unsafe once embedded in an HTML attribute
- * that also contains an unquoted CSS url() token (", ', (, ), #, &, whitespace).
+ * never data:text/html or other schemes/types.
+ *
+ * SECURITY NOTE (do not weaken without re-reading this): a browser does NOT
+ * treat SVGs rendered as an image (via <img src> or CSS background-image) as
+ * script-executing — but every <img> call site here gives an ordinary user a
+ * standard browser feature ("Open image in new tab", copy-image-address,
+ * drag-to-new-tab) that navigates to the data: URI as a TOP-LEVEL document,
+ * where SVG script execution IS enabled. So the SVG content validation
+ * below is the PRIMARY defense against stored XSS via an AI-chat-and-human-editable
+ * image_url/background_image prop, not defense in depth on top of the
+ * browser (adversarial review finding — an earlier version of this
+ * docblock got that backwards). Getting the check-then-encode ordering
+ * exactly right matters:
+ *  - The safety check always runs against the FULLY, repeatedly
+ *    percent-decoded payload (not the raw input) — otherwise an
+ *    already-percent-encoded payload (single- or multiply-encoded) sails
+ *    past a literal-substring blocklist and only becomes dangerous once the
+ *    browser decodes it (cross-model review finding).
+ *  - The final re-encoding step only ever REPLACES a character with its
+ *    percent-encoding — it never DELETES one. Deleting a character can
+ *    silently merge two adjacent, previously-separated fragments back into
+ *    a blocked keyword (e.g. "&lt;scr" + [deleted newline] + "ipt&gt;"
+ *    becomes "&lt;script&gt;") — the exact bypass a cross-model review
+ *    caught in an earlier version of this function.
+ *  - SVG content is validated by actually parsing it as XML (DOMDocument +
+ *    DOMXPath) and checking resolved element/attribute local names — a
+ *    literal-substring blocklist is defeated by XML namespace-prefix
+ *    renaming (e.g. "<x:script>" with an xmlns:x bound to the SVG
+ *    namespace) and by character references reconstructing a blocked
+ *    string at parse time; a real parser resolves both correctly by
+ *    construction. See _pp_svg_content_is_safe().
+ *  - Base64 payloads are decoded and parsed with the exact same check —
+ *    "the alphabet is inert" only protects the HTML/CSS transport, not the
+ *    SVG document it decodes to.
  *
  * @param string $url  Candidate image source (http(s) URL, relative path, or data: URI).
  * @return string  Safe-to-echo value, or '' if the input is empty or rejected.
@@ -455,54 +479,152 @@ function pp_esc_image_src(string $url): string {
     }
 
     // Sanity bound against pathologically large inline payloads.
-    if (strlen($url) > 1000000) {
+    $max_data_uri_length = 1_000_000;
+    if (strlen($url) > $max_data_uri_length) {
         return '';
     }
 
-    if (!preg_match('/^data:image\/(png|jpe?g|gif|webp|svg\+xml)(;charset=[a-z0-9_-]+)?(;base64)?,(.*)$/is', $url, $m)) {
+    if (!preg_match('/^data:image\/(png|jpe?g|gif|webp|svg\+xml)(;charset=([a-z0-9_-]+))?(;base64)?,(.*)$/isD', $url, $m)) {
         return '';
     }
 
     $mime      = strtolower($m[1]);
-    $charset   = $m[2];
-    $is_base64 = $m[3] !== '';
-    $payload   = $m[4];
+    $charset   = $m[3];
+    $is_base64 = $m[4] !== '';
+    $raw_data  = $m[5];
+
+    // Only utf-8 (or unspecified, which defaults to utf-8 for text-ish
+    // media types) is allowed. Other charsets — utf-7 above all — are a
+    // known vector for a downstream parser to reconstruct blocked byte
+    // sequences that a byte-level blocklist never sees (cross-model finding).
+    if ($charset !== '' && strtolower($charset) !== 'utf-8') {
+        return '';
+    }
+    $charset_segment = $charset !== '' ? ';charset=utf-8' : '';
 
     if ($is_base64) {
-        // Base64 alphabet is inert in both contexts — validate, don't re-encode.
-        if ($payload === '' || !preg_match('/^[A-Za-z0-9+\/]+={0,2}$/', $payload)) {
+        // 'D' anchors $ to the true string end (without it, PCRE also
+        // matches just before a single trailing "\n", which would let an
+        // unescaped newline slip into an unquoted CSS url() token below).
+        if ($raw_data === '' || !preg_match('/^[A-Za-z0-9+\/]+={0,2}$/D', $raw_data)) {
             return '';
         }
-        return 'data:image/' . $mime . $charset . ';base64,' . $payload;
+        if ($mime === 'svg+xml') {
+            $decoded = base64_decode($raw_data, true);
+            if ($decoded === false || !_pp_svg_content_is_safe($decoded)) {
+                return '';
+            }
+        }
+        // Base64 alphabet is inert in both HTML-attribute and CSS-url()
+        // contexts — the string is returned exactly as validated.
+        return 'data:image/' . $mime . $charset_segment . ';base64,' . $raw_data;
     }
 
-    $lower = strtolower($payload);
-    $forbidden = ['<script', 'javascript:', '<foreignobject', '<iframe', '<embed', '<object'];
-    foreach ($forbidden as $bad) {
-        if (strpos($lower, $bad) !== false) {
-            return '';
+    // Raw/percent-encoded payload. Decode to a fixed point (handles
+    // single- AND multiply-percent-encoded input identically) so the
+    // safety check runs against the same logical content the browser will
+    // eventually parse.
+    $decoded = $raw_data;
+    for ($i = 0; $i < 5; $i++) {
+        $next = rawurldecode($decoded);
+        if ($next === $decoded) {
+            break;
         }
+        $decoded = $next;
     }
-    if (preg_match('/\son\w+\s*=/i', $payload)) {
+
+    if ($mime === 'svg+xml' && !_pp_svg_content_is_safe($decoded)) {
         return '';
     }
 
-    $encoded = strtr($payload, [
-        '"'  => '%22',
-        "'"  => '%27',
-        '<'  => '%3C',
-        '>'  => '%3E',
-        '('  => '%28',
-        ')'  => '%29',
-        '#'  => '%23',
-        '&'  => '%26',
-        ' '  => '%20',
-        "\t" => '%20',
-        "\n" => '',
-        "\r" => '',
-    ]);
+    // Percent-ENCODE (never strip) every character that's unsafe once
+    // embedded in an HTML attribute that also contains an unquoted CSS
+    // url() token: quotes, angle brackets, parens, #, &, and all C0
+    // control/whitespace characters (\x00-\x20, which covers space, tab,
+    // newline, and CR in one pass).
+    $encoded = preg_replace_callback(
+        '/["\'<>()#&\x00-\x20]/',
+        function (array $match): string {
+            return '%' . strtoupper(bin2hex($match[0]));
+        },
+        $decoded
+    );
 
-    return 'data:image/' . $mime . $charset . ',' . $encoded;
+    return 'data:image/' . $mime . $charset_segment . ',' . $encoded;
+}
+
+/**
+ * True if decoded SVG markup contains no script-executing constructs.
+ * See the security note on pp_esc_image_src() — this is the primary
+ * defense, not defense in depth, because a data: URI is reachable as a
+ * top-level navigation (e.g. "Open image in new tab") regardless of how
+ * it's embedded in the page.
+ *
+ * Parses with DOMDocument/DOMXPath rather than string/regex matching. A
+ * regex blocklist on raw text is defeated by XML namespace prefix renaming
+ * — e.g. `<x:script>` with `xmlns:x="http://www.w3.org/2000/svg"` declared
+ * elsewhere in the document is exactly equivalent to `<script>` per XML
+ * namespace rules, but a literal "<script" substring search never sees it
+ * (cross-model review finding). XPath's local-name() resolves the TRUE
+ * element/attribute name regardless of prefix, closing that class of
+ * bypass by construction instead of by an ever-growing list of special
+ * cases. A real parser also resolves standard XML character references
+ * (e.g. "&#x61;" -> "a") as a normal part of parsing, so by the time an
+ * attribute value is inspected here it's already the same string a
+ * rendering engine would see — no separate entity-obfuscation check needed.
+ *
+ * DOCTYPE is rejected outright (not "parsed carefully") — this closes the
+ * entire external-entity/DTD attack surface without depending on getting a
+ * specific combination of libxml flags exactly right.
+ */
+function _pp_svg_content_is_safe(string $svg): bool {
+    if (stripos($svg, '<!doctype') !== false) {
+        return false;
+    }
+
+    $prev_setting = libxml_use_internal_errors(true);
+    $doc = new \DOMDocument();
+    // No LIBXML_DTDLOAD/LIBXML_DTDATTR — never fetch or apply an external
+    // DTD (moot anyway since DOCTYPE is rejected above, but belt and
+    // suspenders). LIBXML_NONET blocks any network access during parsing.
+    $parsed = $doc->loadXML($svg, LIBXML_NONET);
+    libxml_clear_errors();
+    libxml_use_internal_errors($prev_setting);
+
+    if (!$parsed) {
+        return false;
+    }
+
+    $xpath = new \DOMXPath($doc);
+    $lower_local_name = "translate(local-name(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')";
+
+    $dangerous_elements = ['script', 'foreignobject', 'iframe', 'embed', 'object'];
+    foreach ($dangerous_elements as $name) {
+        $matches = $xpath->query("//*[{$lower_local_name}='{$name}']");
+        if ($matches === false || $matches->length > 0) {
+            return false;
+        }
+    }
+
+    // Event-handler attributes (onload, onclick, ...), any element/namespace.
+    $on_attrs = $xpath->query("//@*[starts-with({$lower_local_name}, 'on')]");
+    if ($on_attrs === false || $on_attrs->length > 0) {
+        return false;
+    }
+
+    // javascript: URIs in any attribute value (href, xlink:href, etc.) —
+    // already-entity-resolved by the parser, so no separate decoding needed.
+    $all_attrs = $xpath->query('//@*');
+    if ($all_attrs === false) {
+        return false;
+    }
+    foreach ($all_attrs as $attr) {
+        if (preg_match('/^\s*javascript:/i', (string) $attr->nodeValue)) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 /**

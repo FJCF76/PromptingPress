@@ -358,7 +358,7 @@ class ComponentPropsTest extends TestCase
     {
         $this->assertSame('', pp_esc_image_src('data:image/svg+xml,<svg><foreignObject><body>x</body></foreignObject></svg>'));
         $this->assertSame('', pp_esc_image_src('data:image/svg+xml,<svg><iframe src="//evil.test"></iframe></svg>'));
-        $this->assertSame('', pp_esc_image_src('data:image/svg+xml,<svg><embed src="//evil.test"></svg>'));
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml,<svg><embed src="//evil.test"/></svg>'));
         $this->assertSame('', pp_esc_image_src('data:image/svg+xml,<svg><object data="//evil.test"></object></svg>'));
     }
 
@@ -378,6 +378,86 @@ class ComponentPropsTest extends TestCase
         $payload = 'data:image/svg+xml,<svg data-x="y"><circle r="5"/></svg>';
         $result = pp_esc_image_src($payload);
         $this->assertStringNotContainsString('"', $result);
+    }
+
+    // ── Cross-model adversarial review: confirmed bypasses of an earlier,
+    // regex/blocklist-only version of this function ───────────────────────
+
+    public function testEscImageSrcRejectsNewlineSplitScriptTag(): void
+    {
+        // "<scr" + newline + "ipt>" defeats a literal "<script" substring
+        // search but is not valid XML either way (a tag name cannot contain
+        // whitespace) — must still come back rejected, not silently
+        // reconstituted into "<script>" by an output-stripping step.
+        $payload = "data:image/svg+xml,<svg><scr\nipt>alert(1)</scr\nipt></svg>";
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsPercentEncodedScriptTag(): void
+    {
+        // The entire malicious payload pre-encoded so no literal "<script"
+        // substring ever appears in the raw input — must be caught after
+        // decoding, not waved through because the check ran too early.
+        $payload = 'data:image/svg+xml,%3Csvg%3E%3Cscript%3Ealert(document.domain)%3C%2Fscript%3E%3C%2Fsvg%3E';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsDoubleEncodedScriptTag(): void
+    {
+        $payload = 'data:image/svg+xml,%253Csvg%253E%253Cscript%253Ealert(1)%253C%252Fscript%253E%253C%252Fsvg%253E';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsNamespacePrefixedScriptTag(): void
+    {
+        // <x:script> where x is bound to the SVG namespace is equivalent to
+        // <script> per XML namespace rules — a raw "<script" substring
+        // search never sees it, but XPath's local-name() resolves the true
+        // element name regardless of prefix.
+        $payload = 'data:image/svg+xml,<svg xmlns:x="http://www.w3.org/2000/svg"><x:script>alert(1)</x:script></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsCharacterReferenceObfuscatedJavascriptUri(): void
+    {
+        // "jav&#x61;script:" contains no literal "javascript:" substring,
+        // but a real XML parser resolves the numeric character reference
+        // during parsing — by the time the attribute value is inspected,
+        // it already reads "javascript:alert(1)".
+        $payload = 'data:image/svg+xml,<svg><a href="jav&#x61;script:alert(1)">x</a></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsMaliciousContentInsideBase64Svg(): void
+    {
+        // The base64 alphabet is inert for HTML/CSS transport, but the SVG
+        // it decodes to must still be scanned — "the alphabet is safe"
+        // is not the same claim as "the decoded document is safe."
+        $malicious = '<svg onload="alert(document.cookie)"><script>fetch(String.fromCharCode(47,47,101,118,105,108,46,116,101,115,116))</script></svg>';
+        $payload = 'data:image/svg+xml;base64,' . base64_encode($malicious);
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsSvgWithDoctype(): void
+    {
+        // DOCTYPE is rejected outright rather than parsed "carefully" —
+        // closes the external-entity/DTD attack surface unconditionally.
+        $payload = "data:image/svg+xml,<?xml version=\"1.0\"?><!DOCTYPE svg [<!ENTITY x \"y\">]><svg>&x;</svg>";
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsMalformedXml(): void
+    {
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml,<svg><rect></svg>'));
+    }
+
+    public function testEscImageSrcAcceptsLegitimateMultilineFormattedSvg(): void
+    {
+        // Real-world hand-formatted/design-tool SVGs commonly span multiple
+        // lines — this must not be treated as suspicious on its own.
+        $svg = "data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\">\n  <circle r=\"5\"/>\n</svg>";
+        $result = pp_esc_image_src($svg);
+        $this->assertNotSame('', $result);
     }
 
     // ── End-to-end: exact production regression from #36 ────────────────────
