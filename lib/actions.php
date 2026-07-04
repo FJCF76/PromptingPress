@@ -276,7 +276,30 @@ function pp_execute_action(string $name, array $params): array {
     }
 
     $action = pp_get_action($name);
-    return call_user_func($action['execute'], $params);
+    $result = call_user_func($action['execute'], $params);
+
+    // Promote an 'auto-draft' page to a real 'draft' on its first meaningful
+    // mutation (#121), here rather than in a per-caller AJAX handler so
+    // WP-CLI and pp_patch_composition() are covered too — not just the admin
+    // AJAX save handlers. This matters beyond visibility: WordPress's own
+    // auto-draft GC (wp_delete_auto_drafts(), ~7 days) PERMANENTLY deletes
+    // 'auto-draft' posts regardless of content, so a CLI/agent-driven action
+    // that writes real composition data into a still-auto-draft page would
+    // otherwise risk that content being hard-deleted before anyone ever
+    // opens it in the editor to save normally.
+    //
+    // update_page_title is excluded when the title is empty — the title
+    // field autosaves on blur even with no typed input, and promoting on
+    // that no-op recreates the exact "(no title)" permanent-draft bug this
+    // fix closes, just via update_page_title instead of post-new.php.
+    if (($result['ok'] ?? false) && isset($params['post_id'])) {
+        $is_noop_title_save = $name === 'update_page_title' && ($params['title'] ?? '') === '';
+        if (!$is_noop_title_save) {
+            pp_promote_auto_draft((int) $params['post_id']);
+        }
+    }
+
+    return $result;
 }
 
 // ── Helper: build result arrays ─────────────────────────────────────────────

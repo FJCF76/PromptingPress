@@ -161,6 +161,107 @@ class ActionsTest extends TestCase
         $this->assertEquals('publish', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
     }
 
+    // ── pp_promote_auto_draft (#121) ─────────────────────────────────────
+
+    public function testPromoteAutoDraftPromotesToRealDraft(): void
+    {
+        $id = pp_create_page('', 'auto-draft');
+        pp_promote_auto_draft($id);
+        $this->assertSame('draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    public function testPromoteAutoDraftIsNoOpForRealDraft(): void
+    {
+        $id = pp_create_page('Already a draft', 'draft');
+        pp_promote_auto_draft($id);
+        $this->assertSame('draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    public function testPromoteAutoDraftIsNoOpForPublishedPage(): void
+    {
+        $id = pp_create_page('Live page', 'publish');
+        pp_promote_auto_draft($id);
+        $this->assertSame('publish', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    public function testPromoteAutoDraftIsNoOpForTrashedPage(): void
+    {
+        $id = pp_create_page('Trashed page', 'trash');
+        pp_promote_auto_draft($id);
+        $this->assertSame('trash', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    public function testPromoteAutoDraftIsNoOpForUnknownPostId(): void
+    {
+        // Unknown post_id: get_post_status() returns false, must not throw
+        // or fabricate a store entry.
+        pp_promote_auto_draft(999999);
+        $this->assertArrayNotHasKey(999999, $GLOBALS['_pp_test_store']['posts']);
+    }
+
+    public function testExecuteActionPromotesAutoDraftOnSuccessfulCompositionUpdate(): void
+    {
+        // #121 (Codex + Claude adversarial finding): the promotion must run
+        // inside pp_execute_action() itself, not just the AJAX handlers, so a
+        // direct call — the same shape WP-CLI's `wp pp action execute` and
+        // pp_patch_composition() use — also promotes. This matters beyond
+        // visibility: WordPress's own auto-draft GC permanently deletes
+        // 'auto-draft' posts regardless of content after ~7 days.
+        $id = pp_create_page('', 'auto-draft');
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => $id,
+            'composition' => [['component' => 'hero', 'props' => ['title' => 'Hi']]],
+        ]);
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame('draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    public function testExecuteActionDoesNotPromoteOnEmptyTitleSave(): void
+    {
+        // The title field autosaves on blur even with no typed input —
+        // promoting on an empty title recreates the permanent "(no title)"
+        // draft bug via a different trigger.
+        $id = pp_create_page('', 'auto-draft');
+
+        $result = pp_execute_action('update_page_title', [
+            'post_id' => $id,
+            'title'   => '',
+        ]);
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame('auto-draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    public function testExecuteActionPromotesOnNonEmptyTitleSave(): void
+    {
+        $id = pp_create_page('', 'auto-draft');
+
+        $result = pp_execute_action('update_page_title', [
+            'post_id' => $id,
+            'title'   => 'A real title',
+        ]);
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame('draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    public function testExecuteActionDoesNotPromoteOnFailedAction(): void
+    {
+        $id = pp_create_page('', 'auto-draft');
+
+        // component_index 5 is out of bounds on an empty composition — fails.
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 5,
+            'props'           => ['title' => 'X'],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('auto-draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
     public function testPpUpdateSiteOptionRejectsUnwhitelisted(): void
     {
         $result = pp_update_site_option('admin_email', 'test@example.com');

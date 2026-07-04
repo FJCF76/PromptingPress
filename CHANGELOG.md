@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.11] — 2026-07-04 — Fix: Clicking "Add New Page" No Longer Litters Your Pages List
+
+**Click "Add New Page," then change your mind and click Back — and a permanent, empty "(no title)" page used to get left behind in your Pages list anyway, forever.** Every single visit to that screen created a real, visible draft immediately, before you'd typed a word. Over weeks of normal use, that adds up to a Pages list cluttered with junk nobody meant to create — and those phantom pages were showing up in the AI chat's own list of pages it could edit. New pages now start as WordPress's own "not yet saved" placeholder, invisible until you actually save something, and cleaned up automatically by WordPress itself if you never do.
+
+### Fixed
+- Visiting "Add New Page" without saving no longer leaves a permanent, visible junk draft — the placeholder is now invisible until your first real save, and WordPress cleans it up on its own if you never save at all.
+- The very first save (title or content) on a new page now correctly makes it a normal, visible draft.
+
+### For contributors
+- 12 new PHP tests, including the exact regression a review pass caught before ship: the page title field autosaves on blur even when nothing was typed, which would have quietly recreated the same "permanent empty page" bug through a different trigger. That promotion logic — along with the fix for a second review finding, a silently-swallowed database write failure — now lives inside the shared action-execution layer, so it protects every caller (the editor UI, WP-CLI, and the composition-patch tool), not just the two admin-UI save buttons it started in.
+- Filed a follow-up (#160) for three lower-priority edge cases a review pass also surfaced: page actions don't yet reject "not yet saved" pages as targets, a bookmarked link to a garbage-collected page hits a dead end instead of a friendly redirect, and the whole cleanup mechanism depends on WordPress's background cron actually running (the same tradeoff WordPress core itself accepts for its own "new post" screen).
+
 ## [v0.16.10] — 2026-07-04 — Fix: Style Fixes Now Target the Component You Actually Meant
 
 **Target a component by its stable ID instead of its position on the page — say, the third section down — and a failed style change used to get "helpfully" analyzed against whatever happened to sit first in the list instead.** Ask to fix a typo'd color setting on your hero section, and if something else came first in the page, the error message and auto-repair would talk about *that* component's settings instead of the hero's — or claim the hero "has no settings at all" when it actually just checked the wrong one. Now both the typo-repair logic and the friendly error messages always resolve to the component you actually targeted, and a genuinely unresolvable target gets an honest "couldn't find that component" instead of a misleading "nothing configurable here."

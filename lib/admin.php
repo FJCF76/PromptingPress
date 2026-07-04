@@ -228,7 +228,12 @@ add_action('init', function () {
 add_action('admin_init', function (): void {
     global $pagenow;
 
-    // New page: create a draft, assign composition template, open the editor.
+    // New page: create an auto-draft, assign composition template, open the
+    // editor. Uses 'auto-draft' (not 'draft') so a GET with no subsequent
+    // save — back button, prefetch, double-click — leaves WordPress core's
+    // own hidden, ~7-day-GC'd placeholder instead of a permanent, visible
+    // "(no title)" draft (#121). Promoted to a real 'draft' on first
+    // meaningful save — see wp_ajax_pp_save_composition / wp_ajax_pp_save_title.
     if ($pagenow === 'post-new.php' &&
         isset($_GET['post_type']) && $_GET['post_type'] === 'page') {
         if (!current_user_can('edit_pages')) {
@@ -236,7 +241,7 @@ add_action('admin_init', function (): void {
         }
         $post_id = wp_insert_post([
             'post_type'   => 'page',
-            'post_status' => 'draft',
+            'post_status' => 'auto-draft',
             'post_title'  => '',
         ]);
         if (!$post_id || is_wp_error($post_id)) {
@@ -329,6 +334,9 @@ add_action('wp_ajax_pp_save_composition', function () {
     if (!$result['ok']) {
         wp_send_json_error($result['error']);
     }
+
+    // Auto-draft → draft promotion happens inside pp_execute_action() itself
+    // (lib/actions.php) — one place, covering AJAX/CLI/operate.php alike.
 
     $saved = pp_get_composition($post_id);
     wp_send_json_success(['composition' => $saved]);
@@ -601,6 +609,9 @@ add_action('wp_ajax_pp_save_title', function (): void {
     if (!$result['ok']) {
         wp_send_json_error($result['error']);
     }
+
+    // Auto-draft → draft promotion (with the empty-title-blur exclusion)
+    // happens inside pp_execute_action() itself (lib/actions.php).
 
     wp_send_json_success(['title' => $title]);
 });
