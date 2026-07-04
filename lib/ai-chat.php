@@ -284,6 +284,31 @@ function pp_ai_coerce_params(string $type, string $name, array $params): array {
 // When the LLM proposes an invalid style slot name, attempt to find the
 // closest match via Levenshtein distance. Returns repaired params or null.
 
+/**
+ * Resolves the target component index for chat-side error-analysis helpers
+ * (_pp_attempt_style_repair, _pp_build_friendly_error). These run on the raw
+ * AI-submitted $params — pp_validate_action()'s own component_id resolution
+ * (_pp_resolve_id_param() in lib/actions.php) mutates a local copy of $params
+ * inside the validate call, which never propagates back to the caller here,
+ * so an id-targeted proposal still has no component_index in $params by the
+ * time an error needs analyzing. Mirrors _pp_resolve_id_param()'s precedence
+ * (component_id > component_index) so both land on the same component (#123).
+ *
+ * @return int  Resolved index, or -1 if it can't be resolved.
+ */
+function _pp_resolve_component_index_for_error(array $params): int {
+    if (isset($params['component_id']) && $params['component_id'] !== '') {
+        $post_id     = (int) ($params['post_id'] ?? 0);
+        $composition = pp_get_composition($post_id);
+        $resolved    = pp_resolve_component_target($composition, ['component_id' => $params['component_id']]);
+        return is_wp_error($resolved) ? -1 : $resolved['index'];
+    }
+    if (isset($params['component_index'])) {
+        return (int) $params['component_index'];
+    }
+    return -1;
+}
+
 function _pp_attempt_style_repair(string $error_code, array $params): ?array {
     if ($error_code !== 'invalid_style_slot') {
         return null;
@@ -295,7 +320,7 @@ function _pp_attempt_style_repair(string $error_code, array $params): ?array {
     }
 
     $post_id         = $params['post_id'] ?? 0;
-    $component_index = $params['component_index'] ?? 0;
+    $component_index = _pp_resolve_component_index_for_error($params);
     $composition     = pp_get_composition($post_id);
     $component_name  = $composition[$component_index]['component'] ?? '';
     $available_slots = pp_get_style_slots($component_name);
@@ -364,7 +389,7 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
             $available      = [];
             $available_slots = [];
             $composition    = pp_get_composition($params['post_id'] ?? 0);
-            $idx            = $params['component_index'] ?? 0;
+            $idx            = _pp_resolve_component_index_for_error($params);
             if (isset($composition[$idx])) {
                 $component_name  = $composition[$idx]['component'] ?? '';
                 $available_slots = pp_get_style_slots($component_name);
@@ -446,7 +471,7 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
             if (preg_match('/^Style slot "([^"]+)"/', $raw_msg, $m)) {
                 $slot_name = $m[1];
                 $composition = pp_get_composition($params['post_id'] ?? 0);
-                $idx         = $params['component_index'] ?? 0;
+                $idx         = _pp_resolve_component_index_for_error($params);
                 $comp_name   = $composition[$idx]['component'] ?? '';
                 $slots       = pp_get_style_slots($comp_name);
                 $type_hint    = $slots[$slot_name]['type'] ?? '';
@@ -511,7 +536,7 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
         case 'invalid_recipe':
             $available_recipes = [];
             $composition = pp_get_composition($params['post_id'] ?? 0);
-            $idx         = $params['component_index'] ?? 0;
+            $idx         = _pp_resolve_component_index_for_error($params);
             if (isset($composition[$idx])) {
                 $comp_name = $composition[$idx]['component'] ?? '';
                 $recipes   = pp_get_style_recipes($comp_name);
