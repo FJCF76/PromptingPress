@@ -623,6 +623,46 @@ function pp_esc_image_src(string $url, int $depth = 0): string {
  * entire external-entity/DTD attack surface without depending on getting a
  * specific combination of libxml flags exactly right.
  */
+/**
+ * Resolves CSS Syntax Level 3 escape sequences (a backslash followed by
+ * 1-6 hex digits and an optional trailing whitespace terminator names a
+ * codepoint; a backslash followed by any other character is that character
+ * literally) anywhere in a string, including inside what would otherwise
+ * read as a bare identifier or function name.
+ *
+ * This matters because a browser's CSS value parser resolves these escapes
+ * BEFORE it recognizes tokens such as the "url" function name — an SVG
+ * presentation attribute value like `fill="u\72l(https://evil.test/p.svg)"`
+ * is not the literal substring "url(" and evades a plain substring/regex
+ * scan for it, but Chromium resolves `\72` to "r" while parsing the value
+ * and fetches the external resource exactly as if "url(" had been written
+ * literally (sixth-round adversarial review finding, confirmed empirically
+ * via Playwright in both raw and base64-encoded payload forms). Scanning
+ * the CSS-unescaped form of every attribute value closes this by resolving
+ * escapes the same way a real CSS parser would, rather than special-casing
+ * "url" — the same escape trick could equally hide "javascript:" or
+ * "data:" from the scheme checks below, so both scans run on the
+ * unescaped form too.
+ */
+function _pp_css_unescape(string $value): string {
+    $decoded = preg_replace_callback(
+        '/\\\\(?:([0-9a-fA-F]{1,6})[ \t\n\r\f]?|(.))/su',
+        function (array $m): string {
+            if (($m[1] ?? '') !== '') {
+                $code = hexdec($m[1]);
+                if ($code === 0 || $code > 0x10FFFF || ($code >= 0xD800 && $code <= 0xDFFF)) {
+                    return "\u{FFFD}";
+                }
+                return mb_chr($code, 'UTF-8');
+            }
+            return $m[2] ?? '';
+        },
+        $value
+    );
+
+    return $decoded ?? $value;
+}
+
 function _pp_svg_content_is_safe(string $svg, int $depth = 0): bool {
     if (stripos($svg, '<!doctype') !== false) {
         return false;
@@ -678,12 +718,36 @@ function _pp_svg_content_is_safe(string $svg, int $depth = 0): bool {
         return false;
     }
 
+    // xml:base (SVG/XML's equivalent of HTML's <base href>) is rejected
+    // outright. Every check below treats a "#fragment" reference (and,
+    // symmetrically, a value starting with "data:") as unconditionally safe
+    // on the theory that a fragment-only reference always resolves within
+    // the current document — but per RFC 3986 §5.3, resolving a
+    // fragment-only reference against a base URL yields the BASE's
+    // scheme+authority+path with only the fragment replaced. xml:base on
+    // the root <svg> (or any ancestor) sets exactly that base, so
+    // `fill="url(#leak)"` or `<use href="#leak">` would resolve against an
+    // attacker-controlled origin instead of the document itself, turning
+    // an allowed-by-design same-document reference into a cross-origin
+    // fetch during ordinary rendering — undermining the "#... is always
+    // safe" assumption both the url() scan and the href scan below rely on
+    // (fifth-round Claude adversarial review finding). No legitimate
+    // AI/human-authored image SVG has a reason to override its own base
+    // URI, so the whole attribute is rejected rather than special-cased.
+    $xml_base_attrs = $xpath->query("//@*[namespace-uri()='http://www.w3.org/XML/1998/namespace' and local-name()='base']");
+    if ($xml_base_attrs === false || $xml_base_attrs->length > 0) {
+        return false;
+    }
+
     $all_attrs = $xpath->query('//@*');
     if ($all_attrs === false) {
         return false;
     }
     foreach ($all_attrs as $attr) {
         $value = (string) $attr->nodeValue;
+        // Resolve CSS escape sequences before pattern-matching — see
+        // _pp_css_unescape() docblock. A value with no escapes is unchanged.
+        $unescaped = _pp_css_unescape($value);
 
         // SVG has many presentation attributes/CSS properties that reference
         // another resource via a CSS-style url(...) wrapper — fill, stroke,
@@ -699,7 +763,7 @@ function _pp_svg_content_is_safe(string $svg, int $depth = 0): bool {
         // attribute value is scanned generically for the url(...) pattern
         // and any reference that isn't a same-document fragment or a
         // data: URI is rejected.
-        if (preg_match_all('/url\(\s*[\'"]?([^\'")]*)[\'"]?\s*\)/i', $value, $url_matches)) {
+        if (preg_match_all('/url\(\s*[\'"]?([^\'")]*)[\'"]?\s*\)/i', $unescaped, $url_matches)) {
             foreach ($url_matches[1] as $ref) {
                 $ref = trim($ref);
                 if ($ref !== '' && $ref[0] !== '#' && stripos($ref, 'data:') !== 0) {
@@ -719,7 +783,7 @@ function _pp_svg_content_is_safe(string $svg, int $depth = 0): bool {
         // any non-image data: scheme) is rejected alongside javascript: — a
         // nested <a href> inside an already-opened SVG is a real, if
         // lower-likelihood, escalation path.
-        $normalized = preg_replace('/[\t\n\r]/', '', $value);
+        $normalized = preg_replace('/[\t\n\r]/', '', $unescaped);
         if (preg_match('/^\s*javascript:/i', $normalized)) {
             return false;
         }

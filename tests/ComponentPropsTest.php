@@ -634,6 +634,67 @@ class ComponentPropsTest extends TestCase
         $this->assertSame('', pp_esc_image_src($svg, 4), 'Must reject once the depth cap is exceeded.');
     }
 
+    // ── Sixth-round Codex adversarial review (empirical Playwright) ─────────
+
+    public function testEscImageSrcRejectsCssHexEscapedUrlFunctionName(): void
+    {
+        // Browsers resolve CSS Syntax Level 3 \XX hex escapes BEFORE
+        // recognizing the "url" function name. fill="u\72l(...)" is not the
+        // literal substring "url(" and evaded the plain regex scan for it,
+        // but Chromium resolves \72 to "r" while parsing the value and
+        // fetches the external resource exactly as if "url(" had been
+        // written literally — confirmed empirically via Playwright against
+        // both the raw and base64-encoded payload forms.
+        $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">'
+            . '<rect width="20" height="20" fill="u\72l(https://evil.test/p.svg#p)"/></svg>';
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml,' . rawurlencode($svg)));
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml;base64,' . base64_encode($svg)));
+    }
+
+    public function testEscImageSrcRejectsCssNumericEscapedUrlFunctionName(): void
+    {
+        // Every character of "url" escaped individually (\75\72\6c), not
+        // just one — the same bypass class, exercised at its most extreme.
+        $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">'
+            . '<rect width="20" height="20" fill="\75\72\6c(https://evil.test/p.svg#p)"/></svg>';
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml,' . rawurlencode($svg)));
+    }
+
+    public function testEscImageSrcRejectsXmlBaseAttribute(): void
+    {
+        // xml:base (SVG/XML's equivalent of <base href>) can retarget a
+        // "#fragment" reference — treated everywhere else in this function
+        // as unconditionally same-document-safe — to resolve against an
+        // attacker-controlled origin instead (RFC 3986 §5.3: a
+        // fragment-only reference resolved against a base URL takes on the
+        // base's scheme+authority+path). Rejected outright regardless of
+        // whether a #fragment reference is even present.
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" xml:base="https://evil.test/">'
+            . '<rect width="10" height="10"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsXmlBaseWithFragmentReference(): void
+    {
+        // The concrete exploit shape: xml:base on the root plus a same-
+        // document fill="url(#leak)" that would resolve externally.
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" xml:base="https://evil.test/marker">'
+            . '<defs><linearGradient id="leak"/></defs><rect width="10" height="10" fill="url(#leak)"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcAcceptsSameDocumentFragmentAfterCssUnescape(): void
+    {
+        // The CSS-unescape pass must not turn a legitimate, safe reference
+        // into a false-positive rejection — a literal backslash preceding a
+        // non-hex character is a valid CSS "escaped character" that decodes
+        // to that character itself, so this must still resolve to the
+        // harmless local fragment reference "#g".
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g"/></defs>'
+            . '<rect fill="ur\6c(#g)"/></svg>';
+        $this->assertNotSame('', pp_esc_image_src($payload));
+    }
+
     // ── End-to-end: exact production regression from #36 ────────────────────
 
     public function testHeroSplitVariantRendersDataUriSvgImageSrc(): void
