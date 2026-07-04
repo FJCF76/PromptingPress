@@ -255,24 +255,27 @@ function _pp_validate_length(string $value): bool {
         // Positive pattern: only numeric, dot, units, %, comma, whitespace, parens, arithmetic.
         // No alphabetic sequences longer than 2 chars (blocks var, env, url, etc.)
         // but allows unit suffixes (rem, px, em, vw, vh).
-        // Must start (ignoring leading whitespace, e.g. "calc( 1rem + 2rem)")
-        // with a digit, dot, sign, or opening paren — rejects structurally
-        // nonsensical values like calc(px) or clamp(rem, rem, rem) that the
-        // alpha-sequence check below wouldn't catch on their own (rem/px are
-        // allowed units, so a bare unit with no operand still passes that
-        // check). Allowing (/+/- as leading characters keeps real
-        // expressions valid: calc(100% - 2rem) starts with a digit;
-        // calc((100% - 2rem) / 2) starts with an opening paren.
-        if (!preg_match('/^\s*[(+\-\d.]/', $contents) || !preg_match('/\d/', $contents)) {
-            return false;
-        }
-        // Reject if any alpha sequence is NOT a known unit.
-        // This is the key security boundary: var(--anything) contains "var" which is not a unit.
         $alpha_sequences = [];
-        preg_match_all('/[a-zA-Z]+/', $contents, $alpha_sequences);
+        preg_match_all('/[a-zA-Z]+/', $contents, $alpha_sequences, PREG_OFFSET_CAPTURE);
         $allowed_units = ['rem', 'px', 'em', 'vw', 'vh'];
-        foreach ($alpha_sequences[0] as $word) {
+        foreach ($alpha_sequences[0] as [$word, $offset]) {
+            // Reject if any alpha sequence is NOT a known unit. This is the
+            // key security boundary: var(--anything) contains "var" which
+            // is not a unit.
             if (!in_array(strtolower($word), $allowed_units, true)) {
+                return false;
+            }
+            // A real unit is always directly adjacent to the number it
+            // qualifies — CSS doesn't allow a space between "1" and "rem",
+            // and a unit can't stand alone. Reject a "bare" unit word not
+            // immediately preceded by a digit or a decimal point, e.g.
+            // calc(px), calc((rem) + 1px), calc(-rem + 1px), or
+            // clamp((rem), 1px, 2px) — every one of these has an allowed
+            // unit word but no real numeric operand behind it, and would
+            // otherwise validate and persist as broken CSS the browser
+            // silently drops.
+            $prev_char = $offset > 0 ? $contents[$offset - 1] : '';
+            if ($prev_char === '' || !preg_match('/[\d.]/', $prev_char)) {
                 return false;
             }
         }
