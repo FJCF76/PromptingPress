@@ -309,11 +309,24 @@ function _pp_validate_media_urls_in_params(array $params) {
         }
 
         // Check if this URL matches any attachment in the media library
-        if (!_pp_attachment_exists_by_url($url)) {
+        $attachment_id = _pp_resolve_attachment_id_by_url($url);
+        if ($attachment_id <= 0) {
             $filename = basename($url);
             return new WP_Error(
                 'invalid_media_url',
                 sprintf('Image URL does not match any file in the media library: %s', $filename)
+            );
+        }
+
+        // Defense in depth: pp_ai_media_inventory() only lists image
+        // attachments, but nothing stops the model from fabricating a URL to
+        // a non-image attachment it saw elsewhere (or hallucinating one that
+        // happens to resolve). Reject at execute time too (#124).
+        if (!wp_attachment_is_image($attachment_id)) {
+            $filename = basename($url);
+            return new WP_Error(
+                'invalid_media_url',
+                sprintf('URL does not point to an image file: %s', $filename)
             );
         }
     }
@@ -371,22 +384,27 @@ function _pp_collect_urls_from_props(array $props, array $url_props, array &$url
 }
 
 /**
- * Checks if a URL corresponds to an existing media library attachment.
+ * Resolves a URL to its media library attachment ID, or 0 if none matches.
  */
-function _pp_attachment_exists_by_url(string $url): bool {
+function _pp_resolve_attachment_id_by_url(string $url): int {
     // Try attachment_url_to_postid (handles scaled/resized URLs too)
     $attachment_id = attachment_url_to_postid($url);
     if ($attachment_id > 0) {
-        return true;
+        return (int) $attachment_id;
     }
 
-    // Fallback: check by guid (handles edge cases where the above misses)
+    // Fallback: check by guid (handles edge cases where the above misses).
+    // No $wpdb (unit test context, mirroring _pp_with_token_lock's check) —
+    // treat as no match rather than fatal on a missing global.
     global $wpdb;
-    $count = $wpdb->get_var($wpdb->prepare(
-        "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'attachment' AND guid = %s",
+    if (!isset($wpdb) || !is_object($wpdb) || !method_exists($wpdb, 'get_var')) {
+        return 0;
+    }
+    $id = $wpdb->get_var($wpdb->prepare(
+        "SELECT ID FROM {$wpdb->posts} WHERE post_type = 'attachment' AND guid = %s",
         $url
     ));
-    return (int) $count > 0;
+    return (int) $id;
 }
 
 // ── Style Repair Helper ───────────────────────────────────────────────────
