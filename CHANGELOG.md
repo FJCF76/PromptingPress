@@ -4,6 +4,13 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.13] — 2026-07-04 — Fix: The CLI Command in the Docs Now Actually Works
+
+**Every doc and example told you to run `wp pp operate inspect-composition`, but that command didn't exist — WordPress registered it with an underscore (`inspect_composition`) instead of the hyphen the docs used everywhere.** A person hits that, reads the "did you mean" suggestion, and moves on in two seconds. An AI agent following the documented operating loop exactly as written can stop cold on it, or worse, quietly decide the tool doesn't support the step at all.
+
+### Fixed
+- `wp pp operate inspect-composition` now works exactly as documented. (The old underscore form now correctly points you back to the hyphenated one if you type it out of habit.)
+
 ## [v0.16.12] — 2026-07-04 — Fix: Grid Sections Now Show Their Title When Collapsed
 
 **Collapse a hero section in the composition editor and it shows you a preview of what's inside — but collapse a grid section, and it just says "grid," even with a title set.** On a page with three or four grids, that meant opening each one just to figure out which was which. The label was actually being computed correctly for hero; grid (and several other components — FAQ, section headers, stats blocks, tables, logo strips, embeds) just never got the same treatment because the code only looked at a component's *required* fields, and their title is optional by design.

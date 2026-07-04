@@ -924,6 +924,7 @@ class PP_Operate_Command extends WP_CLI_Command {
      *     wp pp operate inspect-composition 19
      *     wp pp operate inspect-composition about-us
      *
+     * @subcommand inspect-composition
      */
     public function inspect_composition($args, $assoc_args) {
         $page = $args[0] ?? null;
