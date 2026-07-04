@@ -243,6 +243,16 @@ class AiChatHandlersTest extends TestCase
         );
     }
 
+    public function testRequiredCapsForRestorePageMatchesTrashPage(): void
+    {
+        // WP core gates untrash on 'delete_post', the same capability as
+        // trash — not 'edit_post'.
+        $this->assertSame(
+            [['cap' => 'delete_post', 'post_id' => 9]],
+            _pp_required_caps_for('action', 'restore_page', ['post_id' => 9])
+        );
+    }
+
     public function testRequiredCapsForPageScopedActionDefaultsToEditPost(): void
     {
         $this->assertSame(
@@ -274,6 +284,29 @@ class AiChatHandlersTest extends TestCase
         $this->assertSame(
             [['cap' => 'manage_options']],
             _pp_required_caps_for('action', 'add_component', ['component' => 'hero'])
+        );
+    }
+
+    public function testRequiredCapsForZeroPostIdIsNotTreatedAsMissing(): void
+    {
+        // post_id=0 is_numeric() but not a real post. It is passed through to
+        // current_user_can('delete_post', 0) rather than falling back to
+        // manage_options — WordPress's own capability resolution denies
+        // meta caps against a nonexistent post (get_post(0) === null), so
+        // this stays safe without the resolver needing to special-case it.
+        $this->assertSame(
+            [['cap' => 'delete_post', 'post_id' => 0]],
+            _pp_required_caps_for('action', 'trash_page', ['post_id' => 0])
+        );
+    }
+
+    public function testRequiredCapsForNonScalarPostIdFailsClosed(): void
+    {
+        // A malformed post_id (e.g. an array instead of a scalar) is not
+        // numeric, so it must fail closed exactly like a missing post_id.
+        $this->assertSame(
+            [['cap' => 'manage_options']],
+            _pp_required_caps_for('action', 'trash_page', ['post_id' => ['1', '2']])
         );
     }
 
@@ -350,6 +383,7 @@ class AiChatHandlersTest extends TestCase
 
         $this->assertTrue(_pp_user_meets_required_caps(_pp_required_caps_for('action', 'publish_page', ['post_id' => 1])));
         $this->assertTrue(_pp_user_meets_required_caps(_pp_required_caps_for('action', 'trash_page', ['post_id' => 1])));
+        $this->assertTrue(_pp_user_meets_required_caps(_pp_required_caps_for('action', 'restore_page', ['post_id' => 1])));
         $this->assertTrue(_pp_user_meets_required_caps(_pp_required_caps_for('action', 'update_page_title', ['post_id' => 1, 'title' => 'x'])));
 
         $this->assertFalse(_pp_user_meets_required_caps(_pp_required_caps_for('action', 'update_site_option', ['key' => 'blogname'])));

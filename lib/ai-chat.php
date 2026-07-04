@@ -723,13 +723,14 @@ function _pp_required_caps_for(string $type, string $name, array $params): array
     switch ($name) {
         case 'publish_page':
         case 'unpublish_page':
-            return $post_id !== null
-                ? [['cap' => 'edit_post', 'post_id' => $post_id], ['cap' => 'publish_pages']]
-                : [['cap' => 'manage_options']];
+            return _pp_caps_or_fail_closed($post_id, [['cap' => 'edit_post', 'post_id' => $post_id], ['cap' => 'publish_pages']]);
         case 'trash_page':
-            return $post_id !== null
-                ? [['cap' => 'delete_post', 'post_id' => $post_id]]
-                : [['cap' => 'manage_options']];
+        case 'restore_page':
+            // WordPress core gates trash/untrash on the same capability
+            // (wp-admin's untrash-post AJAX action checks 'delete_post', not
+            // 'edit_post') — mirror that rather than treating restore as a
+            // plain edit.
+            return _pp_caps_or_fail_closed($post_id, [['cap' => 'delete_post', 'post_id' => $post_id]]);
         case 'create_page':
             // Scope is 'site' (no existing post to check against), but page
             // creation is core Editor territory — gate on publish_pages, not
@@ -745,9 +746,16 @@ function _pp_required_caps_for(string $type, string $name, array $params): array
 
     // page | section: needs a resolved post_id to check against; without one
     // we can't verify per-post ownership, so fail closed.
-    return $post_id !== null
-        ? [['cap' => 'edit_post', 'post_id' => $post_id]]
-        : [['cap' => 'manage_options']];
+    return _pp_caps_or_fail_closed($post_id, [['cap' => 'edit_post', 'post_id' => $post_id]]);
+}
+
+/**
+ * Returns $caps when $post_id resolved, otherwise the fail-closed default
+ * (manage_options) — the target couldn't be identified, so no per-post cap
+ * can be verified against it.
+ */
+function _pp_caps_or_fail_closed(?int $post_id, array $caps): array {
+    return $post_id !== null ? $caps : [['cap' => 'manage_options']];
 }
 
 /**
