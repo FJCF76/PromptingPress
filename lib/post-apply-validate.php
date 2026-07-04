@@ -97,9 +97,20 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
         $rendered_count++;
 
         // 3. DOM inspection.
+        // Without an encoding hint, DOMDocument::loadHTML() assumes
+        // ISO-8859-1 and mis-decodes UTF-8 bytes — e.g. "café.jpg" reads
+        // back as "cafÃ©.jpg", which then fails the media lookup below
+        // for any real, correctly-uploaded file with a multibyte name.
+        // Strip any <meta> tags from the rendered fragment first: an
+        // in-content <meta charset="..."> takes priority over the
+        // document-level XML encoding hint in libxml's HTML sniffing, so
+        // a component whose output happens to carry one (e.g. embed's
+        // shortcode-rendered content) could silently defeat the fix and
+        // reintroduce the mis-decode. This validator has no legitimate
+        // use for a <meta> tag inside a component fragment anyway.
         $doc = new DOMDocument();
         $doc->loadHTML(
-            '<!DOCTYPE html><html><body>' . $html . '</body></html>',
+            '<?xml encoding="utf-8"?><!DOCTYPE html><html><body>' . preg_replace('/<meta\b[^>]*>/i', '', $html) . '</body></html>',
             LIBXML_NOERROR | LIBXML_NOWARNING
         );
 
