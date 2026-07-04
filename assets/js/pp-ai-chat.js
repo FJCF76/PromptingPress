@@ -1399,8 +1399,14 @@ function ppChatAppendValidationItems(container, items, className) {
             } else if (msg.role === 'assistant') {
                 // Skip internal apply-confirmation messages in display (structural
                 // flag, not content matching — a genuine model reply that happens
-                // to start with "Changes applied..." is never suppressed).
-                if (msg.internal === true) return;
+                // to start with "Changes applied..." is never suppressed). The
+                // legacy exact-match also stays as a fallback: localStorage
+                // conversations saved before this fix have no `internal` key at
+                // all, and without this OR, the one shape the OLD code correctly
+                // hid (bare "Changes applied successfully.") would start leaking
+                // for existing users on upgrade instead of staying hidden (#140
+                // cross-model review finding).
+                if (msg.internal === true || msg.content === 'Changes applied successfully.') return;
                 var displayText = stripProposalJson(msg.content);
                 if (displayText) {
                     addMessage('assistant', displayText);

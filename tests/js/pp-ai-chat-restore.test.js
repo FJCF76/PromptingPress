@@ -53,10 +53,14 @@ localStorage.setItem(STORAGE_KEY, JSON.stringify({ conversation: conversation, a
 require('../../assets/js/pp-ai-chat.js');
 
 describe('restoreConversation (#140)', function () {
-    test('suppresses all four internal apply-confirmation shapes', function () {
-        var bodies = Array.prototype.slice.call(
+    function getAssistantBodies() {
+        return Array.prototype.slice.call(
             document.querySelectorAll('#pp-ai-messages .pp-ai-msg-assistant .pp-ai-msg-body')
         ).map(function (el) { return el.textContent; });
+    }
+
+    test('suppresses all four internal apply-confirmation shapes', function () {
+        var bodies = getAssistantBodies();
 
         expect(bodies).not.toContain('Changes applied successfully.');
         expect(bodies.some(function (t) { return t.indexOf('Note: some existing token overrides') !== -1; })).toBe(false);
@@ -65,11 +69,7 @@ describe('restoreConversation (#140)', function () {
     });
 
     test('does not suppress a genuine assistant message starting with "Changes applied"', function () {
-        var bodies = Array.prototype.slice.call(
-            document.querySelectorAll('#pp-ai-messages .pp-ai-msg-assistant .pp-ai-msg-body')
-        ).map(function (el) { return el.textContent; });
-
-        expect(bodies.some(function (t) { return t.indexOf('nice work on the new job') !== -1; })).toBe(true);
+        expect(getAssistantBodies().some(function (t) { return t.indexOf('nice work on the new job') !== -1; })).toBe(true);
     });
 
     test('renders exactly one assistant bubble (the non-internal one)', function () {
