@@ -466,11 +466,21 @@ function pp_render_style_vars(array $style, string $component_name): string {
  *    "the alphabet is inert" only protects the HTML/CSS transport, not the
  *    SVG document it decodes to.
  *
- * @param string $url  Candidate image source (http(s) URL, relative path, or data: URI).
+ * @param string $url    Candidate image source (http(s) URL, relative path, or data: URI).
+ * @param int    $depth  Internal recursion guard — a nested data: URI found
+ *                        inside an SVG's own href/xlink:href is validated by
+ *                        calling this function again (see
+ *                        _pp_svg_content_is_safe()); this bounds how deeply
+ *                        data URIs can nest inside each other before being
+ *                        rejected outright. Callers never need to pass this.
  * @return string  Safe-to-echo value, or '' if the input is empty or rejected.
  */
-function pp_esc_image_src(string $url): string {
+function pp_esc_image_src(string $url, int $depth = 0): string {
     if ($url === '') {
+        return '';
+    }
+
+    if ($depth > 3) {
         return '';
     }
 
@@ -520,7 +530,7 @@ function pp_esc_image_src(string $url): string {
         }
         if ($mime === 'svg+xml') {
             $decoded = base64_decode($raw_data, true);
-            if ($decoded === false || !_pp_svg_content_is_safe($decoded)) {
+            if ($decoded === false || !_pp_svg_content_is_safe($decoded, $depth)) {
                 return '';
             }
         }
@@ -557,24 +567,29 @@ function pp_esc_image_src(string $url): string {
         return '';
     }
 
-    if ($mime === 'svg+xml' && !_pp_svg_content_is_safe($decoded)) {
+    if ($mime === 'svg+xml' && !_pp_svg_content_is_safe($decoded, $depth)) {
         return '';
     }
 
     // Percent-ENCODE (never strip) every character that's unsafe once
     // embedded in an HTML attribute that also contains an unquoted CSS
-    // url() token: quotes, angle brackets, parens, #, &, backslash, and all
-    // C0 control/whitespace characters (\x00-\x20, which covers space, tab,
-    // newline, and CR in one pass). Backslash matters even though it looks
-    // inert: CSS's own url()-token tokenizer resolves "\XX" backslash
-    // escapes (independent of, and prior to, percent-decoding) while
-    // extracting the token's value — content that is completely inert to
-    // DOMDocument (e.g. a literal "\3c" is just three harmless characters
-    // to an XML parser) can decode to "<" once the browser's CSS tokenizer
-    // processes the surrounding style="...url(...)..." attribute, at the 4
-    // background-image call sites (adversarial review finding).
+    // url() token: quotes, angle brackets, parens, #, &, backslash, DEL
+    // (\x7F), and all C0 control/whitespace characters (\x00-\x20, which
+    // covers space, tab, newline, and CR in one pass). Backslash matters
+    // even though it looks inert: CSS's own url()-token tokenizer resolves
+    // "\XX" backslash escapes (independent of, and prior to,
+    // percent-decoding) while extracting the token's value — content that
+    // is completely inert to DOMDocument (e.g. a literal "\3c" is just
+    // three harmless characters to an XML parser) can decode to "<" once
+    // the browser's CSS tokenizer processes the surrounding
+    // style="...url(...)..." attribute, at the 4 background-image call
+    // sites (adversarial review finding). DEL is also non-printable per
+    // the CSS Syntax spec's unquoted-url-token grammar (adversarial review
+    // finding, low severity — worst case is a broken url() token, not a
+    // context breakout, since every character a "bad url" recovery scan
+    // could otherwise exploit is already excluded here).
     $encoded = preg_replace_callback(
-        '/["\'<>()#&\\\\\x00-\x20]/',
+        '/["\'<>()#&\\\\\x00-\x20\x7F]/',
         function (array $match): string {
             return '%' . strtoupper(bin2hex($match[0]));
         },
@@ -608,7 +623,7 @@ function pp_esc_image_src(string $url): string {
  * entire external-entity/DTD attack surface without depending on getting a
  * specific combination of libxml flags exactly right.
  */
-function _pp_svg_content_is_safe(string $svg): bool {
+function _pp_svg_content_is_safe(string $svg, int $depth = 0): bool {
     if (stripos($svg, '<!doctype') !== false) {
         return false;
     }
@@ -713,24 +728,43 @@ function _pp_svg_content_is_safe(string $svg): bool {
         }
     }
 
-    // <use>/<image> href/xlink:href are fetched during ordinary rendering
-    // too (same "fires for every visitor" reasoning above) — restrict to a
-    // same-document fragment (#id) or a data: URI (already validated as
-    // image-only above); reject any external reference. local-name()='href'
-    // matches both the modern unprefixed `href` and the legacy `xlink:href`
-    // — an XML namespace prefix doesn't change the local name, only the
-    // namespace it resolves to.
-    $ref_elements = ['use', 'image'];
-    foreach ($ref_elements as $name) {
-        $refs = $xpath->query("//*[{$lower_local_name}='{$name}']/@*[{$lower_local_name}='href']");
-        if ($refs === false) {
+    // href/xlink:href are fetched during ordinary rendering on many more
+    // elements than just <use>/<image> — <feImage> (an SVG filter
+    // primitive whose entire purpose is fetching an image resource) has
+    // the exact same semantics and is neither a "dangerous element" nor
+    // named use/image; <pattern>, gradients, and <textPath> can carry the
+    // same reference. Rather than enumerate elements (an open-ended,
+    // easy-to-miss list — the same mistake already made once in this
+    // function for <use>/<image> specifically), every href/xlink:href
+    // attribute in the document is checked regardless of which element
+    // it's on (adversarial review finding). local-name()='href' matches
+    // both the modern unprefixed `href` and the legacy `xlink:href` — an
+    // XML namespace prefix doesn't change the local name, only the
+    // namespace it resolves to. Restrict to a same-document fragment (#id)
+    // or a data: URI; reject any external reference.
+    $href_attrs = $xpath->query("//@*[{$lower_local_name}='href']");
+    if ($href_attrs === false) {
+        return false;
+    }
+    foreach ($href_attrs as $href) {
+        $value = trim((string) $href->nodeValue);
+        if ($value === '' || $value[0] === '#') {
+            continue;
+        }
+        if (stripos($value, 'data:') !== 0) {
             return false;
         }
-        foreach ($refs as $ref) {
-            $value = trim((string) $ref->nodeValue);
-            if ($value !== '' && $value[0] !== '#' && stripos($value, 'data:') !== 0) {
-                return false;
-            }
+        // A nested data: URI (e.g. a <use href="data:image/svg+xml,...">)
+        // is not automatically safe just because it's a data: URI — it
+        // must pass the exact same validation as the outer one, recursively.
+        // Whether <use>'s clone-based reference model treats this content
+        // as inert "image data" or a live, scriptable subtree wasn't
+        // something static analysis could rule out with confidence
+        // (adversarial review finding) — recursing removes the ambiguity
+        // outright rather than shipping an unconfirmed-but-plausible gap in
+        // what this function's own docblock calls the primary XSS defense.
+        if (pp_esc_image_src($value, $depth + 1) === '') {
+            return false;
         }
     }
 

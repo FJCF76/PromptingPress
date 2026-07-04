@@ -590,6 +590,50 @@ class ComponentPropsTest extends TestCase
         $this->assertNotSame('', pp_esc_image_src($payload));
     }
 
+    // ── Fourth-round Claude adversarial review ──────────────────────────────
+
+    public function testEscImageSrcRejectsExternalHrefOnFeImageElement(): void
+    {
+        // <feImage> is an SVG filter primitive whose entire purpose is
+        // fetching an image resource — the same "fires on ordinary render"
+        // exfiltration risk as <use>/<image>, but on a different element
+        // name the original element-scoped fix didn't cover.
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">'
+            . '<filter id="f"><feImage xlink:href="https://evil.test/beacon.png" x="0" y="0" width="10" height="10"/></filter>'
+            . '<rect width="10" height="10" filter="url(#f)"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsNestedDataUriWithOnloadViaUseHref(): void
+    {
+        // A data: URI nested inside a <use href="..."> is validated
+        // recursively — it's not automatically safe just because it's a
+        // data: URI, since <use>'s clone-based reference model might treat
+        // the referenced content as a live, scriptable subtree.
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg">'
+            . '<use href="data:image/svg+xml,%3Csvg%20onload%3D%22alert(1)%22%2F%3E"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcAcceptsSameDocumentFragmentHrefOnPatternElement(): void
+    {
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><defs><pattern id="p"/></defs><rect fill="url(#p)"/></svg>';
+        $this->assertNotSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsExcessiveDataUriNestingDepth(): void
+    {
+        // Recursion depth guard: a data: URI nested inside a use/image href
+        // is validated recursively (see the previous test) — that recursion
+        // must be bounded rather than following an attacker-constructed
+        // chain indefinitely. Exercised directly via the internal $depth
+        // parameter (documented as "callers never need to pass this" —
+        // ordinary callers always start at the default of 0).
+        $svg = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><circle r="5"/></svg>';
+        $this->assertNotSame('', pp_esc_image_src($svg, 0), 'Sanity check: valid at depth 0.');
+        $this->assertSame('', pp_esc_image_src($svg, 4), 'Must reject once the depth cap is exceeded.');
+    }
+
     // ── End-to-end: exact production regression from #36 ────────────────────
 
     public function testHeroSplitVariantRendersDataUriSvgImageSrc(): void
