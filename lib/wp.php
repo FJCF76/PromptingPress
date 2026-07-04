@@ -415,6 +415,97 @@ function pp_render_style_vars(array $style, string $component_name): string {
 }
 
 /**
+ * Safely escapes an image source for output in <img src="..."> or a CSS
+ * background-image:url(...) value embedded in an HTML style attribute.
+ *
+ * esc_url() rejects the 'data' URI scheme entirely (not in WordPress core's
+ * default protocol whitelist), silently reducing any data:image/... value to
+ * an empty string — the exact production bug this closes (#36): a
+ * data:image/svg+xml,... hero image rendered with src="". Even if 'data'
+ * were whitelisted, esc_url()'s general-purpose character-stripping isn't
+ * safe for a raw (non-base64) SVG payload's XML markup (quotes, angle
+ * brackets) — it would mangle the image or, worse, leave characters that
+ * break out of the surrounding HTML attribute / unquoted CSS url() token.
+ *
+ * Non-data URLs are unaffected — this delegates straight to esc_url(),
+ * identical to every call site's prior behavior.
+ *
+ * For data: URIs, this only accepts image/{png,jpeg,jpg,gif,webp,svg+xml} —
+ * never data:text/html or other schemes/types that could be misused outside
+ * an image-rendering context. Base64 payloads are structurally validated
+ * (their alphabet is inert in HTML-attribute and CSS-url() contexts, so no
+ * further encoding is needed). Raw/percent-encoded SVG payloads are checked
+ * for script-executing constructs as defense in depth — modern browsers
+ * already disable script execution for SVGs rendered as an image (via
+ * <img src> or CSS background-image; this is NOT true for <iframe>/<object>,
+ * which this function's callers never use) — then percent-encoded for the
+ * handful of characters that are unsafe once embedded in an HTML attribute
+ * that also contains an unquoted CSS url() token (", ', (, ), #, &, whitespace).
+ *
+ * @param string $url  Candidate image source (http(s) URL, relative path, or data: URI).
+ * @return string  Safe-to-echo value, or '' if the input is empty or rejected.
+ */
+function pp_esc_image_src(string $url): string {
+    if ($url === '') {
+        return '';
+    }
+
+    if (stripos($url, 'data:') !== 0) {
+        return esc_url($url);
+    }
+
+    // Sanity bound against pathologically large inline payloads.
+    if (strlen($url) > 1000000) {
+        return '';
+    }
+
+    if (!preg_match('/^data:image\/(png|jpe?g|gif|webp|svg\+xml)(;charset=[a-z0-9_-]+)?(;base64)?,(.*)$/is', $url, $m)) {
+        return '';
+    }
+
+    $mime      = strtolower($m[1]);
+    $charset   = $m[2];
+    $is_base64 = $m[3] !== '';
+    $payload   = $m[4];
+
+    if ($is_base64) {
+        // Base64 alphabet is inert in both contexts — validate, don't re-encode.
+        if ($payload === '' || !preg_match('/^[A-Za-z0-9+\/]+={0,2}$/', $payload)) {
+            return '';
+        }
+        return 'data:image/' . $mime . $charset . ';base64,' . $payload;
+    }
+
+    $lower = strtolower($payload);
+    $forbidden = ['<script', 'javascript:', '<foreignobject', '<iframe', '<embed', '<object'];
+    foreach ($forbidden as $bad) {
+        if (strpos($lower, $bad) !== false) {
+            return '';
+        }
+    }
+    if (preg_match('/\son\w+\s*=/i', $payload)) {
+        return '';
+    }
+
+    $encoded = strtr($payload, [
+        '"'  => '%22',
+        "'"  => '%27',
+        '<'  => '%3C',
+        '>'  => '%3E',
+        '('  => '%28',
+        ')'  => '%29',
+        '#'  => '%23',
+        '&'  => '%26',
+        ' '  => '%20',
+        "\t" => '%20',
+        "\n" => '',
+        "\r" => '',
+    ]);
+
+    return 'data:image/' . $mime . $charset . ',' . $encoded;
+}
+
+/**
  * Returns all design token overrides from the database.
  * These are site-specific values that override the product defaults in base.css.
  *

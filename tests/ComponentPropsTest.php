@@ -269,4 +269,140 @@ class ComponentPropsTest extends TestCase
             . 'after the shared button was tokenized — otherwise old compositions lose their color.'
         );
     }
+
+    // ── pp_esc_image_src (#36) ───────────────────────────────────────────────
+
+    public function testEscImageSrcEmptyReturnsEmpty(): void
+    {
+        $this->assertSame('', pp_esc_image_src(''));
+    }
+
+    public function testEscImageSrcDelegatesToEscUrlForOrdinaryUrls(): void
+    {
+        $this->assertSame(esc_url('https://example.com/photo.jpg'), pp_esc_image_src('https://example.com/photo.jpg'));
+        $this->assertSame(esc_url('/wp-content/uploads/photo.jpg'), pp_esc_image_src('/wp-content/uploads/photo.jpg'));
+    }
+
+    public function testEscImageSrcAcceptsRawSvgDataUri(): void
+    {
+        $svg = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><circle r="5"/></svg>';
+        $result = pp_esc_image_src($svg);
+        $this->assertNotSame('', $result, 'A well-formed raw SVG data URI must not be rejected outright.');
+        $this->assertStringStartsWith('data:image/svg+xml,', $result);
+        // The dangerous-in-context characters must be percent-encoded...
+        $this->assertStringNotContainsString('"', $result);
+        $this->assertStringNotContainsString('<', $result);
+        $this->assertStringNotContainsString('>', $result);
+        // ...but the meaningful content is preserved (percent-decodes back):
+        // '<' becomes %3C, the quote right after xmlns= becomes %22, and the
+        // '=' itself is left alone (it's safe in both contexts already).
+        $this->assertStringContainsString('%3Csvg', $result);
+        $this->assertStringContainsString('xmlns=%22', $result);
+    }
+
+    public function testEscImageSrcAcceptsBase64PngDataUri(): void
+    {
+        $uri = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB';
+        $this->assertSame($uri, pp_esc_image_src($uri));
+    }
+
+    public function testEscImageSrcAcceptsBase64SvgWithCharset(): void
+    {
+        $uri = 'data:image/svg+xml;charset=utf-8;base64,PHN2Zz48L3N2Zz4=';
+        $this->assertSame($uri, pp_esc_image_src($uri));
+    }
+
+    public function testEscImageSrcRejectsNonImageMimeType(): void
+    {
+        $this->assertSame('', pp_esc_image_src('data:text/html,<script>alert(1)</script>'));
+        $this->assertSame('', pp_esc_image_src('data:application/javascript,alert(1)'));
+    }
+
+    public function testEscImageSrcRejectsUnlistedImageSubtype(): void
+    {
+        // bmp/tiff are real image mime types but not in the allowlist.
+        $this->assertSame('', pp_esc_image_src('data:image/bmp;base64,AAAA'));
+    }
+
+    public function testEscImageSrcRejectsInvalidBase64Payload(): void
+    {
+        $this->assertSame('', pp_esc_image_src('data:image/png;base64,not valid base64!!'));
+        $this->assertSame('', pp_esc_image_src('data:image/png;base64,'));
+    }
+
+    public function testEscImageSrcRejectsEmbeddedScriptTag(): void
+    {
+        $this->assertSame(
+            '',
+            pp_esc_image_src('data:image/svg+xml,<svg><script>alert(document.cookie)</script></svg>')
+        );
+    }
+
+    public function testEscImageSrcRejectsJavascriptUriInSvg(): void
+    {
+        $this->assertSame(
+            '',
+            pp_esc_image_src('data:image/svg+xml,<svg><a href="javascript:alert(1)">x</a></svg>')
+        );
+    }
+
+    public function testEscImageSrcRejectsEventHandlerAttribute(): void
+    {
+        $this->assertSame(
+            '',
+            pp_esc_image_src('data:image/svg+xml,<svg onload="alert(1)"><circle r="5"/></svg>')
+        );
+    }
+
+    public function testEscImageSrcRejectsForeignObjectIframeEmbedObject(): void
+    {
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml,<svg><foreignObject><body>x</body></foreignObject></svg>'));
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml,<svg><iframe src="//evil.test"></iframe></svg>'));
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml,<svg><embed src="//evil.test"></svg>'));
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml,<svg><object data="//evil.test"></object></svg>'));
+    }
+
+    public function testEscImageSrcRejectsOversizedDataUri(): void
+    {
+        $huge = 'data:image/png;base64,' . str_repeat('A', 2000000);
+        $this->assertSame('', pp_esc_image_src($huge));
+    }
+
+    public function testEscImageSrcEncodedResultCannotBreakOutOfHtmlAttribute(): void
+    {
+        // A payload attempting to smuggle an attribute-breakout via a literal
+        // quote must come back with that quote neutralized, not rejected
+        // outright (rejection is reserved for actual script-executing
+        // constructs) — proving the encoded output is safe to concatenate
+        // directly into src="..." with no further escaping.
+        $payload = 'data:image/svg+xml,<svg data-x="y"><circle r="5"/></svg>';
+        $result = pp_esc_image_src($payload);
+        $this->assertStringNotContainsString('"', $result);
+    }
+
+    // ── End-to-end: exact production regression from #36 ────────────────────
+
+    public function testHeroSplitVariantRendersDataUriSvgImageSrc(): void
+    {
+        $svg = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>';
+        $html = $this->render('hero', [
+            'title' => 'Welcome',
+            'variant' => 'split',
+            'image_url' => $svg,
+        ]);
+        $this->assertStringNotContainsString('src=""', $html, 'The exact #36 production regression: src="" instead of the data URI.');
+        $this->assertMatchesRegularExpression('/src="data:image\/svg\+xml,[^"]*"/', $html);
+    }
+
+    public function testHeroCoverVariantRendersDataUriSvgBackgroundImage(): void
+    {
+        $svg = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>';
+        $html = $this->render('hero', [
+            'title' => 'Welcome',
+            'variant' => 'cover',
+            'image_url' => $svg,
+        ]);
+        $this->assertStringContainsString('background-image:url(data:image/svg+xml,', $html);
+        $this->assertStringNotContainsString('background-image:url();', $html);
+    }
 }

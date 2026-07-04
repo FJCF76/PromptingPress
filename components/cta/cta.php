@@ -46,7 +46,7 @@ if ($slot_style) {
     $inline_styles[] = $slot_style;
 }
 if ($background_image) {
-    $inline_styles[] = 'background-image:url(' . esc_url($background_image) . ')';
+    $inline_styles[] = 'background-image:url(' . pp_esc_image_src($background_image) . ')';
 }
 $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"' : '';
 
