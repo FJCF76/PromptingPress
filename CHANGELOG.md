@@ -4,6 +4,17 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.15] — 2026-07-04 — Fix: Resetting Design Tokens Is No Longer a One-Way Trip
+
+**Run `wp pp apply reset` to clear a design token override (or wipe them all back to defaults), and there was no way to undo it.** `wp pp apply restore` — the command that's supposed to undo any token change made during a run — had nothing to work with, because `reset` never told it what it had just cleared. Ask an AI agent to reset a token, watch it reset *every* token by mistake, and the only way back was re-entering every value by hand. Every other token mutation (`apply execute`) already recorded what it touched so `restore` could revert it; `reset` was the one gap.
+
+### Fixed
+- `wp pp apply reset` (single-token and reset-all) now records what it cleared, the same way `wp pp apply execute` already does — so `wp pp apply restore` can bring a reset back within the same run, instead of being a dead end.
+- `wp pp apply reset` now also requires a valid rollback snapshot before it's allowed to run at all, matching `apply execute`'s existing safety check — the same protection that stops an unrecoverable mistake before it happens, not just after.
+
+### For contributors
+- 4 new PHPUnit tests covering the full round trip (override → reset → restore) for both single-token and reset-all, plus a test pinning that `reset`'s touched-token recording unions with — rather than overwrites — anything `execute` already recorded earlier in the same run.
+
 ## [v0.16.14] — 2026-07-04 — Fix: Inline SVG Images No Longer Vanish From Your Page
 
 **Set an image field to an inline SVG — a `data:image/svg+xml,...` value, the kind an AI naturally produces when generating a quick icon or graphic on the fly — and it used to just disappear.** Hero backgrounds, grid images, logo strips, section images: any component with an image slot would silently render with no image at all, no error, nothing to click on. WordPress's own URL-safety function throws out `data:` URIs entirely, on the reasonable assumption that most of them aren't real image URLs — but that meant a legitimate, self-contained inline image was treated exactly like a broken link. Regular image URLs (`https://...`, uploaded media) were never affected.

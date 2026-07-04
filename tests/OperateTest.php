@@ -1631,6 +1631,88 @@ class OperateTest extends TestCase
         pp_operate_cleanup_run($run_id);
     }
 
+    // ── apply reset rollback trail (#122) ──────────────────────────────────
+
+    public function testApplyResetRecordsTouchedTokensRestorableViaRevert(): void
+    {
+        // Reproduces the fix in PP_Apply_Command::reset(): after a successful
+        // reset, the cleared token names are recorded as touched the same way
+        // execute() records its writes, so pp_revert_tokens() (restore's
+        // underlying primitive) can bring the override back.
+        pp_set_token_override('--color-accent', '#b45309');
+        $run_id = pp_operate_create_run();
+        pp_operate_record_token_snapshot($run_id, pp_get_token_overrides());
+
+        $result = pp_execute_apply('reset_design_token', ['token' => '--color-accent']);
+        $this->assertTrue($result['ok']);
+        $this->assertArrayNotHasKey('--color-accent', pp_get_token_overrides());
+
+        $touched = array_column($result['changes'], 'token');
+        $this->assertTrue(pp_operate_record_touched_tokens($run_id, $touched));
+        $this->assertSame(['--color-accent'], pp_operate_get_touched_tokens($run_id));
+
+        $snapshot = pp_operate_get_token_snapshot($run_id);
+        $this->assertTrue(pp_revert_tokens($snapshot, pp_operate_get_touched_tokens($run_id)));
+        $this->assertSame('#b45309', pp_get_token_overrides()['--color-accent']);
+
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testApplyResetAllRecordsEveryClearedTokenRestorableViaRevert(): void
+    {
+        pp_set_token_override('--color-accent', '#b45309');
+        pp_set_token_override('--font-heading', 'Georgia, serif');
+        $run_id = pp_operate_create_run();
+        pp_operate_record_token_snapshot($run_id, pp_get_token_overrides());
+
+        $result = pp_execute_apply('reset_all_design_tokens', []);
+        $this->assertTrue($result['ok']);
+        $this->assertSame([], pp_get_token_overrides());
+
+        $touched = array_column($result['changes'], 'token');
+        pp_operate_record_touched_tokens($run_id, $touched);
+        $this->assertEqualsCanonicalizing(
+            ['--color-accent', '--font-heading'],
+            pp_operate_get_touched_tokens($run_id)
+        );
+
+        $snapshot = pp_operate_get_token_snapshot($run_id);
+        $this->assertTrue(pp_revert_tokens($snapshot, pp_operate_get_touched_tokens($run_id)));
+        $overrides = pp_get_token_overrides();
+        $this->assertSame('#b45309', $overrides['--color-accent']);
+        $this->assertSame('Georgia, serif', $overrides['--font-heading']);
+
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testApplyResetWithoutRollbackableSnapshotWouldBeRefused(): void
+    {
+        // The pre-gate added to reset() mirrors execute(): pp_operate_run_rollbackable()
+        // must be true before any mutation is allowed. A run that never captured a
+        // snapshot (no preflight) must fail this check.
+        $run_id = pp_operate_create_run();
+        $this->assertFalse(pp_operate_run_rollbackable($run_id));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testApplyResetMergesTouchedTokensWithPriorExecuteInSameRun(): void
+    {
+        // If execute() already recorded touched tokens earlier in the same run,
+        // reset() recording its own touched tokens must merge (union), not
+        // overwrite — otherwise restore would lose the earlier execute()'s
+        // footprint. pp_operate_record_touched_tokens() dedups/unions by design;
+        // this pins that reset()'s call site doesn't accidentally rely on
+        // replace semantics.
+        $run_id = pp_operate_create_run();
+        pp_operate_record_touched_tokens($run_id, ['--color-accent']);
+        pp_operate_record_touched_tokens($run_id, ['--font-heading']);
+        $this->assertSame(
+            ['--color-accent', '--font-heading'],
+            pp_operate_get_touched_tokens($run_id)
+        );
+        pp_operate_cleanup_run($run_id);
+    }
+
     public function testGetTokenSnapshotLeavesCorruptFileIntact(): void
     {
         $fake_id = wp_generate_uuid4();
