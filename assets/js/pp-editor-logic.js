@@ -503,6 +503,8 @@ function formatDiffsForIssue(diffs, pageTitle, postId) {
  * @returns {string}  Truncated preview text, or '' if nothing usable.
  */
 function getCollapsedRowPreview(compData) {
+    if (!compData || !Array.isArray(compData.fields)) return '';
+
     var TRUNCATE_AT = 40;
     var truncate = function (v) {
         var s = String(v);

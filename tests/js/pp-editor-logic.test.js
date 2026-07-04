@@ -498,6 +498,26 @@ describe('getCollapsedRowPreview (#76)', () => {
         expect(preview).toBe('A'.repeat(40) + '…');
     });
 
+    test('a value exactly 40 characters long is returned verbatim, no ellipsis', () => {
+        const exactTitle = 'A'.repeat(40);
+        const json = JSON.stringify([{ component: 'grid', props: { title: exactTitle, items: [] } }]);
+        const result = buildAccordionData(json, REGISTRY);
+        expect(getCollapsedRowPreview(result.components[0])).toBe(exactTitle);
+    });
+
+    test('a value one character over 40 is truncated to 40 + ellipsis', () => {
+        const overTitle = 'A'.repeat(41);
+        const json = JSON.stringify([{ component: 'grid', props: { title: overTitle, items: [] } }]);
+        const result = buildAccordionData(json, REGISTRY);
+        expect(getCollapsedRowPreview(result.components[0])).toBe('A'.repeat(40) + '…');
+    });
+
+    test('missing or malformed fields array returns empty string, not a crash', () => {
+        expect(getCollapsedRowPreview({})).toBe('');
+        expect(getCollapsedRowPreview({ fields: [] })).toBe('');
+        expect(getCollapsedRowPreview(null)).toBe('');
+    });
+
     test('a non-title required field is preferred over no title field (unknown component)', () => {
         // Constructed directly (not via a schema) to prove the fallback path
         // still works for components with no 'title' field but a different
