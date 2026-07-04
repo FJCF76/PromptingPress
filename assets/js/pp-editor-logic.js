@@ -486,6 +486,44 @@ function formatDiffsForIssue(diffs, pageTitle, postId) {
     return lines.join('\n');
 }
 
+/**
+ * Picks the label shown after the component type in a collapsed accordion
+ * row, e.g. `grid — Our WordPress Services`.
+ *
+ * Prefers a field literally named `title` when it has a value, regardless of
+ * whether the component's schema marks it required — most components (grid,
+ * faq, section, stats, table, logos, embed) declare `title` as optional
+ * ("omit if context makes it clear"), but it's still the best available
+ * label whenever it's actually set (#76). Only `cta` and `hero` mark `title`
+ * required, which is why hero already worked before this fix — falling back
+ * to the first required string field (e.g. cta's/hero's own required title,
+ * or a component with no title field at all) preserves that exact behavior.
+ *
+ * @param {{ fields: Array<{name: string, type: string, required: boolean, value: *}> }} compData
+ * @returns {string}  Truncated preview text, or '' if nothing usable.
+ */
+function getCollapsedRowPreview(compData) {
+    var TRUNCATE_AT = 40;
+    var truncate = function (v) {
+        var s = String(v);
+        return s.length > TRUNCATE_AT ? s.slice(0, TRUNCATE_AT) + '\u2026' : s;
+    };
+
+    for (var i = 0; i < compData.fields.length; i++) {
+        var titleField = compData.fields[i];
+        if (titleField.name === 'title' && titleField.type === 'string' && titleField.value) {
+            return truncate(titleField.value);
+        }
+    }
+    for (var j = 0; j < compData.fields.length; j++) {
+        var f = compData.fields[j];
+        if (f.required && f.type === 'string' && f.value) {
+            return truncate(f.value);
+        }
+    }
+    return '';
+}
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 var _logic = {
@@ -498,6 +536,7 @@ var _logic = {
     deepDiff:                       deepDiff,
     checkSerializationInvariant:    checkSerializationInvariant,
     formatDiffsForIssue:            formatDiffsForIssue,
+    getCollapsedRowPreview:         getCollapsedRowPreview,
 };
 
 /* istanbul ignore next */
