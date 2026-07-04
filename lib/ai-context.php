@@ -278,6 +278,7 @@ function pp_ai_media_inventory(int $limit = 50): array {
     $attachments = get_posts([
         'post_type'      => 'attachment',
         'post_status'    => 'inherit',
+        'post_mime_type' => 'image',
         'posts_per_page' => $limit,
         'orderby'        => 'date',
         'order'          => 'DESC',

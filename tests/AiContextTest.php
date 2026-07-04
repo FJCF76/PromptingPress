@@ -285,6 +285,52 @@ class AiContextTest extends TestCase
         $this->assertStringNotContainsString('alt="', $prompt);
     }
 
+    public function testMediaInventoryExcludesNonImageAttachments(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][60] = [
+            'post_type'      => 'attachment',
+            'post_status'    => 'inherit',
+            'post_mime_type' => 'image/jpeg',
+        ];
+        $GLOBALS['_pp_test_store']['posts'][61] = [
+            'post_type'      => 'attachment',
+            'post_status'    => 'inherit',
+            'post_mime_type' => 'application/pdf',
+        ];
+
+        $media = pp_ai_media_inventory();
+
+        $ids = array_column($media, 'id');
+        $this->assertContains(60, $ids);
+        $this->assertNotContains(61, $ids);
+    }
+
+    public function testMediaInventoryExcludesVideoAndAudioAttachments(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][62] = [
+            'post_type'      => 'attachment',
+            'post_status'    => 'inherit',
+            'post_mime_type' => 'image/png',
+        ];
+        $GLOBALS['_pp_test_store']['posts'][63] = [
+            'post_type'      => 'attachment',
+            'post_status'    => 'inherit',
+            'post_mime_type' => 'video/mp4',
+        ];
+        $GLOBALS['_pp_test_store']['posts'][64] = [
+            'post_type'      => 'attachment',
+            'post_status'    => 'inherit',
+            'post_mime_type' => 'audio/mpeg',
+        ];
+
+        $media = pp_ai_media_inventory();
+
+        $ids = array_column($media, 'id');
+        $this->assertContains(62, $ids);
+        $this->assertNotContains(63, $ids);
+        $this->assertNotContains(64, $ids);
+    }
+
     // ── Component Summary ────────────────────────────────────────────────
 
     public function testSummarizeComponentIncludesVariant(): void
