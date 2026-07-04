@@ -4,6 +4,16 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.5] — 2026-07-04 — Fix: Pages with Accented or Non-English Filenames No Longer Fail Validation
+
+**If an AI-applied change touched an image with an accented or non-English filename — common on Spanish, French, or other non-English sites — the chat reported "Changes applied but rendered page validation failed... missing media" for a page that was actually completely fine.** The validator that checks a page after an edit was misreading the filename's special characters, so it looked for a file that didn't exist under that garbled name instead of the real one already sitting in the Media Library.
+
+### Fixed
+- Post-apply page validation now reads image and link filenames correctly regardless of accented characters or other non-ASCII text, eliminating false "missing media" failures after otherwise-successful AI edits.
+
+### For contributors
+- Added regression tests covering a multibyte filename and a component whose rendered output could otherwise re-trigger the mis-read.
+
 ## [v0.16.4] — 2026-07-04 — Fix: Editing a CTA Button or Card Link Through Chat Actually Works Now
 
 **Asking the AI to change a CTA button's text or URL, or a grid card's link, previously either silently did nothing or told you the field couldn't be edited — for opposite reasons.** The internal map of "which fields can be edited by name" had drifted from the real component props: it listed fields the CTA and grid components don't have (so editing them wrote data nothing ever reads, and reported success) and left out the fields they actually use (so editing the *real* button text or link failed with "not editable"). Both are now correct — CTA's title/text/button text/button URL and grid cards' title/text/link text/link URL are all editable, and the AI's picture of what's currently in those fields is now accurate too.
