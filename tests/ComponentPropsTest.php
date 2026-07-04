@@ -552,6 +552,44 @@ class ComponentPropsTest extends TestCase
         $this->assertSame('', pp_esc_image_src($payload));
     }
 
+    // ── Third-round Codex review: empirically confirmed in a real browser
+    // (Playwright/Chromium) that these attributes trigger real network
+    // requests to an external host during ORDINARY rendering — no click,
+    // no top-level navigation required ────────────────────────────────────
+
+    public function testEscImageSrcRejectsExternalUrlInStyleFilter(): void
+    {
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><rect style="filter:url(https://evil.test/filter.svg#f)"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsExternalUrlInFilterAttribute(): void
+    {
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><rect filter="url(https://evil.test/filter.svg#f)"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsExternalUrlInFillAttribute(): void
+    {
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><rect fill="url(https://evil.test/pattern.svg#p)"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsExternalUrlInStyleCursor(): void
+    {
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><rect style="cursor:url(https://evil.test/cursor.png), auto"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcAcceptsSameDocumentFragmentUrlInFillAttribute(): void
+    {
+        // fill="url(#gradientId)" referencing a locally-defined gradient is
+        // an extremely common, legitimate SVG pattern and must not be
+        // rejected.
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g"/></defs><rect fill="url(#g)"/></svg>';
+        $this->assertNotSame('', pp_esc_image_src($payload));
+    }
+
     // ── End-to-end: exact production regression from #36 ────────────────────
 
     public function testHeroSplitVariantRendersDataUriSvgImageSrc(): void

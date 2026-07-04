@@ -657,14 +657,69 @@ function _pp_svg_content_is_safe(string $svg): bool {
         }
     }
 
+    // Event-handler attributes (onload, onclick, ...), any element/namespace.
+    $on_attrs = $xpath->query("//@*[starts-with({$lower_local_name}, 'on')]");
+    if ($on_attrs === false || $on_attrs->length > 0) {
+        return false;
+    }
+
+    $all_attrs = $xpath->query('//@*');
+    if ($all_attrs === false) {
+        return false;
+    }
+    foreach ($all_attrs as $attr) {
+        $value = (string) $attr->nodeValue;
+
+        // SVG has many presentation attributes/CSS properties that reference
+        // another resource via a CSS-style url(...) wrapper — fill, stroke,
+        // filter, mask, clip-path, marker-start/mid/end, and cursor (usually
+        // via a style="..." attribute) among them. All of these are applied
+        // during ORDINARY rendering (fetched for every visitor, not gated
+        // behind a click or top-level navigation) — confirmed empirically
+        // against a real browser (adversarial review: style="filter:url(...)",
+        // filter="url(...)", fill="url(...)", and style="cursor:url(...)"
+        // all triggered real network requests to an external host when
+        // rendered). Rather than enumerate every attribute name that can
+        // carry a url() reference (an open-ended, easy-to-miss list), every
+        // attribute value is scanned generically for the url(...) pattern
+        // and any reference that isn't a same-document fragment or a
+        // data: URI is rejected.
+        if (preg_match_all('/url\(\s*[\'"]?([^\'")]*)[\'"]?\s*\)/i', $value, $url_matches)) {
+            foreach ($url_matches[1] as $ref) {
+                $ref = trim($ref);
+                if ($ref !== '' && $ref[0] !== '#' && stripos($ref, 'data:') !== 0) {
+                    return false;
+                }
+            }
+        }
+
+        // Dangerous URI schemes in any attribute value (href, xlink:href,
+        // etc.) — already-entity-resolved by the parser, so no separate
+        // decoding needed. Tab/newline/CR are stripped before the prefix
+        // check because browser URL parsing strips them from anywhere in a
+        // URL string (a well-known normalization step, not unique to this
+        // codebase) — "java&#x0A;script:" resolves to "javascript:" at
+        // navigation time even though the DOM attribute value still has the
+        // embedded newline (adversarial review finding). data:text/html (or
+        // any non-image data: scheme) is rejected alongside javascript: — a
+        // nested <a href> inside an already-opened SVG is a real, if
+        // lower-likelihood, escalation path.
+        $normalized = preg_replace('/[\t\n\r]/', '', $value);
+        if (preg_match('/^\s*javascript:/i', $normalized)) {
+            return false;
+        }
+        if (preg_match('/^\s*data:(?!image\/)/i', $normalized)) {
+            return false;
+        }
+    }
+
     // <use>/<image> href/xlink:href are fetched during ordinary rendering
-    // too (same "fires for every visitor" reasoning as <style> above) — a
-    // tracking-pixel-style resource load, no click or top-level navigation
-    // required. Restrict to a same-document fragment (#id) or a data: URI;
-    // reject any external reference.
-    // local-name()='href' matches both the modern unprefixed `href` and the
-    // legacy `xlink:href` — an XML namespace prefix doesn't change the
-    // local name, only the namespace it resolves to.
+    // too (same "fires for every visitor" reasoning above) — restrict to a
+    // same-document fragment (#id) or a data: URI (already validated as
+    // image-only above); reject any external reference. local-name()='href'
+    // matches both the modern unprefixed `href` and the legacy `xlink:href`
+    // — an XML namespace prefix doesn't change the local name, only the
+    // namespace it resolves to.
     $ref_elements = ['use', 'image'];
     foreach ($ref_elements as $name) {
         $refs = $xpath->query("//*[{$lower_local_name}='{$name}']/@*[{$lower_local_name}='href']");
@@ -676,36 +731,6 @@ function _pp_svg_content_is_safe(string $svg): bool {
             if ($value !== '' && $value[0] !== '#' && stripos($value, 'data:') !== 0) {
                 return false;
             }
-        }
-    }
-
-    // Event-handler attributes (onload, onclick, ...), any element/namespace.
-    $on_attrs = $xpath->query("//@*[starts-with({$lower_local_name}, 'on')]");
-    if ($on_attrs === false || $on_attrs->length > 0) {
-        return false;
-    }
-
-    // Dangerous URI schemes in any attribute value (href, xlink:href, etc.)
-    // — already-entity-resolved by the parser, so no separate decoding
-    // needed. Tab/newline/CR are stripped before the prefix check because
-    // browser URL parsing strips them from anywhere in a URL string (a
-    // well-known normalization step, not unique to this codebase) —
-    // "java&#x0A;script:" resolves to "javascript:" at navigation time even
-    // though the DOM attribute value still has the embedded newline
-    // (adversarial review finding). data:text/html (or any non-image data:
-    // scheme) is rejected alongside javascript: — a nested <a href> inside
-    // an already-opened SVG is a real, if lower-likelihood, escalation path.
-    $all_attrs = $xpath->query('//@*');
-    if ($all_attrs === false) {
-        return false;
-    }
-    foreach ($all_attrs as $attr) {
-        $normalized = preg_replace('/[\t\n\r]/', '', (string) $attr->nodeValue);
-        if (preg_match('/^\s*javascript:/i', $normalized)) {
-            return false;
-        }
-        if (preg_match('/^\s*data:(?!image\/)/i', $normalized)) {
-            return false;
         }
     }
 
