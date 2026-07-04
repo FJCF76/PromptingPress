@@ -138,6 +138,19 @@ class GuardrailsTest extends TestCase
         $this->assertSame([], pp_validate_composition_styling([]));
     }
 
+    public function testStylingSkipsNonArrayItems(): void
+    {
+        // Regression (#119 follow-up): a malformed/corrupted composition
+        // decoded from JSON can contain non-array elements (e.g. a scalar
+        // from truncated storage). Non-array items must be skipped rather
+        // than indexed into, mirroring pp_check_nav_readiness's guard.
+        $composition = [
+            'not-an-array',
+            ['component' => 'section', 'props' => ['body' => 'A']],
+        ];
+        $this->assertSame([], pp_validate_composition_styling($composition));
+    }
+
     public function testSingleComponentWithoutIdNotFlagged(): void
     {
         $composition = [
@@ -280,6 +293,19 @@ class GuardrailsTest extends TestCase
     public function testSmellsEmptyCompositionReturnsNoWarnings(): void
     {
         $this->assertSame([], pp_validate_composition_smells([]));
+    }
+
+    public function testSmellsSkipsNonArrayItems(): void
+    {
+        // Regression (#119 follow-up): a malformed/corrupted composition
+        // decoded from JSON can contain non-array elements. Non-array items
+        // must be skipped rather than indexed into (string-offset access
+        // would otherwise coerce garbage into $props/$variant/$image_url).
+        $composition = [
+            'not-an-array',
+            ['component' => 'hero', 'props' => ['variant' => 'left', 'image_url' => '/img/x.jpg']],
+        ];
+        $this->assertSame([], pp_validate_composition_smells($composition));
     }
 
     public function testSmellsHeroLeftNoImageTriggersWarning(): void

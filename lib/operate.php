@@ -156,8 +156,12 @@ function pp_inspect_site(?int $post_id = null): array {
 
     $smells = [];
     if ($post_id !== null) {
-        $composition = get_post_meta($post_id, '_pp_composition', true);
-        if (is_array($composition) && !empty($composition)) {
+        // Read through the canonical accessor: normal storage is a JSON string
+        // (pp_update_composition), so a raw get_post_meta + is_array() check
+        // always reports empty for real pages. See lib/operate.php preflight
+        // check 6 for the same pattern.
+        $composition = pp_get_composition($post_id);
+        if (!empty($composition)) {
             $smells = pp_validate_composition_smells($composition);
         }
     }

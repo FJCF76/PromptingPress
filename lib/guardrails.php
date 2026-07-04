@@ -233,8 +233,14 @@ function pp_validate_composition_styling(array $composition): array {
     $type_map = [];
 
     foreach ($composition as $i => $item) {
+        // Defensive: a malformed composition that bypassed validation may
+        // carry non-array items or props, so guard both before indexing.
+        if (!is_array($item)) {
+            continue;
+        }
         $component = $item['component'] ?? '';
-        $has_id    = !empty($item['props']['id']);
+        $props     = is_array($item['props'] ?? null) ? $item['props'] : [];
+        $has_id    = !empty($props['id']);
 
         if (!$has_id) {
             $type_map[$component][] = $i;
@@ -269,7 +275,12 @@ function pp_validate_composition_smells(array $composition): array {
     $consecutive_text_only = 0;
 
     foreach ($composition as $i => $item) {
-        $props = $item['props'] ?? [];
+        // Defensive: a malformed composition that bypassed validation may
+        // carry non-array items or props, so guard both before indexing.
+        if (!is_array($item)) {
+            continue;
+        }
+        $props = is_array($item['props'] ?? null) ? $item['props'] : [];
         $component = $item['component'] ?? '';
         $variant = $props['variant'] ?? 'centered';
         $image_url = $props['image_url'] ?? '';
