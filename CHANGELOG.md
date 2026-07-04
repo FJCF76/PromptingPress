@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.8] — 2026-07-04 — Fix: The AI Chat Can No Longer Turn a PDF Into a "Photo"
+
+**The AI chat's media picker used to tell the model every file in your Media Library — PDFs, videos, audio — was an "available image" and to copy its URL exactly.** Ask for a hero photo, and it could hand back a brochure PDF as `image_url`, which the page would happily try to render as a broken `<img>`. The media list now only ever shows real, displayable images (SVGs included — WordPress doesn't treat those as renderable images either). And the same check that used to live only in the chat's "run this" button now runs everywhere an action can be executed — the WP-CLI automation path and the composition-patch tool included — so a non-image URL gets rejected no matter which door it comes through.
+
+### Fixed
+- The AI chat's media inventory only lists genuine, renderable images — no more PDFs, videos, or audio files mislabeled as "available images."
+- Any action that would write a non-image URL into an `image_url` or `background_image` field is now rejected before anything is saved, whether it's triggered from the chat, WP-CLI, or the composition-patch tool — not just the chat's own execute button.
+
+### For contributors
+- 12 new PHP tests covering the inventory filter, the execute-time image check (including the SVG mismatch case and a direct `pp_execute_action()` call that bypasses the AJAX layer entirely), and a hardened `$wpdb` test stub that actually verifies the queried URL instead of always returning a fixed match.
+- Filed follow-ups for three narrower gaps found during review: relative/CDN media URLs bypassing the check entirely (#153), the image-prop allowlist being hand-maintained instead of schema-driven (#154), and the nav/footer logo picker lacking the same explicit image-type check the site-logo option already has (#155).
+
 ## [v0.16.7] — 2026-07-04 — Fix: Nonsensical Spacing/Size Values Are Now Actually Rejected
 
 **A design-token or style-slot value like `calc(px)` or `calc((rem) + 1px)` — missing the number that should go with the unit — used to be accepted as "changed successfully," but the browser just silently threw the value away, so nothing on the page actually moved.** The check meant to catch exactly this kind of malformed value existed in the code but was never wired up — it evaluated a condition and then did nothing with the answer. Now it's enforced: a `calc()` or `clamp()` value has to have a real number attached to every size unit, or the change is rejected up front instead of quietly doing nothing.

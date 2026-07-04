@@ -28,7 +28,7 @@ class AiChatHandlersTest extends TestCase
 
     protected function tearDown(): void
     {
-        unset($GLOBALS['_pp_test_user_caps']);
+        unset($GLOBALS['_pp_test_user_caps'], $GLOBALS['wpdb']);
         parent::tearDown();
     }
 
@@ -643,5 +643,117 @@ class AiChatHandlersTest extends TestCase
         $actions = pp_get_registered_actions();
         $this->assertArrayHasKey('update_component', $actions);
         $this->assertArrayNotHasKey('impact_warning', $actions['update_component']);
+    }
+
+    // ── Media URL Validation (#124 defense in depth) ────────────────────────
+    // _pp_validate_media_urls_in_params() itself now lives in lib/actions.php
+    // (wired into pp_validate_action(), the shared choke point for AJAX/CLI/
+    // operate.php) — kept tested here since these tests predate the move and
+    // the AI chat AJAX execute handler is still the primary caller in spirit.
+
+    private function seedAttachment(int $id, string $url, bool $isImage): void
+    {
+        $GLOBALS['_pp_test_store']['attachment_urls'][$id] = $url;
+        $GLOBALS['_pp_test_store']['attachment_is_image'][$id] = $isImage;
+    }
+
+    public function testValidateMediaUrlsAcceptsRealImageUrl(): void
+    {
+        $this->seedAttachment(70, 'https://example.com/wp-content/uploads/photo.jpg', true);
+
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => 'https://example.com/wp-content/uploads/photo.jpg'],
+        ]);
+
+        $this->assertTrue($result);
+    }
+
+    public function testValidateMediaUrlsRejectsUrlForNonImageAttachment(): void
+    {
+        // The attachment exists in the media library, but it's a PDF —
+        // pp_ai_media_inventory() would never have listed it as an image,
+        // but nothing stops the model from proposing the URL anyway (#124).
+        $this->seedAttachment(71, 'https://example.com/wp-content/uploads/brochure.pdf', false);
+
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => 'https://example.com/wp-content/uploads/brochure.pdf'],
+        ]);
+
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_media_url', $result->get_error_code());
+        $this->assertStringContainsString('does not point to an image', $result->get_error_message());
+    }
+
+    public function testValidateMediaUrlsRejectsUnknownUploadsUrl(): void
+    {
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['background_image' => 'https://example.com/wp-content/uploads/ghost.jpg'],
+        ]);
+
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_media_url', $result->get_error_code());
+        $this->assertStringContainsString('does not match any file', $result->get_error_message());
+    }
+
+    public function testValidateMediaUrlsRejectsUnknownUrlWithoutWpdbGlobal(): void
+    {
+        // No $wpdb global at all (the default unit-test state) — the guid
+        // fallback must degrade to "no match" rather than fatal.
+        $this->assertArrayNotHasKey('wpdb', $GLOBALS);
+
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => 'https://example.com/wp-content/uploads/ghost.jpg'],
+        ]);
+
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_media_url', $result->get_error_code());
+    }
+
+    public function testValidateMediaUrlsPassesThroughExternalUrls(): void
+    {
+        // URLs outside the uploads directory (external images) are not
+        // checked against the media library at all.
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => 'https://cdn.example.net/some-photo.jpg'],
+        ]);
+
+        $this->assertTrue($result);
+    }
+
+    public function testValidateMediaUrlsFallsBackToGuidLookup(): void
+    {
+        // attachment_url_to_postid() misses (e.g. a scaled/rewritten URL),
+        // but the guid fallback query resolves it by the exact URL queried —
+        // not just any seeded value (the stub's prepare()/get_var() actually
+        // parse the guid out of the query, so this proves the right URL was
+        // asked for, not merely that the fallback path ran at all).
+        // $wpdb only needs to be a real object for this one test — see
+        // bootstrap.php's note on why it isn't installed globally by default.
+        $GLOBALS['wpdb'] = new wpdb();
+        $GLOBALS['_pp_test_store']['wpdb_guid_map']['https://example.com/wp-content/uploads/legacy.jpg'] = 72;
+        $GLOBALS['_pp_test_store']['attachment_is_image'][72] = true;
+
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => 'https://example.com/wp-content/uploads/legacy.jpg'],
+        ]);
+
+        $this->assertTrue($result);
+    }
+
+    public function testValidateMediaUrlsGuidLookupRejectsMismatchedUrl(): void
+    {
+        // The guid map has an entry, but for a DIFFERENT URL than the one
+        // being validated — proves the fallback actually queries by the
+        // requested guid rather than returning any configured match.
+        $GLOBALS['wpdb'] = new wpdb();
+        $GLOBALS['_pp_test_store']['wpdb_guid_map']['https://example.com/wp-content/uploads/other-file.jpg'] = 72;
+
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => 'https://example.com/wp-content/uploads/legacy.jpg'],
+        ]);
+
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_media_url', $result->get_error_code());
+        $this->assertStringContainsString('does not match any file', $result->get_error_message());
     }
 }

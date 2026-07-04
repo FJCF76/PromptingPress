@@ -210,6 +210,7 @@ class AiContextTest extends TestCase
             'post_status'    => 'inherit',
             'post_mime_type' => 'image/jpeg',
         ];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][50] = true;
 
         $prompt = pp_ai_system_prompt();
         $this->assertStringContainsString('## Media Library', $prompt);
@@ -223,6 +224,7 @@ class AiContextTest extends TestCase
             'post_status'    => 'inherit',
             'post_mime_type' => 'image/jpeg',
         ];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][51] = true;
 
         $prompt = pp_ai_system_prompt();
         // Stubs return: filename = "image-51.jpg", url = "https://example.com/wp-content/uploads/image-51.jpg", dims = 1200x800
@@ -255,6 +257,7 @@ class AiContextTest extends TestCase
             'post_status'    => 'inherit',
             'post_mime_type' => 'image/png',
         ];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][52] = true;
         // Override wp_get_attachment_metadata to return null dims
         // The stub returns ['width' => 1200, 'height' => 800] by default.
         // We test via pp_ai_media_inventory directly with a crafted item.
@@ -278,11 +281,80 @@ class AiContextTest extends TestCase
             'post_status'    => 'inherit',
             'post_mime_type' => 'image/jpeg',
         ];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][53] = true;
 
         $prompt = pp_ai_system_prompt();
         // The bootstrap stub for get_post_meta returns '' for _wp_attachment_image_alt
         // (since nothing is seeded), so alt should be empty → no alt= in output
         $this->assertStringNotContainsString('alt="', $prompt);
+    }
+
+    public function testMediaInventoryExcludesNonImageAttachments(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][60] = [
+            'post_type'      => 'attachment',
+            'post_status'    => 'inherit',
+            'post_mime_type' => 'image/jpeg',
+        ];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][60] = true;
+        $GLOBALS['_pp_test_store']['posts'][61] = [
+            'post_type'      => 'attachment',
+            'post_status'    => 'inherit',
+            'post_mime_type' => 'application/pdf',
+        ];
+
+        $media = pp_ai_media_inventory();
+
+        $ids = array_column($media, 'id');
+        $this->assertContains(60, $ids);
+        $this->assertNotContains(61, $ids);
+    }
+
+    public function testMediaInventoryExcludesSvgAttachments(): void
+    {
+        // image/svg+xml matches the 'image' mime-type prefix filter, but WordPress
+        // core's wp_attachment_is_image() rejects SVGs (not a "displayable" raster
+        // image). If the inventory listed it anyway, the model would be told it's
+        // an "available image" and then have the exact same URL rejected by
+        // _pp_validate_media_urls_in_params() at execute time (#124 follow-up
+        // found during adversarial review). Both paths must agree.
+        $GLOBALS['_pp_test_store']['posts'][65] = [
+            'post_type'      => 'attachment',
+            'post_status'    => 'inherit',
+            'post_mime_type' => 'image/svg+xml',
+        ];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][65] = false;
+
+        $media = pp_ai_media_inventory();
+
+        $this->assertNotContains(65, array_column($media, 'id'));
+    }
+
+    public function testMediaInventoryExcludesVideoAndAudioAttachments(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][62] = [
+            'post_type'      => 'attachment',
+            'post_status'    => 'inherit',
+            'post_mime_type' => 'image/png',
+        ];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][62] = true;
+        $GLOBALS['_pp_test_store']['posts'][63] = [
+            'post_type'      => 'attachment',
+            'post_status'    => 'inherit',
+            'post_mime_type' => 'video/mp4',
+        ];
+        $GLOBALS['_pp_test_store']['posts'][64] = [
+            'post_type'      => 'attachment',
+            'post_status'    => 'inherit',
+            'post_mime_type' => 'audio/mpeg',
+        ];
+
+        $media = pp_ai_media_inventory();
+
+        $ids = array_column($media, 'id');
+        $this->assertContains(62, $ids);
+        $this->assertNotContains(63, $ids);
+        $this->assertNotContains(64, $ids);
     }
 
     // ── Component Summary ────────────────────────────────────────────────

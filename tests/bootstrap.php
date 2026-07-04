@@ -263,6 +263,20 @@ if (!function_exists('get_posts')) {
                     continue;
                 }
             }
+            if (isset($args['post_type']) && is_string($args['post_type'])) {
+                if (($data['post_type'] ?? '') !== $args['post_type']) {
+                    continue;
+                }
+            }
+            if (isset($args['post_mime_type']) && is_string($args['post_mime_type'])) {
+                $mime = $data['post_mime_type'] ?? '';
+                $wanted = $args['post_mime_type'];
+                // WordPress matches a general type ("image") against the full
+                // mime type ("image/jpeg") as well as an exact match.
+                if ($mime !== $wanted && strpos($mime, $wanted . '/') !== 0) {
+                    continue;
+                }
+            }
             $post = (object) array_merge(['ID' => $id], $data);
             $results[] = $post;
         }
@@ -518,6 +532,44 @@ if (!function_exists('wp_get_attachment_image_url')) {
 if (!function_exists('wp_attachment_is_image')) {
     function wp_attachment_is_image($attachment_id = null): bool {
         return !empty($GLOBALS['_pp_test_store']['attachment_is_image'][(int) $attachment_id]);
+    }
+}
+
+if (!function_exists('attachment_url_to_postid')) {
+    function attachment_url_to_postid(string $url): int {
+        $map = $GLOBALS['_pp_test_store']['attachment_urls'] ?? [];
+        $id = array_search($url, $map, true);
+        return $id !== false ? (int) $id : 0;
+    }
+}
+
+// Minimal $wpdb stub — only the guid-fallback lookup in
+// _pp_resolve_attachment_id_by_url() touches $wpdb. NOT installed as a global
+// by default: _pp_with_token_lock() (lib/wp.php) deliberately treats an
+// absent/non-object $wpdb as "unit test context" and degrades to running
+// its mutator unlocked, so a global $wpdb here would silently break every
+// token-override test. Tests that need the guid-fallback path must set
+// $GLOBALS['wpdb'] = new wpdb() themselves and unset it in tearDown.
+if (!class_exists('wpdb')) {
+    class wpdb {
+        public string $posts = 'wp_posts';
+
+        // Substitutes %s placeholders so get_var() below can inspect the
+        // actual guid being queried, rather than returning a fixed value
+        // regardless of what was asked for.
+        public function prepare(string $query, ...$args): string {
+            foreach ($args as $arg) {
+                $query = preg_replace('/%s/', "'" . addslashes((string) $arg) . "'", $query, 1);
+            }
+            return $query;
+        }
+
+        public function get_var(string $query) {
+            if (preg_match("/guid = '([^']*)'/", $query, $m)) {
+                return $GLOBALS['_pp_test_store']['wpdb_guid_map'][$m[1]] ?? null;
+            }
+            return null;
+        }
     }
 }
 
