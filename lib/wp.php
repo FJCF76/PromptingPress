@@ -1064,7 +1064,16 @@ function pp_publish_page(int $post_id) {
  */
 function pp_promote_auto_draft(int $post_id): void {
     if (get_post_status($post_id) === 'auto-draft') {
-        wp_update_post(['ID' => $post_id, 'post_status' => 'draft']);
+        $result = wp_update_post(['ID' => $post_id, 'post_status' => 'draft'], true);
+        // The composition/title save this follows has already succeeded and
+        // written real data — failing the whole request over a status-only
+        // follow-up write would be disproportionate. But silently swallowing
+        // it would leave a page with real content hidden (and GC-eligible)
+        // with zero signal, so log it (adversarial review finding).
+        if (is_wp_error($result)) {
+            error_log('PromptingPress: pp_promote_auto_draft failed for post ' . $post_id
+                . ': ' . $result->get_error_message());
+        }
     }
 }
 

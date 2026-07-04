@@ -335,7 +335,8 @@ add_action('wp_ajax_pp_save_composition', function () {
         wp_send_json_error($result['error']);
     }
 
-    pp_promote_auto_draft($post_id);
+    // Auto-draft → draft promotion happens inside pp_execute_action() itself
+    // (lib/actions.php) — one place, covering AJAX/CLI/operate.php alike.
 
     $saved = pp_get_composition($post_id);
     wp_send_json_success(['composition' => $saved]);
@@ -609,7 +610,8 @@ add_action('wp_ajax_pp_save_title', function (): void {
         wp_send_json_error($result['error']);
     }
 
-    pp_promote_auto_draft($post_id);
+    // Auto-draft → draft promotion (with the empty-title-blur exclusion)
+    // happens inside pp_execute_action() itself (lib/actions.php).
 
     wp_send_json_success(['title' => $title]);
 });
