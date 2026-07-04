@@ -444,6 +444,65 @@ class AiChatHandlersTest extends TestCase
         $this->assertNotContains('query', $valid);
     }
 
+    // ── Magic-quotes unslashing (#125) ──────────────────────────────────────
+
+    public function testWpUnslashRestoresQuotesAndBackslashesInMessages(): void
+    {
+        // Regression (#125): WordPress magic-quotes every $_POST value
+        // during bootstrap (wp_magic_quotes()). The non-streaming chat
+        // fallback (wp_ajax_pp_ai_chat) reads $_POST['messages'] directly
+        // and previously passed it straight to the provider unslashed.
+        // Simulate what $_POST would actually contain for a message like
+        // `change the hero title to "It's live!"` and confirm wp_unslash()
+        // restores the original text byte-for-byte.
+        $original = 'change the hero title to "It\'s live!" and note the \\ character';
+        $slashed = addslashes($original);
+        $this->assertNotSame($original, $slashed, 'Fixture must actually be slashed to test anything.');
+
+        $postMessages = [
+            ['role' => 'user', 'content' => $slashed],
+        ];
+
+        $unslashed = wp_unslash($postMessages);
+
+        $this->assertSame($original, $unslashed[0]['content']);
+    }
+
+    public function testCoerceParamsDoesNotDoubleUnslashArrayTypeParams(): void
+    {
+        // Regression (#125): pp_ai_coerce_params() used to call
+        // wp_unslash() again on array-type params after both AJAX
+        // handlers already unslash the whole $params array once. Confirm
+        // a JSON string containing an escaped backslash decodes correctly
+        // without being stripped twice (which would corrupt it).
+        $composition = [['component' => 'section', 'props' => ['body' => 'A path: C:\\Users\\x']]];
+        $json = wp_json_encode($composition);
+
+        // Simulate the caller's single top-level unslash of the whole
+        // params array (the JSON string itself carries no magic-quote
+        // slashes here — it's the raw encoded value the caller already
+        // unslashed once, matching what both handlers now do).
+        $params = pp_ai_coerce_params('action', 'update_composition', ['composition' => $json]);
+
+        $this->assertSame($composition, $params['composition']);
+    }
+
+    public function testGetUnslashedPostParamsRestoresPlainStringValues(): void
+    {
+        // Regression (#125): before this fix, plain string params (e.g.
+        // update_page_title's 'title', type='string') were never unslashed
+        // anywhere — pp_ai_coerce_params() only ever touched array-type
+        // params. _pp_ai_get_unslashed_post_params() now unslashes the
+        // whole $_POST['params'] array once, covering plain strings too.
+        $original = 'It\'s "live" now';
+        $_POST['params'] = ['title' => addslashes($original)];
+
+        $params = _pp_ai_get_unslashed_post_params();
+
+        $this->assertSame($original, $params['title']);
+        unset($_POST['params']);
+    }
+
     // ── Proposal Parsing Integration ──────────────────────────────────────
 
     public function testProposalParsingIntegrationWithActionTypes(): void

@@ -4,6 +4,13 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.6] — 2026-07-04 — Fix: Quotes and Apostrophes in Chat Messages No Longer Get Mangled
+
+**If the chat's live-streaming connection dropped and it silently fell back to its backup delivery method, every apostrophe, quote mark, and backslash you'd typed started coming out wrong — and it got worse with every message after that.** WordPress adds a layer of escaping to form submissions that the theme forgot to remove on that one fallback path, so `"It's live!"` would arrive at the AI as `\"It\'s live!\"`, and the mangling compounded each time the fallback was used again in the same conversation.
+
+### Fixed
+- The chat's non-streaming fallback and the action/apply preview and execute requests now correctly preserve quotes, apostrophes, and backslashes in your messages and inputs instead of corrupting them.
+
 ## [v0.16.5] — 2026-07-04 — Fix: Pages with Accented or Non-English Filenames No Longer Fail Validation
 
 **If an AI-applied change touched an image with an accented or non-English filename — common on Spanish, French, or other non-English sites — the chat reported "Changes applied but rendered page validation failed... missing media" for a page that was actually completely fine.** The validator that checks a page after an edit was misreading the filename's special characters, so it looked for a file that didn't exist under that garbled name instead of the real one already sitting in the Media Library.
