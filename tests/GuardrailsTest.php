@@ -138,6 +138,32 @@ class GuardrailsTest extends TestCase
         $this->assertSame([], pp_validate_composition_styling([]));
     }
 
+    public function testStylingSkipsNonArrayItems(): void
+    {
+        // Regression (#119 follow-up): a malformed/corrupted composition
+        // decoded from JSON can contain non-array elements (e.g. a scalar
+        // from truncated storage). Non-array items must be skipped rather
+        // than indexed into, mirroring pp_check_nav_readiness's guard.
+        $composition = [
+            'not-an-array',
+            ['component' => 'section', 'props' => ['body' => 'A']],
+        ];
+        $this->assertSame([], pp_validate_composition_styling($composition));
+    }
+
+    public function testStylingSkipsNonArrayProps(): void
+    {
+        // The item itself is a valid array, but its 'props' value is a
+        // scalar. Without the props-level guard (not just the item-level
+        // guard above), indexing ['id'] into a string triggers an "Illegal
+        // string offset" warning and can coerce garbage into a truthy id.
+        $composition = [
+            ['component' => 'section', 'props' => 'not-an-array'],
+            ['component' => 'section', 'props' => ['id' => 'pp-bbb', 'body' => 'B']],
+        ];
+        $this->assertSame([], pp_validate_composition_styling($composition));
+    }
+
     public function testSingleComponentWithoutIdNotFlagged(): void
     {
         $composition = [
@@ -280,6 +306,32 @@ class GuardrailsTest extends TestCase
     public function testSmellsEmptyCompositionReturnsNoWarnings(): void
     {
         $this->assertSame([], pp_validate_composition_smells([]));
+    }
+
+    public function testSmellsSkipsNonArrayItems(): void
+    {
+        // Regression (#119 follow-up): a malformed/corrupted composition
+        // decoded from JSON can contain non-array elements. Non-array items
+        // must be skipped rather than indexed into (string-offset access
+        // would otherwise coerce garbage into $props/$variant/$image_url).
+        $composition = [
+            'not-an-array',
+            ['component' => 'hero', 'props' => ['variant' => 'left', 'image_url' => '/img/x.jpg']],
+        ];
+        $this->assertSame([], pp_validate_composition_smells($composition));
+    }
+
+    public function testSmellsSkipsNonArrayProps(): void
+    {
+        // The item itself is a valid array, but its 'props' value is a
+        // scalar. Without the props-level guard (not just the item-level
+        // guard above), this must still not coerce garbage into
+        // $props/$variant/$image_url via string-offset access.
+        $composition = [
+            ['component' => 'hero', 'props' => 'not-an-array'],
+            ['component' => 'hero', 'props' => ['variant' => 'left', 'image_url' => '/img/x.jpg']],
+        ];
+        $this->assertSame([], pp_validate_composition_smells($composition));
     }
 
     public function testSmellsHeroLeftNoImageTriggersWarning(): void

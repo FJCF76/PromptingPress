@@ -58,8 +58,8 @@ Used by: #132 (menus), #134 (slug), #105 (import media), #122, #133.
 
 Used by: #51, #87.
 
-1. In `lib/guardrails.php` `pp_validate_composition_smells(array $composition): array`, append a check returning `['type'=>..., 'index'=>$i, 'message'=>...]` (warning-grade; **never auto-remove content**).
-2. It must reach the INSPECT surface: this depends on **#119** being fixed (`pp_inspect_site` must read via `pp_get_composition`, not raw meta) — otherwise the smell never shows. Do #119 first.
+1. In `lib/guardrails.php` `pp_validate_composition_smells(array $composition): array`, append a check returning `['type'=>..., 'index'=>$i, 'message'=>...]` (warning-grade; **never auto-remove content**). Guard non-array `$item`/`props` entries (`if (!is_array($item)) { continue; }`) — composition data can be malformed.
+2. It reaches the INSPECT surface automatically (`pp_inspect_site` reads composition via `pp_get_composition`, not raw meta — fixed in #119).
 3. `wp pp check page` (`lib/cli.php`) already calls the smell checker; confirm your new smell appears there.
 4. **Test:** `tests/GuardrailsTest.php` — smelly composition → warning with the right `type`/`index`; clean composition → none.
 5. **Verify:** `composer test`.

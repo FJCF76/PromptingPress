@@ -241,6 +241,37 @@ class OperateTest extends TestCase
         $this->assertIsArray($preflight['checks']);
     }
 
+    public function testInspectSiteReturnsSmellsForRealPage(): void
+    {
+        // Regression (#119): production stores _pp_composition as a JSON
+        // STRING (pp_update_composition), not a PHP array. pp_inspect_site()
+        // must read it through pp_get_composition() so smells are detected.
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Smelly Page', 'post_status' => 'publish']);
+        update_post_meta($post_id, '_pp_composition', json_encode([
+            ['component' => 'hero', 'props' => ['id' => 'pp-hero1111', 'variant' => 'left']],
+        ]));
+
+        $result = pp_inspect_site($post_id);
+
+        $this->assertNotEmpty($result['smells']);
+        $this->assertSame('hero_left_no_image', $result['smells'][0]['type']);
+    }
+
+    public function testInspectSiteReturnsNoSmellsForPageWithoutComposition(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Blank Page', 'post_status' => 'publish']);
+
+        $result = pp_inspect_site($post_id);
+
+        $this->assertSame([], $result['smells']);
+    }
+
+    public function testInspectSiteReturnsNoSmellsWithoutPostId(): void
+    {
+        $result = pp_inspect_site();
+        $this->assertSame([], $result['smells']);
+    }
+
     // ── Preflight ──────────────────────────────────────────────────────────
 
     public function testPreflightIncludesDriftCheck(): void

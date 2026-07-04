@@ -4,6 +4,17 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.2] — 2026-07-04 — Fix: INSPECT Now Actually Sees Composition Smells
+
+**`wp pp operate inspect --post_id=<id>` finally surfaces the composition warnings it always claimed to.** The INSPECT step reads a page's composition to flag layout smells (like a left-aligned hero with no image), but on every real page it silently returned `smells: []` — the code checked `is_array()` on meta that WordPress always stores as a JSON string, so the check never matched. `wp pp check page` caught the same smells correctly (it used the right accessor); INSPECT just never got the memo. Now it does: an agent running the operating loop's INSPECT step sees the same smells a manual `check page` would.
+
+### Fixed
+- `pp_inspect_site()` reads composition through the canonical `pp_get_composition()` accessor instead of raw post meta, so page-specific composition smells reach the INSPECT surface.
+- `pp_validate_composition_styling()` and `pp_validate_composition_smells()` now skip malformed (non-array) composition entries instead of indexing into them — hardening added because INSPECT now exercises these validators against real page data for the first time.
+
+### For contributors
+- Filed #144 to track a related, pre-existing gap: `pp_get_composition()` can't currently distinguish "no composition" from "composition JSON failed to decode," both return `[]`.
+
 ## [v0.16.1] — 2026-07-04 — Docs: The AI Now Has an Accurate Map to the Logo Safe Surface
 
 **Patch release so the theme's AI-facing docs correctly describe the v0.16.0 logo surface, plus a step-by-step guide for setting it.** No code change.
