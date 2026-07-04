@@ -366,6 +366,15 @@ class ApplyTest extends TestCase
         $this->assertTrue(_pp_validate_length('calc(.5rem + 1rem)'));
     }
 
+    public function testLengthAcceptsWhitespaceAfterOpeningParen(): void
+    {
+        // "calc( 1rem + 2rem)" — valid CSS with a space right after the
+        // opening paren. The start-of-contents check must skip leading
+        // whitespace, not treat the space itself as the disqualifying
+        // first character.
+        $this->assertTrue(_pp_validate_length('calc( 1rem + 2rem)'));
+    }
+
     // ── Type-specific validation: font-family ───────────────────────────────
 
     public function testFontFamilyValidStack(): void
