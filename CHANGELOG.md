@@ -4,6 +4,14 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.1] — 2026-07-04 — Docs: The AI Now Has an Accurate Map to the Logo Safe Surface
+
+**Patch release so the theme's AI-facing docs correctly describe the v0.16.0 logo surface, plus a step-by-step guide for setting it.** No code change.
+
+When v0.16.0 added `pp_logo_id` / `pp_logo_alt` to the `update_site_option` whitelist, two `AI_CONTEXT.md` reference tables still listed the whitelist as only `blogname, blogdescription`. An agent reading those tables would think it couldn't set the logo through a site option. Both tables now list the logo keys, and the site-options map in `ai-instructions/website-building.md` gains a "Site logo" row.
+
+New `ai-instructions/set-logo.md` is a task-oriented how-to: find the image's Media Library attachment ID, preview, run a site-scoped preflight, execute `update_site_option` with `pp_logo_id`, and verify — plus the resolution fallback (`logo_id` prop → `pp_logo_id` option → WP `custom_logo` → text wordmark), the footer `show_logo` opt-in, and troubleshooting. It's linked from the `AI_CONTEXT.md` orientation list, so an agent finds it the same way it finds every other task guide.
+
 ## [v0.16.0] — 2026-06-30 — Brand Book Fidelity: The Site Logo Is Now a Safe Surface
 
 **The site logo can finally be set the safe way: an attachment ID, validated server-side, rendered in the nav and (opt-in) the footer.** Until now the nav only accepted a raw `logo_url`, and there was no safe path for an AI agent to set the site-wide logo at all. You can now point the logo at a Media Library image by ID through the `update_site_option` action (`pp_logo_id`) or a component prop (`logo_id`), and it resolves the same way everywhere.
