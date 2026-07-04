@@ -554,12 +554,21 @@ if (!class_exists('wpdb')) {
     class wpdb {
         public string $posts = 'wp_posts';
 
+        // Substitutes %s placeholders so get_var() below can inspect the
+        // actual guid being queried, rather than returning a fixed value
+        // regardless of what was asked for.
         public function prepare(string $query, ...$args): string {
+            foreach ($args as $arg) {
+                $query = preg_replace('/%s/', "'" . addslashes((string) $arg) . "'", $query, 1);
+            }
             return $query;
         }
 
         public function get_var(string $query) {
-            return $GLOBALS['_pp_test_store']['wpdb_guid_match_id'] ?? null;
+            if (preg_match("/guid = '([^']*)'/", $query, $m)) {
+                return $GLOBALS['_pp_test_store']['wpdb_guid_map'][$m[1]] ?? null;
+            }
+            return null;
         }
     }
 }

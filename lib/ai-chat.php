@@ -280,133 +280,6 @@ function pp_ai_coerce_params(string $type, string $name, array $params): array {
     return $params;
 }
 
-/**
- * Validates that any URL in action params matching the site's uploads directory
- * corresponds to an actual media library attachment. URLs not matching the
- * uploads pattern are passed through (external URLs are allowed).
- *
- * Checks: props (flat string values), props.items[].image_url/image_alt style,
- * and composition arrays.
- *
- * @return true|WP_Error
- */
-function _pp_validate_media_urls_in_params(array $params) {
-    $upload_dir = wp_get_upload_dir();
-    $upload_base = $upload_dir['baseurl'] ?? '';
-    if (empty($upload_base)) {
-        return true;
-    }
-
-    $urls = _pp_extract_urls_from_params($params);
-    if (empty($urls)) {
-        return true;
-    }
-
-    foreach ($urls as $url) {
-        // Only validate URLs that look like they reference the site's uploads
-        if (strpos($url, $upload_base) !== 0) {
-            continue;
-        }
-
-        // Check if this URL matches any attachment in the media library
-        $attachment_id = _pp_resolve_attachment_id_by_url($url);
-        if ($attachment_id <= 0) {
-            $filename = basename($url);
-            return new WP_Error(
-                'invalid_media_url',
-                sprintf('Image URL does not match any file in the media library: %s', $filename)
-            );
-        }
-
-        // Defense in depth: pp_ai_media_inventory() only lists image
-        // attachments, but nothing stops the model from fabricating a URL to
-        // a non-image attachment it saw elsewhere (or hallucinating one that
-        // happens to resolve). Reject at execute time too (#124).
-        if (!wp_attachment_is_image($attachment_id)) {
-            $filename = basename($url);
-            return new WP_Error(
-                'invalid_media_url',
-                sprintf('URL does not point to an image file: %s', $filename)
-            );
-        }
-    }
-
-    return true;
-}
-
-/**
- * Extracts all URL-like string values from action params.
- * Walks props, composition arrays, and items arrays.
- */
-function _pp_extract_urls_from_params(array $params): array {
-    $urls = [];
-    // logo_id is an attachment ID, not a URL — excluded from URL extraction.
-    $url_props = ['image_url', 'background_image'];
-
-    // Direct props (flat)
-    if (isset($params['props']) && is_array($params['props'])) {
-        _pp_collect_urls_from_props($params['props'], $url_props, $urls);
-    }
-
-    // Composition array (update_composition / create_page)
-    if (isset($params['composition']) && is_array($params['composition'])) {
-        foreach ($params['composition'] as $component) {
-            if (isset($component['props']) && is_array($component['props'])) {
-                _pp_collect_urls_from_props($component['props'], $url_props, $urls);
-            }
-        }
-    }
-
-    return $urls;
-}
-
-/**
- * Collects URLs from a props array, including nested items arrays.
- */
-function _pp_collect_urls_from_props(array $props, array $url_props, array &$urls): void {
-    foreach ($url_props as $prop) {
-        if (isset($props[$prop]) && is_string($props[$prop]) && $props[$prop] !== '') {
-            $urls[] = $props[$prop];
-        }
-    }
-    // Items arrays (grid, logos)
-    if (isset($props['items']) && is_array($props['items'])) {
-        foreach ($props['items'] as $item) {
-            if (is_array($item)) {
-                foreach ($url_props as $prop) {
-                    if (isset($item[$prop]) && is_string($item[$prop]) && $item[$prop] !== '') {
-                        $urls[] = $item[$prop];
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * Resolves a URL to its media library attachment ID, or 0 if none matches.
- */
-function _pp_resolve_attachment_id_by_url(string $url): int {
-    // Try attachment_url_to_postid (handles scaled/resized URLs too)
-    $attachment_id = attachment_url_to_postid($url);
-    if ($attachment_id > 0) {
-        return (int) $attachment_id;
-    }
-
-    // Fallback: check by guid (handles edge cases where the above misses).
-    // No $wpdb (unit test context, mirroring _pp_with_token_lock's check) —
-    // treat as no match rather than fatal on a missing global.
-    global $wpdb;
-    if (!isset($wpdb) || !is_object($wpdb) || !method_exists($wpdb, 'get_var')) {
-        return 0;
-    }
-    $id = $wpdb->get_var($wpdb->prepare(
-        "SELECT ID FROM {$wpdb->posts} WHERE post_type = 'attachment' AND guid = %s",
-        $url
-    ));
-    return (int) $id;
-}
-
 // ── Style Repair Helper ───────────────────────────────────────────────────
 // When the LLM proposes an invalid style slot name, attempt to find the
 // closest match via Levenshtein distance. Returns repaired params or null.
@@ -901,13 +774,10 @@ add_action('wp_ajax_pp_ai_execute', function () {
         wp_send_json_error('Permission denied.');
     }
 
-    // Validate media-library URLs in props before execution
-    if ($type === 'action') {
-        $url_error = _pp_validate_media_urls_in_params($params);
-        if (is_wp_error($url_error)) {
-            wp_send_json_error($url_error->get_error_message());
-        }
-    }
+    // Media-library URL/image-type validation (#124) now runs inside
+    // pp_validate_action() itself (lib/actions.php), so every caller —
+    // this AJAX handler, WP-CLI, and pp_patch_composition() — is covered
+    // by the same guard instead of one ad-hoc check per entry point.
 
     if ($type === 'action') {
         $result = pp_execute_action($name, $params);

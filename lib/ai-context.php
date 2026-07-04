@@ -286,6 +286,14 @@ function pp_ai_media_inventory(int $limit = 50): array {
 
     $items = [];
     foreach ($attachments as $att) {
+        // 'post_mime_type' => 'image' matches any image/* mime, but SVGs
+        // (image/svg+xml) fail wp_attachment_is_image() in WordPress core —
+        // it isn't a "displayable" raster image. Recheck here so the
+        // inventory never advertises a URL that _pp_validate_media_urls_in_params()
+        // would then reject at execute time (#124).
+        if (!wp_attachment_is_image($att->ID)) {
+            continue;
+        }
         $meta = wp_get_attachment_metadata($att->ID);
         $items[] = [
             'id'        => $att->ID,

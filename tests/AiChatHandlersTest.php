@@ -646,6 +646,10 @@ class AiChatHandlersTest extends TestCase
     }
 
     // ── Media URL Validation (#124 defense in depth) ────────────────────────
+    // _pp_validate_media_urls_in_params() itself now lives in lib/actions.php
+    // (wired into pp_validate_action(), the shared choke point for AJAX/CLI/
+    // operate.php) — kept tested here since these tests predate the move and
+    // the AI chat AJAX execute handler is still the primary caller in spirit.
 
     private function seedAttachment(int $id, string $url, bool $isImage): void
     {
@@ -719,11 +723,14 @@ class AiChatHandlersTest extends TestCase
     public function testValidateMediaUrlsFallsBackToGuidLookup(): void
     {
         // attachment_url_to_postid() misses (e.g. a scaled/rewritten URL),
-        // but the guid fallback query resolves it. $wpdb only needs to be a
-        // real object for this one test — see bootstrap.php's note on why
-        // it isn't installed globally by default.
+        // but the guid fallback query resolves it by the exact URL queried —
+        // not just any seeded value (the stub's prepare()/get_var() actually
+        // parse the guid out of the query, so this proves the right URL was
+        // asked for, not merely that the fallback path ran at all).
+        // $wpdb only needs to be a real object for this one test — see
+        // bootstrap.php's note on why it isn't installed globally by default.
         $GLOBALS['wpdb'] = new wpdb();
-        $GLOBALS['_pp_test_store']['wpdb_guid_match_id'] = 72;
+        $GLOBALS['_pp_test_store']['wpdb_guid_map']['https://example.com/wp-content/uploads/legacy.jpg'] = 72;
         $GLOBALS['_pp_test_store']['attachment_is_image'][72] = true;
 
         $result = _pp_validate_media_urls_in_params([
@@ -731,5 +738,22 @@ class AiChatHandlersTest extends TestCase
         ]);
 
         $this->assertTrue($result);
+    }
+
+    public function testValidateMediaUrlsGuidLookupRejectsMismatchedUrl(): void
+    {
+        // The guid map has an entry, but for a DIFFERENT URL than the one
+        // being validated — proves the fallback actually queries by the
+        // requested guid rather than returning any configured match.
+        $GLOBALS['wpdb'] = new wpdb();
+        $GLOBALS['_pp_test_store']['wpdb_guid_map']['https://example.com/wp-content/uploads/other-file.jpg'] = 72;
+
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => 'https://example.com/wp-content/uploads/legacy.jpg'],
+        ]);
+
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_media_url', $result->get_error_code());
+        $this->assertStringContainsString('does not match any file', $result->get_error_message());
     }
 }

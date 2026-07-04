@@ -464,6 +464,33 @@ class ActionsTest extends TestCase
         $this->assertStringContainsString('out of bounds', $result['error']);
     }
 
+    public function testUpdateComponentRejectsNonImageUrlViaDirectExecuteCall(): void
+    {
+        // Regression for #124: the media-URL/image-type check must protect
+        // EVERY caller of pp_execute_action() — WP-CLI (wp pp action execute),
+        // pp_patch_composition(), not just the AI chat AJAX handler. This test
+        // calls pp_execute_action() directly, the same way lib/cli.php and
+        // lib/operate.php do, with no AJAX handler involved at all.
+        $id = pp_create_page('Direct Execute Test', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'hero', 'props' => ['title' => 'Original', 'variant' => 'split']],
+        ]);
+        $GLOBALS['_pp_test_store']['attachment_urls'][90] = 'https://example.com/wp-content/uploads/brochure.pdf';
+        $GLOBALS['_pp_test_store']['attachment_is_image'][90] = false;
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['image_url' => 'https://example.com/wp-content/uploads/brochure.pdf'],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('does not point to an image', $result['error']);
+        // Confirm nothing was written.
+        $comp = pp_get_composition($id);
+        $this->assertArrayNotHasKey('image_url', $comp[0]['props']);
+    }
+
     // ── Preview tests ──────────────────────────────────────────────────────
 
     public function testPreviewNeverWrites(): void
