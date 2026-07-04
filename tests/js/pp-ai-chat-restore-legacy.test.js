@@ -1,12 +1,13 @@
 /**
  * Regression test for #140: localStorage conversations saved BEFORE this fix
  * have no `internal` key at all on their apply-confirmation assistant messages.
- * Cross-model adversarial review (Codex + Testing specialist, independently)
- * found that a naive `msg.internal === true` check alone would un-hide the one
- * shape ("Changes applied successfully." with no stale suffix) that the OLD
- * exact-string-match code correctly suppressed — a regression on upgrade for
- * existing users. restoreConversation() must fall back to the legacy exact
- * match for messages that predate the `internal` flag.
+ * Cross-model adversarial review (Codex, the Testing specialist, and a Claude
+ * adversarial subagent, all independently) found that a naive
+ * `msg.internal === true` check alone would un-hide EVERY pre-fix confirmation
+ * shape for existing users on upgrade — reproducing issue #140 for exactly the
+ * conversations already sitting in their browsers. restoreConversation() falls
+ * back to matching the three known legacy content prefixes for messages that
+ * predate the `internal` flag (see LEGACY_INTERNAL_PREFIXES in pp-ai-chat.js).
  *
  * Kept in its own file (separate module instance) because restoreConversation()
  * runs once, automatically, inside the top-level IIFE at require() time.
@@ -30,7 +31,7 @@ dom.window.ppAiChat = {
     configured: true,
     ajaxUrl: '/wp-admin/admin-ajax.php',
     executeNonce: 'test-nonce',
-    siteUrl: 'http://example.com',
+    siteUrl: 'http://legacy.example.com',
     streamUrl: '/wp-admin/admin-ajax.php?action=pp_ai_stream',
     streamNonce: 'stream-nonce'
 };
@@ -39,11 +40,17 @@ global.window.ppAiChat = dom.window.ppAiChat;
 const STORAGE_KEY = 'pp_ai_chat_' + dom.window.ppAiChat.siteUrl;
 
 // Pre-fix shape: no `internal` key anywhere — this is what's actually sitting
-// in real users' browsers the moment this fix ships.
+// in real users' browsers the moment this fix ships. Also includes a
+// malformed entry (null content) to exercise the defensive guard added
+// alongside the fallback.
 const legacyConversation = [
     { role: 'user', content: 'Add a hero section' },
     { role: 'assistant', content: 'Changes applied successfully.' },
+    { role: 'assistant', content: 'Changes applied successfully. Note: some existing token overrides may not match the new palette: --accent.' },
     { role: 'assistant', content: 'Changes applied with warnings: missing alt text' },
+    { role: 'assistant', content: 'Changes applied but rendered page validation failed: broken image.' },
+    { role: 'assistant', content: null },
+    { role: 'assistant', content: 'Great, all set!' },
 ];
 
 localStorage.setItem(STORAGE_KEY, JSON.stringify({ conversation: legacyConversation, activePageId: null }));
@@ -51,24 +58,25 @@ localStorage.setItem(STORAGE_KEY, JSON.stringify({ conversation: legacyConversat
 require('../../assets/js/pp-ai-chat.js');
 
 describe('restoreConversation legacy fallback (#140)', function () {
-    test('still hides the bare success message with no internal flag (pre-fix behavior preserved)', function () {
-        var bodies = Array.prototype.slice.call(
+    function getAssistantBodies() {
+        return Array.prototype.slice.call(
             document.querySelectorAll('#pp-ai-messages .pp-ai-msg-assistant .pp-ai-msg-body')
         ).map(function (el) { return el.textContent; });
+    }
+
+    test('hides all three legacy confirmation shapes with no internal flag', function () {
+        var bodies = getAssistantBodies();
 
         expect(bodies).not.toContain('Changes applied successfully.');
+        expect(bodies.some(function (t) { return t.indexOf('Note: some existing token overrides') !== -1; })).toBe(false);
+        expect(bodies.some(function (t) { return t.indexOf('Changes applied with warnings') !== -1; })).toBe(false);
+        expect(bodies.some(function (t) { return t.indexOf('rendered page validation failed') !== -1; })).toBe(false);
     });
 
-    test('the warnings shape without internal flag still leaks (pre-existing gap, not a new regression)', function () {
-        // This is the SAME gap the original bug report described for legacy
-        // data — it only closes going forward for newly-created messages
-        // (which always carry internal: true). Documenting it here so a
-        // future change to this fallback logic doesn't silently reintroduce
-        // the opposite regression without anyone noticing the tradeoff.
-        var bodies = Array.prototype.slice.call(
-            document.querySelectorAll('#pp-ai-messages .pp-ai-msg-assistant .pp-ai-msg-body')
-        ).map(function (el) { return el.textContent; });
-
-        expect(bodies.some(function (t) { return t.indexOf('Changes applied with warnings') !== -1; })).toBe(true);
+    test('does not crash on a malformed entry and still renders a genuine message', function () {
+        // The null-content entry must not throw inside the top-level IIFE —
+        // if it did, the whole widget (including this genuine message) would
+        // never render at all.
+        expect(getAssistantBodies()).toContain('Great, all set!');
     });
 });

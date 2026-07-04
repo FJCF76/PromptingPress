@@ -1383,30 +1383,48 @@ function ppChatAppendValidationItems(container, items, className) {
 
     // ── Restore Previous Conversation ─────────────────────────────────
 
+    // localStorage conversations saved before #140 shipped have no `internal`
+    // key at all on any of the four confirmation shapes. `internal === true`
+    // alone would un-hide all of them for existing users on upgrade — the same
+    // leak the fix closes for new conversations, reappearing for old ones
+    // (cross-model review finding: Codex + Testing specialist + Claude
+    // adversarial subagent all independently flagged this). These prefixes
+    // are a temporary, content-based fallback ONLY for pre-flag data; every
+    // message written going forward carries `internal: true` and never
+    // touches this path.
+    var LEGACY_INTERNAL_PREFIXES = [
+        'Changes applied successfully.',
+        'Changes applied with warnings: ',
+        'Changes applied but rendered page validation failed: '
+    ];
+
+    function isLegacyInternalMessage(content) {
+        return LEGACY_INTERNAL_PREFIXES.some(function (prefix) {
+            return content.indexOf(prefix) === 0;
+        });
+    }
+
     function restoreConversation() {
         var state = loadState();
-        if (!state || !state.conversation || !state.conversation.length) return;
+        if (!state || !Array.isArray(state.conversation) || !state.conversation.length) return;
 
         conversation = state.conversation;
         activePageId = state.activePageId || null;
 
         // Re-render messages from conversation history
         conversation.forEach(function (msg) {
+            if (!msg || typeof msg.content !== 'string') return;
             if (msg.role === 'user') {
                 // Skip internal apply-confirmation messages in display
                 if (msg.content.charAt(0) === '[') return;
                 addMessage('user', msg.content);
             } else if (msg.role === 'assistant') {
-                // Skip internal apply-confirmation messages in display (structural
-                // flag, not content matching — a genuine model reply that happens
-                // to start with "Changes applied..." is never suppressed). The
-                // legacy exact-match also stays as a fallback: localStorage
-                // conversations saved before this fix have no `internal` key at
-                // all, and without this OR, the one shape the OLD code correctly
-                // hid (bare "Changes applied successfully.") would start leaking
-                // for existing users on upgrade instead of staying hidden (#140
-                // cross-model review finding).
-                if (msg.internal === true || msg.content === 'Changes applied successfully.') return;
+                // Skip internal apply-confirmation messages in display —
+                // structural flag first (never content-based for new data, so
+                // a genuine reply that happens to start with "Changes
+                // applied..." is never suppressed), legacy prefix match as a
+                // fallback only for messages that predate the flag.
+                if (msg.internal === true || isLegacyInternalMessage(msg.content)) return;
                 var displayText = stripProposalJson(msg.content);
                 if (displayText) {
                     addMessage('assistant', displayText);
@@ -1448,7 +1466,14 @@ function ppChatAppendValidationItems(container, items, className) {
 
     // ── Init ──────────────────────────────────────────────────────────
 
-    restoreConversation();
+    try {
+        restoreConversation();
+    } catch (e) {
+        // A corrupted/hand-edited localStorage entry must not abort the rest
+        // of init (send/new-chat button wiring) — worst case is losing the
+        // restored transcript, not a broken widget (#140 adversarial review).
+        conversation = [];
+    }
     inputEl.focus();
 
 })();

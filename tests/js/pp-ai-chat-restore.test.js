@@ -30,12 +30,17 @@ dom.window.ppAiChat = {
     configured: true,
     ajaxUrl: '/wp-admin/admin-ajax.php',
     executeNonce: 'test-nonce',
-    siteUrl: 'http://example.com',
+    siteUrl: 'http://restore.example.com',
     streamUrl: '/wp-admin/admin-ajax.php?action=pp_ai_stream',
     streamNonce: 'stream-nonce'
 };
 global.window.ppAiChat = dom.window.ppAiChat;
 
+// Distinct siteUrl (and therefore STORAGE_KEY) from the other test files that
+// touch localStorage — this file is the first to seed nontrivial pre-existing
+// conversation content, so a shared key risks cross-file bleed if vitest's
+// per-file isolation is ever disabled for a CI speed optimization (#140
+// adversarial review finding).
 const STORAGE_KEY = 'pp_ai_chat_' + dom.window.ppAiChat.siteUrl;
 
 const conversation = [
