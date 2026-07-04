@@ -685,6 +685,88 @@ function _pp_suggest_alternative_value(string $type, string $description, string
     return null;
 }
 
+// ── Capability Resolver ─────────────────────────────────────────────────────
+
+/**
+ * Resolves the WordPress capabilities required to preview/execute a given
+ * action or apply. Mirrors the model documented for _pp_cli_require_apply_cap()
+ * (lib/cli.php) and the composition editor's own pp_publish_page AJAX handler
+ * (lib/admin.php), which checks both a post-scoped meta cap and a raw
+ * capability rather than relying on the coarse `edit_posts` gate alone.
+ *
+ * Default per action scope (see lib/actions.php registry):
+ * - 'site'    → manage_options (site-wide mutation).
+ * - 'page'/'section' → edit_post against the resolved post_id.
+ * Explicit per-action overrides layer additional caps on top of that default.
+ *
+ * @param  string $type   'action' | 'apply'.
+ * @param  string $name   Registered action/apply name.
+ * @param  array  $params Params AFTER pp_ai_coerce_params() — post_id, if any,
+ *                        must already be coerced to int by this point.
+ * @return array[]        List of ['cap' => string, 'post_id' => ?int]. ALL must pass.
+ */
+function _pp_required_caps_for(string $type, string $name, array $params): array {
+    if ($type === 'apply') {
+        // All applies mutate site-wide design state directly — same bar as
+        // _pp_cli_require_apply_cap().
+        return [['cap' => 'manage_options']];
+    }
+
+    $action = pp_get_action($name);
+    if ($action === null) {
+        // Unknown action name — fail closed at the highest bar.
+        return [['cap' => 'manage_options']];
+    }
+
+    $post_id = isset($params['post_id']) && is_numeric($params['post_id']) ? (int) $params['post_id'] : null;
+
+    switch ($name) {
+        case 'publish_page':
+        case 'unpublish_page':
+            return $post_id !== null
+                ? [['cap' => 'edit_post', 'post_id' => $post_id], ['cap' => 'publish_pages']]
+                : [['cap' => 'manage_options']];
+        case 'trash_page':
+            return $post_id !== null
+                ? [['cap' => 'delete_post', 'post_id' => $post_id]]
+                : [['cap' => 'manage_options']];
+        case 'create_page':
+            // Scope is 'site' (no existing post to check against), but page
+            // creation is core Editor territory — gate on publish_pages, not
+            // manage_options, or Editors lose the ability to build pages
+            // through chat entirely.
+            return [['cap' => 'publish_pages']];
+    }
+
+    $scope = $action['scope'] ?? 'site';
+    if ($scope === 'site') {
+        return [['cap' => 'manage_options']];
+    }
+
+    // page | section: needs a resolved post_id to check against; without one
+    // we can't verify per-post ownership, so fail closed.
+    return $post_id !== null
+        ? [['cap' => 'edit_post', 'post_id' => $post_id]]
+        : [['cap' => 'manage_options']];
+}
+
+/**
+ * Checks whether the current user satisfies every requirement returned by
+ * _pp_required_caps_for(). AND semantics — all checks must pass.
+ */
+function _pp_user_meets_required_caps(array $required): bool {
+    foreach ($required as $req) {
+        if (array_key_exists('post_id', $req)) {
+            if (!current_user_can($req['cap'], $req['post_id'])) {
+                return false;
+            }
+        } elseif (!current_user_can($req['cap'])) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // ── AJAX: Preview Action/Apply ─────────────────────────────────────────────
 
 add_action('wp_ajax_pp_ai_preview', function () {
@@ -707,6 +789,10 @@ add_action('wp_ajax_pp_ai_preview', function () {
     }
 
     $params = pp_ai_coerce_params($type, $name, $params);
+
+    if (!_pp_user_meets_required_caps(_pp_required_caps_for($type, $name, $params))) {
+        wp_send_json_error('Permission denied.');
+    }
 
     if ($type === 'action') {
         $result = pp_preview_action($name, $params);
@@ -763,6 +849,10 @@ add_action('wp_ajax_pp_ai_execute', function () {
     }
 
     $params = pp_ai_coerce_params($type, $name, $params);
+
+    if (!_pp_user_meets_required_caps(_pp_required_caps_for($type, $name, $params))) {
+        wp_send_json_error('Permission denied.');
+    }
 
     // Validate media-library URLs in props before execution
     if ($type === 'action') {

@@ -420,7 +420,17 @@ if (!function_exists('wp_verify_nonce')) {
 }
 
 if (!function_exists('current_user_can')) {
-    function current_user_can(string $capability): bool { return true; }
+    // Test-controlled capability simulation: set $GLOBALS['_pp_test_user_caps']
+    // to ['capability' => bool] to simulate a specific role for a test.
+    // Unset (the default) or a capability absent from the map both mean
+    // "can do everything" — the historical always-true behavior every other
+    // test in this suite relies on. Clear the global in tearDown() for isolation.
+    function current_user_can(string $capability, ...$args): bool {
+        if (!isset($GLOBALS['_pp_test_user_caps'])) {
+            return true;
+        }
+        return $GLOBALS['_pp_test_user_caps'][$capability] ?? true;
+    }
 }
 
 if (!function_exists('check_ajax_referer')) {
