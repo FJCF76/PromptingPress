@@ -255,8 +255,15 @@ function _pp_validate_length(string $value): bool {
         // Positive pattern: only numeric, dot, units, %, comma, whitespace, parens, arithmetic.
         // No alphabetic sequences longer than 2 chars (blocks var, env, url, etc.)
         // but allows unit suffixes (rem, px, em, vw, vh).
-        if (!preg_match('/^[\d.]+/', $contents)) {
-            // Must start with a number (prevents function calls as first arg).
+        // Must start with a digit, dot, sign, or opening paren — rejects
+        // structurally nonsensical values like calc(px) or
+        // clamp(rem, rem, rem) that the alpha-sequence check below wouldn't
+        // catch on their own (rem/px are allowed units, so a bare unit with
+        // no operand still passes that check). Allowing (/+/- as leading
+        // characters keeps real expressions valid: calc(100% - 2rem) starts
+        // with a digit; calc((100% - 2rem) / 2) starts with an opening paren.
+        if (!preg_match('/^[(+\-\d.]/', $contents) || !preg_match('/\d/', $contents)) {
+            return false;
         }
         // Reject if any alpha sequence is NOT a known unit.
         // This is the key security boundary: var(--anything) contains "var" which is not a unit.

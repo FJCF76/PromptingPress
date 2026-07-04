@@ -330,6 +330,42 @@ class ApplyTest extends TestCase
         $this->assertFalse(_pp_validate_length('unset'));
     }
 
+    // ── Length validator: intended "must start with a number" check (#129) ──
+    //
+    // The check that rejects structurally nonsensical calc()/clamp() bodies
+    // (e.g. a bare unit with no operand) used to be a dead if-body — the
+    // condition was evaluated and its result discarded. These pin down the
+    // now-enforced behavior against the issue's own test matrix.
+
+    public function testLengthRejectsCalcWithNoOperand(): void
+    {
+        // "px" is an allowed unit word and every character is otherwise
+        // permitted, so without the start-of-contents check this validated.
+        $this->assertFalse(_pp_validate_length('calc(px)'));
+    }
+
+    public function testLengthRejectsClampWithAllBareUnits(): void
+    {
+        $this->assertFalse(_pp_validate_length('clamp(rem, rem, rem)'));
+    }
+
+    public function testLengthAcceptsCalcWithNestedParens(): void
+    {
+        // Starts with an opening paren, not a digit — must stay valid.
+        $this->assertTrue(_pp_validate_length('calc((100% - 2rem) / 2)'));
+    }
+
+    public function testLengthAcceptsClampWithViewportUnit(): void
+    {
+        $this->assertTrue(_pp_validate_length('clamp(1rem, 2.5vw, 3rem)'));
+    }
+
+    public function testLengthAcceptsLeadingDotInCalc(): void
+    {
+        // ".5rem"-style values (no leading zero) must remain valid.
+        $this->assertTrue(_pp_validate_length('calc(.5rem + 1rem)'));
+    }
+
     // ── Type-specific validation: font-family ───────────────────────────────
 
     public function testFontFamilyValidStack(): void
