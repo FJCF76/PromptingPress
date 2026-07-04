@@ -51,7 +51,7 @@
 ## Tier 1 — media (ordered by dependency)
 - [ ] 28. #105 — import/sideload media action (SSRF-hardened) `enhancement security-sensitive area:media size:L` · precedes #107
 - [ ] 29. #107 — responsive srcset/sizes output `enhancement area:media size:M` · needs #105 attachment ids
-- [ ] 30. #106 — site logo via safe surface `enhancement area:media size:S`
+- [x] ~~30. #106 — site logo via safe surface~~ `enhancement area:media size:S` · ✅ shipped v0.16.0
 - [ ] 31. #108 — image focal-point / aspect control `enhancement area:media size:M`
 
 ## Tier 1 — SEO (one subsystem)
