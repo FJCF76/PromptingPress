@@ -39,7 +39,7 @@ $variant_class = $variant !== 'default' ? ' logos--' . $variant : '';
                     <?php if ($image_url) : ?>
                         <li class="logos__item<?php echo $label ? ' logos__item--labeled' : ''; ?>">
                             <img
-                                src="<?php echo esc_url($image_url); ?>"
+                                src="<?php echo pp_esc_image_src($image_url); ?>"
                                 alt="<?php echo esc_attr($image_alt); ?>"
                                 class="logos__image"
                                 loading="lazy"

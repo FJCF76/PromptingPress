@@ -64,7 +64,7 @@ if ($slot_style) {
     $inline_styles[] = $slot_style;
 }
 if ($variant === 'cover' && $image_url) {
-    $inline_styles[] = 'background-image:url(' . esc_url($image_url) . ')';
+    $inline_styles[] = 'background-image:url(' . pp_esc_image_src($image_url) . ')';
 }
 $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"' : '';
 ?>
@@ -106,7 +106,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
             <?php elseif ($variant === 'split' && $image_url) : ?>
                 <div class="hero__image-wrap">
                     <img
-                        src="<?php echo esc_url($image_url); ?>"
+                        src="<?php echo pp_esc_image_src($image_url); ?>"
                         alt="<?php echo esc_attr($image_alt); ?>"
                         class="hero__image"
                         loading="eager"

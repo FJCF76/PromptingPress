@@ -23,7 +23,7 @@ if (!in_array($variant, $allowed_variants, true)) {
 $variant_class  = $variant !== 'default' ? ' stats--' . $variant : '';
 $bg_image_class = $background_image ? ' stats--has-bg-image' : '';
 $bg_image_style = $background_image
-    ? sprintf(' style="background-image:url(%s);"', esc_url($background_image))
+    ? sprintf(' style="background-image:url(%s);"', pp_esc_image_src($background_image))
     : '';
 
 ?>

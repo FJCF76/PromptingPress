@@ -4,6 +4,16 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.14] — 2026-07-04 — Fix: Inline SVG Images No Longer Vanish From Your Page
+
+**Set an image field to an inline SVG — a `data:image/svg+xml,...` value, the kind an AI naturally produces when generating a quick icon or graphic on the fly — and it used to just disappear.** Hero backgrounds, grid images, logo strips, section images: any component with an image slot would silently render with no image at all, no error, nothing to click on. WordPress's own URL-safety function throws out `data:` URIs entirely, on the reasonable assumption that most of them aren't real image URLs — but that meant a legitimate, self-contained inline image was treated exactly like a broken link. Regular image URLs (`https://...`, uploaded media) were never affected.
+
+### Fixed
+- Every component with an image or background-image slot (hero, CTA, grid, section, stats, logo strip) now correctly displays `data:image/*` URIs, including inline SVGs, instead of rendering blank.
+
+### For contributors
+- New `pp_esc_image_src()` in `lib/wp.php` replaces `esc_url()` at every image-slot call site. For `data:image/svg+xml` payloads specifically, the SVG markup is parsed with `DOMDocument`/`DOMXPath` and validated against script execution, event handlers, external resource loading, and CSS/XML-level tricks that can quietly re-target a "safe-looking" reference to an attacker-controlled origin — a data URI can be opened as a top-level document from ordinary browser UI (e.g. "open image in new tab"), where SVG script execution is enabled, so this validation is the primary defense, not a backstop. The implementation went through five rounds of specialist and cross-model adversarial review (Claude + Codex, the latter using empirical Playwright/Chromium testing rather than static reasoning alone), each of which found and closed a genuine bypass — full history in the PR. 49 new PHPUnit tests.
+
 ## [v0.16.13] — 2026-07-04 — Fix: The CLI Command in the Docs Now Actually Works
 
 **Every doc and example told you to run `wp pp operate inspect-composition`, but that command didn't exist — WordPress registered it with an underscore (`inspect_composition`) instead of the hyphen the docs used everywhere.** A person hits that, reads the "did you mean" suggestion, and moves on in two seconds. An AI agent following the documented operating loop exactly as written can stop cold on it, or worse, quietly decide the tool doesn't support the step at all.

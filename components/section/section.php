@@ -44,7 +44,7 @@ if ($slot_style) {
     $inline_styles[] = $slot_style;
 }
 if ($background_image) {
-    $inline_styles[] = 'background-image:url(' . esc_url($background_image) . ')';
+    $inline_styles[] = 'background-image:url(' . pp_esc_image_src($background_image) . ')';
 }
 $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"' : '';
 
@@ -72,7 +72,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                 <?php if ($layout === 'image-left') : ?>
                     <div class="section__image-wrap">
                         <img
-                            src="<?php echo esc_url($image_url); ?>"
+                            src="<?php echo pp_esc_image_src($image_url); ?>"
                             alt="<?php echo esc_attr($image_alt); ?>"
                             class="section__image"
                             loading="lazy"
@@ -92,7 +92,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                 <?php if ($layout === 'image-right') : ?>
                     <div class="section__image-wrap">
                         <img
-                            src="<?php echo esc_url($image_url); ?>"
+                            src="<?php echo pp_esc_image_src($image_url); ?>"
                             alt="<?php echo esc_attr($image_alt); ?>"
                             class="section__image"
                             loading="lazy"

@@ -63,7 +63,7 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                         <?php if ($image_url && !$is_steps) : ?>
                             <div class="grid__item-image-wrap">
                                 <img
-                                    src="<?php echo esc_url($image_url); ?>"
+                                    src="<?php echo pp_esc_image_src($image_url); ?>"
                                     alt="<?php echo esc_attr($image_alt); ?>"
                                     class="grid__item-image"
                                     loading="lazy"

