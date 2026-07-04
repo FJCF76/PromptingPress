@@ -320,6 +320,18 @@ class AiChatHandlersTest extends TestCase
         );
     }
 
+    public function testRequiredCapsForNumericStringPostIdIsCoerced(): void
+    {
+        // In the real AJAX flow, pp_ai_coerce_params() always casts a
+        // declared 'int' param (post_id) before this runs. Pin down that
+        // the resolver itself also handles an uncoerced numeric string
+        // correctly, in case it's ever called directly.
+        $this->assertSame(
+            [['cap' => 'delete_post', 'post_id' => 9]],
+            _pp_required_caps_for('action', 'trash_page', ['post_id' => '9'])
+        );
+    }
+
     public function testRequiredCapsForNonScalarPostIdFailsClosed(): void
     {
         // A malformed post_id (e.g. an array instead of a scalar) is not
