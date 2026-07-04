@@ -4,6 +4,19 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.9] — 2026-07-04 — Fix: Reloading the AI Chat No Longer Shows It Talking to Itself
+
+**After the AI chat applied a change, it quietly noted "changes applied" for its own reference on the next turn — but reload the page, and that note could reappear as if the assistant had actually said it out loud, mixed into your real conversation.** Only the plainest version of that note was ever hidden; anything with a warning, a validation failure, or a "some settings didn't carry over" note leaked straight into the visible transcript. Now every version of that internal note stays exactly what it was meant to be — invisible bookkeeping the assistant still remembers, but never something you see it "say."
+
+### Fixed
+- Reloading the AI chat no longer shows internal apply-confirmation notes (including the warning and validation-failure variants) as if the assistant said them conversationally.
+- Chat histories saved before this fix are covered too — this isn't just a fix for new conversations going forward.
+
+### For contributors
+- 7 new JS tests across two files: one exercising every current confirmation shape plus a genuine reply that happens to start with the same words (never suppressed), one specifically covering pre-existing localStorage data that predates today's structural fix (a real regression cross-model review caught before it shipped — the first version of this fix would have un-hidden the one case that already worked).
+- `restoreConversation()` also now tolerates a malformed/hand-edited localStorage entry without breaking the rest of the chat widget's setup.
+- Filed a follow-up (#157) for a related but separate finding: the chat's local history isn't isolated per browser tab or per WordPress user, which is a pre-existing gap this fix doesn't touch.
+
 ## [v0.16.8] — 2026-07-04 — Fix: The AI Chat Can No Longer Turn a PDF Into a "Photo"
 
 **The AI chat's media picker used to tell the model every file in your Media Library — PDFs, videos, audio — was an "available image" and to copy its URL exactly.** Ask for a hero photo, and it could hand back a brochure PDF as `image_url`, which the page would happily try to render as a broken `<img>`. The media list now only ever shows real, displayable images (SVGs included — WordPress doesn't treat those as renderable images either). And the same check that used to live only in the chat's "run this" button now runs everywhere an action can be executed — the WP-CLI automation path and the composition-patch tool included — so a non-image URL gets rejected no matter which door it comes through.
