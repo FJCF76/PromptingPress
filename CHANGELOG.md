@@ -4,6 +4,16 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.4] — 2026-07-04 — Fix: Editing a CTA Button or Card Link Through Chat Actually Works Now
+
+**Asking the AI to change a CTA button's text or URL, or a grid card's link, previously either silently did nothing or told you the field couldn't be edited — for opposite reasons.** The internal map of "which fields can be edited by name" had drifted from the real component props: it listed fields the CTA and grid components don't have (so editing them wrote data nothing ever reads, and reported success) and left out the fields they actually use (so editing the *real* button text or link failed with "not editable"). Both are now correct — CTA's title/text/button text/button URL and grid cards' title/text/link text/link URL are all editable, and the AI's picture of what's currently in those fields is now accurate too.
+
+### Fixed
+- The AI chat's and `wp pp operate`'s field-editing map now matches the CTA and grid components' real props, so editing a CTA button or a grid card's link through chat (or the `patch` CLI command) actually changes what's rendered instead of silently no-opping or failing.
+
+### For contributors
+- Added a test that checks every component's field-editing map against its `schema.json` automatically, so this class of drift can't ship again.
+
 ## [v0.16.3] — 2026-07-04 — Security: Chat Can No Longer Publish, Trash, or Rewrite Your Site as a Contributor
 
 **A Contributor-level user could previously use the AI chat to publish or trash any page, rename the site, wipe Custom CSS, or reset every design token — all through the same "Permission denied" gate that should have stopped them.** The chat's execute/preview endpoints checked only one coarse capability (the ability to edit posts at all) before running *any* registered action or design change, regardless of how privileged that specific change was. Now each action and design change checks the real WordPress capability it actually requires — the same rules the rest of the admin already enforces. A Contributor can still chat and propose changes, but every privileged step now correctly returns "Permission denied" and changes nothing. Editors keep full page-building power through chat; only site-wide settings and design changes stay Administrator-only.

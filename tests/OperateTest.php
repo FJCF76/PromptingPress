@@ -959,8 +959,10 @@ class OperateTest extends TestCase
         $this->assertSame('html', $section[1]['type']);
 
         $grid = pp_get_component_fields('grid');
-        $this->assertCount(3, $grid);
+        $this->assertCount(4, $grid);
         $this->assertSame('items[].title', $grid[0]['name']);
+        $this->assertSame('items[].link_url', $grid[2]['name']);
+        $this->assertSame('items[].link_text', $grid[3]['name']);
 
         $faq = pp_get_component_fields('faq');
         $this->assertCount(2, $faq);
@@ -969,10 +971,147 @@ class OperateTest extends TestCase
 
         $cta = pp_get_component_fields('cta');
         $this->assertCount(4, $cta);
+        $this->assertSame('title', $cta[0]['name']);
+        $this->assertSame('text', $cta[1]['name']);
+        $this->assertSame('button_text', $cta[2]['name']);
+        $this->assertSame('button_url', $cta[3]['name']);
 
         // Unmapped type returns empty array.
         $unknown = pp_get_component_fields('nonexistent');
         $this->assertSame([], $unknown);
+    }
+
+    public function testInspectCompositionResolvesRealCtaAndGridValues(): void
+    {
+        // Regression (#120): the editability map previously declared dead
+        // selectors (cta.subtitle/cta_text/cta_url, grid items[].link) that
+        // don't exist on either component, so pp_inspect_composition()
+        // always reported current_value: null for them — poisoning the AI
+        // context with editable-looking fields that silently no-op on
+        // patch. Assert the map now resolves to the real, populated props.
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'CTA Grid Inspect', 'post_status' => 'publish']);
+        update_post_meta($post_id, '_pp_composition', json_encode([
+            [
+                'component' => 'cta',
+                'props' => [
+                    'id' => 'pp-cta0001', 'title' => 'Join now', 'text' => 'Limited spots',
+                    'button_text' => 'Sign up', 'button_url' => '/signup',
+                ],
+            ],
+            [
+                'component' => 'grid',
+                'props' => [
+                    'id' => 'pp-grid001',
+                    'items' => [
+                        ['title' => 'Feature A', 'text' => 'Does a thing', 'link_url' => '/a', 'link_text' => 'Learn more'],
+                    ],
+                ],
+            ],
+        ]));
+
+        $result = pp_inspect_composition($post_id);
+
+        $cta = $result[0]['fields'];
+        $ctaByField = array_column($cta, 'current_value', 'field');
+        $this->assertSame('Join now', $ctaByField['title']);
+        $this->assertSame('Limited spots', $ctaByField['text']);
+        $this->assertSame('Sign up', $ctaByField['button_text']);
+        $this->assertSame('/signup', $ctaByField['button_url']);
+        $this->assertArrayNotHasKey('subtitle', $ctaByField);
+        $this->assertArrayNotHasKey('cta_text', $ctaByField);
+        $this->assertArrayNotHasKey('cta_url', $ctaByField);
+
+        $grid = $result[1]['fields'];
+        $gridByValue = array_column($grid, 'current_value', 'selector');
+        // Grid items are matched by 'title' (see _pp_pick_nested_match_field).
+        $this->assertSame('/a', $gridByValue['grid.items[title="Feature A"].link_url']);
+        $this->assertSame('Learn more', $gridByValue['grid.items[title="Feature A"].link_text']);
+    }
+
+    public function testPatchCtaRealFieldsApply(): void
+    {
+        // Regression (#120 write path): cta.button_text/button_url were
+        // previously unpatchable (field_not_editable) because the map
+        // declared cta_text/cta_url instead. Confirm the real fields apply.
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'CTA Patch', 'post_status' => 'publish']);
+        update_post_meta($post_id, '_pp_composition', json_encode([
+            ['component' => 'cta', 'props' => ['id' => 'pp-cta9999', 'title' => 'Join', 'button_text' => 'Old', 'button_url' => '/old']],
+        ]));
+
+        $result = pp_patch_composition($post_id, 'cta.button_text', 'New');
+        $this->assertTrue($result['ok']);
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('New', $comp[0]['props']['button_text']);
+
+        $result = pp_patch_composition($post_id, 'cta.button_url', '/new');
+        $this->assertTrue($result['ok']);
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('/new', $comp[0]['props']['button_url']);
+    }
+
+    public function testPatchCtaDeadFieldsNowFailNotEditable(): void
+    {
+        // Regression (#120 write path): before the fix, patching these dead
+        // selectors reported success (ok: true) while writing an unused
+        // prop the render never reads. Confirm they now correctly fail.
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'CTA Dead Fields', 'post_status' => 'publish']);
+        update_post_meta($post_id, '_pp_composition', json_encode([
+            ['component' => 'cta', 'props' => ['id' => 'pp-cta8888', 'title' => 'Join', 'button_text' => 'Go', 'button_url' => '/go']],
+        ]));
+
+        foreach (['cta.subtitle', 'cta.cta_text', 'cta.cta_url'] as $selector) {
+            $result = pp_patch_composition($post_id, $selector, 'value');
+            $this->assertInstanceOf(WP_Error::class, $result, "{$selector} should be field_not_editable, not applied.");
+            $this->assertSame('field_not_editable', $result->get_error_code());
+        }
+    }
+
+    public function testPatchGridLinkFieldsApply(): void
+    {
+        // Regression (#120 write path): grid items[].link_url/link_text
+        // were previously unpatchable (the map declared a bare 'link' field
+        // that doesn't exist). Confirm the real fields apply.
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Grid Patch', 'post_status' => 'publish']);
+        update_post_meta($post_id, '_pp_composition', json_encode([
+            ['component' => 'grid', 'props' => ['id' => 'pp-grid9999', 'items' => [
+                ['title' => 'Feature A', 'link_url' => '/old', 'link_text' => 'Old label'],
+            ]]],
+        ]));
+
+        $result = pp_patch_composition($post_id, 'grid.items[title="Feature A"].link_url', '/new');
+        $this->assertTrue($result['ok']);
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('/new', $comp[0]['props']['items'][0]['link_url']);
+
+        $result = pp_patch_composition($post_id, 'grid.items[title="Feature A"].link_text', 'New label');
+        $this->assertTrue($result['ok']);
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('New label', $comp[0]['props']['items'][0]['link_text']);
+    }
+
+    public function testPatchGridDeadLinkFieldNowFailsNotEditable(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Grid Dead Field', 'post_status' => 'publish']);
+        update_post_meta($post_id, '_pp_composition', json_encode([
+            ['component' => 'grid', 'props' => ['id' => 'pp-grid8888', 'items' => [
+                ['title' => 'Feature A', 'link_url' => '/a', 'link_text' => 'A'],
+            ]]],
+        ]));
+
+        $result = pp_patch_composition($post_id, 'grid.items[title="Feature A"].link', 'value');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('field_not_editable', $result->get_error_code());
+    }
+
+    public function testGetRegisteredComponentFieldsMatchesPerTypeAccessor(): void
+    {
+        $registry = pp_get_registered_component_fields();
+        $this->assertIsArray($registry);
+        $this->assertArrayHasKey('cta', $registry);
+        $this->assertArrayHasKey('grid', $registry);
+        foreach (array_keys($registry) as $type) {
+            $this->assertSame($registry[$type], pp_get_component_fields($type));
+        }
     }
 
     // ── Inspect Composition Tests ────────────────────────────────────────────
