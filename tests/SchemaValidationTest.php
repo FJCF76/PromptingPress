@@ -267,7 +267,7 @@ class SchemaValidationTest extends TestCase
     public function testStyleSlotStructure(): void
     {
         $components = ['hero', 'section', 'grid', 'cta'];
-        $validTypes = ['color', 'length', 'number', 'shadow'];
+        $validTypes = ['color', 'length', 'number', 'shadow', 'gradient'];
 
         foreach ($components as $component) {
             $schemaFile = $this->themeRoot . "/components/{$component}/schema.json";
@@ -281,7 +281,7 @@ class SchemaValidationTest extends TestCase
                     "Slot {$slotName} must be namespaced to its component (--{$component}-*)."
                 );
                 $this->assertArrayHasKey('type', $slotDef, "Slot {$slotName} must declare a type.");
-                $this->assertContains($slotDef['type'], $validTypes, "Slot {$slotName} type must be color, length, number, or shadow.");
+                $this->assertContains($slotDef['type'], $validTypes, "Slot {$slotName} type must be color, length, number, shadow, or gradient.");
                 $this->assertArrayHasKey('default', $slotDef, "Slot {$slotName} must declare a default value.");
                 $this->assertArrayHasKey('description', $slotDef, "Slot {$slotName} must have a description.");
                 $this->assertNotEmpty($slotDef['description'], "Slot {$slotName} description must not be empty.");
@@ -305,7 +305,7 @@ class SchemaValidationTest extends TestCase
         $this->assertArrayHasKey('--hero-text', $slots);
         $this->assertArrayHasKey('--hero-title-size', $slots);
         $this->assertEquals('length', $slots['--hero-padding-top']['type']);
-        $this->assertEquals('color', $slots['--hero-bg']['type']);
+        $this->assertEquals('gradient', $slots['--hero-bg']['type']);
     }
 
     /**

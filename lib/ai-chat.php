@@ -541,6 +541,8 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
                 'number'      => 'Use a plain number without units (e.g. 650, 1.6).',
                 'duration'    => 'Use a number with ms or s (e.g. 300ms, 0.3s).',
                 'font-family' => 'Use a comma-separated list of font names.',
+                'shadow'      => 'Use a preset ("var(--shadow-sm)", "var(--shadow-md)", "var(--shadow-lg)", or "none") or a single-layer box-shadow like "0 4px 12px rgba(0,0,0,0.1)".',
+                'gradient'    => 'Use a color (hex, rgb(), rgba(), hsl(), hsla()) or a gradient like "linear-gradient(135deg, #1a1a2e, #16121f)" or "radial-gradient(#1a1a2e, #16121f)".',
             ];
             return [
                 'error_code'            => $code,
@@ -641,6 +643,10 @@ function _pp_suggest_alternative_value(string $type, string $description, string
 
     if ($type === 'shadow') {
         return 'Try a preset: "var(--shadow-sm)", "var(--shadow-md)", "var(--shadow-lg)", or "none". Or a single-layer box-shadow like "0 4px 12px rgba(0,0,0,0.1)".';
+    }
+
+    if ($type === 'gradient') {
+        return 'Try "transparent" for an invisible background, a hex/rgb color, or a gradient like "linear-gradient(135deg, #1a1a2e, #16121f)".';
     }
 
     return null;

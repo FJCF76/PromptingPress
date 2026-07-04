@@ -64,7 +64,7 @@
     "style_slots": {
       "--cta-padding-top": { "type": "length", "default": "var(--space-xl)", "description": "Top padding of the CTA section" },
       "--cta-padding-bottom": { "type": "length", "default": "var(--space-xl)", "description": "Bottom padding of the CTA section" },
-      "--cta-bg": { "type": "color", "default": "transparent", "description": "Background color" },
+      "--cta-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
       "--cta-text": { "type": "color", "default": "var(--color-text)", "description": "Title text color" },
       "--cta-title-size": { "type": "length", "default": "inherit", "description": "Title font size" },
       "--cta-body-color": { "type": "color", "default": "var(--color-muted)", "description": "Body text color" },
@@ -77,7 +77,7 @@
       "--cta-radius": { "type": "length", "default": "0", "description": "Border radius" },
       "--cta-shadow": { "type": "shadow", "default": "none", "description": "Box shadow of the CTA section (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" },
       "--cta-content-width": { "type": "length", "default": "40rem", "description": "Title max width" },
-      "--cta-overlay-bg": { "type": "color", "default": "var(--overlay-bg)", "description": "Background image overlay color" }
+      "--cta-overlay-bg": { "type": "gradient", "default": "var(--overlay-bg)", "description": "Background image overlay color or gradient (e.g. a transparent-to-dark scrim for text legibility over an image)" }
     },
     "recipes": {
       "dark-bold": {

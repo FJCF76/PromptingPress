@@ -227,7 +227,7 @@
 .hero {
   padding-top: var(--hero-padding-top, var(--space-xl));
   padding-bottom: var(--hero-padding-bottom, var(--space-xl));
-  background-color: var(--hero-bg, var(--color-bg));
+  background: var(--hero-bg, var(--color-bg));
   border: var(--hero-border-width, 0) solid var(--hero-border-color, transparent);
   border-radius: var(--hero-radius, 0);
   box-shadow: var(--hero-shadow, none);
@@ -553,7 +553,7 @@
 .section {
   padding-top: var(--section-padding-top, var(--space-xl));
   padding-bottom: var(--section-padding-bottom, var(--space-xl));
-  background-color: var(--section-bg, transparent);
+  background: var(--section-bg, transparent);
   border-top: var(--section-border-width, 0) solid var(--section-border-color, transparent);
   border-bottom: var(--section-border-width, 0) solid var(--section-border-color, transparent);
   border-radius: var(--section-radius, 0);
@@ -767,7 +767,7 @@
 .grid {
   padding-top: var(--grid-padding-top, var(--space-xl));
   padding-bottom: var(--grid-padding-bottom, var(--space-xl));
-  background-color: var(--grid-bg, transparent);
+  background: var(--grid-bg, transparent);
 }
 
 .grid__heading {
@@ -800,7 +800,7 @@
 .grid__item {
   display: flex;
   flex-direction: column;
-  background-color: var(--grid-card-bg, var(--color-surface));
+  background: var(--grid-card-bg, var(--color-surface));
   border: var(--grid-card-border-width, 1px) solid var(--grid-card-border, var(--color-border));
   border-radius: var(--grid-card-radius, var(--radius));
   box-shadow: var(--grid-card-shadow, none);
@@ -918,13 +918,13 @@
 
 /* Grid theme variants */
 .grid--dark {
-  background-color: var(--grid-bg, var(--color-surface));
+  background: var(--grid-bg, var(--color-surface));
   border-top: 1px solid var(--color-border);
   border-bottom: 1px solid var(--color-border);
 }
 
 .grid--inverted {
-  background-color: var(--grid-bg, var(--color-bg-inverted));
+  background: var(--grid-bg, var(--color-bg-inverted));
 }
 
 .grid--inverted .grid__heading {
@@ -932,7 +932,7 @@
 }
 
 .grid--inverted .grid__item {
-  background-color: var(--grid-card-bg, var(--color-bg));
+  background: var(--grid-card-bg, var(--color-bg));
 }
 
 .grid--inverted.grid--steps .grid__item {
@@ -1034,7 +1034,7 @@
 .cta {
   padding-top: var(--cta-padding-top, var(--space-xl));
   padding-bottom: var(--cta-padding-bottom, var(--space-xl));
-  background-color: var(--cta-bg, transparent);
+  background: var(--cta-bg, transparent);
   border-top: var(--cta-border-width, 0) solid var(--cta-border-color, transparent);
   border-bottom: var(--cta-border-width, 0) solid var(--cta-border-color, transparent);
   border-radius: var(--cta-radius, 0);
@@ -1072,7 +1072,7 @@
 
 /* Full-width: centered block with surface background */
 .cta--full-width {
-  background-color: var(--cta-bg, var(--color-surface));
+  background: var(--cta-bg, var(--color-surface));
   border-top: var(--cta-border-width, 1px) solid var(--cta-border-color, var(--color-border));
   border-bottom: var(--cta-border-width, 1px) solid var(--cta-border-color, var(--color-border));
 }
@@ -1102,13 +1102,13 @@
 
 /* CTA theme variants */
 .cta--dark {
-  background-color: var(--cta-bg, var(--color-surface));
+  background: var(--cta-bg, var(--color-surface));
   border-top: var(--cta-border-width, 1px) solid var(--cta-border-color, var(--color-border));
   border-bottom: var(--cta-border-width, 1px) solid var(--cta-border-color, var(--color-border));
 }
 
 .cta--inverted {
-  background-color: var(--cta-bg, var(--color-bg-inverted));
+  background: var(--cta-bg, var(--color-bg-inverted));
 }
 
 .cta--inverted .cta__title {
