@@ -176,6 +176,26 @@ class AiChatHandlersTest extends TestCase
         $this->assertSame([['cap' => 'manage_options']], $required);
     }
 
+    public function testRequiredCapsForUnrecognizedScopeFailsClosed(): void
+    {
+        // The scope fallback is a whitelist of 'page'/'section', not a
+        // blacklist of 'site' — an unrecognized/future scope value must
+        // fail closed at manage_options rather than silently dropping to
+        // the weaker edit_post check.
+        pp_register_action('_test_unknown_scope_action', [
+            'scope'  => 'workspace',
+            'params' => ['post_id' => ['type' => 'int', 'required' => false]],
+        ]);
+        try {
+            $this->assertSame(
+                [['cap' => 'manage_options']],
+                _pp_required_caps_for('action', '_test_unknown_scope_action', ['post_id' => 1])
+            );
+        } finally {
+            unset($GLOBALS['_pp_actions']['_test_unknown_scope_action']);
+        }
+    }
+
     public function testRequiredCapsForSiteScopedAction(): void
     {
         $this->assertSame(

@@ -740,7 +740,10 @@ function _pp_required_caps_for(string $type, string $name, array $params): array
     }
 
     $scope = $action['scope'] ?? 'site';
-    if ($scope === 'site') {
+    if (!in_array($scope, ['page', 'section'], true)) {
+        // Whitelist, not a blacklist of 'site': an unrecognized/future scope
+        // value fails closed at the highest bar rather than silently
+        // dropping to the weaker edit_post check.
         return [['cap' => 'manage_options']];
     }
 

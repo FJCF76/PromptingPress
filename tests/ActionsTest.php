@@ -548,6 +548,21 @@ class ActionsTest extends TestCase
         $this->assertStringContainsString('not found', $result['error']);
     }
 
+    public function testTrashPageRejectsNonPagePostType(): void
+    {
+        // Regression (#131 adversarial review): trash_page/restore_page/
+        // unpublish_page only checked get_post()/post_status, not
+        // post_type, so a caller with delete_post rights on a regular
+        // blog post (not a page) could trash it through this "page" action.
+        $GLOBALS['_pp_test_store']['posts'][51] = [
+            'post_type'   => 'post',
+            'post_status' => 'publish',
+        ];
+        $result = pp_execute_action('trash_page', ['post_id' => 51]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not a page', $result['error']);
+    }
+
     public function testTrashPagePreview(): void
     {
         $id = pp_create_page('Preview Trash', 'publish');
@@ -581,6 +596,17 @@ class ActionsTest extends TestCase
         $result = pp_execute_action('restore_page', ['post_id' => $id]);
         $this->assertFalse($result['ok']);
         $this->assertStringContainsString('not in the trash', $result['error']);
+    }
+
+    public function testRestorePageRejectsNonPagePostType(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][52] = [
+            'post_type'   => 'post',
+            'post_status' => 'trash',
+        ];
+        $result = pp_execute_action('restore_page', ['post_id' => 52]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not a page', $result['error']);
     }
 
     public function testRestorePageRejectsNonexistent(): void
@@ -617,6 +643,17 @@ class ActionsTest extends TestCase
         $result = pp_execute_action('unpublish_page', ['post_id' => 99999]);
         $this->assertFalse($result['ok']);
         $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testUnpublishPageRejectsNonPagePostType(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][53] = [
+            'post_type'   => 'post',
+            'post_status' => 'publish',
+        ];
+        $result = pp_execute_action('unpublish_page', ['post_id' => 53]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not a page', $result['error']);
     }
 
     public function testUnpublishPagePreview(): void
