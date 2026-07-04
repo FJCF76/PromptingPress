@@ -4,6 +4,17 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.12] — 2026-07-04 — Fix: Grid Sections Now Show Their Title When Collapsed
+
+**Collapse a hero section in the composition editor and it shows you a preview of what's inside — but collapse a grid section, and it just says "grid," even with a title set.** On a page with three or four grids, that meant opening each one just to figure out which was which. The label was actually being computed correctly for hero; grid (and several other components — FAQ, section headers, stats blocks, tables, logo strips, embeds) just never got the same treatment because the code only looked at a component's *required* fields, and their title is optional by design.
+
+### Fixed
+- Collapsed grid rows (and every other component with an optional title field) now show that title as the row label, matching how hero already worked.
+
+### For contributors
+- 15 new JS tests, including the exact truncation boundary (a title at exactly the 40-character cutoff) and a documented, intentional edge case: FAQ's built-in default heading ("Frequently Asked Questions") now shows as the label when no custom title is set — verified against the FAQ component's actual front-end render fallback, so the label matches what visitors actually see.
+- The label-picking logic moved out of the jQuery-coupled editor file (which has no test harness) into the shared, already-tested editor-logic module, closing a small but real testability gap along the way.
+
 ## [v0.16.11] — 2026-07-04 — Fix: Clicking "Add New Page" No Longer Litters Your Pages List
 
 **Click "Add New Page," then change your mind and click Back — and a permanent, empty "(no title)" page used to get left behind in your Pages list anyway, forever.** Every single visit to that screen created a real, visible draft immediately, before you'd typed a word. Over weeks of normal use, that adds up to a Pages list cluttered with junk nobody meant to create — and those phantom pages were showing up in the AI chat's own list of pages it could edit. New pages now start as WordPress's own "not yet saved" placeholder, invisible until you actually save something, and cleaned up automatically by WordPress itself if you never do.

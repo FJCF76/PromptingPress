@@ -165,17 +165,6 @@
         return map;
     }
 
-    function getFirstRequiredPropValue(compData) {
-        for (var i = 0; i < compData.fields.length; i++) {
-            var f = compData.fields[i];
-            if (f.required && f.type === 'string' && f.value) {
-                var v = String(f.value);
-                return v.length > 40 ? v.slice(0, 40) + '\u2026' : v;
-            }
-        }
-        return '';
-    }
-
     function buildFieldHtml(field, compIdx, fieldIdx, itemIdx) {
         var id = 'pp-field-' + compIdx + '-' + fieldIdx + (itemIdx !== undefined ? '-' + itemIdx : '');
         var reqClass = field.required ? ' pp-accordion-field--required' : '';
@@ -266,7 +255,7 @@
         var h = buildInsertDropdown();
         data.components.forEach(function (comp, idx) {
             var expanded = !!expandedMap[idx];
-            var preview = getFirstRequiredPropValue(comp);
+            var preview = logic.getCollapsedRowPreview(comp);
             var previewHtml = preview ? ' <span class="pp-card-preview">\u2014 "' + esc(preview) + '"</span>' : '';
 
             h += '<div class="pp-accordion-card" data-comp-idx="' + idx + '">';

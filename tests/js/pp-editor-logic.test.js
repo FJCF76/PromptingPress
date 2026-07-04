@@ -17,6 +17,7 @@ const {
     deepDiff,
     checkSerializationInvariant,
     formatDiffsForIssue,
+    getCollapsedRowPreview,
 } = require('../../assets/js/pp-editor-logic.js');
 
 const fs = require('fs');
@@ -457,6 +458,106 @@ describe('buildAccordionData', () => {
 });
 
 // ─── serializeAccordionData ─────────────────────────────────────────────────
+
+describe('getCollapsedRowPreview (#76)', () => {
+    test('grid: uses the optional title field as the collapsed-row label', () => {
+        const json = JSON.stringify([{ component: 'grid', props: { title: 'Our WordPress Services', items: [] } }]);
+        const result = buildAccordionData(json, REGISTRY);
+        expect(getCollapsedRowPreview(result.components[0])).toBe('Our WordPress Services');
+    });
+
+    test('grid: falls back to empty string when no title is set', () => {
+        const json = JSON.stringify([{ component: 'grid', props: { items: [] } }]);
+        const result = buildAccordionData(json, REGISTRY);
+        expect(getCollapsedRowPreview(result.components[0])).toBe('');
+    });
+
+    test('hero: existing required-title behavior is preserved', () => {
+        const json = JSON.stringify([{ component: 'hero', props: { title: 'Reliable AI work' } }]);
+        const result = buildAccordionData(json, REGISTRY);
+        expect(getCollapsedRowPreview(result.components[0])).toBe('Reliable AI work');
+    });
+
+    test('faq: optional title field also now shows as the label', () => {
+        const json = JSON.stringify([{ component: 'faq', props: { title: 'Common Questions', items: [] } }]);
+        const result = buildAccordionData(json, REGISTRY);
+        expect(getCollapsedRowPreview(result.components[0])).toBe('Common Questions');
+    });
+
+    test('footer: no title field at all — falls back to empty string, not a crash', () => {
+        const json = JSON.stringify([{ component: 'footer', props: {} }]);
+        const result = buildAccordionData(json, REGISTRY);
+        expect(getCollapsedRowPreview(result.components[0])).toBe('');
+    });
+
+    test('a component whose title has a non-empty schema default shows that default when unset (intentional)', () => {
+        // Real faq/schema.json declares default: "Frequently Asked Questions",
+        // which components/faq/faq.php also uses as its own render fallback
+        // (props['title'] ?? 'Frequently Asked Questions') — so surfacing it
+        // here as the collapsed-row label accurately reflects what actually
+        // renders on the page, rather than showing a blank/no-op "faq" row
+        // (adversarial review finding, confirmed intentional against the
+        // real component's render behavior, not a bug).
+        const FAQ_WITH_DEFAULT = {
+            name: 'faq',
+            schema: { props: { title: { type: 'string', required: false, default: 'Frequently Asked Questions' } } },
+        };
+        const json = JSON.stringify([{ component: 'faq', props: {} }]);
+        const result = buildAccordionData(json, [FAQ_WITH_DEFAULT]);
+        expect(getCollapsedRowPreview(result.components[0])).toBe('Frequently Asked Questions');
+    });
+
+    test('truncates long values at 40 characters with an ellipsis', () => {
+        const longTitle = 'A'.repeat(50);
+        const json = JSON.stringify([{ component: 'grid', props: { title: longTitle, items: [] } }]);
+        const result = buildAccordionData(json, REGISTRY);
+        const preview = getCollapsedRowPreview(result.components[0]);
+        expect(preview).toBe('A'.repeat(40) + '…');
+    });
+
+    test('a value exactly 40 characters long is returned verbatim, no ellipsis', () => {
+        const exactTitle = 'A'.repeat(40);
+        const json = JSON.stringify([{ component: 'grid', props: { title: exactTitle, items: [] } }]);
+        const result = buildAccordionData(json, REGISTRY);
+        expect(getCollapsedRowPreview(result.components[0])).toBe(exactTitle);
+    });
+
+    test('a value one character over 40 is truncated to 40 + ellipsis', () => {
+        const overTitle = 'A'.repeat(41);
+        const json = JSON.stringify([{ component: 'grid', props: { title: overTitle, items: [] } }]);
+        const result = buildAccordionData(json, REGISTRY);
+        expect(getCollapsedRowPreview(result.components[0])).toBe('A'.repeat(40) + '…');
+    });
+
+    test('missing or malformed fields array returns empty string, not a crash', () => {
+        expect(getCollapsedRowPreview({})).toBe('');
+        expect(getCollapsedRowPreview({ fields: [] })).toBe('');
+        expect(getCollapsedRowPreview(null)).toBe('');
+    });
+
+    test('a non-title required field is preferred over no title field (unknown component)', () => {
+        // Constructed directly (not via a schema) to prove the fallback path
+        // still works for components with no 'title' field but a different
+        // required string field.
+        const compData = {
+            fields: [
+                { name: 'body', type: 'string', required: true, value: 'Some body text' },
+                { name: 'variant', type: 'enum', required: false, value: 'default' },
+            ],
+        };
+        expect(getCollapsedRowPreview(compData)).toBe('Some body text');
+    });
+
+    test('empty title string is treated as no title (falls through to required field)', () => {
+        const compData = {
+            fields: [
+                { name: 'title', type: 'string', required: false, value: '' },
+                { name: 'body', type: 'string', required: true, value: 'Fallback text' },
+            ],
+        };
+        expect(getCollapsedRowPreview(compData)).toBe('Fallback text');
+    });
+});
 
 describe('serializeAccordionData', () => {
     test('round-trip: hero parse→build→serialize preserves user-touched props', () => {
