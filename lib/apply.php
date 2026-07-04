@@ -232,7 +232,14 @@ function _pp_validate_color(string $value): bool {
  *
  * clamp/calc use positive-pattern matching: only numeric literals, units,
  * percentage, comma, parentheses, and arithmetic operators are allowed.
- * var() references inside clamp/calc are rejected to prevent injection bypass.
+ * var() references inside clamp/calc are rejected to prevent injection
+ * bypass — an alphabetic word that isn't an allowed unit (rem/px/em/vw/vh)
+ * is rejected outright. Separately, every unit word that IS allowed must be
+ * directly attached to a real numeric operand (immediately preceded by a
+ * digit or decimal point) — this is a correctness check, not a security
+ * boundary: it rejects structurally nonsensical values like calc(px) or
+ * calc((rem) + 1px) that would otherwise validate and persist as broken CSS
+ * the browser silently drops (#129).
  */
 function _pp_validate_length(string $value): bool {
     // Unitless zero.
@@ -253,8 +260,9 @@ function _pp_validate_length(string $value): bool {
         }
         $contents = $m[2];
         // Positive pattern: only numeric, dot, units, %, comma, whitespace, parens, arithmetic.
-        // No alphabetic sequences longer than 2 chars (blocks var, env, url, etc.)
-        // but allows unit suffixes (rem, px, em, vw, vh).
+        // Every alphabetic sequence must be an allowed unit word exactly
+        // (rem, px, em, vw, vh) — this blocks var, env, url, and any other
+        // function/keyword, not a length-based rule.
         $alpha_sequences = [];
         preg_match_all('/[a-zA-Z]+/', $contents, $alpha_sequences, PREG_OFFSET_CAPTURE);
         $allowed_units = ['rem', 'px', 'em', 'vw', 'vh'];
