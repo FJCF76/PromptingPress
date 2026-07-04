@@ -212,7 +212,7 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_set_token_override($token, $value)` | Writes a single token override to the database. |
 | `pp_clear_token_override($token)` | Removes a single token override (reverts to default). |
 | `pp_clear_all_token_overrides()` | Removes all overrides (reverts site to shipped defaults). |
-| `pp_site_option($key)`         | Whitelisted option value (blogname, blogdescription) or WP_Error |
+| `pp_site_option($key)`         | Whitelisted option value (blogname, blogdescription, pp_logo_id, pp_logo_alt) or WP_Error |
 | `pp_update_composition($post_id, $composition)` | Writes composition array to post meta (handles JSON serialization). Returns true\|WP_Error |
 | `pp_update_page_title($post_id, $title)` | Updates page title. Returns true\|WP_Error |
 | `pp_create_page($title, $status)` | Creates page with Composition template. Returns post ID\|WP_Error |
@@ -430,7 +430,7 @@ All mutations go through typed actions. AJAX handlers, WP-CLI, and future AI cal
 | Action | Scope | Params | Semantics |
 |---|---|---|---|
 | `create_page` | site | title (req), composition, status | Create. Defaults to draft with empty composition |
-| `update_site_option` | site | key (req), value (req) | Replace. Whitelisted: blogname, blogdescription |
+| `update_site_option` | site | key (req), value (req) | Replace. Whitelisted: blogname, blogdescription, pp_logo_id (attachment ID), pp_logo_alt |
 | `update_page_title` | page | post_id (req), title (req) | Replace |
 | `update_composition` | page | post_id (req), composition (req) | Replace entire array |
 | `publish_page` | page | post_id (req) | Sets status to publish. Idempotent |
