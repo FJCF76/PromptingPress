@@ -475,7 +475,16 @@ function pp_esc_image_src(string $url): string {
     }
 
     if (stripos($url, 'data:') !== 0) {
-        return esc_url($url);
+        // esc_url()'s allowed-character set includes '(' and ')' (it's
+        // designed for generic href="" safety, not this CSS-unquoted-url()
+        // context specifically) — an ordinary URL containing a literal ')'
+        // can still close the surrounding CSS url() token early and inject
+        // trailing declarations into the style attribute (adversarial
+        // review finding; pre-existing behavior, not introduced by this
+        // function, but this is now the one place all 6 call sites route
+        // through). Percent-encoding it is transparent to every legitimate
+        // consumer of the URL.
+        return str_replace(')', '%29', esc_url($url));
     }
 
     // Sanity bound against pathologically large inline payloads.
@@ -520,17 +529,32 @@ function pp_esc_image_src(string $url): string {
         return 'data:image/' . $mime . $charset_segment . ';base64,' . $raw_data;
     }
 
-    // Raw/percent-encoded payload. Decode to a fixed point (handles
-    // single- AND multiply-percent-encoded input identically) so the
-    // safety check runs against the same logical content the browser will
-    // eventually parse.
+    // Raw/percent-encoded payload. Decode to a TRUE fixed point (handles
+    // single- AND arbitrarily-multiply-percent-encoded input identically)
+    // so the safety check runs against the same logical content the
+    // browser will eventually parse. A capped-but-incomplete decode is not
+    // safe here: this function's own re-encoding step below only adds new
+    // %XX sequences for specific dangerous characters, it never touches a
+    // pre-existing '%' — so any encoding layer left un-decoded by the
+    // check survives into the output and gets removed by the browser's own
+    // single decode pass at render time, revealing content the check never
+    // saw (adversarial review finding: a 6-times-encoded payload survived
+    // an earlier 5-round cap this way). If genuine convergence takes more
+    // than $max_decode_rounds passes, that is itself not legitimate
+    // content — reject outright rather than proceed on a partial decode.
+    $max_decode_rounds = 20;
     $decoded = $raw_data;
-    for ($i = 0; $i < 5; $i++) {
+    $converged = false;
+    for ($i = 0; $i < $max_decode_rounds; $i++) {
         $next = rawurldecode($decoded);
         if ($next === $decoded) {
+            $converged = true;
             break;
         }
         $decoded = $next;
+    }
+    if (!$converged) {
+        return '';
     }
 
     if ($mime === 'svg+xml' && !_pp_svg_content_is_safe($decoded)) {
@@ -539,11 +563,18 @@ function pp_esc_image_src(string $url): string {
 
     // Percent-ENCODE (never strip) every character that's unsafe once
     // embedded in an HTML attribute that also contains an unquoted CSS
-    // url() token: quotes, angle brackets, parens, #, &, and all C0
-    // control/whitespace characters (\x00-\x20, which covers space, tab,
-    // newline, and CR in one pass).
+    // url() token: quotes, angle brackets, parens, #, &, backslash, and all
+    // C0 control/whitespace characters (\x00-\x20, which covers space, tab,
+    // newline, and CR in one pass). Backslash matters even though it looks
+    // inert: CSS's own url()-token tokenizer resolves "\XX" backslash
+    // escapes (independent of, and prior to, percent-decoding) while
+    // extracting the token's value — content that is completely inert to
+    // DOMDocument (e.g. a literal "\3c" is just three harmless characters
+    // to an XML parser) can decode to "<" once the browser's CSS tokenizer
+    // processes the surrounding style="...url(...)..." attribute, at the 4
+    // background-image call sites (adversarial review finding).
     $encoded = preg_replace_callback(
-        '/["\'<>()#&\x00-\x20]/',
+        '/["\'<>()#&\\\\\x00-\x20]/',
         function (array $match): string {
             return '%' . strtoupper(bin2hex($match[0]));
         },
@@ -598,11 +629,53 @@ function _pp_svg_content_is_safe(string $svg): bool {
     $xpath = new \DOMXPath($doc);
     $lower_local_name = "translate(local-name(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')";
 
-    $dangerous_elements = ['script', 'foreignobject', 'iframe', 'embed', 'object'];
+    // Any processing instruction (e.g. <?xml-stylesheet href="javascript:...">
+    // before the root element) is rejected outright rather than inspected —
+    // PIs aren't attributes, so the attribute-value checks below never see
+    // one, and xml-stylesheet's href has real (if legacy/browser-specific)
+    // script/resource-loading-triggering history (adversarial review finding).
+    $pis = $xpath->query('//processing-instruction()');
+    if ($pis === false || $pis->length > 0) {
+        return false;
+    }
+
+    // SMIL animation elements (animate/animateMotion/animateTransform/
+    // animateColor/set) can retarget attributes like href/xlink:href to a
+    // javascript: value over time via their values/to/from attributes —
+    // a static per-attribute scan doesn't parse that semicolon-separated
+    // mini-language, so these elements are rejected outright. <style> is
+    // also rejected outright: unlike <script>, an SVG's own <style> element
+    // IS applied during ordinary rendering (as an <img> or CSS
+    // background-image, not just a top-level-navigation "open image in new
+    // tab") — an `@import`/`url()` inside it fires on every page view, not
+    // just for a user who takes an extra action (adversarial review finding).
+    $dangerous_elements = ['script', 'foreignobject', 'iframe', 'embed', 'object', 'animate', 'animatemotion', 'animatetransform', 'animatecolor', 'set', 'style'];
     foreach ($dangerous_elements as $name) {
         $matches = $xpath->query("//*[{$lower_local_name}='{$name}']");
         if ($matches === false || $matches->length > 0) {
             return false;
+        }
+    }
+
+    // <use>/<image> href/xlink:href are fetched during ordinary rendering
+    // too (same "fires for every visitor" reasoning as <style> above) — a
+    // tracking-pixel-style resource load, no click or top-level navigation
+    // required. Restrict to a same-document fragment (#id) or a data: URI;
+    // reject any external reference.
+    // local-name()='href' matches both the modern unprefixed `href` and the
+    // legacy `xlink:href` — an XML namespace prefix doesn't change the
+    // local name, only the namespace it resolves to.
+    $ref_elements = ['use', 'image'];
+    foreach ($ref_elements as $name) {
+        $refs = $xpath->query("//*[{$lower_local_name}='{$name}']/@*[{$lower_local_name}='href']");
+        if ($refs === false) {
+            return false;
+        }
+        foreach ($refs as $ref) {
+            $value = trim((string) $ref->nodeValue);
+            if ($value !== '' && $value[0] !== '#' && stripos($value, 'data:') !== 0) {
+                return false;
+            }
         }
     }
 
@@ -612,14 +685,26 @@ function _pp_svg_content_is_safe(string $svg): bool {
         return false;
     }
 
-    // javascript: URIs in any attribute value (href, xlink:href, etc.) —
-    // already-entity-resolved by the parser, so no separate decoding needed.
+    // Dangerous URI schemes in any attribute value (href, xlink:href, etc.)
+    // — already-entity-resolved by the parser, so no separate decoding
+    // needed. Tab/newline/CR are stripped before the prefix check because
+    // browser URL parsing strips them from anywhere in a URL string (a
+    // well-known normalization step, not unique to this codebase) —
+    // "java&#x0A;script:" resolves to "javascript:" at navigation time even
+    // though the DOM attribute value still has the embedded newline
+    // (adversarial review finding). data:text/html (or any non-image data:
+    // scheme) is rejected alongside javascript: — a nested <a href> inside
+    // an already-opened SVG is a real, if lower-likelihood, escalation path.
     $all_attrs = $xpath->query('//@*');
     if ($all_attrs === false) {
         return false;
     }
     foreach ($all_attrs as $attr) {
-        if (preg_match('/^\s*javascript:/i', (string) $attr->nodeValue)) {
+        $normalized = preg_replace('/[\t\n\r]/', '', (string) $attr->nodeValue);
+        if (preg_match('/^\s*javascript:/i', $normalized)) {
+            return false;
+        }
+        if (preg_match('/^\s*data:(?!image\/)/i', $normalized)) {
             return false;
         }
     }

