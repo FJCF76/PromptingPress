@@ -239,6 +239,39 @@ class PostApplyValidateTest extends TestCase
         $this->assertEmpty($result['errors']);
     }
 
+    public function testMultibyteFilenamePassesEvenWithEmbeddedMetaCharsetOverride(): void
+    {
+        // Regression (#128 adversarial review): libxml's HTML encoding
+        // sniffing prioritizes an in-content <meta charset="..."> over the
+        // document-level XML encoding hint. If a component's rendered
+        // output happens to carry one (e.g. embed's shortcode-rendered
+        // content), it could silently defeat the fix above and
+        // reintroduce the mis-decode. Confirm the validator strips it.
+        $filename = 'logotipo-diseño.png';
+        $imgUrl = 'https://example.com/wp-content/uploads/2026/06/' . $filename;
+        $this->createTestComponent(
+            'embed',
+            '<meta charset="ISO-8859-1"><div><img src="' . $imgUrl . '" alt="logo"></div>'
+        );
+        $this->setComposition([
+            ['component' => 'embed', 'props' => [], 'style' => []],
+        ]);
+
+        $attachmentId = 202;
+        $GLOBALS['_pp_test_store']['posts'][$attachmentId] = [
+            'post_type' => 'attachment',
+            'post_status' => 'inherit',
+        ];
+        $GLOBALS['_pp_test_store']['post_meta'][$attachmentId] = [
+            '_wp_attached_file' => '2026/06/' . $filename,
+        ];
+
+        $result = pp_post_apply_validate($this->postId);
+
+        $this->assertTrue($result['ok']);
+        $this->assertEmpty($result['errors']);
+    }
+
     public function testLocalImgNotInMediaLibraryIsError(): void
     {
         $imgUrl = 'https://example.com/wp-content/uploads/2026/06/missing.jpg';
