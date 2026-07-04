@@ -211,6 +211,34 @@ class PostApplyValidateTest extends TestCase
         $this->assertEmpty($result['errors']);
     }
 
+    public function testValidLocalImgWithMultibyteFilenamePasses(): void
+    {
+        // Regression (#128): DOMDocument::loadHTML() without an encoding
+        // hint assumes ISO-8859-1 and mis-decodes UTF-8, so
+        // "logotipo-diseño.png" would read back mangled and never match
+        // the real (correctly UTF-8) _wp_attached_file value.
+        $filename = 'logotipo-diseño.png';
+        $imgUrl = 'https://example.com/wp-content/uploads/2026/06/' . $filename;
+        $this->createTestComponent('card', '<div><img src="' . $imgUrl . '" alt="logo"></div>');
+        $this->setComposition([
+            ['component' => 'card', 'props' => [], 'style' => []],
+        ]);
+
+        $attachmentId = 201;
+        $GLOBALS['_pp_test_store']['posts'][$attachmentId] = [
+            'post_type' => 'attachment',
+            'post_status' => 'inherit',
+        ];
+        $GLOBALS['_pp_test_store']['post_meta'][$attachmentId] = [
+            '_wp_attached_file' => '2026/06/' . $filename,
+        ];
+
+        $result = pp_post_apply_validate($this->postId);
+
+        $this->assertTrue($result['ok']);
+        $this->assertEmpty($result['errors']);
+    }
+
     public function testLocalImgNotInMediaLibraryIsError(): void
     {
         $imgUrl = 'https://example.com/wp-content/uploads/2026/06/missing.jpg';

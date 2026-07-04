@@ -97,9 +97,13 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
         $rendered_count++;
 
         // 3. DOM inspection.
+        // Without an encoding hint, DOMDocument::loadHTML() assumes
+        // ISO-8859-1 and mis-decodes UTF-8 bytes — e.g. "café.jpg" reads
+        // back as "cafÃ©.jpg", which then fails the media lookup below
+        // for any real, correctly-uploaded file with a multibyte name.
         $doc = new DOMDocument();
         $doc->loadHTML(
-            '<!DOCTYPE html><html><body>' . $html . '</body></html>',
+            '<?xml encoding="utf-8"?><!DOCTYPE html><html><body>' . $html . '</body></html>',
             LIBXML_NOERROR | LIBXML_NOWARNING
         );
 
