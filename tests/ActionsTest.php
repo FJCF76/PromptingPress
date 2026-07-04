@@ -1557,6 +1557,72 @@ class ActionsTest extends TestCase
         $this->assertSame('#000000', $repaired['style']['--hero-text']);
     }
 
+    public function testStyleRepairResolvesComponentIdNotJustIndexZero(): void
+    {
+        // #123 regression: composition [0]=nav (no style slots), [1]=hero
+        // (id pp-a1b2c3d4). An id-targeted proposal with a typo'd hero slot
+        // must repair against the hero component, not silently look up nav
+        // at index 0 and fail with "no available slots".
+        $post_id = pp_create_page('Id Repair test');
+        pp_update_composition($post_id, [
+            ['component' => 'nav', 'props' => []],
+            ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
+        ]);
+
+        $repaired = _pp_attempt_style_repair('invalid_style_slot', [
+            'post_id'      => $post_id,
+            'component_id' => 'pp-a1b2c3d4',
+            'style'        => ['--hero-bgs' => '#1a1a2e'],
+        ]);
+
+        $this->assertNotNull($repaired, 'Repair should resolve the id-targeted hero component, not index 0 (nav).');
+        $this->assertArrayHasKey('--hero-bg', $repaired['style']);
+        $this->assertSame('#1a1a2e', $repaired['style']['--hero-bg']);
+    }
+
+    public function testStyleRepairReturnsNullForUnresolvableComponentId(): void
+    {
+        $post_id = pp_create_page('Bad Id Repair test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
+        ]);
+
+        $repaired = _pp_attempt_style_repair('invalid_style_slot', [
+            'post_id'      => $post_id,
+            'component_id' => 'pp-doesnotexist',
+            'style'        => ['--hero-bgs' => '#1a1a2e'],
+        ]);
+
+        $this->assertNull($repaired, 'An unresolvable component_id must bail gracefully, not fall back to index 0.');
+    }
+
+    public function testStyleRepairPrefersComponentIdOverStaleComponentIndex(): void
+    {
+        // Proves precedence, not just presence: a stale/mismatched
+        // component_index (e.g. echoed back from a prior turn) must NOT win
+        // over an explicit component_id in the same params.
+        $post_id = pp_create_page('Precedence test');
+        pp_update_composition($post_id, [
+            ['component' => 'nav', 'props' => []],
+            ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
+        ]);
+
+        $repaired = _pp_attempt_style_repair('invalid_style_slot', [
+            'post_id'         => $post_id,
+            'component_id'    => 'pp-a1b2c3d4',
+            'component_index' => 0, // stale: points at nav, id points at hero
+            'style'           => ['--hero-bgs' => '#1a1a2e'],
+        ]);
+
+        $this->assertNotNull($repaired, 'component_id must win over a conflicting component_index.');
+        $this->assertArrayHasKey('--hero-bg', $repaired['style']);
+    }
+
+    public function testResolveComponentIndexForErrorReturnsNegativeOneWithNoTarget(): void
+    {
+        $this->assertSame(-1, _pp_resolve_component_index_for_error([]));
+    }
+
     // ── Friendly Error Builder ───────────────────────────────────────────
 
     public function testFriendlyErrorForInvalidSlotNoRawValidatorText(): void
@@ -1626,6 +1692,109 @@ class ActionsTest extends TestCase
         $this->assertSame('invalid_recipe', $result['error_code']);
         $this->assertStringContainsString('recipe', $result['user_message']);
         $this->assertNotEmpty($result['alternatives']);
+    }
+
+    public function testFriendlyErrorForInvalidSlotResolvesComponentIdNotIndexZero(): void
+    {
+        // #123 regression: exact failure scenario from the issue —
+        // [0]=nav, [1]=hero (id pp-a1b2c3d4). An id-targeted invalid_style_slot
+        // error must list the HERO component's slots, not nav's (which has none).
+        $post_id = pp_create_page('Id Error test');
+        pp_update_composition($post_id, [
+            ['component' => 'nav', 'props' => []],
+            ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
+        ]);
+
+        $error  = new WP_Error('invalid_style_slot', 'Component "hero" has no style slot "--hero-bgg". Available: --hero-bg, ...');
+        $result = _pp_build_friendly_error($error, [
+            'post_id'      => $post_id,
+            'component_id' => 'pp-a1b2c3d4',
+            'style'        => ['--hero-bgg' => '#1a1a2e'],
+        ]);
+
+        $this->assertSame('invalid_style_slot', $result['error_code']);
+        $this->assertStringContainsString('hero', $result['user_message']);
+        $this->assertNotEmpty($result['alternatives'], 'Should list hero slots, not fail as if nav (index 0) had none.');
+        $this->assertContains('--hero-bg', $result['alternatives']);
+    }
+
+    public function testFriendlyErrorForUnresolvableComponentIdReportsNotFoundNotEmpty(): void
+    {
+        // A typo'd component_id must be reported as "couldn't find the
+        // component" — not as "(none)", which is indistinguishable from a
+        // real component that genuinely has zero configurable slots and
+        // would send the calling agent down the wrong repair path.
+        $post_id = pp_create_page('Bad Id Error test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
+        ]);
+
+        $error  = new WP_Error('invalid_style_slot', 'Component "hero" has no style slot "--hero-bgg".');
+        $result = _pp_build_friendly_error($error, [
+            'post_id'      => $post_id,
+            'component_id' => 'pp-doesnotexist',
+            'style'        => ['--hero-bgg' => '#1a1a2e'],
+        ]);
+
+        $this->assertSame('invalid_style_slot', $result['error_code']);
+        $this->assertStringContainsString('couldn\'t find', $result['user_message']);
+        $this->assertStringNotContainsString('(none)', $result['user_message']);
+        $this->assertEmpty($result['alternatives']);
+    }
+
+    public function testFriendlyErrorForInvalidRecipeUnresolvableComponentIdReportsNotFound(): void
+    {
+        $post_id = pp_create_page('Bad Id Recipe Error test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
+        ]);
+
+        $error  = new WP_Error('invalid_recipe', 'Component "hero" has no recipe "dark-blue".');
+        $result = _pp_build_friendly_error($error, [
+            'post_id'      => $post_id,
+            'component_id' => 'pp-doesnotexist',
+        ]);
+
+        $this->assertSame('invalid_recipe', $result['error_code']);
+        $this->assertStringContainsString('couldn\'t find', $result['user_message']);
+        $this->assertStringNotContainsString('(none)', $result['user_message']);
+    }
+
+    public function testFriendlyErrorForInvalidRecipeResolvesComponentIdNotIndexZero(): void
+    {
+        $post_id = pp_create_page('Id Recipe Error test');
+        pp_update_composition($post_id, [
+            ['component' => 'nav', 'props' => []],
+            ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
+        ]);
+
+        $error  = new WP_Error('invalid_recipe', 'Component "hero" has no recipe "dark-blue". Available: dark-spacious, compact, bold-headline');
+        $result = _pp_build_friendly_error($error, [
+            'post_id'      => $post_id,
+            'component_id' => 'pp-a1b2c3d4',
+        ]);
+
+        $this->assertSame('invalid_recipe', $result['error_code']);
+        $this->assertNotEmpty($result['alternatives'], 'Should list hero recipes, not fail as if nav (index 0) had none.');
+    }
+
+    public function testFriendlyErrorResolvesComponentIdForInvalidStyleValue(): void
+    {
+        $post_id = pp_create_page('Id Value Error test');
+        pp_update_composition($post_id, [
+            ['component' => 'nav', 'props' => []],
+            ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
+        ]);
+
+        $error  = new WP_Error('invalid_style_value', 'Style slot "--hero-bg": Value must be a valid CSS color...');
+        $result = _pp_build_friendly_error($error, [
+            'post_id'      => $post_id,
+            'component_id' => 'pp-a1b2c3d4',
+        ]);
+
+        $this->assertSame('invalid_style_value', $result['error_code']);
+        $this->assertStringContainsString('hero', $result['user_message']);
+        $this->assertStringContainsString('hex', $result['user_message']);
     }
 
     // ── Cross-Component Hints ───────────────────────────────────────────

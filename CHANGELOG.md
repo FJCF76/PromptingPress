@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.10] — 2026-07-04 — Fix: Style Fixes Now Target the Component You Actually Meant
+
+**Target a component by its stable ID instead of its position on the page — say, the third section down — and a failed style change used to get "helpfully" analyzed against whatever happened to sit first in the list instead.** Ask to fix a typo'd color setting on your hero section, and if something else came first in the page, the error message and auto-repair would talk about *that* component's settings instead of the hero's — or claim the hero "has no settings at all" when it actually just checked the wrong one. Now both the typo-repair logic and the friendly error messages always resolve to the component you actually targeted, and a genuinely unresolvable target gets an honest "couldn't find that component" instead of a misleading "nothing configurable here."
+
+### Fixed
+- Style-slot typo repair and friendly error messages now correctly resolve components targeted by their stable ID, not just by page position.
+- A component ID that doesn't match anything on the page now says so plainly, instead of silently reporting the wrong component's (empty) settings list.
+
+### For contributors
+- 10 new PHP tests, including the exact failure scenario from the bug report (a component with no style options sitting before the real target) and a precedence test proving an explicit ID wins over a stale, conflicting index.
+- The id-to-index resolution logic is now shared between the action-validation layer and these chat-side error helpers (previously duplicated, which is exactly how they drifted out of sync in the first place).
+
 ## [v0.16.9] — 2026-07-04 — Fix: Reloading the AI Chat No Longer Shows It Talking to Itself
 
 **After the AI chat applied a change, it quietly noted "changes applied" for its own reference on the next turn — but reload the page, and that note could reappear as if the assistant had actually said it out loud, mixed into your real conversation.** Only the plainest version of that note was ever hidden; anything with a warning, a validation failure, or a "some settings didn't carry over" note leaked straight into the visible transcript. Now every version of that internal note stays exactly what it was meant to be — invisible bookkeeping the assistant still remembers, but never something you see it "say."

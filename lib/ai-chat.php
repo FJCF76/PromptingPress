@@ -280,6 +280,52 @@ function pp_ai_coerce_params(string $type, string $name, array $params): array {
     return $params;
 }
 
+// ── Component Index Resolver (chat-side error helpers) ────────────────────
+
+/**
+ * Resolves the target component index for chat-side error-analysis helpers
+ * (_pp_attempt_style_repair, _pp_build_friendly_error). These run on the raw
+ * AI-submitted $params — pp_validate_action()'s own component_id resolution
+ * (_pp_resolve_id_param() in lib/actions.php) mutates a local copy of $params
+ * inside the validate call, which never propagates back to the caller here,
+ * so an id-targeted proposal still has no component_index in $params by the
+ * time an error needs analyzing. Delegates to the same
+ * _pp_resolve_component_id_to_index() (lib/actions.php) that
+ * _pp_resolve_id_param() uses, so the two never drift on precedence
+ * (component_id > component_index) (#123).
+ *
+ * @return int  Resolved index, or -1 if it can't be resolved.
+ */
+function _pp_resolve_component_index_for_error(array $params): int {
+    if (isset($params['component_id']) && $params['component_id'] !== '') {
+        $post_id = (int) ($params['post_id'] ?? 0);
+        $index   = _pp_resolve_component_id_to_index($post_id, $params['component_id']);
+        return is_wp_error($index) ? -1 : $index;
+    }
+    // Defense in depth: pp_validate_action() already type-checks
+    // component_index as a real int on every path that reaches these helpers
+    // today, but blindly (int)-casting here would silently coerce a garbage
+    // value (e.g. a non-numeric string) to 0 — a real component — for any
+    // future direct caller that skips that validation. Preserve the old
+    // "wrong type → no match" behavior instead (#123 adversarial review).
+    if (isset($params['component_index']) && is_int($params['component_index'])) {
+        return $params['component_index'];
+    }
+    return -1;
+}
+
+/**
+ * True when a component_id was explicitly provided but couldn't be resolved
+ * — distinct from "no target info at all" or "target has zero slots/recipes"
+ * (both of which also produce an empty availability list). Without this
+ * distinction, a typo'd component_id silently looks identical to "this
+ * component genuinely has nothing configurable," misleading the calling
+ * agent into the wrong repair attempt (#123 adversarial review).
+ */
+function _pp_component_target_not_found(array $params, int $resolved_index): bool {
+    return isset($params['component_id']) && $params['component_id'] !== '' && $resolved_index < 0;
+}
+
 // ── Style Repair Helper ───────────────────────────────────────────────────
 // When the LLM proposes an invalid style slot name, attempt to find the
 // closest match via Levenshtein distance. Returns repaired params or null.
@@ -295,7 +341,7 @@ function _pp_attempt_style_repair(string $error_code, array $params): ?array {
     }
 
     $post_id         = $params['post_id'] ?? 0;
-    $component_index = $params['component_index'] ?? 0;
+    $component_index = _pp_resolve_component_index_for_error($params);
     $composition     = pp_get_composition($post_id);
     $component_name  = $composition[$component_index]['component'] ?? '';
     $available_slots = pp_get_style_slots($component_name);
@@ -364,7 +410,16 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
             $available      = [];
             $available_slots = [];
             $composition    = pp_get_composition($params['post_id'] ?? 0);
-            $idx            = $params['component_index'] ?? 0;
+            $idx            = _pp_resolve_component_index_for_error($params);
+            if (_pp_component_target_not_found($params, $idx)) {
+                return [
+                    'error_code'            => $code,
+                    'user_message'          => 'I couldn\'t find that component on the page — it may have been removed or the id is wrong.',
+                    'alternatives'          => [],
+                    'cross_component_hints' => (object) [],
+                    'raw_error'             => $raw_msg,
+                ];
+            }
             if (isset($composition[$idx])) {
                 $component_name  = $composition[$idx]['component'] ?? '';
                 $available_slots = pp_get_style_slots($component_name);
@@ -446,7 +501,7 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
             if (preg_match('/^Style slot "([^"]+)"/', $raw_msg, $m)) {
                 $slot_name = $m[1];
                 $composition = pp_get_composition($params['post_id'] ?? 0);
-                $idx         = $params['component_index'] ?? 0;
+                $idx         = _pp_resolve_component_index_for_error($params);
                 $comp_name   = $composition[$idx]['component'] ?? '';
                 $slots       = pp_get_style_slots($comp_name);
                 $type_hint    = $slots[$slot_name]['type'] ?? '';
@@ -511,7 +566,16 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
         case 'invalid_recipe':
             $available_recipes = [];
             $composition = pp_get_composition($params['post_id'] ?? 0);
-            $idx         = $params['component_index'] ?? 0;
+            $idx         = _pp_resolve_component_index_for_error($params);
+            if (_pp_component_target_not_found($params, $idx)) {
+                return [
+                    'error_code'            => $code,
+                    'user_message'          => 'I couldn\'t find that component on the page — it may have been removed or the id is wrong.',
+                    'alternatives'          => [],
+                    'cross_component_hints' => (object) [],
+                    'raw_error'             => $raw_msg,
+                ];
+            }
             if (isset($composition[$idx])) {
                 $comp_name = $composition[$idx]['component'] ?? '';
                 $recipes   = pp_get_style_recipes($comp_name);
