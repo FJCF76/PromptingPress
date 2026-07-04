@@ -490,6 +490,23 @@ describe('getCollapsedRowPreview (#76)', () => {
         expect(getCollapsedRowPreview(result.components[0])).toBe('');
     });
 
+    test('a component whose title has a non-empty schema default shows that default when unset (intentional)', () => {
+        // Real faq/schema.json declares default: "Frequently Asked Questions",
+        // which components/faq/faq.php also uses as its own render fallback
+        // (props['title'] ?? 'Frequently Asked Questions') — so surfacing it
+        // here as the collapsed-row label accurately reflects what actually
+        // renders on the page, rather than showing a blank/no-op "faq" row
+        // (adversarial review finding, confirmed intentional against the
+        // real component's render behavior, not a bug).
+        const FAQ_WITH_DEFAULT = {
+            name: 'faq',
+            schema: { props: { title: { type: 'string', required: false, default: 'Frequently Asked Questions' } } },
+        };
+        const json = JSON.stringify([{ component: 'faq', props: {} }]);
+        const result = buildAccordionData(json, [FAQ_WITH_DEFAULT]);
+        expect(getCollapsedRowPreview(result.components[0])).toBe('Frequently Asked Questions');
+    });
+
     test('truncates long values at 40 characters with an ellipsis', () => {
         const longTitle = 'A'.repeat(50);
         const json = JSON.stringify([{ component: 'grid', props: { title: longTitle, items: [] } }]);
