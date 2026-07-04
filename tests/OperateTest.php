@@ -257,6 +257,15 @@ class OperateTest extends TestCase
         $this->assertSame('hero_left_no_image', $result['smells'][0]['type']);
     }
 
+    public function testInspectSiteReturnsNoSmellsForPageWithoutComposition(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Blank Page', 'post_status' => 'publish']);
+
+        $result = pp_inspect_site($post_id);
+
+        $this->assertSame([], $result['smells']);
+    }
+
     public function testInspectSiteReturnsNoSmellsWithoutPostId(): void
     {
         $result = pp_inspect_site();
