@@ -330,6 +330,80 @@ class ApplyTest extends TestCase
         $this->assertFalse(_pp_validate_length('unset'));
     }
 
+    // ── Length validator: intended "must start with a number" check (#129) ──
+    //
+    // The check that rejects structurally nonsensical calc()/clamp() bodies
+    // (e.g. a bare unit with no operand) used to be a dead if-body — the
+    // condition was evaluated and its result discarded. These pin down the
+    // now-enforced behavior against the issue's own test matrix.
+
+    public function testLengthRejectsCalcWithNoOperand(): void
+    {
+        // "px" is an allowed unit word and every character is otherwise
+        // permitted, so without the start-of-contents check this validated.
+        $this->assertFalse(_pp_validate_length('calc(px)'));
+    }
+
+    public function testLengthRejectsClampWithAllBareUnits(): void
+    {
+        $this->assertFalse(_pp_validate_length('clamp(rem, rem, rem)'));
+    }
+
+    public function testLengthAcceptsCalcWithNestedParens(): void
+    {
+        // Starts with an opening paren, not a digit — must stay valid.
+        $this->assertTrue(_pp_validate_length('calc((100% - 2rem) / 2)'));
+    }
+
+    public function testLengthAcceptsClampWithViewportUnit(): void
+    {
+        $this->assertTrue(_pp_validate_length('clamp(1rem, 2.5vw, 3rem)'));
+    }
+
+    public function testLengthAcceptsLeadingDotInCalc(): void
+    {
+        // ".5rem"-style values (no leading zero) must remain valid.
+        $this->assertTrue(_pp_validate_length('calc(.5rem + 1rem)'));
+    }
+
+    public function testLengthAcceptsWhitespaceAfterOpeningParen(): void
+    {
+        // "calc( 1rem + 2rem)" — valid CSS with a space right after the
+        // opening paren. The start-of-contents check must skip leading
+        // whitespace, not treat the space itself as the disqualifying
+        // first character.
+        $this->assertTrue(_pp_validate_length('calc( 1rem + 2rem)'));
+    }
+
+    // ── Bare-unit bypasses surfaced by adversarial review (#129) ────────────
+    //
+    // The simpler "must start with a digit/sign/paren" check still let a
+    // unit word appear anywhere in the expression without a real numeric
+    // operand attached to it, as long as SOME digit existed elsewhere in
+    // the string. Each of these has an allowed unit word (rem/px) but no
+    // number directly adjacent to it — exactly the "validates but persists
+    // as broken CSS" failure class #129 describes, just a different shape.
+
+    public function testLengthRejectsUnitWrappedInParens(): void
+    {
+        $this->assertFalse(_pp_validate_length('calc((rem) + 1px)'));
+    }
+
+    public function testLengthRejectsUnitAfterUnaryMinus(): void
+    {
+        $this->assertFalse(_pp_validate_length('calc(-rem + 1px)'));
+    }
+
+    public function testLengthRejectsUnitAfterUnaryPlus(): void
+    {
+        $this->assertFalse(_pp_validate_length('calc(+rem + 1px)'));
+    }
+
+    public function testLengthRejectsBareUnitInClampArgument(): void
+    {
+        $this->assertFalse(_pp_validate_length('clamp((rem), 1px, 2px)'));
+    }
+
     // ── Type-specific validation: font-family ───────────────────────────────
 
     public function testFontFamilyValidStack(): void
