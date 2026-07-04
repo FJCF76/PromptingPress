@@ -4,6 +4,17 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.3] — 2026-07-04 — Security: Chat Can No Longer Publish, Trash, or Rewrite Your Site as a Contributor
+
+**A Contributor-level user could previously use the AI chat to publish or trash any page, rename the site, wipe Custom CSS, or reset every design token — all through the same "Permission denied" gate that should have stopped them.** The chat's execute/preview endpoints checked only one coarse capability (the ability to edit posts at all) before running *any* registered action or design change, regardless of how privileged that specific change was. Now each action and design change checks the real WordPress capability it actually requires — the same rules the rest of the admin already enforces. A Contributor can still chat and propose changes, but every privileged step now correctly returns "Permission denied" and changes nothing. Editors keep full page-building power through chat; only site-wide settings and design changes stay Administrator-only.
+
+### Fixed
+- The AI chat's execute/preview endpoints now check the specific permission each action or design change requires, instead of one blanket "can edit posts" check — closing a path where a lower-privileged user could publish/trash pages, change site settings, or overwrite design tokens through chat.
+- Trashing, restoring, or unpublishing a page through chat now confirms the target is actually a page first, closing a related edge case surfaced while hardening the fix above.
+
+### For contributors
+- `tests/bootstrap.php`'s `current_user_can()` test stub can now simulate a specific WordPress role via `$GLOBALS['_pp_test_user_caps']`, for tests that need to assert permission-denied behavior.
+
 ## [v0.16.2] — 2026-07-04 — Fix: INSPECT Now Actually Sees Composition Smells
 
 **`wp pp operate inspect --post_id=<id>` finally surfaces the composition warnings it always claimed to.** The INSPECT step reads a page's composition to flag layout smells (like a left-aligned hero with no image), but on every real page it silently returned `smells: []` — the code checked `is_array()` on meta that WordPress always stores as a JSON string, so the check never matched. `wp pp check page` caught the same smells correctly (it used the right accessor); INSPECT just never got the memo. Now it does: an agent running the operating loop's INSPECT step sees the same smells a manual `check page` would.
