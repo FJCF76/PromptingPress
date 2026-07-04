@@ -4,6 +4,13 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.7] — 2026-07-04 — Fix: Nonsensical Spacing/Size Values Are Now Actually Rejected
+
+**A design-token or style-slot value like `calc(px)` or `calc((rem) + 1px)` — missing the number that should go with the unit — used to be accepted as "changed successfully," but the browser just silently threw the value away, so nothing on the page actually moved.** The check meant to catch exactly this kind of malformed value existed in the code but was never wired up — it evaluated a condition and then did nothing with the answer. Now it's enforced: a `calc()` or `clamp()` value has to have a real number attached to every size unit, or the change is rejected up front instead of quietly doing nothing.
+
+### Fixed
+- Spacing, sizing, and other length-type design token/style-slot values that don't make structural sense (a unit like `rem` or `px` floating with no number attached) are now rejected at validation time instead of silently persisting as CSS the browser drops.
+
 ## [v0.16.6] — 2026-07-04 — Fix: Quotes and Apostrophes in Chat Messages No Longer Get Mangled
 
 **If the chat's live-streaming connection dropped and it silently fell back to its backup delivery method, every apostrophe, quote mark, and backslash you'd typed started coming out wrong — and it got worse with every message after that.** WordPress adds a layer of escaping to form submissions that the theme forgot to remove on that one fallback path, so `"It's live!"` would arrive at the AI as `\"It\'s live!\"`, and the mangling compounded each time the fallback was used again in the same conversation.
