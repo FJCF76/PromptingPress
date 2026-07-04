@@ -1120,6 +1120,25 @@ function _pp_validate_page_exists(int $post_id) {
 }
 
 /**
+ * Resolves a component_id to its composition index.
+ *
+ * Shared by _pp_resolve_id_param() below (mutates $params for action
+ * validate callables) and _pp_resolve_component_index_for_error() in
+ * lib/ai-chat.php (the chat-side error/repair helpers, which run on raw
+ * AI-submitted params and never see the mutation the former makes) — one
+ * source of truth for the id-to-index lookup so the two never drift (#123).
+ *
+ * @param int    $post_id      Post ID to read composition from.
+ * @param string $component_id Component id to resolve.
+ * @return int|WP_Error  Resolved index, or WP_Error if not found.
+ */
+function _pp_resolve_component_id_to_index(int $post_id, string $component_id) {
+    $composition = pp_get_composition($post_id);
+    $resolved    = pp_resolve_component_target($composition, ['component_id' => $component_id]);
+    return is_wp_error($resolved) ? $resolved : $resolved['index'];
+}
+
+/**
  * Resolves component_id to component_index in action params.
  *
  * Call at the top of validate callables for actions that accept component_id.
@@ -1140,12 +1159,11 @@ function _pp_resolve_id_param(array &$params, int $post_id) {
     }
 
     if ($has_id) {
-        $composition = pp_get_composition($post_id);
-        $resolved = pp_resolve_component_target($composition, ['component_id' => $params['component_id']]);
-        if (is_wp_error($resolved)) {
-            return $resolved;
+        $index = _pp_resolve_component_id_to_index($post_id, $params['component_id']);
+        if (is_wp_error($index)) {
+            return $index;
         }
-        $params['component_index'] = $resolved['index'];
+        $params['component_index'] = $index;
     }
 
     return true;
