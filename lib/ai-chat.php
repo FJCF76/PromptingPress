@@ -239,6 +239,10 @@ add_action('wp_ajax_pp_ai_switch_provider', function () {
 // FormData sends all values as strings. The action/apply layer does strict
 // type checking via gettype(). Coerce params to match declared types before
 // passing them through.
+//
+// $params must already be wp_unslash()'d by the caller (both AJAX handlers
+// that call this do so once, on the whole array) — do not unslash again
+// here, or a value containing real backslashes/quotes gets double-stripped.
 
 function pp_ai_coerce_params(string $type, string $name, array $params): array {
     if ($type === 'action') {
@@ -264,7 +268,9 @@ function pp_ai_coerce_params(string $type, string $name, array $params): array {
         } elseif ($expected === 'bool' && is_string($val)) {
             $params[$param_name] = filter_var($val, FILTER_VALIDATE_BOOLEAN);
         } elseif ($expected === 'array' && is_string($val)) {
-            $decoded = json_decode(wp_unslash($val), true);
+            // $val is already unslashed (see the note above) — do not
+            // wp_unslash() it again here.
+            $decoded = json_decode($val, true);
             if (is_array($decoded)) {
                 $params[$param_name] = $decoded;
             }
@@ -789,7 +795,10 @@ add_action('wp_ajax_pp_ai_preview', function () {
 
     $type   = sanitize_text_field($_POST['type'] ?? '');
     $name   = sanitize_text_field($_POST['name'] ?? '');
-    $params = isset($_POST['params']) ? (array) $_POST['params'] : [];
+    // Unslash once here rather than per-param-type in pp_ai_coerce_params(),
+    // so every plain string param (not just array-type params destined for
+    // json_decode) is protected from WordPress's magic-quotes on $_POST.
+    $params = isset($_POST['params']) ? wp_unslash((array) $_POST['params']) : [];
 
     if (!in_array($type, ['action', 'apply'], true)) {
         wp_send_json_error('Invalid type. Must be "action" or "apply".');
@@ -849,7 +858,10 @@ add_action('wp_ajax_pp_ai_execute', function () {
 
     $type   = sanitize_text_field($_POST['type'] ?? '');
     $name   = sanitize_text_field($_POST['name'] ?? '');
-    $params = isset($_POST['params']) ? (array) $_POST['params'] : [];
+    // Unslash once here rather than per-param-type in pp_ai_coerce_params(),
+    // so every plain string param (not just array-type params destined for
+    // json_decode) is protected from WordPress's magic-quotes on $_POST.
+    $params = isset($_POST['params']) ? wp_unslash((array) $_POST['params']) : [];
 
     if (!in_array($type, ['action', 'apply'], true)) {
         wp_send_json_error('Invalid type. Must be "action" or "apply".');
@@ -924,7 +936,12 @@ add_action('wp_ajax_pp_ai_chat', function () {
 
     set_time_limit(0);
 
-    $conversation = isset($_POST['messages']) ? (array) $_POST['messages'] : [];
+    // WordPress magic-quotes every $_POST value during bootstrap
+    // (wp_magic_quotes()); the SSE path is immune (reads raw JSON from
+    // php://input) but this fallback reads $_POST directly, so every
+    // quote/backslash in the conversation must be unslashed before it
+    // reaches the provider.
+    $conversation = isset($_POST['messages']) ? wp_unslash((array) $_POST['messages']) : [];
     $page_id      = isset($_POST['page_id']) ? (int) $_POST['page_id'] : null;
 
     if (empty($conversation)) {

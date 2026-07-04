@@ -343,6 +343,12 @@ if (!function_exists('maybe_unserialize')) {
 
 if (!function_exists('wp_unslash')) {
     function wp_unslash($value) {
+        // Real WordPress recurses (stripslashes_deep()) — this stub must
+        // too, since callers pass arrays of messages/params, not just
+        // single strings.
+        if (is_array($value)) {
+            return array_map('wp_unslash', $value);
+        }
         return is_string($value) ? stripslashes($value) : $value;
     }
 }
