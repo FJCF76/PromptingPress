@@ -690,10 +690,11 @@ pp_register_action('trash_page', [
         'post_id' => ['type' => 'int', 'required' => true],
     ],
     'validate' => function (array $params) {
-        $post = get_post($params['post_id']);
-        if (!$post) {
-            return new WP_Error('not_found', 'Page not found.');
+        $exists = _pp_validate_page_exists($params['post_id']);
+        if (is_wp_error($exists)) {
+            return $exists;
         }
+        $post = get_post($params['post_id']);
         if ($post->post_status === 'trash') {
             return new WP_Error('already_trashed', 'Page is already in the trash.');
         }
@@ -730,10 +731,11 @@ pp_register_action('restore_page', [
         'post_id' => ['type' => 'int', 'required' => true],
     ],
     'validate' => function (array $params) {
-        $post = get_post($params['post_id']);
-        if (!$post) {
-            return new WP_Error('not_found', 'Page not found.');
+        $exists = _pp_validate_page_exists($params['post_id']);
+        if (is_wp_error($exists)) {
+            return $exists;
         }
+        $post = get_post($params['post_id']);
         if ($post->post_status !== 'trash') {
             return new WP_Error('not_trashed', 'Page is not in the trash.');
         }
@@ -768,10 +770,11 @@ pp_register_action('unpublish_page', [
         'post_id' => ['type' => 'int', 'required' => true],
     ],
     'validate' => function (array $params) {
-        $post = get_post($params['post_id']);
-        if (!$post) {
-            return new WP_Error('not_found', 'Page not found.');
+        $exists = _pp_validate_page_exists($params['post_id']);
+        if (is_wp_error($exists)) {
+            return $exists;
         }
+        $post = get_post($params['post_id']);
         if ($post->post_status !== 'publish') {
             return new WP_Error('not_published', 'Page is not published (current status: ' . $post->post_status . ').');
         }

@@ -26,6 +26,12 @@ class AiChatHandlersTest extends TestCase
         ];
     }
 
+    protected function tearDown(): void
+    {
+        unset($GLOBALS['_pp_test_user_caps']);
+        parent::tearDown();
+    }
+
     private function configureConnector(string $id, string $name, string $api_key): void
     {
         $setting_name = "wp_connector_{$id}_api_key";
@@ -148,6 +154,282 @@ class AiChatHandlersTest extends TestCase
         // We verify the function exists and the handler references it.
         $this->assertTrue(function_exists('current_user_can'));
         $this->assertTrue(current_user_can('edit_posts'));
+    }
+
+    // ── Capability Resolver (#131) ──────────────────────────────────────────
+    //
+    // pp_ai_preview/pp_ai_execute previously gated every action/apply on the
+    // single coarse `edit_posts` check, letting a Contributor publish/trash
+    // pages and rewrite site-wide design. _pp_required_caps_for() resolves
+    // the real per-action/apply requirement; _pp_user_meets_required_caps()
+    // checks the current user against it (AND semantics).
+
+    public function testRequiredCapsForApplyIsAlwaysManageOptions(): void
+    {
+        $required = _pp_required_caps_for('apply', 'update_design_token', ['token' => '--color-accent', 'value' => '#000']);
+        $this->assertSame([['cap' => 'manage_options']], $required);
+    }
+
+    public function testRequiredCapsForUnknownActionFailsClosed(): void
+    {
+        $required = _pp_required_caps_for('action', 'not_a_real_action', []);
+        $this->assertSame([['cap' => 'manage_options']], $required);
+    }
+
+    public function testRequiredCapsForUnrecognizedScopeFailsClosed(): void
+    {
+        // The scope fallback is a whitelist of 'page'/'section', not a
+        // blacklist of 'site' — an unrecognized/future scope value must
+        // fail closed at manage_options rather than silently dropping to
+        // the weaker edit_post check.
+        pp_register_action('_test_unknown_scope_action', [
+            'scope'  => 'workspace',
+            'params' => ['post_id' => ['type' => 'int', 'required' => false]],
+        ]);
+        try {
+            $this->assertSame(
+                [['cap' => 'manage_options']],
+                _pp_required_caps_for('action', '_test_unknown_scope_action', ['post_id' => 1])
+            );
+        } finally {
+            unset($GLOBALS['_pp_actions']['_test_unknown_scope_action']);
+        }
+    }
+
+    public function testRequiredCapsForSiteScopedAction(): void
+    {
+        $this->assertSame(
+            [['cap' => 'manage_options']],
+            _pp_required_caps_for('action', 'update_site_option', ['key' => 'blogname', 'value' => 'x'])
+        );
+        $this->assertSame(
+            [['cap' => 'manage_options']],
+            _pp_required_caps_for('action', 'clear_custom_css', [])
+        );
+    }
+
+    public function testRequiredCapsForCreatePageIsPublishPages(): void
+    {
+        // Scope is 'site' in the registry (no existing post to check), but
+        // page creation is core Editor territory — gating on manage_options
+        // would lock Editors out of building pages through chat entirely.
+        $this->assertSame(
+            [['cap' => 'publish_pages']],
+            _pp_required_caps_for('action', 'create_page', ['title' => 'New Page'])
+        );
+    }
+
+    public function testRequiredCapsForPublishPageWithPostId(): void
+    {
+        $required = _pp_required_caps_for('action', 'publish_page', ['post_id' => 42]);
+        $this->assertSame(
+            [['cap' => 'edit_post', 'post_id' => 42], ['cap' => 'publish_pages']],
+            $required
+        );
+    }
+
+    public function testRequiredCapsForUnpublishPageWithPostId(): void
+    {
+        $required = _pp_required_caps_for('action', 'unpublish_page', ['post_id' => 7]);
+        $this->assertSame(
+            [['cap' => 'edit_post', 'post_id' => 7], ['cap' => 'publish_pages']],
+            $required
+        );
+    }
+
+    public function testRequiredCapsForPublishPageWithoutPostIdFailsClosed(): void
+    {
+        // No post_id to verify per-post ownership against — fail at the
+        // highest bar rather than silently skip the post-scoped check.
+        $this->assertSame(
+            [['cap' => 'manage_options']],
+            _pp_required_caps_for('action', 'publish_page', [])
+        );
+    }
+
+    public function testRequiredCapsForTrashPageWithPostId(): void
+    {
+        $this->assertSame(
+            [['cap' => 'delete_post', 'post_id' => 9]],
+            _pp_required_caps_for('action', 'trash_page', ['post_id' => 9])
+        );
+    }
+
+    public function testRequiredCapsForTrashPageWithoutPostIdFailsClosed(): void
+    {
+        $this->assertSame(
+            [['cap' => 'manage_options']],
+            _pp_required_caps_for('action', 'trash_page', [])
+        );
+    }
+
+    public function testRequiredCapsForRestorePageMatchesTrashPage(): void
+    {
+        // WP core gates untrash on 'delete_post', the same capability as
+        // trash — not 'edit_post'.
+        $this->assertSame(
+            [['cap' => 'delete_post', 'post_id' => 9]],
+            _pp_required_caps_for('action', 'restore_page', ['post_id' => 9])
+        );
+    }
+
+    public function testRequiredCapsForPageScopedActionDefaultsToEditPost(): void
+    {
+        $this->assertSame(
+            [['cap' => 'edit_post', 'post_id' => 5]],
+            _pp_required_caps_for('action', 'update_page_title', ['post_id' => 5, 'title' => 'x'])
+        );
+        $this->assertSame(
+            [['cap' => 'edit_post', 'post_id' => 5]],
+            _pp_required_caps_for('action', 'update_composition', ['post_id' => 5, 'composition' => []])
+        );
+    }
+
+    public function testRequiredCapsForSectionScopedActionDefaultsToEditPost(): void
+    {
+        // update_component / style_component are scope=section, but sections
+        // live on a page — same edit_post(post_id) check as page scope.
+        $this->assertSame(
+            [['cap' => 'edit_post', 'post_id' => 12]],
+            _pp_required_caps_for('action', 'update_component', ['post_id' => 12, 'index' => 0])
+        );
+        $this->assertSame(
+            [['cap' => 'edit_post', 'post_id' => 12]],
+            _pp_required_caps_for('action', 'style_component', ['post_id' => 12, 'index' => 0])
+        );
+    }
+
+    public function testRequiredCapsForPageScopedActionWithoutPostIdFailsClosed(): void
+    {
+        $this->assertSame(
+            [['cap' => 'manage_options']],
+            _pp_required_caps_for('action', 'add_component', ['component' => 'hero'])
+        );
+    }
+
+    public function testRequiredCapsForZeroPostIdIsNotTreatedAsMissing(): void
+    {
+        // post_id=0 is_numeric() but not a real post. It is passed through to
+        // current_user_can('delete_post', 0) rather than falling back to
+        // manage_options — WordPress's own capability resolution denies
+        // meta caps against a nonexistent post (get_post(0) === null), so
+        // this stays safe without the resolver needing to special-case it.
+        $this->assertSame(
+            [['cap' => 'delete_post', 'post_id' => 0]],
+            _pp_required_caps_for('action', 'trash_page', ['post_id' => 0])
+        );
+    }
+
+    public function testRequiredCapsForNumericStringPostIdIsCoerced(): void
+    {
+        // In the real AJAX flow, pp_ai_coerce_params() always casts a
+        // declared 'int' param (post_id) before this runs. Pin down that
+        // the resolver itself also handles an uncoerced numeric string
+        // correctly, in case it's ever called directly.
+        $this->assertSame(
+            [['cap' => 'delete_post', 'post_id' => 9]],
+            _pp_required_caps_for('action', 'trash_page', ['post_id' => '9'])
+        );
+    }
+
+    public function testRequiredCapsForNonScalarPostIdFailsClosed(): void
+    {
+        // A malformed post_id (e.g. an array instead of a scalar) is not
+        // numeric, so it must fail closed exactly like a missing post_id.
+        $this->assertSame(
+            [['cap' => 'manage_options']],
+            _pp_required_caps_for('action', 'trash_page', ['post_id' => ['1', '2']])
+        );
+    }
+
+    public function testUserMeetsRequiredCapsAllPass(): void
+    {
+        $GLOBALS['_pp_test_user_caps'] = ['manage_options' => true];
+        $this->assertTrue(_pp_user_meets_required_caps([['cap' => 'manage_options']]));
+    }
+
+    public function testUserMeetsRequiredCapsOneFails(): void
+    {
+        $GLOBALS['_pp_test_user_caps'] = ['edit_post' => true, 'publish_pages' => false];
+        $this->assertFalse(_pp_user_meets_required_caps([
+            ['cap' => 'edit_post', 'post_id' => 1],
+            ['cap' => 'publish_pages'],
+        ]));
+    }
+
+    public function testUserMeetsRequiredCapsPostScopedCapFails(): void
+    {
+        $GLOBALS['_pp_test_user_caps'] = ['edit_post' => false];
+        $this->assertFalse(_pp_user_meets_required_caps([['cap' => 'edit_post', 'post_id' => 1]]));
+    }
+
+    // ── Role simulation (acceptance criteria) ───────────────────────────────
+
+    private function simulateContributor(): void
+    {
+        // A Contributor has edit_posts (passes the coarse gate) but none of
+        // the page/site/design capabilities the resolver checks.
+        $GLOBALS['_pp_test_user_caps'] = [
+            'manage_options' => false,
+            'publish_pages'  => false,
+            'edit_post'      => false,
+            'delete_post'    => false,
+        ];
+    }
+
+    private function simulateEditor(): void
+    {
+        // An Editor can fully manage pages but not site-wide design/options.
+        $GLOBALS['_pp_test_user_caps'] = [
+            'manage_options' => false,
+            'publish_pages'  => true,
+            'edit_post'      => true,
+            'delete_post'    => true,
+        ];
+    }
+
+    private function simulateAdministrator(): void
+    {
+        $GLOBALS['_pp_test_user_caps'] = [
+            'manage_options' => true,
+            'publish_pages'  => true,
+            'edit_post'      => true,
+            'delete_post'    => true,
+        ];
+    }
+
+    public function testContributorIsBlockedFromPublishTrashSiteOptionsAndApplies(): void
+    {
+        $this->simulateContributor();
+
+        $this->assertFalse(_pp_user_meets_required_caps(_pp_required_caps_for('action', 'publish_page', ['post_id' => 1])));
+        $this->assertFalse(_pp_user_meets_required_caps(_pp_required_caps_for('action', 'trash_page', ['post_id' => 1])));
+        $this->assertFalse(_pp_user_meets_required_caps(_pp_required_caps_for('action', 'update_site_option', ['key' => 'blogname'])));
+        $this->assertFalse(_pp_user_meets_required_caps(_pp_required_caps_for('action', 'clear_custom_css', [])));
+        $this->assertFalse(_pp_user_meets_required_caps(_pp_required_caps_for('apply', 'update_design_token', ['token' => '--color-accent'])));
+    }
+
+    public function testEditorCanMutatePagesButNotAppliesOrSiteOptions(): void
+    {
+        $this->simulateEditor();
+
+        $this->assertTrue(_pp_user_meets_required_caps(_pp_required_caps_for('action', 'publish_page', ['post_id' => 1])));
+        $this->assertTrue(_pp_user_meets_required_caps(_pp_required_caps_for('action', 'trash_page', ['post_id' => 1])));
+        $this->assertTrue(_pp_user_meets_required_caps(_pp_required_caps_for('action', 'restore_page', ['post_id' => 1])));
+        $this->assertTrue(_pp_user_meets_required_caps(_pp_required_caps_for('action', 'update_page_title', ['post_id' => 1, 'title' => 'x'])));
+
+        $this->assertFalse(_pp_user_meets_required_caps(_pp_required_caps_for('action', 'update_site_option', ['key' => 'blogname'])));
+        $this->assertFalse(_pp_user_meets_required_caps(_pp_required_caps_for('apply', 'update_design_token', ['token' => '--color-accent'])));
+    }
+
+    public function testAdministratorCanDoEverything(): void
+    {
+        $this->simulateAdministrator();
+
+        $this->assertTrue(_pp_user_meets_required_caps(_pp_required_caps_for('action', 'publish_page', ['post_id' => 1])));
+        $this->assertTrue(_pp_user_meets_required_caps(_pp_required_caps_for('action', 'trash_page', ['post_id' => 1])));
+        $this->assertTrue(_pp_user_meets_required_caps(_pp_required_caps_for('action', 'update_site_option', ['key' => 'blogname'])));
+        $this->assertTrue(_pp_user_meets_required_caps(_pp_required_caps_for('apply', 'update_design_token', ['token' => '--color-accent'])));
     }
 
     // ── Action/Apply Type Validation ──────────────────────────────────────
