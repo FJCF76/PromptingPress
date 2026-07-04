@@ -1149,6 +1149,16 @@ function pp_get_component_fields(string $component_type): array {
     return $_pp_component_fields[$component_type] ?? [];
 }
 
+/**
+ * Returns the full component-fields registry: component_type => field definitions.
+ *
+ * @return array<string, array>
+ */
+function pp_get_registered_component_fields(): array {
+    global $_pp_component_fields;
+    return $_pp_component_fields ?? [];
+}
+
 // ── Register default component fields ────────────────────────────────────
 
 pp_register_component_fields('hero', [
@@ -1165,9 +1175,10 @@ pp_register_component_fields('section', [
 ]);
 
 pp_register_component_fields('grid', [
-    ['name' => 'items[].title', 'type' => 'string'],
-    ['name' => 'items[].text',  'type' => 'string'],
-    ['name' => 'items[].link',  'type' => 'url'],
+    ['name' => 'items[].title',     'type' => 'string'],
+    ['name' => 'items[].text',      'type' => 'string'],
+    ['name' => 'items[].link_url',  'type' => 'url'],
+    ['name' => 'items[].link_text', 'type' => 'string'],
 ]);
 
 pp_register_component_fields('faq', [
@@ -1176,10 +1187,10 @@ pp_register_component_fields('faq', [
 ]);
 
 pp_register_component_fields('cta', [
-    ['name' => 'title',    'type' => 'string'],
-    ['name' => 'subtitle', 'type' => 'string'],
-    ['name' => 'cta_text', 'type' => 'string'],
-    ['name' => 'cta_url',  'type' => 'url'],
+    ['name' => 'title',       'type' => 'string'],
+    ['name' => 'text',        'type' => 'string'],
+    ['name' => 'button_text', 'type' => 'string'],
+    ['name' => 'button_url',  'type' => 'url'],
 ]);
 
 // ── Inspect Composition ──────────────────────────────────────────────────

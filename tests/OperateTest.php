@@ -959,8 +959,10 @@ class OperateTest extends TestCase
         $this->assertSame('html', $section[1]['type']);
 
         $grid = pp_get_component_fields('grid');
-        $this->assertCount(3, $grid);
+        $this->assertCount(4, $grid);
         $this->assertSame('items[].title', $grid[0]['name']);
+        $this->assertSame('items[].link_url', $grid[2]['name']);
+        $this->assertSame('items[].link_text', $grid[3]['name']);
 
         $faq = pp_get_component_fields('faq');
         $this->assertCount(2, $faq);
@@ -969,10 +971,61 @@ class OperateTest extends TestCase
 
         $cta = pp_get_component_fields('cta');
         $this->assertCount(4, $cta);
+        $this->assertSame('title', $cta[0]['name']);
+        $this->assertSame('text', $cta[1]['name']);
+        $this->assertSame('button_text', $cta[2]['name']);
+        $this->assertSame('button_url', $cta[3]['name']);
 
         // Unmapped type returns empty array.
         $unknown = pp_get_component_fields('nonexistent');
         $this->assertSame([], $unknown);
+    }
+
+    public function testInspectCompositionResolvesRealCtaAndGridValues(): void
+    {
+        // Regression (#120): the editability map previously declared dead
+        // selectors (cta.subtitle/cta_text/cta_url, grid items[].link) that
+        // don't exist on either component, so pp_inspect_composition()
+        // always reported current_value: null for them — poisoning the AI
+        // context with editable-looking fields that silently no-op on
+        // patch. Assert the map now resolves to the real, populated props.
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'CTA Grid Inspect', 'post_status' => 'publish']);
+        update_post_meta($post_id, '_pp_composition', json_encode([
+            [
+                'component' => 'cta',
+                'props' => [
+                    'id' => 'pp-cta0001', 'title' => 'Join now', 'text' => 'Limited spots',
+                    'button_text' => 'Sign up', 'button_url' => '/signup',
+                ],
+            ],
+            [
+                'component' => 'grid',
+                'props' => [
+                    'id' => 'pp-grid001',
+                    'items' => [
+                        ['title' => 'Feature A', 'text' => 'Does a thing', 'link_url' => '/a', 'link_text' => 'Learn more'],
+                    ],
+                ],
+            ],
+        ]));
+
+        $result = pp_inspect_composition($post_id);
+
+        $cta = $result[0]['fields'];
+        $ctaByField = array_column($cta, 'current_value', 'field');
+        $this->assertSame('Join now', $ctaByField['title']);
+        $this->assertSame('Limited spots', $ctaByField['text']);
+        $this->assertSame('Sign up', $ctaByField['button_text']);
+        $this->assertSame('/signup', $ctaByField['button_url']);
+        $this->assertArrayNotHasKey('subtitle', $ctaByField);
+        $this->assertArrayNotHasKey('cta_text', $ctaByField);
+        $this->assertArrayNotHasKey('cta_url', $ctaByField);
+
+        $grid = $result[1]['fields'];
+        $gridByValue = array_column($grid, 'current_value', 'selector');
+        // Grid items are matched by 'title' (see _pp_pick_nested_match_field).
+        $this->assertSame('/a', $gridByValue['grid.items[title="Feature A"].link_url']);
+        $this->assertSame('Learn more', $gridByValue['grid.items[title="Feature A"].link_text']);
     }
 
     // ── Inspect Composition Tests ────────────────────────────────────────────

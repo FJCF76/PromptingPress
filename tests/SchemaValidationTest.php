@@ -513,6 +513,80 @@ class SchemaValidationTest extends TestCase
         }
     }
 
+    // ── Field editability map drift (#120) ──────────────────────────────────
+
+    /**
+     * pp_register_component_fields() (lib/operate.php) is a hand-maintained
+     * map of which props each component exposes for semantic-selector
+     * patching (wp pp operate patch) and AI-chat inspection. It silently
+     * drifted from the real component props: cta declared subtitle/cta_text/
+     * cta_url (none exist — cta has text/button_text/button_url) and grid
+     * declared items[].link (grid items use link_url/link_text). A patch to
+     * a dead field wrote an unused prop and reported success while the
+     * rendered page didn't change (lib/operate.php update_component does a
+     * shallow merge that accepts unknown props).
+     *
+     * This walks every registered component type and asserts each field
+     * name resolves to a real prop in that component's schema.json — top-
+     * level props directly, `items[].X` fields against the schema's
+     * `items` sub-definition — so this class of drift fails the suite
+     * instead of shipping.
+     */
+    public function testFieldEditabilityMapMatchesSchemaProps(): void
+    {
+        // Known, pre-existing drift tracked as its own issue (not
+        // introduced or fixed here): hero's registered 'eyebrow' field has
+        // no corresponding prop anywhere in hero.php or hero/schema.json.
+        // Fixing it requires a product decision (render eyebrow, or remove
+        // it) that #120's fix plan explicitly scopes out — see GitHub #85
+        // ("Hero eyebrow render-or-remove"). Exception is intentionally
+        // narrow: exactly one field, on one component.
+        $knownExceptions = [
+            'hero' => ['eyebrow'],
+        ];
+
+        $registry = pp_get_registered_component_fields();
+        $this->assertNotEmpty($registry, 'Expected at least one registered component field map.');
+
+        foreach ($registry as $componentType => $fields) {
+            $schemaFile = $this->themeRoot . "/components/{$componentType}/schema.json";
+            $this->assertFileExists($schemaFile, "Missing schema.json for registered component '{$componentType}'.");
+
+            $schema = json_decode(file_get_contents($schemaFile), true);
+            $this->assertIsArray($schema, "schema.json for '{$componentType}' must be valid JSON.");
+            $props = $schema['props'] ?? [];
+            $itemProps = $props['items']['items'] ?? null;
+
+            foreach ($fields as $field) {
+                $name = $field['name'];
+
+                if (in_array($name, $knownExceptions[$componentType] ?? [], true)) {
+                    continue;
+                }
+
+                if (str_starts_with($name, 'items[].')) {
+                    $itemField = substr($name, strlen('items[].'));
+                    $this->assertIsArray(
+                        $itemProps,
+                        "'{$componentType}' registers '{$name}' but its schema has no props.items.items definition."
+                    );
+                    $this->assertArrayHasKey(
+                        $itemField,
+                        $itemProps,
+                        "'{$componentType}' registers editable field '{$name}', but '{$itemField}' is not a key in schema.json props.items.items."
+                    );
+                    continue;
+                }
+
+                $this->assertArrayHasKey(
+                    $name,
+                    $props,
+                    "'{$componentType}' registers editable field '{$name}', but it is not a key in schema.json props."
+                );
+            }
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
 
     private function removeDir(string $dir): void
