@@ -505,6 +505,13 @@ if (!function_exists('get_post')) {
     }
 }
 
+if (!function_exists('get_post_status')) {
+    function get_post_status($post = null) {
+        $id = is_object($post) ? $post->ID : (int) $post;
+        return $GLOBALS['_pp_test_store']['posts'][$id]['post_status'] ?? false;
+    }
+}
+
 if (!function_exists('get_post_type')) {
     // Store-aware: an ID present in the posts store returns its post_type
     // (e.g. 'attachment' for logo tests); unknown IDs default to 'page'.

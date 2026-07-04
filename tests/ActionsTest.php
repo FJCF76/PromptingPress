@@ -161,6 +161,36 @@ class ActionsTest extends TestCase
         $this->assertEquals('publish', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
     }
 
+    // ── pp_promote_auto_draft (#121) ─────────────────────────────────────
+
+    public function testPromoteAutoDraftPromotesToRealDraft(): void
+    {
+        $id = pp_create_page('', 'auto-draft');
+        pp_promote_auto_draft($id);
+        $this->assertSame('draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    public function testPromoteAutoDraftIsNoOpForRealDraft(): void
+    {
+        $id = pp_create_page('Already a draft', 'draft');
+        pp_promote_auto_draft($id);
+        $this->assertSame('draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    public function testPromoteAutoDraftIsNoOpForPublishedPage(): void
+    {
+        $id = pp_create_page('Live page', 'publish');
+        pp_promote_auto_draft($id);
+        $this->assertSame('publish', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    public function testPromoteAutoDraftIsNoOpForTrashedPage(): void
+    {
+        $id = pp_create_page('Trashed page', 'trash');
+        pp_promote_auto_draft($id);
+        $this->assertSame('trash', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
     public function testPpUpdateSiteOptionRejectsUnwhitelisted(): void
     {
         $result = pp_update_site_option('admin_email', 'test@example.com');

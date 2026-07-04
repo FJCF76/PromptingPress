@@ -1053,6 +1053,22 @@ function pp_publish_page(int $post_id) {
 }
 
 /**
+ * Promotes an 'auto-draft' page to a real 'draft' on first meaningful save
+ * (#121). The post-new.php intercept creates pages as 'auto-draft' so an
+ * unsaved visit doesn't leave a permanent, visible junk page — this is the
+ * other half: once the author actually saves something, the page needs to
+ * behave like a normal draft (visible in Pages, not core-GC'd). No-op for
+ * any other status.
+ *
+ * @param int $post_id  WordPress post ID.
+ */
+function pp_promote_auto_draft(int $post_id): void {
+    if (get_post_status($post_id) === 'auto-draft') {
+        wp_update_post(['ID' => $post_id, 'post_status' => 'draft']);
+    }
+}
+
+/**
  * Updates a whitelisted WordPress option.
  * Whitelist is the single source pp_allowed_site_options(); value is validated
  * against the key's declared type (e.g. pp_logo_id must be an attachment ID).
