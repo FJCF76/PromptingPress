@@ -1039,14 +1039,19 @@ function ppChatAppendValidationItems(container, items, className) {
                     '. These were kept as-is — update them if the visual result looks inconsistent.';
             }
 
+            // internal: true marks these as apply-confirmation context for the
+            // model's next turn, not a real conversational reply — restoreConversation()
+            // skips them structurally on reload instead of matching on English text
+            // (pp_ai_format_messages() already strips unknown keys before the request
+            // reaches the provider, so this flag never leaves the browser/our backend).
             if (!lastVal || (lastVal.ok && (!lastVal.warnings || lastVal.warnings.length === 0))) {
-                conversation.push({ role: 'assistant', content: 'Changes applied successfully.' + staleSuffix });
+                conversation.push({ role: 'assistant', content: 'Changes applied successfully.' + staleSuffix, internal: true });
             } else if (lastVal.ok && lastVal.warnings && lastVal.warnings.length > 0) {
                 var warnSummary = lastVal.warnings.map(function (w) { return w.message; }).join('; ');
-                conversation.push({ role: 'assistant', content: 'Changes applied with warnings: ' + warnSummary });
+                conversation.push({ role: 'assistant', content: 'Changes applied with warnings: ' + warnSummary, internal: true });
             } else {
                 var errSummary = lastVal.errors.map(function (e) { return e.message; }).join('; ');
-                conversation.push({ role: 'assistant', content: 'Changes applied but rendered page validation failed: ' + errSummary + '. The page may still have broken images or missing content.' });
+                conversation.push({ role: 'assistant', content: 'Changes applied but rendered page validation failed: ' + errSummary + '. The page may still have broken images or missing content.', internal: true });
             }
             saveState();
             inputEl.focus();
@@ -1392,8 +1397,10 @@ function ppChatAppendValidationItems(container, items, className) {
                 if (msg.content.charAt(0) === '[') return;
                 addMessage('user', msg.content);
             } else if (msg.role === 'assistant') {
-                // Skip internal apply-confirmation messages in display
-                if (msg.content === 'Changes applied successfully.') return;
+                // Skip internal apply-confirmation messages in display (structural
+                // flag, not content matching — a genuine model reply that happens
+                // to start with "Changes applied..." is never suppressed).
+                if (msg.internal === true) return;
                 var displayText = stripProposalJson(msg.content);
                 if (displayText) {
                     addMessage('assistant', displayText);
