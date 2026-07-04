@@ -434,6 +434,10 @@ class PP_Apply_Command extends WP_CLI_Command {
      * keys WERE recorded and cannot revert a change whose keys never landed. Re-run
      * `wp pp operate inspect` after any such error rather than trusting restore.
      *
+     * `wp pp apply reset` records its touched tokens the same way `execute` does, so a
+     * reset (single-token or reset-all) within the same run is restorable here too — not
+     * just a one-way trip to product defaults.
+     *
      * ## OPTIONS
      *
      * --run-id=<uuid>
@@ -535,6 +539,14 @@ class PP_Apply_Command extends WP_CLI_Command {
             WP_CLI::error('Run token "' . $run_id . '" has no completed PREFLIGHT step. Run `wp pp apply preflight --run-id=' . $run_id . '` first.');
         }
 
+        // Rollback-safety pre-gate: reset mutates the same token store execute()
+        // does (and reset_all_design_tokens is the most destructive apply in the
+        // registry), so it gets the identical precondition — refuse to mutate
+        // unless this run is reversible.
+        if (!pp_operate_run_rollbackable($run_id)) {
+            WP_CLI::error('Refusing to reset: run "' . $run_id . '" has no usable rollback snapshot, so this change could not be undone. Re-run `wp pp operate inspect` and `wp pp apply preflight`.');
+        }
+
         _pp_cli_require_apply_cap();
 
         if (isset($assoc_args['token'])) {
@@ -545,13 +557,23 @@ class PP_Apply_Command extends WP_CLI_Command {
 
         WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
-        if ($result['ok']) {
-            pp_operate_record_step($run_id, 'APPLY');
-            $count = count($result['changes']);
-            WP_CLI::success($count > 0 ? "Reset $count token(s) to product defaults." : 'No overrides to reset.');
-        } else {
+        if (!$result['ok']) {
             WP_CLI::halt(1);
         }
+
+        // Record the tokens this reset actually cleared so restore can revert
+        // exactly this run's footprint — same contract as execute(). Without
+        // this, restore's scope stays empty and a reset is unrecoverable
+        // through the tooling even though the pre-apply snapshot holds every
+        // prior value.
+        $touched = array_column($result['changes'], 'token');
+        if (!pp_operate_record_touched_tokens($run_id, $touched)) {
+            WP_CLI::error('Reset persisted, but recording its touched tokens for run "' . $run_id . '" FAILED. `wp pp apply restore` may not be able to revert this change. Run state may be missing or corrupt; re-run `wp pp operate inspect` before making further changes.');
+        }
+
+        pp_operate_record_step($run_id, 'APPLY');
+        $count = count($result['changes']);
+        WP_CLI::success($count > 0 ? "Reset $count token(s) to product defaults." : 'No overrides to reset.');
     }
 
     /**
