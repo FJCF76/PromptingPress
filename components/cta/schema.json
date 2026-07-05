@@ -13,6 +13,12 @@
       "required": true,
       "description": "CTA headline."
     },
+    "eyebrow": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional short kicker/label rendered as a pill above the title."
+    },
     "text": {
       "type": "string",
       "required": false,
@@ -66,6 +72,8 @@
       "--cta-padding-bottom": { "type": "length", "default": "var(--space-xl)", "description": "Bottom padding of the CTA section" },
       "--cta-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
       "--cta-text": { "type": "color", "default": "var(--color-text)", "description": "Title text color" },
+      "--cta-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color" },
+      "--cta-eyebrow-bg": { "type": "color", "default": "var(--color-surface-accent)", "description": "Eyebrow pill background color" },
       "--cta-title-size": { "type": "length", "default": "inherit", "description": "Title font size" },
       "--cta-body-color": { "type": "color", "default": "var(--color-muted)", "description": "Body text color" },
       "--cta-body-size": { "type": "length", "default": "inherit", "description": "Body text font size" },
