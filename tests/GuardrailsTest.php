@@ -729,6 +729,21 @@ class GuardrailsTest extends TestCase
         $this->assertSame('core', $result['classification']);
     }
 
+    public function testAbsoluteWindowsPathNormalized(): void
+    {
+        // Regression for issue 127: on Windows hosting, get_template_directory()
+        // and an absolute $path may both use backslashes — the theme-prefix
+        // strip must still work, and the resulting relative path must use
+        // forward slashes for planned_files overlap matching to work.
+        $GLOBALS['_pp_test_template_dir'] = 'C:\\wp\\wp-content\\themes\\promptingpress';
+        try {
+            $result = pp_classify_surface('C:\\wp\\wp-content\\themes\\promptingpress\\components\\hero\\hero.php');
+            $this->assertSame('extension', $result['classification']);
+        } finally {
+            unset($GLOBALS['_pp_test_template_dir']);
+        }
+    }
+
     public function testUnknownPathDefaultsToCore(): void
     {
         $result = pp_classify_surface('random-file.txt');

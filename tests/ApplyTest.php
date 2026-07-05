@@ -1732,6 +1732,46 @@ class ApplyTest extends TestCase
         $this->assertSame('media', $apply['target']['type']);
     }
 
+    // ── _pp_relative_theme_path() tests (issue 127) ─────────────────────────
+    //
+    // Pure function — Windows-style backslash inputs are asserted directly
+    // regardless of which OS actually runs this test suite.
+
+    public function testRelativeThemePathNormalizesWindowsSeparators(): void
+    {
+        $result = _pp_relative_theme_path('C:\\wp\\wp-content\\themes\\promptingpress', 'C:\\wp\\wp-content\\themes\\promptingpress\\components\\hero\\hero.php');
+        $this->assertSame('components/hero/hero.php', $result);
+    }
+
+    public function testRelativeThemePathHandlesUnixSeparatorsUnchanged(): void
+    {
+        $result = _pp_relative_theme_path('/var/www/theme', '/var/www/theme/components/hero/hero.php');
+        $this->assertSame('components/hero/hero.php', $result);
+    }
+
+    public function testRelativeThemePathNeverLeavesALeadingSeparator(): void
+    {
+        $result = _pp_relative_theme_path('C:\\wp\\theme', 'C:\\wp\\theme\\functions.php');
+        $this->assertSame('functions.php', $result);
+        $this->assertNotSame('\\functions.php', $result);
+        $this->assertStringStartsNotWith('/', $result);
+        $this->assertStringStartsNotWith('\\', $result);
+    }
+
+    public function testRelativeThemePathHandlesRootLevelFile(): void
+    {
+        $result = _pp_relative_theme_path('C:\\wp\\theme', 'C:\\wp\\theme\\style.css');
+        $this->assertSame('style.css', $result);
+    }
+
+    public function testRelativeThemePathHandlesMixedSeparators(): void
+    {
+        // Defensive: a path assembled from mixed sources (e.g. a manifest
+        // built with '/' loaded into a Windows run) must still normalize.
+        $result = _pp_relative_theme_path('C:/wp/theme', 'C:\\wp\\theme\\assets\\css\\base.css');
+        $this->assertSame('assets/css/base.css', $result);
+    }
+
     // ── _pp_hash_all_theme_files() tests ────────────────────────────────────
 
     public function testHashAllThemeFilesReturnsHashesForAllFileTypes(): void
@@ -1884,6 +1924,23 @@ class ApplyTest extends TestCase
         sort($sorted);
 
         $this->assertSame($sorted, $keys);
+
+        $this->recursiveDelete($dir);
+    }
+
+    public function testHashAllThemeFilesProducesForwardSlashKeysForNestedFiles(): void
+    {
+        // Regression for issue 127: keys for nested files must always use
+        // forward slashes, matching the manifest built on Linux CI —
+        // regardless of which _pp_relative_theme_path() normalization path
+        // ran, on any OS.
+        $dir = sys_get_temp_dir() . '/pp-hash-test-' . getmypid() . '-' . mt_rand();
+        mkdir($dir . '/components/hero', 0755, true);
+        file_put_contents($dir . '/components/hero/hero.php', '<?php');
+
+        $hashes = _pp_hash_all_theme_files($dir);
+
+        $this->assertArrayHasKey('components/hero/hero.php', $hashes);
 
         $this->recursiveDelete($dir);
     }
