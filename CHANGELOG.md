@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.32] — 2026-07-05 — Fix: Blog Listing Showed One Post's Content Instead of a Grid
+
+**Visiting the posts page (or any category/tag archive) rendered a single post's title and content as if it were a static page, with no grid, no pagination, and no respect for the category/tag filter — a category archive showed every post on the site regardless of its actual category.**
+
+### Fixed
+- `templates/archive.php` now iterates WordPress's own already-filtered main query instead of constructing a fresh `WP_Query` with hardcoded/approximated args — the fresh query is what caused a category archive to show all posts, since it never applied the category filter.
+- Added `templates/home.php` (and a root `home.php` delegator) for the dedicated posts-index case (`is_home`), which previously fell through to the single-page template and rendered one post's content in place of a listing.
+- Pagination now renders on both the archive and posts-index templates, wired to WordPress's own `paginate_links()` and the real page count.
+
+### For contributors
+- New `pp_main_query()` (wraps `global $wp_query`) and `pp_pagination()` (wraps `paginate_links()`) helpers in `lib/wp.php`, preserving the "only lib/wp.php calls WP core" invariant.
+- Per-page post count now follows the site's actual "Blog pages show at most" setting (Settings → Reading) rather than a hardcoded number, since it's the real main query rather than a fresh one with its own `posts_per_page` arg.
+- 5 new PHPUnit tests; verified live on the dev site with 13 posts across two pages and a dedicated test category to confirm archive filtering.
+
 ## [v0.16.31] — 2026-07-05 — New: Edit a Page's URL Without Touching wp-admin
 
 **PromptingPress could create a page, rename its title, publish it, trash it — but never touch its slug. Once a page was created, its URL was frozen forever unless you dropped into wp-admin, the exact surface the product exists to abstract away. Getting `/product/` instead of the title-derived `/how-promptingpress-works/` meant trashing and recreating the page, losing its ID, composition history, and any inbound links.**

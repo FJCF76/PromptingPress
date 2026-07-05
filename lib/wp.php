@@ -97,6 +97,54 @@ function pp_the_loop(\WP_Query $query, callable $cb): void {
 }
 
 /**
+ * Returns the main WP_Query for the current request (#126).
+ *
+ * WordPress already builds and filters this query correctly for the route —
+ * category/tag/date/author archives, the posts index (is_home) — before any
+ * template loads. Prefer this over pp_posts() with a fresh WP_Query when
+ * rendering "the listing for this route": a fresh query can only approximate
+ * the archive context (and easily gets it wrong, e.g. showing every post on
+ * a category archive), where the main query already has it exactly right.
+ *
+ * @return \WP_Query
+ */
+function pp_main_query(): \WP_Query {
+    global $wp_query;
+    return $wp_query;
+}
+
+/**
+ * Returns pagination markup for the current main query (#126), or '' when
+ * there's only one page. Wraps paginate_links() — the only place in the
+ * theme this is called, keeping the "only lib/wp.php touches WP" invariant.
+ *
+ * @return string  A <nav> element with page links, or ''.
+ */
+function pp_pagination(): string {
+    global $wp_query;
+    $total = (int) ($wp_query->max_num_pages ?? 1);
+    if ($total <= 1) {
+        return '';
+    }
+
+    $links = paginate_links([
+        'total'     => $total,
+        'current'   => max(1, (int) get_query_var('paged')),
+        'prev_text' => '← Previous',
+        'next_text' => 'Next →',
+        'type'      => 'array',
+    ]);
+
+    if (empty($links)) {
+        return '';
+    }
+
+    return '<nav class="pp-pagination" aria-label="Posts pagination"><ul class="pp-pagination__list"><li>'
+        . implode('</li><li>', $links)
+        . '</li></ul></nav>';
+}
+
+/**
  * Returns true when the current page is the configured front page.
  */
 function pp_is_front_page(): bool {

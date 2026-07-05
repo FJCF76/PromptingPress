@@ -209,6 +209,8 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_nav_menu($location)`      | Renders WP nav menu (no output if unassigned)   |
 | `pp_posts($args)`             | Returns WP_Query object                         |
 | `pp_the_loop($query, $cb)`    | Iterates query, calls $cb() per post            |
+| `pp_main_query()`             | Returns the request's main WP_Query — already correctly filtered for the current route (archive, is_home). Prefer over a fresh `pp_posts()` query when rendering "the listing for this route" (#126) |
+| `pp_pagination()`             | Returns pagination `<nav>` HTML for the main query, or `''` if there's only one page (#126) |
 | `pp_is_front_page()`          | bool — true on front page                       |
 | `pp_body_classes()`           | Space-separated body class string               |
 | `pp_excerpt($length)`         | Trimmed excerpt (default 55 words)              |
@@ -279,7 +281,10 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | templates/composition.php  | composition.php     | Composition            | ✅ Yes             |
 | templates/page.php         | page.php            | Default Template       | No                 |
 | templates/single.php       | single.php          | (automatic for posts)  | No                 |
-| templates/archive.php      | archive.php         | (automatic for archives) | No               |
+| templates/archive.php      | archive.php         | (automatic for category/tag/date/author archives) | No |
+| templates/home.php         | home.php            | (automatic for the posts index, is_home) | No   |
+
+`home.php`/`archive.php` iterate `pp_main_query()` (the request's real main query, already correctly filtered for whichever archive/index this is) via `pp_the_loop()`, and render `pp_pagination()` under the grid when there's more than one page (#126).
 
 Both `front-page.php` and `composition.php` read `_pp_composition` post meta and render
 components via `pp_composition()`. No page using these templates has hardcoded component structure.
