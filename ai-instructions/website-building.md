@@ -16,6 +16,7 @@ Every visual change maps to exactly one mutation surface. Writing to the wrong s
 | Bringing an external image onto the site as a locally-owned asset | Media Library (new attachment) | `import_media` apply (returns `{attachment_id, url}` — pass `url` to `image_url`/`background_image`/`logo_url`; on hero/section/logos also pass `attachment_id` as `image_id` for responsive srcset output) |
 | Page-specific SEO metadata (meta description, `<title>` override, canonical URL) | `_pp_seo_meta` post meta | `update_seo_meta` action (patch; set a key to `""` to clear it) |
 | Page slug / URL (post_name) | WordPress core (`post_name`) | `update_page_slug` action (post_id + slug), or the `slug` param on `create_page` to set the route up front. Always check the URL in the page inventory above before proposing a change — never guess or construct one |
+| Custom/webfont loading and typography ("use Poppins for headings") | `pp_font_urls` option + `pp_token_overrides` option | `enqueue_font` apply with `url` + `family` + `apply_to` (`heading`\|`body`\|`both`) — one call both loads the stylesheet and points `--font-heading`/`--font-body` at it. `enqueue_font` with only `url` loads the font but changes nothing visible; it is not a substitute for `apply_to` |
 
 ## What NOT to use
 
