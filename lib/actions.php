@@ -1422,6 +1422,248 @@ pp_register_action('clear_custom_css', [
     },
 ]);
 
+// ── Action: create_menu ─────────────────────────────────────────────────────
+// Scope: site | Semantics: create. Issue 132.
+
+pp_register_action('create_menu', [
+    'scope'       => 'site',
+    'description' => 'Creates a new navigation menu.',
+    'semantics'   => 'Create. Fails if a menu with this name already exists (WordPress core menu-name uniqueness).',
+    'params'      => [
+        'name' => ['type' => 'string', 'required' => true],
+    ],
+    'validate' => function (array $params) {
+        if (trim($params['name']) === '') {
+            return new WP_Error('empty_name', 'Menu name cannot be empty.');
+        }
+        return true;
+    },
+    'preview' => function (array $params): array {
+        return _pp_action_preview('create_menu', 'site', [], null, $params['name'], [
+            ['path' => 'menu', 'from' => null, 'to' => $params['name']],
+        ]);
+    },
+    'execute' => function (array $params): array {
+        $menu_id = pp_create_nav_menu($params['name']);
+        if (is_wp_error($menu_id)) {
+            return _pp_action_error('create_menu', 'site', $menu_id->get_error_message());
+        }
+        return _pp_action_result('create_menu', 'site', ['menu_id' => $menu_id], [
+            ['path' => 'menu', 'from' => null, 'to' => $params['name']],
+        ]);
+    },
+]);
+
+// ── Action: add_menu_item ───────────────────────────────────────────────────
+// Scope: site | Semantics: append. Issue 132.
+
+pp_register_action('add_menu_item', [
+    'scope'       => 'site',
+    'description' => 'Adds a link to a navigation menu — a page link (page_id) or a custom link (url + label).',
+    'semantics'   => 'Append. Exactly one of page_id or (url + label) must be given, not both. Optional position sets menu order (1-based); omit to append at the end.',
+    'params'      => [
+        'menu_id'  => ['type' => 'int',    'required' => true],
+        // Named page_id, not post_id: a top-level post_id param signals
+        // "this action mutates that post" to the operate/preflight gate
+        // (see OperateTest::testAllRegisteredActionsHaveConsistentScopeAndPostIdParam)
+        // — here the linked page is data inside a site-scoped mutation
+        // (the menu), not the post being mutated, so it must not collide.
+        'page_id'  => ['type' => 'int',    'required' => false],
+        'url'      => ['type' => 'string', 'required' => false],
+        'label'    => ['type' => 'string', 'required' => false],
+        'position' => ['type' => 'int',    'required' => false],
+    ],
+    'validate' => function (array $params) {
+        if (!wp_get_nav_menu_object($params['menu_id'])) {
+            return new WP_Error('invalid_menu', sprintf('Menu %d does not exist.', $params['menu_id']));
+        }
+
+        $has_page = !empty($params['page_id']);
+        $has_url  = !empty($params['url']);
+
+        if ($has_page && $has_url) {
+            return new WP_Error('ambiguous_link', 'Provide either page_id or url + label, not both.');
+        }
+        if (!$has_page && !$has_url) {
+            return new WP_Error('missing_link', 'Provide either page_id or url + label.');
+        }
+
+        if ($has_page) {
+            $exists = _pp_validate_page_exists($params['page_id']);
+            if (is_wp_error($exists)) {
+                return $exists;
+            }
+        } else {
+            if (!filter_var($params['url'], FILTER_VALIDATE_URL)) {
+                return new WP_Error('invalid_url', 'url must be a valid URL.');
+            }
+            if (empty($params['label'])) {
+                return new WP_Error('missing_label', 'label is required for a custom link.');
+            }
+        }
+
+        return true;
+    },
+    'preview' => function (array $params): array {
+        $label = !empty($params['page_id'])
+            ? get_the_title($params['page_id'])
+            : ($params['label'] ?? '');
+        return _pp_action_preview('add_menu_item', 'site', ['menu_id' => $params['menu_id']], null, $label, [
+            ['path' => 'menu_item', 'from' => null, 'to' => $label],
+        ]);
+    },
+    'execute' => function (array $params): array {
+        $item = !empty($params['page_id'])
+            ? ['page_id' => (int) $params['page_id']]
+            : ['url' => $params['url'], 'label' => $params['label']];
+        if (isset($params['position'])) {
+            $item['position'] = (int) $params['position'];
+        }
+
+        $item_id = pp_add_nav_menu_item((int) $params['menu_id'], $item);
+        if (is_wp_error($item_id)) {
+            return _pp_action_error('add_menu_item', 'site', $item_id->get_error_message());
+        }
+
+        $label = !empty($params['page_id']) ? get_the_title($params['page_id']) : $params['label'];
+        return _pp_action_result('add_menu_item', 'site', ['menu_id' => $params['menu_id'], 'item_id' => $item_id], [
+            ['path' => 'menu_item', 'from' => null, 'to' => $label],
+        ]);
+    },
+]);
+
+// ── Action: assign_menu_location ────────────────────────────────────────────
+// Scope: site | Semantics: replace. Issue 132.
+
+pp_register_action('assign_menu_location', [
+    'scope'       => 'site',
+    'description' => 'Assigns a menu to a registered theme navigation location (e.g. "primary", "footer").',
+    'semantics'   => 'Replace. Whatever menu was previously assigned to this location is unassigned; the location must be a registered theme location.',
+    'params'      => [
+        'menu_id'  => ['type' => 'int',    'required' => true],
+        'location' => ['type' => 'string', 'required' => true],
+    ],
+    'validate' => function (array $params) {
+        if (!wp_get_nav_menu_object($params['menu_id'])) {
+            return new WP_Error('invalid_menu', sprintf('Menu %d does not exist.', $params['menu_id']));
+        }
+        $registered = array_keys(get_registered_nav_menus());
+        if (!in_array($params['location'], $registered, true)) {
+            return new WP_Error('invalid_location', sprintf('"%s" is not a registered navigation location. Available: %s.', $params['location'], implode(', ', $registered)));
+        }
+        return true;
+    },
+    'preview' => function (array $params): array {
+        $locations = get_nav_menu_locations();
+        $current   = $locations[$params['location']] ?? null;
+        return _pp_action_preview('assign_menu_location', 'site', ['location' => $params['location']], $current, $params['menu_id'], [
+            ['path' => $params['location'], 'from' => $current, 'to' => $params['menu_id']],
+        ]);
+    },
+    'execute' => function (array $params): array {
+        $locations = get_nav_menu_locations();
+        $current   = $locations[$params['location']] ?? null;
+
+        $ok = pp_assign_menu_location((int) $params['menu_id'], $params['location']);
+        if (!$ok) {
+            return _pp_action_error('assign_menu_location', 'site', 'Failed to assign menu to location.');
+        }
+        return _pp_action_result('assign_menu_location', 'site', ['location' => $params['location']], [
+            ['path' => $params['location'], 'from' => $current, 'to' => $params['menu_id']],
+        ]);
+    },
+]);
+
+// ── Action: set_menu ─────────────────────────────────────────────────────────
+// Scope: site | Semantics: replace. Declarative, mirrors update_composition —
+// the friendliest shape for an LLM to propose a whole menu in one step.
+
+pp_register_action('set_menu', [
+    'scope'       => 'site',
+    'description' => 'Declaratively sets a menu\'s full item list and (optionally) its location in one call. Creates the menu if a menu with this name does not already exist; replaces all its existing items with the given list.',
+    'semantics'   => 'Replace. Each item in items is either {"page_id": int} or {"url": string, "label": string}, in the order given. Existing items on the (possibly pre-existing) menu are removed first.',
+    'params'      => [
+        'name'     => ['type' => 'string', 'required' => true],
+        'items'    => ['type' => 'array',  'required' => true],
+        'location' => ['type' => 'string', 'required' => false],
+    ],
+    'validate' => function (array $params) {
+        if (trim($params['name']) === '') {
+            return new WP_Error('empty_name', 'Menu name cannot be empty.');
+        }
+        if (empty($params['items'])) {
+            return new WP_Error('empty_items', 'items cannot be empty.');
+        }
+        foreach ($params['items'] as $i => $item) {
+            if (!is_array($item)) {
+                return new WP_Error('invalid_item', sprintf('items[%d] must be an object.', $i));
+            }
+            $has_page = !empty($item['page_id']);
+            $has_url  = !empty($item['url']);
+            if ($has_page && $has_url) {
+                return new WP_Error('ambiguous_item', sprintf('items[%d]: provide either page_id or url + label, not both.', $i));
+            }
+            if (!$has_page && !$has_url) {
+                return new WP_Error('missing_item_link', sprintf('items[%d]: provide either page_id or url + label.', $i));
+            }
+            if ($has_page) {
+                $exists = _pp_validate_page_exists($item['page_id']);
+                if (is_wp_error($exists)) {
+                    return $exists;
+                }
+            } elseif (empty($item['label'])) {
+                return new WP_Error('missing_item_label', sprintf('items[%d]: label is required for a custom link.', $i));
+            }
+        }
+        if (isset($params['location'])) {
+            $registered = array_keys(get_registered_nav_menus());
+            if (!in_array($params['location'], $registered, true)) {
+                return new WP_Error('invalid_location', sprintf('"%s" is not a registered navigation location. Available: %s.', $params['location'], implode(', ', $registered)));
+            }
+        }
+        return true;
+    },
+    'preview' => function (array $params): array {
+        $titles = array_map(function ($item) {
+            return !empty($item['page_id']) ? get_the_title($item['page_id']) : ($item['label'] ?? '');
+        }, $params['items']);
+        return _pp_action_preview('set_menu', 'site', ['name' => $params['name']], null, $titles, [
+            ['path' => 'menu', 'from' => null, 'to' => implode(', ', $titles)],
+        ]);
+    },
+    'execute' => function (array $params): array {
+        $existing = wp_get_nav_menu_object($params['name']);
+        $menu_id  = $existing ? $existing->term_id : pp_create_nav_menu($params['name']);
+        if (is_wp_error($menu_id)) {
+            return _pp_action_error('set_menu', 'site', $menu_id->get_error_message());
+        }
+
+        if ($existing) {
+            pp_clear_nav_menu_items($menu_id);
+        }
+
+        $titles = [];
+        foreach ($params['items'] as $item) {
+            $link = !empty($item['page_id'])
+                ? ['page_id' => (int) $item['page_id']]
+                : ['url' => $item['url'], 'label' => $item['label']];
+            $item_id = pp_add_nav_menu_item($menu_id, $link);
+            if (is_wp_error($item_id)) {
+                return _pp_action_error('set_menu', 'site', $item_id->get_error_message());
+            }
+            $titles[] = !empty($item['page_id']) ? get_the_title($item['page_id']) : $item['label'];
+        }
+
+        if (!empty($params['location'])) {
+            pp_assign_menu_location($menu_id, $params['location']);
+        }
+
+        return _pp_action_result('set_menu', 'site', ['menu_id' => $menu_id], [
+            ['path' => 'menu', 'from' => null, 'to' => implode(', ', $titles)],
+        ]);
+    },
+]);
+
 // ── Internal helpers ────────────────────────────────────────────────────────
 
 /**

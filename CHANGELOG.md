@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.41] — 2026-07-05 — New: AI Chat Can Build Navigation Menus
+
+**Navigation had zero mutation surface — no action could create a menu, add a link, or assign a location. The only nav-related code was a read-only diagnostic that explicitly told the AI to punt to a human: "Assign one under Appearance → Menus," the exact wp-admin surface the product exists to abstract away. A fresh install had no way to get a working nav menu without leaving the chat.**
+
+### Added
+- Four new actions: `create_menu`, `add_menu_item` (page link or custom URL + label), `assign_menu_location` (to a registered theme location — `primary`, `footer`), and a declarative `set_menu` that creates-or-reuses a menu by name and replaces its full item list (+ optionally its location) in one call, mirroring `update_composition`'s replace semantics — the friendliest shape for an AI to propose a whole menu at once.
+- The AI system prompt now includes a Navigation section next to the Pages inventory: registered locations, each menu's assignment, and its item titles — so menu proposals are grounded against real state instead of guessed.
+- The existing nav-readiness diagnostic's messages now point at the new actions (or Appearance → Menus) instead of only the wp-admin escalation.
+
+### For contributors
+- New `lib/wp.php` wrappers: `pp_get_menus()`, `pp_create_nav_menu()`, `pp_add_nav_menu_item()`, `pp_clear_nav_menu_items()`, `pp_assign_menu_location()` — the only place these actions touch WordPress core menu functions.
+- The page-link param is named `page_id`, not `post_id`: the operate/preflight gate treats a top-level `post_id` action param as "this action mutates that specific post," but a menu's linked page is data referenced by a site-scoped mutation (the menu), not the post being mutated — using `post_id` here would have broken that invariant.
+- Menu structure is gated on `edit_theme_options` (mirroring WordPress's own Appearance > Menus capability), not the stricter `manage_options` default for other site-scoped actions.
+- 19 new PHPUnit tests. Verified live against real WordPress on the dev site: created a menu, added a page link and a custom link, assigned it to `primary`, confirmed it rendered in the actual frontend nav, then restored the site's original menu assignment.
+
 ## [v0.16.40] — 2026-07-05 — New: Multi-Step AI Proposals Apply Atomically
 
 **A multi-step proposal ("add a hero, add a pricing section, update the CTA text") ran as N independent AJAX requests, each committing to the database before the next started. If step 3 failed, steps 1-2 were already permanently applied — the page ended up half-mutated, with no undo and no accurate summary of what actually happened.**

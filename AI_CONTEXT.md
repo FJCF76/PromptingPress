@@ -83,7 +83,7 @@ site-customization permission.
 | /tests/e2e/              | Playwright E2E tests            | Yes — requires Docker (wp-env)   |
 | .wp-env.json             | wp-env Docker config            | Yes — test environment only      |
 | /lib/wp.php              | WP function wrappers (read + write) | Only to add pp_* functions   |
-| /lib/actions.php         | Typed action model (16 actions) | Add actions following the contract |
+| /lib/actions.php         | Typed action model (20 actions) | Add actions following the contract |
 | /lib/apply.php           | Apply layer (file + option mutations) | Add applies following the contract |
 | /lib/cli.php             | WP-CLI `wp pp action` + `wp pp apply` + `wp pp check` + `wp pp integrity` | Yes |
 | /lib/guardrails.php      | CSS conflict detection, surface classification, theme integrity | Extend for new checks |
@@ -223,6 +223,11 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_default_homepage_composition()` | Default homepage component array (hero, section, cta) — single source of truth for activation seeding and blank-page fallback |
 | `pp_get_composition($post_id)` | Composition array for any page by ID (returns [] if absent) |
 | `pp_composition_pages()`       | All composition pages: [{id, title, status, url}, ...] (static cached) |
+| `pp_get_menus()`               | All navigation menus: [{id, name, location (registered theme location or null), items: [{title, url}, ...]}, ...] (issue 132) |
+| `pp_create_nav_menu($name)`    | Creates a menu. Returns menu (term) ID\|WP_Error |
+| `pp_add_nav_menu_item($menu_id, $item)` | Adds one item — `['page_id' => int]` (page link) or `['url' => ..., 'label' => ...]` (custom link), optional `'position'`. Returns item ID\|WP_Error |
+| `pp_clear_nav_menu_items($menu_id)` | Removes every item from a menu (menu itself stays); used by `set_menu`'s replace semantics |
+| `pp_assign_menu_location($menu_id, $location)` | Assigns a menu to a registered theme location (`primary`, `footer`) |
 | `pp_design_tokens()`           | CSS custom properties merged from base.css defaults + database overrides. Returns `['--token' => ['value' => string, 'type' => string\|null]]`. Static cached. |
 | `pp_invalidate_design_tokens_cache()` | Resets the pp_design_tokens() static cache. Call after modifying token overrides. |
 | `pp_get_token_overrides()`     | Returns database-stored token overrides as `['--token' => 'value']`. |
@@ -450,7 +455,7 @@ All mutations go through typed actions. AJAX handlers, WP-CLI, and future AI cal
 **`pp_validate_action()` also rejects bad media URLs.** Any `image_url`/`background_image` value (flat or inside `items[]`) that points into the site's uploads directory must resolve to an actual Media Library attachment AND be an image — a URL to a PDF/video/audio attachment, or to no attachment at all, fails validation with `invalid_media_url` before anything is written. External URLs (outside uploads) are passed through unchecked. This applies uniformly to every caller — AJAX, WP-CLI, `pp_patch_composition()` — not just the AI chat surface. Because both `pp_preview_action()` and `pp_execute_action()` call `pp_validate_action()`, a proposal preview rejects an invalid media URL with the identical error `pp_ai_execute` would give — the chat never shows a clean preview diff for a step guaranteed to fail (issue 130).
 
 **Registry functions:**
-- `pp_get_registered_actions()` — all 16 actions
+- `pp_get_registered_actions()` — all 20 actions
 - `pp_get_action($name)` — single action definition or null
 - `pp_validate_action($name, $params)` — structural + semantic validation, returns true|WP_Error
 - `pp_preview_action($name, $params)` — validates, computes diff, never writes
@@ -477,6 +482,10 @@ All mutations go through typed actions. AJAX handlers, WP-CLI, and future AI cal
 | `unpublish_page` | page | post_id (req) | Sets status back to draft. Only works on published pages |
 | `clear_custom_css` | site | (none) | Removes all Custom CSS from WordPress Customizer |
 | `style_component` | section | post_id (req), component_id or component_index, style, recipe | **Patch** style slots on a component instance. `style` is a map of slot name → value (or null to remove). Optional `recipe` expands named shorthand into slot values before merging explicit overrides. Only schema-declared style slots are accepted |
+| `create_menu` | site | name (req) | Create. Fails if a menu with this name already exists |
+| `add_menu_item` | site | menu_id (req), page_id, url, label, position | Append. Exactly one of page_id or (url + label) — a page link or a custom link. `page_id`, not `post_id`: a top-level `post_id` param signals "this action mutates that post" to the preflight gate, but here it's just data inside a site-scoped mutation. Omit position to append at the end |
+| `assign_menu_location` | site | menu_id (req), location (req) | Replace. `location` must be a registered theme location (`primary`, `footer`) |
+| `set_menu` | site | name (req), items (req), location | **Declarative replace** — mirrors `update_composition`. Creates the menu by name if it doesn't exist; clears and replaces ALL its items with the given ordered list (each `{page_id}` or `{url, label}`); optionally assigns a location, all in one call |
 
 ### WP-CLI
 

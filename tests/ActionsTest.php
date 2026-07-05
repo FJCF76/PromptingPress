@@ -2,7 +2,7 @@
 /**
  * tests/ActionsTest.php — PHPUnit tests for the PromptingPress Action Layer
  *
- * Covers: registry functions, wp.php read/write functions, and all 16 actions
+ * Covers: registry functions, wp.php read/write functions, and all 20 actions
  * across validate, preview, and execute paths.
  */
 
@@ -24,10 +24,10 @@ class ActionsTest extends TestCase
 
     // ── Registry tests ─────────────────────────────────────────────────────
 
-    public function testRegistryReturnsAllSixteenActions(): void
+    public function testRegistryReturnsAllTwentyActions(): void
     {
         $actions = pp_get_registered_actions();
-        $this->assertCount(16, $actions);
+        $this->assertCount(20, $actions);
         $expected = [
             'create_page', 'update_site_option', 'update_page_title',
             'update_page_slug', 'update_seo_meta',
@@ -35,6 +35,7 @@ class ActionsTest extends TestCase
             'remove_component', 'reorder_components', 'update_component',
             'style_component',
             'trash_page', 'restore_page', 'unpublish_page', 'clear_custom_css',
+            'create_menu', 'add_menu_item', 'assign_menu_location', 'set_menu',
         ];
         foreach ($expected as $name) {
             $this->assertArrayHasKey($name, $actions, "Action '{$name}' not registered.");
@@ -2696,5 +2697,188 @@ class ActionsTest extends TestCase
 
         $this->assertTrue($batch['ok']);
         $this->assertArrayHasKey('validation', $batch['steps'][0]);
+    }
+
+    // ── Navigation menu actions (issue 132) ─────────────────────────────────
+
+    public function testCreateMenuExecutesSuccessfully(): void
+    {
+        $result = pp_execute_action('create_menu', ['name' => 'Main Menu']);
+        $this->assertTrue($result['ok']);
+        $this->assertArrayHasKey('menu_id', $result['target']);
+        $this->assertNotNull(wp_get_nav_menu_object($result['target']['menu_id']));
+    }
+
+    public function testCreateMenuRejectsEmptyName(): void
+    {
+        $result = pp_validate_action('create_menu', ['name' => '   ']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('empty_name', $result->get_error_code());
+    }
+
+    public function testCreateMenuRejectsDuplicateName(): void
+    {
+        pp_execute_action('create_menu', ['name' => 'Main Menu']);
+        $result = pp_execute_action('create_menu', ['name' => 'Main Menu']);
+        $this->assertFalse($result['ok']);
+    }
+
+    public function testAddMenuItemWithPageIdLink(): void
+    {
+        $menu = pp_execute_action('create_menu', ['name' => 'Main Menu']);
+        $post_id = pp_create_page('About', 'publish');
+
+        $result = pp_execute_action('add_menu_item', [
+            'menu_id' => $menu['target']['menu_id'],
+            'page_id' => $post_id,
+        ]);
+
+        $this->assertTrue($result['ok']);
+        $menus = pp_get_menus();
+        $this->assertSame('About', $menus[0]['items'][0]['title']);
+    }
+
+    public function testAddMenuItemWithCustomLink(): void
+    {
+        $menu = pp_execute_action('create_menu', ['name' => 'Main Menu']);
+
+        $result = pp_execute_action('add_menu_item', [
+            'menu_id' => $menu['target']['menu_id'],
+            'url'     => 'https://example.com/external',
+            'label'   => 'External Site',
+        ]);
+
+        $this->assertTrue($result['ok']);
+        $menus = pp_get_menus();
+        $this->assertSame('External Site', $menus[0]['items'][0]['title']);
+        $this->assertSame('https://example.com/external', $menus[0]['items'][0]['url']);
+    }
+
+    public function testAddMenuItemRejectsInvalidMenu(): void
+    {
+        $result = pp_validate_action('add_menu_item', ['menu_id' => 999999, 'page_id' => 1]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_menu', $result->get_error_code());
+    }
+
+    public function testAddMenuItemRejectsBothPageIdAndUrl(): void
+    {
+        $menu = pp_execute_action('create_menu', ['name' => 'Main Menu']);
+        $result = pp_validate_action('add_menu_item', [
+            'menu_id' => $menu['target']['menu_id'],
+            'page_id' => 1,
+            'url'     => 'https://example.com',
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('ambiguous_link', $result->get_error_code());
+    }
+
+    public function testAddMenuItemRejectsNeitherPageIdNorUrl(): void
+    {
+        $menu = pp_execute_action('create_menu', ['name' => 'Main Menu']);
+        $result = pp_validate_action('add_menu_item', ['menu_id' => $menu['target']['menu_id']]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('missing_link', $result->get_error_code());
+    }
+
+    public function testAssignMenuLocationExecutesSuccessfully(): void
+    {
+        $menu = pp_execute_action('create_menu', ['name' => 'Main Menu']);
+        $result = pp_execute_action('assign_menu_location', [
+            'menu_id'  => $menu['target']['menu_id'],
+            'location' => 'primary',
+        ]);
+        $this->assertTrue($result['ok']);
+        $this->assertSame($menu['target']['menu_id'], get_nav_menu_locations()['primary']);
+    }
+
+    public function testAssignMenuLocationRejectsUnregisteredLocation(): void
+    {
+        $menu = pp_execute_action('create_menu', ['name' => 'Main Menu']);
+        $result = pp_validate_action('assign_menu_location', [
+            'menu_id'  => $menu['target']['menu_id'],
+            'location' => 'sidebar',
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_location', $result->get_error_code());
+    }
+
+    public function testSetMenuCreatesNewMenuWithItemsAndLocation(): void
+    {
+        $post_id = pp_create_page('Pricing', 'publish');
+
+        $result = pp_execute_action('set_menu', [
+            'name'     => 'Main Menu',
+            'items'    => [
+                ['page_id' => $post_id],
+                ['url' => 'https://example.com/blog', 'label' => 'Blog'],
+            ],
+            'location' => 'primary',
+        ]);
+
+        $this->assertTrue($result['ok']);
+        $menus = pp_get_menus();
+        $this->assertCount(2, $menus[0]['items']);
+        $this->assertSame('Pricing', $menus[0]['items'][0]['title']);
+        $this->assertSame('Blog', $menus[0]['items'][1]['title']);
+        $this->assertSame('primary', $menus[0]['location']);
+    }
+
+    public function testSetMenuReplacesExistingItemsOnRepeatedCall(): void
+    {
+        $post_id = pp_create_page('Pricing', 'publish');
+        pp_execute_action('set_menu', ['name' => 'Main Menu', 'items' => [['page_id' => $post_id]]]);
+
+        $post_id_2 = pp_create_page('About', 'publish');
+        $result = pp_execute_action('set_menu', ['name' => 'Main Menu', 'items' => [['page_id' => $post_id_2]]]);
+
+        $this->assertTrue($result['ok']);
+        $menus = pp_get_menus();
+        $this->assertCount(1, $menus); // reused the same menu, didn't create a second one
+        $this->assertCount(1, $menus[0]['items']);
+        $this->assertSame('About', $menus[0]['items'][0]['title']);
+    }
+
+    public function testSetMenuRejectsEmptyItems(): void
+    {
+        $result = pp_validate_action('set_menu', ['name' => 'Main Menu', 'items' => []]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('empty_items', $result->get_error_code());
+    }
+
+    public function testSetMenuRejectsItemWithNeitherPageIdNorUrl(): void
+    {
+        $result = pp_validate_action('set_menu', ['name' => 'Main Menu', 'items' => [[]]]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('missing_item_link', $result->get_error_code());
+    }
+
+    public function testSetMenuRejectsCustomLinkItemMissingLabel(): void
+    {
+        $result = pp_validate_action('set_menu', [
+            'name'  => 'Main Menu',
+            'items' => [['url' => 'https://example.com']],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('missing_item_label', $result->get_error_code());
+    }
+
+    public function testPpGetMenusReturnsCompositionShape(): void
+    {
+        $post_id = pp_create_page('About', 'publish');
+        pp_execute_action('set_menu', ['name' => 'Main Menu', 'items' => [['page_id' => $post_id]], 'location' => 'footer']);
+
+        $menus = pp_get_menus();
+        $this->assertCount(1, $menus);
+        $this->assertSame('Main Menu', $menus[0]['name']);
+        $this->assertSame('footer', $menus[0]['location']);
+        $this->assertCount(1, $menus[0]['items']);
+    }
+
+    public function testPpGetMenusReportsUnassignedLocationAsNull(): void
+    {
+        pp_execute_action('create_menu', ['name' => 'Orphan Menu']);
+        $menus = pp_get_menus();
+        $this->assertNull($menus[0]['location']);
     }
 }

@@ -715,6 +715,15 @@ function _pp_required_caps_for(string $type, string $name, array $params): array
             // manage_options, or Editors lose the ability to build pages
             // through chat entirely.
             return [['cap' => 'publish_pages']];
+        case 'create_menu':
+        case 'add_menu_item':
+        case 'assign_menu_location':
+        case 'set_menu':
+            // Menu structure is core Appearance territory in WordPress
+            // (Appearance > Menus is gated on edit_theme_options there) —
+            // mirror that instead of the stricter manage_options default
+            // for other site-scoped actions (issue 132).
+            return [['cap' => 'edit_theme_options']];
     }
 
     $scope = $action['scope'] ?? 'site';
