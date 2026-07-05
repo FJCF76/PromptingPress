@@ -454,14 +454,36 @@ class AiContextTest extends TestCase
 
     public function testSystemPromptOmitsStyleSlotsForUnstyled(): void
     {
+        // faq gained style slots in #100 — it's no longer an "unstyled" example
+        // (see testSystemPromptIncludesStyleSlotsForFaq below).
         $prompt = pp_ai_system_prompt();
         $lines = explode("\n", $prompt);
         foreach ($lines as $i => $line) {
-            if (str_contains($line, '**faq**') || str_contains($line, '**embed**')) {
+            if (str_contains($line, '**embed**')) {
                 $next = $lines[$i + 1] ?? '';
                 $this->assertStringNotContainsString('Style slots:', $next);
             }
         }
+    }
+
+    public function testSystemPromptIncludesStyleSlotsForFaq(): void
+    {
+        // Regression pin for #100: faq previously had zero style slots (this test
+        // used to be one of the "unstyled" examples above). Confirms the AI-facing
+        // prompt now surfaces faq's new slots the same way it does for every other
+        // styled component.
+        $prompt = pp_ai_system_prompt();
+        $lines = explode("\n", $prompt);
+        $found = false;
+        foreach ($lines as $i => $line) {
+            if (str_contains($line, '**faq**')) {
+                $next = $lines[$i + 1] ?? '';
+                $this->assertStringContainsString('Style slots:', $next);
+                $this->assertStringContainsString('--faq-heading-color', $next);
+                $found = true;
+            }
+        }
+        $this->assertTrue($found, 'faq should appear in the system prompt.');
     }
 
     // ── Enum Values in Condensed Schema ──────────────────────────────────

@@ -33,7 +33,7 @@ use PHPUnit\Framework\TestCase;
 class StyleSlotContractTest extends TestCase
 {
     /** Components that declare style_slots and own a block in components.css. */
-    private const COMPONENTS = ['hero', 'section', 'grid', 'cta'];
+    private const COMPONENTS = ['hero', 'section', 'grid', 'cta', 'faq', 'stats'];
 
     private string $themeRoot;
     private string $css;
@@ -190,6 +190,20 @@ class StyleSlotContractTest extends TestCase
         '.grid__item-title'  => ['--grid-item-title-color', 'color'],
         '.grid__item-text'   => ['--grid-item-text-color', 'color'],
         '.cta__body'         => ['--cta-body-color', 'color'],
+        // faq (#100): this is the exact bug the "premium typography" comment above
+        // already documented ("faq has no heading-color slot, so it keeps the token")
+        // before #100 added one — .faq__heading/.faq__answer are re-declared in the
+        // same desktop media rules as the slots above.
+        // NOTE: .faq__question is deliberately NOT in this map. Its open-accordion
+        // state (.faq__item[open] > .faq__question) intentionally uses a DIFFERENT
+        // slot (--faq-accent, not --faq-question-color) — a real, in-component state
+        // change, not a cross-block clobber. This test matches by class substring
+        // across the whole stylesheet and can't distinguish "different intentional
+        // state" from "accidental override," so .faq__question would false-fail here.
+        // The desktop cross-block rule for .faq__question is still fixed (routes
+        // through --faq-question-color) — just not covered by this automated guard.
+        '.faq__heading'      => ['--faq-heading-color', 'color'],
+        '.faq__answer'       => ['--faq-answer-color', 'color'],
     ];
 
     /**

@@ -673,11 +673,12 @@
 .faq {
   padding-top: var(--space-xl);
   padding-bottom: var(--space-xl);
-  background-color: var(--color-surface);
+  background: var(--faq-bg, var(--color-surface));
 }
 
 .faq__heading {
   margin-bottom: var(--space-lg);
+  color: var(--faq-heading-color, var(--color-text));
 }
 
 .faq__list {
@@ -687,9 +688,9 @@
 }
 
 .faq__item {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--faq-border-color, var(--color-border));
   border-radius: var(--radius);
-  background-color: var(--color-bg);
+  background: var(--faq-item-bg, var(--color-bg));
   overflow: hidden;
 }
 
@@ -699,7 +700,7 @@
   justify-content: space-between;
   padding: var(--space-md) var(--space-lg);
   font-weight: 600;
-  color: var(--color-text);
+  color: var(--faq-question-color, var(--color-text));
   cursor: pointer;
   list-style: none;
   gap: var(--space-md);
@@ -726,7 +727,7 @@
 }
 
 .faq__item[open] > .faq__question {
-  color: var(--color-accent);
+  color: var(--faq-accent, var(--color-accent));
 }
 
 .faq__item[open] > .faq__question::after {
@@ -735,7 +736,7 @@
 
 .faq__answer {
   padding: 0 var(--space-lg) var(--space-md);
-  color: var(--color-muted);
+  color: var(--faq-answer-color, var(--color-muted));
   line-height: 1.6;
 }
 
@@ -1324,11 +1325,13 @@
 .stats {
   padding-top: var(--space-xl);
   padding-bottom: var(--space-xl);
+  background: var(--stats-bg, transparent);
 }
 
 .stats__heading {
   margin-bottom: var(--space-lg);
   text-align: center;
+  color: var(--stats-title-color, var(--color-text));
 }
 
 .stats__list {
@@ -1352,37 +1355,37 @@
 .stats__number {
   font-size: 2.5rem;
   font-weight: 700;
-  color: var(--color-accent);
+  color: var(--stats-number-color, var(--color-accent));
   line-height: 1;
 }
 
 .stats__label {
   font-size: 0.875rem;
-  color: var(--color-muted);
+  color: var(--stats-label-color, var(--color-muted));
   text-align: center;
 }
 
 /* Stats variants */
 .stats--dark {
-  background-color: var(--color-surface);
+  background: var(--stats-bg, var(--color-surface));
   border-top: 1px solid var(--color-border);
   border-bottom: 1px solid var(--color-border);
 }
 
 .stats--inverted {
-  background-color: var(--color-bg-inverted);
+  background: var(--stats-bg, var(--color-bg-inverted));
 }
 
 .stats--inverted .stats__heading {
-  color: var(--color-bg);
+  color: var(--stats-title-color, var(--color-bg));
 }
 
 .stats--inverted .stats__number {
-  color: var(--color-accent);
+  color: var(--stats-number-color, var(--color-accent));
 }
 
 .stats--inverted .stats__label {
-  color: var(--color-bg);
+  color: var(--stats-label-color, var(--color-bg));
   opacity: 0.75;
 }
 
@@ -1406,15 +1409,15 @@
 }
 
 .stats--has-bg-image .stats__heading {
-  color: var(--color-bg);
+  color: var(--stats-title-color, var(--color-bg));
 }
 
 .stats--has-bg-image .stats__number {
-  color: var(--color-accent);
+  color: var(--stats-number-color, var(--color-accent));
 }
 
 .stats--has-bg-image .stats__label {
-  color: var(--color-bg);
+  color: var(--stats-label-color, var(--color-bg));
   opacity: 0.85;
 }
 
@@ -2124,7 +2127,7 @@
 
   /* Per-instance heading-color slots must survive this desktop typography rule (#86).
      Color is split per selector so each component's slot wins instead of a shared
-     hardcoded var(--color-text). faq has no heading-color slot, so it keeps the token. */
+     hardcoded var(--color-text). */
   main > .grid .grid__heading {
     color: var(--grid-heading-color, var(--color-text));
   }
@@ -2134,7 +2137,7 @@
   }
 
   main > .faq .faq__heading {
-    color: var(--color-text);
+    color: var(--faq-heading-color, var(--color-text));
   }
 
   main > .section .section__content,
@@ -2188,14 +2191,14 @@
   }
 
   main > .faq .faq__question {
-    color: var(--color-text);
+    color: var(--faq-question-color, var(--color-text));
     font-size: 1rem;
     font-weight: 560;
     line-height: 1.45;
   }
 
   main > .faq .faq__answer {
-    color: var(--color-text-secondary);
+    color: var(--faq-answer-color, var(--color-text-secondary));
     font-size: 1rem;
     font-weight: 430;
     line-height: 1.68;
