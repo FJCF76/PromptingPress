@@ -78,13 +78,26 @@ Check that `current` values reflect your changes and the `active_recipe` shows c
 | `color` | `#1a1a2e`, `rgb(26, 26, 46)`, `var(--color-bg)` | `_pp_validate_color()` |
 | `length` | `8rem`, `50%`, `clamp(3rem, 6vw, 5rem)`, `calc(100% - 2rem)`, `0` | `_pp_validate_length()` |
 | `number` | `700`, `1.5` | `_pp_validate_number()` |
+| `duration` | `250ms`, `0.3s` | `_pp_validate_duration()` |
+| `font-family` | `"Inter", sans-serif` | `_pp_validate_font_family()` |
 | `shadow` | `var(--shadow-sm)`, `var(--shadow-md)`, `var(--shadow-lg)`, `none`, `0 4px 12px rgba(0,0,0,0.1)` | `_pp_validate_shadow()` |
+| `gradient` | `#1a1a2e`, `linear-gradient(135deg, #fff, #000)` | `_pp_validate_color()` or `_pp_validate_gradient()` |
+| `position` | `center`, `top left`, `20% 80%` | `_pp_validate_position()` |
+| `ratio` | `auto`, `1`, `16/9` | `_pp_validate_ratio()` |
 
 The `shadow` type is bounded: a preset (`var(--shadow-none\|sm\|md\|lg)` or `none`)
 or a single-layer `box-shadow` (2-4 px/rem lengths plus an rgb/rgba/hsl/hsla color).
 `inset`, multi-layer shadows, and `url()` are rejected. The hero, section, grid (card),
 cta, and testimonials (card) components each expose namespaced `*-border-color`,
 `*-border-width`, `*-radius`, and `*-shadow` slots.
+
+The `position` and `ratio` types (#108) control image focal point and aspect ratio,
+per-instance. `position` accepts 1-2 keyword/length tokens (no functions, no `var()`);
+`ratio` accepts `auto` (natural proportions) or a number/fraction. `--{hero,section}-image-position`
+and `--{hero,section}-image-aspect-ratio` control the content `<img>` (hero's split
+variant, section's image-left/image-right); `--{hero,section,cta,stats}-bg-position`
+controls the `background_image`/cover-variant CSS background. Not exposed on logos
+(fixed `object-fit: contain` layout, not a crop model).
 
 > **Button and text styling are PROPS, not style slots.** A CTA's button style
 > (`button_variant`: primary/secondary/outline/ghost) and a grid item's typography

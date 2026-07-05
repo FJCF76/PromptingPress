@@ -359,7 +359,7 @@
 .hero--cover {
   position: relative;
   background-size: cover;
-  background-position: center;
+  background-position: var(--hero-bg-position, center);
   background-repeat: no-repeat;
   min-height: 70vh;
   display: flex;
@@ -483,6 +483,9 @@
 .hero__image {
   width: 100%;
   height: auto;
+  aspect-ratio: var(--hero-image-aspect-ratio, auto);
+  object-fit: cover;
+  object-position: var(--hero-image-position, center);
   border-radius: var(--hero-image-radius, var(--radius));
 }
 
@@ -700,6 +703,9 @@
 .section__image {
   width: 100%;
   height: auto;
+  aspect-ratio: var(--section-image-aspect-ratio, auto);
+  object-fit: cover;
+  object-position: var(--section-image-position, center);
   border-radius: var(--section-image-radius, var(--radius));
 }
 
@@ -735,7 +741,7 @@
 .section--has-bg-image {
   position: relative;
   background-size: cover;
-  background-position: center;
+  background-position: var(--section-bg-position, center);
   background-repeat: no-repeat;
 }
 
@@ -1354,7 +1360,7 @@
 .cta--has-bg-image {
   position: relative;
   background-size: cover;
-  background-position: center;
+  background-position: var(--cta-bg-position, center);
   background-repeat: no-repeat;
   border: none;
 }
@@ -1626,7 +1632,7 @@
 .stats--has-bg-image {
   position: relative;
   background-size: cover;
-  background-position: center;
+  background-position: var(--stats-bg-position, center);
   background-repeat: no-repeat;
 }
 

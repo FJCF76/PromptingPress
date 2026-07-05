@@ -533,6 +533,64 @@ function _pp_validate_gradient(string $value): bool {
 }
 
 /**
+ * Validates a CSS background-position/object-position value for the bounded
+ * `position` slot type (#108 — image focal point).
+ *
+ * Accepts 1-2 whitespace-separated tokens, each either a known keyword
+ * (center, top, bottom, left, right) or a length/percentage (0, 20%, 10px,
+ * -5rem). Positive-pattern matching, same discipline as _pp_validate_length():
+ * no functions, no var(), nothing but keyword/number+unit tokens allowed.
+ */
+function _pp_validate_position(string $value): bool {
+    $value = trim($value);
+    if ($value === '') {
+        return false;
+    }
+    $tokens = preg_split('/\s+/', $value);
+    if (count($tokens) < 1 || count($tokens) > 2) {
+        return false;
+    }
+    $keywords = ['center', 'top', 'bottom', 'left', 'right'];
+    foreach ($tokens as $token) {
+        if (in_array(strtolower($token), $keywords, true)) {
+            continue;
+        }
+        if ($token === '0' || preg_match('/^-?[\d.]+(%|px|rem|em)$/', $token)) {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Validates a CSS aspect-ratio value for the bounded `ratio` slot type
+ * (#108 — image aspect ratio).
+ *
+ * Accepts the `auto` keyword (the slot's own default — preserves the
+ * image's natural proportions, same "own preset is explicitly settable"
+ * pattern as _pp_validate_shadow()'s `none`), a single positive number
+ * ("1", "1.6"), or two positive numbers separated by a slash ("16/9",
+ * "4 / 3"). Zero or negative values are rejected (a zero denominator
+ * produces an invalid/inert aspect-ratio the browser silently drops,
+ * mirroring the non-negative discipline in _pp_validate_shadow() for
+ * blur/spread).
+ */
+function _pp_validate_ratio(string $value): bool {
+    $value = trim($value);
+    if (strtolower($value) === 'auto') {
+        return true;
+    }
+    if (preg_match('/^(\d+(?:\.\d+)?)$/', $value, $m)) {
+        return (float) $m[1] > 0;
+    }
+    if (preg_match('/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/', $value, $m)) {
+        return (float) $m[1] > 0 && (float) $m[2] > 0;
+    }
+    return false;
+}
+
+/**
  * Validates a token value based on its type.
  *
  * @return true|WP_Error
@@ -585,6 +643,16 @@ function _pp_validate_token_value(string $value, ?string $type) {
         case 'gradient':
             if (!_pp_validate_color($value) && !_pp_validate_gradient($value)) {
                 return new WP_Error('invalid_gradient', 'Value must be a valid CSS color (hex, rgb(), rgba(), hsl(), hsla()) or a bounded linear-gradient()/radial-gradient() with 2+ color stops (var()/url()/env() and conic/repeating gradients are not accepted).');
+            }
+            break;
+        case 'position':
+            if (!_pp_validate_position($value)) {
+                return new WP_Error('invalid_position', 'Value must be 1-2 tokens: keywords (center, top, bottom, left, right) or lengths (0, 20%, 10px, -5rem). No functions or var().');
+            }
+            break;
+        case 'ratio':
+            if (!_pp_validate_ratio($value)) {
+                return new WP_Error('invalid_ratio', 'Value must be "auto", a positive number (e.g. 1, 1.6), or two positive numbers separated by a slash (e.g. 16/9).');
             }
             break;
         case 'raw':

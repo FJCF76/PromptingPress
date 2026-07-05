@@ -1463,7 +1463,7 @@ class OperateTest extends TestCase
         $result = pp_inspect_composition($post_id);
         $this->assertCount(1, $result);
         $this->assertArrayHasKey('style_slots', $result[0]);
-        $this->assertCount(33, $result[0]['style_slots']); // hero has 33 slots (32 + 1 title-accent-color, issue 110)
+        $this->assertCount(36, $result[0]['style_slots']); // hero has 36 slots (33 + 3 position/aspect-ratio, issue 108)
 
         // Verify slot structure.
         $first_slot = $result[0]['style_slots'][0];

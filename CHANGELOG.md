@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.28] — 2026-07-05 — New: Image Focal Point and Aspect Ratio Control
+
+**Every background image cropped from a hardcoded dead-center `background-position`, and every content image rendered at its natural proportions with no way to force a specific box shape. A photo whose subject wasn't centered had no safe-surface remedy — the crop was simply wrong, on every page, every time.**
+
+### Added
+- Image focal point (`background-position`/`object-position`) is now a per-instance style slot on hero (cover variant + split image), section (`background_image` + image-left/image-right image), cta (`background_image`), and stats (`background_image`).
+- Content-image aspect ratio (hero's split image, section's image-left/image-right image) is now a per-instance style slot — force a specific crop shape (e.g. `16/9`, `1`) instead of the image's natural proportions.
+
+### For contributors
+- Two new bounded style-slot types, following the established `#99` scaffold: `position` (1-2 keyword/length tokens, no functions/`var()`) and `ratio` (`auto`, or a number/fraction, zero and negative rejected). Both wired through the same shared `_pp_validate_token_value()` dispatcher used by every other slot type, so `style_component` gets them for free.
+- `ratio` explicitly accepts its own `auto` keyword as a settable value (natural proportions) — the same "slot's own preset is explicitly allowed" pattern `shadow` already uses for `none`. Caught and fixed a related **pre-existing** inaccuracy in the AI system prompt while touching this code path: it claimed CSS keywords like `none`/`auto` are never accepted, which was already false for `shadow`'s `none`.
+- Not exposed on logos — its `object-fit: contain` layout is a "fit within, don't crop" model, not a crop model; forcing an aspect-ratio box there doesn't fit the existing behavior.
+- Fully backward compatible: every new slot defaults to the exact value already hardcoded in CSS (`center` for position, `auto` for aspect-ratio) — no rendering changes for any composition that doesn't explicitly set one.
+- 33 new tests (26 PHPUnit validator/rendering + 7 Vitest per-slot fallback checks, auto-generated from schema.json); 4 existing hardcoded slot-count assertions across PHPUnit and Vitest updated (107 style slots total, up from 100).
+
 ## [v0.16.27] — 2026-07-05 — New: Real Responsive Images on Hero, Section, and Logos
 
 **Every image on the site shipped as a single fixed `<img src>` — one resolution to every device, oversized on mobile or blurry if downscaled. A page with a hero image, a section image, and a logo strip produced zero `<picture>` elements and zero images with `srcset`/`sizes`, a real quality and performance gap on any image-heavy page.**

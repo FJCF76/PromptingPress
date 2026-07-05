@@ -1197,6 +1197,118 @@ class ApplyTest extends TestCase
         $this->assertSame('injection', $result->get_error_code());
     }
 
+    // ── _pp_validate_position() tests (#108 — image focal point) ────────────
+
+    public function testValidatePositionAcceptsSingleKeyword(): void
+    {
+        foreach (['center', 'top', 'bottom', 'left', 'right'] as $keyword) {
+            $this->assertTrue(_pp_validate_position($keyword), "{$keyword} should be accepted.");
+        }
+    }
+
+    public function testValidatePositionAcceptsTwoKeywords(): void
+    {
+        $this->assertTrue(_pp_validate_position('top left'));
+        $this->assertTrue(_pp_validate_position('bottom right'));
+    }
+
+    public function testValidatePositionAcceptsLengthsAndPercentages(): void
+    {
+        $this->assertTrue(_pp_validate_position('20%'));
+        $this->assertTrue(_pp_validate_position('20% 80%'));
+        $this->assertTrue(_pp_validate_position('10px 50%'));
+        $this->assertTrue(_pp_validate_position('-5rem'));
+        $this->assertTrue(_pp_validate_position('0 0'));
+    }
+
+    public function testValidatePositionAcceptsMixedKeywordAndLength(): void
+    {
+        $this->assertTrue(_pp_validate_position('center 30%'));
+    }
+
+    public function testValidatePositionRejectsEmpty(): void
+    {
+        $this->assertFalse(_pp_validate_position(''));
+    }
+
+    public function testValidatePositionRejectsTooManyTokens(): void
+    {
+        $this->assertFalse(_pp_validate_position('center center center'));
+    }
+
+    public function testValidatePositionRejectsUnknownKeyword(): void
+    {
+        $this->assertFalse(_pp_validate_position('middle'));
+    }
+
+    public function testValidatePositionRejectsFunctionsAndVar(): void
+    {
+        $this->assertFalse(_pp_validate_position('var(--attacker)'));
+        $this->assertFalse(_pp_validate_position('calc(50% + 1px)'));
+        $this->assertFalse(_pp_validate_position('url(evil)'));
+    }
+
+    public function testValidateTokenValuePassesForPositionType(): void
+    {
+        $this->assertTrue(_pp_validate_token_value('top left', 'position'));
+    }
+
+    public function testValidateTokenValueFailsForInvalidPosition(): void
+    {
+        $result = _pp_validate_token_value('var(--attacker)', 'position');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_position', $result->get_error_code());
+    }
+
+    // ── _pp_validate_ratio() tests (#108 — image aspect ratio) ──────────────
+
+    public function testValidateRatioAcceptsSingleNumber(): void
+    {
+        $this->assertTrue(_pp_validate_ratio('1'));
+        $this->assertTrue(_pp_validate_ratio('1.6'));
+    }
+
+    public function testValidateRatioAcceptsWidthSlashHeight(): void
+    {
+        $this->assertTrue(_pp_validate_ratio('16/9'));
+        $this->assertTrue(_pp_validate_ratio('16 / 9'));
+        $this->assertTrue(_pp_validate_ratio('4/3'));
+    }
+
+    public function testValidateRatioAcceptsAutoKeyword(): void
+    {
+        // "auto" is the slot's own default (natural image proportions) --
+        // explicitly settable, same pattern as _pp_validate_shadow()'s "none".
+        $this->assertTrue(_pp_validate_ratio('auto'));
+        $this->assertTrue(_pp_validate_ratio('AUTO'));
+    }
+
+    public function testValidateRatioRejectsZeroOrNegative(): void
+    {
+        $this->assertFalse(_pp_validate_ratio('0'));
+        $this->assertFalse(_pp_validate_ratio('16/0'));
+        $this->assertFalse(_pp_validate_ratio('0/9'));
+        $this->assertFalse(_pp_validate_ratio('-1'));
+    }
+
+    public function testValidateRatioRejectsNonNumeric(): void
+    {
+        $this->assertFalse(_pp_validate_ratio('16/9/4'));
+        $this->assertFalse(_pp_validate_ratio('var(--attacker)'));
+    }
+
+    public function testValidateTokenValuePassesForRatioType(): void
+    {
+        $this->assertTrue(_pp_validate_token_value('16/9', 'ratio'));
+    }
+
+    public function testValidateTokenValueFailsForInvalidRatio(): void
+    {
+        $result = _pp_validate_token_value('16/0', 'ratio');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_ratio', $result->get_error_code());
+    }
+
     // ── New Token Declarations ───────────────────────────────────────────
 
     public function testNewTokensFontWeightHeadingExists(): void
