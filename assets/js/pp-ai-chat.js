@@ -302,6 +302,7 @@ function ppChatAppendValidationItems(container, items, className) {
     var messagesEl = document.getElementById('pp-ai-messages');
     var inputEl    = document.getElementById('pp-ai-input');
     var sendBtn    = document.getElementById('pp-ai-send');
+    var stopBtn    = document.getElementById('pp-ai-stop');
     var newChatBtn = document.getElementById('pp-ai-new-chat');
 
     if (!messagesEl || !inputEl || !sendBtn) return;
@@ -456,6 +457,41 @@ function ppChatAppendValidationItems(container, items, className) {
     var conversation = [];
     var isStreaming = false;
     var activePageId = null;
+
+    // issue 139: set to the current request's stop function while a stream
+    // is in flight, so the Stop button (wired once at init) can reach
+    // whichever streamChat() closure is currently active. null when idle.
+    var activeStopHandler = null;
+
+    // issue 139: bumped whenever a request is abandoned (New Chat mid-stream)
+    // rather than intentionally stopped-and-finalized. A request's async
+    // callbacks (fetch .then/.catch, ajaxFallback's response handlers) check
+    // their captured id against this counter before touching shared state —
+    // without it, an abandoned request's callback could still fire AFTER
+    // resetChat() has already cleared the conversation, re-populating it
+    // with the old request's partial text.
+    var currentRequestId = 0;
+
+    /**
+     * Toggles Send/Stop/input for the duration of a request, in one place
+     * so every entry/exit point (send, finish, error, fallback, reset) stays
+     * consistent (issue 139 — a Stop button is only useful if it's never
+     * left visible after the request it belongs to has already ended).
+     */
+    function setStreamingUiState(active) {
+        isStreaming = active;
+        sendBtn.disabled = active;
+        inputEl.disabled = active;
+        if (stopBtn) {
+            stopBtn.style.display = active ? '' : 'none';
+        }
+    }
+
+    if (stopBtn) {
+        stopBtn.addEventListener('click', function () {
+            if (activeStopHandler) activeStopHandler();
+        });
+    }
 
     // ── Markdown Rendering ────────────────────────────────────────────
 
@@ -1259,19 +1295,24 @@ function ppChatAppendValidationItems(container, items, className) {
 
         maybeShowPageSwitchSuggestion(detectedPageId, pages);
 
-        isStreaming = true;
-        sendBtn.disabled = true;
-        inputEl.disabled = true;
+        setStreamingUiState(true);
 
         conversation.push({ role: 'user', content: trimmed });
         addMessage('user', trimmed);
         inputEl.value = '';
         saveState();
 
-        streamChat(conversation);
+        var myRequestId = ++currentRequestId;
+        streamChat(conversation, myRequestId);
     }
 
-    function streamChat(messages) {
+    // First-token watchdog (issue 139): a proxy/CDN that buffers the whole
+    // response, or middleware stripping text/event-stream, returns HTTP 200
+    // with no usable stream — that does NOT reject the fetch, so this is the
+    // only way to detect it and fall back to the non-streaming endpoint.
+    var FIRST_TOKEN_WATCHDOG_MS = 15000;
+
+    function streamChat(messages, myRequestId) {
         // Captured once per request: renderProposal() (in this closure's
         // async callbacks) must label the page actually targeted by THIS
         // request, not whatever activePageId happens to be by the time the
@@ -1288,11 +1329,28 @@ function ppChatAppendValidationItems(container, items, className) {
         var fullText = '';
         var proposalReceived = false;
 
+        var controller = new AbortController();
+        var userStopped = false;
+        var firstTokenReceived = false;
+
+        activeStopHandler = function () {
+            userStopped = true;
+            controller.abort();
+        };
+
+        var watchdogTimer = setTimeout(function () {
+            if (firstTokenReceived || myRequestId !== currentRequestId) return;
+            activeStopHandler = null;
+            controller.abort();
+            ajaxFallback(messages, msgBody, requestPageId, myRequestId);
+        }, FIRST_TOKEN_WATCHDOG_MS);
+
         fetch(config.streamUrl, {
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
-            body: body
+            body: body,
+            signal: controller.signal
         })
         .then(function (response) {
             if (!response.ok) {
@@ -1305,7 +1363,11 @@ function ppChatAppendValidationItems(container, items, className) {
 
             function pump() {
                 return reader.read().then(function (result) {
+                    if (myRequestId !== currentRequestId) return; // abandoned (New Chat mid-stream)
+
                     if (result.done) {
+                        clearTimeout(watchdogTimer);
+                        activeStopHandler = null;
                         finishStream(msgBody, fullText, proposalReceived);
                         return;
                     }
@@ -1325,8 +1387,11 @@ function ppChatAppendValidationItems(container, items, className) {
                         var jsonStr = line.substring(6);
                         try {
                             var data = JSON.parse(jsonStr);
+                            firstTokenReceived = true;
+                            clearTimeout(watchdogTimer);
 
                             if (data.error) {
+                                activeStopHandler = null;
                                 handleStreamError(msgBody, data.error);
                                 return;
                             }
@@ -1360,8 +1425,28 @@ function ppChatAppendValidationItems(container, items, className) {
             return pump();
         })
         .catch(function (err) {
-            // SSE failed, try AJAX fallback
-            ajaxFallback(messages, msgBody, requestPageId);
+            clearTimeout(watchdogTimer);
+            activeStopHandler = null;
+
+            if (myRequestId !== currentRequestId) return; // abandoned (New Chat mid-stream)
+
+            if (userStopped) {
+                // issue 139: user clicked Stop — finalize the partial
+                // message in place; this was an intentional cancellation,
+                // not a failure, so never fall back to the AJAX endpoint.
+                finishStream(msgBody, fullText, proposalReceived);
+                return;
+            }
+
+            if (err.name === 'AbortError') {
+                // The watchdog already aborted and triggered ajaxFallback
+                // itself, synchronously, before this rejection could fire —
+                // nothing left to do here.
+                return;
+            }
+
+            // Genuine SSE failure — try AJAX fallback.
+            ajaxFallback(messages, msgBody, requestPageId, myRequestId);
         });
     }
 
@@ -1391,9 +1476,7 @@ function ppChatAppendValidationItems(container, items, className) {
             }
         }
         saveState();
-        isStreaming = false;
-        sendBtn.disabled = false;
-        inputEl.disabled = false;
+        setStreamingUiState(false);
         inputEl.focus();
     }
 
@@ -1453,14 +1536,17 @@ function ppChatAppendValidationItems(container, items, className) {
             msgBody.appendChild(link);
         }
 
-        isStreaming = false;
-        sendBtn.disabled = false;
-        inputEl.disabled = false;
+        setStreamingUiState(false);
     }
 
     // ── AJAX Fallback ──────────────────────────────────────────────────
 
-    function ajaxFallback(messages, msgBody, requestPageId) {
+    function ajaxFallback(messages, msgBody, requestPageId, myRequestId) {
+        // issue 139: a subtle note when the non-streaming fallback engages —
+        // for supportability, so a slow/no-typing-effect response doesn't
+        // look like a silent bug.
+        addStatusMessage('Streaming unavailable — using compatibility mode.', false);
+
         var data = new FormData();
         data.append('action', 'pp_ai_chat');
         data.append('nonce', config.streamNonce);
@@ -1477,6 +1563,8 @@ function ppChatAppendValidationItems(container, items, className) {
         })
         .then(function (r) { return r.json(); })
         .then(function (resp) {
+            if (myRequestId !== currentRequestId) return; // abandoned (New Chat mid-stream)
+
             if (resp.success) {
                 setMarkdownContent(msgBody, resp.data.content);
                 msgBody.classList.remove('pp-ai-msg-streaming');
@@ -1495,12 +1583,11 @@ function ppChatAppendValidationItems(container, items, className) {
             }
 
             saveState();
-            isStreaming = false;
-            sendBtn.disabled = false;
-            inputEl.disabled = false;
+            setStreamingUiState(false);
             inputEl.focus();
         })
         .catch(function () {
+            if (myRequestId !== currentRequestId) return; // abandoned (New Chat mid-stream)
             handleStreamError(msgBody, 'Connection failed. Please try again.');
         });
     }
@@ -1560,13 +1647,21 @@ function ppChatAppendValidationItems(container, items, className) {
     // ── New Chat ──────────────────────────────────────────────────────
 
     function resetChat() {
+        // Starting a new chat mid-stream must not leave an orphaned request
+        // running in the background, nor let its callbacks land in the
+        // fresh conversation once they eventually fire (issue 139) — bumping
+        // currentRequestId makes every one of that request's async callbacks
+        // (fetch .then/.catch, ajaxFallback's handlers) a no-op once they
+        // check their captured id against it.
+        currentRequestId++;
+        if (activeStopHandler) activeStopHandler();
+        activeStopHandler = null;
+
         conversation = [];
         activePageId = null;
-        isStreaming = false;
         clearState();
         messagesEl.innerHTML = '';
-        sendBtn.disabled = false;
-        inputEl.disabled = false;
+        setStreamingUiState(false);
         inputEl.value = '';
         inputEl.focus();
         syncPageSelectValue();

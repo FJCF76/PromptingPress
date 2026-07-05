@@ -560,7 +560,9 @@ The chat uses POST-based SSE streaming (nonce in request body, never in URL):
 4. Response chunks forwarded as SSE events: `data: {"content":"..."}\n\n`
 5. Final event includes parsed proposal if the response contains one: `data: {"done":true,"proposal":{...}}\n\n`
 
-**AJAX fallback:** If SSE fails, chat JS retries via `wp_ajax_pp_ai_chat` which returns the complete response as JSON.
+**AJAX fallback:** If SSE fails, chat JS retries via `wp_ajax_pp_ai_chat` which returns the complete response as JSON. Two distinct triggers (issue 139): a rejected `fetch` (network failure), or a **first-token watchdog** — if no `data:` line arrives within 15s of the request starting, the client aborts the SSE attempt and falls back automatically, since a proxy/CDN that buffers the whole response returns HTTP 200 with no usable stream, which does not reject the fetch on its own. A "Streaming unavailable — using compatibility mode." note marks the switch.
+
+**Stop button:** Sending creates an `AbortController` for the request; a Stop button (swapped in for Send while streaming) calls `abort()` and finalizes whatever partial text has arrived, leaving it in place with input re-enabled — an intentional stop is never treated as a failure and never triggers the AJAX fallback. A module-level `currentRequestId` counter guards every async callback (fetch `.then`/`.catch`, the fallback's response handlers) against firing into a conversation that's since been abandoned via "New Chat".
 
 ### Nonce separation
 
