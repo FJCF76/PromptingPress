@@ -1326,4 +1326,81 @@ class ComponentPropsTest extends TestCase
             $this->assertSame('color', $schema['styling']['style_slots'][$slot]['type']);
         }
     }
+
+    // ── Grid card checklist bullets (#103) ──────────────────────────────
+
+    public function testGridCardBulletsRenderAsList(): void
+    {
+        $html = $this->render('grid', $this->gridProps([
+            'items' => [[
+                'title' => 'Security',
+                'bullets' => ['HTTP security headers', 'SSL/TLS validity', 'Clickjacking protection'],
+            ]],
+        ]));
+        $this->assertStringContainsString('<ul class="grid__item-bullets">', $html);
+        $this->assertStringContainsString('<li class="grid__item-bullet">HTTP security headers</li>', $html);
+        $this->assertStringContainsString('<li class="grid__item-bullet">SSL/TLS validity</li>', $html);
+        $this->assertStringContainsString('<li class="grid__item-bullet">Clickjacking protection</li>', $html);
+    }
+
+    public function testGridCardBulletsOmittedWhenUnset(): void
+    {
+        $html = $this->render('grid', $this->gridProps([
+            'items' => [['title' => 'Security', 'text' => 'Plain description']],
+        ]));
+        $this->assertStringNotContainsString('grid__item-bullets', $html);
+    }
+
+    public function testGridCardBulletsCoexistWithText(): void
+    {
+        $html = $this->render('grid', $this->gridProps([
+            'items' => [[
+                'title' => 'Security',
+                'text' => 'Plain description',
+                'bullets' => ['One item'],
+            ]],
+        ]));
+        $this->assertStringContainsString('class="grid__item-text">Plain description<', $html);
+        $this->assertStringContainsString('<li class="grid__item-bullet">One item</li>', $html);
+    }
+
+    public function testGridCardBulletsSkipNonStringAndEmptyEntries(): void
+    {
+        $html = $this->render('grid', $this->gridProps([
+            'items' => [[
+                'title' => 'Security',
+                'bullets' => ['Valid line', '', 123, ['nested' => 'array'], null],
+            ]],
+        ]));
+        $this->assertStringContainsString('<li class="grid__item-bullet">Valid line</li>', $html);
+        $this->assertSame(1, substr_count($html, 'grid__item-bullet"'));
+    }
+
+    public function testGridCardBulletsIgnoredWhenNotAnArray(): void
+    {
+        $html = $this->render('grid', $this->gridProps([
+            'items' => [['title' => 'Security', 'bullets' => 'not an array']],
+        ]));
+        $this->assertStringNotContainsString('grid__item-bullets', $html);
+    }
+
+    public function testGridCardBulletsEscapeEachLine(): void
+    {
+        $html = $this->render('grid', $this->gridProps([
+            'items' => [[
+                'title' => 'Security',
+                'bullets' => ['<script>alert(1)</script>'],
+            ]],
+        ]));
+        $this->assertStringNotContainsString('<script>alert(1)</script>', $html);
+        $this->assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $html);
+    }
+
+    public function testGridSchemaDeclaresBulletColorSlot(): void
+    {
+        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/grid/schema.json'), true);
+        $slots = $schema['styling']['style_slots'];
+        $this->assertArrayHasKey('--grid-bullet-color', $slots);
+        $this->assertSame('color', $slots['--grid-bullet-color']['type']);
+    }
 }

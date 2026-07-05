@@ -1001,6 +1001,30 @@
   flex: 1;
 }
 
+.grid__item-bullets {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  color: var(--grid-item-text-color, var(--color-muted));
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  flex: 1;
+}
+
+.grid__item-bullet {
+  padding-left: 1.5rem;
+  position: relative;
+}
+
+.grid__item-bullet::before {
+  content: "\2713";
+  position: absolute;
+  left: 0;
+  color: var(--grid-bullet-color, var(--color-accent));
+  font-weight: 700;
+}
+
 .grid__item-link {
   font-weight: 600;
   font-size: 0.9rem;
