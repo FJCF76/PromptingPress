@@ -1578,4 +1578,114 @@ class ComponentPropsTest extends TestCase
         $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/testimonials/schema.json'), true);
         $this->assertTrue($schema['props']['items']['items']['quote']['required']);
     }
+
+    // ── pp_render_responsive_image() + responsive image output (#107) ────────
+
+    public function testRenderResponsiveImageFallsBackToPlainImgWithoutAttachmentId(): void
+    {
+        $html = pp_render_responsive_image('https://example.com/photo.jpg', 'A photo', 'hero__image', 'eager');
+        $this->assertStringContainsString('<img src="https://example.com/photo.jpg"', $html);
+        $this->assertStringContainsString('alt="A photo"', $html);
+        $this->assertStringContainsString('class="hero__image"', $html);
+        $this->assertStringContainsString('loading="eager"', $html);
+        $this->assertStringNotContainsString('srcset', $html);
+    }
+
+    public function testRenderResponsiveImageUsesAttachmentWhenIdResolves(): void
+    {
+        $GLOBALS['_pp_test_store']['attachment_urls'][42] = 'https://example.com/wp-content/uploads/photo.jpg';
+        $html = pp_render_responsive_image('https://example.com/fallback.jpg', 'A photo', 'hero__image', 'eager', 42);
+        $this->assertStringContainsString('srcset=', $html);
+        $this->assertStringContainsString('https://example.com/wp-content/uploads/photo.jpg', $html);
+        $this->assertStringNotContainsString('fallback.jpg', $html);
+    }
+
+    public function testRenderResponsiveImageFallsBackWhenAttachmentIdUnresolvable(): void
+    {
+        // id 999 was never sideloaded into the test store's attachment map --
+        // matches a deleted attachment or a stale/wrong id in real usage.
+        $html = pp_render_responsive_image('https://example.com/fallback.jpg', 'A photo', 'hero__image', 'eager', 999);
+        $this->assertStringContainsString('<img src="https://example.com/fallback.jpg"', $html);
+        $this->assertStringNotContainsString('srcset', $html);
+    }
+
+    public function testRenderResponsiveImageEmptyUrlAndNoIdRendersNothing(): void
+    {
+        $this->assertSame('', pp_render_responsive_image('', 'alt', 'class', 'lazy'));
+    }
+
+    public function testHeroSplitImageRendersPlainImgWithoutImageId(): void
+    {
+        $html = $this->render('hero', $this->heroProps([
+            'variant' => 'split', 'image_url' => 'https://example.com/photo.jpg', 'image_alt' => 'Photo',
+        ]));
+        $this->assertStringContainsString('<img src="https://example.com/photo.jpg"', $html);
+        $this->assertStringNotContainsString('srcset', $html);
+    }
+
+    public function testHeroSplitImageRendersResponsivelyWithImageId(): void
+    {
+        $GLOBALS['_pp_test_store']['attachment_urls'][7] = 'https://example.com/wp-content/uploads/hero.jpg';
+        $html = $this->render('hero', $this->heroProps([
+            'variant' => 'split', 'image_url' => 'https://example.com/fallback.jpg', 'image_id' => 7,
+        ]));
+        $this->assertStringContainsString('srcset=', $html);
+        $this->assertStringContainsString('hero.jpg', $html);
+    }
+
+    public function testSectionImageLeftRendersResponsivelyWithImageId(): void
+    {
+        $GLOBALS['_pp_test_store']['attachment_urls'][8] = 'https://example.com/wp-content/uploads/section.jpg';
+        $html = $this->render('section', $this->sectionProps([
+            'layout' => 'image-left', 'image_url' => 'https://example.com/fallback.jpg', 'image_id' => 8,
+        ]));
+        $this->assertStringContainsString('srcset=', $html);
+        $this->assertStringContainsString('section.jpg', $html);
+    }
+
+    public function testSectionImageRightWithoutImageIdRendersPlainImg(): void
+    {
+        $html = $this->render('section', $this->sectionProps([
+            'layout' => 'image-right', 'image_url' => 'https://example.com/photo.jpg',
+        ]));
+        $this->assertStringContainsString('<img src="https://example.com/photo.jpg"', $html);
+        $this->assertStringNotContainsString('srcset', $html);
+    }
+
+    public function testLogosItemRendersResponsivelyWithImageId(): void
+    {
+        $GLOBALS['_pp_test_store']['attachment_urls'][9] = 'https://example.com/wp-content/uploads/logo.png';
+        $html = $this->render('logos', [
+            'items' => [['image_url' => 'https://example.com/fallback.png', 'image_alt' => 'Logo', 'image_id' => 9]],
+        ]);
+        $this->assertStringContainsString('srcset=', $html);
+        $this->assertStringContainsString('logo.png', $html);
+    }
+
+    public function testLogosItemWithoutImageIdRendersPlainImg(): void
+    {
+        $html = $this->render('logos', [
+            'items' => [['image_url' => 'https://example.com/logo.png', 'image_alt' => 'Logo']],
+        ]);
+        $this->assertStringContainsString('<img src="https://example.com/logo.png"', $html);
+        $this->assertStringNotContainsString('srcset', $html);
+    }
+
+    public function testHeroSchemaDeclaresImageId(): void
+    {
+        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/hero/schema.json'), true);
+        $this->assertArrayHasKey('image_id', $schema['props']);
+    }
+
+    public function testSectionSchemaDeclaresImageId(): void
+    {
+        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/section/schema.json'), true);
+        $this->assertArrayHasKey('image_id', $schema['props']);
+    }
+
+    public function testLogosSchemaDeclaresItemImageId(): void
+    {
+        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/logos/schema.json'), true);
+        $this->assertArrayHasKey('image_id', $schema['props']['items']['items']);
+    }
 }

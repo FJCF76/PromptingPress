@@ -34,16 +34,12 @@ $variant_class = $variant !== 'default' ? ' logos--' . $variant : '';
                 <?php foreach ($items as $item) :
                     $image_url = $item['image_url'] ?? '';
                     $image_alt = $item['image_alt'] ?? '';
+                    $image_id  = (int) ($item['image_id'] ?? 0);
                     $label     = $item['label']     ?? '';
                 ?>
                     <?php if ($image_url) : ?>
                         <li class="logos__item<?php echo $label ? ' logos__item--labeled' : ''; ?>">
-                            <img
-                                src="<?php echo pp_esc_image_src($image_url); ?>"
-                                alt="<?php echo esc_attr($image_alt); ?>"
-                                class="logos__image"
-                                loading="lazy"
-                            >
+                            <?php echo pp_render_responsive_image($image_url, $image_alt, 'logos__image', 'lazy', $image_id); ?>
                             <?php if ($label) : ?>
                                 <span class="logos__label"><?php echo esc_html($label); ?></span>
                             <?php endif; ?>

@@ -635,6 +635,49 @@ function pp_esc_image_src(string $url, int $depth = 0): string {
 }
 
 /**
+ * Renders a component's <img> tag, responsively when possible.
+ *
+ * When $attachment_id resolves to a real, existing attachment,
+ * renders via wp_get_attachment_image() so WordPress emits srcset/sizes
+ * from its registered image sizes (#107). Falls back to a plain
+ * <img src> using $url when no attachment id is set, or it doesn't
+ * resolve to anything (deleted attachment, wrong id) — every composition
+ * that only ever set a raw image_url (hotlinked or otherwise) keeps
+ * rendering exactly as before this function existed.
+ *
+ * @param string $url            Fallback image URL.
+ * @param string $alt            Alt text.
+ * @param string $class          CSS class for the <img> tag.
+ * @param string $loading        'lazy' or 'eager'.
+ * @param int    $attachment_id  Optional Media Library attachment ID.
+ * @return string  Full <img> HTML, already escaped.
+ */
+function pp_render_responsive_image(string $url, string $alt, string $class, string $loading, int $attachment_id = 0): string {
+    if ($attachment_id > 0) {
+        $html = wp_get_attachment_image($attachment_id, 'large', false, [
+            'class'   => $class,
+            'alt'     => $alt,
+            'loading' => $loading,
+        ]);
+        if ($html !== '') {
+            return $html;
+        }
+    }
+
+    if ($url === '') {
+        return '';
+    }
+
+    return sprintf(
+        '<img src="%s" alt="%s" class="%s" loading="%s">',
+        pp_esc_image_src($url),
+        esc_attr($alt),
+        esc_attr($class),
+        esc_attr($loading)
+    );
+}
+
+/**
  * True if decoded SVG markup contains no script-executing constructs.
  * See the security note on pp_esc_image_src() — this is the primary
  * defense, not defense in depth, because a data: URI is reachable as a

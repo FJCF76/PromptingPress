@@ -14,6 +14,7 @@ Generic text + optional image section. Use this for "what is this", "how it work
 | `heading_align`    | enum   | No       | `'start'`     | Header block alignment: `start` / `center` |
 | `body`             | string | Yes      | —             | HTML body content (wp_kses_post filtered) |
 | `image_url`        | string | No       | `''`          | Image URL (required for image-left / image-right) |
+| `image_id`         | int    | No       | `0`           | Media Library attachment ID for the image. When set and it resolves, renders responsively (`srcset`/`sizes`) via `wp_get_attachment_image()`; falls back to `image_url` otherwise |
 | `image_alt`        | string | No       | `''`          | Image alt text |
 | `layout`           | enum   | No       | `'text-only'` | Layout variant |
 | `variant`          | enum   | No       | `'default'`   | Background color: `default` / `dark` / `inverted` |

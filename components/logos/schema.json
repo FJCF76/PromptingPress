@@ -24,10 +24,11 @@
     "items": {
       "type": "array",
       "required": true,
-      "description": "Array of image items. Each: { image_url: string, image_alt: string, label?: string }. Omit label for pure logo display; include label for icon+category tiles.",
+      "description": "Array of image items. Each: { image_url: string, image_alt: string, image_id?: number, label?: string }. Omit label for pure logo display; include label for icon+category tiles.",
       "items": {
         "image_url": { "type": "string", "required": true,  "description": "Image or icon URL." },
         "image_alt": { "type": "string", "required": true,  "description": "Alt text. Use the logo or category name; empty string only for decorative images." },
+        "image_id":  { "type": "number", "required": false, "default": 0, "description": "Media Library attachment ID (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply." },
         "label":     { "type": "string", "required": false, "description": "Text label below the image. Omit for logo-only rows." }
       }
     }

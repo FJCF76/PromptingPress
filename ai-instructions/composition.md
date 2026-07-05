@@ -38,8 +38,8 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 
 | Name    | Required props                          | Optional props (selection)                              |
 |---------|-----------------------------------------|---------------------------------------------------------|
-| hero    | title                                   | title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, variant, spacing, width, split_ratio, vertical_align, proof |
-| section | body                                    | title, title_accent, eyebrow, subheading, heading_align, layout, variant, background_image |
+| hero    | title                                   | title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, variant, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof |
+| section | body                                    | title, title_accent, eyebrow, subheading, heading_align, layout, variant, image_url, image_id, image_alt, background_image |
 | faq     | items[] {question, answer}              | title, title_accent                                     |
 | grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, heading_align, variant, theme |
 | table   | headers[], rows[][]                     | title, caption                                          |
@@ -47,7 +47,7 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 | nav     | (no required props)                     | logo_text, logo_id, logo_alt                            |
 | footer  | (no required props)                     | location, show_logo, logo_text, logo_id, logo_alt       |
 | stats   | items[] {number, label}                 | title, title_accent, variant, background_image          |
-| logos   | items[] {image_url, image_alt}          | title, variant                                          |
+| logos   | items[] {image_url, image_alt, image_id?} | title, variant                                        |
 | embed   | content                                 | title, variant                                          |
 | testimonials | items[] {quote}                    | title, title_accent, eyebrow, subheading, heading_align, variant, theme |
 
@@ -122,6 +122,23 @@ All seven heading-bearing components accept `title_accent`: an exact, case-sensi
 ### eyebrow / subheading / heading_align (hero, section, grid, cta, testimonials)
 
 `eyebrow` renders a short kicker label as a pill above the title (e.g. `"NEW"`). `subheading` renders a supporting line below the title (section, grid, cta, testimonials only — hero uses `subtitle` instead). `heading_align` (`start` default, or `center`) centers the eyebrow/title/subheading header block — independent of the component's overall layout.
+
+### image_id (hero, section, logos items) — responsive images (#107)
+
+Every `image_url` field on hero, section, and logos items has a companion `image_id` — a Media Library attachment ID, not a URL. When `image_id` resolves to a real attachment, the image renders responsively via `wp_get_attachment_image()` (real `srcset`/`sizes`, WordPress-generated). When `image_id` is unset or doesn't resolve, the plain `image_url` renders exactly as before — always set `image_url` too, even when you have an `image_id`, as the fallback.
+
+Get an attachment id (and its canonical local URL) via the `import_media` apply — sideloads an external image URL into the media library:
+
+```bash
+wp pp apply execute import_media --params='{"url":"https://example.com/logo.png","alt":"Client logo"}'
+# => {"attachment_id": 123, "url": "https://yoursite.com/wp-content/uploads/2026/07/logo.png"}
+```
+
+Then set both fields on the component:
+
+```json
+{ "component": "hero", "props": { "variant": "split", "image_url": "https://yoursite.com/wp-content/uploads/2026/07/logo.png", "image_id": 123, "image_alt": "Client logo" } }
+```
 
 Always verify against `components/{name}/schema.json` before writing — the source of truth.
 

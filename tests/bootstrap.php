@@ -536,6 +536,26 @@ if (!function_exists('wp_get_attachment_image_url')) {
     }
 }
 
+// pp_render_responsive_image() (#107): resolves via the same attachment_urls
+// map. An id with no entry returns '' -- matching real WP's behavior when an
+// attachment doesn't exist -- so the caller's plain-<img> fallback kicks in.
+if (!function_exists('wp_get_attachment_image')) {
+    function wp_get_attachment_image($attachment_id, $size = 'thumbnail', $icon = false, $attr = ''): string {
+        $url = $GLOBALS['_pp_test_store']['attachment_urls'][(int) $attachment_id] ?? false;
+        if (!$url) {
+            return '';
+        }
+        $attrs   = is_array($attr) ? $attr : [];
+        $class   = $attrs['class'] ?? '';
+        $alt     = $attrs['alt'] ?? '';
+        $loading = $attrs['loading'] ?? '';
+        return sprintf(
+            '<img src="%s" srcset="%s 1x, %s 2x" sizes="(max-width: 600px) 100vw, 50vw" class="%s" alt="%s" loading="%s">',
+            $url, $url, $url, $class, $alt, $loading
+        );
+    }
+}
+
 if (!function_exists('wp_attachment_is_image')) {
     function wp_attachment_is_image($attachment_id = null): bool {
         return !empty($GLOBALS['_pp_test_store']['attachment_is_image'][(int) $attachment_id]);

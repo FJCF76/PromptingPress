@@ -17,6 +17,7 @@ $heading_align    = $props['heading_align']    ?? 'start';
 $body             = $props['body']             ?? '';
 $image_url        = $props['image_url']        ?? '';
 $image_alt        = $props['image_alt']        ?? '';
+$image_id         = (int) ($props['image_id']  ?? 0);
 $layout           = $props['layout']           ?? 'text-only';
 $variant          = $props['variant']          ?? 'default';
 $background_image = $props['background_image'] ?? '';
@@ -91,12 +92,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
             <div class="section__grid">
                 <?php if ($layout === 'image-left') : ?>
                     <div class="section__image-wrap">
-                        <img
-                            src="<?php echo pp_esc_image_src($image_url); ?>"
-                            alt="<?php echo esc_attr($image_alt); ?>"
-                            class="section__image"
-                            loading="lazy"
-                        >
+                        <?php echo pp_render_responsive_image($image_url, $image_alt, 'section__image', 'lazy', $image_id); ?>
                     </div>
                 <?php endif; ?>
 
@@ -121,12 +117,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
 
                 <?php if ($layout === 'image-right') : ?>
                     <div class="section__image-wrap">
-                        <img
-                            src="<?php echo pp_esc_image_src($image_url); ?>"
-                            alt="<?php echo esc_attr($image_alt); ?>"
-                            class="section__image"
-                            loading="lazy"
-                        >
+                        <?php echo pp_render_responsive_image($image_url, $image_alt, 'section__image', 'lazy', $image_id); ?>
                     </div>
                 <?php endif; ?>
             </div>
