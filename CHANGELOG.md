@@ -4,6 +4,17 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.43] — 2026-07-05 — New: `wp pp validate page` — Rendered-HTML Validation From the CLI
+
+**The rendered-HTML validator that gates the AI chat's success message (render failures, broken images, missing local media, empty links) was wired into the chat's apply flow only. An operator or deployment workflow needed the same check outside the chat — for manual debugging, or a reusable validation hook in Claude Code / CI — but the only CLI validator (`wp pp check page`) checks raw composition data (styling/smells), not the actual rendered output.**
+
+### Added
+- `wp pp validate page --post_id=N` (optionally `--component-index=N` to validate a single component) runs the exact same `pp_post_apply_validate()` service the AI chat uses. Human-readable output, exits non-zero on any validation error.
+
+### For contributors
+- Thin CLI wrapper — no new validation logic, just a second entry point onto the existing #75 service. Distinct name from `wp pp check page` (raw composition data) since the two check genuinely different things.
+- Verified live against a real page on the dev site: passing page reports success; a hero component with a nonexistent local image reports `missing_local_media` with the exact filename and exits 1.
+
 ## [v0.16.42] — 2026-07-05 — Fix: Theme Integrity Permanently "Unsafe" on Windows Hosting
 
 **On Windows hosting (IIS/XAMPP — fully supported by WordPress), theme file hashing kept backslash path separators instead of stripping them to forward slashes. Since `integrity-manifest.json` is built on Linux CI with forward-slash paths, every nested file mismatched on Windows — reported as both "missing" and "extra" — which permanently flipped theme integrity to "unsafe" and blocked every theme update, with a persistent "files modified locally" admin notice that could never clear.**
