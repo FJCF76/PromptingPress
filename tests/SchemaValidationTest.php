@@ -188,10 +188,10 @@ class SchemaValidationTest extends TestCase
     public function testStyleSlotsExistForV1Components(): void
     {
         $expected = [
-            'hero'    => 32,
-            'section' => 17,
-            'grid'    => 22,
-            'cta'     => 24,
+            'hero'    => 33,
+            'section' => 18,
+            'grid'    => 23,
+            'cta'     => 25,
         ];
 
         foreach ($expected as $component => $count) {

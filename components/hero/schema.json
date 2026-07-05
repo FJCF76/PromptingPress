@@ -13,6 +13,12 @@
       "required": true,
       "description": "Primary headline text."
     },
+    "title_accent": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional exact substring of title to render in an accent color (e.g. one word or phrase). Must match title exactly (case-sensitive) or it is ignored and title renders normally."
+    },
     "eyebrow": {
       "type": "string",
       "required": false,
@@ -126,6 +132,7 @@
       "--hero-padding-bottom": { "type": "length", "default": "var(--space-xl)", "description": "Bottom padding of the hero section" },
       "--hero-bg": { "type": "gradient", "default": "var(--color-bg)", "description": "Background color or gradient. Note: also used as the outline button's hover text color, which is invalid CSS if set to a gradient — that hover color falls back to inherited text color when this is a gradient (a narrow, isolated cosmetic limitation, not a broken page)." },
       "--hero-text": { "type": "color", "default": "var(--color-text)", "description": "Title and subtitle text color" },
+      "--hero-title-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the title, if set" },
       "--hero-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color" },
       "--hero-eyebrow-bg": { "type": "color", "default": "var(--color-surface-accent)", "description": "Eyebrow pill background color" },
       "--hero-accent": { "type": "color", "default": "var(--color-accent)", "description": "Button background and border color" },

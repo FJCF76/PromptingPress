@@ -4,7 +4,17 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [v0.16.21] — 2026-07-05 — New: Eyebrow Pills and Subheadings for Every Section
+## [v0.16.22] — 2026-07-05 — New: Highlight One Word in Any Heading
+
+**Professional headlines rarely stay one color end to end — think "Security" in orange, "for your WordPress" in white. Every PromptingPress heading was locked to a single flat color, so that entire style of headline was out of reach.** Now every heading can name one word or phrase to highlight in an accent color.
+
+### Added
+- Hero, grid, section, CTA, FAQ, and stats headings all accept a `title_accent` value — the exact word or phrase (from the title) to render in a distinct accent color, with its own color slot per component.
+
+### For contributors
+- Deliberately a structured, plain-text mechanism, not an HTML/markup allowlist: `title_accent` must be a literal substring of `title`; the renderer just decides where to split the string and wraps that segment in a `<span>`. Both fragments still go through `esc_html()` exactly as a plain title always did — no new parsing or sanitizer surface, verified directly against injection attempts in both the title and the accent value. Shared `pp_render_heading_with_accent()` helper in `lib/wp.php` avoids duplicating the split-and-escape logic six times.
+- Fixed a latent false-positive in `tests/StyleSlotContractTest.php`'s cross-block clobber guard: a plain substring match treated the new `.grid__heading-accent` class as a "clobber" of the unrelated `--grid-heading-color` slot (BEM's hyphenated modifier suffix doesn't create a regex word-boundary). Now boundary-aware; verified it still catches real clobbers by deliberately breaking one.
+- 19 new PHPUnit tests; fixed 3 existing tests carrying hardcoded slot counts (99 total, up from 95).
 
 **Professional landing pages almost always lead a section with three things: a small kicker label, a centered heading, and a supporting line underneath. PromptingPress could render none of that — every section, grid, and CTA heading was a lone left-aligned line.** That gap was one of the biggest reasons AI-built pages looked template-y instead of designed. Hero already stored an eyebrow value in some pages, but it never actually showed up.
 

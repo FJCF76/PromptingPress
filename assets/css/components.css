@@ -273,6 +273,10 @@
   line-height: 1.03;
 }
 
+.hero__title-accent {
+  color: var(--hero-title-accent-color, var(--color-accent));
+}
+
 /* Constrain heading width for left/split variants; centered uses text-align centering */
 .hero--left .hero__title,
 .hero--split .hero__title {
@@ -662,6 +666,10 @@
   margin-bottom: var(--space-md);
 }
 
+.section__title-accent {
+  color: var(--section-title-accent-color, var(--color-accent));
+}
+
 .section__subheading {
   color: var(--section-subheading-color, var(--color-muted));
   margin-top: 0;
@@ -771,6 +779,10 @@
 .faq__heading {
   margin-bottom: var(--space-lg);
   color: var(--faq-heading-color, var(--color-text));
+}
+
+.faq__heading-accent {
+  color: var(--faq-heading-accent-color, var(--color-accent));
 }
 
 .faq__list {
@@ -887,6 +899,10 @@
   font-size: var(--grid-heading-size, inherit);
   max-width: var(--grid-heading-max-width, 40rem);
   margin-bottom: var(--space-lg);
+}
+
+.grid__heading-accent {
+  color: var(--grid-heading-accent-color, var(--color-accent));
 }
 
 .grid__header--center .grid__heading {
@@ -1195,6 +1211,10 @@
   color: var(--cta-text, inherit);
   max-width: var(--cta-content-width, 40rem);
   margin-bottom: var(--space-xs);
+}
+
+.cta__title-accent {
+  color: var(--cta-title-accent-color, var(--color-accent));
 }
 
 .cta__body {
@@ -1529,6 +1549,10 @@
   margin-bottom: var(--space-lg);
   text-align: center;
   color: var(--stats-title-color, var(--color-text));
+}
+
+.stats__heading-accent {
+  color: var(--stats-title-accent-color, var(--color-accent));
 }
 
 .stats__list {

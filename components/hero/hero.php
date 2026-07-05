@@ -7,8 +7,9 @@
  * @var array $props
  */
 
-$id        = $props['id']        ?? '';
-$title     = $props['title']    ?? 'Default Title';
+$id           = $props['id']           ?? '';
+$title        = $props['title']       ?? 'Default Title';
+$title_accent = $props['title_accent'] ?? '';
 $eyebrow   = $props['eyebrow']  ?? '';
 $subtitle  = $props['subtitle'] ?? '';
 $cta_text  = $props['cta_text'] ?? '';
@@ -93,7 +94,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                 <?php if ($eyebrow) : ?>
                     <span class="hero__eyebrow"><?php echo esc_html($eyebrow); ?></span>
                 <?php endif; ?>
-                <h1 class="hero__title"><?php echo esc_html($title); ?></h1>
+                <h1 class="hero__title"><?php echo pp_render_heading_with_accent($title, $title_accent, 'hero__title-accent'); ?></h1>
 
                 <?php if ($subtitle) : ?>
                     <p class="hero__subtitle"><?php echo esc_html($subtitle); ?></p>

@@ -11,6 +11,7 @@
 
 $id            = $props['id']            ?? '';
 $title         = $props['title']         ?? '';
+$title_accent  = $props['title_accent']  ?? '';
 $eyebrow       = $props['eyebrow']       ?? '';
 $subheading    = $props['subheading']    ?? '';
 $heading_align = $props['heading_align'] ?? 'start';
@@ -52,7 +53,7 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                     <span class="grid__eyebrow"><?php echo esc_html($eyebrow); ?></span>
                 <?php endif; ?>
                 <?php if ($title) : ?>
-                    <h2 class="grid__heading"><?php echo esc_html($title); ?></h2>
+                    <h2 class="grid__heading"><?php echo pp_render_heading_with_accent($title, $title_accent, 'grid__heading-accent'); ?></h2>
                 <?php endif; ?>
                 <?php if ($subheading) : ?>
                     <p class="grid__subheading"><?php echo esc_html($subheading); ?></p>

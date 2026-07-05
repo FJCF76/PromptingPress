@@ -13,6 +13,12 @@
       "required": true,
       "description": "CTA headline."
     },
+    "title_accent": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional exact substring of title to render in an accent color. Must match title exactly (case-sensitive) or it is ignored."
+    },
     "eyebrow": {
       "type": "string",
       "required": false,
@@ -72,6 +78,7 @@
       "--cta-padding-bottom": { "type": "length", "default": "var(--space-xl)", "description": "Bottom padding of the CTA section" },
       "--cta-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
       "--cta-text": { "type": "color", "default": "var(--color-text)", "description": "Title text color" },
+      "--cta-title-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the title, if set" },
       "--cta-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color" },
       "--cta-eyebrow-bg": { "type": "color", "default": "var(--color-surface-accent)", "description": "Eyebrow pill background color" },
       "--cta-title-size": { "type": "length", "default": "inherit", "description": "Title font size" },

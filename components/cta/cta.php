@@ -10,6 +10,7 @@
 
 $id               = $props['id']               ?? '';
 $title            = $props['title']            ?? '';
+$title_accent     = $props['title_accent']     ?? '';
 $eyebrow          = $props['eyebrow']          ?? '';
 $text             = $props['text']             ?? '';
 $button_text      = $props['button_text']      ?? 'Get Started';
@@ -63,7 +64,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                     <span class="cta__eyebrow"><?php echo esc_html($eyebrow); ?></span>
                 <?php endif; ?>
                 <?php if ($title) : ?>
-                    <h2 class="cta__title"><?php echo esc_html($title); ?></h2>
+                    <h2 class="cta__title"><?php echo pp_render_heading_with_accent($title, $title_accent, 'cta__title-accent'); ?></h2>
                 <?php endif; ?>
 
                 <?php if ($text) : ?>
