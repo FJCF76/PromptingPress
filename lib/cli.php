@@ -839,6 +839,64 @@ class PP_Validate_Command extends WP_CLI_Command {
             WP_CLI::halt(1);
         }
     }
+
+    /**
+     * Runs the rendered-HTML post-apply validation used to gate the AI
+     * chat's success message, outside the chat flow (issue 77).
+     *
+     * Re-renders the page's composition and inspects the HTML: render
+     * failures, empty rendered output, broken/empty image sources, missing
+     * local media references, invalid inline background-image URLs, empty
+     * links, and component-count mismatches. Distinct from `wp pp check
+     * page`, which validates composition styling/smells against the raw
+     * composition data, not the rendered HTML.
+     *
+     * ## OPTIONS
+     *
+     * --post_id=<id>
+     * : WordPress page post ID.
+     *
+     * [--component-index=<index>]
+     * : Validate only this component (0-based index) instead of the whole page.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp validate page --post_id=42
+     *     wp pp validate page --post_id=42 --component-index=2
+     *
+     */
+    public function page($args, $assoc_args) {
+        $post_id = (int) ($assoc_args['post_id'] ?? 0);
+        if (!$post_id) {
+            WP_CLI::error('--post_id is required.');
+        }
+
+        $target = null;
+        if (isset($assoc_args['component-index'])) {
+            $target = ['component_index' => (int) $assoc_args['component-index']];
+        }
+
+        $result = pp_post_apply_validate($post_id, $target);
+
+        if (!empty($result['warnings'])) {
+            WP_CLI::line(count($result['warnings']) . ' warning(s):');
+            foreach ($result['warnings'] as $w) {
+                WP_CLI::line('  - [' . $w['check'] . '] ' . $w['message']);
+            }
+        }
+
+        if ($result['ok']) {
+            WP_CLI::success("Page {$post_id}: rendered validation passed.");
+            return;
+        }
+
+        WP_CLI::line(count($result['errors']) . ' error(s):');
+        foreach ($result['errors'] as $e) {
+            WP_CLI::line('  - [' . $e['check'] . '] ' . $e['message']);
+        }
+        WP_CLI::warning("Page {$post_id}: rendered validation failed.");
+        WP_CLI::halt(1);
+    }
 }
 
 WP_CLI::add_command('pp validate', 'PP_Validate_Command');

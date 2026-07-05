@@ -249,7 +249,7 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_token_families()` | Returns token family definitions: base token to derived tokens with mix ratios |
 | `pp_derive_family_tokens($base_token, $value)` | Derives related tokens from a base token value (e.g., accent to hover/strong/border/surface) |
 | `pp_check_token_coherence($base_token, $value)` | Returns stale warnings for existing derived overrides whose hue drifts >30 degrees from the new base |
-| `pp_post_apply_validate($post_id, $target)` | Validates rendered page after apply: DOM inspection for broken images, empty content, missing components |
+| `pp_post_apply_validate($post_id, $target)` | Validates rendered page after apply: DOM inspection for broken images, empty content, missing components. Also reachable outside the chat via `wp pp validate page --post_id=N` (issue 77) |
 | `pp_get_font_urls()` | Returns array of custom font URLs from `pp_font_urls` option |
 | `pp_set_font_urls($urls)` | Writes font URL array to `pp_font_urls` option |
 
@@ -494,9 +494,10 @@ wp pp action list                                    # all actions with scope an
 wp pp action preview <name> --params='{"key":"val"}'  # validate + diff, never writes (no run-id)
 wp pp action execute <name> --run-id=<uuid> --params='{"key":"val"}'  # mutates: needs INSPECT + a covering PREFLIGHT
 wp pp check conflicts                                 # Custom CSS conflict detection
-wp pp check page --post_id=42                         # composition styling validation
+wp pp check page --post_id=42                         # composition styling validation (raw composition data, not rendered HTML)
 wp pp check surface lib/wp.php                        # surface classification (safe/extension/core)
 wp pp validate site                                   # full site validation battery
+wp pp validate page --post_id=42                      # rendered-HTML validation (issue 77) — same service that gates the AI chat's success message; optional --component-index=N; exits non-zero on failure
 
 # Semantic composition operator
 wp pp operate inspect-composition <page>              # editable targets with selectors and current values
