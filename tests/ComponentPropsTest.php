@@ -1763,4 +1763,106 @@ class ComponentPropsTest extends TestCase
             $this->assertSame('position', $schema['styling']['style_slots'][$slot]['type'], "{$component} must declare {$slot} as type position.");
         }
     }
+
+    // ── pp_render_faq_schema() + FAQ JSON-LD (#3) ─────────────────────────────
+
+    public function testRenderFaqSchemaProducesValidFaqPageJson(): void
+    {
+        $html = pp_render_faq_schema([
+            ['question' => 'Does this require ACF?', 'answer' => 'No. pp_field() returns null when ACF is not installed.'],
+        ]);
+        $this->assertStringStartsWith('<script type="application/ld+json">', $html);
+        $this->assertStringEndsWith("</script>\n", $html);
+
+        preg_match('#<script type="application/ld\+json">(.*)</script>#s', $html, $m);
+        $schema = json_decode($m[1], true);
+        $this->assertSame('https://schema.org', $schema['@context']);
+        $this->assertSame('FAQPage', $schema['@type']);
+        $this->assertCount(1, $schema['mainEntity']);
+        $this->assertSame('Question', $schema['mainEntity'][0]['@type']);
+        $this->assertSame('Does this require ACF?', $schema['mainEntity'][0]['name']);
+        $this->assertSame('Answer', $schema['mainEntity'][0]['acceptedAnswer']['@type']);
+        $this->assertSame('No. pp_field() returns null when ACF is not installed.', $schema['mainEntity'][0]['acceptedAnswer']['text']);
+    }
+
+    public function testRenderFaqSchemaHandlesMultipleItems(): void
+    {
+        $html = pp_render_faq_schema([
+            ['question' => 'Q1?', 'answer' => 'A1.'],
+            ['question' => 'Q2?', 'answer' => 'A2.'],
+        ]);
+        preg_match('#<script type="application/ld\+json">(.*)</script>#s', $html, $m);
+        $schema = json_decode($m[1], true);
+        $this->assertCount(2, $schema['mainEntity']);
+    }
+
+    public function testRenderFaqSchemaStripsHtmlFromAnswer(): void
+    {
+        $html = pp_render_faq_schema([
+            ['question' => 'Q?', 'answer' => '<p>Rich <strong>HTML</strong> answer.</p>'],
+        ]);
+        preg_match('#<script type="application/ld\+json">(.*)</script>#s', $html, $m);
+        $schema = json_decode($m[1], true);
+        $this->assertSame('Rich HTML answer.', $schema['mainEntity'][0]['acceptedAnswer']['text']);
+    }
+
+    public function testRenderFaqSchemaStripsScriptBreakoutAttemptFromAnswer(): void
+    {
+        // No well-formed tag markup -- including a </script> breakout
+        // attempt -- can survive wp_strip_all_tags() into the JSON payload.
+        // (The inert text between the tags, e.g. "alert(1)", is not a
+        // security concern here: it's never interpreted as script, only
+        // ever rendered as a plain JSON string value.)
+        $html = pp_render_faq_schema([
+            ['question' => 'Q?', 'answer' => 'Type </script><script>alert(1)</script> to escape.'],
+        ]);
+        $payload = substr($html, strlen('<script type="application/ld+json">'), -strlen("</script>\n"));
+        $this->assertStringNotContainsString('</script>', $payload);
+        $this->assertStringNotContainsString('<script>', $payload);
+    }
+
+    public function testJsonEncodeEscapesForwardSlashesAsSecondaryDefense(): void
+    {
+        // Documents the second, redundant layer pp_render_faq_schema() relies
+        // on: wp_json_encode()'s default forward-slash escaping (this codebase
+        // never passes JSON_UNESCAPED_SLASHES for JSON-LD). Verified directly
+        // against wp_json_encode(), independent of wp_strip_all_tags() --
+        // if a "</script>"-shaped substring ever reached json encoding some
+        // other way, it still couldn't close the surrounding <script> tag.
+        $encoded = wp_json_encode(['text' => 'a</script>b']);
+        $this->assertStringNotContainsString('</script>', $encoded);
+        $this->assertStringContainsString('<\/script>', $encoded);
+    }
+
+    public function testRenderFaqSchemaSkipsIncompleteItems(): void
+    {
+        $html = pp_render_faq_schema([
+            ['question' => 'No answer'],
+            ['answer' => 'No question'],
+            ['question' => 'Complete?', 'answer' => 'Yes.'],
+        ]);
+        preg_match('#<script type="application/ld\+json">(.*)</script>#s', $html, $m);
+        $schema = json_decode($m[1], true);
+        $this->assertCount(1, $schema['mainEntity']);
+        $this->assertSame('Complete?', $schema['mainEntity'][0]['name']);
+    }
+
+    public function testRenderFaqSchemaReturnsEmptyStringForNoCompleteItems(): void
+    {
+        $this->assertSame('', pp_render_faq_schema([]));
+        $this->assertSame('', pp_render_faq_schema([['question' => 'Only a question']]));
+    }
+
+    public function testFaqComponentRendersJsonLdWhenItemsPresent(): void
+    {
+        $html = $this->render('faq', $this->faqProps());
+        $this->assertStringContainsString('<script type="application/ld+json">', $html);
+        $this->assertStringContainsString('"@type":"FAQPage"', $html);
+    }
+
+    public function testFaqComponentOmitsJsonLdWhenNoItems(): void
+    {
+        $html = $this->render('faq', ['title' => 'FAQ', 'items' => []]);
+        $this->assertStringNotContainsString('application/ld+json', $html);
+    }
 }

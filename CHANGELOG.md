@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.30] — 2026-07-05 — New: FAQ Sections Now Generate Rich-Snippet Structured Data
+
+**The FAQ component renders semantically correct, accessible HTML — but Google can't turn that into an FAQ rich snippet without a matching FAQPage JSON-LD block, and PromptingPress had no way to output structured data at all. Every FAQ section was leaving free SERP real estate on the table.**
+
+### Added
+- The FAQ component now always emits a `FAQPage` JSON-LD `<script>` block alongside its own markup, generated from `items`. Zero-config — no new prop, no toggle. Nothing is emitted if there are no complete (question + answer) items.
+
+### For contributors
+- `question`/`answer` are stripped of HTML via `wp_strip_all_tags()` before encoding — Google's FAQPage schema expects plain text, and this is also the primary defense against a `</script>` breakout (WordPress's `wp_strip_all_tags()` removes `<script>`/`<style>` tags *and* their content via a regex pass before general tag-stripping, so no well-formed tag markup survives into the JSON payload). `wp_json_encode()`'s default forward-slash escaping (never `JSON_UNESCAPED_SLASHES` here) is a second, redundant layer.
+- New shared `pp_render_faq_schema()` helper in `lib/wp.php`, following the same "component-owns-its-own-schema-generation" pattern the issue asked for — no composition-level `structured_data` field, no new subsystem.
+- 10 new PHPUnit tests, including a dedicated test proving the forward-slash-escaping property in isolation and one proving the tag-stripping property against a real breakout-attempt payload.
+
 ## [v0.16.29] — 2026-07-05 — New: Page-Specific SEO Metadata
 
 **Composition-backed pages had no first-class way to set a meta description, override the `<title>` tag, or set a canonical URL — real launch work needed a direct `functions.php` patch to get a page-specific meta description onto the site.**

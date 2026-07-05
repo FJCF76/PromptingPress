@@ -450,6 +450,56 @@ function pp_render_heading_with_accent(string $title, string $accent, string $ac
 }
 
 /**
+ * Renders a FAQPage JSON-LD <script> tag from FAQ items (#3), or '' if
+ * there are no complete (question + answer) items to describe. Always-on,
+ * zero-config — the FAQ component already has everything the schema needs.
+ *
+ * Google's FAQPage schema expects plain-text answers, not HTML — question
+ * and answer are both passed through wp_strip_all_tags() before encoding.
+ * This is also the primary defense against a </script> breakout: WordPress's
+ * wp_strip_all_tags() strips <script>/<style> tags AND their content via a
+ * regex pass before the general strip_tags() call, so no well-formed tag
+ * markup survives into the JSON payload at all. wp_json_encode()'s default
+ * forward-slash escaping (this does NOT pass JSON_UNESCAPED_SLASHES) is a
+ * second, redundant layer: even if a "</script>"-shaped substring somehow
+ * reached this point some other way, it would encode as "<\/script>",
+ * which cannot close the surrounding <script> tag.
+ *
+ * @param array $items  FAQ items: [{question, answer}, ...].
+ * @return string  A full <script type="application/ld+json">...</script> tag, or ''.
+ */
+function pp_render_faq_schema(array $items): string {
+    $entities = [];
+    foreach ($items as $item) {
+        $question = wp_strip_all_tags((string) ($item['question'] ?? ''));
+        $answer   = wp_strip_all_tags((string) ($item['answer']   ?? ''));
+        if ($question === '' || $answer === '') {
+            continue;
+        }
+        $entities[] = [
+            '@type' => 'Question',
+            'name'  => $question,
+            'acceptedAnswer' => [
+                '@type' => 'Answer',
+                'text'  => $answer,
+            ],
+        ];
+    }
+
+    if (empty($entities)) {
+        return '';
+    }
+
+    $schema = [
+        '@context'   => 'https://schema.org',
+        '@type'      => 'FAQPage',
+        'mainEntity' => $entities,
+    ];
+
+    return '<script type="application/ld+json">' . wp_json_encode($schema) . '</script>' . "\n";
+}
+
+/**
  * Safely escapes an image source for output in <img src="..."> or a CSS
  * background-image:url(...) value embedded in an HTML style attribute.
  *

@@ -112,7 +112,7 @@ site-customization permission.
 |-----------|--------------------------------|--------------------------------------------------|----------------------------------------------------|
 | hero      | components/hero/hero.php       | Full-width headline + optional CTA and image     | title (req), title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, variant, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof, id |
 | section   | components/section/section.php | Text + optional image. 3 layout variants         | body (req), title, title_accent, eyebrow, subheading, heading_align, image_url, image_id, image_alt, layout, variant, background_image, id |
-| faq       | components/faq/faq.php         | Native details/summary accordion. Zero JS.       | items[] (req) {question, answer}, title            |
+| faq       | components/faq/faq.php         | Native details/summary accordion. Zero JS. Auto-emits FAQPage JSON-LD. | items[] (req) {question, answer}, title            |
 | grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {title, text, image_url, link_url, link_text}, title, variant, theme, id |
 | table     | components/table/table.php     | Data/comparison table, horizontal scroll mobile  | headers[] (req), rows[][] (req), title, caption    |
 | cta       | components/cta/cta.php         | Call-to-action block. Layout + color + bg-image  | title (req), button_text (req), button_url (req), text, variant, theme, background_image, id |
@@ -146,6 +146,8 @@ If adding background-image support to another component, follow this exact patte
 **Nav/Footer:** Supports image logos via `logo_id` (Media Library attachment ID, not a URL) + `logo_alt`. Resolution: `logo_id` prop → `pp_logo_id` site option → WP `custom_logo` theme-mod → `logo_text` (text) wordmark. Footer logo is opt-in via `show_logo` (default off). Set the site-wide logo through the `update_site_option` action with key `pp_logo_id`.
 
 **Grid:** Variants `default` (card grid), `steps` (numbered process cards — filled circular number badge, subtle connector line between badges at desktop). `theme` controls background color independently of layout variant. Card items accept `bullets` — a checklist of plain-text lines rendered below `text`, each prefixed with a check mark.
+
+**FAQ structured data (#3):** The FAQ component always emits a `<script type="application/ld+json">` FAQPage schema block immediately after its own markup, derived from `items` — zero-config, no toggle prop. `question`/`answer` are stripped of HTML (`wp_strip_all_tags()`) before encoding, since Google's FAQPage schema expects plain text; items missing a question or answer are skipped. Nothing is emitted if there are no complete items.
 
 **Section headers (hero, section, grid, cta, testimonials):** `eyebrow` renders a short kicker label as a pill above the title. `subheading` (section, grid, cta, testimonials — hero uses `subtitle` instead) renders a supporting line below the title. `heading_align` (`start` default, or `center`) centers the eyebrow/title/subheading block, independent of the component's own layout variant.
 

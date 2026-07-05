@@ -41,6 +41,10 @@ pp_get_component('faq', [
 - Keyboard: `Enter` or `Space` toggles open/closed. `Tab` navigates between items.
 - Empty state shows a friendly message rather than an empty section.
 
+## Structured data
+
+Always emits a `FAQPage` JSON-LD `<script>` block immediately after the component's own markup — zero-config, no toggle. `question`/`answer` are stripped of any HTML before encoding (Google's FAQPage schema expects plain text). Items missing a question or answer are skipped; nothing is emitted if no complete items exist. See `pp_render_faq_schema()` in `lib/wp.php`.
+
 ## CSS
 
 Styles in `assets/css/components.css` under `/* === COMPONENT: faq === */`.
