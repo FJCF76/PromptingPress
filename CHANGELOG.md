@@ -4,6 +4,15 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.19] — 2026-07-05 — Fix: Dark-Surface Sections Can't Silently Lose Their Text Color Anymore
+
+**A previous production build needed a one-off CSS patch after a dark-band heading rendered nearly invisible — later page styling had quietly overridden the color a dark surface needs to stay readable.** The immediate cause (FAQ headings specifically) was already fixed. This closes the door on the whole class of bug: every component's dark-surface text — headings, body copy, links — is now guaranteed to route through a per-instance color slot, everywhere it's rendered, not just in the one place someone happened to test.
+
+### For contributors
+- Audited every styled component (hero, cta, grid, section, faq, stats) for any dark-surface (`--inverted`, or a background-image scrim) text-color rule that bypasses its component's style slots. Found none remaining — the FAQ gap #100 already closed was the only real one; grid's apparent gap on non-`--steps` inverted cards turned out to be a correct design (individual cards intentionally stay light-surfaced there, so dark text is correct).
+- Added a new keystone test to `tests/StyleSlotContractTest.php` (`testDarkSurfaceVariantsRouteForegroundColorsThroughSlots`) that scans every dark-surface descendant selector in the stylesheet and fails the build if any of them hardcodes a foreground color instead of routing through `var(--{component}-*, ...)` — verified it actually catches a regression by deliberately breaking a real rule and confirming the test failed, then restoring it. This is a durable guard, not a one-time fix: the next component that adds an inverted variant gets this check automatically.
+- `--dark` variants are deliberately out of scope for this guard — this theme's actual token values (`--color-surface: #f4f7fb`) show "dark" is really just a barely-tinted near-white surface, not a genuine contrast risk, despite a couple of schemas historically describing it as "dark."
+
 ## [v0.16.18] — 2026-07-05 — New: FAQ and Stats Can Finally Match Your Brand
 
 **Every section-level component could be re-colored to fit a page except two: FAQ and the stats row.** Put an FAQ block on a dark band and the heading turned nearly invisible, with no safe way to fix it — the underlying CSS had a comment admitting exactly that: "faq has no heading-color slot, so it keeps the token." Stats had the same problem: the big numbers were locked to the global accent color with no way to match a specific brand's palette for that one section.

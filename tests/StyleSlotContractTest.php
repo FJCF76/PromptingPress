@@ -170,6 +170,67 @@ class StyleSlotContractTest extends TestCase
         }
     }
 
+    /**
+     * 4. Dark-surface foreground authority (#61): a genuinely dark surface
+     * (`--inverted`, or `--has-bg-image`'s dark scrim) must not hardcode a
+     * foreground `color:` on a specific descendant element — it must route
+     * through that component's own `--{component}-*` slot so an AI can fix
+     * contrast on that instance without a one-off late-cascade patch (the
+     * production incident, PP-004/Ink-2, that #61 was filed from).
+     *
+     * `--dark` is deliberately EXCLUDED: per this theme's actual token values
+     * (base.css), `--color-surface` (#f4f7fb) is a barely-tinted near-white,
+     * not a real contrast risk — several schemas even call it "surface
+     * background with borders" rather than "dark." Only `--inverted`
+     * (`--color-bg-inverted` = #0f172a) and `--has-bg-image` (dark scrim
+     * overlay) are genuine low-contrast risks.
+     *
+     * Scope/limitation: only checks selectors with a DESCENDANT combinator
+     * (e.g. `.grid--inverted .grid__heading`) — a bare `.{component}--inverted
+     * { color: ... }` sets an ambient/inherited default for whatever isn't
+     * otherwise more-specifically slotted (several components additionally
+     * redefine a shared token like `--color-muted` at that scope for exactly
+     * this purpose), and is not itself the final authority for any specific
+     * rendered text role. Requiring it to be slotted too would false-fail on
+     * that legitimate pattern without closing any real gap, since the actual
+     * rendered elements are covered by their own descendant-selector checks.
+     */
+    public function testDarkSurfaceVariantsRouteForegroundColorsThroughSlots(): void
+    {
+        $css = $this->stripComments($this->css);
+        preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $rules, PREG_SET_ORDER);
+
+        $variantPattern = '/\.(hero|cta|grid|section|faq|stats|pp-section)[a-z_-]*--(inverted|has-bg-image)\S*\s+\S/i';
+        $checked = 0;
+
+        foreach ($rules as $rule) {
+            $selector = trim($rule[1]);
+            $body     = $rule[2];
+
+            if (!preg_match($variantPattern, $selector, $m)) {
+                continue; // not a dark-surface descendant selector
+            }
+            $component = strtolower($m[1]) === 'pp-section' ? 'section' : strtolower($m[1]);
+
+            if (!preg_match('/(?<![-a-z])color\s*:\s*([^;}]+)/i', $body, $colorMatch)) {
+                continue; // this rule doesn't set color at all
+            }
+            $value = trim($colorMatch[1]);
+            $checked++;
+
+            $this->assertMatchesRegularExpression(
+                '/var\(\s*--' . preg_quote($component, '/') . '-/',
+                $value,
+                "Rule `{$selector}` sets `color` to `{$value}` on a dark-surface descendant "
+                . "without routing through a --{$component}-* slot. Dark-surface foreground "
+                . "colors must be fixable via safe surfaces without a late-cascade patch (#61)."
+            );
+        }
+
+        // Fail-closed: this guard is only meaningful if it actually examined something.
+        $this->assertGreaterThan(0, $checked, 'No dark-surface descendant color rules found — the #61 guard would pass vacuously.');
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
