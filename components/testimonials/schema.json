@@ -1,0 +1,110 @@
+{
+  "component": "testimonials",
+  "description": "Customer quotes with attribution — for social proof sections. 'grid' variant lays out quote cards 1-col mobile / 2-3 col desktop; 'stack' variant is a single centered column for one or two large quotes.",
+  "props": {
+    "id": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional HTML id attribute for anchor linking (e.g. navigation anchors)."
+    },
+    "title": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Section heading above the testimonials. Omit if the context makes it clear."
+    },
+    "title_accent": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional exact substring of title to render in an accent color. Must match title exactly (case-sensitive) or it is ignored."
+    },
+    "eyebrow": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional short kicker/label rendered as a pill above the title."
+    },
+    "subheading": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional supporting line below the title."
+    },
+    "heading_align": {
+      "type": "enum",
+      "values": ["start", "center"],
+      "required": false,
+      "default": "start",
+      "description": "Alignment of the eyebrow/title/subheading header block. 'start' = left-aligned (default). 'center' = centered."
+    },
+    "variant": {
+      "type": "enum",
+      "values": ["grid", "stack"],
+      "required": false,
+      "default": "grid",
+      "description": "Layout. 'grid' = card grid, 1-col mobile / 2-3 col desktop. 'stack' = single centered column, for one or two large pull-quotes."
+    },
+    "theme": {
+      "type": "enum",
+      "values": ["default", "dark", "inverted"],
+      "required": false,
+      "default": "default",
+      "description": "Background color. Independent of variant (layout). 'default' = page background. 'dark' = surface background with borders. 'inverted' = inverted background for strong contrast."
+    },
+    "items": {
+      "type": "array",
+      "required": true,
+      "description": "Array of testimonial items. Each: { quote (req), author, role, company, image_url, image_alt }.",
+      "items": {
+        "quote":     { "type": "string", "required": true,  "description": "The testimonial text. Plain text — escaped, no HTML." },
+        "author":    { "type": "string", "required": false, "description": "Name of the person quoted." },
+        "role":      { "type": "string", "required": false, "description": "The author's job title, e.g. 'CEO'." },
+        "company":   { "type": "string", "required": false, "description": "The author's company or organization." },
+        "image_url": { "type": "string", "required": false, "description": "Optional avatar image URL." },
+        "image_alt": { "type": "string", "required": false, "default": "", "description": "Alt text for the avatar. Use the author's name; empty string only if image is purely decorative." }
+      }
+    }
+  },
+  "styling": {
+    "root_class": "testimonials",
+    "variant_classes": ["testimonials--stack", "testimonials--dark", "testimonials--inverted"],
+    "tokens": ["--space-xl", "--space-2xl", "--space-3xl", "--color-bg", "--color-surface", "--color-border", "--color-bg-inverted"],
+    "style_slots": {
+      "--testimonials-padding-top": { "type": "length", "default": "var(--space-xl)", "description": "Top padding of the section" },
+      "--testimonials-padding-bottom": { "type": "length", "default": "var(--space-xl)", "description": "Bottom padding of the section" },
+      "--testimonials-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
+      "--testimonials-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Heading text color" },
+      "--testimonials-heading-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading, if set" },
+      "--testimonials-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color" },
+      "--testimonials-eyebrow-bg": { "type": "color", "default": "var(--color-surface-accent)", "description": "Eyebrow pill background color" },
+      "--testimonials-subheading-color": { "type": "color", "default": "var(--color-muted)", "description": "Subheading text color" },
+      "--testimonials-gap": { "type": "length", "default": "var(--space-lg)", "description": "Gap between testimonial cards (grid variant) or between stacked quotes (stack variant)" },
+      "--testimonials-card-bg": { "type": "gradient", "default": "var(--color-surface)", "description": "Card background color or gradient" },
+      "--testimonials-card-border": { "type": "color", "default": "var(--color-border)", "description": "Card border color" },
+      "--testimonials-card-border-width": { "type": "length", "default": "1px", "description": "Card border width" },
+      "--testimonials-card-radius": { "type": "length", "default": "var(--radius)", "description": "Card border radius" },
+      "--testimonials-card-shadow": { "type": "shadow", "default": "none", "description": "Card box shadow / glow (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" },
+      "--testimonials-card-padding": { "type": "length", "default": "var(--space-lg)", "description": "Card padding" },
+      "--testimonials-quote-color": { "type": "color", "default": "var(--color-text)", "description": "Quote text color" },
+      "--testimonials-quote-mark-color": { "type": "color", "default": "var(--color-accent)", "description": "Decorative opening quote-mark glyph color" },
+      "--testimonials-author-color": { "type": "color", "default": "var(--color-text)", "description": "Author name text color" },
+      "--testimonials-meta-color": { "type": "color", "default": "var(--color-muted)", "description": "Author role/company line color" }
+    },
+    "recipes": {
+      "dark-showcase": {
+        "description": "Dark background with light cards for a strong social-proof section",
+        "slots": {
+          "--testimonials-bg": "#1a1a2e",
+          "--testimonials-heading-color": "#f0f0f0",
+          "--testimonials-card-bg": "#ffffff",
+          "--testimonials-gap": "2.5rem",
+          "--testimonials-card-radius": "1rem"
+        }
+      }
+    }
+  },
+  "safe_to_edit": ["testimonials.php", "../../assets/css/components.css (COMPONENT: testimonials section)"],
+  "do_not_touch": ["schema.json without updating AI_CONTEXT.md"]
+}

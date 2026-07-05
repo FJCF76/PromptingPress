@@ -4,6 +4,19 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.24] — 2026-07-05 — New: Testimonials Component
+
+**Testimonials are one of the most common homepage sections, and PromptingPress had no way to build one. The only workaround was embedding raw `<blockquote>` HTML inside a `section` body — no structured attribution, no per-quote styling, no way to reorder or selectively show individual quotes, and a wall of text instead of card separation.**
+
+### Added
+- New `testimonials` component: customer quotes with structured attribution (`author`, `role`, `company`, optional avatar). `grid` variant lays out quote cards 1-col mobile / 2-3 col desktop; `stack` variant is a single centered column for one or two large pull-quotes. Same header pattern as grid/section/cta (`eyebrow`, `title`/`title_accent`, `subheading`, `heading_align`) and the same dual-axis `variant` (layout) / `theme` (color) control as grid and CTA.
+- Base `blockquote` styling (accent border, italic, muted color) added to `base.css` — it's a standard HTML element other components already pass through `wp_kses_post()` (e.g. FAQ answers), so it should look intentional everywhere, not just inside the new component.
+
+### For contributors
+- Quote text and all attribution fields are plain strings run through `esc_html()` individually — no HTML allowlist, consistent with how every other component's text content is handled.
+- 12th component; registered in `pp_register_component_fields()` (title/eyebrow/subheading/items[].quote/author/role/company) and `_pp_pick_nested_match_field()` (matches nested items by `quote`, the one required per-item field) for `patch`-command addressability, consistent with existing components.
+- 19 new PHPUnit tests. Component count updated in AI_CONTEXT.md and README.md (12, up from 11); style-slot totals tracked by the existing "4 v1 components" tests are unaffected since testimonials sits outside that tracked set, same as faq/stats.
+
 ## [v0.16.23] — 2026-07-05 — New: Scannable Checklists Inside Grid Cards
 
 **Feature/benefit sections that feel professional almost always build their cards as an icon, a title, and a short checklist — "✓ SSL/TLS validity," "✓ Clickjacking protection" — not a dense paragraph. Grid cards could only render `text` as one `esc_html()`'d sentence, so the only way to approximate a checklist was to cram items into a comma-separated blob that read as a wall of text.**

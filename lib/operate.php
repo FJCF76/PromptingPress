@@ -1198,6 +1198,16 @@ pp_register_component_fields('cta', [
     ['name' => 'button_url',  'type' => 'url'],
 ]);
 
+pp_register_component_fields('testimonials', [
+    ['name' => 'title',            'type' => 'string'],
+    ['name' => 'eyebrow',          'type' => 'string'],
+    ['name' => 'subheading',       'type' => 'string'],
+    ['name' => 'items[].quote',    'type' => 'string'],
+    ['name' => 'items[].author',   'type' => 'string'],
+    ['name' => 'items[].role',     'type' => 'string'],
+    ['name' => 'items[].company',  'type' => 'string'],
+]);
+
 // ── Inspect Composition ──────────────────────────────────────────────────
 
 /**
@@ -1324,8 +1334,9 @@ function pp_inspect_composition(int $post_id): array|WP_Error {
  */
 function _pp_pick_nested_match_field(string $component_type): ?string {
     $match_map = [
-        'grid' => 'title',
-        'faq'  => 'question',
+        'grid'         => 'title',
+        'faq'          => 'question',
+        'testimonials' => 'quote',
     ];
     return $match_map[$component_type] ?? null;
 }
