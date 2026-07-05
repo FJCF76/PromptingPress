@@ -134,9 +134,46 @@ if (!function_exists('get_permalink')) {
     function get_permalink($post = 0): string {
         $id = is_int($post) ? $post : 0;
         if ($id) {
+            $slug = $GLOBALS['_pp_test_store']['posts'][$id]['post_name'] ?? '';
+            if ($slug !== '') {
+                return 'https://example.com/' . $slug . '/';
+            }
             return 'https://example.com/?page_id=' . $id;
         }
         return 'https://example.com/test-post/';
+    }
+}
+
+if (!function_exists('sanitize_title')) {
+    function sanitize_title(string $title): string {
+        $slug = strtolower(trim($title));
+        $slug = preg_replace('/[^a-z0-9]+/', '-', $slug) ?? '';
+        return trim($slug, '-');
+    }
+}
+
+// #134 slug de-duplication: mirrors WP core's wp_unique_post_slug() division
+// of responsibility -- wp_insert_post()/wp_update_post() own de-dup, callers
+// (pp_update_page_slug()) just read back the resulting post_name.
+if (!function_exists('_pp_test_unique_slug')) {
+    function _pp_test_unique_slug(string $slug, ?int $exclude_id = null): string {
+        $taken = [];
+        foreach ($GLOBALS['_pp_test_store']['posts'] ?? [] as $id => $post) {
+            if ($exclude_id !== null && $id === $exclude_id) {
+                continue;
+            }
+            if (($post['post_name'] ?? '') !== '') {
+                $taken[] = $post['post_name'];
+            }
+        }
+        if (!in_array($slug, $taken, true)) {
+            return $slug;
+        }
+        $i = 2;
+        while (in_array($slug . '-' . $i, $taken, true)) {
+            $i++;
+        }
+        return $slug . '-' . $i;
     }
 }
 
@@ -292,6 +329,9 @@ if (!function_exists('wp_insert_post')) {
             'post_title'  => $args['post_title'] ?? '',
             'post_status' => $args['post_status'] ?? 'draft',
         ];
+        if (isset($args['post_name']) && $args['post_name'] !== '') {
+            $GLOBALS['_pp_test_store']['posts'][$id]['post_name'] = _pp_test_unique_slug($args['post_name'], $id);
+        }
         return $id;
     }
 }
@@ -304,6 +344,9 @@ if (!function_exists('wp_update_post')) {
                 return new WP_Error('invalid_post', 'Post not found.');
             }
             return 0;
+        }
+        if (isset($args['post_name']) && $args['post_name'] !== '') {
+            $args['post_name'] = _pp_test_unique_slug($args['post_name'], $id);
         }
         foreach ($args as $key => $value) {
             if ($key !== 'ID') {
@@ -515,6 +558,7 @@ if (!function_exists('get_post')) {
         $obj->post_type = $data['post_type'] ?? 'page';
         $obj->post_title = $data['post_title'] ?? '';
         $obj->post_status = $data['post_status'] ?? 'draft';
+        $obj->post_name = $data['post_name'] ?? '';
         return $obj;
     }
 }
@@ -626,6 +670,7 @@ if (!class_exists('WP_Post')) {
         public string $post_type = 'page';
         public string $post_title = '';
         public string $post_status = 'draft';
+        public string $post_name = '';
     }
 }
 

@@ -38,8 +38,9 @@ function pp_ai_system_prompt(): string {
     if ($pages) {
         $parts[] = '## Pages';
         foreach ($pages as $page) {
-            $parts[] = "- {$page['title']} (ID: {$page['id']}, status: {$page['status']})";
+            $parts[] = "- {$page['title']} (ID: {$page['id']}, status: {$page['status']}, URL: {$page['url']})";
         }
+        $parts[] = 'To change a page\'s URL, use the update_page_slug action (post_id + slug) — never guess or construct a URL, and never propose a slug change without confirming the current URL above first.';
     } else {
         $parts[] = '## Pages';
         $parts[] = 'No pages exist yet.';

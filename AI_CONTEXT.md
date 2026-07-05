@@ -83,7 +83,7 @@ site-customization permission.
 | /tests/e2e/              | Playwright E2E tests            | Yes — requires Docker (wp-env)   |
 | .wp-env.json             | wp-env Docker config            | Yes — test environment only      |
 | /lib/wp.php              | WP function wrappers (read + write) | Only to add pp_* functions   |
-| /lib/actions.php         | Typed action model (15 actions) | Add actions following the contract |
+| /lib/actions.php         | Typed action model (16 actions) | Add actions following the contract |
 | /lib/apply.php           | Apply layer (file + option mutations) | Add applies following the contract |
 | /lib/cli.php             | WP-CLI `wp pp action` + `wp pp apply` + `wp pp check` + `wp pp integrity` | Yes |
 | /lib/guardrails.php      | CSS conflict detection, surface classification, theme integrity | Extend for new checks |
@@ -226,9 +226,10 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_site_option($key)`         | Whitelisted option value (blogname, blogdescription, pp_logo_id, pp_logo_alt) or WP_Error |
 | `pp_update_composition($post_id, $composition)` | Writes composition array to post meta (handles JSON serialization). Returns true\|WP_Error |
 | `pp_update_page_title($post_id, $title)` | Updates page title. Returns true\|WP_Error |
+| `pp_update_page_slug($post_id, $slug)` | Updates page slug/permalink (#134). Sanitizes via sanitize_title(); WordPress de-duplicates on collision. Returns the actual resulting slug\|WP_Error |
 | `pp_get_seo_meta($post_id)`   | Returns `{meta_description, seo_title, canonical_url}` for a page (empty strings if unset) |
 | `pp_update_seo_meta($post_id, $meta)` | Shallow-merges page-specific SEO metadata (#41). Validates canonical_url as a URL, length-caps meta_description/seo_title. Returns true\|WP_Error |
-| `pp_create_page($title, $status)` | Creates page with Composition template. Returns post ID\|WP_Error |
+| `pp_create_page($title, $status, $slug)` | Creates page with Composition template. Optional `$slug` (#134) sets the route up front. Returns post ID\|WP_Error |
 | `pp_publish_page($post_id)`    | Sets post_status to 'publish'. Returns true\|WP_Error |
 | `pp_update_site_option($key, $value)` | Updates whitelisted option. Returns true\|WP_Error |
 | `pp_get_style_slots($component_name)` | Returns style_slots from component's schema.json. Returns `[]` for unknown components |
@@ -437,7 +438,7 @@ All mutations go through typed actions. AJAX handlers, WP-CLI, and future AI cal
 **`pp_validate_action()` also rejects bad media URLs.** Any `image_url`/`background_image` value (flat or inside `items[]`) that points into the site's uploads directory must resolve to an actual Media Library attachment AND be an image — a URL to a PDF/video/audio attachment, or to no attachment at all, fails validation with `invalid_media_url` before anything is written. External URLs (outside uploads) are passed through unchecked. This applies uniformly to every caller — AJAX, WP-CLI, `pp_patch_composition()` — not just the AI chat surface.
 
 **Registry functions:**
-- `pp_get_registered_actions()` — all 15 actions
+- `pp_get_registered_actions()` — all 16 actions
 - `pp_get_action($name)` — single action definition or null
 - `pp_validate_action($name, $params)` — structural + semantic validation, returns true|WP_Error
 - `pp_preview_action($name, $params)` — validates, computes diff, never writes
@@ -447,9 +448,10 @@ All mutations go through typed actions. AJAX handlers, WP-CLI, and future AI cal
 
 | Action | Scope | Params | Semantics |
 |---|---|---|---|
-| `create_page` | site | title (req), composition, status | Create. Defaults to draft with empty composition |
+| `create_page` | site | title (req), composition, status, slug | Create. Defaults to draft with empty composition. Optional `slug` sets the canonical route up front — omit to let WordPress derive one from the title |
 | `update_site_option` | site | key (req), value (req) | Replace. Whitelisted: blogname, blogdescription, pp_logo_id (attachment ID), pp_logo_alt |
 | `update_page_title` | page | post_id (req), title (req) | Replace |
+| `update_page_slug` | page | post_id (req), slug (req) | Replace. Sanitized via `sanitize_title()`; WordPress de-duplicates on collision (suffixing `-2`, `-3`, ...) — `changes` always reports the actual resulting slug and permalink, which may differ from what was requested |
 | `update_seo_meta` | page | post_id (req), meta (req) | **Patch.** `meta` is a map of `meta_description`/`seo_title`/`canonical_url` → value, shallow-merged into existing SEO metadata. `seo_title` overrides the rendered `<title>` tag; `canonical_url` overrides the `<link rel="canonical">` tag. Set a key to `""` to clear it |
 | `update_composition` | page | post_id (req), composition (req) | Replace entire array |
 | `publish_page` | page | post_id (req) | Sets status to publish. Idempotent |

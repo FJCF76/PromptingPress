@@ -2,7 +2,7 @@
 /**
  * tests/ActionsTest.php — PHPUnit tests for the PromptingPress Action Layer
  *
- * Covers: registry functions, wp.php read/write functions, and all 15 actions
+ * Covers: registry functions, wp.php read/write functions, and all 16 actions
  * across validate, preview, and execute paths.
  */
 
@@ -24,13 +24,13 @@ class ActionsTest extends TestCase
 
     // ── Registry tests ─────────────────────────────────────────────────────
 
-    public function testRegistryReturnsAllFifteenActions(): void
+    public function testRegistryReturnsAllSixteenActions(): void
     {
         $actions = pp_get_registered_actions();
-        $this->assertCount(15, $actions);
+        $this->assertCount(16, $actions);
         $expected = [
             'create_page', 'update_site_option', 'update_page_title',
-            'update_seo_meta',
+            'update_page_slug', 'update_seo_meta',
             'update_composition', 'publish_page', 'add_component',
             'remove_component', 'reorder_components', 'update_component',
             'style_component',
@@ -342,6 +342,85 @@ class ActionsTest extends TestCase
         $this->assertEquals('page', $result['scope']);
         $this->assertEquals($id, $result['target']['post_id']);
         $this->assertEquals('Updated Title', $GLOBALS['_pp_test_store']['posts'][$id]['post_title']);
+    }
+
+    // ── Action: update_page_slug (#134) ─────────────────────────────────────
+
+    public function testUpdatePageSlugExecute(): void
+    {
+        $id = pp_create_page('How PromptingPress Works', 'draft');
+        $result = pp_execute_action('update_page_slug', ['post_id' => $id, 'slug' => 'product']);
+        $this->assertTrue($result['ok']);
+        $this->assertEquals('update_page_slug', $result['action']);
+        $this->assertEquals('page', $result['scope']);
+        $this->assertEquals('product', $GLOBALS['_pp_test_store']['posts'][$id]['post_name']);
+        $this->assertSame('product', $result['changes'][0]['to']);
+        $this->assertStringContainsString('/product/', $result['changes'][0]['permalink']);
+    }
+
+    public function testUpdatePageSlugSanitizesInput(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        pp_execute_action('update_page_slug', ['post_id' => $id, 'slug' => 'My Cool Page!']);
+        $this->assertEquals('my-cool-page', $GLOBALS['_pp_test_store']['posts'][$id]['post_name']);
+    }
+
+    public function testUpdatePageSlugReportsDeduplicatedSlugOnCollision(): void
+    {
+        $existing = pp_create_page('First Page', 'publish', 'product');
+        $id = pp_create_page('Second Page', 'draft');
+        $result = pp_execute_action('update_page_slug', ['post_id' => $id, 'slug' => 'product']);
+        $this->assertTrue($result['ok']);
+        // WordPress de-duplicated -- the reported slug must be the REAL one, not the requested one.
+        $this->assertNotEquals('product', $result['changes'][0]['to']);
+        $this->assertEquals('product-2', $result['changes'][0]['to']);
+        $this->assertEquals('product', $GLOBALS['_pp_test_store']['posts'][$existing]['post_name']);
+    }
+
+    public function testUpdatePageSlugRejectsEmptyAfterSanitization(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        $result = pp_execute_action('update_page_slug', ['post_id' => $id, 'slug' => '!!!']);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('empty', $result['error']);
+    }
+
+    public function testUpdatePageSlugRejectsNonexistentPage(): void
+    {
+        $result = pp_execute_action('update_page_slug', ['post_id' => 9999, 'slug' => 'x']);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testUpdatePageSlugPreviewDoesNotWrite(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        $result = pp_preview_action('update_page_slug', ['post_id' => $id, 'slug' => 'new-slug']);
+        $this->assertTrue($result['ok']);
+        $this->assertArrayNotHasKey('post_name', $GLOBALS['_pp_test_store']['posts'][$id]);
+    }
+
+    public function testCreatePageHonorsSlugParam(): void
+    {
+        $result = pp_execute_action('create_page', ['title' => 'How PromptingPress Works', 'slug' => 'product']);
+        $this->assertTrue($result['ok']);
+        $id = $result['target']['post_id'];
+        $this->assertEquals('product', $GLOBALS['_pp_test_store']['posts'][$id]['post_name']);
+    }
+
+    public function testCreatePageWithoutSlugLeavesPostNameUnset(): void
+    {
+        $result = pp_execute_action('create_page', ['title' => 'A Page']);
+        $this->assertTrue($result['ok']);
+        $id = $result['target']['post_id'];
+        $this->assertArrayNotHasKey('post_name', $GLOBALS['_pp_test_store']['posts'][$id]);
+    }
+
+    public function testCreatePageRejectsSlugThatSanitizesEmpty(): void
+    {
+        $result = pp_execute_action('create_page', ['title' => 'A Page', 'slug' => '!!!']);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('empty', $result['error']);
     }
 
     // ── Action: update_seo_meta (#41) ───────────────────────────────────────

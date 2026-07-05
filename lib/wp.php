@@ -1565,6 +1565,33 @@ function pp_update_page_title(int $post_id, string $title) {
     return true;
 }
 
+/**
+ * Updates a page's slug (post_name) / permalink (#134).
+ *
+ * WordPress's own wp_update_post() de-duplicates post_name internally
+ * (suffixing -2, -3, ... on collision, via wp_unique_post_slug()) — this
+ * reads back the actual resulting slug afterward rather than assuming the
+ * requested one stuck, so a caller always learns the real URL.
+ *
+ * @param int    $post_id  WordPress post ID.
+ * @param string $slug     Desired slug. Sanitized via sanitize_title().
+ * @return string|WP_Error  The resulting (possibly de-duplicated) slug, or WP_Error.
+ */
+function pp_update_page_slug(int $post_id, string $slug) {
+    $sanitized = sanitize_title($slug);
+    if ($sanitized === '') {
+        return new WP_Error('invalid_slug', 'Slug must not be empty after sanitization.');
+    }
+
+    $result = wp_update_post(['ID' => $post_id, 'post_name' => $sanitized], true);
+    if (is_wp_error($result)) {
+        return $result;
+    }
+
+    $post = get_post($post_id);
+    return ($post->post_name ?? '') !== '' ? $post->post_name : $sanitized;
+}
+
 // ── Page-specific SEO metadata (#41) ─────────────────────────────────────────
 // Storage: a single post meta key (_pp_seo_meta, JSON-encoded), the same
 // "one structured meta key" pattern as _pp_composition — not scattered flat
@@ -1700,14 +1727,26 @@ function pp_seo_canonical_url_override(string $canonical_url, $post): string {
  *
  * @param string $title   Page title.
  * @param string $status  Post status (default 'draft').
+ * @param string $slug    Optional slug (#134). Sanitized via sanitize_title().
+ *                        Omit to let WordPress derive one from the title, as before.
  * @return int|WP_Error   New post ID, or WP_Error on failure.
  */
-function pp_create_page(string $title, string $status = 'draft') {
-    $post_id = wp_insert_post([
+function pp_create_page(string $title, string $status = 'draft', string $slug = '') {
+    $args = [
         'post_type'   => 'page',
         'post_title'  => $title,
         'post_status' => $status,
-    ], true);
+    ];
+
+    if ($slug !== '') {
+        $sanitized = sanitize_title($slug);
+        if ($sanitized === '') {
+            return new WP_Error('invalid_slug', 'Slug must not be empty after sanitization.');
+        }
+        $args['post_name'] = $sanitized;
+    }
+
+    $post_id = wp_insert_post($args, true);
 
     if (is_wp_error($post_id)) {
         return $post_id;
