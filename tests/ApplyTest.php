@@ -1063,6 +1063,140 @@ class ApplyTest extends TestCase
         $this->assertSame('injection', $result->get_error_code());
     }
 
+    // ── _pp_validate_gradient (#99) ──────────────────────────────────────────
+
+    public function testValidateGradientAcceptsLinearWithDirection(): void
+    {
+        $this->assertTrue(_pp_validate_gradient('linear-gradient(135deg, #1a1a2e, #16121f)'));
+        $this->assertTrue(_pp_validate_gradient('linear-gradient(to right, #fff, #000)'));
+        $this->assertTrue(_pp_validate_gradient('linear-gradient(to bottom left, #fff, #000)'));
+    }
+
+    public function testValidateGradientAcceptsLinearWithoutDirection(): void
+    {
+        // Direction is optional, matching real CSS — the first segment is
+        // treated as a color-stop when it doesn't match the direction grammar.
+        $this->assertTrue(_pp_validate_gradient('linear-gradient(#f00, #00f)'));
+    }
+
+    public function testValidateGradientAcceptsStopPositions(): void
+    {
+        $this->assertTrue(_pp_validate_gradient('linear-gradient(180deg, #fff 0%, #000 100%)'));
+        $this->assertTrue(_pp_validate_gradient('linear-gradient(180deg, #fff 0px, #000 4rem)'));
+    }
+
+    public function testValidateGradientAcceptsFunctionColorStopsWithNestedCommas(): void
+    {
+        // The nested commas inside rgba()/hsla() must not be mistaken for
+        // top-level argument separators.
+        $this->assertTrue(_pp_validate_gradient('linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.9) 100%)'));
+        $this->assertTrue(_pp_validate_gradient('linear-gradient(180deg, hsla(0, 0%, 0%, 0.5), hsla(0, 0%, 100%, 0.5))'));
+    }
+
+    public function testValidateGradientAcceptsTransparentKeyword(): void
+    {
+        $this->assertTrue(_pp_validate_gradient('linear-gradient(to bottom, transparent, rgba(0,0,0,0.7))'));
+        $this->assertTrue(_pp_validate_gradient('linear-gradient(transparent, #000)'));
+    }
+
+    public function testValidateGradientAcceptsRadialDefault(): void
+    {
+        $this->assertTrue(_pp_validate_gradient('radial-gradient(#fff, #000)'));
+    }
+
+    public function testValidateGradientAcceptsRadialAllowlistedShapePosition(): void
+    {
+        $this->assertTrue(_pp_validate_gradient('radial-gradient(circle, #fff, #000)'));
+        $this->assertTrue(_pp_validate_gradient('radial-gradient(ellipse, #fff, #000)'));
+        $this->assertTrue(_pp_validate_gradient('radial-gradient(circle at center, #fff, #000)'));
+        $this->assertTrue(_pp_validate_gradient('radial-gradient(ellipse at center, #fff, #000)'));
+    }
+
+    public function testValidateGradientRejectsRadialNonAllowlistedShapePosition(): void
+    {
+        // "at top left" is real CSS but outside this bounded grammar's
+        // small keyword allowlist — falls through to color-stop parsing
+        // and correctly fails as an invalid color.
+        $this->assertFalse(_pp_validate_gradient('radial-gradient(circle at top left, #fff, #000)'));
+        $this->assertFalse(_pp_validate_gradient('radial-gradient(closest-side, #fff, #000)'));
+    }
+
+    public function testValidateGradientRejectsConicAndRepeating(): void
+    {
+        $this->assertFalse(_pp_validate_gradient('conic-gradient(#fff, #000)'));
+        $this->assertFalse(_pp_validate_gradient('repeating-linear-gradient(#fff, #000)'));
+        $this->assertFalse(_pp_validate_gradient('repeating-radial-gradient(#fff, #000)'));
+    }
+
+    public function testValidateGradientRejectsVarUrlEnv(): void
+    {
+        $this->assertFalse(_pp_validate_gradient('linear-gradient(135deg, var(--evil), #000)'));
+        $this->assertFalse(_pp_validate_gradient('linear-gradient(135deg, url(evil), #000)'));
+        $this->assertFalse(_pp_validate_gradient('linear-gradient(135deg, env(evil), #000)'));
+    }
+
+    public function testValidateGradientRejectsSingleStop(): void
+    {
+        $this->assertFalse(_pp_validate_gradient('linear-gradient(135deg, #fff)'));
+        $this->assertFalse(_pp_validate_gradient('linear-gradient(#fff)'));
+    }
+
+    public function testValidateGradientRejectsInvalidColorInStop(): void
+    {
+        $this->assertFalse(_pp_validate_gradient('linear-gradient(135deg, notacolor, #000)'));
+        $this->assertFalse(_pp_validate_gradient('linear-gradient(135deg, red, #000)')); // named colors rejected, same as _pp_validate_color()
+    }
+
+    public function testValidateGradientRejectsEmptyOrMalformed(): void
+    {
+        $this->assertFalse(_pp_validate_gradient(''));
+        $this->assertFalse(_pp_validate_gradient('linear-gradient()'));
+        $this->assertFalse(_pp_validate_gradient('linear-gradient(135deg)'));
+        $this->assertFalse(_pp_validate_gradient('not-a-gradient(#fff, #000)'));
+    }
+
+    public function testValidateGradientRejectsExcessiveLength(): void
+    {
+        // 10 stops (under the 20-stop cap) but padded long enough to exceed
+        // the 500-char value cap on its own — isolates the length bound from
+        // the stop-count bound tested separately below.
+        $stop = 'rgba(255,255,255,0.999999999999) 99.999999999999%';
+        $stops = array_fill(0, 10, $stop);
+        $value = 'linear-gradient(180deg, ' . implode(', ', $stops) . ')';
+        $this->assertGreaterThan(500, strlen($value));
+        $this->assertLessThanOrEqual(20, count($stops));
+        $this->assertFalse(_pp_validate_gradient($value));
+    }
+
+    public function testValidateGradientRejectsExcessiveStopCount(): void
+    {
+        // 21 stops exceeds the bounded cap even if the total length were fine.
+        $stops = array_fill(0, 21, '#fff');
+        $this->assertFalse(_pp_validate_gradient('linear-gradient(180deg, ' . implode(', ', $stops) . ')'));
+    }
+
+    public function testValidateTokenValuePassesForGradientTypeUnion(): void
+    {
+        // A gradient-typed slot accepts a plain color too (not gradients-only).
+        $this->assertTrue(_pp_validate_token_value('#1a1a2e', 'gradient'));
+        $this->assertTrue(_pp_validate_token_value('linear-gradient(135deg, #1a1a2e, #16121f)', 'gradient'));
+    }
+
+    public function testValidateTokenValueFailsForInvalidGradient(): void
+    {
+        $result = _pp_validate_token_value('garbage', 'gradient');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_gradient', $result->get_error_code());
+    }
+
+    public function testValidateGradientInjectionBlockedUpstream(): void
+    {
+        // The {};<> guard runs before the type switch in _pp_validate_token_value.
+        $result = _pp_validate_token_value('linear-gradient(135deg, #fff, #000); evil', 'gradient');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('injection', $result->get_error_code());
+    }
+
     // ── New Token Declarations ───────────────────────────────────────────
 
     public function testNewTokensFontWeightHeadingExists(): void

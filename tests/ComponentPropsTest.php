@@ -188,6 +188,70 @@ class ComponentPropsTest extends TestCase
         $this->assertSame('', $result);
     }
 
+    // ── Gradient-typed style slots render unmangled (#99) ────────────────
+
+    public function testRenderStyleVarsGradientSurvivesUnmangledForHero(): void
+    {
+        // pp_render_style_vars() only applies the {};<> injection guard — it
+        // does not re-validate type, so a gradient value round-trips exactly
+        // like a flat color already does (testRenderStyleVarsBasic above).
+        $result = pp_render_style_vars(
+            ['--hero-bg' => 'linear-gradient(135deg, #1a1a2e, #16121f)'],
+            'hero'
+        );
+        $this->assertStringContainsString('--hero-bg: linear-gradient(135deg, #1a1a2e, #16121f)', $result);
+    }
+
+    public function testRenderStyleVarsGradientSurvivesUnmangledForCta(): void
+    {
+        $result = pp_render_style_vars(
+            ['--cta-bg' => 'radial-gradient(circle, #fff, #000)'],
+            'cta'
+        );
+        $this->assertStringContainsString('--cta-bg: radial-gradient(circle, #fff, #000)', $result);
+    }
+
+    public function testRenderStyleVarsGradientSurvivesUnmangledForGrid(): void
+    {
+        $result = pp_render_style_vars(
+            ['--grid-card-bg' => 'linear-gradient(180deg, #fff, #eee)'],
+            'grid'
+        );
+        $this->assertStringContainsString('--grid-card-bg: linear-gradient(180deg, #fff, #eee)', $result);
+    }
+
+    public function testRenderStyleVarsGradientSurvivesUnmangledForSection(): void
+    {
+        $result = pp_render_style_vars(
+            ['--section-bg' => 'linear-gradient(to bottom, #f0f4ff, #ffffff)'],
+            'section'
+        );
+        $this->assertStringContainsString('--section-bg: linear-gradient(to bottom, #f0f4ff, #ffffff)', $result);
+    }
+
+    public function testRenderStyleVarsGradientOverlayScrimSurvivesUnmangled(): void
+    {
+        // The primary practical motivation for gradient support: a
+        // transparent-to-dark scrim over a background image for legibility.
+        $result = pp_render_style_vars(
+            ['--hero-overlay-bg' => 'linear-gradient(to bottom, transparent, rgba(0,0,0,0.7))'],
+            'hero'
+        );
+        $this->assertStringContainsString('--hero-overlay-bg: linear-gradient(to bottom, transparent, rgba(0,0,0,0.7))', $result);
+    }
+
+    public function testHeroComponentRendersGradientBackgroundInInlineStyle(): void
+    {
+        // End-to-end: a gradient value set on a real component's __pp_style
+        // survives all the way into the rendered <section style="..."> output,
+        // exactly the "exact production regression" pattern used for #36.
+        $html = $this->render('hero', [
+            'title' => 'Welcome',
+            '__pp_style' => ['--hero-bg' => 'linear-gradient(135deg, #1a1a2e, #16121f)'],
+        ]);
+        $this->assertStringContainsString('--hero-bg: linear-gradient(135deg, #1a1a2e, #16121f)', $html);
+    }
+
     public function testRenderStyleVarsUnknownComponent(): void
     {
         $result = pp_render_style_vars(

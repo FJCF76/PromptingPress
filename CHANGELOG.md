@@ -4,6 +4,16 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.16] — 2026-07-05 — New: Gradient Backgrounds Across Hero, CTA, Grid, and Section
+
+**Set a hero, CTA, grid, or section background to a gradient — the kind of treatment that shows up in most real brand books — and it used to just get rejected.** The safe style-surface only accepted flat colors (hex, rgb, hsl), so a request like "make the hero background a dark diagonal gradient" had no way through: you'd have to settle for a flat color and lose the brand's actual look. Several of these same components already render a gradient by *default* — you just couldn't set your own.
+
+### Added
+- 9 background slots across hero, CTA, grid, and section (`--hero-bg`, `--hero-surface-bg`, `--hero-overlay-bg`, `--cta-bg`, `--cta-overlay-bg`, `--grid-bg`, `--grid-card-bg`, `--section-bg`, `--section-overlay-bg`) now accept a `linear-gradient()` or `radial-gradient()` in addition to a flat color — including a `transparent` color stop, so image-overlay scrims (`linear-gradient(to bottom, transparent, rgba(0,0,0,0.7))`) work as expected.
+
+### For contributors
+- New `gradient` style-slot type in `lib/apply.php`: a bounded grammar (2-20 color stops, optional direction/shape argument, `conic-gradient()`/`repeating-*-gradient()`/`var()`/`url()`/`env()` explicitly excluded) reusing the existing color validator for each stop. Went through `/plan-eng-review` plus a Codex outside-voice pass that caught a real bug before it shipped: two of the nine slots (`--hero-bg`, `--grid-card-bg`) were consumed via `background-color:` in some CSS rules and `background:` shorthand in others — a gradient is invalid CSS for the former — so those rules were normalized to `background:` shorthand everywhere except `--hero-bg`'s one outline-button hover-state text-color use, which is now a documented, narrow exception (falls back to inherited text color when `--hero-bg` is a gradient). Also closed a matching gap for `shadow` in the AI-facing style-slot type documentation. A follow-up adversarial security review (closed-grammar analysis, ReDoS scaling tests, and tracing both inline-style and `:root{}` rendering sinks) found no bypass. 24 new PHPUnit tests.
+
 ## [v0.16.15] — 2026-07-04 — Fix: Resetting Design Tokens Is No Longer a One-Way Trip
 
 **Run `wp pp apply reset` to clear a design token override (or wipe them all back to defaults), and there was no way to undo it.** `wp pp apply restore` — the command that's supposed to undo any token change made during a run — had nothing to work with, because `reset` never told it what it had just cleared. Ask an AI agent to reset a token, watch it reset *every* token by mistake, and the only way back was re-entering every value by hand. Every other token mutation (`apply execute`) already recorded what it touched so `restore` could revert it; `reset` was the one gap.

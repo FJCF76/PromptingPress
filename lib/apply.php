@@ -380,6 +380,158 @@ function _pp_validate_shadow(string $value): bool {
 }
 
 /**
+ * Splits a string on commas that are NOT nested inside parentheses.
+ * Used to separate gradient arguments/stops without breaking apart commas
+ * that belong to a nested color function, e.g. "rgba(0, 0, 0, 0.5) 40%".
+ *
+ * @return array<string>  Trimmed segments, in order.
+ */
+function _pp_split_top_level_commas(string $value): array {
+    $parts = [];
+    $depth = 0;
+    $current = '';
+    $len = strlen($value);
+    for ($i = 0; $i < $len; $i++) {
+        $char = $value[$i];
+        if ($char === '(') {
+            $depth++;
+        } elseif ($char === ')') {
+            $depth--;
+        }
+        if ($char === ',' && $depth === 0) {
+            $parts[] = trim($current);
+            $current = '';
+        } else {
+            $current .= $char;
+        }
+    }
+    $parts[] = trim($current);
+    return $parts;
+}
+
+/**
+ * Validates a single gradient color-stop: a color — or the literal
+ * "transparent" keyword, which _pp_validate_color() doesn't cover but which
+ * is a common, safe, injection-free part of overlay/scrim gradients — with
+ * an optional single length/percentage stop-position. Two-position
+ * "hard stop" pairs are not supported; one position per stop keeps the
+ * grammar simple and covers the common case.
+ */
+function _pp_validate_gradient_color_stop(string $stop): bool {
+    $stop = trim($stop);
+    if ($stop === '') {
+        return false;
+    }
+
+    if (strpos($stop, '(') !== false && preg_match('/^(.*?\))\s*(.*)$/s', $stop, $m)) {
+        // Function-form color (rgb/rgba/hsl/hsla) — split at its closing paren.
+        $color    = $m[1];
+        $position = trim($m[2]);
+    } else {
+        // Hex color or the `transparent` keyword — split at the first space.
+        $parts    = preg_split('/\s+/', $stop, 2);
+        $color    = $parts[0];
+        $position = isset($parts[1]) ? trim($parts[1]) : '';
+    }
+
+    if (strtolower($color) !== 'transparent' && !_pp_validate_color($color)) {
+        return false;
+    }
+
+    if ($position === '') {
+        return true;
+    }
+
+    // Stop position: a single non-negative percentage or length.
+    return (bool) preg_match('/^(0|\d+(\.\d+)?%|\d+(\.\d+)?(px|rem|em|vw|vh))$/', $position);
+}
+
+/**
+ * Validates a bounded CSS gradient value for the `gradient` slot type
+ * (itself a color-OR-gradient union — see the 'gradient' case in
+ * _pp_validate_token_value()).
+ *
+ * Accepts ONLY:
+ *   linear-gradient([<angle>|to <side-or-corner>,]? <stop>, <stop>, ...)
+ *   radial-gradient([<shape-position>,]? <stop>, <stop>, ...)
+ *
+ * The leading direction/shape-position argument is OPTIONAL on both
+ * functions, matching real CSS (`linear-gradient(red, blue)` is valid and
+ * common) — disambiguated from the first color-stop by strict grammar: a
+ * direction/shape argument never looks like a color (it's a bare
+ * angle+unit, a "to ..." phrase, or one of a small keyword allowlist for
+ * radial), so if the first top-level-comma-separated segment doesn't match
+ * one of those forms exactly, it's treated as the first color-stop instead
+ * — never ambiguous (cross-model review: an earlier draft required the
+ * direction argument specifically to avoid this, which turned out to be
+ * unnecessary once the disambiguation grammar is this strict).
+ *
+ * Rejected outright, anywhere in the value: conic-gradient and
+ * repeating-{linear,radial}-gradient (a narrower bounded grammar than full
+ * CSS, not requested by the issue this shipped for — #99); var()/url()/env()
+ * (this validates a value an operator/AI SUBMITS through the safe apply
+ * surface, not a CSS file's own hardcoded fallback value — allowing an
+ * arbitrary var() reference here would let one override value pull in
+ * another token's value indirectly, the same injection-shaped bypass
+ * _pp_validate_length() already rejects for calc()/clamp()).
+ *
+ * Bounded for defense-in-depth: full-string anchoring, a max value length,
+ * and a max stop count, all via positive-pattern matching with no nested
+ * quantifiers (no catastrophic-backtracking surface).
+ */
+function _pp_validate_gradient(string $value): bool {
+    $value = trim($value);
+
+    if ($value === '' || strlen($value) > 500) {
+        return false;
+    }
+
+    // Reject excluded gradient functions and any injection-shaped reference
+    // before doing any real parsing.
+    if (preg_match('/\b(conic-gradient|repeating-linear-gradient|repeating-radial-gradient|var|url|env)\s*\(/i', $value)) {
+        return false;
+    }
+
+    if (preg_match('/^linear-gradient\((.*)\)$/is', $value, $m)) {
+        $kind = 'linear';
+    } elseif (preg_match('/^radial-gradient\((.*)\)$/is', $value, $m)) {
+        $kind = 'radial';
+    } else {
+        return false;
+    }
+
+    $args = _pp_split_top_level_commas($m[1]);
+    if (count($args) < 2) {
+        return false;
+    }
+
+    $first = $args[0];
+    if ($kind === 'linear') {
+        $is_direction = (bool) preg_match(
+            '/^(\d+(\.\d+)?(deg|grad|rad|turn)|to\s+(top|bottom|left|right)(\s+(top|bottom|left|right))?)$/i',
+            $first
+        );
+    } else {
+        $allowed_positions = ['circle', 'ellipse', 'circle at center', 'ellipse at center'];
+        $is_direction = in_array(strtolower($first), $allowed_positions, true);
+    }
+
+    $stops = $is_direction ? array_slice($args, 1) : $args;
+
+    if (count($stops) < 2 || count($stops) > 20) {
+        return false;
+    }
+
+    foreach ($stops as $stop) {
+        if (!_pp_validate_gradient_color_stop($stop)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
  * Validates a token value based on its type.
  *
  * @return true|WP_Error
@@ -427,6 +579,11 @@ function _pp_validate_token_value(string $value, ?string $type) {
         case 'shadow':
             if (!_pp_validate_shadow($value)) {
                 return new WP_Error('invalid_shadow', 'Value must be a shadow preset (var(--shadow-none|sm|md|lg) or none) or a single-layer box-shadow: 2-4 lengths (px/rem, blur/spread non-negative) followed by a color. No inset, multi-layer, or url().');
+            }
+            break;
+        case 'gradient':
+            if (!_pp_validate_color($value) && !_pp_validate_gradient($value)) {
+                return new WP_Error('invalid_gradient', 'Value must be a valid CSS color (hex, rgb(), rgba(), hsl(), hsla()) or a bounded linear-gradient()/radial-gradient() with 2+ color stops (var()/url()/env() and conic/repeating gradients are not accepted).');
             }
             break;
         case 'raw':

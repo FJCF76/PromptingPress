@@ -199,7 +199,14 @@ class StyleSlotContractTest extends TestCase
     private const PROPERTY_TYPES = [
         'box-shadow'                 => ['shadow'],
         'color'                      => ['color'],
-        'background'                 => ['color'],
+        'background'                 => ['color', 'gradient'],
+        // Deliberately NOT ['color', 'gradient'] — background-color: cannot hold a
+        // gradient in real CSS (that's the exact #99 bug: --hero-bg/--grid-card-bg
+        // were consumed via background-color: in some rules, silently invalid for a
+        // gradient override). Keeping this list ['color']-only means a future
+        // gradient-typed slot wired to background-color: still gets caught here
+        // (unless it's ALSO consumed compatibly elsewhere — see the "at least one
+        // compatible use" note above).
         'background-color'           => ['color'],
         'border'                     => ['length', 'color'],
         'border-top'                 => ['length', 'color'],

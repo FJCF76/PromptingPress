@@ -59,7 +59,7 @@
     "style_slots": {
       "--section-padding-top": { "type": "length", "default": "var(--space-xl)", "description": "Top padding of the section" },
       "--section-padding-bottom": { "type": "length", "default": "var(--space-xl)", "description": "Bottom padding of the section" },
-      "--section-bg": { "type": "color", "default": "transparent", "description": "Background color" },
+      "--section-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
       "--section-text": { "type": "color", "default": "var(--color-text)", "description": "Content text color" },
       "--section-accent": { "type": "color", "default": "var(--color-accent)", "description": "Link color" },
       "--section-title-size": { "type": "length", "default": "inherit", "description": "Title font size" },
@@ -69,7 +69,7 @@
       "--section-border-width": { "type": "length", "default": "0", "description": "Top and bottom border width" },
       "--section-radius": { "type": "length", "default": "0", "description": "Border radius" },
       "--section-image-radius": { "type": "length", "default": "var(--radius)", "description": "Image border radius" },
-      "--section-overlay-bg": { "type": "color", "default": "var(--overlay-bg)", "description": "Background image overlay color" },
+      "--section-overlay-bg": { "type": "gradient", "default": "var(--overlay-bg)", "description": "Background image overlay color or gradient (e.g. a transparent-to-dark scrim for text legibility over an image)" },
       "--section-shadow": { "type": "shadow", "default": "none", "description": "Box shadow of the section (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" }
     },
     "recipes": {
