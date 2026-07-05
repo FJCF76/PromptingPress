@@ -445,7 +445,7 @@ All mutations go through typed actions. AJAX handlers, WP-CLI, and future AI cal
 
 **Execute always validates first.** Callers never need to pre-validate.
 
-**`pp_validate_action()` also rejects bad media URLs.** Any `image_url`/`background_image` value (flat or inside `items[]`) that points into the site's uploads directory must resolve to an actual Media Library attachment AND be an image — a URL to a PDF/video/audio attachment, or to no attachment at all, fails validation with `invalid_media_url` before anything is written. External URLs (outside uploads) are passed through unchecked. This applies uniformly to every caller — AJAX, WP-CLI, `pp_patch_composition()` — not just the AI chat surface.
+**`pp_validate_action()` also rejects bad media URLs.** Any `image_url`/`background_image` value (flat or inside `items[]`) that points into the site's uploads directory must resolve to an actual Media Library attachment AND be an image — a URL to a PDF/video/audio attachment, or to no attachment at all, fails validation with `invalid_media_url` before anything is written. External URLs (outside uploads) are passed through unchecked. This applies uniformly to every caller — AJAX, WP-CLI, `pp_patch_composition()` — not just the AI chat surface. Because both `pp_preview_action()` and `pp_execute_action()` call `pp_validate_action()`, a proposal preview rejects an invalid media URL with the identical error `pp_ai_execute` would give — the chat never shows a clean preview diff for a step guaranteed to fail (issue 130).
 
 **Registry functions:**
 - `pp_get_registered_actions()` — all 16 actions
