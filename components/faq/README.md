@@ -4,10 +4,11 @@ FAQ accordion using native HTML `<details>`/`<summary>` elements. No JavaScript 
 
 ## Props
 
-| Prop    | Type   | Required | Default                          | Description |
-|---------|--------|----------|----------------------------------|-------------|
-| `title` | string | No       | `'Frequently Asked Questions'`   | Section heading |
-| `items` | array  | Yes      | —                                | Array of `{ question, answer }` objects |
+| Prop           | Type   | Required | Default                          | Description |
+|----------------|--------|----------|----------------------------------|-------------|
+| `title`        | string | No       | `'Frequently Asked Questions'`   | Section heading |
+| `title_accent` | string | No       | `''`                             | Exact substring of `title` to render in an accent color |
+| `items`        | array  | Yes      | —                                | Array of `{ question, answer }` objects |
 
 Each item in `items`:
 

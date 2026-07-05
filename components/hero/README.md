@@ -4,20 +4,34 @@ Full-width hero section with headline, optional subtitle, optional CTA button, a
 
 ## Props
 
-| Prop        | Type   | Required | Default      | Description |
-|-------------|--------|----------|--------------|-------------|
-| `title`     | string | Yes      | —            | Primary headline text |
-| `subtitle`  | string | No       | `''`         | Supporting subheadline |
-| `cta_text`  | string | No       | `''`         | CTA button label (hidden if empty) |
-| `cta_url`   | string | No       | `'#'`        | CTA button URL |
-| `variant`   | enum   | No       | `'centered'` | Layout: `left`, `centered`, or `split` |
-| `image_url` | string | No       | `''`         | Image URL (only used in `split` variant) |
+| Prop            | Type   | Required | Default      | Description |
+|-----------------|--------|----------|--------------|-------------|
+| `id`            | string | No       | `''`         | HTML id for anchor linking |
+| `title`         | string | Yes      | —            | Primary headline text |
+| `title_accent`  | string | No       | `''`         | Exact substring of `title` to render in an accent color |
+| `eyebrow`       | string | No       | `''`         | Short kicker/label rendered as a pill above the title |
+| `subtitle`      | string | No       | `''`         | Supporting subheadline |
+| `cta_text`      | string | No       | `''`         | Primary CTA button label (both buttons hidden if empty) |
+| `cta_url`       | string | No       | `'#'`        | Primary CTA button URL |
+| `cta2_text`     | string | No       | `''`         | Secondary CTA button label (only shown when `cta_text` is set) |
+| `cta2_url`      | string | No       | `'#'`        | Secondary CTA button URL |
+| `cta_variant`   | enum   | No       | `'primary'`  | Primary button style: `primary` / `secondary` / `outline` / `ghost` |
+| `cta2_variant`  | enum   | No       | `'outline'`  | Secondary button style: `primary` / `secondary` / `outline` / `ghost` |
+| `variant`       | enum   | No       | `'centered'` | Layout: `left`, `centered`, `split`, or `cover` |
+| `image_url`     | string | No       | `''`         | Image URL — inline image in `split` variant, background image in `cover` variant |
+| `image_alt`     | string | No       | `''`         | Alt text for the `split` variant image |
+| `spacing`       | enum   | No       | `'default'`  | Vertical padding: `default` / `compact` / `spacious` |
+| `width`         | enum   | No       | `'default'`  | Content width: `default` / `narrow` (56rem) / `full` |
+| `split_ratio`   | enum   | No       | `'50-50'`    | Column ratio for `split` variant: `50-50` / `60-40` / `40-60` |
+| `vertical_align`| enum   | No       | `'center'`   | Vertical content alignment for `cover`/`split` variants: `top` / `center` / `bottom` |
+| `proof`         | string | No       | `''`         | HTML string for trust signals (logos, ratings), rendered after the CTA group |
 
 ## Variants
 
 - **centered** — All content centered horizontally. Best for homepage hero.
 - **left** — Content aligned left. Best for interior page headers.
 - **split** — Text on left, image on right (two-column at lg+). Best for feature introductions.
+- **cover** — Fullscreen background image with a dark overlay and light text. Best for high-impact landing pages.
 
 ## Usage
 

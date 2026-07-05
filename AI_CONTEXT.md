@@ -139,11 +139,15 @@ If adding background-image support to another component, follow this exact patte
 
 **Anchor IDs:** All 8 section-level components (hero, section, stats, grid, logos, cta, embed, testimonials) accept an `id` prop that renders as the HTML `id` attribute on the root `<section>` element. Use for anchor navigation.
 
-**Hero:** Variants `left`, `centered`, `split` (inline image), `cover` (fullscreen background-image with overlay). Supports dual CTA buttons (`cta_text` + `cta2_text`); secondary renders as outline/ghost style. Composition props: `spacing` (compact/default/spacious), `width` (narrow/default/full), `split_ratio` (50-50/60-40/40-60, split variant only), `vertical_align` (top/center/bottom, cover and split only), `proof` (HTML string for trust signals like logos/ratings, rendered after CTA group). Hero content uses `--measure-centered` (56rem) as default max-width.
+**Hero:** Variants `left`, `centered`, `split` (inline image), `cover` (fullscreen background-image with overlay). Supports dual CTA buttons (`cta_text` + `cta2_text`), each with an independent `cta_variant`/`cta2_variant` (`primary`/`secondary`/`outline`/`ghost`; secondary defaults to `outline`). Composition props: `spacing` (compact/default/spacious), `width` (narrow/default/full), `split_ratio` (50-50/60-40/40-60, split variant only), `vertical_align` (top/center/bottom, cover and split only), `proof` (HTML string for trust signals like logos/ratings, rendered after CTA group). Hero content uses `--measure-centered` (56rem) as default max-width.
 
 **Nav/Footer:** Supports image logos via `logo_id` (Media Library attachment ID, not a URL) + `logo_alt`. Resolution: `logo_id` prop → `pp_logo_id` site option → WP `custom_logo` theme-mod → `logo_text` (text) wordmark. Footer logo is opt-in via `show_logo` (default off). Set the site-wide logo through the `update_site_option` action with key `pp_logo_id`.
 
-**Grid:** Variants `default` (card grid), `steps` (numbered process steps with arrow connectors at desktop). `theme` controls background color independently of layout variant.
+**Grid:** Variants `default` (card grid), `steps` (numbered process cards — filled circular number badge, subtle connector line between badges at desktop). `theme` controls background color independently of layout variant. Card items accept `bullets` — a checklist of plain-text lines rendered below `text`, each prefixed with a check mark.
+
+**Section headers (hero, section, grid, cta, testimonials):** `eyebrow` renders a short kicker label as a pill above the title. `subheading` (section, grid, cta, testimonials — hero uses `subtitle` instead) renders a supporting line below the title. `heading_align` (`start` default, or `center`) centers the eyebrow/title/subheading block, independent of the component's own layout variant.
+
+**title_accent (hero, section, grid, cta, faq, stats, testimonials):** All seven heading-bearing components accept `title_accent` — an exact, case-sensitive substring of `title` rendered in a per-component accent color slot (e.g. `--hero-title-accent-color`). It is a structured plain-text mechanism, not an HTML allowlist: if `title_accent` isn't a literal substring of `title`, it is silently ignored and `title` renders in full.
 
 **CSS invariant:** Component CSS in `components.css` must use only CSS variables from `base.css` — never raw hex values. Color decisions belong to the design tokens, not to individual components.
 

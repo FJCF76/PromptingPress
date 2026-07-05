@@ -38,17 +38,18 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 
 | Name    | Required props                          | Optional props (selection)                              |
 |---------|-----------------------------------------|---------------------------------------------------------|
-| hero    | title                                   | subtitle, cta_text, cta_url, cta2_text, cta2_url, variant, spacing, width, split_ratio, vertical_align, proof |
-| section | body                                    | title, layout, variant, background_image                |
-| faq     | items[] {question, answer}              | title                                                   |
-| grid    | items[] {title, text, ...}              | title, variant, theme                                   |
+| hero    | title                                   | title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, variant, spacing, width, split_ratio, vertical_align, proof |
+| section | body                                    | title, title_accent, eyebrow, subheading, heading_align, layout, variant, background_image |
+| faq     | items[] {question, answer}              | title, title_accent                                     |
+| grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, heading_align, variant, theme |
 | table   | headers[], rows[][]                     | title, caption                                          |
-| cta     | title, button_text, button_url          | text, variant, theme, background_image                  |
+| cta     | title, button_text, button_url          | title_accent, eyebrow, text, variant, theme, background_image, button_variant |
 | nav     | (no required props)                     | logo_text, logo_id, logo_alt                            |
-| footer  | (no required props)                     | location                                                |
-| stats   | items[] {number, label}                 | title, variant, background_image                        |
+| footer  | (no required props)                     | location, show_logo, logo_text, logo_id, logo_alt       |
+| stats   | items[] {number, label}                 | title, title_accent, variant, background_image          |
 | logos   | items[] {image_url, image_alt}          | title, variant                                          |
 | embed   | content                                 | title, variant                                          |
+| testimonials | items[] {quote}                    | title, title_accent, eyebrow, subheading, heading_align, variant, theme |
 
 ### section.variant
 
@@ -79,7 +80,7 @@ Example — alternating section rhythm:
 
 ### grid.variant: "steps"
 
-Renders numbered process cards. Use for How-It-Works or sequential flows.
+Renders numbered process cards. Use for How-It-Works or sequential flows. Cards get a filled circular number badge and a subtle connector line between badges at desktop (1024px+).
 
 - Set `variant: "steps"` on the grid
 - Include a `number` field on each item (`"1"`, `"01"`, `"Step 1"`, etc.)
@@ -99,6 +100,28 @@ Renders numbered process cards. Use for How-It-Works or sequential flows.
   }
 }
 ```
+
+### grid items[].bullets
+
+Renders a checklist below the card's `text`, each line prefixed with a check mark — use for scannable feature/benefit lists instead of a dense paragraph. Plain text lines only, no HTML/markdown.
+
+```json
+{ "component": "grid", "props": { "title": "Security", "items": [
+  { "title": "Perimeter security", "bullets": ["HTTP security headers", "SSL/TLS validity", "Clickjacking protection"] }
+]}}
+```
+
+### title_accent (hero, section, grid, cta, faq, stats, testimonials)
+
+All seven heading-bearing components accept `title_accent`: an exact, case-sensitive substring of `title` to render in an accent color. It must match `title` literally or it is silently ignored (no accent rendered, `title` still shows in full).
+
+```json
+{ "component": "hero", "props": { "title": "Fast and Safe WordPress", "title_accent": "Fast" } }
+```
+
+### eyebrow / subheading / heading_align (hero, section, grid, cta, testimonials)
+
+`eyebrow` renders a short kicker label as a pill above the title (e.g. `"NEW"`). `subheading` renders a supporting line below the title (section, grid, cta, testimonials only — hero uses `subtitle` instead). `heading_align` (`start` default, or `center`) centers the eyebrow/title/subheading header block — independent of the component's overall layout.
 
 Always verify against `components/{name}/schema.json` before writing — the source of truth.
 

@@ -6,11 +6,16 @@ Call-to-action block. Place at the bottom of a page or between sections to drive
 
 | Prop          | Type   | Required | Default        | Description |
 |---------------|--------|----------|----------------|-------------|
+| `id`          | string | No       | `''`           | HTML id for anchor linking |
 | `title`       | string | Yes      | —              | CTA headline |
+| `title_accent`| string | No       | `''`           | Exact substring of `title` to render in an accent color |
+| `eyebrow`     | string | No       | `''`           | Short kicker/label rendered as a pill above the title |
 | `text`        | string | No       | `''`           | Supporting body text |
 | `button_text` | string | Yes      | —              | Button label |
 | `button_url`  | string | Yes      | —              | Button URL |
 | `variant`     | enum   | No       | `'full-width'` | Layout variant |
+| `theme`       | enum   | No       | `'default'`    | Background color: `default` / `dark` / `inverted` (independent of `variant`) |
+| `background_image` | string | No | `''`           | Optional background image URL with dark overlay for text readability |
 | `button_variant` | enum | No      | `'primary'`    | Button style: `primary` / `secondary` / `outline` / `ghost` |
 
 ## Layout variants
