@@ -706,6 +706,78 @@ if (!function_exists('wp_get_attachment_metadata')) {
     }
 }
 
+// ── import_media apply stubs (#105) ──────────────────────────────────────────
+// Controlled via $GLOBALS['_pp_test_store']['download_url_result'|'download_url_size'
+// |'filetype_result'|'media_sideload_result'|'safe_remote_head_result'] so tests
+// can simulate SSRF rejection, redirect rejection, oversized files, and
+// type-mismatch without any real network access or filesystem writes outside
+// a real (tiny) temp file that download_url() itself creates.
+
+if (!defined('MB_IN_BYTES')) {
+    define('MB_IN_BYTES', 1048576);
+}
+
+if (!function_exists('download_url')) {
+    function download_url(string $url, int $timeout = 300) {
+        $GLOBALS['_pp_test_store']['download_url_calls'][] = ['url' => $url, 'timeout' => $timeout];
+        $result = $GLOBALS['_pp_test_store']['download_url_result'] ?? null;
+        if ($result instanceof WP_Error) {
+            return $result;
+        }
+        $size = $GLOBALS['_pp_test_store']['download_url_size'] ?? 1024;
+        $tmp = tempnam(sys_get_temp_dir(), 'pp_test_download_');
+        file_put_contents($tmp, str_repeat('x', $size));
+        return $tmp;
+    }
+}
+
+if (!function_exists('wp_check_filetype_and_ext')) {
+    function wp_check_filetype_and_ext(string $file, string $filename, $mimes = null): array {
+        return $GLOBALS['_pp_test_store']['filetype_result']
+            ?? ['ext' => 'jpg', 'type' => 'image/jpeg', 'proper_filename' => false];
+    }
+}
+
+if (!function_exists('media_handle_sideload')) {
+    function media_handle_sideload(array $file_array, int $post_id = 0, $desc = null, array $post_data = []) {
+        $GLOBALS['_pp_test_store']['media_sideload_calls'][] = $file_array;
+        $result = $GLOBALS['_pp_test_store']['media_sideload_result'] ?? null;
+        if ($result instanceof WP_Error) {
+            return $result;
+        }
+        if (is_int($result)) {
+            return $result;
+        }
+        $id = $GLOBALS['_pp_test_store']['next_id']++;
+        $GLOBALS['_pp_test_store']['attachment_urls'][$id] =
+            'https://example.com/wp-content/uploads/' . basename($file_array['name']);
+        return $id;
+    }
+}
+
+if (!function_exists('wp_safe_remote_head')) {
+    function wp_safe_remote_head(string $url, array $args = []) {
+        $GLOBALS['_pp_test_store']['safe_remote_head_calls'][] = $url;
+        return $GLOBALS['_pp_test_store']['safe_remote_head_result']
+            ?? ['headers' => ['content-type' => 'image/jpeg']];
+    }
+}
+
+if (!function_exists('wp_remote_retrieve_header')) {
+    function wp_remote_retrieve_header($response, string $header) {
+        if (is_wp_error($response) || !is_array($response)) {
+            return '';
+        }
+        return $response['headers'][$header] ?? '';
+    }
+}
+
+if (!function_exists('sanitize_file_name')) {
+    function sanitize_file_name(string $filename): string {
+        return preg_replace('/[^a-zA-Z0-9._-]/', '-', $filename) ?? $filename;
+    }
+}
+
 if (!function_exists('selected')) {
     function selected($selected, $current = true, bool $echo = true): string {
         $result = ($selected == $current) ? ' selected="selected"' : '';

@@ -7,10 +7,11 @@
  *
  * Apply definition contract:
  *   name        => string (unique, snake_case)
- *   domain      => 'design' (future: other domains)
- *   target      => ['type' => 'file'|'option', ...type-specific keys]
+ *   domain      => 'design'|'media' (future: other domains)
+ *   target      => ['type' => 'file'|'option'|'media', ...type-specific keys]
  *                   file:   ['type' => 'file', 'path' => string]  (relative to theme root)
  *                   option: ['type' => 'option', 'key' => string] (wp_options key)
+ *                   media:  ['type' => 'media']                  (new media library attachment)
  *   description => string (one sentence, caller-facing)
  *   params      => [param_name => ['type' => string, 'required' => bool], ...]
  *   validate    => callable(array $params): true|WP_Error
@@ -1002,6 +1003,145 @@ pp_register_apply('reset_fonts', [
         );
     },
 ]);
+
+// ── Apply: import_media ──────────────────────────────────────────────────
+// Domain: media | Target: media library (new attachment)
+// Sideloads an external image URL into the media library. The only sanctioned
+// path to bring an external image onto the site as a locally-owned asset —
+// image props otherwise only accept a raw URL string (#105).
+//
+// SSRF safety is WordPress core's job, not reinvented here: download_url()
+// fetches via wp_safe_remote_get(), which validates the URL AND every
+// redirect hop against private/reserved IP ranges, non-http(s) schemes, and
+// disallowed ports (see wp_http_validate_url() in wp-includes/http.php).
+// This apply adds: HTTPS-only + plausible-extension pre-check (fast fail,
+// no network use for obviously-wrong URLs), a real post-download mime check
+// restricted to images (WordPress's default upload mime allowlist is much
+// broader — PDFs, docs, zips — which this apply deliberately narrows), and
+// a size cap that download_url() does not itself enforce.
+
+pp_register_apply('import_media', [
+    'domain'      => 'media',
+    'target'      => ['type' => 'media'],
+    'description' => 'Sideloads an external image URL into the media library. Returns the new attachment id and local URL.',
+    'params'      => [
+        'url' => ['type' => 'string', 'required' => true],
+        'alt' => ['type' => 'string', 'required' => false],
+    ],
+
+    'validate' => function (array $params) {
+        $url = $params['url'] ?? '';
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            return new WP_Error('invalid_url', 'Value must be a valid URL.');
+        }
+        if (!preg_match('/^https:\/\//i', $url)) {
+            return new WP_Error('invalid_url', 'Media URL must use HTTPS.');
+        }
+        if (!_pp_url_has_allowed_image_extension($url)) {
+            return new WP_Error('unsupported_type', 'URL must end in a supported image extension: jpg, jpeg, png, gif, webp.');
+        }
+        return true;
+    },
+
+    'preview' => function (array $params) {
+        $url = $params['url'];
+        // A HEAD request, not a download -- still routed through WordPress's
+        // SSRF-safe fetch path (wp_safe_remote_head validates the URL and
+        // every redirect hop the same way wp_safe_remote_get does).
+        $response = wp_safe_remote_head($url, ['timeout' => 10]);
+        if (is_wp_error($response)) {
+            return $response;
+        }
+        $content_type = wp_remote_retrieve_header($response, 'content-type');
+        if (!is_string($content_type) || !str_starts_with($content_type, 'image/')) {
+            return new WP_Error('unsupported_type', 'URL does not serve an image content type.');
+        }
+        return _pp_apply_preview(
+            'import_media', 'media',
+            ['type' => 'media'],
+            [],
+            ['url' => $url, 'alt' => $params['alt'] ?? '', 'content_type' => $content_type],
+            [['action' => 'import', 'url' => $url]]
+        );
+    },
+
+    'apply' => function (array $params) {
+        $url = $params['url'];
+        $alt = $params['alt'] ?? '';
+
+        // Guarded like WP core's own admin-context checks: these files aren't
+        // autoloaded outside wp-admin (CLI, AJAX, cron). media_handle_sideload()
+        // is the outermost of the three real functions this apply calls, and
+        // the PHPUnit test harness stubs it directly -- if it's already
+        // defined (real WP admin context, or the test stub), none of these
+        // three files need loading.
+        if (!function_exists('media_handle_sideload')) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            require_once ABSPATH . 'wp-admin/includes/media.php';
+            require_once ABSPATH . 'wp-admin/includes/image.php';
+        }
+
+        // download_url() streams via wp_safe_remote_get() to a temp file --
+        // SSRF protection (private IPs, redirect re-validation, protocol/port
+        // restriction) is inherited from WordPress core, not reimplemented.
+        $tmp_file = download_url($url, 30);
+        if (is_wp_error($tmp_file)) {
+            return _pp_apply_error('import_media', 'media', ['type' => 'media'], $tmp_file->get_error_message());
+        }
+
+        $max_bytes = 10 * MB_IN_BYTES;
+        if (filesize($tmp_file) > $max_bytes) {
+            @unlink($tmp_file);
+            return _pp_apply_error('import_media', 'media', ['type' => 'media'], 'Image exceeds the 10MB size limit.');
+        }
+
+        $filename = sanitize_file_name(basename((string) parse_url($url, PHP_URL_PATH)));
+        $filetype = wp_check_filetype_and_ext($tmp_file, $filename);
+        $allowed_mimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+        if (empty($filetype['type']) || !in_array($filetype['type'], $allowed_mimes, true)) {
+            @unlink($tmp_file);
+            return _pp_apply_error('import_media', 'media', ['type' => 'media'], 'The downloaded file is not a supported image type (jpg, png, gif, webp).');
+        }
+
+        $file_array = [
+            'name'     => $filename,
+            'tmp_name' => $tmp_file,
+        ];
+
+        $attachment_id = media_handle_sideload($file_array, 0);
+        if (is_wp_error($attachment_id)) {
+            @unlink($tmp_file);
+            return _pp_apply_error('import_media', 'media', ['type' => 'media'], $attachment_id->get_error_message());
+        }
+
+        if ($alt !== '') {
+            update_post_meta($attachment_id, '_wp_attachment_image_alt', $alt);
+        }
+
+        return _pp_apply_result(
+            'import_media', 'media',
+            ['type' => 'media'],
+            [[
+                'action'        => 'import',
+                'attachment_id' => $attachment_id,
+                'url'           => wp_get_attachment_url($attachment_id),
+                'source_url'    => $url,
+            ]]
+        );
+    },
+]);
+
+/**
+ * Checks whether a URL's path ends in a recognized, safe image extension.
+ * Query strings are excluded (PHP_URL_PATH). Used as a fast pre-fetch
+ * sanity check -- the real, authoritative type check happens post-download
+ * via wp_check_filetype_and_ext() against the actual file bytes.
+ */
+function _pp_url_has_allowed_image_extension(string $url): bool {
+    $path = (string) parse_url($url, PHP_URL_PATH);
+    $ext  = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+    return in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true);
+}
 
 // ── Deployment Manifest (Sync Safeguard) ───────────────────────────────────
 
