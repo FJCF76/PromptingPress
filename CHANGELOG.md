@@ -4,6 +4,19 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.44] — 2026-07-05 — Fix: Sticky Header Covering Section Headings on Anchor Jump
+
+**A direct link or scripted jump to a section anchor (every content component supports an `id` prop for this) scrolled the target to the very top of the viewport — landing it under the sticky header instead of below it. Worst on mobile, where the header is proportionally taller, this covered the section heading entirely: a page could pass clean overflow/metric checks while still rendering a broken first impression for anyone landing directly on a section.**
+
+### Fixed
+- Anchor jumps to any content section (hero, section, cta, grid, faq, stats, logos, embed, testimonials, table) now land with the heading fully visible below the sticky header, confirmed at both 1280px and 375px viewports.
+- The mobile menu now closes when a nav link is clicked, so an in-page anchor link tapped while the menu is still open scrolls against the header's real (collapsed) height, not its taller expanded-menu state.
+
+### For contributors
+- New `--header-height` CSS custom property (`components.css`), consumed via `scroll-margin-top` on every anchor-able component's root class. Static CSS fallback (65px); `main.js` measures the real rendered `.site-header` height on load, resize, and menu toggle/close, since header height varies with content, breakpoint, and font loading — a hardcoded value would drift.
+- Not a design token: computed/measured, not AI-editable via `update_design_token`.
+- 5 new Vitest tests. Verified live at both breakpoints on the dev site: a direct anchor jump and pricing screenshots confirm the heading sits fully below the header, not covered by it.
+
 ## [v0.16.43] — 2026-07-05 — New: `wp pp validate page` — Rendered-HTML Validation From the CLI
 
 **The rendered-HTML validator that gates the AI chat's success message (render failures, broken images, missing local media, empty links) was wired into the chat's apply flow only. An operator or deployment workflow needed the same check outside the chat — for manual debugging, or a reusable validation hook in Claude Code / CI — but the only CLI validator (`wp pp check page`) checks raw composition data (styling/smells), not the actual rendered output.**
