@@ -70,8 +70,8 @@ describe('CSS lint: style slot fallback patterns', () => {
         });
     });
 
-    test('schema declares 73 total style slots', () => {
-        expect(allSlots.length).toBe(73);
+    test('schema declares 85 total style slots', () => {
+        expect(allSlots.length).toBe(85);
     });
 
     allSlots.forEach(({ component, slotName }) => {

@@ -496,6 +496,62 @@
   color: var(--hero-bg, var(--color-bg));
 }
 
+/* Second CTA button (cta2): per-instance bg/border/color override, independent
+   of the primary button (issue 111). Targeted via the dedicated .hero__cta--secondary
+   class (hero.php) rather than a positional :nth-child selector — this
+   codebase's CSS lint guard forbids nth-child/nth-of-type entirely, since a
+   position-based selector would silently reattach to the wrong element if
+   composition content were ever reordered. cta_text/cta2_text are fixed,
+   named props (not a reorderable array), so a dedicated class is both safe
+   and simpler than the positional alternative. Applies regardless of which
+   variant cta2 renders as — the primary button could independently also be
+   set to any of the 4 variants via cta_variant, and this must not leak onto
+   it. One rule per variant, each falling back to that variant's own existing
+   default, so an unset override renders byte-identically to today. */
+.hero .hero__cta-group .hero__cta--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
+  background-color: var(--hero-cta2-bg, var(--hero-accent, var(--color-accent)));
+  border-color: var(--hero-cta2-border, var(--hero-accent, var(--color-accent)));
+  color: var(--hero-cta2-color, var(--btn-text, var(--color-bg)));
+}
+.hero .hero__cta-group .hero__cta--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
+  background-color: var(--hero-cta2-hover-bg, var(--hero-accent-hover, var(--color-accent-hover)));
+  border-color: var(--hero-cta2-hover-border, var(--hero-accent-hover, var(--color-accent-hover)));
+  color: var(--hero-cta2-hover-color, var(--btn-text, var(--color-bg)));
+}
+
+.hero .hero__cta-group .hero__cta--secondary.btn--outline {
+  background-color: var(--hero-cta2-bg, transparent);
+  color: var(--hero-cta2-color, var(--hero-text, var(--color-text)));
+  border-color: var(--hero-cta2-border, var(--hero-text, var(--color-text)));
+}
+.hero .hero__cta-group .hero__cta--secondary.btn--outline:hover {
+  background-color: var(--hero-cta2-hover-bg, var(--hero-accent, var(--color-accent)));
+  border-color: var(--hero-cta2-hover-border, var(--hero-accent, var(--color-accent)));
+  color: var(--hero-cta2-hover-color, var(--hero-bg, var(--color-bg)));
+}
+
+.hero .hero__cta-group .hero__cta--secondary.btn--secondary {
+  background-color: var(--hero-cta2-bg, var(--color-surface));
+  color: var(--hero-cta2-color, var(--color-text));
+  border-color: var(--hero-cta2-border, var(--color-border));
+}
+.hero .hero__cta-group .hero__cta--secondary.btn--secondary:hover {
+  background-color: var(--hero-cta2-hover-bg, var(--color-border));
+  border-color: var(--hero-cta2-hover-border, var(--color-border));
+  color: var(--hero-cta2-hover-color, var(--color-text));
+}
+
+.hero .hero__cta-group .hero__cta--secondary.btn--ghost {
+  background-color: var(--hero-cta2-bg, transparent);
+  color: var(--hero-cta2-color, var(--color-accent));
+  border-color: var(--hero-cta2-border, transparent);
+}
+.hero .hero__cta-group .hero__cta--secondary.btn--ghost:hover {
+  background-color: var(--hero-cta2-hover-bg, var(--color-surface));
+  border-color: var(--hero-cta2-hover-border, transparent);
+  color: var(--hero-cta2-hover-color, var(--color-accent));
+}
+
 /* Split ratio: grid column ratios at desktop */
 @media (min-width: 1024px) {
   .hero--split[data-pp-split-ratio="60-40"] .hero__inner {
@@ -1061,14 +1117,69 @@
   margin-bottom: 0;
 }
 
-/* CTA accent: scoped button colors via style slots */
-.cta .btn {
+/* CTA accent: scoped button colors via style slots. Excludes outline/ghost/
+   secondary — .cta .btn (2 classes) has HIGHER specificity than .btn--outline/
+   --ghost/--secondary (1 class each), so without this exclusion the accent
+   fill unconditionally wins over those variants' own transparent/surface
+   fill regardless of source order, producing invisible or wrong-colored
+   buttons (issue 111 — confirmed empirically: outline and ghost render with
+   button text the same color as the button background). Same root cause and
+   fix pattern already applied to hero's equivalent rule above. */
+.cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
   background-color: var(--cta-accent, var(--color-accent));
   border-color: var(--cta-accent, var(--color-accent));
 }
-.cta .btn:hover {
+.cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   background-color: var(--cta-accent-hover, var(--color-accent-hover));
   border-color: var(--cta-accent-hover, var(--color-accent-hover));
+}
+
+/* CTA button (single button): per-instance bg/border/color override,
+   independent of --cta-accent (issue 111). One rule per variant, each falling
+   back to that variant's own existing default, so an unset override renders
+   byte-identically to today. */
+.cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
+  background-color: var(--cta-button-bg, var(--cta-accent, var(--color-accent)));
+  border-color: var(--cta-button-border, var(--cta-accent, var(--color-accent)));
+  color: var(--cta-button-color, var(--btn-text, var(--color-bg)));
+}
+.cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
+  background-color: var(--cta-button-hover-bg, var(--cta-accent-hover, var(--color-accent-hover)));
+  border-color: var(--cta-button-hover-border, var(--cta-accent-hover, var(--color-accent-hover)));
+  color: var(--cta-button-hover-color, var(--btn-text, var(--color-bg)));
+}
+
+.cta__button.btn--outline {
+  background-color: var(--cta-button-bg, transparent);
+  color: var(--cta-button-color, var(--color-accent));
+  border-color: var(--cta-button-border, var(--color-accent));
+}
+.cta__button.btn--outline:hover {
+  background-color: var(--cta-button-hover-bg, var(--color-accent));
+  border-color: var(--cta-button-hover-border, var(--color-accent));
+  color: var(--cta-button-hover-color, var(--color-bg));
+}
+
+.cta__button.btn--secondary {
+  background-color: var(--cta-button-bg, var(--color-surface));
+  color: var(--cta-button-color, var(--color-text));
+  border-color: var(--cta-button-border, var(--color-border));
+}
+.cta__button.btn--secondary:hover {
+  background-color: var(--cta-button-hover-bg, var(--color-border));
+  border-color: var(--cta-button-hover-border, var(--color-border));
+  color: var(--cta-button-hover-color, var(--color-text));
+}
+
+.cta__button.btn--ghost {
+  background-color: var(--cta-button-bg, transparent);
+  color: var(--cta-button-color, var(--color-accent));
+  border-color: var(--cta-button-border, transparent);
+}
+.cta__button.btn--ghost:hover {
+  background-color: var(--cta-button-hover-bg, var(--color-surface));
+  border-color: var(--cta-button-hover-border, transparent);
+  color: var(--cta-button-hover-color, var(--color-accent));
 }
 
 /* Full-width: centered block with surface background */
