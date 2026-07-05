@@ -1063,4 +1063,145 @@ class ComponentPropsTest extends TestCase
         $this->assertStringContainsString('background-image:url(data:image/svg+xml,', $html);
         $this->assertStringNotContainsString('background-image:url();', $html);
     }
+
+    // ── Section-header pattern: eyebrow + subheading + alignment (#102/#85) ──
+
+    private function gridProps(array $extra = []): array
+    {
+        return array_merge(['items' => [['title' => 'Item', 'text' => 'Text']]], $extra);
+    }
+
+    private function sectionProps(array $extra = []): array
+    {
+        return array_merge(['body' => '<p>Body</p>'], $extra);
+    }
+
+    public function testHeroEyebrowRenders(): void
+    {
+        // Regression pin for #85: hero's eyebrow prop now actually renders.
+        $html = $this->render('hero', ['title' => 'T', 'eyebrow' => 'NEW']);
+        $this->assertStringContainsString('class="hero__eyebrow"', $html);
+        $this->assertStringContainsString('>NEW<', $html);
+    }
+
+    public function testHeroEyebrowOmittedWhenUnset(): void
+    {
+        $html = $this->render('hero', ['title' => 'T']);
+        $this->assertStringNotContainsString('hero__eyebrow', $html);
+    }
+
+    public function testGridEyebrowSubheadingAndCenterAlignRender(): void
+    {
+        $html = $this->render('grid', $this->gridProps([
+            'title' => 'Heading',
+            'eyebrow' => 'KICKER',
+            'subheading' => 'Supporting line',
+            'heading_align' => 'center',
+        ]));
+        $this->assertStringContainsString('class="grid__header grid__header--center"', $html);
+        $this->assertStringContainsString('class="grid__eyebrow">KICKER<', $html);
+        $this->assertStringContainsString('class="grid__heading">Heading<', $html);
+        $this->assertStringContainsString('class="grid__subheading">Supporting line<', $html);
+    }
+
+    public function testGridHeaderAlignDefaultsToStartAndOmitsCenterClass(): void
+    {
+        $html = $this->render('grid', $this->gridProps(['title' => 'Heading']));
+        $this->assertStringContainsString('class="grid__header">', $html);
+        $this->assertStringNotContainsString('grid__header--center', $html);
+    }
+
+    public function testGridHeaderAlignInvalidFallsBackToStart(): void
+    {
+        $html = $this->render('grid', $this->gridProps(['title' => 'Heading', 'heading_align' => 'end']));
+        $this->assertStringNotContainsString('grid__header--center', $html);
+    }
+
+    public function testGridHeaderOmittedWhenNoTitleEyebrowOrSubheading(): void
+    {
+        $html = $this->render('grid', $this->gridProps());
+        $this->assertStringNotContainsString('grid__header', $html);
+    }
+
+    public function testSectionEyebrowSubheadingAndCenterAlignRenderTextOnly(): void
+    {
+        $html = $this->render('section', $this->sectionProps([
+            'title' => 'Heading',
+            'eyebrow' => 'KICKER',
+            'subheading' => 'Supporting line',
+            'heading_align' => 'center',
+        ]));
+        $this->assertStringContainsString('class="section__header section__header--center"', $html);
+        $this->assertStringContainsString('class="section__eyebrow">KICKER<', $html);
+        $this->assertStringContainsString('class="section__subheading">Supporting line<', $html);
+    }
+
+    public function testSectionEyebrowRendersInImageLayout(): void
+    {
+        // The image-left/image-right layout has a SEPARATE title block in
+        // section.php — must also carry the header pattern, not just text-only.
+        $html = $this->render('section', $this->sectionProps([
+            'title' => 'Heading',
+            'eyebrow' => 'KICKER',
+            'layout' => 'image-left',
+            'image_url' => 'https://example.com/img.jpg',
+        ]));
+        $this->assertStringContainsString('class="section__eyebrow">KICKER<', $html);
+    }
+
+    public function testCtaEyebrowRenders(): void
+    {
+        $html = $this->render('cta', $this->ctaProps(['eyebrow' => 'KICKER']));
+        $this->assertStringContainsString('class="cta__eyebrow">KICKER<', $html);
+    }
+
+    public function testCtaEyebrowOmittedWhenUnset(): void
+    {
+        $html = $this->render('cta', $this->ctaProps());
+        $this->assertStringNotContainsString('cta__eyebrow', $html);
+    }
+
+    public function testHeroSchemaDeclaresEyebrowSlots(): void
+    {
+        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/hero/schema.json'), true);
+        $slots = $schema['styling']['style_slots'];
+        $this->assertArrayHasKey('--hero-eyebrow-color', $slots);
+        $this->assertArrayHasKey('--hero-eyebrow-bg', $slots);
+    }
+
+    public function testGridSchemaDeclaresHeaderSlots(): void
+    {
+        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/grid/schema.json'), true);
+        $slots = $schema['styling']['style_slots'];
+        foreach (['--grid-eyebrow-color', '--grid-eyebrow-bg', '--grid-subheading-color'] as $name) {
+            $this->assertArrayHasKey($name, $slots, "grid must declare {$name}.");
+        }
+    }
+
+    public function testSectionSchemaDeclaresHeaderSlots(): void
+    {
+        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/section/schema.json'), true);
+        $slots = $schema['styling']['style_slots'];
+        foreach (['--section-eyebrow-color', '--section-eyebrow-bg', '--section-subheading-color'] as $name) {
+            $this->assertArrayHasKey($name, $slots, "section must declare {$name}.");
+        }
+    }
+
+    public function testCtaSchemaDeclaresEyebrowSlots(): void
+    {
+        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/cta/schema.json'), true);
+        $slots = $schema['styling']['style_slots'];
+        $this->assertArrayHasKey('--cta-eyebrow-color', $slots);
+        $this->assertArrayHasKey('--cta-eyebrow-bg', $slots);
+    }
+
+    public function testGridEyebrowRejectsInjectionInStyleSlot(): void
+    {
+        $html = $this->render('grid', $this->gridProps([
+            'title' => 'H',
+            'eyebrow' => 'KICKER',
+            '__pp_style' => ['--grid-eyebrow-color' => '#fff; background:url(evil)'],
+        ]));
+        $this->assertStringNotContainsString('url(evil)', $html);
+    }
 }

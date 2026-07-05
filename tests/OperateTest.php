@@ -954,15 +954,19 @@ class OperateTest extends TestCase
         $this->assertSame('url', $hero[4]['type']);
 
         $section = pp_get_component_fields('section');
-        $this->assertCount(2, $section);
-        $this->assertSame('body', $section[1]['name']);
-        $this->assertSame('html', $section[1]['type']);
+        $this->assertCount(4, $section);
+        $this->assertSame('eyebrow', $section[1]['name']);
+        $this->assertSame('subheading', $section[2]['name']);
+        $this->assertSame('body', $section[3]['name']);
+        $this->assertSame('html', $section[3]['type']);
 
         $grid = pp_get_component_fields('grid');
-        $this->assertCount(4, $grid);
-        $this->assertSame('items[].title', $grid[0]['name']);
-        $this->assertSame('items[].link_url', $grid[2]['name']);
-        $this->assertSame('items[].link_text', $grid[3]['name']);
+        $this->assertCount(6, $grid);
+        $this->assertSame('eyebrow', $grid[0]['name']);
+        $this->assertSame('subheading', $grid[1]['name']);
+        $this->assertSame('items[].title', $grid[2]['name']);
+        $this->assertSame('items[].link_url', $grid[4]['name']);
+        $this->assertSame('items[].link_text', $grid[5]['name']);
 
         $faq = pp_get_component_fields('faq');
         $this->assertCount(2, $faq);
@@ -970,11 +974,12 @@ class OperateTest extends TestCase
         $this->assertSame('items[].answer', $faq[1]['name']);
 
         $cta = pp_get_component_fields('cta');
-        $this->assertCount(4, $cta);
+        $this->assertCount(5, $cta);
         $this->assertSame('title', $cta[0]['name']);
-        $this->assertSame('text', $cta[1]['name']);
-        $this->assertSame('button_text', $cta[2]['name']);
-        $this->assertSame('button_url', $cta[3]['name']);
+        $this->assertSame('eyebrow', $cta[1]['name']);
+        $this->assertSame('text', $cta[2]['name']);
+        $this->assertSame('button_text', $cta[3]['name']);
+        $this->assertSame('button_url', $cta[4]['name']);
 
         // Unmapped type returns empty array.
         $unknown = pp_get_component_fields('nonexistent');
@@ -1458,7 +1463,7 @@ class OperateTest extends TestCase
         $result = pp_inspect_composition($post_id);
         $this->assertCount(1, $result);
         $this->assertArrayHasKey('style_slots', $result[0]);
-        $this->assertCount(30, $result[0]['style_slots']); // hero has 30 slots (24 + 6 cta2-*, #111)
+        $this->assertCount(32, $result[0]['style_slots']); // hero has 32 slots (30 + 2 eyebrow-*, #102)
 
         // Verify slot structure.
         $first_slot = $result[0]['style_slots'][0];

@@ -9,6 +9,7 @@
 
 $id        = $props['id']        ?? '';
 $title     = $props['title']    ?? 'Default Title';
+$eyebrow   = $props['eyebrow']  ?? '';
 $subtitle  = $props['subtitle'] ?? '';
 $cta_text  = $props['cta_text'] ?? '';
 $cta_url   = $props['cta_url']  ?? '#';
@@ -89,6 +90,9 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
     <div class="container">
         <div class="hero__inner">
             <div class="hero__content">
+                <?php if ($eyebrow) : ?>
+                    <span class="hero__eyebrow"><?php echo esc_html($eyebrow); ?></span>
+                <?php endif; ?>
                 <h1 class="hero__title"><?php echo esc_html($title); ?></h1>
 
                 <?php if ($subtitle) : ?>

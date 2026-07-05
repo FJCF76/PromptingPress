@@ -10,6 +10,9 @@
 
 $id               = $props['id']               ?? '';
 $title            = $props['title']            ?? '';
+$eyebrow          = $props['eyebrow']          ?? '';
+$subheading       = $props['subheading']       ?? '';
+$heading_align    = $props['heading_align']    ?? 'start';
 $body             = $props['body']             ?? '';
 $image_url        = $props['image_url']        ?? '';
 $image_alt        = $props['image_alt']        ?? '';
@@ -32,6 +35,12 @@ $allowed_variants = ['default', 'dark', 'inverted'];
 if (!in_array($variant, $allowed_variants, true)) {
     $variant = 'default';
 }
+
+$allowed_heading_aligns = ['start', 'center'];
+if (!in_array($heading_align, $allowed_heading_aligns, true)) {
+    $heading_align = 'start';
+}
+$header_align_class = $heading_align === 'center' ? ' section__header--center' : '';
 
 $variant_class = $variant !== 'default' ? ' pp-section--' . $variant : '';
 $bg_image_class = $background_image ? ' section--has-bg-image' : '';
@@ -58,8 +67,18 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
         <?php if ($layout === 'text-only' || $layout === 'centered') : ?>
 
             <div class="section__body">
-                <?php if ($title) : ?>
-                    <h2 class="section__title"><?php echo esc_html($title); ?></h2>
+                <?php if ($title || $eyebrow || $subheading) : ?>
+                    <div class="section__header<?php echo esc_attr($header_align_class); ?>">
+                        <?php if ($eyebrow) : ?>
+                            <span class="section__eyebrow"><?php echo esc_html($eyebrow); ?></span>
+                        <?php endif; ?>
+                        <?php if ($title) : ?>
+                            <h2 class="section__title"><?php echo esc_html($title); ?></h2>
+                        <?php endif; ?>
+                        <?php if ($subheading) : ?>
+                            <p class="section__subheading"><?php echo esc_html($subheading); ?></p>
+                        <?php endif; ?>
+                    </div>
                 <?php endif; ?>
                 <div class="section__content">
                     <?php echo wp_kses_post($body); ?>
@@ -81,8 +100,18 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                 <?php endif; ?>
 
                 <div class="section__body">
-                    <?php if ($title) : ?>
-                        <h2 class="section__title"><?php echo esc_html($title); ?></h2>
+                    <?php if ($title || $eyebrow || $subheading) : ?>
+                        <div class="section__header<?php echo esc_attr($header_align_class); ?>">
+                            <?php if ($eyebrow) : ?>
+                                <span class="section__eyebrow"><?php echo esc_html($eyebrow); ?></span>
+                            <?php endif; ?>
+                            <?php if ($title) : ?>
+                                <h2 class="section__title"><?php echo esc_html($title); ?></h2>
+                            <?php endif; ?>
+                            <?php if ($subheading) : ?>
+                                <p class="section__subheading"><?php echo esc_html($subheading); ?></p>
+                            <?php endif; ?>
+                        </div>
                     <?php endif; ?>
                     <div class="section__content">
                         <?php echo wp_kses_post($body); ?>

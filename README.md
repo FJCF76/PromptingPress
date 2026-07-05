@@ -13,7 +13,7 @@
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
 [![Tests](https://img.shields.io/badge/Tests-970+_passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-0.16.20-6366F1?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.16.21-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -170,7 +170,7 @@ No build step. No transpilation. No bundler. What you write is what ships.
 
 47 CSS custom properties control the entire visual system: colors, typography (including mono/meta/label/kicker roles), spacing, borders, shadows, measures. Product defaults live in `assets/css/base.css`. Site-specific overrides are stored in the database and **survive theme updates** — no file to lose when the theme ZIP gets replaced.
 
-85 per-instance style slots let AI make this page's hero dark and spacious while that page's hero is tight, accent-bordered, and lifted with a drop shadow — all through composition data, no CSS edits. 9 named recipes (like `dark-spacious` or `compact`) expand to multiple slot values at once.
+95 per-instance style slots let AI make this page's hero dark and spacious while that page's hero is tight, accent-bordered, and lifted with a drop shadow — all through composition data, no CSS edits. 9 named recipes (like `dark-spacious` or `compact`) expand to multiple slot values at once.
 
 ```bash
 # Preview a token change without applying
@@ -419,7 +419,7 @@ PromptingPress is in active development by a single developer. It is not yet pac
 See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 through v0.13.1.
 
 **What exists today (v0.13.1):**
-- 11 components with schema contracts and 85 per-instance style slots, plus named recipes
+- 11 components with schema contracts and 95 per-instance style slots, plus named recipes
 - A contract test that guarantees every style slot a component declares actually reaches the page, honored at every breakpoint
 - Typed action/apply layer with validation, preview, and rollback
 - Bounded presentation controls — button variants, typography roles, shadow/border/radius slots

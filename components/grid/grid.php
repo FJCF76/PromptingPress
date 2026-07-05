@@ -9,8 +9,11 @@
  * @var array $props
  */
 
-$id      = $props['id']      ?? '';
-$title   = $props['title']   ?? '';
+$id            = $props['id']            ?? '';
+$title         = $props['title']         ?? '';
+$eyebrow       = $props['eyebrow']       ?? '';
+$subheading    = $props['subheading']    ?? '';
+$heading_align = $props['heading_align'] ?? 'start';
 $items   = $props['items']   ?? [];
 $variant = $props['variant'] ?? 'default';
 $theme   = $props['theme']   ?? 'default';
@@ -25,6 +28,12 @@ if (!in_array($theme, $allowed_themes, true)) {
     $theme = 'default';
 }
 
+$allowed_heading_aligns = ['start', 'center'];
+if (!in_array($heading_align, $allowed_heading_aligns, true)) {
+    $heading_align = 'start';
+}
+$header_align_class = $heading_align === 'center' ? ' grid__header--center' : '';
+
 $is_steps      = $variant === 'steps';
 $variant_class = $is_steps ? ' grid--steps' : '';
 $theme_class   = $theme !== 'default' ? ' grid--' . $theme : '';
@@ -37,8 +46,18 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
 <section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($variant_class); ?><?php echo esc_attr($theme_class); ?>" data-pp-component="grid"<?php echo $style_attr; ?>>
     <div class="container">
 
-        <?php if ($title) : ?>
-            <h2 class="grid__heading"><?php echo esc_html($title); ?></h2>
+        <?php if ($title || $eyebrow || $subheading) : ?>
+            <div class="grid__header<?php echo esc_attr($header_align_class); ?>">
+                <?php if ($eyebrow) : ?>
+                    <span class="grid__eyebrow"><?php echo esc_html($eyebrow); ?></span>
+                <?php endif; ?>
+                <?php if ($title) : ?>
+                    <h2 class="grid__heading"><?php echo esc_html($title); ?></h2>
+                <?php endif; ?>
+                <?php if ($subheading) : ?>
+                    <p class="grid__subheading"><?php echo esc_html($subheading); ?></p>
+                <?php endif; ?>
+            </div>
         <?php endif; ?>
 
         <?php if (!empty($items)) : ?>

@@ -253,6 +253,19 @@
   max-width: var(--hero-content-width, var(--measure-centered));
 }
 
+.hero__eyebrow {
+  display: inline-block;
+  padding: 0.35rem 0.85rem;
+  margin-bottom: var(--space-sm);
+  border-radius: 3px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--hero-eyebrow-color, var(--color-text));
+  background: var(--hero-eyebrow-bg, var(--color-surface-accent));
+}
+
 .hero__title {
   font-size: var(--hero-title-size, clamp(2.5rem, 5vw, 4rem));
   font-weight: var(--hero-title-weight, var(--font-weight-heading));
@@ -626,9 +639,32 @@
   max-width: 40rem;
 }
 
+.section__header--center {
+  text-align: center;
+}
+
+.section__eyebrow {
+  display: inline-block;
+  padding: 0.35rem 0.85rem;
+  margin-bottom: var(--space-sm);
+  border-radius: 3px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--section-eyebrow-color, var(--color-text));
+  background: var(--section-eyebrow-bg, var(--color-surface-accent));
+}
+
 .section__title {
   font-size: var(--section-title-size, inherit);
   color: var(--section-title-color, var(--color-text));
+  margin-bottom: var(--space-md);
+}
+
+.section__subheading {
+  color: var(--section-subheading-color, var(--color-muted));
+  margin-top: 0;
   margin-bottom: var(--space-md);
 }
 
@@ -827,11 +863,48 @@
   background: var(--grid-bg, transparent);
 }
 
+.grid__header--center {
+  text-align: center;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.grid__eyebrow {
+  display: inline-block;
+  padding: 0.35rem 0.85rem;
+  margin-bottom: var(--space-sm);
+  border-radius: 3px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--grid-eyebrow-color, var(--color-text));
+  background: var(--grid-eyebrow-bg, var(--color-surface-accent));
+}
+
 .grid__heading {
   color: var(--grid-heading-color, var(--color-text));
   font-size: var(--grid-heading-size, inherit);
   max-width: var(--grid-heading-max-width, 40rem);
   margin-bottom: var(--space-lg);
+}
+
+.grid__header--center .grid__heading {
+  max-width: var(--grid-heading-max-width, 40rem);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.grid__subheading {
+  color: var(--grid-subheading-color, var(--color-muted));
+  margin-top: 0;
+  margin-bottom: var(--space-lg);
+  max-width: 40rem;
+}
+
+.grid__header--center .grid__subheading {
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .grid__list {
@@ -1102,6 +1175,19 @@
   display: flex;
   flex-direction: column;
   gap: var(--cta-inner-gap, var(--space-lg));
+}
+
+.cta__eyebrow {
+  display: inline-block;
+  padding: 0.35rem 0.85rem;
+  margin-bottom: var(--space-sm);
+  border-radius: 3px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cta-eyebrow-color, var(--color-text));
+  background: var(--cta-eyebrow-bg, var(--color-surface-accent));
 }
 
 .cta__title {
@@ -2731,7 +2817,10 @@ main > [data-pp-component] + [data-pp-component] {
   padding-bottom: clamp(4.25rem, 6vw, 5rem);
 }
 
-.hero__eyebrow,
+/* Page-specific texture flourish (4 benchmark pages) layered ON TOP of the
+   general slot-driven background (issue 102) — an operator setting
+   --hero-eyebrow-bg for one of these pages still takes effect as the base
+   layer; only the decorative line pattern is page-specific. */
 #home-hero .hero__eyebrow,
 #how-hero .hero__eyebrow,
 #agencies-hero .hero__eyebrow,
@@ -2740,8 +2829,8 @@ main > [data-pp-component] + [data-pp-component] {
   border-color: var(--color-border);
   background:
     linear-gradient(90deg, rgba(37, 99, 235, 0.06) 1px, transparent 1px) 0 0 / 1.4rem 100%,
-    var(--color-surface-accent);
-  color: var(--color-text);
+    var(--hero-eyebrow-bg, var(--color-surface-accent));
+  color: var(--hero-eyebrow-color, var(--color-text));
 }
 
 .hero .pp-workflow-surface,

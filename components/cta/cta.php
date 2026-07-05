@@ -10,6 +10,7 @@
 
 $id               = $props['id']               ?? '';
 $title            = $props['title']            ?? '';
+$eyebrow          = $props['eyebrow']          ?? '';
 $text             = $props['text']             ?? '';
 $button_text      = $props['button_text']      ?? 'Get Started';
 $button_url       = $props['button_url']       ?? '#';
@@ -58,6 +59,9 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
     <div class="container">
         <div class="cta__inner">
             <div class="cta__text">
+                <?php if ($eyebrow) : ?>
+                    <span class="cta__eyebrow"><?php echo esc_html($eyebrow); ?></span>
+                <?php endif; ?>
                 <?php if ($title) : ?>
                     <h2 class="cta__title"><?php echo esc_html($title); ?></h2>
                 <?php endif; ?>

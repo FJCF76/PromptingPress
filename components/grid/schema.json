@@ -14,6 +14,25 @@
       "default": "",
       "description": "Section heading above the grid. Omit if the context makes it clear."
     },
+    "eyebrow": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional short kicker/label rendered as a pill above the title."
+    },
+    "subheading": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional supporting line below the title."
+    },
+    "heading_align": {
+      "type": "enum",
+      "values": ["start", "center"],
+      "required": false,
+      "default": "start",
+      "description": "Alignment of the eyebrow/title/subheading header block. 'start' = left-aligned (default, unchanged historical behavior). 'center' = centered."
+    },
     "variant": {
       "type": "enum",
       "values": ["default", "steps"],
@@ -53,6 +72,9 @@
       "--grid-padding-bottom": { "type": "length", "default": "var(--space-xl)", "description": "Bottom padding of the grid section" },
       "--grid-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
       "--grid-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Heading text color" },
+      "--grid-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color" },
+      "--grid-eyebrow-bg": { "type": "color", "default": "var(--color-surface-accent)", "description": "Eyebrow pill background color" },
+      "--grid-subheading-color": { "type": "color", "default": "var(--color-muted)", "description": "Subheading text color" },
       "--grid-heading-size": { "type": "length", "default": "inherit", "description": "Heading font size" },
       "--grid-heading-max-width": { "type": "length", "default": "40rem", "description": "Heading maximum width — increase to let long headings use available horizontal space" },
       "--grid-gap": { "type": "length", "default": "var(--space-lg)", "description": "Gap between grid cards" },

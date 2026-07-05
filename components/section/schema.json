@@ -14,6 +14,25 @@
       "default": "",
       "description": "Section heading. Omit to render the body without a heading."
     },
+    "eyebrow": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional short kicker/label rendered as a pill above the title."
+    },
+    "subheading": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional supporting line below the title (distinct from body, the section's main content)."
+    },
+    "heading_align": {
+      "type": "enum",
+      "values": ["start", "center"],
+      "required": false,
+      "default": "start",
+      "description": "Alignment of the eyebrow/title/subheading header block. 'start' = left-aligned (default, unchanged historical behavior). 'center' = centered."
+    },
     "body": {
       "type": "string",
       "required": true,
@@ -64,6 +83,9 @@
       "--section-accent": { "type": "color", "default": "var(--color-accent)", "description": "Link color" },
       "--section-title-size": { "type": "length", "default": "inherit", "description": "Title font size" },
       "--section-title-color": { "type": "color", "default": "var(--color-text)", "description": "Title text color" },
+      "--section-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color" },
+      "--section-eyebrow-bg": { "type": "color", "default": "var(--color-surface-accent)", "description": "Eyebrow pill background color" },
+      "--section-subheading-color": { "type": "color", "default": "var(--color-muted)", "description": "Subheading text color" },
       "--section-body-width": { "type": "length", "default": "42rem", "description": "Max width of the content column" },
       "--section-border-color": { "type": "color", "default": "transparent", "description": "Top and bottom border color" },
       "--section-border-width": { "type": "length", "default": "0", "description": "Top and bottom border width" },

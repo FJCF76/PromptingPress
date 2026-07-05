@@ -4,7 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [v0.16.20] — 2026-07-05 — Fix: Secondary CTA Buttons No Longer Render Invisible
+## [v0.16.21] — 2026-07-05 — New: Eyebrow Pills and Subheadings for Every Section
+
+**Professional landing pages almost always lead a section with three things: a small kicker label, a centered heading, and a supporting line underneath. PromptingPress could render none of that — every section, grid, and CTA heading was a lone left-aligned line.** That gap was one of the biggest reasons AI-built pages looked template-y instead of designed. Hero already stored an eyebrow value in some pages, but it never actually showed up.
+
+### Added
+- Hero, grid, section, and CTA all support an `eyebrow` — a short label rendered as a styleable pill above the heading (e.g. "NEW", "PLUGIN OFICIAL").
+- Grid and section also get a `subheading` (a supporting line under the title) and a `heading_align` option to center just the heading block — independent of the section's overall layout. (Hero and CTA already had equivalent tools: hero's `subtitle` and layout `variant`, CTA's `text` and layout `variant`.)
+
+### Fixed
+- Hero's `eyebrow` field now actually renders — previously the composition could store a value there with no visible effect.
+
+### For contributors
+- 10 new style slots for eyebrow/subheading colors across the 4 components (95 total, up from 85). New props registered in `pp_register_component_fields()` for `patch`-command addressability, consistent with existing content fields.
+- 15 new PHPUnit tests; fixed 5 existing tests carrying hardcoded slot counts, per-component field-index assertions, or doc-sync counts that this change correctly invalidates.
 
 **Set a CTA or hero's secondary button to "outline," "ghost," or "secondary," and it could render as a solid block of color with text you couldn't read — the button's own background silently overpowered the style it was supposed to have.** This wasn't a rare edge case: it happened to any secondary/outline/ghost button on a CTA block, confirmed on real pages during a benchmark build (an orange button on an orange background, effectively unreadable).
 

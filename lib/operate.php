@@ -1170,11 +1170,15 @@ pp_register_component_fields('hero', [
 ]);
 
 pp_register_component_fields('section', [
-    ['name' => 'title', 'type' => 'string'],
-    ['name' => 'body',  'type' => 'html'],
+    ['name' => 'title',      'type' => 'string'],
+    ['name' => 'eyebrow',    'type' => 'string'],
+    ['name' => 'subheading', 'type' => 'string'],
+    ['name' => 'body',       'type' => 'html'],
 ]);
 
 pp_register_component_fields('grid', [
+    ['name' => 'eyebrow',           'type' => 'string'],
+    ['name' => 'subheading',        'type' => 'string'],
     ['name' => 'items[].title',     'type' => 'string'],
     ['name' => 'items[].text',      'type' => 'string'],
     ['name' => 'items[].link_url',  'type' => 'url'],
@@ -1188,6 +1192,7 @@ pp_register_component_fields('faq', [
 
 pp_register_component_fields('cta', [
     ['name' => 'title',       'type' => 'string'],
+    ['name' => 'eyebrow',     'type' => 'string'],
     ['name' => 'text',        'type' => 'string'],
     ['name' => 'button_text', 'type' => 'string'],
     ['name' => 'button_url',  'type' => 'url'],
