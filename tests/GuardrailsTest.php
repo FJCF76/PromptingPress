@@ -450,6 +450,80 @@ class GuardrailsTest extends TestCase
         $this->assertNotContains('consecutive_text_sections', $types);
     }
 
+    // ── Consecutive Narrow Width / Compact Spacing Smells (issue 51) ──────
+
+    public function testSmellsThreeConsecutiveNarrowWidthTriggersWarning(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['title' => 'Welcome', 'width' => 'narrow']],
+            ['component' => 'section', 'props' => ['body' => 'A', 'width' => 'narrow']],
+            ['component' => 'grid', 'props' => ['items' => [], 'width' => 'narrow']],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertContains('consecutive_narrow_width', $types);
+    }
+
+    public function testSmellsTwoConsecutiveNarrowWidthDoesNotTrigger(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['title' => 'Welcome', 'width' => 'narrow']],
+            ['component' => 'section', 'props' => ['body' => 'A', 'width' => 'narrow']],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertNotContains('consecutive_narrow_width', $types);
+    }
+
+    public function testSmellsNarrowWidthCounterResetsOnDefaultWidth(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['title' => 'Welcome', 'width' => 'narrow']],
+            ['component' => 'section', 'props' => ['body' => 'A', 'width' => 'narrow']],
+            ['component' => 'grid', 'props' => ['items' => [], 'width' => 'default']],
+            ['component' => 'section', 'props' => ['body' => 'B', 'width' => 'narrow']],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertNotContains('consecutive_narrow_width', $types);
+    }
+
+    public function testSmellsThreeConsecutiveCompactSpacingTriggersWarning(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['title' => 'Welcome', 'spacing' => 'compact']],
+            ['component' => 'section', 'props' => ['body' => 'A', 'spacing' => 'compact']],
+            ['component' => 'grid', 'props' => ['items' => [], 'spacing' => 'compact']],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertContains('consecutive_compact_spacing', $types);
+    }
+
+    public function testSmellsTwoConsecutiveCompactSpacingDoesNotTrigger(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['title' => 'Welcome', 'spacing' => 'compact']],
+            ['component' => 'section', 'props' => ['body' => 'A', 'spacing' => 'compact']],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertNotContains('consecutive_compact_spacing', $types);
+    }
+
+    public function testSmellsCompactSpacingCounterResetsOnDefaultSpacing(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['title' => 'Welcome', 'spacing' => 'compact']],
+            ['component' => 'section', 'props' => ['body' => 'A', 'spacing' => 'compact']],
+            ['component' => 'grid', 'props' => ['items' => [], 'spacing' => 'spacious']],
+            ['component' => 'section', 'props' => ['body' => 'B', 'spacing' => 'compact']],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertNotContains('consecutive_compact_spacing', $types);
+    }
+
     public function testHtmlCommentPresentWhenDebugAndConflicts(): void
     {
         $GLOBALS['_pp_test_store']['custom_css'] = '.cta { margin: 0; }';

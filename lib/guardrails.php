@@ -263,8 +263,10 @@ function pp_validate_composition_styling(array $composition): array {
 /**
  * Validates composition for layout smell patterns.
  *
- * Detects composition patterns that produce visually weak desktop output.
- * Currently checks for left-aligned heroes without balancing images.
+ * Detects composition patterns that produce visually weak desktop output:
+ * left-aligned heroes without balancing images, runs of text-only sections,
+ * and runs of narrow-width or compact-spacing components (issue 51) that
+ * over-constrain page rhythm even though each component is individually valid.
  *
  * @param  array $composition  Composition array (component + props).
  * @return array[]             Each entry: ['type' => string, 'message' => string, 'index' => int]
@@ -273,6 +275,8 @@ function pp_validate_composition_smells(array $composition): array {
     $warnings = [];
 
     $consecutive_text_only = 0;
+    $consecutive_narrow_width = 0;
+    $consecutive_compact_spacing = 0;
 
     foreach ($composition as $i => $item) {
         // Defensive: a malformed composition that bypassed validation may
@@ -309,6 +313,38 @@ function pp_validate_composition_smells(array $composition): array {
                 'index' => $i,
             ];
             $consecutive_text_only = 0; // Reset to avoid repeated warnings.
+        }
+
+        // Track consecutive narrow-width components (page rhythm over-constrained)
+        if (($props['width'] ?? 'default') === 'narrow') {
+            $consecutive_narrow_width++;
+        } else {
+            $consecutive_narrow_width = 0;
+        }
+
+        if ($consecutive_narrow_width >= 3) {
+            $warnings[] = [
+                'type' => 'consecutive_narrow_width',
+                'message' => '3+ consecutive components using width "narrow". Repeated width constraints often over-narrow the page rather than fixing the underlying presentation issue.',
+                'index' => $i,
+            ];
+            $consecutive_narrow_width = 0; // Reset to avoid repeated warnings.
+        }
+
+        // Track consecutive compact-spacing components (page rhythm over-constrained)
+        if (($props['spacing'] ?? 'default') === 'compact') {
+            $consecutive_compact_spacing++;
+        } else {
+            $consecutive_compact_spacing = 0;
+        }
+
+        if ($consecutive_compact_spacing >= 3) {
+            $warnings[] = [
+                'type' => 'consecutive_compact_spacing',
+                'message' => '3+ consecutive components using spacing "compact". Repeated compact spacing tends to cramp the page rather than improving it.',
+                'index' => $i,
+            ];
+            $consecutive_compact_spacing = 0; // Reset to avoid repeated warnings.
         }
     }
 

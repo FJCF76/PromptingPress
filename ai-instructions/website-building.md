@@ -56,3 +56,10 @@ At 1280px+ viewport width, verify:
 - Section body text has comfortable reading measure (not too narrow, not edge-to-edge)
 - Grid cards have enough internal padding to feel substantial, not sparse
 - Homepage has a clear visual anchor (usually a centered hero)
+
+## Composition is not a presentation-polish tool
+
+`width`, `spacing`, and `content_measure` props are structural knobs, not fixes for a page that feels cramped, memo-like, or visually weak (issue 51). Reaching for `width: narrow` or `spacing: compact` repeatedly across a page is a symptom, not a solution — it produces a composition that is structurally valid but visually worse. If a page feels wrong:
+- Prefer a `hero`/`section` variant change, an image, or a different component (grid, stats) to break up rhythm — not a narrower/tighter version of the same layout.
+- A `hero` with `variant: left` needs a balancing image; without one, use `centered` or `split`.
+- Three or more consecutive components with `width: narrow`, or three or more with `spacing: compact`, will surface as a `consecutive_narrow_width`/`consecutive_compact_spacing` composition smell in `wp pp check page` — treat that as a signal to change the component or its content, not to suppress the warning by varying the count.

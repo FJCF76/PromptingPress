@@ -4,6 +4,19 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.34] — 2026-07-05 — New: Guardrail Warnings for Over-Narrow, Over-Compact Page Rhythm
+
+**A page could be built entirely out of structurally valid components and still land visually weak — three or more sections in a row set to `width: narrow` or `spacing: compact` produce a cramped, memo-like page, and nothing in the system flagged it. The two composition smells `pp_validate_composition_smells()` already caught (`hero_left_no_image`, `consecutive_text_sections`) covered the alignment/rhythm failure modes identified in a live branding pass, but not the over-constraining-via-props pattern.**
+
+### Added
+- Two new composition smells, surfaced by `wp pp check page` alongside the existing ones: `consecutive_narrow_width` (3+ consecutive components with `width: narrow`) and `consecutive_compact_spacing` (3+ consecutive components with `spacing: compact`).
+- `ai-instructions/website-building.md` gained a "Composition is not a presentation-polish tool" section: `width`/`spacing`/`content_measure` are structural knobs, not fixes for a page that feels cramped or weak — reaching for them repeatedly is the failure mode, not a workaround.
+
+### For contributors
+- Both smells share the same counter-and-reset shape as the existing `consecutive_text_sections` check in `lib/guardrails.php` — increment on match, reset on the first component that breaks the run, fire once at 3 and reset again to avoid repeated warnings for the same run.
+- Counted across any component type (hero/section/grid all expose `width`/`spacing`), not scoped to one component, since the failure mode is page-level rhythm, not a single component's props.
+- 6 new PHPUnit tests. This is the retitled/narrowed remainder of issue 51 — the hero-left and consecutive-text smells it originally proposed shipped earlier; the knob-renaming asks (`width: narrow` → something more specific) are tracked separately in #69.
+
 ## [v0.16.33] — 2026-07-05 — Fix: Search Returned One Result's Content Instead of a Results List
 
 **A search request had no dedicated template, so it fell through WordPress's template hierarchy to the single-page template and rendered the first matched result's content as a full standalone page — no "N results for…" heading, no results list, no pagination, and no empty state when nothing matched.**
