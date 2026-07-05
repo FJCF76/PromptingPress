@@ -29,11 +29,11 @@ pp_base_template(function () {
         'variant' => 'left',
     ]);
 
-    // Iterate WordPress's own main query for this route (#126) — it is
+    // Iterate WordPress's own main query for this route (issue 126) — it is
     // already correctly filtered for whichever archive this is (category,
-    // tag, date, author). A fresh WP_Query here can only approximate that
-    // context and easily gets it wrong (e.g. a hardcoded post_type showing
-    // every post on a category archive, regardless of category).
+    // tag, date, author). A fresh query object here can only approximate
+    // that context and easily gets it wrong (e.g. a hardcoded post_type
+    // showing every post on a category archive, regardless of category).
     $items = [];
     pp_the_loop(pp_main_query(), function () use (&$items) {
         $items[] = [
