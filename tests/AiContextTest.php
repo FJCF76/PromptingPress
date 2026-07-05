@@ -357,6 +357,47 @@ class AiContextTest extends TestCase
         $this->assertNotContains(64, $ids);
     }
 
+    public function testMediaInventoryReturnsEmptyArrayWhenLibraryEmpty(): void
+    {
+        // Direct return-value assertion (issue 16) — the existing
+        // testSystemPromptShowsNoImagesWhenMediaLibraryEmpty only asserts the
+        // rendered prompt text, not pp_ai_media_inventory()'s own contract.
+        $this->assertSame([], pp_ai_media_inventory());
+    }
+
+    public function testMediaInventoryItemShapeHasAllSevenKeys(): void
+    {
+        // Direct return-value assertion (issue 16) — existing tests exercise
+        // individual fields (filename/url/dimensions) via the rendered system
+        // prompt, not the function's own return-array contract.
+        $GLOBALS['_pp_test_store']['posts'][70] = [
+            'post_type'      => 'attachment',
+            'post_status'    => 'inherit',
+            'post_mime_type' => 'image/jpeg',
+        ];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][70] = true;
+
+        $media = pp_ai_media_inventory();
+        $item = null;
+        foreach ($media as $m) {
+            if ($m['id'] === 70) {
+                $item = $m;
+                break;
+            }
+        }
+
+        $this->assertNotNull($item, 'Seeded attachment 70 must appear in the inventory.');
+        $this->assertSame(
+            ['id', 'filename', 'url', 'alt', 'mime_type', 'width', 'height'],
+            array_keys($item)
+        );
+        $this->assertSame('image-70.jpg', $item['filename']);
+        $this->assertSame('https://example.com/wp-content/uploads/image-70.jpg', $item['url']);
+        $this->assertSame('image/jpeg', $item['mime_type']);
+        $this->assertSame(1200, $item['width']);
+        $this->assertSame(800, $item['height']);
+    }
+
     // ── Component Summary ────────────────────────────────────────────────
 
     public function testSummarizeComponentIncludesVariant(): void

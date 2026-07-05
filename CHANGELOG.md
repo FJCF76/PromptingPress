@@ -4,6 +4,19 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.45] — 2026-07-05 — Test Coverage: AI Chat Trust-Boundary Gaps From v0.2.0 Review
+
+**A v0.2.0 code review identified several unit test coverage gaps in the AI chat PHP layer, deferred as non-blocking since live QA had already verified the functional paths end-to-end. Re-auditing against current code found most of the original gaps closed by later work (#131's capability-model tests are a strict superset of what was originally asked); five genuine gaps remained.**
+
+### For contributors
+- `pp_ai_coerce_params()`: added tests for int coercion (numeric and non-numeric strings), bool coercion, malformed-JSON array handling, and the unknown-action/apply early return — previously only the valid-JSON array path had a test.
+- `pp_ai_media_inventory()`: added a direct empty-library → `[]` assertion and an item-shape test asserting the exact 7-key contract (`id`, `filename`, `url`, `alt`, `mime_type`, `width`, `height`) — existing tests only exercised it indirectly through the rendered system prompt.
+- `restore_page` now has a preview-path test (`trash_page`/`unpublish_page` already had one; `restore_page` was the one action missing it).
+- `pp_ai_parse_error_response()`: added an HTTP 403 test (same code branch as 401, which was tested; 403 wasn't).
+- `pp_ai_validate_proposal()`: added a test for `['steps' => []]` — a genuinely different code path than the already-tested "no `steps` key at all" case.
+- New `_pp_ai_chat_fallback_response()` in `lib/ai-chat.php`, extracted from the anonymous `wp_ajax_pp_ai_chat` closure so its guard paths (permission denial, unconfigured provider, empty messages) are directly testable — `add_action()` is a no-op in the test bootstrap, so the closure body was previously unreachable from any test. Same extraction pattern already used for `_pp_required_caps_for()`/`pp_ai_coerce_params()` in this file; the AJAX closure is now a thin adapter translating the result to `wp_send_json_success()`/`wp_send_json_error()`. No behavior change.
+- 16 new PHPUnit tests total.
+
 ## [v0.16.44] — 2026-07-05 — Fix: Sticky Header Covering Section Headings on Anchor Jump
 
 **A direct link or scripted jump to a section anchor (every content component supports an `id` prop for this) scrolled the target to the very top of the viewport — landing it under the sticky header instead of below it. Worst on mobile, where the header is proportionally taller, this covered the section heading entirely: a page could pass clean overflow/metric checks while still rendering a broken first impression for anyone landing directly on a section.**

@@ -958,29 +958,40 @@ add_action('wp_ajax_pp_ai_execute_batch', function () {
 
 // ── AJAX: Non-Streaming Chat Fallback ──────────────────────────────────────
 
-add_action('wp_ajax_pp_ai_chat', function () {
-    check_ajax_referer('pp_ai_stream', 'nonce');
-
+/**
+ * Core logic for the non-streaming chat fallback, extracted from the
+ * wp_ajax_pp_ai_chat closure so it's directly unit-testable (issue 16) —
+ * add_action() is a no-op in the test bootstrap, so the closure body was
+ * previously unreachable from any test. Mirrors the same extraction
+ * pattern already used for _pp_required_caps_for()/pp_ai_coerce_params()
+ * in this file: pull the guard/orchestration logic into a plain function,
+ * leave the AJAX closure as a thin adapter that translates the result to
+ * wp_send_json_success()/wp_send_json_error().
+ *
+ * @param  array $post  $_POST-shaped input: ['messages' => array, 'page_id' => mixed].
+ * @return array        ['ok' => bool, 'data' => mixed] — 'data' is the error
+ *                       string when !ok, or the success payload
+ *                       (['content', 'proposal']) when ok.
+ */
+function _pp_ai_chat_fallback_response(array $post): array {
     if (!current_user_can('edit_posts')) {
-        wp_send_json_error('Permission denied.');
+        return ['ok' => false, 'data' => 'Permission denied.'];
     }
 
     if (!pp_ai_is_configured()) {
-        wp_send_json_error('AI provider not configured. Check Settings > Connectors.');
+        return ['ok' => false, 'data' => 'AI provider not configured. Check Settings > Connectors.'];
     }
-
-    set_time_limit(0);
 
     // WordPress magic-quotes every $_POST value during bootstrap
     // (wp_magic_quotes()); the SSE path is immune (reads raw JSON from
     // php://input) but this fallback reads $_POST directly, so every
     // quote/backslash in the conversation must be unslashed before it
     // reaches the provider.
-    $conversation = isset($_POST['messages']) ? wp_unslash((array) $_POST['messages']) : [];
-    $page_id      = isset($_POST['page_id']) ? (int) $_POST['page_id'] : null;
+    $conversation = isset($post['messages']) ? wp_unslash((array) $post['messages']) : [];
+    $page_id      = isset($post['page_id']) ? (int) $post['page_id'] : null;
 
     if (empty($conversation)) {
-        wp_send_json_error('No messages provided.');
+        return ['ok' => false, 'data' => 'No messages provided.'];
     }
 
     $system_prompt = pp_ai_system_prompt();
@@ -988,13 +999,29 @@ add_action('wp_ajax_pp_ai_chat', function () {
     $result = pp_ai_completion($messages);
 
     if (!$result['ok']) {
-        wp_send_json_error($result['error']);
+        return ['ok' => false, 'data' => $result['error']];
     }
 
     $proposal = pp_ai_parse_proposal($result['full_response']);
 
-    wp_send_json_success([
-        'content'  => $result['full_response'],
-        'proposal' => $proposal,
-    ]);
+    return [
+        'ok'   => true,
+        'data' => [
+            'content'  => $result['full_response'],
+            'proposal' => $proposal,
+        ],
+    ];
+}
+
+add_action('wp_ajax_pp_ai_chat', function () {
+    check_ajax_referer('pp_ai_stream', 'nonce');
+    set_time_limit(0);
+
+    $result = _pp_ai_chat_fallback_response($_POST);
+
+    if ($result['ok']) {
+        wp_send_json_success($result['data']);
+    } else {
+        wp_send_json_error($result['data']);
+    }
 });

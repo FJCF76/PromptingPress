@@ -250,6 +250,15 @@ class AiProviderTest extends TestCase
         $this->assertStringContainsString('Settings > Connectors', $msg);
     }
 
+    public function testParseErrorResponse403(): void
+    {
+        // Same branch as 401 (if ($http_code === 401 || $http_code === 403)),
+        // untested until now (issue 16).
+        $msg = pp_ai_parse_error_response(403, '');
+        $this->assertStringContainsString('rejected the API key', $msg);
+        $this->assertStringContainsString('Settings > Connectors', $msg);
+    }
+
     public function testParseErrorResponse429(): void
     {
         $msg = pp_ai_parse_error_response(429, '');
@@ -379,6 +388,17 @@ class AiProviderTest extends TestCase
     public function testValidateProposalRejectsNoSteps(): void
     {
         $proposal = ['proposal' => true];
+        $this->assertNull(pp_ai_validate_proposal($proposal));
+    }
+
+    public function testValidateProposalRejectsEmptyStepsArray(): void
+    {
+        // Distinct from testValidateProposalRejectsNoSteps: 'steps' key IS
+        // present here (an empty array), which hits a different branch
+        // (empty($valid_steps) && empty($rejected_steps)) than the missing-
+        // key case above (!isset($proposal['steps'])) — untested until now
+        // (issue 16).
+        $proposal = ['proposal' => true, 'steps' => []];
         $this->assertNull(pp_ai_validate_proposal($proposal));
     }
 

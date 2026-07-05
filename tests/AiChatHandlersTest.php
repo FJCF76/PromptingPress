@@ -487,6 +487,71 @@ class AiChatHandlersTest extends TestCase
         $this->assertSame($composition, $params['composition']);
     }
 
+    // ── pp_ai_coerce_params() type coercion (issue 16) ──────────────────────
+    //
+    // The double-unslash regression test above only exercises the array/
+    // valid-JSON branch. These cover the remaining branches: int, bool,
+    // malformed JSON, and the unknown-action/apply early return.
+
+    public function testCoerceParamsConvertsNumericStringToInt(): void
+    {
+        // update_page_title's post_id is declared 'type' => 'int'.
+        $params = pp_ai_coerce_params('action', 'update_page_title', ['post_id' => '42', 'title' => 'New Title']);
+
+        $this->assertSame(42, $params['post_id']);
+        $this->assertIsInt($params['post_id']);
+    }
+
+    public function testCoerceParamsLeavesNonNumericStringUnchangedForIntParam(): void
+    {
+        // is_numeric('abc') is false, so the int branch's guard never fires
+        // and the original (invalid) string passes through untouched — the
+        // action's own structural/semantic validate() is what's expected to
+        // reject it, not coercion.
+        $params = pp_ai_coerce_params('action', 'update_page_title', ['post_id' => 'abc', 'title' => 'New Title']);
+
+        $this->assertSame('abc', $params['post_id']);
+    }
+
+    public function testCoerceParamsConvertsStringToBool(): void
+    {
+        // No shipped action/apply currently declares a bool-typed param —
+        // register a throwaway one (same pattern as
+        // testRequiredCapsForUnrecognizedScopeFailsClosed above) purely to
+        // exercise the bool branch.
+        pp_register_action('_test_bool_param_action', [
+            'scope'  => 'site',
+            'params' => ['enabled' => ['type' => 'bool', 'required' => false]],
+        ]);
+        try {
+            $params = pp_ai_coerce_params('action', '_test_bool_param_action', ['enabled' => 'true']);
+            $this->assertTrue($params['enabled']);
+
+            $params = pp_ai_coerce_params('action', '_test_bool_param_action', ['enabled' => 'false']);
+            $this->assertFalse($params['enabled']);
+        } finally {
+            unset($GLOBALS['_pp_actions']['_test_bool_param_action']);
+        }
+    }
+
+    public function testCoerceParamsKeepsOriginalStringOnMalformedJson(): void
+    {
+        // is_array(json_decode('not json', true)) is false, so the array
+        // branch's guard never fires and the original malformed string
+        // passes through untouched.
+        $params = pp_ai_coerce_params('action', 'update_composition', ['composition' => 'not valid json']);
+
+        $this->assertSame('not valid json', $params['composition']);
+    }
+
+    public function testCoerceParamsReturnsParamsUnchangedForUnknownActionName(): void
+    {
+        $input = ['post_id' => '42', 'title' => 'x'];
+        $params = pp_ai_coerce_params('action', 'not_a_real_action', $input);
+
+        $this->assertSame($input, $params);
+    }
+
     public function testGetUnslashedPostParamsRestoresPlainStringValues(): void
     {
         // Regression (#125): before this fix, plain string params (e.g.
@@ -755,5 +820,51 @@ class AiChatHandlersTest extends TestCase
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertSame('invalid_media_url', $result->get_error_code());
         $this->assertStringContainsString('does not match any file', $result->get_error_message());
+    }
+
+    // ── Non-Streaming Chat Fallback (issue 16) ──────────────────────────────
+    //
+    // _pp_ai_chat_fallback_response() was extracted from the wp_ajax_pp_ai_chat
+    // closure specifically so these guard paths are directly testable —
+    // add_action() is a no-op in the test bootstrap, so the closure body was
+    // previously unreachable from any test.
+
+    public function testFallbackResponseDeniesWithoutEditPostsCapability(): void
+    {
+        $GLOBALS['_pp_test_user_caps'] = ['edit_posts' => false];
+
+        $result = _pp_ai_chat_fallback_response(['messages' => [['role' => 'user', 'content' => 'hi']]]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('Permission denied.', $result['data']);
+    }
+
+    public function testFallbackResponseErrorsWhenProviderNotConfigured(): void
+    {
+        // No connectors configured — setUp()'s store starts empty.
+        $result = _pp_ai_chat_fallback_response(['messages' => [['role' => 'user', 'content' => 'hi']]]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not configured', $result['data']);
+    }
+
+    public function testFallbackResponseErrorsWithEmptyMessages(): void
+    {
+        $this->configureConnector('anthropic', 'Anthropic', 'sk-ant-test');
+
+        $result = _pp_ai_chat_fallback_response(['messages' => []]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('No messages provided.', $result['data']);
+    }
+
+    public function testFallbackResponseErrorsWhenMessagesKeyMissingEntirely(): void
+    {
+        $this->configureConnector('anthropic', 'Anthropic', 'sk-ant-test');
+
+        $result = _pp_ai_chat_fallback_response([]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('No messages provided.', $result['data']);
     }
 }

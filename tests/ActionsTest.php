@@ -1091,6 +1091,22 @@ class ActionsTest extends TestCase
         $this->assertStringContainsString('not found', $result['error']);
     }
 
+    public function testRestorePagePreview(): void
+    {
+        // Mirrors testTrashPagePreview/testUnpublishPagePreview — restore_page
+        // was the one action of the three missing preview coverage (issue 16).
+        $id = pp_create_page('Preview Restore', 'draft');
+        pp_execute_action('trash_page', ['post_id' => $id]);
+        $this->assertEquals('trash', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+
+        $result = pp_preview_action('restore_page', ['post_id' => $id]);
+        $this->assertTrue($result['ok']);
+        $this->assertEquals('trash', $result['before']);
+        $this->assertEquals('draft', $result['after']);
+        // Page should still be in the trash after preview.
+        $this->assertEquals('trash', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
     // ── Action: unpublish_page ────────────────────────────────────────────
 
     public function testUnpublishPageExecute(): void
