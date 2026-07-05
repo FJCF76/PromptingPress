@@ -261,12 +261,64 @@ function pp_validate_composition_styling(array $composition): array {
 }
 
 /**
+ * Returns true when a structured-content component's configured items would
+ * render no useful frontend output (issue 87) — either the items array is
+ * empty, or every item is missing the one subfield its render path requires
+ * to produce output at all (mirrors each component's own render-time skip
+ * logic in components/*.php, not a duplicate/independent content check).
+ *
+ * @param  string $component  Component slug.
+ * @param  array  $props      Component props.
+ * @return bool
+ */
+function _pp_component_is_empty(string $component, array $props): bool {
+    switch ($component) {
+        case 'faq':
+            $items = is_array($props['items'] ?? null) ? $props['items'] : [];
+            if (empty($items)) {
+                return true;
+            }
+            foreach ($items as $item) {
+                if (!empty($item['question'] ?? '')) {
+                    return false;
+                }
+            }
+            return true;
+
+        case 'logos':
+            $items = is_array($props['items'] ?? null) ? $props['items'] : [];
+            if (empty($items)) {
+                return true;
+            }
+            foreach ($items as $item) {
+                if (!empty($item['image_url'] ?? '')) {
+                    return false;
+                }
+            }
+            return true;
+
+        case 'grid':
+        case 'stats':
+            return empty($props['items'] ?? []);
+
+        case 'table':
+            return empty($props['headers'] ?? []) || empty($props['rows'] ?? []);
+
+        default:
+            return false;
+    }
+}
+
+/**
  * Validates composition for layout smell patterns.
  *
  * Detects composition patterns that produce visually weak desktop output:
  * left-aligned heroes without balancing images, runs of text-only sections,
- * and runs of narrow-width or compact-spacing components (issue 51) that
- * over-constrain page rhythm even though each component is individually valid.
+ * runs of narrow-width or compact-spacing components (issue 51), and
+ * structured-content components (faq/grid/stats/logos/table) whose
+ * configured content produces no useful frontend output (issue 87) —
+ * each is individually valid against its schema, yet the rendered page
+ * has an obvious dead section.
  *
  * @param  array $composition  Composition array (component + props).
  * @return array[]             Each entry: ['type' => string, 'message' => string, 'index' => int]
@@ -345,6 +397,22 @@ function pp_validate_composition_smells(array $composition): array {
                 'index' => $i,
             ];
             $consecutive_compact_spacing = 0; // Reset to avoid repeated warnings.
+        }
+
+        // Empty structured-content section (schema-valid, no useful output)
+        if (_pp_component_is_empty($component, $props)) {
+            $warning = [
+                'type' => 'empty_section',
+                'message' => sprintf(
+                    'This "%s" section has no content to render — it will show as an empty/placeholder block on the live page. Remove it, fill it in, or ask before publishing.',
+                    $component
+                ),
+                'index' => $i,
+            ];
+            if (!empty($props['id'] ?? '')) {
+                $warning['id'] = $props['id'];
+            }
+            $warnings[] = $warning;
         }
     }
 

@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.35] — 2026-07-05 — New: Guardrail Warning for Empty Structured-Content Sections
+
+**A FAQ section with no questions, a grid with no cards, or a table with no rows is schema-valid — every prop passes its own validation — but renders as an obvious dead block on the live page ("No questions yet.", "Nothing here yet."). Nothing in the page check flagged it, so an operator could trust a passing `wp pp check page` result while the frontend still showed a visibly unfinished section.**
+
+### Added
+- New `empty_section` composition smell, surfaced by `wp pp check page` alongside the existing smells: fires for `faq`/`grid`/`stats`/`logos`/`table` components whose configured content produces no useful frontend output — an empty `items`/`rows` array, or (for `faq`/`logos`) items present but every one missing the field its render path requires (a FAQ item with no `question`, a logo item with no `image_url`).
+
+### For contributors
+- New `_pp_component_is_empty()` helper in `lib/guardrails.php` mirrors each component's own render-time skip logic rather than an independent content check, so the smell only fires exactly when the component's own template would render nothing for that item.
+- The warning includes the component's stable ID when one is set, and is non-destructive — it only warns, it never removes or fills content.
+- 16 new PHPUnit tests, including one confirming `hero`/`cta`/`section` (which have no items/headers-rows structure) are never misflagged.
+
 ## [v0.16.34] — 2026-07-05 — New: Guardrail Warnings for Over-Narrow, Over-Compact Page Rhythm
 
 **A page could be built entirely out of structurally valid components and still land visually weak — three or more sections in a row set to `width: narrow` or `spacing: compact` produce a cramped, memo-like page, and nothing in the system flagged it. The two composition smells `pp_validate_composition_smells()` already caught (`hero_left_no_image`, `consecutive_text_sections`) covered the alignment/rhythm failure modes identified in a live branding pass, but not the over-constraining-via-props pattern.**

@@ -380,7 +380,7 @@ class GuardrailsTest extends TestCase
         $composition = [
             ['component' => 'hero', 'props' => ['title' => 'Welcome']],
             ['component' => 'section', 'props' => ['body' => 'Content']],
-            ['component' => 'grid', 'props' => []],
+            ['component' => 'grid', 'props' => ['items' => [['title' => 'Feature']]]],
             ['component' => 'cta', 'props' => ['title' => 'Get started']],
         ];
         $this->assertSame([], pp_validate_composition_smells($composition));
@@ -522,6 +522,145 @@ class GuardrailsTest extends TestCase
         $warnings = pp_validate_composition_smells($composition);
         $types = array_column($warnings, 'type');
         $this->assertNotContains('consecutive_compact_spacing', $types);
+    }
+
+    // ── Empty Section Smell (issue 87) ─────────────────────────────────────
+
+    public function testSmellsEmptyFaqItemsTriggersWarning(): void
+    {
+        $composition = [
+            ['component' => 'faq', 'props' => ['title' => 'FAQ', 'items' => []]],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $this->assertCount(1, $warnings);
+        $this->assertEquals('empty_section', $warnings[0]['type']);
+        $this->assertEquals(0, $warnings[0]['index']);
+    }
+
+    public function testSmellsFaqItemsMissingQuestionTriggersWarning(): void
+    {
+        $composition = [
+            ['component' => 'faq', 'props' => ['title' => 'FAQ', 'items' => [
+                ['question' => '', 'answer' => 'An answer with no question'],
+            ]]],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertContains('empty_section', $types);
+    }
+
+    public function testSmellsValidFaqDoesNotTrigger(): void
+    {
+        $composition = [
+            ['component' => 'faq', 'props' => ['title' => 'FAQ', 'items' => [
+                ['question' => 'Is this real?', 'answer' => 'Yes.'],
+            ]]],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertNotContains('empty_section', $types);
+    }
+
+    public function testSmellsEmptyGridTriggersWarning(): void
+    {
+        $composition = [
+            ['component' => 'grid', 'props' => ['items' => []]],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertContains('empty_section', $types);
+    }
+
+    public function testSmellsGridWithItemsDoesNotTrigger(): void
+    {
+        $composition = [
+            ['component' => 'grid', 'props' => ['items' => [['title' => 'Feature']]]],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertNotContains('empty_section', $types);
+    }
+
+    public function testSmellsEmptyStatsTriggersWarning(): void
+    {
+        $composition = [
+            ['component' => 'stats', 'props' => ['items' => []]],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertContains('empty_section', $types);
+    }
+
+    public function testSmellsEmptyLogosTriggersWarning(): void
+    {
+        $composition = [
+            ['component' => 'logos', 'props' => ['items' => []]],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertContains('empty_section', $types);
+    }
+
+    public function testSmellsLogosItemsMissingImageUrlTriggersWarning(): void
+    {
+        $composition = [
+            ['component' => 'logos', 'props' => ['items' => [['label' => 'Acme']]]],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertContains('empty_section', $types);
+    }
+
+    public function testSmellsEmptyTableTriggersWarning(): void
+    {
+        $composition = [
+            ['component' => 'table', 'props' => ['headers' => [], 'rows' => []]],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertContains('empty_section', $types);
+    }
+
+    public function testSmellsTableWithHeadersButNoRowsTriggersWarning(): void
+    {
+        $composition = [
+            ['component' => 'table', 'props' => ['headers' => ['Plan', 'Price'], 'rows' => []]],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertContains('empty_section', $types);
+    }
+
+    public function testSmellsEmptySectionWarningIncludesComponentId(): void
+    {
+        $composition = [
+            ['component' => 'faq', 'props' => ['id' => 'pp-a1b2c3', 'items' => []]],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $this->assertEquals('pp-a1b2c3', $warnings[0]['id']);
+    }
+
+    public function testSmellsEmptySectionWarningOmitsIdWhenAbsent(): void
+    {
+        $composition = [
+            ['component' => 'faq', 'props' => ['items' => []]],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $this->assertArrayNotHasKey('id', $warnings[0]);
+    }
+
+    public function testSmellsHeroAndCtaAreNeverFlaggedAsEmpty(): void
+    {
+        // hero/cta/section have no items/headers-rows structure — the empty
+        // check must not misfire on components it doesn't understand.
+        $composition = [
+            ['component' => 'hero', 'props' => []],
+            ['component' => 'cta', 'props' => []],
+            ['component' => 'section', 'props' => []],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+        $types = array_column($warnings, 'type');
+        $this->assertNotContains('empty_section', $types);
     }
 
     public function testHtmlCommentPresentWhenDebugAndConflicts(): void
