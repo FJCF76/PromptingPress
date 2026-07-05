@@ -380,6 +380,15 @@ if (!function_exists('wp_insert_post')) {
 if (!function_exists('wp_update_post')) {
     function wp_update_post(array $args, bool $wp_error = false) {
         $id = $args['ID'] ?? 0;
+        // issue 137: ID 999 is the synthetic Custom CSS virtual post that
+        // wp_get_custom_css_post() stubs below (not a real registered post,
+        // mirroring WordPress's own hidden custom_css post type) — a write
+        // to it updates the custom_css store directly instead of going
+        // through the normal posts-registry existence check.
+        if ($id === 999 && array_key_exists('post_content', $args)) {
+            $GLOBALS['_pp_test_store']['custom_css'] = $args['post_content'];
+            return $id;
+        }
         if (!$id || !isset($GLOBALS['_pp_test_store']['posts'][$id])) {
             if ($wp_error) {
                 return new WP_Error('invalid_post', 'Post not found.');
@@ -712,6 +721,7 @@ if (!class_exists('WP_Post')) {
         public string $post_title = '';
         public string $post_status = 'draft';
         public string $post_name = '';
+        public string $post_content = '';
     }
 }
 
@@ -734,6 +744,18 @@ if (!function_exists('wp_untrash_post')) {
         // For tests, restore to 'draft' as the safe default.
         $GLOBALS['_pp_test_store']['posts'][$post_id]['post_status'] = 'draft';
         return true;
+    }
+}
+
+if (!function_exists('wp_delete_post')) {
+    function wp_delete_post(int $post_id, bool $force_delete = false) {
+        if (!isset($GLOBALS['_pp_test_store']['posts'][$post_id])) {
+            return false;
+        }
+        $post = $GLOBALS['_pp_test_store']['posts'][$post_id];
+        unset($GLOBALS['_pp_test_store']['posts'][$post_id]);
+        unset($GLOBALS['_pp_test_store']['post_meta'][$post_id]);
+        return (object) $post;
     }
 }
 
@@ -978,13 +1000,17 @@ if (!function_exists('wp_get_custom_css')) {
 
 if (!function_exists('wp_get_custom_css_post')) {
     function wp_get_custom_css_post() {
-        $css = $GLOBALS['_pp_test_store']['custom_css'] ?? '';
-        if (!$css) {
+        // issue 137: once a test's fixture has ever set the custom_css key
+        // (even to ''), the virtual post "exists" — mirrors real WordPress,
+        // where the Custom CSS post persists even after its content is
+        // cleared. Only a truly uninitialized store (no fixture touched
+        // Custom CSS at all) returns null, matching "never created".
+        if (!array_key_exists('custom_css', $GLOBALS['_pp_test_store'] ?? [])) {
             return null;
         }
         $post = new WP_Post();
         $post->ID = 999;
-        $post->post_content = $css;
+        $post->post_content = $GLOBALS['_pp_test_store']['custom_css'];
         return $post;
     }
 }

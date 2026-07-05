@@ -896,6 +896,57 @@ add_action('wp_ajax_pp_ai_execute', function () {
     wp_send_json_success($result);
 });
 
+// ── AJAX: Batch Execute Proposal Steps ──────────────────────────────────────
+// issue 137: a multi-step proposal applies atomically in one request instead
+// of N independent pp_ai_execute calls — pp_ai_execute_batch() snapshots
+// every target up front and rolls everything back if any step fails, so a
+// failure never leaves the page half-mutated.
+
+add_action('wp_ajax_pp_ai_execute_batch', function () {
+    check_ajax_referer('pp_ai_execute', 'nonce');
+
+    if (!current_user_can('edit_posts')) {
+        wp_send_json_error('Permission denied.');
+    }
+
+    $raw_steps = wp_unslash($_POST['steps'] ?? '');
+    $steps = json_decode((string) $raw_steps, true);
+
+    if (!is_array($steps) || empty($steps)) {
+        wp_send_json_error('steps must be a non-empty array.');
+    }
+
+    // Every step's capability requirement is checked up front, before any
+    // step executes — unlike semantic state validation, a capability
+    // requirement never depends on an earlier step's effect, so this can't
+    // false-positive-reject a legitimately interdependent step the way a
+    // full state-projected pre-validation would.
+    $normalized = [];
+    foreach ($steps as $step) {
+        $type   = sanitize_text_field($step['type'] ?? '');
+        $name   = sanitize_text_field($step['name'] ?? '');
+        $params = is_array($step['params'] ?? null) ? $step['params'] : [];
+
+        if (!in_array($type, ['action', 'apply'], true)) {
+            wp_send_json_error('Invalid step type. Must be "action" or "apply".');
+        }
+        if (empty($name)) {
+            wp_send_json_error('Each step requires a name.');
+        }
+
+        $params = pp_ai_coerce_params($type, $name, $params);
+
+        if (!_pp_user_meets_required_caps(_pp_required_caps_for($type, $name, $params))) {
+            wp_send_json_error('Permission denied.');
+        }
+
+        $normalized[] = ['type' => $type, 'name' => $name, 'params' => $params];
+    }
+
+    $batch = pp_ai_execute_batch($normalized);
+    wp_send_json_success($batch);
+});
+
 // ── AJAX: Non-Streaming Chat Fallback ──────────────────────────────────────
 
 add_action('wp_ajax_pp_ai_chat', function () {

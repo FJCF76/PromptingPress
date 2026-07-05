@@ -302,6 +302,223 @@ function pp_execute_action(string $name, array $params): array {
     return $result;
 }
 
+// ── Batch execution (issue 137) ─────────────────────────────────────────────
+
+/**
+ * Snapshots every post/option a batch's steps could touch, before any step
+ * runs. Read-only — never writes anything itself.
+ *
+ * Covers: any post_id referenced in a step's params (composition, title,
+ * slug, status), pp_token_overrides + pp_font_urls when any step is an
+ * apply (every apply mutates one of those two options), a step's own
+ * update_site_option key, and Custom CSS when a step is clear_custom_css.
+ *
+ * Deliberately does NOT snapshot import_media's new attachment — leaving an
+ * uploaded file in the Media Library is additive and non-destructive (unlike
+ * overwriting composition/token state), so a later step failing doesn't
+ * warrant deleting it.
+ *
+ * @param  array $steps  Each: ['type' => 'action'|'apply', 'name' => string, 'params' => array]
+ * @return array          Snapshot bundle passed to _pp_restore_batch_snapshot().
+ */
+function _pp_snapshot_batch_targets(array $steps): array {
+    $posts = [];
+    $site_options = [];
+    $custom_css = null;
+    $token_overrides = null;
+    $font_urls = null;
+
+    foreach ($steps as $step) {
+        $type   = $step['type']   ?? '';
+        $name   = $step['name']   ?? '';
+        $params = $step['params'] ?? [];
+
+        if (isset($params['post_id']) && is_numeric($params['post_id'])) {
+            $post_id = (int) $params['post_id'];
+            if (!isset($posts[$post_id]) && get_post($post_id)) {
+                $post = get_post($post_id);
+                $posts[$post_id] = [
+                    'title'       => $post->post_title,
+                    'slug'        => $post->post_name,
+                    'status'      => $post->post_status,
+                    'composition' => pp_get_composition($post_id),
+                    'seo_meta'    => pp_get_seo_meta($post_id),
+                ];
+            }
+        }
+
+        if ($type === 'apply' && $token_overrides === null) {
+            $token_overrides = pp_get_token_overrides();
+        }
+        if ($type === 'apply' && $font_urls === null) {
+            $font_urls = pp_get_font_urls();
+        }
+
+        if ($name === 'update_site_option' && isset($params['key'])) {
+            $key = (string) $params['key'];
+            if (!array_key_exists($key, $site_options)) {
+                $current = pp_site_option($key);
+                $site_options[$key] = is_wp_error($current) ? '' : $current;
+            }
+        }
+
+        if ($name === 'clear_custom_css' && $custom_css === null) {
+            $custom_css = wp_get_custom_css();
+        }
+    }
+
+    return [
+        'posts'           => $posts,
+        'created_posts'   => [], // filled in as create_page steps succeed
+        'site_options'    => $site_options,
+        'custom_css'      => $custom_css,
+        'token_overrides' => $token_overrides,
+        'font_urls'       => $font_urls,
+    ];
+}
+
+/**
+ * Restores every snapshotted post/option to its pre-batch state, and
+ * permanently deletes any page a create_page step created during this same
+ * batch (it didn't exist before the batch started, so "restore" means it
+ * shouldn't exist after a rollback either).
+ *
+ * @param array $snapshot  Bundle from _pp_snapshot_batch_targets(), with
+ *                          'created_posts' populated as steps succeeded.
+ */
+function _pp_restore_batch_snapshot(array $snapshot): void {
+    foreach ($snapshot['created_posts'] as $created_post_id) {
+        wp_delete_post($created_post_id, true);
+    }
+
+    foreach ($snapshot['posts'] as $post_id => $state) {
+        if (in_array($post_id, $snapshot['created_posts'], true)) {
+            continue; // already deleted above — nothing to restore it to
+        }
+        pp_update_composition($post_id, $state['composition']);
+        pp_update_page_title($post_id, $state['title']);
+        pp_update_page_slug($post_id, $state['slug']);
+        wp_update_post(['ID' => $post_id, 'post_status' => $state['status']], true);
+        pp_update_seo_meta($post_id, $state['seo_meta']);
+    }
+
+    foreach ($snapshot['site_options'] as $key => $value) {
+        pp_update_site_option($key, (string) $value);
+    }
+
+    if ($snapshot['custom_css'] !== null) {
+        // Mirrors clear_custom_css's own write mechanism exactly (there is
+        // no wp_update_custom_css_post() call anywhere else in this codebase
+        // to stay consistent with) — the Custom CSS post's content IS the
+        // Custom CSS.
+        $css_post = wp_get_custom_css_post();
+        if ($css_post) {
+            wp_update_post(['ID' => $css_post->ID, 'post_content' => $snapshot['custom_css']]);
+        }
+    }
+
+    if ($snapshot['token_overrides'] !== null) {
+        update_option('pp_token_overrides', $snapshot['token_overrides'], true);
+        pp_invalidate_design_tokens_cache();
+    }
+
+    if ($snapshot['font_urls'] !== null) {
+        pp_set_font_urls($snapshot['font_urls']);
+    }
+}
+
+/**
+ * Executes a batch of proposal steps atomically (issue 137): snapshots
+ * every post/option any step could touch, runs each step in order via the
+ * existing pp_execute_action()/pp_execute_apply(), and rolls every
+ * snapshotted target back if any step fails partway through — leaving the
+ * site exactly as it was before the batch started, rather than a half-
+ * applied multi-step proposal.
+ *
+ * Deliberately does NOT pre-validate every step against the projected
+ * effect of earlier steps in the same batch before executing any of them.
+ * Many real multi-step proposals are intentionally interdependent (e.g.
+ * "add a component, then style it") — a step's semantic validate()
+ * legitimately depends on state an earlier step in this same batch will
+ * create, so validating step 3 against pre-batch state would false-
+ * positive-reject it. Each step is still fully validated against the state
+ * that actually exists at the moment it runs, exactly as
+ * pp_execute_action()/pp_execute_apply() already do — a genuinely invalid
+ * step is caught at its own turn and the whole batch rolls back cleanly.
+ *
+ * @param  array $steps  Each: ['type' => 'action'|'apply', 'name' => string, 'params' => array]
+ * @return array          ['ok', 'steps' (per-step results), 'failed_at' (?int), 'rolled_back' (bool)]
+ */
+function pp_ai_execute_batch(array $steps): array {
+    $snapshot = _pp_snapshot_batch_targets($steps);
+    $results = [];
+
+    foreach ($steps as $i => $step) {
+        $type   = $step['type']   ?? '';
+        $name   = $step['name']   ?? '';
+        $params = $step['params'] ?? [];
+
+        $result = ($type === 'apply')
+            ? pp_execute_apply($name, $params)
+            : pp_execute_action($name, $params);
+
+        if (is_wp_error($result)) {
+            $result = [
+                'ok'      => false,
+                'action'  => $name,
+                'scope'   => 'unknown',
+                'target'  => [],
+                'changes' => [],
+                'error'   => $result->get_error_message(),
+            ];
+        }
+
+        if ($name === 'create_page' && !empty($result['ok']) && isset($result['target']['post_id'])) {
+            $snapshot['created_posts'][] = (int) $result['target']['post_id'];
+        }
+
+        // Post-apply DOM validation per step, matching the existing
+        // single-step wp_ajax_pp_ai_execute behavior exactly (same
+        // try/catch — a validation crash must never mask a successful
+        // apply). Runs even for a step later rolled back: it reflects the
+        // real state after just that step, which is what the client's
+        // per-step "last-step-wins" card logic already expects.
+        if (!empty($result['ok']) && isset($params['post_id'])) {
+            try {
+                $result['validation'] = pp_post_apply_validate((int) $params['post_id']);
+            } catch (\Throwable $e) {
+                $result['validation'] = [
+                    'ok'       => false,
+                    'warnings' => [],
+                    'errors'   => [[
+                        'check'   => 'validation_error',
+                        'message' => 'Validation failed: ' . $e->getMessage(),
+                    ]],
+                ];
+            }
+        }
+
+        $results[] = $result;
+
+        if (empty($result['ok'])) {
+            _pp_restore_batch_snapshot($snapshot);
+            return [
+                'ok'          => false,
+                'steps'       => $results,
+                'failed_at'   => $i,
+                'rolled_back' => true,
+            ];
+        }
+    }
+
+    return [
+        'ok'          => true,
+        'steps'       => $results,
+        'failed_at'   => null,
+        'rolled_back' => false,
+    ];
+}
+
 // ── Helper: build result arrays ─────────────────────────────────────────────
 
 function _pp_action_result(string $name, string $scope, array $target, array $changes): array {

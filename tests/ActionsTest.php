@@ -2509,4 +2509,192 @@ class ActionsTest extends TestCase
         $this->assertNotNull($suggestion);
         $this->assertStringContainsString('100%', $suggestion);
     }
+
+    // ── pp_ai_execute_batch() atomicity tests (issue 137) ───────────────────
+
+    public function testBatchAppliesAllStepsWhenEverythingSucceeds(): void
+    {
+        $id = pp_create_page('Batch Test', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'hero', 'props' => ['title' => 'Original']],
+        ]);
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'update_component', 'params' => [
+                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Step 1'],
+            ]],
+            ['type' => 'action', 'name' => 'update_page_title', 'params' => [
+                'post_id' => $id, 'title' => 'Renamed',
+            ]],
+        ]);
+
+        $this->assertTrue($batch['ok']);
+        $this->assertFalse($batch['rolled_back']);
+        $this->assertNull($batch['failed_at']);
+        $this->assertCount(2, $batch['steps']);
+        $this->assertTrue($batch['steps'][0]['ok']);
+        $this->assertTrue($batch['steps'][1]['ok']);
+
+        $comp = pp_get_composition($id);
+        $this->assertSame('Step 1', $comp[0]['props']['title']);
+        $post = get_post($id);
+        $this->assertSame('Renamed', $post->post_title);
+    }
+
+    public function testBatchRollsBackCompositionOnLaterStepFailure(): void
+    {
+        $id = pp_create_page('Rollback Test', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'hero', 'props' => ['title' => 'Original']],
+        ]);
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'update_component', 'params' => [
+                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Changed'],
+            ]],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+        $this->assertSame(1, $batch['failed_at']);
+        $this->assertCount(2, $batch['steps']);
+        $this->assertTrue($batch['steps'][0]['ok']);
+        $this->assertFalse($batch['steps'][1]['ok']);
+
+        // Composition reverted to exactly its pre-batch state.
+        $comp = pp_get_composition($id);
+        $this->assertSame('Original', $comp[0]['props']['title']);
+    }
+
+    public function testBatchRollsBackTitleSlugStatusAndSeoMeta(): void
+    {
+        $id = pp_create_page('Multi Field', 'draft', 'multi-field');
+        pp_update_seo_meta($id, ['meta_description' => 'Original description']);
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'update_page_title', 'params' => ['post_id' => $id, 'title' => 'New Title']],
+            ['type' => 'action', 'name' => 'update_page_slug', 'params' => ['post_id' => $id, 'slug' => 'new-slug']],
+            ['type' => 'action', 'name' => 'publish_page', 'params' => ['post_id' => $id]],
+            ['type' => 'action', 'name' => 'update_seo_meta', 'params' => ['post_id' => $id, 'meta_description' => 'New description']],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+
+        $post = get_post($id);
+        $this->assertSame('Multi Field', $post->post_title);
+        $this->assertSame('multi-field', $post->post_name);
+        $this->assertSame('draft', $post->post_status);
+        $seo = pp_get_seo_meta($id);
+        $this->assertSame('Original description', $seo['meta_description'] ?? null);
+    }
+
+    public function testBatchDeletesPageCreatedInSameBatchOnLaterFailure(): void
+    {
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'create_page', 'params' => ['title' => 'New From Batch']],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+        $this->assertTrue($batch['steps'][0]['ok']);
+
+        $new_post_id = $batch['steps'][0]['target']['post_id'];
+        $this->assertArrayNotHasKey($new_post_id, $GLOBALS['_pp_test_store']['posts']);
+    }
+
+    public function testBatchRollsBackDesignTokenOverrideOnLaterFailure(): void
+    {
+        pp_set_token_override('--color-accent', '#111111');
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'apply', 'name' => 'update_design_token', 'params' => ['token' => '--color-accent', 'value' => '#ff0000']],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+        $overrides = pp_get_token_overrides();
+        $this->assertSame('#111111', $overrides['--color-accent']);
+    }
+
+    public function testBatchRollsBackFontUrlsOnLaterFailure(): void
+    {
+        pp_set_font_urls(['https://fonts.googleapis.com/css2?family=Inter']);
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'apply', 'name' => 'enqueue_font', 'params' => ['url' => 'https://fonts.googleapis.com/css2?family=Poppins']],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+        $this->assertSame(['https://fonts.googleapis.com/css2?family=Inter'], pp_get_font_urls());
+    }
+
+    public function testBatchRollsBackSiteOptionOnLaterFailure(): void
+    {
+        $GLOBALS['_pp_test_store']['options']['blogname'] = 'Original Name';
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'update_site_option', 'params' => ['key' => 'blogname', 'value' => 'New Name']],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+        $this->assertSame('Original Name', $GLOBALS['_pp_test_store']['options']['blogname']);
+    }
+
+    public function testBatchRollsBackCustomCssOnLaterFailure(): void
+    {
+        $GLOBALS['_pp_test_store']['custom_css'] = '.hero { color: red; }';
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'clear_custom_css', 'params' => []],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+        $this->assertSame('.hero { color: red; }', $GLOBALS['_pp_test_store']['custom_css']);
+    }
+
+    public function testBatchStopsExecutingAfterFirstFailure(): void
+    {
+        $id = pp_create_page('Stop Test', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'hero', 'props' => ['title' => 'Original']],
+        ]);
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+            ['type' => 'action', 'name' => 'update_page_title', 'params' => ['post_id' => $id, 'title' => 'Should Never Apply']],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertSame(0, $batch['failed_at']);
+        // Only the failing step's result is recorded — step 2 never ran.
+        $this->assertCount(1, $batch['steps']);
+        $post = get_post($id);
+        $this->assertSame('Stop Test', $post->post_title);
+    }
+
+    public function testBatchIncludesPostApplyValidationPerStep(): void
+    {
+        $id = pp_create_page('Validation Test', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'hero', 'props' => ['title' => 'Original']],
+        ]);
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'update_page_title', 'params' => ['post_id' => $id, 'title' => 'Validated']],
+        ]);
+
+        $this->assertTrue($batch['ok']);
+        $this->assertArrayHasKey('validation', $batch['steps'][0]);
+    }
 }
