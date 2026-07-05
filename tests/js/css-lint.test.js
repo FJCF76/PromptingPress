@@ -119,6 +119,34 @@ describe('CSS lint: secondary/ghost buttons never get a filled gradient', () => 
     });
 });
 
+describe('CSS lint: grid--steps only declared inside the COMPONENT: grid block (#56)', () => {
+    // Regression guard: before #56, `.grid--steps .grid__item` and
+    // `.grid--steps .pp-step-number` were each declared a SECOND time,
+    // scattered elsewhere in the file as undocumented, unscoped "rescue"
+    // overrides with raw rgba magic-number colors — one of which set
+    // `overflow: hidden` and silently clipped the arrow connector. The
+    // canonical block stayed weak while real page defaults quietly diverged
+    // from it. Every declaration of these selectors must live inside the
+    // COMPONENT: grid block (responsive variants of the SAME rule, e.g. a
+    // max-width media query tweak, are fine) — none may leak outside it.
+    const stripped = stripComments(COMPONENTS_CSS);
+    // Locate the block against the RAW css — the "COMPONENT: grid" marker
+    // lives inside a comment, so it would vanish if matched post-strip.
+    const blockMatch = COMPONENTS_CSS.match(/COMPONENT:\s*grid\b([\s\S]*?)(?=\/\*\s*={5,}[\s\S]*?COMPONENT:|$)/);
+    const gridBlock = stripComments(blockMatch ? blockMatch[1] : '');
+
+    test.each(['.grid--steps .grid__item', '.grid--steps .pp-step-number'])(
+        '%s is never declared outside the COMPONENT: grid block',
+        (selector) => {
+            const pattern = new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{', 'g');
+            const totalCount = (stripped.match(pattern) || []).length;
+            const inBlockCount = (gridBlock.match(pattern) || []).length;
+            expect(inBlockCount).toBeGreaterThan(0);
+            expect(totalCount).toBe(inBlockCount);
+        }
+    );
+});
+
 describe('CSS lint: no raw hex in components.css', () => {
     test('components.css has no raw hex color values', () => {
         const stripped = stripComments(COMPONENTS_CSS);
