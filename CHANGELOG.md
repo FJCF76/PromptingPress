@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.25] — 2026-07-05 — Fix: Grid Steps No Longer Look Like a Draft
+
+**The `steps` variant of the grid component — the numbered "how it works" layout every marketing page reaches for — rendered as bare floating numbers over a dead-space background, with an arrow connector that had actually been invisible in production the whole time. Every page using it needed manual CSS rescue to look finished.**
+
+### Fixed
+- Steps cards now use the same visible card chrome (background, border, radius) as the default grid variant, closing the gap between "technically has a `steps` option" and "looks intentionally designed."
+- The step number is now a filled circular badge instead of a bare number floating in dead space, with a tightened gap to the title/text below it.
+- The arrow connector between steps — which had silently stopped rendering after an unrelated later rule clipped it with `overflow: hidden` — is replaced with a subtle horizontal line between badges at desktop, instead of restoring the noisy triangle.
+
+### For contributors
+- Root cause: `.grid--steps` had THREE separate declaration sites — the canonical `COMPONENT: grid` block, plus two undocumented, unscoped "rescue" overrides bolted on elsewhere in `components.css` (interleaved with unrelated hero proof-content CSS, using raw rgba magic-number colors instead of tokens). The canonical block stayed weak while the actually-rendered page defaults silently diverged from it — exactly the kind of drift that makes a component's own defaults untrustworthy. Consolidated to a single declaration site inside the canonical block; new css-lint test (`grid--steps only declared inside the COMPONENT: grid block`) guards against this recurring.
+- Verified before/after via a real redeploy to the dev environment (release zip → `/var/www/dev-promptingpress`) and browser screenshots of the site's actual "Cómo funciona" 3-step section, both at desktop and mobile, plus the two other live pages using `theme: dark` — not just static CSS reasoning.
+- `--grid-step-color`'s description updated to reflect its new role (badge background, not bare number color) — same slot, same default, no schema break.
+
 ## [v0.16.24] — 2026-07-05 — New: Testimonials Component
 
 **Testimonials are one of the most common homepage sections, and PromptingPress had no way to build one. The only workaround was embedding raw `<blockquote>` HTML inside a `section` body — no structured attribution, no per-quote styling, no way to reorder or selectively show individual quotes, and a wall of text instead of card separation.**

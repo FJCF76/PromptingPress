@@ -98,7 +98,7 @@
       "--grid-item-text-color": { "type": "color", "default": "var(--color-muted)", "description": "Card description text color" },
       "--grid-bullet-color": { "type": "color", "default": "var(--color-accent)", "description": "Checklist bullet marker color (grid card bullets)" },
       "--grid-link-color": { "type": "color", "default": "var(--color-accent)", "description": "Card link color" },
-      "--grid-step-color": { "type": "color", "default": "var(--color-accent)", "description": "Step number color (steps variant)" }
+      "--grid-step-color": { "type": "color", "default": "var(--color-accent)", "description": "Step badge background color (steps variant); the number text always renders in --color-bg for contrast" }
     },
     "recipes": {
       "dark-showcase": {
