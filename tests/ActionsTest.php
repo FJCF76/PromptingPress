@@ -913,6 +913,31 @@ class ActionsTest extends TestCase
         $this->assertArrayNotHasKey('image_url', $comp[0]['props']);
     }
 
+    public function testPreviewRejectsInvalidMediaUrlIdenticallyToExecute(): void
+    {
+        // Regression for issue 130: a proposal preview must not show a clean
+        // diff for a step guaranteed to fail at execute — both must reject a
+        // hallucinated/typo'd uploads URL with the same error, because both
+        // pp_preview_action() and pp_execute_action() route through the same
+        // pp_validate_action() gate. No page is created — the media-URL
+        // check runs before the action's own semantic validate (which is
+        // where a real post_id would otherwise be required), so this proves
+        // preview fails at the same point execute does, not just eventually.
+        $params = [
+            'post_id'         => 999999,
+            'component_index' => 0,
+            'props'           => ['image_url' => 'https://example.com/wp-content/uploads/2026/06/hero-imge.png'],
+        ];
+
+        $preview = pp_preview_action('update_component', $params);
+        $execute = pp_execute_action('update_component', $params);
+
+        $this->assertInstanceOf(WP_Error::class, $preview);
+        $this->assertSame('invalid_media_url', $preview->get_error_code());
+        $this->assertFalse($execute['ok']);
+        $this->assertSame($preview->get_error_message(), $execute['error']);
+    }
+
     // ── Preview tests ──────────────────────────────────────────────────────
 
     public function testPreviewNeverWrites(): void

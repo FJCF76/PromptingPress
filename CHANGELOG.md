@@ -4,6 +4,15 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.36] — 2026-07-05 — Regression Test: Preview/Execute Parity for Invalid Media URLs
+
+**Issue 130 asked for proposal previews to reject a hallucinated/typo'd media URL with the same error execute would give, instead of showing a clean diff for a step guaranteed to fail. Investigating found this already true in the current codebase — the earlier #124 media-URL validation work moved the check into the shared `pp_validate_action()` gate that both `pp_preview_action()` and `pp_execute_action()` call, so preview and execute have been failing identically since #124 shipped. What was missing was a regression test actually proving it, and this issue's own acceptance criteria named exactly that test.**
+
+### For contributors
+- New `testPreviewRejectsInvalidMediaUrlIdenticallyToExecute` in `tests/ActionsTest.php`: calls `pp_preview_action()` and `pp_execute_action()` with the identical params (an uploads-path `image_url` with no matching attachment) and asserts both reject with the same `invalid_media_url` error and message.
+- `AI_CONTEXT.md`'s existing media-URL-validation paragraph now names the preview/execute parity property explicitly.
+- No production code changed — this closes out issue 130 with the missing test coverage rather than re-implementing behavior that already existed.
+
 ## [v0.16.35] — 2026-07-05 — New: Guardrail Warning for Empty Structured-Content Sections
 
 **A FAQ section with no questions, a grid with no cards, or a table with no rows is schema-valid — every prop passes its own validation — but renders as an obvious dead block on the live page ("No questions yet.", "Nothing here yet."). Nothing in the page check flagged it, so an operator could trust a passing `wp pp check page` result while the frontend still showed a visibly unfinished section.**
