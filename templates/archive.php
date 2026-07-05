@@ -29,15 +29,13 @@ pp_base_template(function () {
         'variant' => 'left',
     ]);
 
-    // Build grid items from the main query loop.
+    // Iterate WordPress's own main query for this route (#126) — it is
+    // already correctly filtered for whichever archive this is (category,
+    // tag, date, author). A fresh WP_Query here can only approximate that
+    // context and easily gets it wrong (e.g. a hardcoded post_type showing
+    // every post on a category archive, regardless of category).
     $items = [];
-    $query = pp_posts([
-        'post_type'      => 'post',
-        'posts_per_page' => 12,
-        'paged'          => max(1, get_query_var('paged')),
-    ]);
-
-    pp_the_loop($query, function () use (&$items) {
+    pp_the_loop(pp_main_query(), function () use (&$items) {
         $items[] = [
             'title'     => pp_page_title(),
             'text'      => pp_excerpt(25),
@@ -51,6 +49,10 @@ pp_base_template(function () {
         pp_get_component('grid', [
             'items' => $items,
         ]);
+        $pagination = pp_pagination();
+        if ($pagination !== '') {
+            echo '<div class="container">' . $pagination . '</div>';
+        }
     } else {
         pp_get_component('section', [
             'body'   => '<p>No posts found.</p>',

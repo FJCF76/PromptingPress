@@ -134,6 +134,55 @@ class ActionsTest extends TestCase
         $this->assertEquals('Comp Page', $posts[0]->post_title);
     }
 
+    // ── pp_main_query() / pp_pagination() tests (#126) ──────────────────────
+
+    public function testPpMainQueryReturnsGlobalWpQuery(): void
+    {
+        $GLOBALS['wp_query'] = new WP_Query();
+        $this->assertSame($GLOBALS['wp_query'], pp_main_query());
+    }
+
+    public function testPpPaginationReturnsEmptyStringForSinglePage(): void
+    {
+        $GLOBALS['wp_query'] = new WP_Query();
+        $GLOBALS['wp_query']->max_num_pages = 1;
+        $this->assertSame('', pp_pagination());
+    }
+
+    public function testPpPaginationRendersNavForMultiplePages(): void
+    {
+        $GLOBALS['wp_query'] = new WP_Query();
+        $GLOBALS['wp_query']->max_num_pages = 3;
+        $GLOBALS['_pp_test_store']['query_vars']['paged'] = 1;
+        $html = pp_pagination();
+        $this->assertStringContainsString('<nav class="pp-pagination"', $html);
+        $this->assertStringContainsString('class="pp-pagination__list"', $html);
+        $this->assertStringContainsString('current">1<', $html);
+        $this->assertStringContainsString('>2<', $html);
+        $this->assertStringContainsString('>3<', $html);
+    }
+
+    public function testPpPaginationReflectsCurrentPage(): void
+    {
+        $GLOBALS['wp_query'] = new WP_Query();
+        $GLOBALS['wp_query']->max_num_pages = 3;
+        $GLOBALS['_pp_test_store']['query_vars']['paged'] = 2;
+        $html = pp_pagination();
+        $this->assertStringContainsString('current">2<', $html);
+        $this->assertStringContainsString('Previous', $html);
+        $this->assertStringContainsString('Next', $html);
+    }
+
+    public function testPpPaginationDefaultsToPageOneWhenPagedUnset(): void
+    {
+        $GLOBALS['wp_query'] = new WP_Query();
+        $GLOBALS['wp_query']->max_num_pages = 2;
+        unset($GLOBALS['_pp_test_store']['query_vars']['paged']);
+        $html = pp_pagination();
+        $this->assertStringContainsString('current">1<', $html);
+        $this->assertStringNotContainsString('Previous', $html);
+    }
+
     // ── wp.php write function tests ────────────────────────────────────────
 
     public function testPpUpdateCompositionRoundTrips(): void

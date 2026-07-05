@@ -195,6 +195,39 @@ if (!function_exists('is_front_page')) {
     }
 }
 
+// #126 main-query / pagination stubs. Tests control the current "route"
+// query via $GLOBALS['wp_query'] (a WP_Query-like object) directly, and
+// the current page number via $GLOBALS['_pp_test_store']['query_vars'].
+if (!function_exists('get_query_var')) {
+    function get_query_var(string $var, $default = '') {
+        return $GLOBALS['_pp_test_store']['query_vars'][$var] ?? $default;
+    }
+}
+
+if (!function_exists('paginate_links')) {
+    function paginate_links(array $args = []) {
+        $total   = (int) ($args['total'] ?? 1);
+        $current = (int) ($args['current'] ?? 1);
+        $type    = $args['type'] ?? 'plain';
+        if ($total <= 1) {
+            return $type === 'array' ? [] : '';
+        }
+        $links = [];
+        if ($current > 1) {
+            $links[] = '<a class="prev page-numbers" href="#">' . ($args['prev_text'] ?? 'Previous') . '</a>';
+        }
+        for ($i = 1; $i <= $total; $i++) {
+            $links[] = $i === $current
+                ? '<span aria-current="page" class="page-numbers current">' . $i . '</span>'
+                : '<a class="page-numbers" href="#">' . $i . '</a>';
+        }
+        if ($current < $total) {
+            $links[] = '<a class="next page-numbers" href="#">' . ($args['next_text'] ?? 'Next') . '</a>';
+        }
+        return $type === 'array' ? $links : implode('', $links);
+    }
+}
+
 if (!function_exists('wp_nav_menu')) {
     function wp_nav_menu(array $args = []): void {
         echo '<ul><li><a href="#">Test Link</a></li></ul>';
@@ -710,6 +743,7 @@ if (!function_exists('wp_get_upload_dir')) {
 if (!class_exists('WP_Query')) {
     class WP_Query {
         public array $posts = [];
+        public int $max_num_pages = 1; // #126: read by pp_pagination()
 
         public function __construct(array $args = []) {
             // Support meta_query IN comparison for _wp_attached_file lookups.

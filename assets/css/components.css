@@ -2064,6 +2064,53 @@
 .section--centered .section__title {
   text-align: center;
 }
+
+/* ==========================================================================
+   SHARED: Pagination
+   Renders under the post grid on the blog index / archives (issue 126).
+   ========================================================================== */
+
+.pp-pagination {
+  padding: var(--space-lg) 0;
+}
+
+.pp-pagination__list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  list-style: none;
+}
+
+.pp-pagination__list a.page-numbers,
+.pp-pagination__list span.page-numbers {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.5rem;
+  height: 2.5rem;
+  padding: 0 var(--space-sm);
+  border-radius: var(--radius);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.pp-pagination__list a.page-numbers:hover {
+  background: var(--color-surface);
+}
+
+.pp-pagination__list span.page-numbers.current {
+  background: var(--color-accent);
+  color: var(--color-bg);
+}
+
+.pp-pagination__list a.page-numbers.dots {
+  color: var(--color-muted);
+}
+
 /* Homepage closing CTA headline fix: title-left, action copy-right on desktop. */
 @media (min-width: 768px) {
   #home-cta.cta--inline .cta__inner {
