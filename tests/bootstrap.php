@@ -326,6 +326,68 @@ if (!function_exists('wp_get_nav_menu_items')) {
     }
 }
 
+// issue 132: menu CRUD stubs. Menus live in ['nav_menus'][$id] = ['term_id',
+// 'name']; items reuse the existing ['nav_menu_items'][$menu_id] bucket
+// above as stdClass objects {ID, title, url}.
+if (!function_exists('wp_get_nav_menus')) {
+    function wp_get_nav_menus(): array {
+        $menus = $GLOBALS['_pp_test_store']['nav_menus'] ?? [];
+        return array_map(fn($m) => (object) $m, array_values($menus));
+    }
+}
+
+if (!function_exists('wp_get_nav_menu_object')) {
+    function wp_get_nav_menu_object($menu) {
+        $menus = $GLOBALS['_pp_test_store']['nav_menus'] ?? [];
+        if (is_numeric($menu) && isset($menus[(int) $menu])) {
+            return (object) $menus[(int) $menu];
+        }
+        foreach ($menus as $m) {
+            if ($m['name'] === $menu) {
+                return (object) $m;
+            }
+        }
+        return false;
+    }
+}
+
+if (!function_exists('wp_create_nav_menu')) {
+    function wp_create_nav_menu(string $menu_name) {
+        foreach ($GLOBALS['_pp_test_store']['nav_menus'] ?? [] as $m) {
+            if ($m['name'] === $menu_name) {
+                return new WP_Error('menu_exists', sprintf('The menu name %s conflicts with another menu name. Please try another.', $menu_name));
+            }
+        }
+        $id = $GLOBALS['_pp_test_store']['next_id']++;
+        $GLOBALS['_pp_test_store']['nav_menus'][$id] = ['term_id' => $id, 'name' => $menu_name];
+        return $id;
+    }
+}
+
+if (!function_exists('wp_update_nav_menu_item')) {
+    function wp_update_nav_menu_item(int $menu_id, int $menu_item_db_id = 0, array $menu_item_data = []) {
+        if (!isset($GLOBALS['_pp_test_store']['nav_menus'][$menu_id])) {
+            return new WP_Error('invalid_menu_id', 'Invalid menu ID.');
+        }
+
+        if (($menu_item_data['menu-item-type'] ?? '') === 'post_type') {
+            $post_id = (int) ($menu_item_data['menu-item-object-id'] ?? 0);
+            $title   = $GLOBALS['_pp_test_store']['posts'][$post_id]['post_title'] ?? '';
+            $url     = 'https://example.com/?p=' . $post_id;
+        } else {
+            $title = $menu_item_data['menu-item-title'] ?? '';
+            $url   = $menu_item_data['menu-item-url'] ?? '';
+        }
+
+        $item_id = $menu_item_db_id ?: $GLOBALS['_pp_test_store']['next_id']++;
+        $item    = (object) ['ID' => $item_id, 'title' => $title, 'url' => $url];
+
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id][] = $item;
+
+        return $item_id;
+    }
+}
+
 if (!function_exists('get_posts')) {
     function get_posts(array $args = []): array {
         $results = [];
@@ -638,6 +700,22 @@ if (!function_exists('get_theme_mod')) {
     }
 }
 
+if (!function_exists('set_theme_mod')) {
+    function set_theme_mod(string $name, $value): bool {
+        $GLOBALS['_pp_test_store']['theme_mods'][$name] = $value;
+        // get_nav_menu_locations()'s stub reads a separate flat
+        // ['nav_menu_locations'] key that predates this function (and that
+        // several existing NavReadinessTest/PostApplyValidateTest fixtures
+        // already set directly) — keep both in sync so
+        // pp_assign_menu_location()'s real set_theme_mod() call is
+        // observable through the existing stub without touching those tests.
+        if ($name === 'nav_menu_locations') {
+            $GLOBALS['_pp_test_store']['nav_menu_locations'] = $value;
+        }
+        return true;
+    }
+}
+
 if (!function_exists('wp_get_attachment_image_url')) {
     function wp_get_attachment_image_url($attachment_id, $size = 'thumbnail', $icon = false) {
         return $GLOBALS['_pp_test_store']['attachment_urls'][(int) $attachment_id] ?? false;
@@ -749,13 +827,26 @@ if (!function_exists('wp_untrash_post')) {
 
 if (!function_exists('wp_delete_post')) {
     function wp_delete_post(int $post_id, bool $force_delete = false) {
-        if (!isset($GLOBALS['_pp_test_store']['posts'][$post_id])) {
-            return false;
+        if (isset($GLOBALS['_pp_test_store']['posts'][$post_id])) {
+            $post = $GLOBALS['_pp_test_store']['posts'][$post_id];
+            unset($GLOBALS['_pp_test_store']['posts'][$post_id]);
+            unset($GLOBALS['_pp_test_store']['post_meta'][$post_id]);
+            return (object) $post;
         }
-        $post = $GLOBALS['_pp_test_store']['posts'][$post_id];
-        unset($GLOBALS['_pp_test_store']['posts'][$post_id]);
-        unset($GLOBALS['_pp_test_store']['post_meta'][$post_id]);
-        return (object) $post;
+        // issue 132: nav menu items are modeled in a separate test-store
+        // bucket (not registered as real posts) even though real WordPress
+        // stores them as nav_menu_item posts — check there too, so
+        // pp_clear_nav_menu_items()'s wp_delete_post() calls actually work.
+        foreach ($GLOBALS['_pp_test_store']['nav_menu_items'] ?? [] as $menu_id => $items) {
+            foreach ($items as $i => $item) {
+                if (is_object($item) && $item->ID === $post_id) {
+                    unset($GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id][$i]);
+                    $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = array_values($GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id]);
+                    return (object) ['ID' => $post_id];
+                }
+            }
+        }
+        return false;
     }
 }
 

@@ -292,14 +292,14 @@ function pp_check_nav_readiness(array $composition): array {
         }
         if (!has_nav_menu($loc)) {
             $checks[] = ['check' => 'nav_readiness', 'pass' => false, 'severity' => 'warning',
-                'message' => 'Navigation location "' . $safe_loc . '" has no menu assigned. Assign one under Appearance → Menus.'];
+                'message' => 'Navigation location "' . $safe_loc . '" has no menu assigned. Use the set_menu action (or Appearance → Menus) to create one and assign it (issue 132).'];
             continue;
         }
         $menu_id = $locations[$loc] ?? 0;
         $items   = $menu_id ? wp_get_nav_menu_items($menu_id) : false;
         if (empty($items)) {
             $checks[] = ['check' => 'nav_readiness', 'pass' => false, 'severity' => 'warning',
-                'message' => 'Navigation menu assigned to "' . $safe_loc . '" is empty. Add items under Appearance → Menus.'];
+                'message' => 'Navigation menu assigned to "' . $safe_loc . '" is empty. Use the set_menu or add_menu_item action (or Appearance → Menus) to add links (issue 132).'];
             continue;
         }
         $checks[] = ['check' => 'nav_readiness', 'pass' => true, 'severity' => 'warning',
@@ -307,6 +307,107 @@ function pp_check_nav_readiness(array $composition): array {
     }
 
     return $checks;
+}
+
+/**
+ * Returns every navigation menu with its assigned theme location (if any)
+ * and item summaries — the AI-visible surface for grounding menu proposals
+ * against real state (issue 132), mirroring pp_composition_pages()'s role
+ * for pages.
+ *
+ * @return array[]  Each: ['id'=>int, 'name'=>string, 'location'=>?string, 'items'=>[['title'=>string,'url'=>string], ...]]
+ */
+function pp_get_menus(): array {
+    $menus = wp_get_nav_menus();
+    $locations = array_flip(array_filter(get_nav_menu_locations())); // menu_id => location, unassigned (0) dropped
+
+    $result = [];
+    foreach ($menus as $menu) {
+        $items = wp_get_nav_menu_items($menu->term_id);
+        $result[] = [
+            'id'       => $menu->term_id,
+            'name'     => $menu->name,
+            'location' => $locations[$menu->term_id] ?? null,
+            'items'    => array_map(function ($item) {
+                return ['title' => $item->title, 'url' => $item->url];
+            }, $items ?: []),
+        ];
+    }
+    return $result;
+}
+
+/**
+ * Creates a navigation menu (issue 132).
+ *
+ * @param  string $name  Menu name.
+ * @return int|WP_Error  New menu (term) ID, or the WP_Error wp_create_nav_menu()
+ *                        itself returns (e.g. on a duplicate name).
+ */
+function pp_create_nav_menu(string $name) {
+    return wp_create_nav_menu($name);
+}
+
+/**
+ * Adds a single item to a navigation menu (issue 132) — a page link
+ * (page_id) or a custom link (url + label).
+ *
+ * Named page_id, not post_id: the operate/preflight gate treats a
+ * top-level `post_id` action param as "this action mutates that specific
+ * post," requiring a PREFLIGHT covering it — but add_menu_item's linked
+ * page is data referenced by a site-scoped mutation (the menu), not the
+ * post being mutated, so it must not collide with that param name.
+ *
+ * @param  int   $menu_id  Menu (term) ID.
+ * @param  array $item     ['page_id' => int] or ['url' => string, 'label' => string]; optional 'position' => int.
+ * @return int|WP_Error    New menu item ID, or WP_Error on failure.
+ */
+function pp_add_nav_menu_item(int $menu_id, array $item) {
+    $args = ['menu-item-status' => 'publish'];
+
+    if (!empty($item['page_id'])) {
+        $args['menu-item-type']      = 'post_type';
+        $args['menu-item-object']    = 'page';
+        $args['menu-item-object-id'] = (int) $item['page_id'];
+    } else {
+        $args['menu-item-type']  = 'custom';
+        $args['menu-item-url']   = $item['url'] ?? '';
+        $args['menu-item-title'] = $item['label'] ?? '';
+    }
+
+    if (isset($item['position'])) {
+        $args['menu-item-position'] = (int) $item['position'];
+    }
+
+    return wp_update_nav_menu_item($menu_id, 0, $args);
+}
+
+/**
+ * Removes every item from a menu, leaving the menu itself intact — used by
+ * the set_menu action's replace semantics (issue 132).
+ *
+ * @param int $menu_id  Menu (term) ID.
+ */
+function pp_clear_nav_menu_items(int $menu_id): void {
+    $items = wp_get_nav_menu_items($menu_id);
+    foreach ($items ?: [] as $item) {
+        wp_delete_post($item->ID, true);
+    }
+}
+
+/**
+ * Assigns a menu to a registered theme navigation location (issue 132).
+ *
+ * @param  int    $menu_id   Menu (term) ID.
+ * @param  string $location  Registered theme location slug (e.g. 'primary').
+ * @return bool
+ */
+function pp_assign_menu_location(int $menu_id, string $location): bool {
+    $locations = get_theme_mod('nav_menu_locations', []);
+    if (!is_array($locations)) {
+        $locations = [];
+    }
+    $locations[$location] = $menu_id;
+    return set_theme_mod('nav_menu_locations', $locations);
 }
 
 /**

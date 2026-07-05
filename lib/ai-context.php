@@ -47,6 +47,24 @@ function pp_ai_system_prompt(): string {
     }
     $parts[] = '';
 
+    // Navigation state (issue 132) — grounds menu proposals against real
+    // menus/locations, next to the Pages inventory above (menu items are
+    // usually page links).
+    $menus = pp_get_menus();
+    $registered_locations = array_keys(get_registered_nav_menus());
+    $parts[] = '## Navigation';
+    $parts[] = 'Registered locations: ' . implode(', ', $registered_locations) . '.';
+    if ($menus) {
+        foreach ($menus as $menu) {
+            $loc_str = $menu['location'] ? "assigned to \"{$menu['location']}\"" : 'not assigned to any location';
+            $item_titles = $menu['items'] ? implode(', ', array_column($menu['items'], 'title')) : '(no items)';
+            $parts[] = "- {$menu['name']} (ID: {$menu['id']}, {$loc_str}): {$item_titles}";
+        }
+    } else {
+        $parts[] = 'No menus exist yet. Use create_menu or the declarative set_menu action to build one, then assign_menu_location to attach it to a location above.';
+    }
+    $parts[] = '';
+
     // Component catalog (condensed: name + required props only)
     $components = pp_get_registered_components();
     if ($components) {
@@ -327,6 +345,7 @@ function pp_ai_site_context(): array {
             'url'         => pp_site_url(),
         ],
         'pages'      => pp_composition_pages(),
+        'menus'      => pp_get_menus(),
         'components' => array_keys(pp_get_registered_components()),
         'actions'    => array_keys(pp_get_registered_actions()),
         'applies'    => array_keys(pp_get_registered_applies()),

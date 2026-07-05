@@ -17,6 +17,7 @@ Every visual change maps to exactly one mutation surface. Writing to the wrong s
 | Page-specific SEO metadata (meta description, `<title>` override, canonical URL) | `_pp_seo_meta` post meta | `update_seo_meta` action (patch; set a key to `""` to clear it) |
 | Page slug / URL (post_name) | WordPress core (`post_name`) | `update_page_slug` action (post_id + slug), or the `slug` param on `create_page` to set the route up front. Always check the URL in the page inventory above before proposing a change — never guess or construct one |
 | Custom/webfont loading and typography ("use Poppins for headings") | `pp_font_urls` option + `pp_token_overrides` option | `enqueue_font` apply with `url` + `family` + `apply_to` (`heading`\|`body`\|`both`) — one call both loads the stylesheet and points `--font-heading`/`--font-body` at it. `enqueue_font` with only `url` loads the font but changes nothing visible; it is not a substitute for `apply_to` |
+| Navigation menus (create, add links, assign to a location) | WordPress core (nav_menu terms + nav_menu_item posts + `nav_menu_locations` theme mod) | `set_menu` action (declarative — name + full ordered `items` list + optional `location`, replace semantics, mirrors `update_composition`) for the common case; or `create_menu` + `add_menu_item` (×N) + `assign_menu_location` as separate steps. Check the Navigation section in the page inventory above for existing menus/locations before proposing a change |
 
 ## What NOT to use
 
