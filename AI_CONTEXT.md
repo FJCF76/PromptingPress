@@ -256,6 +256,9 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `enqueue_font` | design | option: `pp_font_urls` | url (string, required, HTTPS only). Max 5 fonts |
 | `remove_font` | design | option: `pp_font_urls` | url (string, required) |
 | `reset_fonts` | design | option: `pp_font_urls` | (none) |
+| `import_media` | media | media library (new attachment) | url (string, required, HTTPS + image extension only), alt (string, optional) |
+
+**Media import (`import_media`):** Sideloads an external image URL into the media library — the only sanctioned way to bring an external image onto the site as a locally-owned asset (image props otherwise only accept a raw URL string). SSRF safety comes from WordPress core's `wp_safe_remote_get()` (used internally by `download_url()`), which validates the URL and every redirect hop against private/reserved IP ranges — not reimplemented here. Restricted beyond WordPress's default upload mime allowlist to images only (jpg/png/gif/webp), with a 10MB size cap. Returns `{attachment_id, url}` on success — use the returned `url` as the value for an `image_url`/`background_image`/`logo_url` prop.
 
 **CLI:** `wp pp apply list\|preview\|execute\|restore\|reset` (requires manage_options capability). `restore` rolls a run's token changes back to its pre-apply snapshot; `reset` clears overrides to product defaults.
 

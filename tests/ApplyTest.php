@@ -780,7 +780,7 @@ class ApplyTest extends TestCase
         foreach ($applies as $name => $def) {
             $this->assertArrayHasKey('target', $def, "Apply '$name' should have 'target' key");
             $this->assertArrayHasKey('type', $def['target'], "Apply '$name' target should have 'type' key");
-            $this->assertContains($def['target']['type'], ['file', 'option'], "Apply '$name' target type should be 'file' or 'option'");
+            $this->assertContains($def['target']['type'], ['file', 'option', 'media'], "Apply '$name' target type should be 'file', 'option', or 'media'");
             $this->assertArrayNotHasKey('target_file', $def, "Apply '$name' should not have legacy 'target_file' key");
         }
     }
@@ -1314,6 +1314,174 @@ class ApplyTest extends TestCase
         $result = pp_execute_apply('reset_fonts', []);
         $this->assertTrue($result['ok']);
         $this->assertEmpty(pp_get_font_urls());
+    }
+
+    // ── import_media apply tests (#105) ──────────────────────────────────────
+    // SSRF safety itself is WordPress core's job (wp_safe_remote_get /
+    // wp_http_validate_url) -- these tests prove OUR code correctly respects
+    // and propagates whatever core decides, rather than re-testing core.
+
+    private function resetImportMediaTestStore(): void
+    {
+        unset(
+            $GLOBALS['_pp_test_store']['download_url_result'],
+            $GLOBALS['_pp_test_store']['download_url_size'],
+            $GLOBALS['_pp_test_store']['filetype_result'],
+            $GLOBALS['_pp_test_store']['media_sideload_result'],
+            $GLOBALS['_pp_test_store']['safe_remote_head_result']
+        );
+        $GLOBALS['_pp_test_store']['download_url_calls']       = [];
+        $GLOBALS['_pp_test_store']['media_sideload_calls']     = [];
+        $GLOBALS['_pp_test_store']['safe_remote_head_calls']   = [];
+    }
+
+    public function testImportMediaValidUrl(): void
+    {
+        $this->resetImportMediaTestStore();
+        $result = pp_validate_apply('import_media', ['url' => 'https://example.com/logo.png']);
+        $this->assertTrue($result);
+    }
+
+    public function testImportMediaRejectsNonHttps(): void
+    {
+        $this->resetImportMediaTestStore();
+        $result = pp_validate_apply('import_media', ['url' => 'http://example.com/logo.png']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_url', $result->get_error_code());
+    }
+
+    public function testImportMediaRejectsInvalidUrl(): void
+    {
+        $this->resetImportMediaTestStore();
+        $result = pp_validate_apply('import_media', ['url' => 'not-a-url']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_url', $result->get_error_code());
+    }
+
+    public function testImportMediaRejectsUnsupportedExtension(): void
+    {
+        $this->resetImportMediaTestStore();
+        $result = pp_validate_apply('import_media', ['url' => 'https://example.com/payload.exe']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('unsupported_type', $result->get_error_code());
+    }
+
+    public function testImportMediaRejectsNoExtension(): void
+    {
+        $this->resetImportMediaTestStore();
+        $result = pp_validate_apply('import_media', ['url' => 'https://example.com/image']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('unsupported_type', $result->get_error_code());
+    }
+
+    public function testImportMediaExecuteSuccess(): void
+    {
+        $this->resetImportMediaTestStore();
+        $result = pp_execute_apply('import_media', ['url' => 'https://example.com/logo.jpg', 'alt' => 'Logo']);
+        $this->assertTrue($result['ok']);
+        $this->assertSame('media', $result['domain']);
+        $change = $result['changes'][0];
+        $this->assertArrayHasKey('attachment_id', $change);
+        $this->assertArrayHasKey('url', $change);
+        $this->assertSame('https://example.com/logo.jpg', $change['source_url']);
+        // alt text was persisted against the new attachment.
+        $meta = $GLOBALS['_pp_test_store']['post_meta'][$change['attachment_id']]['_wp_attachment_image_alt'] ?? null;
+        $this->assertSame('Logo', $meta);
+    }
+
+    public function testImportMediaExecuteRejectsSsrfUnsafeDestination(): void
+    {
+        // Simulates wp_safe_remote_get() rejecting the URL or one of its
+        // redirect hops (private IP, disallowed port, non-http(s) scheme) --
+        // download_url() surfaces this as a WP_Error, which our apply must
+        // propagate as a failed result, not silently swallow or retry unsafely.
+        $this->resetImportMediaTestStore();
+        $GLOBALS['_pp_test_store']['download_url_result'] =
+            new WP_Error('http_request_failed', 'A valid URL was not provided.');
+        $result = pp_execute_apply('import_media', ['url' => 'https://example.com/logo.jpg']);
+        $this->assertFalse($result['ok']);
+        $this->assertSame('A valid URL was not provided.', $result['error']);
+        $this->assertEmpty($GLOBALS['_pp_test_store']['media_sideload_calls']);
+    }
+
+    public function testImportMediaExecuteRejectsOversizedFile(): void
+    {
+        $this->resetImportMediaTestStore();
+        $GLOBALS['_pp_test_store']['download_url_size'] = 11 * 1024 * 1024; // 11MB > 10MB cap
+        $result = pp_execute_apply('import_media', ['url' => 'https://example.com/logo.jpg']);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('10MB', $result['error']);
+        $this->assertEmpty($GLOBALS['_pp_test_store']['media_sideload_calls']);
+    }
+
+    public function testImportMediaExecuteRejectsTypeMismatch(): void
+    {
+        // The URL's extension passed the pre-fetch check, but the actual
+        // downloaded bytes aren't a supported image type -- must be rejected
+        // on real content, not just the URL's claimed extension.
+        $this->resetImportMediaTestStore();
+        $GLOBALS['_pp_test_store']['filetype_result'] = ['ext' => false, 'type' => false, 'proper_filename' => false];
+        $result = pp_execute_apply('import_media', ['url' => 'https://example.com/logo.jpg']);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not a supported image type', $result['error']);
+        $this->assertEmpty($GLOBALS['_pp_test_store']['media_sideload_calls']);
+    }
+
+    public function testImportMediaExecuteRejectsDisallowedMimeEvenIfDetected(): void
+    {
+        $this->resetImportMediaTestStore();
+        $GLOBALS['_pp_test_store']['filetype_result'] =
+            ['ext' => 'pdf', 'type' => 'application/pdf', 'proper_filename' => false];
+        $result = pp_execute_apply('import_media', ['url' => 'https://example.com/logo.jpg']);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not a supported image type', $result['error']);
+    }
+
+    public function testImportMediaExecuteRejectsSideloadFailure(): void
+    {
+        $this->resetImportMediaTestStore();
+        $GLOBALS['_pp_test_store']['media_sideload_result'] =
+            new WP_Error('upload_error', 'Could not write file to disk.');
+        $result = pp_execute_apply('import_media', ['url' => 'https://example.com/logo.jpg']);
+        $this->assertFalse($result['ok']);
+        $this->assertSame('Could not write file to disk.', $result['error']);
+    }
+
+    public function testImportMediaPreviewSuccess(): void
+    {
+        $this->resetImportMediaTestStore();
+        $result = pp_preview_apply('import_media', ['url' => 'https://example.com/logo.jpg', 'alt' => 'Logo']);
+        $this->assertTrue($result['ok']);
+        $this->assertSame('https://example.com/logo.jpg', $result['after']['url']);
+        $this->assertSame('Logo', $result['after']['alt']);
+        $this->assertEmpty($GLOBALS['_pp_test_store']['media_sideload_calls']);
+    }
+
+    public function testImportMediaPreviewRejectsNonImageContentType(): void
+    {
+        $this->resetImportMediaTestStore();
+        $GLOBALS['_pp_test_store']['safe_remote_head_result'] = ['headers' => ['content-type' => 'text/html']];
+        $result = pp_preview_apply('import_media', ['url' => 'https://example.com/logo.jpg']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('unsupported_type', $result->get_error_code());
+    }
+
+    public function testImportMediaPreviewRejectsSsrfUnsafeDestination(): void
+    {
+        // Same rejection path as execute -- a redirect to a private/internal
+        // destination must be rejected during preview too, not just apply.
+        $this->resetImportMediaTestStore();
+        $GLOBALS['_pp_test_store']['safe_remote_head_result'] =
+            new WP_Error('http_request_failed', 'A valid URL was not provided.');
+        $result = pp_preview_apply('import_media', ['url' => 'https://example.com/logo.jpg']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+    }
+
+    public function testImportMediaRegisteredWithMediaDomain(): void
+    {
+        $apply = pp_get_apply('import_media');
+        $this->assertSame('media', $apply['domain']);
+        $this->assertSame('media', $apply['target']['type']);
     }
 
     // ── _pp_hash_all_theme_files() tests ────────────────────────────────────

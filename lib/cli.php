@@ -308,6 +308,8 @@ class PP_Apply_Command extends WP_CLI_Command {
                     $target_label = 'file:' . ($def['target']['path'] ?? '');
                 } elseif ($def['target']['type'] === 'option') {
                     $target_label = 'option:' . ($def['target']['key'] ?? '');
+                } elseif ($def['target']['type'] === 'media') {
+                    $target_label = 'media library';
                 }
             }
             $rows[] = [

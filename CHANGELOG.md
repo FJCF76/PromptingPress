@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.26] — 2026-07-05 — New: Bring External Images In as Owned Media
+
+**Image props (`image_url`, `background_image`, `logo_url`) only ever accepted a raw external URL. The only way to get a brand's real logo or photo onto the site was to hotlink it — fragile, unoptimized, and broken the moment the source moves — or drop out of the product surface entirely and use wp-admin media upload directly.**
+
+### Added
+- New `import_media` apply: sideloads an external HTTPS image URL into the media library and returns `{attachment_id, url}`. Pass the returned `url` into any `image_url`/`background_image`/`logo_url` prop to reference a locally-owned, locally-optimized asset instead of a hotlink.
+
+### For contributors
+- SSRF safety is WordPress core's job, not reimplemented: `download_url()` (used internally) fetches via `wp_safe_remote_get()`, which validates the URL **and every redirect hop** against private/reserved IP ranges, non-http(s) schemes, and disallowed ports — the same mechanism WordPress itself uses for oEmbed and update checks. This apply adds three things on top: HTTPS-only + a plausible-extension pre-check (fast fail, no network use for obviously-wrong URLs), a real post-download mime check restricted to images (WordPress's default upload mime allowlist is much broader — PDFs, docs, zips — deliberately narrowed here), and a 10MB size cap that `download_url()` doesn't itself enforce.
+- Deliberately scoped narrow: no new host-allowlist subsystem, no generic remote-fetch capability. Gated by the existing blanket `manage_options` requirement for all applies — no new capability logic needed.
+- 15 new PHPUnit tests, including SSRF-rejection propagation (a mocked `WP_Error` from `download_url()`/`wp_safe_remote_head()`, simulating a redirect to a private/internal destination), oversized-file rejection, and content-vs-extension type-mismatch rejection.
+
 ## [v0.16.25] — 2026-07-05 — Fix: Grid Steps No Longer Look Like a Draft
 
 **The `steps` variant of the grid component — the numbered "how it works" layout every marketing page reaches for — rendered as bare floating numbers over a dead-space background, with an arrow connector that had actually been invisible in production the whole time. Every page using it needed manual CSS rescue to look finished.**
