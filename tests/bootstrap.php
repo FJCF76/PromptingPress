@@ -489,6 +489,20 @@ if (!function_exists('wp_create_nonce')) {
     function wp_create_nonce($action = -1): string { return 'test_nonce'; }
 }
 
+// #41 SEO metadata hooks: current-page context, controlled via
+// $GLOBALS['_pp_test_store']['is_singular'] (bool) and ['queried_object_id'] (int).
+if (!function_exists('is_singular')) {
+    function is_singular($post_types = ''): bool {
+        return (bool) ($GLOBALS['_pp_test_store']['is_singular'] ?? false);
+    }
+}
+
+if (!function_exists('get_queried_object_id')) {
+    function get_queried_object_id(): int {
+        return (int) ($GLOBALS['_pp_test_store']['queried_object_id'] ?? 0);
+    }
+}
+
 if (!function_exists('get_post')) {
     function get_post($post = null) {
         $id = is_object($post) ? $post->ID : (int) $post;

@@ -1515,6 +1515,136 @@ function pp_update_page_title(int $post_id, string $title) {
     return true;
 }
 
+// ── Page-specific SEO metadata (#41) ─────────────────────────────────────────
+// Storage: a single post meta key (_pp_seo_meta, JSON-encoded), the same
+// "one structured meta key" pattern as _pp_composition — not scattered flat
+// meta keys, and not folded into the composition array itself (SEO metadata
+// is page-level, not a layout/content concern).
+
+/**
+ * Returns page-specific SEO metadata for a post.
+ *
+ * @param int $post_id  WordPress post ID.
+ * @return array{meta_description: string, seo_title: string, canonical_url: string}
+ */
+function pp_get_seo_meta(int $post_id): array {
+    $defaults = ['meta_description' => '', 'seo_title' => '', 'canonical_url' => ''];
+    $raw = get_post_meta($post_id, '_pp_seo_meta', true);
+    if (!is_string($raw) || $raw === '') {
+        return $defaults;
+    }
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        return $defaults;
+    }
+    return array_merge($defaults, array_intersect_key($decoded, $defaults));
+}
+
+/**
+ * Validates a (possibly partial) SEO meta patch. Shared by the update_seo_meta
+ * action's validate step and pp_update_seo_meta() itself (defense in depth,
+ * same pattern as other write paths in this file).
+ *
+ * @return true|WP_Error
+ */
+function _pp_validate_seo_meta(array $meta) {
+    $allowed_keys = ['meta_description', 'seo_title', 'canonical_url'];
+    $unknown = array_diff(array_keys($meta), $allowed_keys);
+    if (!empty($unknown)) {
+        return new WP_Error('invalid_key', 'Unknown SEO meta key(s): ' . implode(', ', $unknown) . '. Allowed: ' . implode(', ', $allowed_keys) . '.');
+    }
+    if (isset($meta['canonical_url']) && $meta['canonical_url'] !== '' && !filter_var($meta['canonical_url'], FILTER_VALIDATE_URL)) {
+        return new WP_Error('invalid_canonical_url', 'canonical_url must be a valid URL, or an empty string to clear it.');
+    }
+    if (isset($meta['meta_description']) && strlen($meta['meta_description']) > 320) {
+        return new WP_Error('meta_description_too_long', 'meta_description must be 320 characters or fewer.');
+    }
+    if (isset($meta['seo_title']) && strlen($meta['seo_title']) > 200) {
+        return new WP_Error('seo_title_too_long', 'seo_title must be 200 characters or fewer.');
+    }
+    return true;
+}
+
+/**
+ * Writes page-specific SEO metadata for a post. Shallow-merges into existing
+ * values — unspecified keys are left unchanged (same patch semantics as
+ * update_component's props). Pass an empty string to clear a field.
+ *
+ * @param int   $post_id  WordPress post ID.
+ * @param array $meta     Subset of {meta_description, seo_title, canonical_url}.
+ * @return true|WP_Error
+ */
+function pp_update_seo_meta(int $post_id, array $meta) {
+    if (!get_post($post_id)) {
+        return new WP_Error('invalid_post', 'Post not found.');
+    }
+
+    $valid = _pp_validate_seo_meta($meta);
+    if (is_wp_error($valid)) {
+        return $valid;
+    }
+
+    $updated = array_merge(pp_get_seo_meta($post_id), $meta);
+    update_post_meta($post_id, '_pp_seo_meta', wp_json_encode($updated));
+    return true;
+}
+
+/**
+ * Outputs the page-specific meta description tag, if set for the current
+ * page. Hooked to wp_head in functions.php.
+ */
+function pp_seo_meta_description_tag(): void {
+    if (!is_singular()) {
+        return;
+    }
+    $post_id = get_queried_object_id();
+    if (!$post_id) {
+        return;
+    }
+    $meta_description = pp_get_seo_meta($post_id)['meta_description'];
+    if ($meta_description === '') {
+        return;
+    }
+    echo '<meta name="description" content="' . esc_attr($meta_description) . '">' . "\n";
+}
+
+/**
+ * Filters the assembled document <title> to the page-specific seo_title
+ * override, if set. Hooked to the pre_get_document_title filter in
+ * functions.php — returning a non-empty value here short-circuits
+ * wp_get_document_title()'s own title-parts assembly entirely.
+ */
+function pp_seo_document_title_override(string $title): string {
+    if (!is_singular()) {
+        return $title;
+    }
+    $post_id = get_queried_object_id();
+    if (!$post_id) {
+        return $title;
+    }
+    $seo_title = pp_get_seo_meta($post_id)['seo_title'];
+    return $seo_title !== '' ? $seo_title : $title;
+}
+
+/**
+ * Filters the canonical URL to the page-specific canonical_url override, if
+ * set. Hooked to the get_canonical_url filter in functions.php. Returns the
+ * raw (already-validated) URL — WP core's own rel_canonical() escapes it
+ * with esc_url() at output time, so this must not pre-escape (would double-
+ * encode).
+ *
+ * @param string       $canonical_url  WordPress's own computed canonical URL.
+ * @param WP_Post|null $post           The post being rendered.
+ * @return string
+ */
+function pp_seo_canonical_url_override(string $canonical_url, $post): string {
+    if (!$post) {
+        return $canonical_url;
+    }
+    $override = pp_get_seo_meta($post->ID)['canonical_url'];
+    return $override !== '' ? $override : $canonical_url;
+}
+
 /**
  * Creates a new page with the Composition template.
  *

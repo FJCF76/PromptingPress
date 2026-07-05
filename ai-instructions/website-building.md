@@ -14,6 +14,7 @@ Every visual change maps to exactly one mutation surface. Writing to the wrong s
 | Site name, tagline | WordPress options | `update_site_option` action |
 | Site logo (nav, and footer via `show_logo`) | WordPress option (Media Library attachment) | `update_site_option` action (key `pp_logo_id`, an attachment ID) |
 | Bringing an external image onto the site as a locally-owned asset | Media Library (new attachment) | `import_media` apply (returns `{attachment_id, url}` — pass `url` to `image_url`/`background_image`/`logo_url`; on hero/section/logos also pass `attachment_id` as `image_id` for responsive srcset output) |
+| Page-specific SEO metadata (meta description, `<title>` override, canonical URL) | `_pp_seo_meta` post meta | `update_seo_meta` action (patch; set a key to `""` to clear it) |
 
 ## What NOT to use
 

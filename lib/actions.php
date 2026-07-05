@@ -474,6 +474,44 @@ pp_register_action('update_page_title', [
     },
 ]);
 
+// ── Action: update_seo_meta ──────────────────────────────────────────────────
+// Scope: page | Semantics: patch
+
+pp_register_action('update_seo_meta', [
+    'scope'       => 'page',
+    'description' => 'Sets page-specific SEO metadata: meta_description, seo_title (overrides the rendered <title> tag), and canonical_url. The first-class, safe-surface alternative to hand-patching theme PHP for per-page metadata (#41).',
+    'semantics'   => 'Patch. meta is shallow-merged into existing SEO metadata; unspecified keys are left unchanged. Set a key to "" to clear it.',
+    'params'      => [
+        'post_id' => ['type' => 'int',   'required' => true],
+        'meta'    => ['type' => 'array', 'required' => true],
+    ],
+    'validate' => function (array $params) {
+        $exists = _pp_validate_page_exists($params['post_id']);
+        if (is_wp_error($exists)) {
+            return $exists;
+        }
+        return _pp_validate_seo_meta($params['meta']);
+    },
+    'preview' => function (array $params): array {
+        $current = pp_get_seo_meta($params['post_id']);
+        $after   = array_merge($current, $params['meta']);
+        return _pp_action_preview('update_seo_meta', 'page', ['post_id' => $params['post_id']], $current, $after, [
+            ['path' => 'seo_meta', 'from' => $current, 'to' => $after],
+        ]);
+    },
+    'execute' => function (array $params): array {
+        $current = pp_get_seo_meta($params['post_id']);
+        $result = pp_update_seo_meta($params['post_id'], $params['meta']);
+        if (is_wp_error($result)) {
+            return _pp_action_error('update_seo_meta', 'page', $result->get_error_message());
+        }
+        $after = pp_get_seo_meta($params['post_id']);
+        return _pp_action_result('update_seo_meta', 'page', ['post_id' => $params['post_id']], [
+            ['path' => 'seo_meta', 'from' => $current, 'to' => $after],
+        ]);
+    },
+]);
+
 // ── Action: update_composition ──────────────────────────────────────────────
 // Scope: page | Semantics: replace entire composition array
 
