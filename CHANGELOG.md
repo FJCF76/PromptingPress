@@ -4,6 +4,19 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.31] — 2026-07-05 — New: Edit a Page's URL Without Touching wp-admin
+
+**PromptingPress could create a page, rename its title, publish it, trash it — but never touch its slug. Once a page was created, its URL was frozen forever unless you dropped into wp-admin, the exact surface the product exists to abstract away. Getting `/product/` instead of the title-derived `/how-promptingpress-works/` meant trashing and recreating the page, losing its ID, composition history, and any inbound links.**
+
+### Added
+- New `update_page_slug` action: changes a page's slug/permalink through the same preview/validate/execute contract as every other page action.
+- `create_page` accepts an optional `slug` param, so the canonical route can be set at creation instead of being derived from the title and then stuck.
+- The AI's page inventory now shows each page's real URL, with an explicit instruction to check it before proposing a slug change — no more guessed or hallucinated URLs.
+
+### For contributors
+- WordPress de-duplicates a colliding slug internally (`-2`, `-3`, ...) — `pp_update_page_slug()` reads back the actual resulting `post_name` afterward rather than assuming the requested one stuck, and both the action's `changes` and the preview surface it, never silently.
+- 9 new PHPUnit tests, including the collision/de-duplication path and the "preview never writes" guarantee.
+
 ## [v0.16.30] — 2026-07-05 — New: FAQ Sections Now Generate Rich-Snippet Structured Data
 
 **The FAQ component renders semantically correct, accessible HTML — but Google can't turn that into an FAQ rich snippet without a matching FAQPage JSON-LD block, and PromptingPress had no way to output structured data at all. Every FAQ section was leaving free SERP real estate on the table.**

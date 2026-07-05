@@ -346,11 +346,12 @@ function _pp_action_preview(string $name, string $scope, array $target, $before,
 pp_register_action('create_page', [
     'scope'       => 'site',
     'description' => 'Creates a new page with the Composition template. Each composition item is {"component": "name", "props": {...}}.',
-    'semantics'   => 'Create. Title is required. Composition defaults to empty array. Status defaults to "draft". Composition items use the same {"component", "props"} shape as elsewhere.',
+    'semantics'   => 'Create. Title is required. Composition defaults to empty array. Status defaults to "draft". Composition items use the same {"component", "props"} shape as elsewhere. Optional slug sets the canonical route up front (#134) — omit to let WordPress derive one from the title.',
     'params'      => [
         'title'       => ['type' => 'string', 'required' => true],
         'composition' => ['type' => 'array',  'required' => false],
         'status'      => ['type' => 'string', 'required' => false],
+        'slug'        => ['type' => 'string', 'required' => false],
     ],
     'validate' => function (array $params) {
         if (trim($params['title']) === '') {
@@ -362,6 +363,9 @@ pp_register_action('create_page', [
             if (is_wp_error($valid)) {
                 return $valid;
             }
+        }
+        if (isset($params['slug']) && sanitize_title($params['slug']) === '') {
+            return new WP_Error('invalid_slug', 'Slug must not be empty after sanitization.');
         }
         return true;
     },
@@ -379,7 +383,8 @@ pp_register_action('create_page', [
     },
     'execute' => function (array $params): array {
         $status = $params['status'] ?? 'draft';
-        $post_id = pp_create_page($params['title'], $status);
+        $slug   = $params['slug'] ?? '';
+        $post_id = pp_create_page($params['title'], $status, $slug);
 
         if (is_wp_error($post_id)) {
             return _pp_action_error('create_page', 'site', $post_id->get_error_message());
@@ -470,6 +475,46 @@ pp_register_action('update_page_title', [
         }
         return _pp_action_result('update_page_title', 'page', ['post_id' => $params['post_id']], [
             ['path' => 'title', 'from' => $current, 'to' => $params['title']],
+        ]);
+    },
+]);
+
+// ── Action: update_page_slug ─────────────────────────────────────────────────
+// Scope: page | Semantics: replace
+
+pp_register_action('update_page_slug', [
+    'scope'       => 'page',
+    'description' => 'Updates a page slug (post_name) / permalink (#134). WordPress de-duplicates the slug internally on collision (suffixing -2, -3, ...) — the result reports the actual slug that was set, which may differ from the one requested.',
+    'semantics'   => 'Replace. Slug is sanitized via sanitize_title() and, on a naming collision with another post, de-duplicated by WordPress core — never silently. The resulting slug is always reported in changes.',
+    'params'      => [
+        'post_id' => ['type' => 'int',    'required' => true],
+        'slug'    => ['type' => 'string', 'required' => true],
+    ],
+    'validate' => function (array $params) {
+        $exists = _pp_validate_page_exists($params['post_id']);
+        if (is_wp_error($exists)) {
+            return $exists;
+        }
+        if (sanitize_title($params['slug']) === '') {
+            return new WP_Error('invalid_slug', 'Slug must not be empty after sanitization.');
+        }
+        return true;
+    },
+    'preview' => function (array $params): array {
+        $current_permalink = get_permalink($params['post_id']);
+        $sanitized = sanitize_title($params['slug']);
+        return _pp_action_preview('update_page_slug', 'page', ['post_id' => $params['post_id']], $current_permalink, $sanitized, [
+            ['path' => 'slug', 'from' => $current_permalink, 'to' => "sanitized to '{$sanitized}' (WordPress may de-duplicate further on collision — not reflected in preview)"],
+        ]);
+    },
+    'execute' => function (array $params): array {
+        $current_permalink = get_permalink($params['post_id']);
+        $result = pp_update_page_slug($params['post_id'], $params['slug']);
+        if (is_wp_error($result)) {
+            return _pp_action_error('update_page_slug', 'page', $result->get_error_message());
+        }
+        return _pp_action_result('update_page_slug', 'page', ['post_id' => $params['post_id']], [
+            ['path' => 'slug', 'from' => $current_permalink, 'to' => $result, 'permalink' => get_permalink($params['post_id'])],
         ]);
     },
 ]);
