@@ -150,8 +150,18 @@ function pp_ai_chat_page(): void {
                     }
                 }
                 ?>
+                <?php $pp_ai_chat_pages = pp_composition_pages(); ?>
                 <div class="pp-ai-chat-header">
                     <h2>AI Chat</h2>
+                    <label for="pp-ai-page-select" class="screen-reader-text"><?php esc_html_e('Target Page', 'promptingpress'); ?></label>
+                    <select id="pp-ai-page-select" class="pp-ai-chat-selector" title="<?php esc_attr_e('Which page this conversation edits', 'promptingpress'); ?>">
+                        <option value=""><?php esc_html_e('— Select a page —', 'promptingpress'); ?></option>
+                        <?php foreach ($pp_ai_chat_pages as $pp_ai_chat_page_item): ?>
+                            <option value="<?php echo esc_attr($pp_ai_chat_page_item['id']); ?>">
+                                <?php echo esc_html($pp_ai_chat_page_item['title'] !== '' ? $pp_ai_chat_page_item['title'] : '(untitled)'); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
                     <?php if ($is_multi_provider): ?>
                         <label for="pp-ai-provider-select" class="screen-reader-text"><?php esc_html_e('AI Provider', 'promptingpress'); ?></label>
                         <select id="pp-ai-provider-select" class="pp-ai-chat-selector">

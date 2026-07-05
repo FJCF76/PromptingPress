@@ -53,7 +53,11 @@ const conversation = [
     { role: 'user', content: '[Applied changes: hero updated]' },
 ];
 
-localStorage.setItem(STORAGE_KEY, JSON.stringify({ conversation: conversation, activePageId: null }));
+// issue 136: sendMessage() now blocks when no page is selected, so this
+// fixture restores an already-active page — the persistence assertions
+// below are about internal-message handling, not page selection.
+dom.window.ppAiChat.pages = [{ id: 1, title: 'Test Page' }];
+localStorage.setItem(STORAGE_KEY, JSON.stringify({ conversation: conversation, activePageId: 1 }));
 
 require('../../assets/js/pp-ai-chat.js');
 

@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.38] — 2026-07-05 — Fix: AI Chat Now Targets an Explicit, User-Chosen Page
+
+**Which page a chat request mutated was inferred entirely by matching the last message against page titles as substrings — "tell me about pricing" could match a page titled "About", "make the hero bigger" matched nothing and silently reused whatever page was last targeted, and the user had no way to see or correct which page was about to change before a proposal wrote to it.**
+
+### Added
+- A page selector in the chat header sets the conversation's target page explicitly; it persists across reloads and is sent with every request. Sending with no page selected is now blocked client-side — a `page_id: null` request is never sent — with an inline prompt directing the user to the selector.
+- Title-substring detection still runs on every message, but only as a suggestion: when it disagrees with the current selection, a non-blocking "Switch to it for next message?" chip appears. It never silently retargets the conversation.
+- Every proposal card now names its target page ("Target page: <Title>"), captured at the moment the request was sent so it can't drift if the selector changes mid-response.
+
+### For contributors
+- `detectPageId` moved out of the chat IIFE into a pure, testable top-level function (`ppChatDetectPageId`), alongside two new helpers (`ppChatFindPageById`, `ppChatShouldSuggestPageSwitch`) — all three exported for tests, following the file's existing `ppChat*` testable-helper convention.
+- 18 new Vitest tests for the three pure functions (substring-collision resolution, untitled-page exclusion, suggestion-vs-authority semantics), plus an existing localStorage-restore fixture updated to seed an active page now that sending requires one.
+- Verified live: page selector populated from real composition pages, blocked/prompted send with nothing selected, detected-page hint text, explicit-selection-wins-over-detection on send, and the switch-suggestion chip correctly updating the selector on click.
+
 ## [v0.16.37] — 2026-07-05 — New: `enqueue_font` Can Now Wire a Font Into the Site's Typography Tokens
 
 **`enqueue_font` loaded a webfont's `<link>` and nothing else — the site's actual typography comes from the `--font-heading`/`--font-body` design tokens, which `enqueue_font` never touched. "Use Poppins for headings" required a second, undocumented `update_design_token` call with the exact CSS family name the stylesheet defined, a coupling an AI could easily get wrong or skip — leaving the font downloaded but invisible.**

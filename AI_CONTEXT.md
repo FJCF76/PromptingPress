@@ -569,6 +569,12 @@ The chat uses POST-based SSE streaming (nonce in request body, never in URL):
 | `pp_ai_stream` | Read/stream | SSE endpoint, AJAX chat fallback |
 | `pp_ai_execute` | Mutate | Action/apply execution from chat |
 
+### Page targeting (issue 136)
+
+Which page a chat conversation edits is explicit and user-controlled, never inferred silently. A `<select id="pp-ai-page-select">` in the chat header (populated from `pp_composition_pages()`) sets `activePageId` in the JS, persisted in the same localStorage entry as the conversation. `activePageId` is sent as `page_id` with every request — the AI's proposed `post_id` action params drive the actual writes, so an unresolved or wrong target here is a real correctness risk, not cosmetic.
+
+Sending a message with no page selected is blocked client-side (no `page_id: null` request is ever sent); the chat shows an inline prompt directing the user to the selector. `ppChatDetectPageId(text, pages)` (longest-title-substring match, same heuristic as before this issue) still runs on every message, but purely as a suggestion: if it finds a candidate different from the current selection, a non-blocking "Switch to it for next message?" chip appears — clicking it updates the selector, but the message that was just sent always used whatever was explicitly selected at send time. Detection never mutates `activePageId` on its own. Every proposal card names its target page ("Target page: <Title>"), captured at request time so it can't drift if the selector changes while a response is still streaming.
+
 ### System prompt contents
 
 Assembled by `pp_ai_system_prompt()`:
