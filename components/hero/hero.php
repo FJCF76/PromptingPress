@@ -14,6 +14,8 @@ $cta_text  = $props['cta_text'] ?? '';
 $cta_url   = $props['cta_url']  ?? '#';
 $cta2_text = $props['cta2_text'] ?? '';
 $cta2_url  = $props['cta2_url']  ?? '#';
+$cta_variant  = $props['cta_variant']  ?? 'primary';
+$cta2_variant = $props['cta2_variant'] ?? 'outline';
 $variant   = $props['variant']   ?? 'centered';
 $image_url = $props['image_url'] ?? '';
 $image_alt = $props['image_alt'] ?? '';
@@ -28,6 +30,18 @@ $allowed_variants = ['left', 'centered', 'split', 'cover'];
 if (!in_array($variant, $allowed_variants, true)) {
     $variant = 'centered';
 }
+
+// Validate CTA button variants (same shared .btn--* primitive as components/cta/cta.php).
+$allowed_button_variants = ['primary', 'secondary', 'outline', 'ghost'];
+if (!in_array($cta_variant, $allowed_button_variants, true)) {
+    $cta_variant = 'primary';
+}
+if (!in_array($cta2_variant, $allowed_button_variants, true)) {
+    $cta2_variant = 'outline';
+}
+// primary is the bare .btn; other variants add a .btn--{variant} modifier.
+$cta_variant_class  = $cta_variant !== 'primary' ? ' btn--' . $cta_variant : '';
+$cta2_variant_class = $cta2_variant !== 'primary' ? ' btn--' . $cta2_variant : '';
 
 // Validate spacing/width props.
 $allowed_spacings = ['default', 'compact', 'spacious'];
@@ -83,11 +97,11 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
 
                 <?php if ($cta_text) : ?>
                     <div class="hero__cta-group">
-                        <a href="<?php echo esc_url($cta_url); ?>" class="hero__cta btn">
+                        <a href="<?php echo esc_url($cta_url); ?>" class="hero__cta btn<?php echo esc_attr($cta_variant_class); ?>">
                             <?php echo esc_html($cta_text); ?>
                         </a>
                         <?php if ($cta2_text) : ?>
-                            <a href="<?php echo esc_url($cta2_url); ?>" class="hero__cta btn btn--outline">
+                            <a href="<?php echo esc_url($cta2_url); ?>" class="hero__cta btn<?php echo esc_attr($cta2_variant_class); ?>">
                                 <?php echo esc_html($cta2_text); ?>
                             </a>
                         <?php endif; ?>
