@@ -1,6 +1,6 @@
 {
   "component": "faq",
-  "description": "FAQ accordion using native HTML details/summary elements. Zero JavaScript required. Each item has a question and an HTML answer.",
+  "description": "FAQ accordion using native HTML details/summary elements. Zero JavaScript required. Each item has a question and an HTML answer. Always emits a FAQPage JSON-LD structured-data block alongside the visible markup.",
   "props": {
     "title": {
       "type": "string",

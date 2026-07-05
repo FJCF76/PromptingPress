@@ -47,3 +47,4 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
 
     </div>
 </section>
+<?php echo pp_render_faq_schema($items); ?>
