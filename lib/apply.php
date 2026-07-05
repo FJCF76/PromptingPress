@@ -1373,6 +1373,34 @@ function _pp_save_deployment_manifest(string $theme_path, array $file_hashes): b
 }
 
 /**
+ * Converts an absolute file path within the theme directory into a
+ * normalized, forward-slash-only relative path (issue 127).
+ *
+ * On Windows hosting (IIS/XAMPP — fully supported by WordPress),
+ * RecursiveDirectoryIterator::getPathname() joins path segments with `\`.
+ * A plain `ltrim(str_replace($theme_path, '', $pathname), '/')` never
+ * strips a leading backslash, and nested paths keep `\` separators (e.g.
+ * `\components\hero\hero.php`). Since integrity-manifest.json is built on
+ * Linux CI with `/` paths, every nested file then mismatches on Windows —
+ * reported as both `missing` and `extra` — which flips theme integrity to
+ * "unsafe" and blocks every theme update. Normalizing both sides to `/`
+ * before stripping the prefix fixes this regardless of which OS actually
+ * wrote the file path.
+ *
+ * Pure function — no I/O — so it's testable on any OS regardless of which
+ * platform actually runs the test suite.
+ *
+ * @param  string $theme_path  Absolute theme directory path (either separator).
+ * @param  string $pathname    Absolute file path within the theme (either separator).
+ * @return string              Relative path, forward slashes only, no leading separator.
+ */
+function _pp_relative_theme_path(string $theme_path, string $pathname): string {
+    $base = str_replace('\\', '/', $theme_path);
+    $path = str_replace('\\', '/', $pathname);
+    return ltrim(str_replace($base, '', $path), '/');
+}
+
+/**
  * Hashes all theme files (php, css, js, json) for drift detection.
  * Skips .git/, node_modules/, vendor/, tests/ directories.
  *
@@ -1404,7 +1432,7 @@ function _pp_hash_theme_files(string $theme_path): array {
         if (!in_array($ext, $extensions, true)) {
             continue;
         }
-        $relative = ltrim(str_replace($theme_path, '', $file->getPathname()), '/');
+        $relative = _pp_relative_theme_path($theme_path, $file->getPathname());
         $hashes[$relative] = md5_file($file->getPathname());
     }
 
@@ -1472,7 +1500,7 @@ function _pp_hash_all_theme_files(string $theme_path): array {
             continue;
         }
 
-        $relative = ltrim(str_replace($theme_path, '', $file->getPathname()), '/');
+        $relative = _pp_relative_theme_path($theme_path, $file->getPathname());
 
         // Skip individually excluded files.
         if (in_array($relative, $skip_files, true)) {

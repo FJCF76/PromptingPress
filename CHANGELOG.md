@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.42] — 2026-07-05 — Fix: Theme Integrity Permanently "Unsafe" on Windows Hosting
+
+**On Windows hosting (IIS/XAMPP — fully supported by WordPress), theme file hashing kept backslash path separators instead of stripping them to forward slashes. Since `integrity-manifest.json` is built on Linux CI with forward-slash paths, every nested file mismatched on Windows — reported as both "missing" and "extra" — which permanently flipped theme integrity to "unsafe" and blocked every theme update, with a persistent "files modified locally" admin notice that could never clear.**
+
+### Fixed
+- Both theme-file hashers, and `pp_classify_surface()`'s theme-directory-prefix strip, now normalize backslashes to forward slashes before computing a relative path — regardless of which OS wrote the original absolute path.
+
+### For contributors
+- New pure function `_pp_relative_theme_path($theme_path, $pathname)` in `lib/apply.php` centralizes the normalization; both hashers and `pp_classify_surface()` now call it instead of each doing their own `str_replace()`/`ltrim()`.
+- Being a pure function (no I/O), it's directly testable with synthetic Windows-style backslash inputs on any OS — the test suite doesn't need to actually run on Windows to catch a regression here.
+- 7 new PHPUnit tests, including one asserting `pp_classify_surface()` correctly classifies a Windows-style absolute path end-to-end (theme dir + file path both backslash-separated) and one confirming a real nested file on the filesystem still hashes to a forward-slash key.
+
 ## [v0.16.41] — 2026-07-05 — New: AI Chat Can Build Navigation Menus
 
 **Navigation had zero mutation surface — no action could create a menu, add a link, or assign a location. The only nav-related code was a read-only diagnostic that explicitly told the AI to punt to a human: "Assign one under Appearance → Menus," the exact wp-admin surface the product exists to abstract away. A fresh install had no way to get a working nav menu without leaving the chat.**

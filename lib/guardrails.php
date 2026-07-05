@@ -139,8 +139,15 @@ function pp_admin_notice_css_conflicts(): void {
  * @return array{classification: string, guidance: string}
  */
 function pp_classify_surface(string $path): array {
+    // Normalize to forward slashes first (issue 127) — on Windows hosting,
+    // get_template_directory() and an absolute $path may both use `\`, and
+    // leaving them unnormalized here produces a `\`-separated relative path
+    // that then fails to match forward-slash `planned_files` entries during
+    // preflight overlap matching, even though the same file is meant.
+    $path      = str_replace('\\', '/', $path);
+    $theme_dir = str_replace('\\', '/', get_template_directory());
+
     // Normalize: strip theme directory prefix if absolute.
-    $theme_dir = get_template_directory();
     if (str_starts_with($path, $theme_dir)) {
         $path = ltrim(substr($path, strlen($theme_dir)), '/');
     }
