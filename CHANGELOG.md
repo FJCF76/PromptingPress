@@ -4,6 +4,16 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.47] — 2026-07-05 — Real WP+MySQL Concurrency Harness for Token Applies
+
+**#97 added a MySQL advisory lock (`GET_LOCK`) around `pp_token_overrides` read-modify-write cycles so concurrent applies (agents parallelizing tool calls) can't silently lose one writer's update. The PHPUnit suite could only prove the lock is invoked inside a single shared PHP process/DB connection — it couldn't prove the lock actually serializes two INDEPENDENT MySQL connections under real concurrent load.**
+
+### For contributors
+- New `tests/e2e/token-concurrency.spec.ts`, driven through wp-env's real WordPress + MySQL container rather than the PHPUnit stub harness (which shares one process/connection and can't exercise a genuine cross-connection race):
+  - Two genuinely separate `wp-env run cli` processes fire `wp pp apply execute update_design_token` on different tokens at the same time (async `spawn` + `Promise.all`, not sequential `execSync`); both writes must survive with no lost update.
+  - A third writer that starts while a real, separate connection holds the same named advisory lock must fail closed (`GET_LOCK` times out, explicit failure) rather than silently skip the lock and clobber. Made deterministic rather than timing-sensitive: the lock holder signals "lock acquired" via a marker file on the bind-mounted theme directory (shared between host and every wp-env container), so the harness never guesses at container startup timing.
+- `--color-bg` and `--space-md` are used as the concurrent test tokens because neither has a derived token family (see `pp_token_families()`) — an unrelated token's auto-derived writes would otherwise obscure whether the specific keys under test survived.
+
 ## [v0.16.46] — 2026-07-05 — Test Coverage: AI Chat Streaming & Apply E2E Flow (Mock SSE)
 
 **The AI chat's streaming/proposal/apply state machine (`assets/js/pp-ai-chat.js`) had no end-to-end coverage — only its pure helper functions were unit-tested. The SSE transport, the AJAX fallback path, and the atomic batch-apply flow were only ever exercised manually.**
