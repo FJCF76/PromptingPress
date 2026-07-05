@@ -328,7 +328,7 @@ class ComponentPropsTest extends TestCase
     {
         // Preserves pre-#93 behavior: an unset cta2_variant still renders outline.
         $html = $this->render('hero', $this->heroProps());
-        $this->assertStringContainsString('class="hero__cta btn btn--outline"', $html);
+        $this->assertStringContainsString('class="hero__cta hero__cta--secondary btn btn--outline"', $html);
     }
 
     public function testHeroCtaVariantSecondary(): void
@@ -360,7 +360,7 @@ class ComponentPropsTest extends TestCase
     public function testHeroCta2VariantInvalidFallsBackToOutline(): void
     {
         $html = $this->render('hero', $this->heroProps(['cta2_variant' => 'neon']));
-        $this->assertStringContainsString('class="hero__cta btn btn--outline"', $html);
+        $this->assertStringContainsString('class="hero__cta hero__cta--secondary btn btn--outline"', $html);
     }
 
     // ── CRITICAL regression: button enrichment must not break --cta-accent ──
@@ -382,11 +382,114 @@ class ComponentPropsTest extends TestCase
     public function testCtaBtnCssStillConsumesCtaAccentAfterEnrichment(): void
     {
         $css = file_get_contents(dirname(__DIR__) . '/assets/css/components.css');
+        // Allow for the :not(.btn--outline):not(.btn--ghost):not(.btn--secondary)
+        // exclusion clauses added between .btn and { by the #111 cascade-bug fix.
         $this->assertMatchesRegularExpression(
-            '/\.cta\s+\.btn\s*\{[^}]*var\(\s*--cta-accent/s',
+            '/\.cta\s+\.btn[^{]*\{[^}]*var\(\s*--cta-accent/s',
             $css,
             'The component-scoped .cta .btn override must still consume var(--cta-accent) '
             . 'after the shared button was tokenized — otherwise old compositions lose their color.'
+        );
+    }
+
+    // ── Secondary/outline button cascade bug + per-instance slots (#111) ────
+
+    public function testCtaAccentFillExcludesOutlineGhostSecondary(): void
+    {
+        // Regression guard: .cta .btn (2 classes, specificity 0,2,0) has HIGHER
+        // specificity than .btn--outline/--ghost/--secondary (1 class each,
+        // 0,1,0), so without this :not() exclusion the accent fill
+        // unconditionally wins regardless of source order. Confirmed
+        // empirically (Playwright): without the exclusion, outline and ghost
+        // both render with button text the same color as the button
+        // background (fully invisible).
+        $css = file_get_contents(dirname(__DIR__) . '/assets/css/components.css');
+        $this->assertMatchesRegularExpression(
+            '/\.cta\s+\.btn:not\(\.btn--outline\):not\(\.btn--ghost\):not\(\.btn--secondary\)\s*\{[^}]*var\(\s*--cta-accent\b/s',
+            $css,
+            ".cta .btn's accent-fill rule must exclude outline/ghost/secondary via :not(), "
+            . 'or those variants render with an invisible/wrong-colored button (#111).'
+        );
+    }
+
+    public function testHeroAccentFillExcludesOutlineGhostSecondary(): void
+    {
+        // Same guard for hero's equivalent rule (this specific fix predates
+        // #111 — pins it so a future refactor can't silently reintroduce it).
+        $css = file_get_contents(dirname(__DIR__) . '/assets/css/components.css');
+        $this->assertMatchesRegularExpression(
+            '/\.hero\s+\.btn:not\(\.btn--outline\):not\(\.btn--ghost\):not\(\.btn--secondary\)\s*\{[^}]*var\(\s*--hero-accent\b/s',
+            $css,
+            ".hero .btn's accent-fill rule must exclude outline/ghost/secondary via :not()."
+        );
+    }
+
+    public function testHeroSchemaDeclaresAllSixCta2Slots(): void
+    {
+        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/hero/schema.json'), true);
+        $slots = $schema['styling']['style_slots'];
+        foreach (['--hero-cta2-bg', '--hero-cta2-border', '--hero-cta2-color', '--hero-cta2-hover-bg', '--hero-cta2-hover-border', '--hero-cta2-hover-color'] as $name) {
+            $this->assertArrayHasKey($name, $slots, "hero must declare {$name}.");
+            $this->assertSame('color', $slots[$name]['type']);
+        }
+    }
+
+    public function testCtaSchemaDeclaresAllSixButtonSlots(): void
+    {
+        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/cta/schema.json'), true);
+        $slots = $schema['styling']['style_slots'];
+        foreach (['--cta-button-bg', '--cta-button-border', '--cta-button-color', '--cta-button-hover-bg', '--cta-button-hover-border', '--cta-button-hover-color'] as $name) {
+            $this->assertArrayHasKey($name, $slots, "cta must declare {$name}.");
+            $this->assertSame('color', $slots[$name]['type']);
+        }
+    }
+
+    public function testHeroCta2OverrideAppliesOnlyToSecondaryButton(): void
+    {
+        // The override must be scoped to .hero__cta--secondary, not leak onto
+        // the primary button — even when the override is set, the primary's
+        // rendered class list carries no such class.
+        $html = $this->render('hero', $this->heroProps([
+            '__pp_style' => ['--hero-cta2-color' => '#00ff00'],
+        ]));
+        $this->assertStringContainsString('--hero-cta2-color: #00ff00', $html);
+        $this->assertStringContainsString('hero__cta hero__cta--secondary btn', $html);
+        // Only ONE button should carry the secondary class.
+        $this->assertSame(1, substr_count($html, 'hero__cta--secondary'));
+    }
+
+    public function testCtaButtonOverrideRenders(): void
+    {
+        $html = $this->render('cta', $this->ctaProps([
+            'button_variant' => 'outline',
+            '__pp_style' => ['--cta-button-bg' => '#ff00ff', '--cta-button-border' => '#ffff00'],
+        ]));
+        $this->assertStringContainsString('--cta-button-bg: #ff00ff', $html);
+        $this->assertStringContainsString('--cta-button-border: #ffff00', $html);
+    }
+
+    public function testHeroCta2VariantsAllRouteThroughOverrideSlotsInCss(): void
+    {
+        // Comprehensive coverage beyond the keystone contract test's "at least
+        // one compatible consumption" check — every one of the 4 variant-specific
+        // rule blocks must reference --hero-cta2-bg, not just one of them.
+        $css = file_get_contents(dirname(__DIR__) . '/assets/css/components.css');
+        $this->assertSame(
+            4,
+            substr_count($css, '--hero-cta2-bg'),
+            '--hero-cta2-bg must be referenced in exactly 4 places: the primary-shape rule '
+            . 'plus outline/secondary/ghost — one per variant (#111).'
+        );
+    }
+
+    public function testCtaButtonVariantsAllRouteThroughOverrideSlotsInCss(): void
+    {
+        $css = file_get_contents(dirname(__DIR__) . '/assets/css/components.css');
+        $this->assertSame(
+            4,
+            substr_count($css, '--cta-button-bg'),
+            '--cta-button-bg must be referenced in exactly 4 places: the primary-shape rule '
+            . 'plus outline/secondary/ghost — one per variant (#111).'
         );
     }
 

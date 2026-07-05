@@ -101,7 +101,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                             <?php echo esc_html($cta_text); ?>
                         </a>
                         <?php if ($cta2_text) : ?>
-                            <a href="<?php echo esc_url($cta2_url); ?>" class="hero__cta btn<?php echo esc_attr($cta2_variant_class); ?>">
+                            <a href="<?php echo esc_url($cta2_url); ?>" class="hero__cta hero__cta--secondary btn<?php echo esc_attr($cta2_variant_class); ?>">
                                 <?php echo esc_html($cta2_text); ?>
                             </a>
                         <?php endif; ?>
