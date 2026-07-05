@@ -1025,8 +1025,80 @@ function ppChatAppendValidationItems(container, items, className) {
         applyBtn.disabled = true;
         cancelBtn.disabled = true;
 
-        var applied = [];
-        executeStep(steps, stepElements, 0, applied, card);
+        stepElements.forEach(function (el) { el.classList.add('pp-ai-step-executing'); });
+
+        // issue 137: one atomic batch request instead of N independent
+        // pp_ai_execute calls — the server snapshots every step's target up
+        // front and rolls everything back if any step fails, so a failure
+        // never leaves the page half-mutated the way sequential per-step
+        // calls could.
+        var data = new FormData();
+        data.append('action', 'pp_ai_execute_batch');
+        data.append('nonce', config.executeNonce);
+        data.append('steps', JSON.stringify(steps.map(function (s) {
+            return { type: s.type, name: s.name, params: s.params || {} };
+        })));
+
+        fetch(config.ajaxUrl, {
+            method: 'POST',
+            credentials: 'same-origin',
+            body: data
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (resp) {
+            if (!resp.success) {
+                stepElements.forEach(function (el) {
+                    el.classList.remove('pp-ai-step-executing');
+                    el.classList.add('pp-ai-step-failed');
+                });
+                addStatusMessage('Error: ' + (resp.data || 'Unknown error'), true);
+                return;
+            }
+
+            var batch = resp.data; // { ok, steps: [...], failed_at, rolled_back }
+            var applied = [];
+
+            batch.steps.forEach(function (stepResult, i) {
+                stepElements[i].classList.remove('pp-ai-step-executing');
+                if (stepResult.ok) {
+                    stepElements[i].classList.add('pp-ai-step-done');
+                    var step = steps[i];
+                    step._validation = stepResult.validation || null;
+                    step._staleWarnings = stepResult.stale_warnings || null;
+                    applied.push(step);
+                } else {
+                    stepElements[i].classList.add('pp-ai-step-failed');
+                }
+            });
+
+            // Steps after the failure point never ran at all — mark them
+            // distinctly from a step that actually failed.
+            if (!batch.ok && batch.failed_at !== null) {
+                for (var j = batch.failed_at + 1; j < stepElements.length; j++) {
+                    stepElements[j].classList.remove('pp-ai-step-executing');
+                    stepElements[j].classList.add('pp-ai-step-skipped');
+                }
+            }
+
+            if (batch.ok) {
+                finalizeProposalSuccess(card, applied, steps);
+                return;
+            }
+
+            var failedResult = batch.steps[batch.failed_at];
+            var message = 'Error on step ' + (batch.failed_at + 1) + ': ' + (failedResult.error || 'Unknown error');
+            if (batch.rolled_back) {
+                message += ' — all changes in this proposal have been reverted.';
+            }
+            addStatusMessage(message, true);
+        })
+        .catch(function (err) {
+            stepElements.forEach(function (el) {
+                el.classList.remove('pp-ai-step-executing');
+                el.classList.add('pp-ai-step-failed');
+            });
+            addStatusMessage('Error: ' + err.message, true);
+        });
     }
 
     function buildPostApplyCard(card, applied, steps) {
@@ -1176,103 +1248,54 @@ function ppChatAppendValidationItems(container, items, className) {
         }
     }
 
-    function executeStep(steps, stepElements, index, applied, card) {
-        if (index >= steps.length) {
-            // Build post-apply summary inside the card
-            buildPostApplyCard(card, applied, steps);
+    function finalizeProposalSuccess(card, applied, steps) {
+        // Build post-apply summary inside the card
+        buildPostApplyCard(card, applied, steps);
 
-            // Inject confirmation into conversation so the AI knows mutations were applied.
-            // Last-step-wins (D2): condition the assistant message on the final validation.
-            var summary = applied.map(function (s) { return s.description || s.name; }).join('; ');
-            conversation.push({ role: 'user', content: '[Applied changes: ' + summary + ']' });
+        // Inject confirmation into conversation so the AI knows mutations were applied.
+        // Last-step-wins (D2): condition the assistant message on the final validation.
+        var summary = applied.map(function (s) { return s.description || s.name; }).join('; ');
+        conversation.push({ role: 'user', content: '[Applied changes: ' + summary + ']' });
 
-            var lastVal = null;
-            for (var lvi = applied.length - 1; lvi >= 0; lvi--) {
-                if (applied[lvi]._validation) { lastVal = applied[lvi]._validation; break; }
-            }
-
-            // Collect stale token warnings for conversation context.
-            // Filter out tokens the AI explicitly updated in this proposal.
-            var convStale = [];
-            var convExplicit = {};
-            applied.forEach(function (s) {
-                if (s.params && s.params.token) convExplicit[s.params.token] = true;
-                if (s._staleWarnings) {
-                    s._staleWarnings.forEach(function (w) { convStale.push(w); });
-                }
-            });
-            convStale = convStale.filter(function (w) { return w && w.token && !convExplicit[w.token]; });
-            var staleSuffix = '';
-            if (convStale.length > 0) {
-                staleSuffix = ' Note: some existing token overrides may not match the new palette: ' +
-                    convStale.map(function (w) { return w.token; }).join(', ') +
-                    '. These were kept as-is — update them if the visual result looks inconsistent.';
-            }
-
-            // internal: true marks these as apply-confirmation context for the
-            // model's next turn, not a real conversational reply — restoreConversation()
-            // skips them structurally on reload instead of matching on English text
-            // (pp_ai_format_messages() already strips unknown keys before the request
-            // reaches the provider, so this flag never leaves the browser/our backend).
-            if (!lastVal || (lastVal.ok && (!lastVal.warnings || lastVal.warnings.length === 0))) {
-                conversation.push({ role: 'assistant', content: 'Changes applied successfully.' + staleSuffix, internal: true });
-            } else if (lastVal.ok && lastVal.warnings && lastVal.warnings.length > 0) {
-                var warnSummary = lastVal.warnings.map(function (w) { return w.message; }).join('; ');
-                conversation.push({ role: 'assistant', content: 'Changes applied with warnings: ' + warnSummary, internal: true });
-            } else {
-                var errSummary = lastVal.errors.map(function (e) { return e.message; }).join('; ');
-                conversation.push({ role: 'assistant', content: 'Changes applied but rendered page validation failed: ' + errSummary + '. The page may still have broken images or missing content.', internal: true });
-            }
-            saveState();
-            inputEl.focus();
-            return;
+        var lastVal = null;
+        for (var lvi = applied.length - 1; lvi >= 0; lvi--) {
+            if (applied[lvi]._validation) { lastVal = applied[lvi]._validation; break; }
         }
 
-        var step = steps[index];
-        stepElements[index].classList.add('pp-ai-step-executing');
-
-        var data = new FormData();
-        data.append('action', 'pp_ai_execute');
-        data.append('nonce', config.executeNonce);
-        data.append('type', step.type);
-        data.append('name', step.name);
-
-        // Flatten params for FormData — same params as previewed
-        var params = step.params || {};
-        Object.keys(params).forEach(function (key) {
-            var val = params[key];
-            if (typeof val === 'object') {
-                data.append('params[' + key + ']', JSON.stringify(val));
-            } else {
-                data.append('params[' + key + ']', val);
+        // Collect stale token warnings for conversation context.
+        // Filter out tokens the AI explicitly updated in this proposal.
+        var convStale = [];
+        var convExplicit = {};
+        applied.forEach(function (s) {
+            if (s.params && s.params.token) convExplicit[s.params.token] = true;
+            if (s._staleWarnings) {
+                s._staleWarnings.forEach(function (w) { convStale.push(w); });
             }
         });
+        convStale = convStale.filter(function (w) { return w && w.token && !convExplicit[w.token]; });
+        var staleSuffix = '';
+        if (convStale.length > 0) {
+            staleSuffix = ' Note: some existing token overrides may not match the new palette: ' +
+                convStale.map(function (w) { return w.token; }).join(', ') +
+                '. These were kept as-is — update them if the visual result looks inconsistent.';
+        }
 
-        fetch(config.ajaxUrl, {
-            method: 'POST',
-            credentials: 'same-origin',
-            body: data
-        })
-        .then(function (r) { return r.json(); })
-        .then(function (resp) {
-            if (resp.success) {
-                stepElements[index].classList.remove('pp-ai-step-executing');
-                stepElements[index].classList.add('pp-ai-step-done');
-                step._validation = resp.data && resp.data.validation ? resp.data.validation : null;
-                step._staleWarnings = resp.data && resp.data.stale_warnings ? resp.data.stale_warnings : null;
-                applied.push(step);
-                executeStep(steps, stepElements, index + 1, applied, card);
-            } else {
-                stepElements[index].classList.remove('pp-ai-step-executing');
-                stepElements[index].classList.add('pp-ai-step-failed');
-                addStatusMessage('Error on step ' + (index + 1) + ': ' + (resp.data || 'Unknown error'), true);
-            }
-        })
-        .catch(function (err) {
-            stepElements[index].classList.remove('pp-ai-step-executing');
-            stepElements[index].classList.add('pp-ai-step-failed');
-            addStatusMessage('Error on step ' + (index + 1) + ': ' + err.message, true);
-        });
+        // internal: true marks these as apply-confirmation context for the
+        // model's next turn, not a real conversational reply — restoreConversation()
+        // skips them structurally on reload instead of matching on English text
+        // (pp_ai_format_messages() already strips unknown keys before the request
+        // reaches the provider, so this flag never leaves the browser/our backend).
+        if (!lastVal || (lastVal.ok && (!lastVal.warnings || lastVal.warnings.length === 0))) {
+            conversation.push({ role: 'assistant', content: 'Changes applied successfully.' + staleSuffix, internal: true });
+        } else if (lastVal.ok && lastVal.warnings && lastVal.warnings.length > 0) {
+            var warnSummary = lastVal.warnings.map(function (w) { return w.message; }).join('; ');
+            conversation.push({ role: 'assistant', content: 'Changes applied with warnings: ' + warnSummary, internal: true });
+        } else {
+            var errSummary = lastVal.errors.map(function (e) { return e.message; }).join('; ');
+            conversation.push({ role: 'assistant', content: 'Changes applied but rendered page validation failed: ' + errSummary + '. The page may still have broken images or missing content.', internal: true });
+        }
+        saveState();
+        inputEl.focus();
     }
 
     // ── SSE Streaming via fetch + ReadableStream ───────────────────────

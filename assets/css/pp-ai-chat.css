@@ -393,6 +393,11 @@ body.pp-ai-chat-page #wpfooter {
     background: #fcf0f1;
 }
 
+.pp-ai-step-skipped {
+    background: #f6f7f7;
+    opacity: 0.6;
+}
+
 .pp-ai-step-failed .pp-ai-step-diff {
     font-family: inherit;
     font-size: 13px;

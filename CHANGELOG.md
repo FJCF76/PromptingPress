@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.40] — 2026-07-05 — New: Multi-Step AI Proposals Apply Atomically
+
+**A multi-step proposal ("add a hero, add a pricing section, update the CTA text") ran as N independent AJAX requests, each committing to the database before the next started. If step 3 failed, steps 1-2 were already permanently applied — the page ended up half-mutated, with no undo and no accurate summary of what actually happened.**
+
+### Added
+- Proposal steps now apply in one atomic batch request. Every post, design token, font URL, site option, and Custom CSS value any step could touch is snapshotted before anything runs; if any step fails partway through, every one of those snapshots is restored — the page ends up exactly as it was before the proposal, not half-applied.
+- A page created earlier in the same batch (`create_page`) is deleted outright on rollback, since it didn't exist before the batch started.
+- The failure message now names the failing step and confirms the revert: "Error on step 3: ... — all changes in this proposal have been reverted."
+
+### For contributors
+- New `pp_ai_execute_batch()` in `lib/actions.php`, backing a new `wp_ajax_pp_ai_execute_batch` AJAX handler; the client (`executeProposal()`) now sends the whole step array as one JSON-encoded request instead of recursing through `pp_ai_execute` one step at a time.
+- Every step's required capability is checked up front, before any step executes — a permission gap on step 3 blocks the whole batch. Semantic validation is deliberately NOT pre-checked across the whole batch: many real proposals are intentionally interdependent (e.g. "add a component, then style it"), and validating step 3 against pre-batch state would falsely reject a step that only becomes valid once step 1 runs. Each step is still fully validated against the state that exists at the moment it actually runs — a genuinely invalid step is still caught and the batch still rolls back cleanly, just at that step's own turn rather than pre-flighted for all steps.
+- `import_media`'s uploaded attachment is deliberately never rolled back — it's additive and non-destructive, unlike overwriting composition/token state.
+- 11 new PHPUnit tests covering rollback across every mutation surface (composition, title, slug, status, SEO meta, newly-created pages, design tokens, font URLs, site options, Custom CSS) plus the "later steps never execute after a failure" and per-step post-apply-validation behaviors. Verified live: a real 2-step proposal (add FAQ + rename page) applied both changes atomically end-to-end.
+
 ## [v0.16.39] — 2026-07-05 — New: Stop Button and Automatic Fallback for Stuck AI Responses
 
 **A long, wrong, or runaway chat response had no way to be interrupted — the send button and input were simply disabled until the request finished or the 120s server timeout hit. Separately, a proxy/CDN that buffers the whole streaming response (or middleware stripping `text/event-stream`) returns HTTP 200 with no usable stream, which doesn't reject the request — on those hosts the chat would sit in an indefinite "thinking" state, even though a working non-streaming fallback endpoint already existed and was simply never reached.**
