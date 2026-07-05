@@ -228,6 +228,14 @@ if (!function_exists('paginate_links')) {
     }
 }
 
+// issue 138: search-results stub. Tests set the query string via
+// $GLOBALS['_pp_test_store']['search_query'].
+if (!function_exists('get_search_query')) {
+    function get_search_query(bool $escaped = true): string {
+        return $GLOBALS['_pp_test_store']['search_query'] ?? '';
+    }
+}
+
 if (!function_exists('wp_nav_menu')) {
     function wp_nav_menu(array $args = []): void {
         echo '<ul><li><a href="#">Test Link</a></li></ul>';
@@ -744,6 +752,7 @@ if (!class_exists('WP_Query')) {
     class WP_Query {
         public array $posts = [];
         public int $max_num_pages = 1; // #126: read by pp_pagination()
+        public int $found_posts = 0; // issue 138: read by pp_result_count()
 
         public function __construct(array $args = []) {
             // Support meta_query IN comparison for _wp_attached_file lookups.
