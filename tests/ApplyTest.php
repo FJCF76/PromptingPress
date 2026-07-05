@@ -1404,6 +1404,142 @@ class ApplyTest extends TestCase
         $this->assertContains('https://fonts.googleapis.com/css2?family=Inter', pp_get_font_urls());
     }
 
+    // ── Font family / apply_to tests (issue 135) ────────────────────────────
+
+    public function testEnqueueFontUrlOnlyReturnsDerivedFamilySuggestion(): void
+    {
+        pp_set_font_urls([]);
+        $result = pp_execute_apply('enqueue_font', ['url' => 'https://fonts.googleapis.com/css2?family=Inter']);
+        $this->assertTrue($result['ok']);
+        $this->assertSame('Inter', $result['family']);
+        $this->assertSame('derived', $result['family_source']);
+        // A suggestion only — no token should have been written.
+        $tokens = pp_design_tokens();
+        $this->assertSame('system-ui, sans-serif', $tokens['--font-heading']['value']);
+    }
+
+    public function testEnqueueFontDerivesFamilyWithWeightAxisSuffix(): void
+    {
+        pp_set_font_urls([]);
+        $result = pp_execute_apply('enqueue_font', ['url' => 'https://fonts.googleapis.com/css2?family=Roboto:wght@400;700']);
+        $this->assertSame('Roboto', $result['family']);
+    }
+
+    public function testEnqueueFontDerivesFamilyWithPlusEncodedSpaces(): void
+    {
+        pp_set_font_urls([]);
+        $result = pp_execute_apply('enqueue_font', ['url' => 'https://fonts.googleapis.com/css2?family=Open+Sans']);
+        $this->assertSame('Open Sans', $result['family']);
+    }
+
+    public function testEnqueueFontNoFamilyWhenUrlHasNoFamilyParam(): void
+    {
+        pp_set_font_urls([]);
+        $result = pp_execute_apply('enqueue_font', ['url' => 'https://example.com/custom-font.css']);
+        $this->assertTrue($result['ok']);
+        $this->assertArrayNotHasKey('family', $result);
+    }
+
+    public function testEnqueueFontRejectsApplyToWithoutFamilyWhenNoneDerivable(): void
+    {
+        pp_set_font_urls([]);
+        $result = pp_validate_apply('enqueue_font', [
+            'url'      => 'https://example.com/custom-font.css',
+            'apply_to' => 'heading',
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('missing_family', $result->get_error_code());
+    }
+
+    public function testEnqueueFontRejectsInvalidApplyTo(): void
+    {
+        pp_set_font_urls([]);
+        $result = pp_validate_apply('enqueue_font', [
+            'url'      => 'https://fonts.googleapis.com/css2?family=Inter',
+            'apply_to' => 'sidebar',
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_apply_to', $result->get_error_code());
+    }
+
+    public function testEnqueueFontRejectsEmptyExplicitFamily(): void
+    {
+        pp_set_font_urls([]);
+        $result = pp_validate_apply('enqueue_font', [
+            'url'    => 'https://fonts.googleapis.com/css2?family=Inter',
+            'family' => '   ',
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_font_family', $result->get_error_code());
+    }
+
+    public function testEnqueueFontWithFamilyAndApplyToHeadingSetsToken(): void
+    {
+        pp_set_font_urls([]);
+        $result = pp_execute_apply('enqueue_font', [
+            'url'      => 'https://fonts.googleapis.com/css2?family=Poppins',
+            'family'   => 'Poppins',
+            'apply_to' => 'heading',
+        ]);
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame('Poppins', $result['family']);
+        $this->assertSame('explicit', $result['family_source']);
+
+        $tokens = pp_design_tokens();
+        $this->assertSame('Poppins, system-ui, sans-serif', $tokens['--font-heading']['value']);
+        $this->assertSame('system-ui, sans-serif', $tokens['--font-body']['value']);
+    }
+
+    public function testEnqueueFontWithApplyToBodySetsBothTokens(): void
+    {
+        pp_set_font_urls([]);
+        pp_execute_apply('enqueue_font', [
+            'url'      => 'https://fonts.googleapis.com/css2?family=Poppins',
+            'family'   => 'Poppins',
+            'apply_to' => 'both',
+        ]);
+
+        $tokens = pp_design_tokens();
+        $this->assertSame('Poppins, system-ui, sans-serif', $tokens['--font-heading']['value']);
+        $this->assertSame('Poppins, system-ui, sans-serif', $tokens['--font-body']['value']);
+    }
+
+    public function testEnqueueFontExplicitFamilyOverridesDerivedOne(): void
+    {
+        pp_set_font_urls([]);
+        // URL derives to "Inter", but an explicit family always wins.
+        $result = pp_execute_apply('enqueue_font', [
+            'url'      => 'https://fonts.googleapis.com/css2?family=Inter',
+            'family'   => 'Custom Name',
+            'apply_to' => 'heading',
+        ]);
+
+        $this->assertSame('Custom Name', $result['family']);
+        $tokens = pp_design_tokens();
+        $this->assertSame('Custom Name, system-ui, sans-serif', $tokens['--font-heading']['value']);
+    }
+
+    public function testEnqueueFontPreviewShowsTokenChangeAlongsideUrlAdd(): void
+    {
+        pp_set_font_urls([]);
+        $preview = pp_preview_apply('enqueue_font', [
+            'url'      => 'https://fonts.googleapis.com/css2?family=Poppins',
+            'family'   => 'Poppins',
+            'apply_to' => 'heading',
+        ]);
+
+        $this->assertIsArray($preview);
+        $this->assertCount(2, $preview['changes']);
+        $this->assertSame('add', $preview['changes'][0]['action']);
+        $this->assertSame('--font-heading', $preview['changes'][1]['token']);
+        $this->assertSame('Poppins, system-ui, sans-serif', $preview['changes'][1]['to']);
+
+        // Preview must never write.
+        $tokens = pp_design_tokens();
+        $this->assertSame('system-ui, sans-serif', $tokens['--font-heading']['value']);
+    }
+
     public function testRemoveFontExecute(): void
     {
         pp_set_font_urls(['https://fonts.googleapis.com/css2?family=Inter']);

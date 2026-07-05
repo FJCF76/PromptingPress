@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.37] — 2026-07-05 — New: `enqueue_font` Can Now Wire a Font Into the Site's Typography Tokens
+
+**`enqueue_font` loaded a webfont's `<link>` and nothing else — the site's actual typography comes from the `--font-heading`/`--font-body` design tokens, which `enqueue_font` never touched. "Use Poppins for headings" required a second, undocumented `update_design_token` call with the exact CSS family name the stylesheet defined, a coupling an AI could easily get wrong or skip — leaving the font downloaded but invisible.**
+
+### Added
+- `enqueue_font` gains two optional params: `family` (the CSS font-family name the stylesheet defines) and `apply_to` (`heading` | `body` | `both`). When both are given, the same call also sets the matching `--font-heading`/`--font-body` token(s) to `"{family}, system-ui, sans-serif"`.
+- When `family` is omitted, `enqueue_font` best-effort derives one from the URL's `family=` query parameter (the Google/Bunny Fonts convention) and returns it in the result as `family`/`family_source: "derived"` — a suggestion, with no token written — so the caller can confirm before a follow-up call. `apply_to` without any resolvable family (explicit or derivable) is now a validation error (`missing_family`) instead of a silent no-op.
+- Preview shows both the font-URL addition and the token change together, so approving the step reflects the real visual effect, not just "a stylesheet loaded."
+
+### For contributors
+- New `_pp_derive_font_family_from_url()` and `_pp_font_apply_to_tokens()` helpers in `lib/apply.php`. The real token names are `--font-heading`/`--font-body` (not `--font-family-*`) — `ai-instructions/website-building.md` and `AI_CONTEXT.md` now name them explicitly for anyone proposing an `apply_to` value.
+- No new subsystem: the token write reuses the same `pp_set_token_override()` the `update_design_token` apply already uses, so cache invalidation and the `pp_token_overrides` storage shape are unchanged.
+- 11 new PHPUnit tests, including derivation from both the CSS2 weight-axis URL format and `+`-encoded multi-word family names, and confirming preview never writes.
+
 ## [v0.16.36] — 2026-07-05 — Regression Test: Preview/Execute Parity for Invalid Media URLs
 
 **Issue 130 asked for proposal previews to reject a hallucinated/typo'd media URL with the same error execute would give, instead of showing a clean diff for a step guaranteed to fail. Investigating found this already true in the current codebase — the earlier #124 media-URL validation work moved the check into the shared `pp_validate_action()` gate that both `pp_preview_action()` and `pp_execute_action()` call, so preview and execute have been failing identically since #124 shipped. What was missing was a regression test actually proving it, and this issue's own acceptance criteria named exactly that test.**

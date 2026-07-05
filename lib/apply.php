@@ -312,6 +312,57 @@ function _pp_validate_font_family(string $value): bool {
 }
 
 /**
+ * Best-effort extraction of the CSS font-family name from a Google/Bunny
+ * Fonts stylesheet URL's `family` query parameter (issue 135), e.g.
+ * `family=Roboto:wght@400;700` -> "Roboto", `family=Open+Sans` -> "Open Sans".
+ * Only the first family is used when the URL requests several. Returns ''
+ * when there is no `family` param or it doesn't parse as one.
+ *
+ * @param  string $url  Font stylesheet URL.
+ * @return string       Derived family name, or ''.
+ */
+function _pp_derive_font_family_from_url(string $url): string {
+    $query = parse_url($url, PHP_URL_QUERY);
+    if (!$query) {
+        return '';
+    }
+    parse_str($query, $query_params);
+    $family = $query_params['family'] ?? '';
+    if ($family === '') {
+        return '';
+    }
+    // Google's legacy API allows multiple families separated by '|'; the
+    // CSS2 API allows a weight/style axis suffix after ':'. Only the first
+    // family name (before either separator) is meaningful here.
+    $family = explode('|', $family)[0];
+    $family = explode(':', $family)[0];
+    $family = str_replace('+', ' ', $family);
+    return trim($family);
+}
+
+/**
+ * Maps an enqueue_font `apply_to` value to the design token(s) it targets
+ * (issue 135). `--font-heading`/`--font-body` are the theme's real token
+ * names (assets/css/base.css) — not the `--font-family-*` naming an AI
+ * might guess.
+ *
+ * @param  string $apply_to  'heading' | 'body' | 'both'.
+ * @return string[]          Token names, or [] for an unrecognized value.
+ */
+function _pp_font_apply_to_tokens(string $apply_to): array {
+    switch ($apply_to) {
+        case 'heading':
+            return ['--font-heading'];
+        case 'body':
+            return ['--font-body'];
+        case 'both':
+            return ['--font-heading', '--font-body'];
+        default:
+            return [];
+    }
+}
+
+/**
  * Validates a CSS duration value.
  * Accepts: numeric value with time unit (ms, s).
  */
@@ -948,9 +999,11 @@ pp_register_apply('reset_all_design_tokens', [
 pp_register_apply('enqueue_font', [
     'domain'      => 'design',
     'target'      => ['type' => 'option', 'key' => 'pp_font_urls'],
-    'description' => 'Adds a web font URL (e.g. Google Fonts, Bunny Fonts) to the site. Max 5 fonts.',
+    'description' => 'Adds a web font URL (e.g. Google Fonts, Bunny Fonts) to the site. Max 5 fonts. Loading the stylesheet alone changes nothing visible — pass family (the CSS font-family name the stylesheet defines) with apply_to ("heading" | "body" | "both") to also point the matching --font-heading/--font-body design token(s) at it in the same call. Omit family and the result returns a best-effort family derived from the URL as a suggestion, without changing any token.',
     'params'      => [
-        'url' => ['type' => 'string', 'required' => true],
+        'url'      => ['type' => 'string', 'required' => true],
+        'family'   => ['type' => 'string', 'required' => false],
+        'apply_to' => ['type' => 'string', 'required' => false],
     ],
 
     'validate' => function (array $params) {
@@ -968,17 +1021,48 @@ pp_register_apply('enqueue_font', [
         if (count($current) >= 5) {
             return new WP_Error('font_limit', 'Maximum 5 font URLs allowed. Remove one first.');
         }
+
+        $family = $params['family'] ?? '';
+        if ($family !== '' && !_pp_validate_font_family($family)) {
+            return new WP_Error('invalid_font_family', 'family must be a comma-separated list of font names.');
+        }
+
+        $apply_to = $params['apply_to'] ?? '';
+        if ($apply_to !== '') {
+            if (!in_array($apply_to, ['heading', 'body', 'both'], true)) {
+                return new WP_Error('invalid_apply_to', 'apply_to must be "heading", "body", or "both".');
+            }
+            if ($family === '' && _pp_derive_font_family_from_url($url) === '') {
+                return new WP_Error('missing_family', 'apply_to requires family — no family name could be derived from this URL, so pass one explicitly.');
+            }
+        }
+
         return true;
     },
 
     'preview' => function (array $params) {
         $current = pp_get_font_urls();
         $after = array_merge($current, [$params['url']]);
+        $changes = [['action' => 'add', 'url' => $params['url']]];
+
+        $family = $params['family'] ?? '';
+        if ($family === '') {
+            $family = _pp_derive_font_family_from_url($params['url']);
+        }
+        $apply_to = $params['apply_to'] ?? '';
+        if ($apply_to !== '' && $family !== '') {
+            $tokens = pp_design_tokens();
+            $value = $family . ', system-ui, sans-serif';
+            foreach (_pp_font_apply_to_tokens($apply_to) as $token) {
+                $changes[] = ['token' => $token, 'from' => $tokens[$token]['value'] ?? null, 'to' => $value];
+            }
+        }
+
         return _pp_apply_preview(
             'enqueue_font', 'design',
             ['type' => 'option', 'key' => 'pp_font_urls'],
             $current, $after,
-            [['action' => 'add', 'url' => $params['url']]]
+            $changes
         );
     },
 
@@ -986,11 +1070,38 @@ pp_register_apply('enqueue_font', [
         $current = pp_get_font_urls();
         $current[] = $params['url'];
         pp_set_font_urls($current);
-        return _pp_apply_result(
+        $changes = [['action' => 'add', 'url' => $params['url']]];
+
+        $family = $params['family'] ?? '';
+        $family_source = $family !== '' ? 'explicit' : null;
+        if ($family === '') {
+            $family = _pp_derive_font_family_from_url($params['url']);
+            if ($family !== '') {
+                $family_source = 'derived';
+            }
+        }
+
+        $apply_to = $params['apply_to'] ?? '';
+        if ($apply_to !== '' && $family !== '') {
+            $tokens = pp_design_tokens();
+            $value = $family . ', system-ui, sans-serif';
+            foreach (_pp_font_apply_to_tokens($apply_to) as $token) {
+                $old_value = $tokens[$token]['value'] ?? null;
+                pp_set_token_override($token, $value);
+                $changes[] = ['token' => $token, 'from' => $old_value, 'to' => $value];
+            }
+        }
+
+        $result = _pp_apply_result(
             'enqueue_font', 'design',
             ['type' => 'option', 'key' => 'pp_font_urls'],
-            [['action' => 'add', 'url' => $params['url']]]
+            $changes
         );
+        if ($family !== '') {
+            $result['family'] = $family;
+            $result['family_source'] = $family_source;
+        }
+        return $result;
     },
 ]);
 
