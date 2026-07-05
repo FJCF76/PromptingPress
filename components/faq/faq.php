@@ -11,8 +11,12 @@
 $id    = $props['id']    ?? '';
 $title = $props['title'] ?? 'Frequently Asked Questions';
 $items = $props['items'] ?? [];
+
+// Style slot overrides (per-instance visual customization).
+$slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'faq');
+$style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="faq" data-pp-component="faq">
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="faq" data-pp-component="faq"<?php echo $style_attr; ?>>
     <div class="container">
 
         <?php if ($title) : ?>

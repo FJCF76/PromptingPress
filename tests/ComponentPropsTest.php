@@ -815,6 +815,126 @@ class ComponentPropsTest extends TestCase
         $this->assertNotSame('', pp_esc_image_src($payload));
     }
 
+    // ── faq / stats style slots (#100) ───────────────────────────────────
+
+    private function faqProps(array $extra = []): array
+    {
+        return array_merge(['title' => 'FAQ', 'items' => [['question' => 'Q?', 'answer' => 'A.']]], $extra);
+    }
+
+    private function statsProps(array $extra = []): array
+    {
+        return array_merge(['title' => 'Stats', 'items' => [['number' => '40+', 'label' => 'Years']]], $extra);
+    }
+
+    public function testFaqSchemaDeclaresAllSevenStyleSlots(): void
+    {
+        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/faq/schema.json'), true);
+        $slots = $schema['styling']['style_slots'];
+        $expected = [
+            '--faq-bg' => 'gradient',
+            '--faq-item-bg' => 'gradient',
+            '--faq-heading-color' => 'color',
+            '--faq-question-color' => 'color',
+            '--faq-answer-color' => 'color',
+            '--faq-border-color' => 'color',
+            '--faq-accent' => 'color',
+        ];
+        foreach ($expected as $name => $type) {
+            $this->assertArrayHasKey($name, $slots, "faq must declare {$name}.");
+            $this->assertSame($type, $slots[$name]['type'], "{$name} must be type {$type}.");
+            $this->assertArrayHasKey('default', $slots[$name]);
+            $this->assertNotEmpty($slots[$name]['description']);
+        }
+    }
+
+    public function testStatsSchemaDeclaresAllFourStyleSlots(): void
+    {
+        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/stats/schema.json'), true);
+        $slots = $schema['styling']['style_slots'];
+        $expected = [
+            '--stats-bg' => 'gradient',
+            '--stats-title-color' => 'color',
+            '--stats-number-color' => 'color',
+            '--stats-label-color' => 'color',
+        ];
+        foreach ($expected as $name => $type) {
+            $this->assertArrayHasKey($name, $slots, "stats must declare {$name}.");
+            $this->assertSame($type, $slots[$name]['type'], "{$name} must be type {$type}.");
+            $this->assertArrayHasKey('default', $slots[$name]);
+            $this->assertNotEmpty($slots[$name]['description']);
+        }
+    }
+
+    public function testFaqRendersHeadingColorSlot(): void
+    {
+        // The exact production regression #100 fixes: faq could not reach brand
+        // fidelity on a dark surface because it had no --faq-heading-color slot.
+        $html = $this->render('faq', array_merge($this->faqProps(), [
+            '__pp_style' => ['--faq-heading-color' => '#ffffff'],
+        ]));
+        $this->assertStringContainsString('--faq-heading-color: #ffffff', $html);
+    }
+
+    public function testFaqRendersAllSevenSlots(): void
+    {
+        $overrides = [
+            '--faq-bg' => 'linear-gradient(135deg, #1a1a2e, #16121f)',
+            '--faq-item-bg' => '#222222',
+            '--faq-heading-color' => '#ffffff',
+            '--faq-question-color' => '#eeeeee',
+            '--faq-answer-color' => '#cccccc',
+            '--faq-border-color' => '#333333',
+            '--faq-accent' => '#ea3900',
+        ];
+        $html = $this->render('faq', array_merge($this->faqProps(), ['__pp_style' => $overrides]));
+        foreach ($overrides as $slot => $value) {
+            $this->assertStringContainsString("{$slot}: {$value}", $html, "{$slot} did not render.");
+        }
+    }
+
+    public function testFaqRejectsInjectionInStyleSlot(): void
+    {
+        $html = $this->render('faq', array_merge($this->faqProps(), [
+            '__pp_style' => ['--faq-heading-color' => '#fff; background:url(evil)'],
+        ]));
+        $this->assertStringNotContainsString('url(evil)', $html);
+    }
+
+    public function testStatsRendersAllFourSlots(): void
+    {
+        $overrides = [
+            '--stats-bg' => 'radial-gradient(#fff, #000)',
+            '--stats-title-color' => '#111111',
+            '--stats-number-color' => '#ea3900',
+            '--stats-label-color' => '#666666',
+        ];
+        $html = $this->render('stats', array_merge($this->statsProps(), ['__pp_style' => $overrides]));
+        foreach ($overrides as $slot => $value) {
+            $this->assertStringContainsString("{$slot}: {$value}", $html, "{$slot} did not render.");
+        }
+    }
+
+    public function testStatsStyleSlotMergesWithBackgroundImage(): void
+    {
+        // stats.php's __pp_style rendering must coexist with the pre-existing
+        // background_image inline-style mechanism (same pattern as hero/section).
+        $html = $this->render('stats', array_merge($this->statsProps(), [
+            '__pp_style' => ['--stats-number-color' => '#ea3900'],
+            'background_image' => 'https://example.com/bg.jpg',
+        ]));
+        $this->assertStringContainsString('--stats-number-color: #ea3900', $html);
+        $this->assertStringContainsString('background-image:url(', $html);
+    }
+
+    public function testStatsRejectsInjectionInStyleSlot(): void
+    {
+        $html = $this->render('stats', array_merge($this->statsProps(), [
+            '__pp_style' => ['--stats-title-color' => '#fff; background:url(evil)'],
+        ]));
+        $this->assertStringNotContainsString('url(evil)', $html);
+    }
+
     // ── End-to-end: exact production regression from #36 ────────────────────
 
     public function testHeroSplitVariantRendersDataUriSvgImageSrc(): void

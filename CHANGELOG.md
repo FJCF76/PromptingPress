@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.18] — 2026-07-05 — New: FAQ and Stats Can Finally Match Your Brand
+
+**Every section-level component could be re-colored to fit a page except two: FAQ and the stats row.** Put an FAQ block on a dark band and the heading turned nearly invisible, with no safe way to fix it — the underlying CSS had a comment admitting exactly that: "faq has no heading-color slot, so it keeps the token." Stats had the same problem: the big numbers were locked to the global accent color with no way to match a specific brand's palette for that one section.
+
+### Added
+- FAQ gets 7 new style slots: section background, individual question-card background, heading color, question color, answer color, border color, and the open-question accent color (also drives the chevron).
+- Stats gets 4 new style slots: background, heading color, number color, and label color.
+- Both support gradient backgrounds, matching every other section-level component.
+
+### Fixed
+- FAQ headings on a dark surface no longer go invisible with no way to fix it — the exact gap the previous CSS comment called out is closed.
+
+### For contributors
+- Followed the established per-instance style-slot pattern (Recipe A in `docs/AI_IMPLEMENTATION_RECIPES.md`) exactly, including the desktop "premium typography" cross-block overrides that previously hardcoded `--color-text`/`--color-text-secondary` for FAQ specifically — those now route through the new slots. `tests/StyleSlotContractTest.php`'s keystone contract now covers faq and stats (previously excluded since they had zero slots) and gained cross-block guard entries for the two FAQ slots at risk of the same clobber class as #86 — a third slot (`--faq-question-color`) is deliberately excluded from that particular guard with an inline explanation, since its open-accordion state intentionally uses a different slot (`--faq-accent`) and the guard's whole-stylesheet class-substring match can't distinguish that from a real bug. 9 new PHPUnit tests, plus a fix to an existing test that would have otherwise regressed (an AI-prompt test using faq as an "unstyled component" example, no longer true).
+
 ## [v0.16.17] — 2026-07-05 — New: Hero's Two Buttons Can Now Use Any Button Style
 
 **Hero sections have always had a primary and a secondary button, but the secondary one was locked to an outline style — no way to make it a solid secondary color or a plain borderless "ghost" link, even though CTA blocks already had all four button styles to choose from.** Both hero buttons now pick from the same shared set — primary, secondary, outline, ghost — that CTA already uses, so a hero's two buttons can match whatever pairing the brand actually calls for.

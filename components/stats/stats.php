@@ -22,12 +22,21 @@ if (!in_array($variant, $allowed_variants, true)) {
 
 $variant_class  = $variant !== 'default' ? ' stats--' . $variant : '';
 $bg_image_class = $background_image ? ' stats--has-bg-image' : '';
-$bg_image_style = $background_image
-    ? sprintf(' style="background-image:url(%s);"', pp_esc_image_src($background_image))
-    : '';
+
+// Style slot overrides (per-instance visual customization).
+$slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'stats');
+
+$inline_styles = [];
+if ($slot_style) {
+    $inline_styles[] = $slot_style;
+}
+if ($background_image) {
+    $inline_styles[] = 'background-image:url(' . pp_esc_image_src($background_image) . ')';
+}
+$style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"' : '';
 
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="stats<?php echo esc_attr($variant_class); ?><?php echo esc_attr($bg_image_class); ?>" data-pp-component="stats"<?php echo $bg_image_style; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="stats<?php echo esc_attr($variant_class); ?><?php echo esc_attr($bg_image_class); ?>" data-pp-component="stats"<?php echo $style_attr; ?>>
     <?php if ($background_image) : ?>
         <div class="stats__overlay" aria-hidden="true"></div>
     <?php endif; ?>

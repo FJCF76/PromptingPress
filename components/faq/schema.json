@@ -21,7 +21,16 @@
   "styling": {
     "root_class": "faq",
     "variant_classes": [],
-    "tokens": ["--space-xl", "--space-2xl", "--color-border", "--color-surface"]
+    "tokens": ["--space-xl", "--space-2xl", "--color-border", "--color-surface"],
+    "style_slots": {
+      "--faq-bg": { "type": "gradient", "default": "var(--color-surface)", "description": "Section background color or gradient" },
+      "--faq-item-bg": { "type": "gradient", "default": "var(--color-bg)", "description": "Individual accordion item background color or gradient" },
+      "--faq-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading text color" },
+      "--faq-question-color": { "type": "color", "default": "var(--color-text)", "description": "Question (summary) text color" },
+      "--faq-answer-color": { "type": "color", "default": "var(--color-muted)", "description": "Answer text color" },
+      "--faq-border-color": { "type": "color", "default": "var(--color-border)", "description": "Accordion item border color" },
+      "--faq-accent": { "type": "color", "default": "var(--color-accent)", "description": "Open-state question text color and chevron color" }
+    }
   },
   "safe_to_edit": ["faq.php", "../../assets/css/components.css (COMPONENT: faq section)"],
   "do_not_touch": ["schema.json without updating README.md"]
