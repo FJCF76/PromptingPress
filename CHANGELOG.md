@@ -16,6 +16,8 @@ All notable changes to PromptingPress are documented here.
 - Fixed a latent false-positive in `tests/StyleSlotContractTest.php`'s cross-block clobber guard: a plain substring match treated the new `.grid__heading-accent` class as a "clobber" of the unrelated `--grid-heading-color` slot (BEM's hyphenated modifier suffix doesn't create a regex word-boundary). Now boundary-aware; verified it still catches real clobbers by deliberately breaking one.
 - 19 new PHPUnit tests; fixed 3 existing tests carrying hardcoded slot counts (99 total, up from 95).
 
+## [v0.16.21] — 2026-07-05 — New: Eyebrow Pills and Subheadings for Every Section
+
 **Professional landing pages almost always lead a section with three things: a small kicker label, a centered heading, and a supporting line underneath. PromptingPress could render none of that — every section, grid, and CTA heading was a lone left-aligned line.** That gap was one of the biggest reasons AI-built pages looked template-y instead of designed. Hero already stored an eyebrow value in some pages, but it never actually showed up.
 
 ### Added
@@ -29,6 +31,8 @@ All notable changes to PromptingPress are documented here.
 - 10 new style slots for eyebrow/subheading colors across the 4 components (95 total, up from 85). New props registered in `pp_register_component_fields()` for `patch`-command addressability, consistent with existing content fields.
 - 15 new PHPUnit tests; fixed 5 existing tests carrying hardcoded slot counts, per-component field-index assertions, or doc-sync counts that this change correctly invalidates.
 
+## [v0.16.20] — 2026-07-05 — Fix: Secondary CTA Buttons No Longer Render Invisible
+
 **Set a CTA or hero's secondary button to "outline," "ghost," or "secondary," and it could render as a solid block of color with text you couldn't read — the button's own background silently overpowered the style it was supposed to have.** This wasn't a rare edge case: it happened to any secondary/outline/ghost button on a CTA block, confirmed on real pages during a benchmark build (an orange button on an orange background, effectively unreadable).
 
 ### Fixed
@@ -41,6 +45,8 @@ All notable changes to PromptingPress are documented here.
 - Root cause: `.cta .btn` (two classes) has higher CSS specificity than `.btn--outline`/`.btn--ghost`/`.btn--secondary` (one class each), so it always won regardless of source order — the same bug hero had already fixed in an earlier sprint, still present in CTA. Fixed with the same `:not()` exclusion pattern hero already uses. Confirmed the bug and the fix empirically via real-browser computed-style checks (Playwright), not just CSS reasoning.
 - The new override slots are targeted via a dedicated `.hero__cta--secondary` class (added in `hero.php`), not a positional `:nth-child` selector — this codebase's CSS lint guard forbids positional selectors on principle (a reordered composition would silently reattach styling to the wrong element), and `cta_text`/`cta2_text` being fixed named props rather than a reorderable array made a dedicated class both safe and simpler anyway.
 - 8 new PHPUnit tests, plus fixes to 7 existing tests carrying hardcoded slot counts or exact class-string assertions that this change correctly invalidated (85 total style slots, up from 73).
+
+## [v0.16.19] — 2026-07-05 — Fix: Dark-Surface Sections Can't Silently Lose Their Text Color Anymore
 
 **A previous production build needed a one-off CSS patch after a dark-band heading rendered nearly invisible — later page styling had quietly overridden the color a dark surface needs to stay readable.** The immediate cause (FAQ headings specifically) was already fixed. This closes the door on the whole class of bug: every component's dark-surface text — headings, body copy, links — is now guaranteed to route through a per-instance color slot, everywhere it's rendered, not just in the one place someone happened to test.
 
