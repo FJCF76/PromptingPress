@@ -4,6 +4,17 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.23] — 2026-07-05 — New: Scannable Checklists Inside Grid Cards
+
+**Feature/benefit sections that feel professional almost always build their cards as an icon, a title, and a short checklist — "✓ SSL/TLS validity," "✓ Clickjacking protection" — not a dense paragraph. Grid cards could only render `text` as one `esc_html()`'d sentence, so the only way to approximate a checklist was to cram items into a comma-separated blob that read as a wall of text.**
+
+### Added
+- Grid card items accept a `bullets` array — a list of short lines rendered below `text` as a checklist, each prefixed with a check mark in its own style slot (`--grid-bullet-color`). Per-item icons were already covered by the existing `image_url`/`image_alt` fields.
+
+### For contributors
+- Deliberately a structured array of plain strings, not a `wp_kses` HTML-list allowlist: each `bullets` entry is escaped independently via `esc_html()`, and non-string/empty entries are silently skipped rather than rendered — no new HTML-parsing surface. `bullets` coexists with `text` (a card can have both) and is intentionally left out of `pp_register_component_fields()`'s granular `patch` targeting, consistent with the existing `image_url`/`image_alt` per-item fields, which aren't addressable that way either.
+- 7 new PHPUnit tests, including an escaping/injection test; 3 existing tests carrying hardcoded slot counts updated (100 total, up from 99).
+
 ## [v0.16.22] — 2026-07-05 — New: Highlight One Word in Any Heading
 
 **Professional headlines rarely stay one color end to end — think "Security" in orange, "for your WordPress" in white. Every PromptingPress heading was locked to a single flat color, so that entire style of headline was out of reach.** Now every heading can name one word or phrase to highlight in an accent color.
