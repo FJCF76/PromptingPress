@@ -307,6 +307,62 @@ class ComponentPropsTest extends TestCase
         $this->assertStringNotContainsString('btn--', $html);
     }
 
+    // ── Hero CTA variants (props, set via update_component) — #93 ───────────
+    // Extends the shared .btn--*/--btn-* primitive (established for CTA above)
+    // to hero's two CTA buttons, which previously hardcoded bare .btn / .btn--outline
+    // with no way to select secondary/ghost. cta2_variant defaults to 'outline'
+    // to preserve the historical always-outline second button.
+
+    private function heroProps(array $extra = []): array
+    {
+        return array_merge(['title' => 'T', 'cta_text' => 'Go', 'cta2_text' => 'Learn more'], $extra);
+    }
+
+    public function testHeroCtaVariantDefaultsToPrimary(): void
+    {
+        $html = $this->render('hero', $this->heroProps());
+        $this->assertMatchesRegularExpression('/class="hero__cta btn"[^-]/', $html . ' ');
+    }
+
+    public function testHeroCta2VariantDefaultsToOutline(): void
+    {
+        // Preserves pre-#93 behavior: an unset cta2_variant still renders outline.
+        $html = $this->render('hero', $this->heroProps());
+        $this->assertStringContainsString('class="hero__cta btn btn--outline"', $html);
+    }
+
+    public function testHeroCtaVariantSecondary(): void
+    {
+        $html = $this->render('hero', $this->heroProps(['cta_variant' => 'secondary']));
+        $this->assertStringContainsString('class="hero__cta btn btn--secondary"', $html);
+    }
+
+    public function testHeroCtaVariantGhost(): void
+    {
+        $html = $this->render('hero', $this->heroProps(['cta_variant' => 'ghost']));
+        $this->assertStringContainsString('class="hero__cta btn btn--ghost"', $html);
+    }
+
+    public function testHeroCta2VariantPrimary(): void
+    {
+        $html = $this->render('hero', $this->heroProps(['cta2_variant' => 'primary']));
+        $this->assertStringContainsString('class="hero__cta btn"', $html);
+        // Neither button should carry a btn-- modifier now.
+        $this->assertSame(0, substr_count($html, 'btn--'));
+    }
+
+    public function testHeroCtaVariantInvalidFallsBackToPrimary(): void
+    {
+        $html = $this->render('hero', $this->heroProps(['cta_variant' => 'neon']));
+        $this->assertMatchesRegularExpression('/class="hero__cta btn"[^-]/', $html . ' ');
+    }
+
+    public function testHeroCta2VariantInvalidFallsBackToOutline(): void
+    {
+        $html = $this->render('hero', $this->heroProps(['cta2_variant' => 'neon']));
+        $this->assertStringContainsString('class="hero__cta btn btn--outline"', $html);
+    }
+
     // ── CRITICAL regression: button enrichment must not break --cta-accent ──
     //
     // The shared .btn was tokenized with --btn-* defaults. Existing compositions

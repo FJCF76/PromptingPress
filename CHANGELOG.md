@@ -4,6 +4,16 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.17] — 2026-07-05 — New: Hero's Two Buttons Can Now Use Any Button Style
+
+**Hero sections have always had a primary and a secondary button, but the secondary one was locked to an outline style — no way to make it a solid secondary color or a plain borderless "ghost" link, even though CTA blocks already had all four button styles to choose from.** Both hero buttons now pick from the same shared set — primary, secondary, outline, ghost — that CTA already uses, so a hero's two buttons can match whatever pairing the brand actually calls for.
+
+### Added
+- Hero's primary and secondary buttons each get their own style choice (`cta_variant` and `cta2_variant`) — primary, secondary, outline, or ghost. The secondary button still defaults to outline, so every existing page renders exactly as before unless you choose otherwise.
+
+### For contributors
+- Reuses the shared `.btn`/`.btn--*` primitive from v0.12.0 exactly as CTA does — hero's CSS already anticipated `.btn--secondary`/`.btn--ghost` on its buttons (the accent-fill exclusion selector already listed them), so no CSS changes were needed, only wiring the new props through to the existing markup. Audited grid and section for the same gap (#93's stated scope): grid's only link surface is a plain per-card text link (`.grid__item-link`, no padding/background/border), not a button, and section has no button/link prop at all — neither is an eligible migration target, so neither was touched. 7 new PHPUnit tests.
+
 ## [v0.16.16] — 2026-07-05 — New: Gradient Backgrounds Across Hero, CTA, Grid, and Section
 
 **Set a hero, CTA, grid, or section background to a gradient — the kind of treatment that shows up in most real brand books — and it used to just get rejected.** The safe style-surface only accepted flat colors (hex, rgb, hsl), so a request like "make the hero background a dark diagonal gradient" had no way through: you'd have to settle for a flat color and lose the brand's actual look. Several of these same components already render a gradient by *default* — you just couldn't set your own.

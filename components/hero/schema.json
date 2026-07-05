@@ -43,6 +43,20 @@
       "default": "#",
       "description": "Secondary CTA button URL."
     },
+    "cta_variant": {
+      "type": "enum",
+      "values": ["primary", "secondary", "outline", "ghost"],
+      "required": false,
+      "default": "primary",
+      "description": "Primary CTA button style. 'primary' = filled accent (bare .btn). 'secondary' = muted surface fill. 'outline' = accent border, transparent fill. 'ghost' = borderless text button. Set via update_component (a prop, not a style slot)."
+    },
+    "cta2_variant": {
+      "type": "enum",
+      "values": ["primary", "secondary", "outline", "ghost"],
+      "required": false,
+      "default": "outline",
+      "description": "Secondary CTA button style — defaults to 'outline' to match the historical always-outline second button. 'primary' = filled accent. 'secondary' = muted surface fill. 'ghost' = borderless text button. Set via update_component (a prop, not a style slot)."
+    },
     "variant": {
       "type": "enum",
       "values": ["left", "centered", "split", "cover"],
