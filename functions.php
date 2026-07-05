@@ -7,7 +7,7 @@
  */
 
 // ── Theme version (single source of truth — keep in sync with style.css) ──
-define('PP_VERSION', '0.16.28');
+define('PP_VERSION', '0.16.29');
 
 // ── Load lib files ─────────────────────────────────────────────────────────
 require_once get_template_directory() . '/lib/wp.php';
@@ -121,3 +121,8 @@ add_action('wp_enqueue_scripts', function () {
         true   // load in footer
     );
 });
+
+// ── Page-specific SEO metadata (#41) ────────────────────────────────────────
+add_action('wp_head', 'pp_seo_meta_description_tag', 1);
+add_filter('pre_get_document_title', 'pp_seo_document_title_override');
+add_filter('get_canonical_url', 'pp_seo_canonical_url_override', 10, 2);

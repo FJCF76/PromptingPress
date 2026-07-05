@@ -2,7 +2,7 @@
 /**
  * tests/ActionsTest.php — PHPUnit tests for the PromptingPress Action Layer
  *
- * Covers: registry functions, wp.php read/write functions, and all 9 actions
+ * Covers: registry functions, wp.php read/write functions, and all 15 actions
  * across validate, preview, and execute paths.
  */
 
@@ -24,12 +24,13 @@ class ActionsTest extends TestCase
 
     // ── Registry tests ─────────────────────────────────────────────────────
 
-    public function testRegistryReturnsAllFourteenActions(): void
+    public function testRegistryReturnsAllFifteenActions(): void
     {
         $actions = pp_get_registered_actions();
-        $this->assertCount(14, $actions);
+        $this->assertCount(15, $actions);
         $expected = [
             'create_page', 'update_site_option', 'update_page_title',
+            'update_seo_meta',
             'update_composition', 'publish_page', 'add_component',
             'remove_component', 'reorder_components', 'update_component',
             'style_component',
@@ -341,6 +342,170 @@ class ActionsTest extends TestCase
         $this->assertEquals('page', $result['scope']);
         $this->assertEquals($id, $result['target']['post_id']);
         $this->assertEquals('Updated Title', $GLOBALS['_pp_test_store']['posts'][$id]['post_title']);
+    }
+
+    // ── Action: update_seo_meta (#41) ───────────────────────────────────────
+
+    public function testUpdateSeoMetaExecuteSetsAllFields(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        $result = pp_execute_action('update_seo_meta', [
+            'post_id' => $id,
+            'meta'    => [
+                'meta_description' => 'A great page.',
+                'seo_title'        => 'Custom SEO Title',
+                'canonical_url'    => 'https://example.com/canonical',
+            ],
+        ]);
+        $this->assertTrue($result['ok']);
+        $this->assertEquals('update_seo_meta', $result['action']);
+        $this->assertEquals('page', $result['scope']);
+        $meta = pp_get_seo_meta($id);
+        $this->assertSame('A great page.', $meta['meta_description']);
+        $this->assertSame('Custom SEO Title', $meta['seo_title']);
+        $this->assertSame('https://example.com/canonical', $meta['canonical_url']);
+    }
+
+    public function testUpdateSeoMetaPatchesWithoutClobberingUnspecifiedKeys(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        pp_execute_action('update_seo_meta', ['post_id' => $id, 'meta' => ['meta_description' => 'First', 'seo_title' => 'Kept']]);
+        pp_execute_action('update_seo_meta', ['post_id' => $id, 'meta' => ['meta_description' => 'Second']]);
+        $meta = pp_get_seo_meta($id);
+        $this->assertSame('Second', $meta['meta_description']);
+        $this->assertSame('Kept', $meta['seo_title']);
+    }
+
+    public function testUpdateSeoMetaEmptyStringClearsField(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        pp_execute_action('update_seo_meta', ['post_id' => $id, 'meta' => ['meta_description' => 'Set']]);
+        pp_execute_action('update_seo_meta', ['post_id' => $id, 'meta' => ['meta_description' => '']]);
+        $this->assertSame('', pp_get_seo_meta($id)['meta_description']);
+    }
+
+    public function testUpdateSeoMetaRejectsNonexistentPage(): void
+    {
+        $result = pp_execute_action('update_seo_meta', ['post_id' => 9999, 'meta' => ['meta_description' => 'x']]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testUpdateSeoMetaRejectsUnknownKey(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        $result = pp_execute_action('update_seo_meta', ['post_id' => $id, 'meta' => ['og_image' => 'https://example.com/x.jpg']]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('Unknown SEO meta key', $result['error']);
+    }
+
+    public function testUpdateSeoMetaRejectsInvalidCanonicalUrl(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        $result = pp_execute_action('update_seo_meta', ['post_id' => $id, 'meta' => ['canonical_url' => 'not-a-url']]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('canonical_url', $result['error']);
+    }
+
+    public function testUpdateSeoMetaRejectsOverlongMetaDescription(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        $result = pp_execute_action('update_seo_meta', ['post_id' => $id, 'meta' => ['meta_description' => str_repeat('x', 321)]]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('320 characters', $result['error']);
+    }
+
+    public function testUpdateSeoMetaPreviewDoesNotWrite(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        $result = pp_preview_action('update_seo_meta', ['post_id' => $id, 'meta' => ['meta_description' => 'Preview only']]);
+        $this->assertTrue($result['ok']);
+        $this->assertSame('', pp_get_seo_meta($id)['meta_description']);
+    }
+
+    public function testGetSeoMetaDefaultsToEmptyStrings(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        $meta = pp_get_seo_meta($id);
+        $this->assertSame(['meta_description' => '', 'seo_title' => '', 'canonical_url' => ''], $meta);
+    }
+
+    public function testSeoMetaDescriptionTagOutputsWhenSet(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        pp_update_seo_meta($id, ['meta_description' => 'Come visit <us>']);
+        $GLOBALS['_pp_test_store']['is_singular'] = true;
+        $GLOBALS['_pp_test_store']['queried_object_id'] = $id;
+        ob_start();
+        pp_seo_meta_description_tag();
+        $html = ob_get_clean();
+        $this->assertStringContainsString('<meta name="description" content="Come visit &lt;us&gt;">', $html);
+    }
+
+    public function testSeoMetaDescriptionTagOmittedWhenUnset(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        $GLOBALS['_pp_test_store']['is_singular'] = true;
+        $GLOBALS['_pp_test_store']['queried_object_id'] = $id;
+        ob_start();
+        pp_seo_meta_description_tag();
+        $html = ob_get_clean();
+        $this->assertSame('', $html);
+    }
+
+    public function testSeoMetaDescriptionTagOmittedWhenNotSingular(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        pp_update_seo_meta($id, ['meta_description' => 'Set']);
+        $GLOBALS['_pp_test_store']['is_singular'] = false;
+        $GLOBALS['_pp_test_store']['queried_object_id'] = $id;
+        ob_start();
+        pp_seo_meta_description_tag();
+        $html = ob_get_clean();
+        $this->assertSame('', $html);
+    }
+
+    public function testSeoDocumentTitleOverrideReturnsOverrideWhenSet(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        pp_update_seo_meta($id, ['seo_title' => 'Override Title']);
+        $GLOBALS['_pp_test_store']['is_singular'] = true;
+        $GLOBALS['_pp_test_store']['queried_object_id'] = $id;
+        $this->assertSame('Override Title', pp_seo_document_title_override(''));
+    }
+
+    public function testSeoDocumentTitleOverridePassesThroughWhenUnset(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        $GLOBALS['_pp_test_store']['is_singular'] = true;
+        $GLOBALS['_pp_test_store']['queried_object_id'] = $id;
+        $this->assertSame('', pp_seo_document_title_override(''));
+    }
+
+    public function testSeoDocumentTitleOverridePassesThroughWhenNotSingular(): void
+    {
+        $GLOBALS['_pp_test_store']['is_singular'] = false;
+        $this->assertSame('Default Title', pp_seo_document_title_override('Default Title'));
+    }
+
+    public function testSeoCanonicalUrlOverrideReturnsOverrideWhenSet(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        pp_update_seo_meta($id, ['canonical_url' => 'https://example.com/custom']);
+        $post = get_post($id);
+        $this->assertSame('https://example.com/custom', pp_seo_canonical_url_override('https://example.com/default', $post));
+    }
+
+    public function testSeoCanonicalUrlOverridePassesThroughWhenUnset(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        $post = get_post($id);
+        $this->assertSame('https://example.com/default', pp_seo_canonical_url_override('https://example.com/default', $post));
+    }
+
+    public function testSeoCanonicalUrlOverridePassesThroughWhenNoPost(): void
+    {
+        $this->assertSame('https://example.com/default', pp_seo_canonical_url_override('https://example.com/default', null));
     }
 
     // ── Action: publish_page ──────────────────────────────────────────────

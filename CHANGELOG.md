@@ -4,6 +4,19 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.29] — 2026-07-05 — New: Page-Specific SEO Metadata
+
+**Composition-backed pages had no first-class way to set a meta description, override the `<title>` tag, or set a canonical URL — real launch work needed a direct `functions.php` patch to get a page-specific meta description onto the site.**
+
+### Added
+- New `update_seo_meta` action: sets `meta_description`, `seo_title` (overrides the rendered `<title>` tag), and `canonical_url` for any page — a patch, so setting one field never touches the others. Set a field to `""` to clear it.
+
+### For contributors
+- Storage mirrors `_pp_composition`'s own pattern: one structured post meta key (`_pp_seo_meta`, JSON-encoded), not scattered flat meta keys, and not folded into the composition array — SEO metadata is page-level, not a layout/content concern.
+- Output integrates with WordPress core's own mechanisms rather than duplicating them: `seo_title` hooks `pre_get_document_title` (short-circuits `wp_get_document_title()`'s own assembly), `canonical_url` hooks the `get_canonical_url` filter (WordPress's own `rel_canonical()` still does the output and escaping — this only substitutes the value), and `meta_description` is a direct `wp_head` tag. No duplicate `<title>`/canonical tags, no reimplemented escaping.
+- `canonical_url` is validated as a real URL; `meta_description`/`seo_title` are length-capped (320/200 chars) — routine input validation, not a new security mechanism.
+- 18 new PHPUnit tests across the action's validate/preview/execute paths and all three render-time hook callbacks (including the "no override set" and "not the current page" pass-through cases).
+
 ## [v0.16.28] — 2026-07-05 — New: Image Focal Point and Aspect Ratio Control
 
 **Every background image cropped from a hardcoded dead-center `background-position`, and every content image rendered at its natural proportions with no way to force a specific box shape. A photo whose subject wasn't centered had no safe-surface remedy — the crop was simply wrong, on every page, every time.**
