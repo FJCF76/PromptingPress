@@ -415,6 +415,41 @@ function pp_render_style_vars(array $style, string $component_name): string {
 }
 
 /**
+ * Renders a heading title with an optional accent-colored substring (#110).
+ *
+ * A structured, plain-text mechanism — NOT an HTML/markup allowlist. `$title`
+ * and `$accent` are both ordinary escaped text; this only decides WHERE to
+ * split them and wraps the matched segment in a `<span>`. There is no new
+ * markup-parsing or sanitization surface: every fragment goes through
+ * esc_html() exactly as a plain title always did.
+ *
+ * `$accent` must be a real, non-empty substring of `$title` (case-sensitive,
+ * first occurrence). If it isn't — unset, empty, or not actually found in
+ * the title — the accent is silently ignored and the title renders exactly
+ * as it always has, matching this codebase's established "invalid override
+ * falls back to the safe default" pattern for props.
+ *
+ * @param string $title        Full heading text.
+ * @param string $accent       Substring of $title to wrap in an accent span. Empty/no-match = no accent.
+ * @param string $accent_class CSS class for the accent <span>, e.g. "hero__title-accent".
+ * @return string  Safe-to-echo HTML (already escaped) — do not pass through esc_html() again.
+ */
+function pp_render_heading_with_accent(string $title, string $accent, string $accent_class): string {
+    if ($accent === '') {
+        return esc_html($title);
+    }
+    $pos = strpos($title, $accent);
+    if ($pos === false) {
+        return esc_html($title);
+    }
+    $before = substr($title, 0, $pos);
+    $after  = substr($title, $pos + strlen($accent));
+    return esc_html($before)
+        . '<span class="' . esc_attr($accent_class) . '">' . esc_html($accent) . '</span>'
+        . esc_html($after);
+}
+
+/**
  * Safely escapes an image source for output in <img src="..."> or a CSS
  * background-image:url(...) value embedded in an HTML style attribute.
  *

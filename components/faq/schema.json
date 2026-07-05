@@ -8,6 +8,12 @@
       "default": "Frequently Asked Questions",
       "description": "Section heading displayed above the FAQ list."
     },
+    "title_accent": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional exact substring of title to render in an accent color. Must match title exactly (case-sensitive) or it is ignored."
+    },
     "items": {
       "type": "array",
       "required": true,
@@ -26,6 +32,7 @@
       "--faq-bg": { "type": "gradient", "default": "var(--color-surface)", "description": "Section background color or gradient" },
       "--faq-item-bg": { "type": "gradient", "default": "var(--color-bg)", "description": "Individual accordion item background color or gradient" },
       "--faq-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading text color" },
+      "--faq-heading-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading, if set" },
       "--faq-question-color": { "type": "color", "default": "var(--color-text)", "description": "Question (summary) text color" },
       "--faq-answer-color": { "type": "color", "default": "var(--color-muted)", "description": "Answer text color" },
       "--faq-border-color": { "type": "color", "default": "var(--color-border)", "description": "Accordion item border color" },

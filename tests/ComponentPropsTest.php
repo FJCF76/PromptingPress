@@ -1204,4 +1204,126 @@ class ComponentPropsTest extends TestCase
         ]));
         $this->assertStringNotContainsString('url(evil)', $html);
     }
+
+    // ── pp_render_heading_with_accent() + title_accent (#110) ────────────────
+    // Structured, plain-text mechanism — NOT an HTML/markup allowlist. Both
+    // $title and $accent are ordinary text; this only decides where to split
+    // them. No new markup-parsing surface, so these tests focus on: correct
+    // splitting, safe fallback when the accent doesn't actually match, and
+    // that every fragment is still escaped exactly like a plain title always was.
+
+    public function testRenderHeadingWithAccentSplitsCorrectly(): void
+    {
+        $html = pp_render_heading_with_accent('Seguridad y salud para tu WordPress', 'Seguridad', 'hero__title-accent');
+        $this->assertSame(
+            '<span class="hero__title-accent">Seguridad</span> y salud para tu WordPress',
+            $html
+        );
+    }
+
+    public function testRenderHeadingWithAccentMatchesFirstOccurrenceOnly(): void
+    {
+        $html = pp_render_heading_with_accent('go go go', 'go', 'x');
+        $this->assertSame('<span class="x">go</span> go go', $html);
+    }
+
+    public function testRenderHeadingWithAccentFallsBackWhenNoMatch(): void
+    {
+        $html = pp_render_heading_with_accent('Plain title', 'not-present', 'x');
+        $this->assertSame('Plain title', $html);
+    }
+
+    public function testRenderHeadingWithAccentFallsBackWhenEmpty(): void
+    {
+        $html = pp_render_heading_with_accent('Plain title', '', 'x');
+        $this->assertSame('Plain title', $html);
+    }
+
+    public function testRenderHeadingWithAccentEscapesBothFragments(): void
+    {
+        // Confirms zero new markup-parsing surface: an attempted HTML/script
+        // injection in EITHER the title or the accent substring is escaped
+        // exactly as a plain esc_html() title always was.
+        $html = pp_render_heading_with_accent('<script>alert(1)</script>', '<script>', 'x');
+        $this->assertStringNotContainsString('<script>', $html);
+        $this->assertStringContainsString('&lt;script&gt;', $html);
+    }
+
+    public function testRenderHeadingWithAccentIsCaseSensitiveExactMatch(): void
+    {
+        // A case-mismatched "accent" is not a real substring match — falls
+        // back to plain title, matching the documented "must match exactly"
+        // contract rather than doing a fuzzy/case-insensitive search.
+        $html = pp_render_heading_with_accent('Seguridad y salud', 'seguridad', 'x');
+        $this->assertSame('Seguridad y salud', $html);
+    }
+
+    public function testHeroTitleAccentRenders(): void
+    {
+        $html = $this->render('hero', ['title' => 'Seguridad y salud', 'title_accent' => 'Seguridad']);
+        $this->assertStringContainsString('<span class="hero__title-accent">Seguridad</span> y salud', $html);
+    }
+
+    public function testHeroTitleAccentOmittedWhenNoMatch(): void
+    {
+        $html = $this->render('hero', ['title' => 'Seguridad y salud', 'title_accent' => 'xyz']);
+        $this->assertStringNotContainsString('hero__title-accent', $html);
+        $this->assertStringContainsString('Seguridad y salud', $html);
+    }
+
+    public function testGridTitleAccentRenders(): void
+    {
+        $html = $this->render('grid', $this->gridProps(['title' => 'Fast and Safe', 'title_accent' => 'Fast']));
+        $this->assertStringContainsString('<span class="grid__heading-accent">Fast</span> and Safe', $html);
+    }
+
+    public function testSectionTitleAccentRendersInBothLayouts(): void
+    {
+        $textOnly = $this->render('section', $this->sectionProps(['title' => 'Fast and Safe', 'title_accent' => 'Fast']));
+        $this->assertStringContainsString('<span class="section__title-accent">Fast</span> and Safe', $textOnly);
+
+        $imageLayout = $this->render('section', $this->sectionProps([
+            'title' => 'Fast and Safe',
+            'title_accent' => 'Fast',
+            'layout' => 'image-left',
+            'image_url' => 'https://example.com/img.jpg',
+        ]));
+        $this->assertStringContainsString('<span class="section__title-accent">Fast</span> and Safe', $imageLayout);
+    }
+
+    public function testCtaTitleAccentRenders(): void
+    {
+        $html = $this->render('cta', $this->ctaProps(['title' => 'Fast and Safe', 'title_accent' => 'Fast']));
+        $this->assertStringContainsString('<span class="cta__title-accent">Fast</span> and Safe', $html);
+    }
+
+    public function testFaqTitleAccentRenders(): void
+    {
+        $html = $this->render('faq', $this->faqProps(['title' => 'Fast Answers', 'title_accent' => 'Fast']));
+        $this->assertStringContainsString('<span class="faq__heading-accent">Fast</span> Answers', $html);
+    }
+
+    public function testStatsTitleAccentRenders(): void
+    {
+        $html = $this->render('stats', $this->statsProps(['title' => 'Fast Results', 'title_accent' => 'Fast']));
+        $this->assertStringContainsString('<span class="stats__heading-accent">Fast</span> Results', $html);
+    }
+
+    public function testAllSixComponentsDeclareTitleAccentSlot(): void
+    {
+        $expected = [
+            'hero'    => '--hero-title-accent-color',
+            'grid'    => '--grid-heading-accent-color',
+            'section' => '--section-title-accent-color',
+            'cta'     => '--cta-title-accent-color',
+            'faq'     => '--faq-heading-accent-color',
+            'stats'   => '--stats-title-accent-color',
+        ];
+        foreach ($expected as $component => $slot) {
+            $schema = json_decode(file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"), true);
+            $this->assertArrayHasKey('title_accent', $schema['props'], "{$component} must declare title_accent prop.");
+            $this->assertArrayHasKey($slot, $schema['styling']['style_slots'], "{$component} must declare {$slot}.");
+            $this->assertSame('color', $schema['styling']['style_slots'][$slot]['type']);
+        }
+    }
 }

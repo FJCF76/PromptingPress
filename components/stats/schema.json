@@ -14,6 +14,12 @@
       "default": "",
       "description": "Optional section heading above the stats row."
     },
+    "title_accent": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional exact substring of title to render in an accent color. Must match title exactly (case-sensitive) or it is ignored."
+    },
     "variant": {
       "type": "enum",
       "values": ["default", "dark", "inverted"],
@@ -44,6 +50,7 @@
     "style_slots": {
       "--stats-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
       "--stats-title-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading text color" },
+      "--stats-title-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading, if set" },
       "--stats-number-color": { "type": "color", "default": "var(--color-accent)", "description": "Stat number (large metric value) text color" },
       "--stats-label-color": { "type": "color", "default": "var(--color-muted)", "description": "Stat label text color" }
     }

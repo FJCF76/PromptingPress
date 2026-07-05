@@ -14,6 +14,12 @@
       "default": "",
       "description": "Section heading. Omit to render the body without a heading."
     },
+    "title_accent": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional exact substring of title to render in an accent color. Must match title exactly (case-sensitive) or it is ignored."
+    },
     "eyebrow": {
       "type": "string",
       "required": false,
@@ -83,6 +89,7 @@
       "--section-accent": { "type": "color", "default": "var(--color-accent)", "description": "Link color" },
       "--section-title-size": { "type": "length", "default": "inherit", "description": "Title font size" },
       "--section-title-color": { "type": "color", "default": "var(--color-text)", "description": "Title text color" },
+      "--section-title-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the title, if set" },
       "--section-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color" },
       "--section-eyebrow-bg": { "type": "color", "default": "var(--color-surface-accent)", "description": "Eyebrow pill background color" },
       "--section-subheading-color": { "type": "color", "default": "var(--color-muted)", "description": "Subheading text color" },

@@ -128,7 +128,14 @@ class StyleSlotContractTest extends TestCase
             foreach ($rules as $rule) {
                 $selector = $rule[1];
                 $body     = $rule[2];
-                if (strpos($selector, $selectorToken) === false) {
+                // Boundary-aware match: a plain substring check would treat
+                // .grid__heading-accent as a match for the token .grid__heading
+                // (BEM's hyphen-based modifier/element separator doesn't create
+                // a regex \b word-boundary), incorrectly flagging a deliberately
+                // separate element's own, differently-named slot as "clobbering"
+                // the token's slot. Require the token NOT be immediately
+                // followed by a hyphen or word character.
+                if (!preg_match('/' . preg_quote($selectorToken, '/') . '(?![-\w])/', $selector)) {
                     continue;
                 }
                 // Property declarations in this rule, excluding hyphenated namesakes

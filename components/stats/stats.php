@@ -11,6 +11,7 @@
 
 $id               = $props['id']               ?? '';
 $title            = $props['title']            ?? '';
+$title_accent     = $props['title_accent']     ?? '';
 $variant          = $props['variant']          ?? 'default';
 $items            = $props['items']            ?? [];
 $background_image = $props['background_image'] ?? '';
@@ -43,7 +44,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
     <div class="container">
 
         <?php if ($title) : ?>
-            <h2 class="stats__heading"><?php echo esc_html($title); ?></h2>
+            <h2 class="stats__heading"><?php echo pp_render_heading_with_accent($title, $title_accent, 'stats__heading-accent'); ?></h2>
         <?php endif; ?>
 
         <?php if (!empty($items)) : ?>
