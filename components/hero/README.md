@@ -19,6 +19,7 @@ Full-width hero section with headline, optional subtitle, optional CTA button, a
 | `cta2_variant`  | enum   | No       | `'outline'`  | Secondary button style: `primary` / `secondary` / `outline` / `ghost` |
 | `variant`       | enum   | No       | `'centered'` | Layout: `left`, `centered`, `split`, or `cover` |
 | `image_url`     | string | No       | `''`         | Image URL — inline image in `split` variant, background image in `cover` variant |
+| `image_id`      | int    | No       | `0`          | Media Library attachment ID for the `split` variant image. When set and it resolves, renders responsively (`srcset`/`sizes`) via `wp_get_attachment_image()`; falls back to `image_url` otherwise |
 | `image_alt`     | string | No       | `''`         | Alt text for the `split` variant image |
 | `spacing`       | enum   | No       | `'default'`  | Vertical padding: `default` / `compact` / `spacious` |
 | `width`         | enum   | No       | `'default'`  | Content width: `default` / `narrow` (56rem) / `full` |

@@ -110,8 +110,8 @@ site-customization permission.
 
 | Component | File                           | Description                                      | Key props                                          |
 |-----------|--------------------------------|--------------------------------------------------|----------------------------------------------------|
-| hero      | components/hero/hero.php       | Full-width headline + optional CTA and image     | title (req), subtitle, cta_text, cta_url, cta2_text, cta2_url, variant, image_url, image_alt, spacing, width, split_ratio, vertical_align, proof, id |
-| section   | components/section/section.php | Text + optional image. 3 layout variants         | body (req), title, image_url, image_alt, layout, variant, background_image, id |
+| hero      | components/hero/hero.php       | Full-width headline + optional CTA and image     | title (req), title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, variant, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof, id |
+| section   | components/section/section.php | Text + optional image. 3 layout variants         | body (req), title, title_accent, eyebrow, subheading, heading_align, image_url, image_id, image_alt, layout, variant, background_image, id |
 | faq       | components/faq/faq.php         | Native details/summary accordion. Zero JS.       | items[] (req) {question, answer}, title            |
 | grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {title, text, image_url, link_url, link_text}, title, variant, theme, id |
 | table     | components/table/table.php     | Data/comparison table, horizontal scroll mobile  | headers[] (req), rows[][] (req), title, caption    |
@@ -119,7 +119,7 @@ site-customization permission.
 | nav       | components/nav/nav.php         | Site header, logo, hamburger mobile nav          | location, logo_text, logo_id, logo_alt             |
 | footer    | components/footer/footer.php   | Site footer with nav menu and copyright          | location                                           |
 | stats     | components/stats/stats.php     | Horizontal row of large-number metrics + labels  | items[] (req) {number, label}, title, variant, background_image, id |
-| logos     | components/logos/logos.php     | Flex-wrap image grid — logo strips or icon tiles | items[] (req) {image_url, image_alt, label?}, title, variant, id |
+| logos     | components/logos/logos.php     | Flex-wrap image grid — logo strips or icon tiles | items[] (req) {image_url, image_alt, image_id?, label?}, title, variant, id |
 | embed     | components/embed/embed.php     | WP shortcode / plugin content wrapper            | content (req), title, variant, id                  |
 | testimonials | components/testimonials/testimonials.php | Customer quotes with attribution — card grid or single-column stack | items[] (req) {quote (req), author, role, company, image_url, image_alt}, title, variant, theme, id |
 
@@ -136,6 +136,8 @@ site-customization permission.
 - Text colors switch to `var(--color-bg)` for contrast
 
 If adding background-image support to another component, follow this exact pattern.
+
+**Responsive images (hero, section, logos):** `image_url` (hero's `split` variant, section's `image-left`/`image-right` layouts, each logos item) has a companion `image_id` — a Media Library attachment ID, not a URL. When `image_id` resolves to a real attachment, the `<img>` renders responsively via `wp_get_attachment_image()` (real `srcset`/`sizes`); when unset or unresolvable, the plain `image_url` renders exactly as before. Get an attachment ID via the `import_media` apply. Not used for `background_image`/`cover` (CSS `background-image`, not an `<img>` tag).
 
 **Anchor IDs:** All 8 section-level components (hero, section, stats, grid, logos, cta, embed, testimonials) accept an `id` prop that renders as the HTML `id` attribute on the root `<section>` element. Use for anchor navigation.
 

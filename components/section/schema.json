@@ -56,6 +56,12 @@
       "default": "",
       "description": "Alt text for the image. Use empty string for decorative images."
     },
+    "image_id": {
+      "type": "number",
+      "required": false,
+      "default": 0,
+      "description": "Media Library attachment ID for the image (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply."
+    },
     "layout": {
       "type": "enum",
       "values": ["text-only", "image-left", "image-right", "centered"],

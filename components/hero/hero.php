@@ -21,6 +21,7 @@ $cta2_variant = $props['cta2_variant'] ?? 'outline';
 $variant   = $props['variant']   ?? 'centered';
 $image_url = $props['image_url'] ?? '';
 $image_alt = $props['image_alt'] ?? '';
+$image_id  = (int) ($props['image_id'] ?? 0);
 $spacing         = $props['spacing']         ?? 'default';
 $width           = $props['width']           ?? 'default';
 $split_ratio     = $props['split_ratio']     ?? '50-50';
@@ -124,12 +125,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                 </div>
             <?php elseif ($variant === 'split' && $image_url) : ?>
                 <div class="hero__image-wrap">
-                    <img
-                        src="<?php echo pp_esc_image_src($image_url); ?>"
-                        alt="<?php echo esc_attr($image_alt); ?>"
-                        class="hero__image"
-                        loading="eager"
-                    >
+                    <?php echo pp_render_responsive_image($image_url, $image_alt, 'hero__image', 'eager', $image_id); ?>
                 </div>
             <?php endif; ?>
         </div>

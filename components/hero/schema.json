@@ -88,6 +88,12 @@
       "default": "",
       "description": "Alt text for the split variant image. Use a descriptive string for meaningful images; leave empty only if image is purely decorative."
     },
+    "image_id": {
+      "type": "number",
+      "required": false,
+      "default": 0,
+      "description": "Media Library attachment ID for the split variant image (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply."
+    },
     "spacing": {
       "type": "enum",
       "values": ["default", "compact", "spacious"],

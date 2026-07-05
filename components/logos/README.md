@@ -16,6 +16,7 @@ Each item:
 |-------------|--------|----------|-------------|
 | `image_url` | string | Yes      | Image or icon URL |
 | `image_alt` | string | Yes      | Alt text — use the logo or category name |
+| `image_id`  | int    | No       | Media Library attachment ID. When set and it resolves, renders responsively (`srcset`/`sizes`) via `wp_get_attachment_image()`; falls back to `image_url` otherwise |
 | `label`     | string | No       | Text label below the image. Omit for logo-only rows. |
 
 ## Usage — logo strip (no labels)

@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.27] — 2026-07-05 — New: Real Responsive Images on Hero, Section, and Logos
+
+**Every image on the site shipped as a single fixed `<img src>` — one resolution to every device, oversized on mobile or blurry if downscaled. A page with a hero image, a section image, and a logo strip produced zero `<picture>` elements and zero images with `srcset`/`sizes`, a real quality and performance gap on any image-heavy page.**
+
+### Added
+- Hero's `split` image, section's `image-left`/`image-right` image, and each logos item now accept a companion `image_id` — a Media Library attachment ID (from the `import_media` apply, shipped last release). When it resolves to a real attachment, the image renders responsively via WordPress's own `wp_get_attachment_image()`, with real `srcset`/`sizes` generated from registered image sizes.
+
+### For contributors
+- Fully backward compatible: `image_id` is optional and additive. Any composition that only ever set `image_url` (hotlinked or local) keeps rendering the exact same plain `<img>` tag as before — the new `pp_render_responsive_image()` helper in `lib/wp.php` falls back automatically when `image_id` is unset or doesn't resolve (deleted attachment, wrong id), with no error and no visible difference.
+- Deliberately scoped to `<img>`-tag image props only (hero/section/logos) — `background_image`/`cover` variants render via CSS `background-image:url()`, a different mechanism (`image-set()`) not touched here.
+- 13 new PHPUnit tests: the shared helper's three branches (attachment resolves, attachment doesn't resolve, no id at all) plus one integration test per component confirming both the responsive and plain-`<img>` paths render correctly.
+
 ## [v0.16.26] — 2026-07-05 — New: Bring External Images In as Owned Media
 
 **Image props (`image_url`, `background_image`, `logo_url`) only ever accepted a raw external URL. The only way to get a brand's real logo or photo onto the site was to hotlink it — fragile, unoptimized, and broken the moment the source moves — or drop out of the product surface entirely and use wp-admin media upload directly.**

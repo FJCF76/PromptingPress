@@ -13,7 +13,7 @@ Every visual change maps to exactly one mutation surface. Writing to the wrong s
 | Component-specific CSS (spacing, layout) | `assets/css/components.css` | Direct file edit (BEM classes, token values only) |
 | Site name, tagline | WordPress options | `update_site_option` action |
 | Site logo (nav, and footer via `show_logo`) | WordPress option (Media Library attachment) | `update_site_option` action (key `pp_logo_id`, an attachment ID) |
-| Bringing an external image onto the site as a locally-owned asset | Media Library (new attachment) | `import_media` apply (returns `{attachment_id, url}` — pass the `url` to an `image_url`/`background_image`/`logo_url` prop) |
+| Bringing an external image onto the site as a locally-owned asset | Media Library (new attachment) | `import_media` apply (returns `{attachment_id, url}` — pass `url` to `image_url`/`background_image`/`logo_url`; on hero/section/logos also pass `attachment_id` as `image_id` for responsive srcset output) |
 
 ## What NOT to use
 
