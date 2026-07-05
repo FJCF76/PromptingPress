@@ -87,6 +87,19 @@
    Site header, logo, nav links, hamburger toggle.
    ========================================================================== */
 
+:root {
+  /* Static fallback for the sticky header's real height (issue 63) — JS
+     (main.js) measures the actual rendered .site-header height on load and
+     resize and overrides this, since header height varies with content,
+     breakpoint, and font loading. Without this, an anchor jump to a
+     component's id (hero, section, cta, etc. all support one) lands with
+     the sticky header covering the heading, worst on mobile where the
+     header is proportionally taller. Not a design token: computed, not
+     AI-editable via update_design_token.
+  */
+  --header-height: 65px;
+}
+
 .site-header {
   position: sticky;
   top: 0;
@@ -217,6 +230,28 @@
   .nav__menu ul li a {
     padding: var(--space-xs) var(--space-sm);
   }
+}
+
+/* ==========================================================================
+   SHARED: Anchor scroll offset (issue 63)
+   Every content component supports an `id` prop, rendering it as a direct-
+   link/deep-link anchor target. Without this, jumping to #section-id lands
+   the target at the very top of the viewport, under the sticky header
+   (worst on mobile, where the header is proportionally taller) — covering
+   the heading instead of revealing it.
+   ========================================================================== */
+
+.hero,
+.section,
+.cta,
+.grid,
+.faq,
+.stats,
+.logos,
+.embed,
+.testimonials,
+.table-section {
+  scroll-margin-top: var(--header-height);
 }
 
 /* ==========================================================================
