@@ -6,6 +6,7 @@ A flex-wrap image grid. Use for client logo strips (items without labels) or ico
 
 | Prop    | Type   | Required | Default | Description |
 |---------|--------|----------|---------|-------------|
+| `id`    | string | No       | `''`    | HTML id for anchor linking |
 | `title` | string | No       | `''`    | Optional heading above the grid |
 | `items` | array  | Yes      | —       | Array of image items |
 

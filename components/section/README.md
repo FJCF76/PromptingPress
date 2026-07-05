@@ -4,21 +4,35 @@ Generic text + optional image section. Use this for "what is this", "how it work
 
 ## Props
 
-| Prop        | Type   | Required | Default       | Description |
-|-------------|--------|----------|---------------|-------------|
-| `title`     | string | No       | `''`          | Section heading (h2) |
-| `body`      | string | Yes      | —             | HTML body content (wp_kses_post filtered) |
-| `image_url` | string | No       | `''`          | Image URL (required for image-left / image-right) |
-| `image_alt` | string | No       | `''`          | Image alt text |
-| `layout`    | enum   | No       | `'text-only'` | Layout variant |
+| Prop               | Type   | Required | Default       | Description |
+|--------------------|--------|----------|---------------|-------------|
+| `id`               | string | No       | `''`          | HTML id for anchor linking |
+| `title`            | string | No       | `''`          | Section heading (h2) |
+| `title_accent`     | string | No       | `''`          | Exact substring of `title` to render in an accent color |
+| `eyebrow`          | string | No       | `''`          | Short kicker/label rendered as a pill above the title |
+| `subheading`       | string | No       | `''`          | Supporting line below the title |
+| `heading_align`    | enum   | No       | `'start'`     | Header block alignment: `start` / `center` |
+| `body`             | string | Yes      | —             | HTML body content (wp_kses_post filtered) |
+| `image_url`        | string | No       | `''`          | Image URL (required for image-left / image-right) |
+| `image_alt`        | string | No       | `''`          | Image alt text |
+| `layout`           | enum   | No       | `'text-only'` | Layout variant |
+| `variant`          | enum   | No       | `'default'`   | Background color: `default` / `dark` / `inverted` |
+| `background_image` | string | No       | `''`          | Optional background image URL with dark overlay for text readability |
 
 ## Variants
 
+Layout (`layout`):
 - **text-only** — Full-width text column. Used for articles and prose content.
 - **image-left** — Two-column at md+: image on left, text on right.
 - **image-right** — Two-column at md+: text on left, image on right.
+- **centered** — Text constrained to a narrower centered column. Use for short intros and taglines, not multi-paragraph content.
 
-If `image_url` is empty, the layout always falls back to `text-only`.
+If `image_url` is empty, image-left/image-right layouts fall back to `text-only`.
+
+Background color (`variant`), independent of layout:
+- **default** — Page background.
+- **dark** — Surface background with borders.
+- **inverted** — Inverted background for strong contrast.
 
 ## Usage
 

@@ -83,8 +83,8 @@ Check that `current` values reflect your changes and the `active_recipe` shows c
 The `shadow` type is bounded: a preset (`var(--shadow-none\|sm\|md\|lg)` or `none`)
 or a single-layer `box-shadow` (2-4 px/rem lengths plus an rgb/rgba/hsl/hsla color).
 `inset`, multi-layer shadows, and `url()` are rejected. The hero, section, grid (card),
-and cta components each expose namespaced `*-border-color`, `*-border-width`, `*-radius`,
-and `*-shadow` slots.
+cta, and testimonials (card) components each expose namespaced `*-border-color`,
+`*-border-width`, `*-radius`, and `*-shadow` slots.
 
 > **Button and text styling are PROPS, not style slots.** A CTA's button style
 > (`button_variant`: primary/secondary/outline/ghost) and a grid item's typography
@@ -106,6 +106,7 @@ and `*-shadow` slots.
 | grid | `dense-cards` | Compact card layout with tight spacing |
 | cta | `dark-bold` | Dark background with large title |
 | cta | `accent-framed` | Accent border with rounded corners |
+| testimonials | `dark-showcase` | Dark background with light cards |
 
 ---
 

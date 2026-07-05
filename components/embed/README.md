@@ -8,6 +8,7 @@ This is the only sanctioned way to introduce arbitrary plugin-rendered content i
 
 | Prop      | Type   | Required | Default | Description |
 |-----------|--------|----------|---------|-------------|
+| `id`      | string | No       | `''`    | HTML id for anchor linking |
 | `title`   | string | No       | `''`    | Optional heading above the embedded content |
 | `content` | string | Yes      | —       | WP shortcode or pre-rendered HTML |
 
