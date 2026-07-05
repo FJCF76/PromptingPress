@@ -145,6 +145,27 @@ function pp_pagination(): string {
 }
 
 /**
+ * Returns the raw search query string for the current search request (issue 138).
+ *
+ * @return string
+ */
+function pp_search_query(): string {
+    return get_search_query();
+}
+
+/**
+ * Returns the total number of matched posts for the current main query
+ * (issue 138) — `found_posts` reflects the full result count across all
+ * pages, unlike `pp_main_query()->posts`, which only holds the current page.
+ *
+ * @return int
+ */
+function pp_result_count(): int {
+    global $wp_query;
+    return (int) ($wp_query->found_posts ?? 0);
+}
+
+/**
  * Returns true when the current page is the configured front page.
  */
 function pp_is_front_page(): bool {

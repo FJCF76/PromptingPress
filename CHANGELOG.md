@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.33] — 2026-07-05 — Fix: Search Returned One Result's Content Instead of a Results List
+
+**A search request had no dedicated template, so it fell through WordPress's template hierarchy to the single-page template and rendered the first matched result's content as a full standalone page — no "N results for…" heading, no results list, no pagination, and no empty state when nothing matched.**
+
+### Fixed
+- Added `templates/search.php` (+ root `search.php` delegator): a heading naming the query and match state, a grid of matching posts/pages with links and excerpts (reusing the archive/blog-listing grid pattern from #126), pagination, and an explicit empty state instead of a blank hero/section.
+
+### For contributors
+- New `pp_search_query()` and `pp_result_count()` wrappers in `lib/wp.php`, keeping the "templates call only pp_* functions" invariant; `pp_result_count()` reads `found_posts` off the main query (the full match count, not just the current page's post count).
+- Reuses `pp_main_query()`/`pp_the_loop()`/`pp_pagination()` from #126 as-is — WordPress's search query already includes both posts and pages by default, so no new query-building logic was needed.
+- 4 new PHPUnit tests; verified live on the dev site with a matching-term search (results + no pagination for 2 results) and a no-match search (empty state).
+
 ## [v0.16.32] — 2026-07-05 — Fix: Blog Listing Showed One Post's Content Instead of a Grid
 
 **Visiting the posts page (or any category/tag archive) rendered a single post's title and content as if it were a static page, with no grid, no pagination, and no respect for the category/tag filter — a category archive showed every post on the site regardless of its actual category.**

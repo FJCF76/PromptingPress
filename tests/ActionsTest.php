@@ -183,6 +183,34 @@ class ActionsTest extends TestCase
         $this->assertStringNotContainsString('Previous', $html);
     }
 
+    // ── pp_search_query() / pp_result_count() tests (issue 138) ─────────────
+
+    public function testPpSearchQueryReturnsTheCurrentSearchTerm(): void
+    {
+        $GLOBALS['_pp_test_store']['search_query'] = 'pricing';
+        $this->assertSame('pricing', pp_search_query());
+    }
+
+    public function testPpSearchQueryReturnsEmptyStringWhenUnset(): void
+    {
+        unset($GLOBALS['_pp_test_store']['search_query']);
+        $this->assertSame('', pp_search_query());
+    }
+
+    public function testPpResultCountReturnsFoundPostsFromMainQuery(): void
+    {
+        $GLOBALS['wp_query'] = new WP_Query();
+        $GLOBALS['wp_query']->found_posts = 7;
+        $this->assertSame(7, pp_result_count());
+    }
+
+    public function testPpResultCountReturnsZeroForNoMatches(): void
+    {
+        $GLOBALS['wp_query'] = new WP_Query();
+        $GLOBALS['wp_query']->found_posts = 0;
+        $this->assertSame(0, pp_result_count());
+    }
+
     // ── wp.php write function tests ────────────────────────────────────────
 
     public function testPpUpdateCompositionRoundTrips(): void
