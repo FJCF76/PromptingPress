@@ -4,6 +4,15 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.46] — 2026-07-05 — Test Coverage: AI Chat Streaming & Apply E2E Flow (Mock SSE)
+
+**The AI chat's streaming/proposal/apply state machine (`assets/js/pp-ai-chat.js`) had no end-to-end coverage — only its pure helper functions were unit-tested. The SSE transport, the AJAX fallback path, and the atomic batch-apply flow were only ever exercised manually.**
+
+### For contributors
+- New `tests/e2e/ai-chat.spec.ts`: 9 Playwright specs driving the real chat UI (type → send → observe) against a deterministic mocked `ai-stream.php`, matching its exact wire format (`data: {"content"|"error"|"done"...}\n\n` frames, `data: [DONE]\n\n`) — no real AI provider is ever called.
+- Covers: streamed content rendering and a single-step proposal; a multi-step proposal's "Apply All" going through the one atomic `pp_ai_execute_batch` request (#137) rather than N sequential calls; Cancel discarding a previewed proposal; a non-configured provider (plain-text HTTP 400) driving the AJAX fallback; three distinct mid-stream SSE error events (invalid key, rate limit, quota-exhausted) and the Connectors-link suppression rule tied to "no remaining credits"; a genuine dropped connection falling back to the non-streaming `pp_ai_chat` AJAX endpoint; and a truncated response (no proposal) surfacing its retry hint.
+- Scoped deliberately to this flow per the issue's own diagnostic recommendation — provider/model selection, page-switch suggestions, composition diff rendering, and localStorage restore are exercised elsewhere and were left out to avoid scope creep into full UI coverage.
+
 ## [v0.16.45] — 2026-07-05 — Test Coverage: AI Chat Trust-Boundary Gaps From v0.2.0 Review
 
 **A v0.2.0 code review identified several unit test coverage gaps in the AI chat PHP layer, deferred as non-blocking since live QA had already verified the functional paths end-to-end. Re-auditing against current code found most of the original gaps closed by later work (#131's capability-model tests are a strict superset of what was originally asked); five genuine gaps remained.**
