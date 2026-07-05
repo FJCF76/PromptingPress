@@ -13,7 +13,7 @@
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
 [![Tests](https://img.shields.io/badge/Tests-970+_passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-0.16.23-6366F1?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.16.24-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -127,7 +127,7 @@ No blocks. No shortcodes. No visual-builder serialization. AI can read, write, d
 
 ### 🧩 Typed components — contracts, not conventions
 
-11 components, each isolated in its own directory with a `schema.json`:
+12 components, each isolated in its own directory with a `schema.json`:
 
 | Component | Purpose | Key props |
 |-----------|---------|-----------|
@@ -140,6 +140,7 @@ No blocks. No shortcodes. No visual-builder serialization. AI can read, write, d
 | logos | Flex-wrap image strip for partner/client logos | `items[]` |
 | table | Data/comparison table, horizontal scroll on mobile | `headers[]`, `rows[][]` |
 | embed | WordPress shortcode / plugin content wrapper | `content` |
+| testimonials | Customer quotes with attribution — card grid or single-column stack | `items[]` |
 | nav | Site header with hamburger mobile nav | -- |
 | footer | Site footer with nav menu and copyright | -- |
 
@@ -265,7 +266,7 @@ the HANDOFF report.
 
 ```
 1. Agent reads AI_CONTEXT.md
-   → learns: 11 components, schema contracts, action layer, composition format
+   → learns: 12 components, schema contracts, action layer, composition format
 
 2. Agent inspects the page
    $ wp pp operate inspect-composition 74
@@ -419,7 +420,7 @@ PromptingPress is in active development by a single developer. It is not yet pac
 See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 through v0.13.1.
 
 **What exists today (v0.13.1):**
-- 11 components with schema contracts and 100 per-instance style slots, plus named recipes
+- 12 components with schema contracts and 100 per-instance style slots, plus named recipes
 - A contract test that guarantees every style slot a component declares actually reaches the page, honored at every breakpoint
 - Typed action/apply layer with validation, preview, and rollback
 - Bounded presentation controls — button variants, typography roles, shadow/border/radius slots

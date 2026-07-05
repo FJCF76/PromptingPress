@@ -33,7 +33,7 @@ use PHPUnit\Framework\TestCase;
 class StyleSlotContractTest extends TestCase
 {
     /** Components that declare style_slots and own a block in components.css. */
-    private const COMPONENTS = ['hero', 'section', 'grid', 'cta', 'faq', 'stats'];
+    private const COMPONENTS = ['hero', 'section', 'grid', 'cta', 'faq', 'stats', 'testimonials'];
 
     private string $themeRoot;
     private string $css;

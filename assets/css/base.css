@@ -210,6 +210,18 @@ pre {
   border-radius: var(--radius);
 }
 
+blockquote {
+  margin: 0 0 var(--space-md);
+  padding-left: var(--space-md);
+  border-left: 3px solid var(--color-accent);
+  color: var(--color-muted);
+  font-style: italic;
+}
+
+blockquote:last-child {
+  margin-bottom: 0;
+}
+
 /* ==========================================================================
    4. Links
    ========================================================================== */

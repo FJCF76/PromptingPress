@@ -1782,6 +1782,216 @@
 }
 
 /* ==========================================================================
+   COMPONENT: testimonials
+   Customer quotes with attribution. 'grid' variant: 1-col → 2-col md →
+   3-col lg card grid. 'stack' variant: single centered column, no card
+   chrome, for one or two large pull-quotes.
+   ========================================================================== */
+
+.testimonials {
+  padding-top: var(--testimonials-padding-top, var(--space-xl));
+  padding-bottom: var(--testimonials-padding-bottom, var(--space-xl));
+  background: var(--testimonials-bg, transparent);
+}
+
+.testimonials__header--center {
+  text-align: center;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.testimonials__eyebrow {
+  display: inline-block;
+  padding: 0.35rem 0.85rem;
+  margin-bottom: var(--space-sm);
+  border-radius: 3px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--testimonials-eyebrow-color, var(--color-text));
+  background: var(--testimonials-eyebrow-bg, var(--color-surface-accent));
+}
+
+.testimonials__heading {
+  color: var(--testimonials-heading-color, var(--color-text));
+  max-width: 40rem;
+  margin-bottom: var(--space-lg);
+}
+
+.testimonials__heading-accent {
+  color: var(--testimonials-heading-accent-color, var(--color-accent));
+}
+
+.testimonials__header--center .testimonials__heading {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.testimonials__subheading {
+  color: var(--testimonials-subheading-color, var(--color-muted));
+  margin-top: 0;
+  margin-bottom: var(--space-lg);
+  max-width: 40rem;
+}
+
+.testimonials__header--center .testimonials__subheading {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.testimonials__list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--testimonials-gap, var(--space-lg));
+}
+
+@media (min-width: 768px) {
+  .testimonials__list {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .testimonials__list {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.testimonials__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin: 0;
+  padding: var(--testimonials-card-padding, var(--space-lg));
+  background: var(--testimonials-card-bg, var(--color-surface));
+  border: var(--testimonials-card-border-width, 1px) solid var(--testimonials-card-border, var(--color-border));
+  border-radius: var(--testimonials-card-radius, var(--radius));
+  box-shadow: var(--testimonials-card-shadow, none);
+}
+
+.testimonials__quote {
+  margin: 0;
+  padding: 0;
+  border-left: none;
+  font-style: normal;
+  color: var(--testimonials-quote-color, var(--color-text));
+  flex: 1;
+}
+
+.testimonials__quote p {
+  margin: 0;
+  position: relative;
+  padding-left: 1.75rem;
+}
+
+.testimonials__quote p::before {
+  content: "\201C";
+  position: absolute;
+  left: 0;
+  top: -0.1em;
+  font-size: 1.75em;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--testimonials-quote-mark-color, var(--color-accent));
+}
+
+.testimonials__attribution {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.testimonials__avatar {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.testimonials__attribution-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.testimonials__author {
+  font-weight: 700;
+  color: var(--testimonials-author-color, var(--color-text));
+}
+
+.testimonials__meta {
+  font-size: 0.875rem;
+  color: var(--testimonials-meta-color, var(--color-muted));
+}
+
+.testimonials__empty {
+  grid-column: 1 / -1;
+  padding: var(--space-md) 0;
+}
+
+/* Stack variant: single centered column, no card chrome, larger quotes */
+.testimonials--stack .testimonials__list {
+  grid-template-columns: 1fr;
+  max-width: 42rem;
+  margin: 0 auto;
+}
+
+.testimonials--stack .testimonials__item {
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  text-align: center;
+  align-items: center;
+}
+
+.testimonials--stack .testimonials__quote {
+  font-size: 1.375rem;
+}
+
+.testimonials--stack .testimonials__quote p {
+  padding-left: 0;
+}
+
+.testimonials--stack .testimonials__quote p::before {
+  display: block;
+  position: static;
+  margin-bottom: var(--space-sm);
+}
+
+/* Theme variants */
+.testimonials--dark {
+  background: var(--testimonials-bg, var(--color-surface));
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.testimonials--inverted {
+  background: var(--testimonials-bg, var(--color-bg-inverted));
+}
+
+.testimonials--inverted .testimonials__heading {
+  color: var(--testimonials-heading-color, var(--color-bg));
+}
+
+.testimonials--inverted .testimonials__item {
+  background: var(--testimonials-card-bg, var(--color-bg));
+}
+
+.testimonials--inverted.testimonials--stack .testimonials__item {
+  background: transparent;
+}
+
+.testimonials--inverted.testimonials--stack .testimonials__quote {
+  color: var(--testimonials-quote-color, var(--color-bg));
+}
+
+.testimonials--inverted.testimonials--stack .testimonials__author {
+  color: var(--testimonials-author-color, var(--color-bg));
+}
+
+/* ==========================================================================
    SHARED: Adjacent-Sibling Rhythm
    Tightens vertical padding between consecutive section-level components
    inside <main>. First component keeps its own padding naturally (the `+`

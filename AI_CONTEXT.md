@@ -121,12 +121,13 @@ site-customization permission.
 | stats     | components/stats/stats.php     | Horizontal row of large-number metrics + labels  | items[] (req) {number, label}, title, variant, background_image, id |
 | logos     | components/logos/logos.php     | Flex-wrap image grid — logo strips or icon tiles | items[] (req) {image_url, image_alt, label?}, title, variant, id |
 | embed     | components/embed/embed.php     | WP shortcode / plugin content wrapper            | content (req), title, variant, id                  |
+| testimonials | components/testimonials/testimonials.php | Customer quotes with attribution — card grid or single-column stack | items[] (req) {quote (req), author, role, company, image_url, image_alt}, title, variant, theme, id |
 
 ### Component capabilities reference
 
-**Variants (color themes):** Most section-level components support `variant` with values `default`, `dark`, `inverted`. CTA and grid are exceptions — see below.
+**Variants (color themes):** Most section-level components support `variant` with values `default`, `dark`, `inverted`. CTA, grid, and testimonials are exceptions — see below.
 
-**Two components have dual-axis control.** CTA and grid both use `variant` for layout and `theme` for color, because they need independent control of both. CTA: `variant` = layout (`full-width`, `inline`), `theme` = color (`default`, `dark`, `inverted`). Grid: `variant` = layout (`default`, `steps`), `theme` = color (`default`, `dark`, `inverted`). Every other component uses `variant` for color because it has only one layout. If a future component needs both layout and color control, follow the same pattern.
+**Three components have dual-axis control.** CTA, grid, and testimonials all use `variant` for layout and `theme` for color, because they need independent control of both. CTA: `variant` = layout (`full-width`, `inline`), `theme` = color (`default`, `dark`, `inverted`). Grid: `variant` = layout (`default`, `steps`), `theme` = color (`default`, `dark`, `inverted`). Testimonials: `variant` = layout (`grid`, `stack`), `theme` = color (`default`, `dark`, `inverted`). Every other component uses `variant` for color because it has only one layout. If a future component needs both layout and color control, follow the same pattern.
 
 **Background images:** hero (via `cover` variant + `image_url`), section (`background_image` prop), cta (`background_image` prop), and stats (`background_image` prop) support CSS background-image with a dark overlay and light text. All four use the same implementation pattern:
 - `background-image` inline style on the root `<section>` element
@@ -136,7 +137,7 @@ site-customization permission.
 
 If adding background-image support to another component, follow this exact pattern.
 
-**Anchor IDs:** All 7 section-level components (hero, section, stats, grid, logos, cta, embed) accept an `id` prop that renders as the HTML `id` attribute on the root `<section>` element. Use for anchor navigation.
+**Anchor IDs:** All 8 section-level components (hero, section, stats, grid, logos, cta, embed, testimonials) accept an `id` prop that renders as the HTML `id` attribute on the root `<section>` element. Use for anchor navigation.
 
 **Hero:** Variants `left`, `centered`, `split` (inline image), `cover` (fullscreen background-image with overlay). Supports dual CTA buttons (`cta_text` + `cta2_text`); secondary renders as outline/ghost style. Composition props: `spacing` (compact/default/spacious), `width` (narrow/default/full), `split_ratio` (50-50/60-40/40-60, split variant only), `vertical_align` (top/center/bottom, cover and split only), `proof` (HTML string for trust signals like logos/ratings, rendered after CTA group). Hero content uses `--measure-centered` (56rem) as default max-width.
 

@@ -1403,4 +1403,179 @@ class ComponentPropsTest extends TestCase
         $this->assertArrayHasKey('--grid-bullet-color', $slots);
         $this->assertSame('color', $slots['--grid-bullet-color']['type']);
     }
+
+    // ── Testimonials component (#1) ─────────────────────────────────────
+
+    private function testimonialsProps(array $extra = []): array
+    {
+        return array_merge(['items' => [['quote' => 'Great product.']]], $extra);
+    }
+
+    public function testTestimonialsRendersQuoteAndAttribution(): void
+    {
+        $html = $this->render('testimonials', $this->testimonialsProps([
+            'items' => [[
+                'quote' => 'PromptingPress cut our build time in half.',
+                'author' => 'Jane Doe',
+                'role' => 'CEO',
+                'company' => 'Acme Inc.',
+            ]],
+        ]));
+        $this->assertStringContainsString('class="testimonials__quote"', $html);
+        $this->assertStringContainsString('PromptingPress cut our build time in half.', $html);
+        $this->assertStringContainsString('class="testimonials__author">Jane Doe<', $html);
+        $this->assertStringContainsString('class="testimonials__meta">CEO, Acme Inc.<', $html);
+    }
+
+    public function testTestimonialsMetaFallsBackToRoleOnly(): void
+    {
+        $html = $this->render('testimonials', $this->testimonialsProps([
+            'items' => [['quote' => 'Q', 'author' => 'A', 'role' => 'CEO']],
+        ]));
+        $this->assertStringContainsString('class="testimonials__meta">CEO<', $html);
+    }
+
+    public function testTestimonialsMetaFallsBackToCompanyOnly(): void
+    {
+        $html = $this->render('testimonials', $this->testimonialsProps([
+            'items' => [['quote' => 'Q', 'author' => 'A', 'company' => 'Acme']],
+        ]));
+        $this->assertStringContainsString('class="testimonials__meta">Acme<', $html);
+    }
+
+    public function testTestimonialsOmitsAttributionWhenNoAuthorRoleCompanyOrImage(): void
+    {
+        $html = $this->render('testimonials', $this->testimonialsProps([
+            'items' => [['quote' => 'Just a quote.']],
+        ]));
+        $this->assertStringNotContainsString('testimonials__attribution', $html);
+    }
+
+    public function testTestimonialsSkipsItemsWithoutQuote(): void
+    {
+        $html = $this->render('testimonials', $this->testimonialsProps([
+            'items' => [['author' => 'No Quote Here'], ['quote' => 'Real quote', 'author' => 'Real Author']],
+        ]));
+        $this->assertStringNotContainsString('No Quote Here', $html);
+        $this->assertStringContainsString('Real quote', $html);
+    }
+
+    public function testTestimonialsRendersAvatarWhenImageUrlSet(): void
+    {
+        $html = $this->render('testimonials', $this->testimonialsProps([
+            'items' => [['quote' => 'Q', 'author' => 'A', 'image_url' => 'https://example.com/a.jpg', 'image_alt' => 'A photo']],
+        ]));
+        $this->assertStringContainsString('class="testimonials__avatar"', $html);
+        $this->assertStringContainsString('alt="A photo"', $html);
+    }
+
+    public function testTestimonialsEscapesQuoteAndAttribution(): void
+    {
+        $html = $this->render('testimonials', $this->testimonialsProps([
+            'items' => [[
+                'quote' => '<script>alert(1)</script>',
+                'author' => '<img src=x onerror=alert(1)>',
+                'role' => '<b>bold</b>',
+            ]],
+        ]));
+        $this->assertStringNotContainsString('<script>alert(1)</script>', $html);
+        $this->assertStringNotContainsString('<img src=x onerror=alert(1)>', $html);
+        $this->assertStringNotContainsString('<b>bold</b>', $html);
+        $this->assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $html);
+    }
+
+    public function testTestimonialsEmptyStateRendersWhenNoItems(): void
+    {
+        $html = $this->render('testimonials', ['items' => []]);
+        $this->assertStringContainsString('testimonials__empty', $html);
+    }
+
+    public function testTestimonialsHeaderEyebrowSubheadingAndCenterAlignRender(): void
+    {
+        $html = $this->render('testimonials', $this->testimonialsProps([
+            'title' => 'Heading',
+            'eyebrow' => 'KICKER',
+            'subheading' => 'Supporting line',
+            'heading_align' => 'center',
+        ]));
+        $this->assertStringContainsString('class="testimonials__header testimonials__header--center"', $html);
+        $this->assertStringContainsString('class="testimonials__eyebrow">KICKER<', $html);
+        $this->assertStringContainsString('class="testimonials__heading">Heading<', $html);
+        $this->assertStringContainsString('class="testimonials__subheading">Supporting line<', $html);
+    }
+
+    public function testTestimonialsHeaderOmittedWhenNoTitleEyebrowOrSubheading(): void
+    {
+        $html = $this->render('testimonials', $this->testimonialsProps());
+        $this->assertStringNotContainsString('testimonials__header', $html);
+    }
+
+    public function testTestimonialsTitleAccentRenders(): void
+    {
+        $html = $this->render('testimonials', $this->testimonialsProps(['title' => 'Fast and Safe', 'title_accent' => 'Fast']));
+        $this->assertStringContainsString('<span class="testimonials__heading-accent">Fast</span> and Safe', $html);
+    }
+
+    public function testTestimonialsVariantDefaultsToGrid(): void
+    {
+        $html = $this->render('testimonials', $this->testimonialsProps());
+        $this->assertStringNotContainsString('testimonials--stack', $html);
+    }
+
+    public function testTestimonialsVariantStackAddsClass(): void
+    {
+        $html = $this->render('testimonials', $this->testimonialsProps(['variant' => 'stack']));
+        $this->assertStringContainsString('class="testimonials testimonials--stack"', $html);
+    }
+
+    public function testTestimonialsInvalidVariantFallsBackToGrid(): void
+    {
+        $html = $this->render('testimonials', $this->testimonialsProps(['variant' => 'carousel']));
+        $this->assertStringNotContainsString('testimonials--carousel', $html);
+        $this->assertStringNotContainsString('testimonials--stack', $html);
+    }
+
+    public function testTestimonialsThemeAddsClass(): void
+    {
+        $html = $this->render('testimonials', $this->testimonialsProps(['theme' => 'inverted']));
+        $this->assertStringContainsString('testimonials--inverted', $html);
+    }
+
+    public function testTestimonialsInvalidThemeFallsBackToDefault(): void
+    {
+        $html = $this->render('testimonials', $this->testimonialsProps(['theme' => 'neon']));
+        $this->assertStringNotContainsString('testimonials--neon', $html);
+    }
+
+    public function testTestimonialsRejectsInjectionInStyleSlot(): void
+    {
+        $html = $this->render('testimonials', $this->testimonialsProps([
+            '__pp_style' => ['--testimonials-quote-color' => '#fff; background:url(evil)'],
+        ]));
+        $this->assertStringNotContainsString('url(evil)', $html);
+    }
+
+    public function testTestimonialsSchemaDeclaresAllStyleSlots(): void
+    {
+        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/testimonials/schema.json'), true);
+        $this->assertArrayHasKey('styling', $schema);
+        $slots = $schema['styling']['style_slots'];
+        foreach ([
+            '--testimonials-padding-top', '--testimonials-padding-bottom', '--testimonials-bg',
+            '--testimonials-heading-color', '--testimonials-heading-accent-color',
+            '--testimonials-eyebrow-color', '--testimonials-eyebrow-bg', '--testimonials-subheading-color',
+            '--testimonials-gap', '--testimonials-card-bg', '--testimonials-card-border',
+            '--testimonials-card-border-width', '--testimonials-card-radius', '--testimonials-card-shadow',
+            '--testimonials-card-padding', '--testimonials-quote-color', '--testimonials-quote-mark-color',
+            '--testimonials-author-color', '--testimonials-meta-color',
+        ] as $slot) {
+            $this->assertArrayHasKey($slot, $slots, "testimonials must declare {$slot}.");
+        }
+    }
+
+    public function testTestimonialsSchemaRequiresQuoteOnItems(): void
+    {
+        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/testimonials/schema.json'), true);
+        $this->assertTrue($schema['props']['items']['items']['quote']['required']);
+    }
 }
