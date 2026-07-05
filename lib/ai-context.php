@@ -161,7 +161,7 @@ function pp_ai_system_prompt(): string {
     $parts[] = 'Always explain what the proposal will do before the JSON block.';
     $parts[] = '';
     $parts[] = '### Style slot value rules';
-    $parts[] = 'Style slot values must match the declared type (color, length, number, duration, font-family, shadow, gradient). A `gradient`-typed slot accepts either a plain color or a bounded `linear-gradient()`/`radial-gradient()` (2+ color stops; `conic-gradient()`, `repeating-*-gradient()`, and `var()`/`url()`/`env()` references are not accepted). CSS keywords like `none`, `unset`, `initial`, and `auto` are **not accepted** — they will fail validation. If a user asks to "remove" or "disable" a constraint (e.g. remove a max-width), do not propose a CSS keyword. Instead, set the slot to the maximum practical value for the type (e.g. `100%` for a max-width length slot) and explain what the slot supports. If the requested change is genuinely not possible through the exposed style slots, say so clearly and offer the closest achievable alternative.';
+    $parts[] = 'Style slot values must match the declared type (color, length, number, duration, font-family, shadow, gradient, position, ratio). A `gradient`-typed slot accepts either a plain color or a bounded `linear-gradient()`/`radial-gradient()` (2+ color stops; `conic-gradient()`, `repeating-*-gradient()`, and `var()`/`url()`/`env()` references are not accepted). A `position`-typed slot (image/background focal point) accepts 1-2 keywords (`center`, `top`, `bottom`, `left`, `right`) or lengths/percentages (e.g. `top left`, `20% 80%`) — no functions, no `var()`. A `ratio`-typed slot (aspect ratio) accepts `auto` (natural proportions), a single positive number, or two positive numbers separated by a slash (e.g. `16/9`). Most other types reject bare CSS keywords like `unset`/`initial`/`auto` — they will fail validation — with two named exceptions: `shadow`\'s own preset `none` (or `var(--shadow-*)`) and `ratio`\'s own preset `auto` are each explicitly accepted, mirroring their slot\'s documented default. If a user asks to "remove" or "disable" a constraint (e.g. remove a max-width), do not propose an unsupported CSS keyword. Instead, set the slot to the maximum practical value for the type (e.g. `100%` for a max-width length slot) and explain what the slot supports. If the requested change is genuinely not possible through the exposed style slots, say so clearly and offer the closest achievable alternative.';
     $parts[] = '';
     $parts[] = '### Before proposing a style_component action';
     $parts[] = 'Before generating a style_component proposal, verify all three checks:';
@@ -175,18 +175,19 @@ function pp_ai_system_prompt(): string {
     $parts[] = '## Image Selection Rules';
     $parts[] = '- When adding or editing components that accept images, select from the Media Library above.';
     $parts[] = '- Match images to the task by filename and alt text. Copy the full URL exactly as listed. Never invent, guess, or modify URLs.';
-    $parts[] = '- If the Media Library section shows no images, tell the user no images are available. Do not hallucinate URLs.';
+    $parts[] = '- If the Media Library section shows no images, tell the user no images are available. Do not hallucinate URLs. To bring in an external image (e.g. a brand\'s real logo) as a locally-owned asset, use the `import_media` apply — it returns `{attachment_id, url}`.';
     $parts[] = '- Foreground images require `image_alt` (non-empty, descriptive):';
-    $parts[] = '  - hero (variant: "split"): `image_url` + `image_alt`';
-    $parts[] = '  - section (layout: "image-left" or "image-right"): `image_url` + `image_alt`';
+    $parts[] = '  - hero (variant: "split"): `image_url` + `image_alt`, optionally `image_id` (Media Library attachment ID from `import_media`) for responsive srcset/sizes output';
+    $parts[] = '  - section (layout: "image-left" or "image-right"): `image_url` + `image_alt`, optionally `image_id` (same as hero)';
     $parts[] = '  - grid items (default variant only): `items[].image_url` + `items[].image_alt`';
-    $parts[] = '  - logos items: `items[].image_url` + `items[].image_alt`';
+    $parts[] = '  - logos items: `items[].image_url` + `items[].image_alt`, optionally `items[].image_id` (same as hero)';
     $parts[] = '  - nav/footer: `logo_id` (Media Library attachment ID, not a URL) + `logo_alt`';
     $parts[] = '- Background images (no `image_alt` needed):';
     $parts[] = '  - hero (variant: "cover"): `image_url` rendered as CSS background-image';
     $parts[] = '  - section: `background_image`';
     $parts[] = '  - cta: `background_image`';
     $parts[] = '  - stats: `background_image`';
+    $parts[] = '- Image focal point / aspect ratio: when an image crops badly (off-center subject) or needs a specific box shape, use `style_component` on the `position`-typed slot (`--hero-image-position`, `--section-image-position`, or the four `--{component}-bg-position` slots for background images) and, for hero/section content images only, the `ratio`-typed `--hero-image-aspect-ratio`/`--section-image-aspect-ratio` slots. Not available for logos or the plain `image_url`/`background_image` fallback path — these are style slots, set via `style_component`, not props.';
     $parts[] = '- Grid component: images only render in the default variant, not the steps variant.';
     $parts[] = '- When editing a single item in a grid or logos component, pass the complete `items` array with the modification applied at the correct index. `update_component` uses shallow merge, not positional patching.';
 

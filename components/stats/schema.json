@@ -52,7 +52,8 @@
       "--stats-title-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading text color" },
       "--stats-title-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading, if set" },
       "--stats-number-color": { "type": "color", "default": "var(--color-accent)", "description": "Stat number (large metric value) text color" },
-      "--stats-label-color": { "type": "color", "default": "var(--color-muted)", "description": "Stat label text color" }
+      "--stats-label-color": { "type": "color", "default": "var(--color-muted)", "description": "Stat label text color" },
+      "--stats-bg-position": { "type": "position", "default": "center", "description": "background_image focal point" }
     }
   },
   "safe_to_edit": ["stats.php", "../../assets/css/components.css (COMPONENT: stats section)"],

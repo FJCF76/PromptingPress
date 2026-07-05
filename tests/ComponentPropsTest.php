@@ -1688,4 +1688,79 @@ class ComponentPropsTest extends TestCase
         $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/logos/schema.json'), true);
         $this->assertArrayHasKey('image_id', $schema['props']['items']['items']);
     }
+
+    // ── Image focal point + aspect ratio style slots (#108) ──────────────────
+
+    public function testHeroCoverBgPositionOverrideRenders(): void
+    {
+        $html = $this->render('hero', $this->heroProps([
+            'variant' => 'cover', 'image_url' => 'https://example.com/bg.jpg',
+            '__pp_style' => ['--hero-bg-position' => 'top left'],
+        ]));
+        $this->assertStringContainsString('--hero-bg-position: top left', $html);
+    }
+
+    public function testHeroImagePositionAndAspectRatioOverrideRenders(): void
+    {
+        $html = $this->render('hero', $this->heroProps([
+            'variant' => 'split', 'image_url' => 'https://example.com/photo.jpg',
+            '__pp_style' => ['--hero-image-position' => 'top', '--hero-image-aspect-ratio' => '16/9'],
+        ]));
+        $this->assertStringContainsString('--hero-image-position: top', $html);
+        $this->assertStringContainsString('--hero-image-aspect-ratio: 16/9', $html);
+    }
+
+    public function testSectionImagePositionAndAspectRatioOverrideRenders(): void
+    {
+        $html = $this->render('section', $this->sectionProps([
+            'layout' => 'image-left', 'image_url' => 'https://example.com/photo.jpg',
+            '__pp_style' => ['--section-image-position' => 'bottom', '--section-image-aspect-ratio' => '1'],
+        ]));
+        $this->assertStringContainsString('--section-image-position: bottom', $html);
+        $this->assertStringContainsString('--section-image-aspect-ratio: 1', $html);
+    }
+
+    public function testSectionBgPositionOverrideRenders(): void
+    {
+        $html = $this->render('section', $this->sectionProps(['background_image' => 'https://example.com/bg.jpg', '__pp_style' => ['--section-bg-position' => '20% 80%']]));
+        $this->assertStringContainsString('--section-bg-position: 20% 80%', $html);
+    }
+
+    public function testCtaBgPositionOverrideRenders(): void
+    {
+        $html = $this->render('cta', $this->ctaProps(['background_image' => 'https://example.com/bg.jpg', '__pp_style' => ['--cta-bg-position' => 'right']]));
+        $this->assertStringContainsString('--cta-bg-position: right', $html);
+    }
+
+    public function testStatsBgPositionOverrideRenders(): void
+    {
+        $html = $this->render('stats', $this->statsProps(['background_image' => 'https://example.com/bg.jpg', '__pp_style' => ['--stats-bg-position' => 'left']]));
+        $this->assertStringContainsString('--stats-bg-position: left', $html);
+    }
+
+    public function testHeroImagePositionRejectsInjectionInStyleSlot(): void
+    {
+        $html = $this->render('hero', $this->heroProps([
+            'variant' => 'split', 'image_url' => 'https://example.com/photo.jpg',
+            '__pp_style' => ['--hero-image-position' => 'top; background:url(evil)'],
+        ]));
+        $this->assertStringNotContainsString('url(evil)', $html);
+    }
+
+    public function testHeroSchemaDeclaresPositionAndRatioSlotTypes(): void
+    {
+        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/hero/schema.json'), true);
+        $slots = $schema['styling']['style_slots'];
+        $this->assertSame('position', $slots['--hero-image-position']['type']);
+        $this->assertSame('ratio', $slots['--hero-image-aspect-ratio']['type']);
+        $this->assertSame('position', $slots['--hero-bg-position']['type']);
+    }
+
+    public function testSectionCtaStatsSchemaDeclareBgPositionSlot(): void
+    {
+        foreach (['section' => '--section-bg-position', 'cta' => '--cta-bg-position', 'stats' => '--stats-bg-position'] as $component => $slot) {
+            $schema = json_decode(file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"), true);
+            $this->assertSame('position', $schema['styling']['style_slots'][$slot]['type'], "{$component} must declare {$slot} as type position.");
+        }
+    }
 }

@@ -104,6 +104,9 @@
       "--section-border-width": { "type": "length", "default": "0", "description": "Top and bottom border width" },
       "--section-radius": { "type": "length", "default": "0", "description": "Border radius" },
       "--section-image-radius": { "type": "length", "default": "var(--radius)", "description": "Image border radius" },
+      "--section-image-position": { "type": "position", "default": "center", "description": "image-left/image-right image focal point (object-position) — where the image crops from when its aspect ratio doesn't match --section-image-aspect-ratio" },
+      "--section-image-aspect-ratio": { "type": "ratio", "default": "auto", "description": "image-left/image-right image aspect ratio (e.g. '16/9', '1'). Default 'auto' preserves the image's natural proportions" },
+      "--section-bg-position": { "type": "position", "default": "center", "description": "background_image focal point" },
       "--section-overlay-bg": { "type": "gradient", "default": "var(--overlay-bg)", "description": "Background image overlay color or gradient (e.g. a transparent-to-dark scrim for text legibility over an image)" },
       "--section-shadow": { "type": "shadow", "default": "none", "description": "Box shadow of the section (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" }
     },

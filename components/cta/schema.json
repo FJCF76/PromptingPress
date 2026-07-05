@@ -98,7 +98,8 @@
       "--cta-radius": { "type": "length", "default": "0", "description": "Border radius" },
       "--cta-shadow": { "type": "shadow", "default": "none", "description": "Box shadow of the CTA section (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" },
       "--cta-content-width": { "type": "length", "default": "40rem", "description": "Title max width" },
-      "--cta-overlay-bg": { "type": "gradient", "default": "var(--overlay-bg)", "description": "Background image overlay color or gradient (e.g. a transparent-to-dark scrim for text legibility over an image)" }
+      "--cta-overlay-bg": { "type": "gradient", "default": "var(--overlay-bg)", "description": "Background image overlay color or gradient (e.g. a transparent-to-dark scrim for text legibility over an image)" },
+      "--cta-bg-position": { "type": "position", "default": "center", "description": "background_image focal point" }
     },
     "recipes": {
       "dark-bold": {
