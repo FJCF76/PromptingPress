@@ -19,6 +19,55 @@ function ppChatGetImpactWarning(name) {
     return warnings[name] || null;
 }
 
+/**
+ * Finds the page whose title is the longest substring match in the given
+ * (already-lowercased) text. Pure and side-effect-free (issue 136) — the
+ * caller decides what to do with the result; this function never sets the
+ * active page itself. Skips untitled pages. Returns null for no match, no
+ * text, or an empty pages list.
+ */
+function ppChatDetectPageId(lowerText, pages) {
+    if (!pages || !pages.length || !lowerText) return null;
+
+    var bestMatch = null;
+    var bestLen = 0;
+
+    for (var i = 0; i < pages.length; i++) {
+        var page = pages[i];
+        var title = (page.title || '').toLowerCase();
+        if (!title) continue; // skip untitled pages
+        if (lowerText.indexOf(title) !== -1 && title.length > bestLen) {
+            bestMatch = page.id;
+            bestLen = title.length;
+        }
+    }
+
+    return bestMatch;
+}
+
+/**
+ * Looks up a page object by id in the pages list. Returns null when pageId
+ * is falsy or no page in the list has a matching id.
+ */
+function ppChatFindPageById(pageId, pages) {
+    if (!pageId || !pages) return null;
+    for (var i = 0; i < pages.length; i++) {
+        if (pages[i].id === pageId) return pages[i];
+    }
+    return null;
+}
+
+/**
+ * Decides whether a detected page should be surfaced as a "switch?"
+ * suggestion (issue 136): only when detection found a page AND it differs
+ * from the currently active selection. Detection must never be treated as
+ * authoritative on its own — the explicit selection always wins, this only
+ * flags a disagreement for the user to act on (or ignore).
+ */
+function ppChatShouldSuggestPageSwitch(activePageId, detectedPageId) {
+    return !!detectedPageId && detectedPageId !== activePageId;
+}
+
 function ppChatFormatDiffValue(val) {
     if (val === null || val === undefined) return '(none)';
     if (typeof val === 'object') {
@@ -261,6 +310,7 @@ function ppChatAppendValidationItems(container, items, className) {
 
     var providerSelect = document.getElementById('pp-ai-provider-select');
     var modelSelect    = document.getElementById('pp-ai-model-select');
+    var pageSelectEl   = document.getElementById('pp-ai-page-select');
 
     var switchRetryCount = 0;
 
@@ -337,6 +387,32 @@ function ppChatAppendValidationItems(container, items, className) {
                 modelSelect.appendChild(opt);
             });
         }
+    }
+
+    // ── Page Selector (issue 136) ───────────────────────────────────────
+    //
+    // The active page is explicit and user-controlled via this selector,
+    // never inferred silently. detectPageId (below) only ever surfaces a
+    // suggestion for the user to accept or ignore.
+
+    if (pageSelectEl) {
+        pageSelectEl.addEventListener('change', function () {
+            activePageId = this.value || null;
+            saveState();
+        });
+    }
+
+    /**
+     * Reflects activePageId in the <select>. If activePageId points at a
+     * page no longer in config.pages (e.g. trashed since it was selected),
+     * resets to no selection rather than silently keeping a stale target.
+     */
+    function syncPageSelectValue() {
+        if (!pageSelectEl) return;
+        if (activePageId && !ppChatFindPageById(activePageId, config.pages || [])) {
+            activePageId = null;
+        }
+        pageSelectEl.value = activePageId || '';
     }
 
     // ── Persistence ───────────────────────────────────────────────────
@@ -684,7 +760,7 @@ function ppChatAppendValidationItems(container, items, className) {
         .then(function (r) { return r.json(); });
     }
 
-    function renderProposal(proposal) {
+    function renderProposal(proposal, pageId) {
         var card = document.createElement('div');
         card.className = 'pp-ai-proposal-card';
 
@@ -692,6 +768,18 @@ function ppChatAppendValidationItems(container, items, className) {
         title.className = 'pp-ai-proposal-title';
         title.textContent = 'Proposed Changes';
         card.appendChild(title);
+
+        // Names the page this request targeted (issue 136) — the AI's
+        // proposed post_id params drive the actual writes, so the user must
+        // be able to see which page that is before approving, not just infer
+        // it from the diff.
+        var targetPage = ppChatFindPageById(pageId, config.pages || []);
+        if (targetPage) {
+            var pageLabel = document.createElement('div');
+            pageLabel.className = 'pp-ai-proposal-target-page';
+            pageLabel.textContent = 'Target page: ' + (targetPage.title || '(untitled)');
+            card.appendChild(pageLabel);
+        }
 
         var steps = proposal.steps || [];
 
@@ -845,6 +933,52 @@ function ppChatAppendValidationItems(container, items, className) {
         div.className = 'pp-ai-status' + (isError ? ' pp-ai-status-error' : '');
         if (isError) div.setAttribute('role', 'alert');
         div.textContent = text;
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    /**
+     * Blocks sending: no page is selected. Directs the user to the selector
+     * instead of proceeding with page_id: null (issue 136). If detection
+     * found a candidate, names it as a hint — it is never auto-selected.
+     */
+    function showPageSelectionPrompt(detectedPageId, pages) {
+        var detectedPage = ppChatFindPageById(detectedPageId, pages);
+        var text = detectedPage
+            ? 'Select a page before sending — did you mean "' + detectedPage.title + '"? Choose it from the page dropdown above.'
+            : 'Select a page before sending, using the page dropdown above.';
+        addStatusMessage(text, true);
+        if (pageSelectEl) pageSelectEl.focus();
+    }
+
+    /**
+     * Non-blocking: the message was sent using the current selection, but
+     * detection disagrees with it. Surfaces a one-click way to switch the
+     * selection for the NEXT message — never retargets silently, and never
+     * blocks or alters the request that was just sent (issue 136).
+     */
+    function maybeShowPageSwitchSuggestion(detectedPageId, pages) {
+        if (!ppChatShouldSuggestPageSwitch(activePageId, detectedPageId)) return;
+
+        var detectedPage = ppChatFindPageById(detectedPageId, pages);
+        if (!detectedPage) return;
+
+        var div = document.createElement('div');
+        div.className = 'pp-ai-status pp-ai-page-switch-suggestion';
+        div.appendChild(document.createTextNode('This message mentioned "' + detectedPage.title + '". '));
+
+        var switchBtn = document.createElement('button');
+        switchBtn.type = 'button';
+        switchBtn.className = 'button pp-ai-page-switch-btn';
+        switchBtn.textContent = 'Switch to it for next message?';
+        switchBtn.addEventListener('click', function () {
+            activePageId = detectedPage.id;
+            syncPageSelectValue();
+            saveState();
+            div.remove();
+        });
+        div.appendChild(switchBtn);
+
         messagesEl.appendChild(div);
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
@@ -1110,12 +1244,27 @@ function ppChatAppendValidationItems(container, items, className) {
     function sendMessage(text) {
         if (isStreaming || !text.trim()) return;
 
+        var trimmed = text.trim();
+        var pages = config.pages || [];
+        var detectedPageId = ppChatDetectPageId(trimmed.toLowerCase(), pages);
+
+        // The active page is explicit and user-controlled (issue 136) —
+        // detection is a suggestion only, never an authority. Without an
+        // explicit selection, block sending rather than proposing changes
+        // against page_id: null (or silently reusing a stale prior target).
+        if (!activePageId) {
+            showPageSelectionPrompt(detectedPageId, pages);
+            return;
+        }
+
+        maybeShowPageSwitchSuggestion(detectedPageId, pages);
+
         isStreaming = true;
         sendBtn.disabled = true;
         inputEl.disabled = true;
 
-        conversation.push({ role: 'user', content: text.trim() });
-        addMessage('user', text.trim());
+        conversation.push({ role: 'user', content: trimmed });
+        addMessage('user', trimmed);
         inputEl.value = '';
         saveState();
 
@@ -1123,11 +1272,11 @@ function ppChatAppendValidationItems(container, items, className) {
     }
 
     function streamChat(messages) {
-        var detected = detectPageId(messages);
-        if (detected) {
-            activePageId = detected;
-            saveState();
-        }
+        // Captured once per request: renderProposal() (in this closure's
+        // async callbacks) must label the page actually targeted by THIS
+        // request, not whatever activePageId happens to be by the time the
+        // response arrives — the selector can change while streaming.
+        var requestPageId = activePageId;
 
         var body = JSON.stringify({
             messages: messages,
@@ -1190,7 +1339,7 @@ function ppChatAppendValidationItems(container, items, className) {
 
                             if (data.done && data.proposal) {
                                 proposalReceived = true;
-                                renderProposal(data.proposal);
+                                renderProposal(data.proposal, requestPageId);
                             }
 
                             if (data.done && data.truncated && !data.proposal) {
@@ -1212,7 +1361,7 @@ function ppChatAppendValidationItems(container, items, className) {
         })
         .catch(function (err) {
             // SSE failed, try AJAX fallback
-            ajaxFallback(messages, msgBody);
+            ajaxFallback(messages, msgBody, requestPageId);
         });
     }
 
@@ -1311,7 +1460,7 @@ function ppChatAppendValidationItems(container, items, className) {
 
     // ── AJAX Fallback ──────────────────────────────────────────────────
 
-    function ajaxFallback(messages, msgBody) {
+    function ajaxFallback(messages, msgBody, requestPageId) {
         var data = new FormData();
         data.append('action', 'pp_ai_chat');
         data.append('nonce', config.streamNonce);
@@ -1334,7 +1483,7 @@ function ppChatAppendValidationItems(container, items, className) {
                 conversation.push({ role: 'assistant', content: resp.data.content });
 
                 if (resp.data.proposal) {
-                    renderProposal(resp.data.proposal);
+                    renderProposal(resp.data.proposal, requestPageId);
                 } else if (looksLikeIncompleteProposal(resp.data.content)) {
                     addStatusMessage(
                         'The response may have been cut short before the proposal could be generated. Try sending your request again, or simplify it.',
@@ -1354,31 +1503,6 @@ function ppChatAppendValidationItems(container, items, className) {
         .catch(function () {
             handleStreamError(msgBody, 'Connection failed. Please try again.');
         });
-    }
-
-    // ── Page Detection ─────────────────────────────────────────────────
-
-    function detectPageId(messages) {
-        if (!config.pages || !config.pages.length) return null;
-
-        var lastMsg = messages[messages.length - 1];
-        if (!lastMsg || lastMsg.role !== 'user') return null;
-
-        var text = lastMsg.content.toLowerCase();
-        var bestMatch = null;
-        var bestLen = 0;
-
-        for (var i = 0; i < config.pages.length; i++) {
-            var page = config.pages[i];
-            var title = (page.title || '').toLowerCase();
-            if (!title) continue; // skip untitled pages
-            if (text.indexOf(title) !== -1 && title.length > bestLen) {
-                bestMatch = page.id;
-                bestLen = title.length;
-            }
-        }
-
-        return bestMatch;
     }
 
     // ── Restore Previous Conversation ─────────────────────────────────
@@ -1445,6 +1569,7 @@ function ppChatAppendValidationItems(container, items, className) {
         inputEl.disabled = false;
         inputEl.value = '';
         inputEl.focus();
+        syncPageSelectValue();
     }
 
     // ── Event Handlers ─────────────────────────────────────────────────
@@ -1474,6 +1599,7 @@ function ppChatAppendValidationItems(container, items, className) {
         // restored transcript, not a broken widget (#140 adversarial review).
         conversation = [];
     }
+    syncPageSelectValue();
     inputEl.focus();
 
 })();
@@ -1489,6 +1615,9 @@ if (typeof module !== 'undefined' && module.exports) {
         getErrorStepClass: ppChatGetErrorStepClass,
         getStatusMessage: ppChatGetStatusMessage,
         appendValidationItems: ppChatAppendValidationItems,
-        buildCompositionSummary: ppChatBuildCompositionSummary
+        buildCompositionSummary: ppChatBuildCompositionSummary,
+        detectPageId: ppChatDetectPageId,
+        findPageById: ppChatFindPageById,
+        shouldSuggestPageSwitch: ppChatShouldSuggestPageSwitch
     };
 }

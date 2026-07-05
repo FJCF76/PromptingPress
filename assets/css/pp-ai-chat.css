@@ -313,6 +313,19 @@ body.pp-ai-chat-page #wpfooter {
     color: #d63638;
 }
 
+.pp-ai-page-switch-suggestion {
+    color: #1d2327;
+    background: #f0f6fc;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    padding: 8px 12px;
+    text-align: left;
+}
+
+.pp-ai-page-switch-btn {
+    margin-left: 6px;
+}
+
 /* ── Proposal Cards ───────────────────────────────────────────────────────── */
 
 .pp-ai-proposal-card {
@@ -332,6 +345,13 @@ body.pp-ai-chat-page #wpfooter {
     margin-bottom: 12px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+}
+
+.pp-ai-proposal-target-page {
+    font-size: 12px;
+    font-weight: 600;
+    color: #2271b1;
+    margin-bottom: 8px;
 }
 
 .pp-ai-proposal-step {
