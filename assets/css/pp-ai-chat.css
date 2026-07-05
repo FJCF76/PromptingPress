@@ -615,6 +615,17 @@ body.pp-ai-chat-page #wpfooter {
     border-radius: 4px;
 }
 
+.pp-ai-stop {
+    background: #fff;
+    border-color: #d63638;
+    color: #d63638;
+}
+
+.pp-ai-stop:hover {
+    background: #d63638;
+    color: #fff;
+}
+
 #pp-ai-chat-app .button:disabled {
     opacity: 0.6;
     cursor: not-allowed;

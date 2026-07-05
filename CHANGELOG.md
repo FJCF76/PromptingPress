@@ -4,6 +4,19 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.39] — 2026-07-05 — New: Stop Button and Automatic Fallback for Stuck AI Responses
+
+**A long, wrong, or runaway chat response had no way to be interrupted — the send button and input were simply disabled until the request finished or the 120s server timeout hit. Separately, a proxy/CDN that buffers the whole streaming response (or middleware stripping `text/event-stream`) returns HTTP 200 with no usable stream, which doesn't reject the request — on those hosts the chat would sit in an indefinite "thinking" state, even though a working non-streaming fallback endpoint already existed and was simply never reached.**
+
+### Added
+- A Stop button (swapped in for Send while a response streams) aborts the request and finalizes whatever partial text has arrived, leaving it in place with input re-enabled. An intentional stop is treated as a cancellation, not a failure — it never triggers the non-streaming fallback.
+- A first-token watchdog: if no token arrives within 15 seconds of a request starting, the client aborts the stalled SSE attempt and automatically retries via the existing non-streaming endpoint, surfacing a "Streaming unavailable — using compatibility mode." note.
+
+### For contributors
+- `streamChat()` now creates an `AbortController` per request and a module-level `currentRequestId` counter that every async callback (fetch `.then`/`.catch`, the fallback's response handlers) checks before touching shared state — without it, an aborted-but-still-in-flight request's callback could fire after "New Chat" already reset the conversation, re-populating it with stale partial text.
+- 3 new Vitest tests covering the exact race conditions this touches: Stop mid-stream (assert `abort` fired, no fallback), a stalled stream with zero tokens (assert the fallback engages once the watchdog elapses), and the existing happy path (assert nothing changes when tokens arrive normally).
+- Verified live on the dev site: Stop button appears/disappears correctly across a real streaming round-trip with no console errors or stuck UI state.
+
 ## [v0.16.38] — 2026-07-05 — Fix: AI Chat Now Targets an Explicit, User-Chosen Page
 
 **Which page a chat request mutated was inferred entirely by matching the last message against page titles as substrings — "tell me about pricing" could match a page titled "About", "make the hero bigger" matched nothing and silently reused whatever page was last targeted, and the user had no way to see or correct which page was about to change before a proposal wrote to it.**

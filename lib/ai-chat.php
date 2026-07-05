@@ -189,6 +189,7 @@ function pp_ai_chat_page(): void {
                     <label for="pp-ai-input" class="screen-reader-text"><?php esc_html_e('Chat message', 'promptingpress'); ?></label>
                     <textarea id="pp-ai-input" placeholder="Ask about your site or request a change..." rows="2"></textarea>
                     <button id="pp-ai-send" class="button button-primary">Send</button>
+                    <button id="pp-ai-stop" class="button pp-ai-stop" style="display:none;" title="<?php esc_attr_e('Stop the current response', 'promptingpress'); ?>">Stop</button>
                 </div>
             <?php endif; ?>
         </div>
