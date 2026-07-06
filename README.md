@@ -4,7 +4,7 @@
 
 ### WordPress pages that AI agents can understand — and fast sites that skip the builder bloat.
 
-**A lightweight composition layer for WordPress. Pages are typed components + structured JSON. Design lives in tokens. The frontend ships ~75 KB of CSS and 1.5 KB of vanilla JS — no framework, no bundler, no builder runtime. AI can inspect, edit, and maintain pages through predictable interfaces instead of reverse-engineering theme clutter.**
+**A lightweight composition layer for WordPress. Pages are typed components + structured JSON. Design lives in tokens. The frontend ships ~97 KB of CSS and 3.6 KB of vanilla JS — no framework, no bundler, no builder runtime. AI can inspect, edit, and maintain pages through predictable interfaces instead of reverse-engineering theme clutter.**
 
 ---
 
@@ -12,8 +12,8 @@
 [![PHP 8.0+](https://img.shields.io/badge/PHP-8.0+-777BB4?style=flat-square&logo=php&logoColor=white)](https://php.net)
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
-[![Tests](https://img.shields.io/badge/Tests-970+_passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-0.16.47-6366F1?style=flat-square)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/Tests-1550+_passing-22C55E?style=flat-square)](tests/)
+[![Version](https://img.shields.io/badge/version-0.16.48-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -43,7 +43,7 @@ PromptingPress goes the other direction:
 | 🧠 **AI readability** | AI reads the codebase and guesses what's editable | AI reads `AI_CONTEXT.md` + component schemas and knows exactly what's editable and how |
 | 🧩 **Page structure** | Layout scattered across blocks, builders, shortcodes, and theme options | Page layout is one JSON array in post meta — inspectable, diffable, version-controllable |
 | 🛡️ **Edit safety** | Changes via file edits, block editor, or plugin-specific APIs | Every change goes through one typed action layer — validate, preview, execute, rollback |
-| 🪶 **Frontend weight** | Builder runtime, serialized markup, framework dependencies | ~75 KB CSS + 1.5 KB vanilla JS. No framework. No bundler. No builder runtime. |
+| 🪶 **Frontend weight** | Builder runtime, serialized markup, framework dependencies | ~97 KB CSS + 3.6 KB vanilla JS. No framework. No bundler. No builder runtime. |
 | 🎨 **Design control** | Colors and spacing set through visual overrides or inline CSS | 47 design tokens in one CSS file; site overrides in the database, survive theme updates |
 | 📄 **Component contracts** | Ad hoc theme files, no contracts on what a component accepts | Every component has `schema.json` with typed props, required fields, and validation |
 
@@ -67,7 +67,7 @@ flowchart TD
     end
 
     subgraph Mutation["🛡️ Validated mutation layer"]
-        Action["Typed action layer\n14 actions · validate · preview · execute"]
+        Action["Typed action layer\n20 actions · validate · preview · execute"]
         Apply["Apply layer\ndesign tokens · file mutations · backup + rollback"]
         Guard["Guardrails\nsurface classification · CSS conflict detection · data-loss guard"]
     end
@@ -80,7 +80,7 @@ flowchart TD
     subgraph Render["⚡ Output"]
         Templates["Templates\npp_* wrappers only"]
         Components["Component partials\nisolated PHP · CSS variables only"]
-        Frontend["WordPress frontend\n~75 KB CSS · 1.5 KB JS · zero frameworks"]
+        Frontend["WordPress frontend\n~97 KB CSS · 3.6 KB JS · zero frameworks"]
     end
 
     CLI --> Action
@@ -157,9 +157,9 @@ Components are plain PHP partials that render semantic HTML with CSS custom prop
 | Asset | Size | What it does |
 |-------|------|-------------|
 | `base.css` | 9 KB | Design tokens — 47 CSS custom properties |
-| `components.css` | 63 KB | All 11 component styles, CSS variables only |
-| `utilities.css` | 2 KB | Layout helpers |
-| `main.js` | 1.5 KB | Hamburger nav toggle — one IIFE, zero dependencies |
+| `components.css` | 84 KB | All 12 component styles, CSS variables only |
+| `utilities.css` | 3 KB | Layout helpers |
+| `main.js` | 3.6 KB | Hamburger nav toggle + sticky-header height measurement — one IIFE, zero dependencies |
 
 No build step. No transpilation. No bundler. What you write is what ships.
 
@@ -171,7 +171,7 @@ No build step. No transpilation. No bundler. What you write is what ships.
 
 47 CSS custom properties control the entire visual system: colors, typography (including mono/meta/label/kicker roles), spacing, borders, shadows, measures. Product defaults live in `assets/css/base.css`. Site-specific overrides are stored in the database and **survive theme updates** — no file to lose when the theme ZIP gets replaced.
 
-107 per-instance style slots let AI make this page's hero dark and spacious while that page's hero is tight, accent-bordered, and lifted with a drop shadow — all through composition data, no CSS edits. 9 named recipes (like `dark-spacious` or `compact`) expand to multiple slot values at once.
+140 per-instance style slots let AI make this page's hero dark and spacious while that page's hero is tight, accent-bordered, and lifted with a drop shadow — all through composition data, no CSS edits. 10 named recipes (like `dark-spacious` or `compact`) expand to multiple slot values at once.
 
 ```bash
 # Preview a token change without applying
@@ -192,7 +192,7 @@ wp pp apply execute update_design_token \
 Every mutation — from CLI, from AI chat, from the editor — goes through the same typed action system:
 
 ```bash
-# See all 14 available actions
+# See all 20 available actions
 wp pp action list
 
 # Preview what a change would do (dry run, never writes)
@@ -204,7 +204,7 @@ wp pp action execute add_component \
   --params='{"post_id":74,"component":"section","props":{"body":"<p>New.</p>"}}'
 ```
 
-14 typed actions cover page lifecycle, composition edits, component operations, styling, and site options. The apply layer handles design token and file mutations with automatic backup (keeps last 5), post-write contract verification, and auto-restore on failure.
+20 typed actions cover page lifecycle, composition edits, component operations, styling, navigation menus, SEO metadata, and site options. The apply layer handles design token and file mutations with automatic backup (keeps last 5), post-write contract verification, and auto-restore on failure.
 
 **Why this matters:** AI agents can't accidentally produce invalid state. The system validates inputs, shows a preview diff, and rolls back on failure — all through the same interface regardless of how the edit was initiated.
 
@@ -297,10 +297,10 @@ No theme files were edited. No WordPress internals were called. No visual builde
 /components/{name}/        Component partials + schema.json
 /templates/                Page layout files (pp_* wrappers only)
 /lib/wp.php                WP abstraction layer
-/lib/actions.php           Typed action model (14 actions)
+/lib/actions.php           Typed action model (20 actions)
 /lib/apply.php             Apply layer (file + option mutations, backup/rollback)
 /lib/operate.php           Operating loop: inspect, preflight, run tokens
-/lib/cli.php               WP-CLI commands (wp pp action · apply · check · integrity)
+/lib/cli.php               WP-CLI commands (wp pp action · apply · operate · check · validate · integrity · screenshot · target · sync)
 /lib/admin.php             Composition editor (accordion + CodeMirror + preview)
 /lib/ai-chat.php           AI chat admin page + AJAX handlers
 /lib/ai-context.php        AI system prompt assembly (site state, media, tokens)
@@ -389,13 +389,13 @@ Enforced by `AI_RULES.md` and verified by automated tests:
 
 ## ✅ Tests
 
-**731 PHP tests, 2898 assertions** — component loader, WP abstraction, schema validation, 14 typed actions, apply layer, token family derivation, AI context, proposal parsing, style slots, cross-component hints, surface classification, font management, integrity, upgrade-safety guardrails, operating loop, server-driven destructive-action warnings:
+**1226 PHP tests, 4547 assertions** — component loader, WP abstraction, schema validation, 20 typed actions, apply layer, batch atomicity/rollback, token family derivation, AI context, proposal parsing, capability model, style slots, cross-component hints, surface classification, font management, media import, SEO metadata, navigation menus, integrity, upgrade-safety guardrails, operating loop, server-driven destructive-action warnings:
 
 ```bash
 composer install && composer test
 ```
 
-**262 JS tests** — JSON context, composition validator, accordion data, insert position, data-loss guard, DOM selector alignment, serialization invariant (deep diff + round-trip gate), CSS lint, packaging, proposal card, guided error card, post-apply validation, shared PHP/JS validation contract, server-driven warning lookup:
+**350 JS tests** — JSON context, composition validator, accordion data, insert position, data-loss guard, DOM selector alignment, serialization invariant (deep diff + round-trip gate), CSS lint, packaging, proposal card, guided error card, page targeting, post-apply validation, shared PHP/JS validation contract, server-driven warning lookup:
 
 ```bash
 npm install && npm test
@@ -417,10 +417,10 @@ npm run env:stop
 
 PromptingPress is in active development by a single developer. It is not yet packaged for broad distribution. The current focus is making the AI-agent workflow reliable and the composition model complete.
 
-See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 through v0.13.1.
+See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 through v0.16.48.
 
-**What exists today (v0.13.1):**
-- 12 components with schema contracts and 107 per-instance style slots, plus named recipes
+**What exists today (v0.16.48):**
+- 12 components with schema contracts and 140 per-instance style slots, plus named recipes
 - A contract test that guarantees every style slot a component declares actually reaches the page, honored at every breakpoint
 - Typed action/apply layer with validation, preview, and rollback
 - Bounded presentation controls — button variants, typography roles, shadow/border/radius slots
@@ -432,9 +432,9 @@ See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 thro
 - In-admin AI chat with structured mutation proposals and guided error recovery
 - Agent operating framework with step enforcement and drift detection
 - WP-CLI interface for all operations
-- 990+ automated tests across PHP, JS, and E2E, enforced by CI on every push and release
+- 1590+ automated tests across PHP, JS, and E2E, enforced by CI on every push and release
 - Theme integrity enforcement — a build manifest of file hashes detects local drift; a daily check keeps the warning current, and a theme update is blocked before it can overwrite or delete modified files (override with the `pp_allow_unsafe_theme_update` filter). See [docs/upgrade-safety.md](docs/upgrade-safety.md)
-- ~75 KB frontend CSS, 1.5 KB JS — no framework, no bundler
+- ~97 KB frontend CSS, 3.6 KB JS — no framework, no bundler
 
 See [open issues](https://github.com/FJCF76/PromptingPress/issues) for planned work.
 

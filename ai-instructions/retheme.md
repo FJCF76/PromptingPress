@@ -143,10 +143,14 @@ The entire visual output of the site flows through the 47 design tokens and the 
 This is the path for site retheming. Tokens are changed via the apply layer without editing base.css. Overrides are stored in the database (`pp_token_overrides` option) and survive theme updates:
 
 ```bash
-wp pp apply execute update_design_token --params='{"token":"--color-accent","value":"#b45309"}'
-wp pp apply preview update_design_token --params='{"token":"--color-accent","value":"#b45309"}'  # diff without writing
-wp pp apply restore --run-id=<uuid> --token=--color-accent                                       # reset single token to default
-wp pp apply restore --run-id=<uuid>                                                               # reset all tokens to defaults
+# Mutating applies need a run token + a site-scoped preflight first:
+#   wp pp operate inspect  →  wp pp apply preflight --run-id=<uuid>  →  execute
+wp pp apply execute update_design_token --run-id=<uuid> --params='{"token":"--color-accent","value":"#b45309"}'
+wp pp apply preview update_design_token --params='{"token":"--color-accent","value":"#b45309"}'  # diff without writing (no run-id)
+wp pp apply restore --run-id=<uuid> --token=--color-accent  # undo this run's change to one token (back to the pre-run snapshot)
+wp pp apply restore --run-id=<uuid>                          # undo everything this run touched
+wp pp apply reset --run-id=<uuid> --token=--color-accent     # clear one override → product default
+wp pp apply reset --run-id=<uuid>                            # clear ALL overrides → product defaults
 ```
 
 Or from PHP: `pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309'])`.

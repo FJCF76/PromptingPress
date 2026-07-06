@@ -38,7 +38,7 @@ Stop and ask the user before proceeding when:
 - Two components of the same type exist without IDs (ambiguous targeting)
 - Custom CSS conflicts are detected in the system prompt
 - A styling change requires writing to a surface not listed in the mutation map above
-- The requested change would require a CSS feature not supported by the theme (color-mix, :has, @container, backdrop-filter, mask-image)
+- The requested change would require a CSS feature not supported by the theme (`:has()`, `@container`, `backdrop-filter`, `mask-image` — note `color-mix(in srgb, ...)` IS allowed, for token-adaptive shadows and fades in components.css)
 
 ## Mobile expectations
 
@@ -61,7 +61,7 @@ At 1280px+ viewport width, verify:
 
 ## Composition is not a presentation-polish tool
 
-`width`, `spacing`, and `content_measure` props are structural knobs, not fixes for a page that feels cramped, memo-like, or visually weak (issue 51). Reaching for `width: narrow` or `spacing: compact` repeatedly across a page is a symptom, not a solution — it produces a composition that is structurally valid but visually worse. If a page feels wrong:
+Hero's `width` and `spacing` props are structural knobs, not fixes for a page that feels cramped, memo-like, or visually weak (issue 51). Reaching for `width: narrow` or `spacing: compact` repeatedly across a page is a symptom, not a solution — it produces a composition that is structurally valid but visually worse. If a page feels wrong:
 - Prefer a `hero`/`section` variant change, an image, or a different component (grid, stats) to break up rhythm — not a narrower/tighter version of the same layout.
 - A `hero` with `variant: left` needs a balancing image; without one, use `centered` or `split`.
 - Three or more consecutive components with `width: narrow`, or three or more with `spacing: compact`, will surface as a `consecutive_narrow_width`/`consecutive_compact_spacing` composition smell in `wp pp check page` — treat that as a signal to change the component or its content, not to suppress the warning by varying the count.

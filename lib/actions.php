@@ -311,7 +311,11 @@ function pp_execute_action(string $name, array $params): array {
  * Covers: any post_id referenced in a step's params (composition, title,
  * slug, status), pp_token_overrides + pp_font_urls when any step is an
  * apply (every apply mutates one of those two options), a step's own
- * update_site_option key, and Custom CSS when a step is clear_custom_css.
+ * update_site_option key, Custom CSS when a step is clear_custom_css, and
+ * the full nav-menu state (menus, their items, location assignments) when
+ * any step is a menu action (issue 132's create_menu / add_menu_item /
+ * assign_menu_location / set_menu — added after this snapshot layer, so
+ * without this they'd survive a rollback that claims rolled_back: true).
  *
  * Deliberately does NOT snapshot import_media's new attachment — leaving an
  * uploaded file in the Media Library is additive and non-destructive (unlike
@@ -327,6 +331,7 @@ function _pp_snapshot_batch_targets(array $steps): array {
     $custom_css = null;
     $token_overrides = null;
     $font_urls = null;
+    $menus = null;
 
     foreach ($steps as $step) {
         $type   = $step['type']   ?? '';
@@ -365,6 +370,10 @@ function _pp_snapshot_batch_targets(array $steps): array {
         if ($name === 'clear_custom_css' && $custom_css === null) {
             $custom_css = wp_get_custom_css();
         }
+
+        if ($menus === null && _pp_is_menu_action($name)) {
+            $menus = _pp_snapshot_menu_state();
+        }
     }
 
     return [
@@ -374,7 +383,216 @@ function _pp_snapshot_batch_targets(array $steps): array {
         'custom_css'      => $custom_css,
         'token_overrides' => $token_overrides,
         'font_urls'       => $font_urls,
+        'menus'           => $menus,
     ];
+}
+
+/**
+ * True when the named action mutates nav-menu state. The single source of
+ * truth for "is this a menu action" — the batch snapshot gate and the
+ * capability resolver (lib/ai-chat.php) both use it, so a future menu action
+ * added to one can't silently miss the other.
+ */
+function _pp_is_menu_action(string $name): bool {
+    return in_array($name, ['create_menu', 'add_menu_item', 'assign_menu_location', 'set_menu'], true);
+}
+
+/**
+ * Captures nav-menu state: every menu (term id + name — the name is
+ * diagnostic only; no action renames menus, so restore never writes it),
+ * its raw items as returned by wp_get_nav_menu_items() (publish-status
+ * items only, consistent with every other consumer in this layer), and the
+ * theme's location assignments. Read-only.
+ *
+ * @return array ['menus' => [term_id => ['name' => string, 'items' => object[]]],
+ *                'locations' => array]
+ */
+function _pp_snapshot_menu_state(): array {
+    $state = [
+        'menus'     => [],
+        'locations' => get_theme_mod('nav_menu_locations', []),
+    ];
+    foreach (wp_get_nav_menus() as $menu) {
+        $items = wp_get_nav_menu_items($menu->term_id);
+        $state['menus'][(int) $menu->term_id] = [
+            'name'  => $menu->name,
+            'items' => is_array($items) ? $items : [],
+        ];
+    }
+    return $state;
+}
+
+/**
+ * Restores nav-menu state captured by _pp_snapshot_menu_state(): deletes any
+ * menu created since the snapshot, rebuilds the item list of every menu that
+ * existed (pre-existing menus keep their term ids, so restored location
+ * assignments stay valid), and restores the location map.
+ *
+ * @param array $state  Bundle from _pp_snapshot_menu_state().
+ * @return string[]     Human-readable descriptions of anything that could
+ *                       NOT be restored — empty when the restore was clean.
+ */
+function _pp_restore_menu_state(array $state): array {
+    $errors = [];
+
+    $menus = wp_get_nav_menus();
+    if (!is_array($menus)) {
+        // get_terms() can return WP_Error — never fatal inside the rollback
+        // path; report instead of aborting the rest of the restore half-done.
+        return ['menu list unavailable during rollback (wp_get_nav_menus failed)'];
+    }
+
+    foreach ($menus as $menu) {
+        $menu_id = (int) $menu->term_id;
+
+        if (!isset($state['menus'][$menu_id])) {
+            if (!wp_delete_nav_menu($menu_id)) { // created during the failed batch
+                $errors[] = sprintf('could not delete menu %d ("%s") created during the batch', $menu_id, (string) $menu->name);
+            }
+            continue;
+        }
+
+        // A rebuild rewrites every item's post id, so never touch a menu the
+        // batch didn't change — compare current items to the snapshot and
+        // skip when identical.
+        $snapshot_items = array_values($state['menus'][$menu_id]['items']);
+        $current_items  = wp_get_nav_menu_items($menu_id);
+        $current_items  = is_array($current_items) ? array_values($current_items) : [];
+        if (_pp_menu_items_signature($current_items) === _pp_menu_items_signature($snapshot_items)) {
+            continue;
+        }
+
+        pp_clear_nav_menu_items($menu_id);
+        foreach (_pp_rebuild_menu_items($menu_id, $snapshot_items) as $rebuild_error) {
+            $errors[] = sprintf('menu %d ("%s"): %s', $menu_id, (string) $menu->name, $rebuild_error);
+        }
+    }
+
+    set_theme_mod('nav_menu_locations', $state['locations']);
+
+    return $errors;
+}
+
+/**
+ * Normalized fingerprint of a menu's item list. ID and menu_item_parent are
+ * included as touched-at-all detectors (any mutation churns item ids), not
+ * as fields the restore preserves; the rest are the fields
+ * _pp_recreate_menu_item() carries. Equal signatures mean the batch never
+ * touched the menu, so restoring over it would only churn item ids.
+ */
+function _pp_menu_items_signature(array $items): string {
+    $sig = array_map(function (object $item): array {
+        return [
+            (int) ($item->ID ?? 0),
+            (int) ($item->menu_item_parent ?? 0),
+            (string) ($item->post_title ?? ($item->title ?? '')),
+            (string) ($item->type ?? ''),
+            (string) ($item->object ?? ''),
+            (int) ($item->object_id ?? 0),
+            (string) ($item->url ?? ''),
+            (int) ($item->menu_order ?? 0),
+            (string) ($item->target ?? ''),
+            implode(' ', (array) ($item->classes ?? [])),
+            (string) ($item->xfn ?? ''),
+            (string) ($item->attr_title ?? ''),
+            (string) ($item->description ?? ''),
+        ];
+    }, array_values($items));
+    // serialize(), not json_encode(): json_encode returns false on invalid
+    // UTF-8 (possible in legacy DB titles), which would make BOTH sides ''
+    // and false-equal — skipping the restore of a menu the batch really
+    // mutated. serialize never fails, so the gate fails closed.
+    return serialize($sig);
+}
+
+/**
+ * Recreates a snapshotted item list on a menu, parents-first: each pass
+ * creates every item whose parent is top-level, already recreated, or absent
+ * from the snapshot (dangling — restored as top-level). A pass with no
+ * progress means a parent cycle, which real menus can't have — flush the
+ * remainder as top-level rather than loop forever. Shared by the batch
+ * rollback and set_menu's own mid-loop failure restore.
+ *
+ * @param object[] $items  Raw items as returned by wp_get_nav_menu_items().
+ * @return string[]         One entry per item that could NOT be recreated —
+ *                           a rollback consumer must surface these, never
+ *                           report a clean restore over them.
+ */
+function _pp_rebuild_menu_items(int $menu_id, array $items): array {
+    $errors  = [];
+    $pending = array_values($items);
+    $id_map  = []; // old item id => new item id
+    while ($pending) {
+        $next     = [];
+        $progress = false;
+        foreach ($pending as $item) {
+            $old_parent = (int) ($item->menu_item_parent ?? 0);
+            if ($old_parent !== 0 && !isset($id_map[$old_parent])
+                && _pp_menu_item_in_list($old_parent, $pending)) {
+                $next[] = $item; // parent not recreated yet — next pass
+                continue;
+            }
+            $new_id = _pp_recreate_menu_item($menu_id, $item, $id_map[$old_parent] ?? 0);
+            if ($new_id !== null) {
+                $id_map[(int) ($item->ID ?? 0)] = $new_id;
+            } else {
+                $errors[] = sprintf('could not recreate menu item "%s"', (string) ($item->title ?? ($item->ID ?? '?')));
+            }
+            $progress = true;
+        }
+        if (!$progress) {
+            foreach ($next as $item) {
+                if (_pp_recreate_menu_item($menu_id, $item, 0) === null) {
+                    $errors[] = sprintf('could not recreate menu item "%s"', (string) ($item->title ?? ($item->ID ?? '?')));
+                }
+            }
+            break;
+        }
+        $pending = $next;
+    }
+    return $errors;
+}
+
+/**
+ * True when an item with the given id is still in the pending list.
+ */
+function _pp_menu_item_in_list(int $item_id, array $items): bool {
+    foreach ($items as $item) {
+        if ((int) ($item->ID ?? 0) === $item_id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Recreates one snapshotted menu item on a menu. Field access is defensive
+ * because snapshot items are whatever wp_get_nav_menu_items() returned —
+ * decorated nav_menu_item posts in production, simpler objects in the test
+ * store.
+ *
+ * @return int|null  The new item id, or null when creation failed.
+ */
+function _pp_recreate_menu_item(int $menu_id, object $item, int $parent_id): ?int {
+    $new_id = wp_update_nav_menu_item($menu_id, 0, [
+        // Raw post_title, not the decorated ->title: for post_type items an
+        // empty stored title means "inherit the linked page's title", and
+        // writing the resolved ->title back would freeze it permanently.
+        'menu-item-title'       => (string) ($item->post_title ?? ($item->title ?? '')),
+        'menu-item-type'        => (string) ($item->type ?? 'custom'),
+        'menu-item-object'      => (string) ($item->object ?? ''),
+        'menu-item-object-id'   => (int) ($item->object_id ?? 0),
+        'menu-item-url'         => (string) ($item->url ?? ''),
+        'menu-item-position'    => (int) ($item->menu_order ?? 0),
+        'menu-item-parent-id'   => $parent_id,
+        'menu-item-target'      => (string) ($item->target ?? ''),
+        'menu-item-classes'     => implode(' ', (array) ($item->classes ?? [])),
+        'menu-item-xfn'         => (string) ($item->xfn ?? ''),
+        'menu-item-attr-title'  => (string) ($item->attr_title ?? ''),
+        'menu-item-description' => (string) ($item->description ?? ''),
+        'menu-item-status'      => 'publish',
+    ]);
+    return is_wp_error($new_id) ? null : (int) $new_id;
 }
 
 /**
@@ -385,8 +603,11 @@ function _pp_snapshot_batch_targets(array $steps): array {
  *
  * @param array $snapshot  Bundle from _pp_snapshot_batch_targets(), with
  *                          'created_posts' populated as steps succeeded.
+ * @return string[]         Anything that could NOT be restored (currently
+ *                           the menu layer reports these) — empty when the
+ *                           rollback was clean.
  */
-function _pp_restore_batch_snapshot(array $snapshot): void {
+function _pp_restore_batch_snapshot(array $snapshot): array {
     foreach ($snapshot['created_posts'] as $created_post_id) {
         wp_delete_post($created_post_id, true);
     }
@@ -425,6 +646,12 @@ function _pp_restore_batch_snapshot(array $snapshot): void {
     if ($snapshot['font_urls'] !== null) {
         pp_set_font_urls($snapshot['font_urls']);
     }
+
+    if (($snapshot['menus'] ?? null) !== null) {
+        return _pp_restore_menu_state($snapshot['menus']);
+    }
+
+    return [];
 }
 
 /**
@@ -447,7 +674,11 @@ function _pp_restore_batch_snapshot(array $snapshot): void {
  * step is caught at its own turn and the whole batch rolls back cleanly.
  *
  * @param  array $steps  Each: ['type' => 'action'|'apply', 'name' => string, 'params' => array]
- * @return array          ['ok', 'steps' (per-step results), 'failed_at' (?int), 'rolled_back' (bool)]
+ * @return array          ['ok', 'steps' (per-step results), 'failed_at' (?int),
+ *                          'rolled_back' (bool), 'rollback_errors' (string[] —
+ *                          non-empty when the rollback itself could not fully
+ *                          restore something; a consumer must not treat
+ *                          rolled_back: true as clean without checking it)]
  */
 function pp_ai_execute_batch(array $steps): array {
     $snapshot = _pp_snapshot_batch_targets($steps);
@@ -501,21 +732,23 @@ function pp_ai_execute_batch(array $steps): array {
         $results[] = $result;
 
         if (empty($result['ok'])) {
-            _pp_restore_batch_snapshot($snapshot);
+            $rollback_errors = _pp_restore_batch_snapshot($snapshot);
             return [
-                'ok'          => false,
-                'steps'       => $results,
-                'failed_at'   => $i,
-                'rolled_back' => true,
+                'ok'              => false,
+                'steps'           => $results,
+                'failed_at'       => $i,
+                'rolled_back'     => true,
+                'rollback_errors' => $rollback_errors,
             ];
         }
     }
 
     return [
-        'ok'          => true,
-        'steps'       => $results,
-        'failed_at'   => null,
-        'rolled_back' => false,
+        'ok'              => true,
+        'steps'           => $results,
+        'failed_at'       => null,
+        'rolled_back'     => false,
+        'rollback_errors' => [],
     ];
 }
 
@@ -1638,7 +1871,14 @@ pp_register_action('set_menu', [
             return _pp_action_error('set_menu', 'site', $menu_id->get_error_message());
         }
 
+        // Replace semantics must be atomic at every entry point — not only
+        // inside pp_ai_execute_batch()'s snapshot layer. Keep the previous
+        // items so a mid-loop failure restores them instead of leaving the
+        // menu gutted (single-step chat execute, wp pp action execute).
+        $previous_items = [];
         if ($existing) {
+            $previous_items = wp_get_nav_menu_items($menu_id);
+            $previous_items = is_array($previous_items) ? array_values($previous_items) : [];
             pp_clear_nav_menu_items($menu_id);
         }
 
@@ -1649,6 +1889,25 @@ pp_register_action('set_menu', [
                 : ['url' => $item['url'], 'label' => $item['label']];
             $item_id = pp_add_nav_menu_item($menu_id, $link);
             if (is_wp_error($item_id)) {
+                if ($existing) {
+                    // Inside a failed batch this restore is redundant (the
+                    // batch snapshot layer rebuilds the menu again — its id
+                    // churn defeats the signature skip). Accepted: the
+                    // failed-batch path is rare and the final state stays
+                    // correct at every entry point.
+                    pp_clear_nav_menu_items($menu_id);
+                    $restore_errors = _pp_rebuild_menu_items($menu_id, $previous_items);
+                    if ($restore_errors !== []) {
+                        return _pp_action_error('set_menu', 'site', $item_id->get_error_message()
+                            . ' Restoring the previous menu items was also incomplete: '
+                            . implode('; ', $restore_errors));
+                    }
+                } else {
+                    // set_menu created this menu itself — a half-populated
+                    // leftover would break the atomicity contract just as
+                    // much as a gutted pre-existing menu.
+                    wp_delete_nav_menu($menu_id);
+                }
                 return _pp_action_error('set_menu', 'site', $item_id->get_error_message());
             }
             $titles[] = !empty($item['page_id']) ? get_the_title($item['page_id']) : $item['label'];

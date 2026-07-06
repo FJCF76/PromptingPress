@@ -1,5 +1,7 @@
 # Implementation Order (sequential)
 
+> ⚠️ **Stale mirror (noted 2026-07-06):** every Tier 0/0b/1 item below shipped in the v0.16.x series (see CHANGELOG.md); the unchecked boxes no longer reflect issue state. Do not pick work from this copy — re-derive this file and pinned issue #141 per the "Derivation / maintenance" section first.
+
 > Mirror of pinned tracking issue #141. Regenerate both from the `depends-on:` metadata in issue bodies.
 
 **Canonical, ordered implementation queue for sequential issue-by-issue work by AI agents.** Walk it top to bottom. This list is *derived* from `depends-on` metadata in each issue, tie-broken by (unblock-count desc, then size asc). Mirror in the repo at `docs/IMPLEMENTATION_ORDER.md`.

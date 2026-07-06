@@ -115,6 +115,24 @@ describe('findPageById', function () {
     test('returns null when pages is not provided', function () {
         expect(findPageById(1, null)).toBeNull();
     });
+
+    // Regression: config.pages ids are ints from PHP, but a pageId sourced
+    // from the <select>'s value or a pre-normalization localStorage state is
+    // a string. The old strict === lookup never matched those, dropping the
+    // persisted selection on reload and hiding the proposal card's
+    // "Target page:" label.
+    test('finds a page when the id is the string form of a numeric id', function () {
+        expect(findPageById('3', pages)).toEqual({ id: 3, title: 'Pricing' });
+    });
+
+    test('finds a page when the list ids are strings and the lookup id is a number', function () {
+        expect(findPageById(2, [{ id: '2', title: 'About the Team' }]))
+            .toEqual({ id: '2', title: 'About the Team' });
+    });
+
+    test('returns null for a string id not in the list', function () {
+        expect(findPageById('999', pages)).toBeNull();
+    });
 });
 
 // ─── shouldSuggestPageSwitch ────────────────────────────────────────────────
@@ -138,5 +156,10 @@ describe('shouldSuggestPageSwitch', function () {
 
     test('does not suggest when neither is set', function () {
         expect(shouldSuggestPageSwitch(null, null)).toBe(false);
+    });
+
+    test('does not suggest the already-selected page when one side is a string id', function () {
+        expect(shouldSuggestPageSwitch('3', 3)).toBe(false);
+        expect(shouldSuggestPageSwitch(3, '3')).toBe(false);
     });
 });

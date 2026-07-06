@@ -698,6 +698,16 @@ function _pp_required_caps_for(string $type, string $name, array $params): array
 
     $post_id = isset($params['post_id']) && is_numeric($params['post_id']) ? (int) $params['post_id'] : null;
 
+    if (_pp_is_menu_action($name)) {
+        // Menu structure is core Appearance territory in WordPress
+        // (Appearance > Menus is gated on edit_theme_options there) —
+        // mirror that instead of the stricter manage_options default
+        // for other site-scoped actions (issue 132). _pp_is_menu_action()
+        // (lib/actions.php) is the shared source of truth with the batch
+        // snapshot gate, so a future menu action can't miss either layer.
+        return [['cap' => 'edit_theme_options']];
+    }
+
     switch ($name) {
         case 'publish_page':
         case 'unpublish_page':
@@ -715,15 +725,6 @@ function _pp_required_caps_for(string $type, string $name, array $params): array
             // manage_options, or Editors lose the ability to build pages
             // through chat entirely.
             return [['cap' => 'publish_pages']];
-        case 'create_menu':
-        case 'add_menu_item':
-        case 'assign_menu_location':
-        case 'set_menu':
-            // Menu structure is core Appearance territory in WordPress
-            // (Appearance > Menus is gated on edit_theme_options there) —
-            // mirror that instead of the stricter manage_options default
-            // for other site-scoped actions (issue 132).
-            return [['cap' => 'edit_theme_options']];
     }
 
     $scope = $action['scope'] ?? 'site';

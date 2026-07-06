@@ -26,8 +26,26 @@ Individual checks:
 
 ```bash
 wp pp check conflicts              # Custom CSS conflicts only
-wp pp check page --post_id=42      # Composition styling for one page
+wp pp check page --post_id=42      # Composition styling for one page (raw composition data)
+wp pp validate page --post_id=42   # Rendered-HTML validation for one page (see below)
 ```
+
+## Rendered-HTML validation (per page)
+
+`wp pp check page` inspects raw composition data; `wp pp validate page` inspects
+the **actual rendered output** — it runs the exact same `pp_post_apply_validate()`
+service that gates the AI chat's success message after an apply (issue 77):
+
+```bash
+wp pp validate page --post_id=42                      # whole page
+wp pp validate page --post_id=42 --component-index=1  # scope to one component
+```
+
+It flags render failures, broken `<img>` sources, background-image and link URLs
+pointing at missing local media, empty content, and a component render count that
+doesn't match the composition. Exits non-zero on failure, so it can gate a
+deployment workflow the same way it gates the chat. Use it as the automated half
+of the rendered review checklist below.
 
 ## What the checks catch
 
@@ -59,8 +77,8 @@ page renders stays silent -- no false alarms.
 
 | It flags | Meaning | What to do |
 |---|---|---|
-| `no menu assigned` | The location has no WP menu attached | Assign a menu under Appearance -> Menus (registered locations: `primary`, `footer`) |
-| `menu ... is empty` | A menu is attached but has zero items | Add menu items under Appearance -> Menus |
+| `no menu assigned` | The location has no WP menu attached | Assign one via the `assign_menu_location` action, or build menu + items + location in one call with `set_menu` (registered locations: `primary`, `footer`) |
+| `menu ... is empty` | A menu is attached but has zero items | Add items via the `add_menu_item` action (or replace declaratively with `set_menu`) |
 | `references unregistered location` | A nav component's `location` prop is not a registered location | Fix the nav component's `location`, or register it in `functions.php` |
 
 This is the diagnostic for a "broken" or missing mobile menu: if the hamburger

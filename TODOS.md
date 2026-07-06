@@ -18,7 +18,7 @@
 
 - **Evaluate `--measure-centered` value** — After visual validation on dev, test whether centered section body can tighten from `56rem` to a ch-based value (e.g., `75ch` or `80ch`). The `--measure-centered` token in `assets/css/base.css` was set to `56rem` as a safe default (preserves existing layout). A tighter value may produce better reading measure for centered marketing intros, but needs visual validation first. See issue #53.
 
-- **`wp pp validate page` CLI command** — Expose `pp_post_apply_validate()` via WP-CLI: `wp pp validate page --post_id=N [--component-index=M]`. Reuses the existing validation function from `lib/post-apply-validate.php`. Useful for batch validation, CI checks, and debugging. Depends on post-apply validation shipping (issue #75).
+- **Raw (unfiltered) nav_menu_locations snapshot for batch rollback** — `_pp_snapshot_menu_state()` reads locations via `get_theme_mod('nav_menu_locations')`, which applies the `theme_mod_nav_menu_locations` filter; multilingual plugins (Polylang/WPML) use it to present a per-language view. A rollback then writes that filtered view back raw via `set_theme_mod`, potentially dropping other languages' assignments. Read the raw stored value (`theme_mods_<stylesheet>` option) instead. Low confidence — depends on running a multilingual plugin alongside PromptingPress. Surfaced by /ship red-team review, 2026-07-06.
 
 - **New Chat confirmation dialog** — Clicking "New Chat" immediately clears all messages without confirmation. Add a simple `confirm()` or inline prompt when a conversation exists (1+ messages). Low severity — conversations are ephemeral in v1 (no server-side history). Surfaced by live design audit (2026-06-15, FINDING-L04).
 
@@ -40,7 +40,11 @@
 
 - **Investigate broken-media missing_local_media validation on WP 7.0** — The E2E spec `validation.spec.ts › broken media` is quarantined (`test.fixme`): `style_component` succeeds but post-apply validation returns `ok=true` — `missing_local_media` does not fire for an unresolvable local image URL. Determine whether it's a product gap in `pp_post_apply_validate()` or a test-setup mismatch, then re-enable. See #83. Surfaced by /plan-eng-review D2 spike (2026-06-22).
 
+- **Positively track menus created during a batch instead of negative inference** — `_pp_restore_menu_state()` deletes ANY menu absent from the pre-batch snapshot, so a menu another admin creates in Appearance → Menus during the batch window would be destroyed by a rollback (and a menu they edit during the window is rebuilt to pre-batch state with all item ids churned). Track the term_ids the batch's own `create_menu`/`set_menu` steps created (mirroring `created_posts`) and delete only those. Belongs to the concurrency cluster (#13 optimistic locking, #113 preflight freshness) — single-operator run tokens make the window small today. Surfaced by /ship adversarial review, 2026-07-06.
+
 ## Completed
+
+- **`wp pp validate page` CLI command** — Shipped as `wp pp validate page --post_id=N [--component-index=N]` reusing `pp_post_apply_validate()` (issue #77 / PR #196), and documented in ai-instructions/validate-site.md. **Completed:** v0.16.46 (#196), documented v0.16.48 (2026-07-06)
 
 - **Server-driven action warning metadata** — Destructive-action warnings are now server-driven from the action/apply registries (`impact_warning` key on `pp_register_action()` / `pp_register_apply()`), aggregated and localized via `ppAiChat.impact_warnings`; the hardcoded JS map is gone. A registry-coverage test fails CI if a known-destructive capability ships without a warning. **Completed:** 2026-06-22, #74
 

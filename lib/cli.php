@@ -1049,9 +1049,7 @@ class PP_Operate_Command extends WP_CLI_Command {
      * : Show the diff without writing. Read-only — needs no run token.
      *
      * [--run-id=<uuid>]
-     * : Run token from `wp pp operate inspect`. Required for the mutating path
-     * : (everything except --preview), which writes the composition and so must
-     * : sit behind a completed PREFLIGHT covering this page.
+     * : Run token from `wp pp operate inspect`. Required for the mutating path (everything except --preview), which must sit behind a completed PREFLIGHT covering this page.
      *
      * ## EXAMPLES
      *
@@ -1060,6 +1058,9 @@ class PP_Operate_Command extends WP_CLI_Command {
      *
      */
     public function patch($args, $assoc_args) {
+        // Docblock constraint: each OPTIONS description must stay on ONE
+        // ": " line. WP-CLI folds continuation ": " lines into the generated
+        // synopsis and warns "invalid synopsis part: <word>" on every run.
         $page = $args[0] ?? null;
         if (!$page) {
             WP_CLI::error('Page argument is required.');

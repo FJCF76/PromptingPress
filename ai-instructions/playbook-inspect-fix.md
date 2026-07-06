@@ -40,7 +40,7 @@ Run `wp pp apply preflight --run-id=<uuid>`, adding `--post_id=<page_id>` when t
 Execute the minimal fix. Do not refactor adjacent code. Do not "improve" unrelated sections. A composition fix is gated: it requires the page-covering PREFLIGHT from step 3.
 
 ### 5. APPLY
-Execute any file-based applies.
+Execute any token/font applies the fix requires (`wp pp apply execute <name> --run-id=<uuid> --params='...'` — needs a site-scoped preflight).
 
 ### 6. SCREENSHOT
 Run `wp pp screenshot capture --post_id=<page_id> --playbook=inspect-fix`
