@@ -2,7 +2,7 @@
 
 Repeatable patterns for the most common change types in this backlog, plus the load-bearing invariants every change must preserve. If an issue says "add a style slot / add an action / add a smell," follow the matching recipe rather than reverse-engineering it.
 
-> Read this alongside `AI_CONTEXT.md`, `AI_RULES.md`, and the pinned queue **#141** / `docs/IMPLEMENTATION_ORDER.md`. Work issues in the queue order; run the full suite green between issues.
+> Read this alongside `AI_CONTEXT.md`, `AI_RULES.md`, and the pinned queue **[#141](https://github.com/FJCF76/PromptingPress/issues/141)** (single source of truth). Work issues in the queue order; run the full suite green between issues.
 
 ---
 
