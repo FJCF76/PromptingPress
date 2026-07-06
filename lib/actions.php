@@ -398,9 +398,11 @@ function _pp_is_menu_action(string $name): bool {
 }
 
 /**
- * Captures the complete nav-menu state: every menu (term id + name), its raw
- * items as returned by wp_get_nav_menu_items(), and the theme's location
- * assignments. Read-only.
+ * Captures nav-menu state: every menu (term id + name — the name is
+ * diagnostic only; no action renames menus, so restore never writes it),
+ * its raw items as returned by wp_get_nav_menu_items() (publish-status
+ * items only, consistent with every other consumer in this layer), and the
+ * theme's location assignments. Read-only.
  *
  * @return array ['menus' => [term_id => ['name' => string, 'items' => object[]]],
  *                'locations' => array]
@@ -427,13 +429,26 @@ function _pp_snapshot_menu_state(): array {
  * assignments stay valid), and restores the location map.
  *
  * @param array $state  Bundle from _pp_snapshot_menu_state().
+ * @return string[]     Human-readable descriptions of anything that could
+ *                       NOT be restored — empty when the restore was clean.
  */
-function _pp_restore_menu_state(array $state): void {
-    foreach (wp_get_nav_menus() as $menu) {
+function _pp_restore_menu_state(array $state): array {
+    $errors = [];
+
+    $menus = wp_get_nav_menus();
+    if (!is_array($menus)) {
+        // get_terms() can return WP_Error — never fatal inside the rollback
+        // path; report instead of aborting the rest of the restore half-done.
+        return ['menu list unavailable during rollback (wp_get_nav_menus failed)'];
+    }
+
+    foreach ($menus as $menu) {
         $menu_id = (int) $menu->term_id;
 
         if (!isset($state['menus'][$menu_id])) {
-            wp_delete_nav_menu($menu_id); // created during the failed batch
+            if (!wp_delete_nav_menu($menu_id)) { // created during the failed batch
+                $errors[] = sprintf('could not delete menu %d ("%s") created during the batch', $menu_id, (string) $menu->name);
+            }
             continue;
         }
 
@@ -448,10 +463,14 @@ function _pp_restore_menu_state(array $state): void {
         }
 
         pp_clear_nav_menu_items($menu_id);
-        _pp_rebuild_menu_items($menu_id, $snapshot_items);
+        foreach (_pp_rebuild_menu_items($menu_id, $snapshot_items) as $rebuild_error) {
+            $errors[] = sprintf('menu %d ("%s"): %s', $menu_id, (string) $menu->name, $rebuild_error);
+        }
     }
 
     set_theme_mod('nav_menu_locations', $state['locations']);
+
+    return $errors;
 }
 
 /**
@@ -495,8 +514,12 @@ function _pp_menu_items_signature(array $items): string {
  * rollback and set_menu's own mid-loop failure restore.
  *
  * @param object[] $items  Raw items as returned by wp_get_nav_menu_items().
+ * @return string[]         One entry per item that could NOT be recreated —
+ *                           a rollback consumer must surface these, never
+ *                           report a clean restore over them.
  */
-function _pp_rebuild_menu_items(int $menu_id, array $items): void {
+function _pp_rebuild_menu_items(int $menu_id, array $items): array {
+    $errors  = [];
     $pending = array_values($items);
     $id_map  = []; // old item id => new item id
     while ($pending) {
@@ -512,17 +535,22 @@ function _pp_rebuild_menu_items(int $menu_id, array $items): void {
             $new_id = _pp_recreate_menu_item($menu_id, $item, $id_map[$old_parent] ?? 0);
             if ($new_id !== null) {
                 $id_map[(int) ($item->ID ?? 0)] = $new_id;
+            } else {
+                $errors[] = sprintf('could not recreate menu item "%s"', (string) ($item->title ?? ($item->ID ?? '?')));
             }
             $progress = true;
         }
         if (!$progress) {
             foreach ($next as $item) {
-                _pp_recreate_menu_item($menu_id, $item, 0);
+                if (_pp_recreate_menu_item($menu_id, $item, 0) === null) {
+                    $errors[] = sprintf('could not recreate menu item "%s"', (string) ($item->title ?? ($item->ID ?? '?')));
+                }
             }
             break;
         }
         $pending = $next;
     }
+    return $errors;
 }
 
 /**
@@ -575,8 +603,11 @@ function _pp_recreate_menu_item(int $menu_id, object $item, int $parent_id): ?in
  *
  * @param array $snapshot  Bundle from _pp_snapshot_batch_targets(), with
  *                          'created_posts' populated as steps succeeded.
+ * @return string[]         Anything that could NOT be restored (currently
+ *                           the menu layer reports these) — empty when the
+ *                           rollback was clean.
  */
-function _pp_restore_batch_snapshot(array $snapshot): void {
+function _pp_restore_batch_snapshot(array $snapshot): array {
     foreach ($snapshot['created_posts'] as $created_post_id) {
         wp_delete_post($created_post_id, true);
     }
@@ -617,8 +648,10 @@ function _pp_restore_batch_snapshot(array $snapshot): void {
     }
 
     if (($snapshot['menus'] ?? null) !== null) {
-        _pp_restore_menu_state($snapshot['menus']);
+        return _pp_restore_menu_state($snapshot['menus']);
     }
+
+    return [];
 }
 
 /**
@@ -641,7 +674,11 @@ function _pp_restore_batch_snapshot(array $snapshot): void {
  * step is caught at its own turn and the whole batch rolls back cleanly.
  *
  * @param  array $steps  Each: ['type' => 'action'|'apply', 'name' => string, 'params' => array]
- * @return array          ['ok', 'steps' (per-step results), 'failed_at' (?int), 'rolled_back' (bool)]
+ * @return array          ['ok', 'steps' (per-step results), 'failed_at' (?int),
+ *                          'rolled_back' (bool), 'rollback_errors' (string[] —
+ *                          non-empty when the rollback itself could not fully
+ *                          restore something; a consumer must not treat
+ *                          rolled_back: true as clean without checking it)]
  */
 function pp_ai_execute_batch(array $steps): array {
     $snapshot = _pp_snapshot_batch_targets($steps);
@@ -695,21 +732,23 @@ function pp_ai_execute_batch(array $steps): array {
         $results[] = $result;
 
         if (empty($result['ok'])) {
-            _pp_restore_batch_snapshot($snapshot);
+            $rollback_errors = _pp_restore_batch_snapshot($snapshot);
             return [
-                'ok'          => false,
-                'steps'       => $results,
-                'failed_at'   => $i,
-                'rolled_back' => true,
+                'ok'              => false,
+                'steps'           => $results,
+                'failed_at'       => $i,
+                'rolled_back'     => true,
+                'rollback_errors' => $rollback_errors,
             ];
         }
     }
 
     return [
-        'ok'          => true,
-        'steps'       => $results,
-        'failed_at'   => null,
-        'rolled_back' => false,
+        'ok'              => true,
+        'steps'           => $results,
+        'failed_at'       => null,
+        'rolled_back'     => false,
+        'rollback_errors' => [],
     ];
 }
 
@@ -1857,7 +1896,12 @@ pp_register_action('set_menu', [
                     // failed-batch path is rare and the final state stays
                     // correct at every entry point.
                     pp_clear_nav_menu_items($menu_id);
-                    _pp_rebuild_menu_items($menu_id, $previous_items);
+                    $restore_errors = _pp_rebuild_menu_items($menu_id, $previous_items);
+                    if ($restore_errors !== []) {
+                        return _pp_action_error('set_menu', 'site', $item_id->get_error_message()
+                            . ' Restoring the previous menu items was also incomplete: '
+                            . implode('; ', $restore_errors));
+                    }
                 } else {
                     // set_menu created this menu itself — a half-populated
                     // leftover would break the atomicity contract just as

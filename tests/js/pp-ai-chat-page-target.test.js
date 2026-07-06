@@ -157,4 +157,9 @@ describe('shouldSuggestPageSwitch', function () {
     test('does not suggest when neither is set', function () {
         expect(shouldSuggestPageSwitch(null, null)).toBe(false);
     });
+
+    test('does not suggest the already-selected page when one side is a string id', function () {
+        expect(shouldSuggestPageSwitch('3', 3)).toBe(false);
+        expect(shouldSuggestPageSwitch(3, '3')).toBe(false);
+    });
 });

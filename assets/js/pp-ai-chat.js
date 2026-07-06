@@ -71,7 +71,10 @@ function ppChatFindPageById(pageId, pages) {
  * flags a disagreement for the user to act on (or ignore).
  */
 function ppChatShouldSuggestPageSwitch(activePageId, detectedPageId) {
-    return !!detectedPageId && detectedPageId !== activePageId;
+    // Numeric comparison for the same reason as ppChatFindPageById: a string
+    // id on either side must not make the already-selected page look like a
+    // different one.
+    return !!detectedPageId && Number(detectedPageId) !== Number(activePageId);
 }
 
 function ppChatFormatDiffValue(val) {

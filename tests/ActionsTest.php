@@ -2716,6 +2716,7 @@ class ActionsTest extends TestCase
 
         $this->assertFalse($batch['ok']);
         $this->assertTrue($batch['rolled_back']);
+        $this->assertSame([], $batch['rollback_errors']);
 
         $menus = pp_get_menus();
         $this->assertCount(1, $menus);
@@ -3029,6 +3030,10 @@ class ActionsTest extends TestCase
         $this->assertCount(1, $items);
         $this->assertSame('Child', $items[0]->title);
         $this->assertSame(0, $items[0]->menu_item_parent);
+        // A rollback that could not fully restore must say so — never a
+        // silent rolled_back: true over a lossy restore.
+        $this->assertNotEmpty($batch['rollback_errors']);
+        $this->assertStringContainsString('Parent', $batch['rollback_errors'][0]);
     }
 
     public function testSetMenuRestoresPreviousItemsWhenAnItemFailsMidLoop(): void
