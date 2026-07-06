@@ -2,7 +2,7 @@
 Contributors: fjcf76
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 0.16.47
+Stable tag: 0.16.48
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -19,6 +19,36 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 4. Activate the theme.
 
 == Changelog ==
+
+= 0.16.48 =
+* Rollup of the 0.16 series (48 patch releases). Highlights:
+* New testimonials component; two-tone headings, eyebrow pills and subheadings, checklist bullets in grid cards, gradient backgrounds, and selectable button styles on hero's two CTAs
+* External images can be sideloaded into the Media Library (SSRF-safe), with real responsive srcset output and focal-point/aspect-ratio control
+* Page-specific SEO metadata, FAQ rich-snippet structured data (JSON-LD), page slug editing, and a proper blog listing and search results template
+* AI chat: explicit user-chosen page targeting, Stop button with automatic fallback for stuck responses, atomic multi-step proposals with rollback (including navigation menus), and menu-building actions
+* Per-action capability model for chat endpoints — Contributors can no longer publish, trash, or rewrite the site
+* wp pp validate page runs the same rendered-HTML validation that gates the AI chat's success message from the CLI
+* 1222 PHP tests, 349 JS tests, 34 E2E specs
+
+= 0.16.0 =
+* The site logo is a safe surface: set it via the update_site_option action with a Media Library attachment ID — no theme file edits
+* Nav and footer render image logos with text-wordmark fallback
+
+= 0.15.0 =
+* Preflight before mutation: no database-backed write lands before the safety gate — page edits need a preflight covering that exact post, site-wide changes need a site-scoped preflight
+* Every mutating CLI command requires a run token from wp pp operate inspect
+
+= 0.14.0 =
+* True per-run rollback: wp pp apply restore undoes one run's token changes from its pre-apply snapshot instead of resetting the whole palette
+* Reset commands record their touched tokens, so a reset can be undone too
+
+= 0.13.0 =
+* Brand book fidelity via safe surfaces: honored style slots, token locking, and screenshot-readiness diagnostics (wp pp screenshot doctor)
+* Honest verification statuses: VERIFIED / NEEDS_VISUAL_VERIFICATION / SCREENSHOT_FAILED
+
+= 0.12.0 =
+* Generic presentation controls: bounded typography, shadow, border, and radius style slots across components
+* Button variants (primary, secondary, outline, ghost) as composition props
 
 = 0.11.0 =
 * Theme updates are now blocked when local theme files have been changed, so an update can't silently overwrite or delete your edits — with a clear notice listing the affected files and an override filter
