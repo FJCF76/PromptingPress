@@ -48,11 +48,17 @@ function ppChatDetectPageId(lowerText, pages) {
 /**
  * Looks up a page object by id in the pages list. Returns null when pageId
  * is falsy or no page in the list has a matching id.
+ *
+ * Ids are compared numerically: config.pages ids arrive as ints from PHP,
+ * but a pageId sourced from a <select> value or an older localStorage
+ * state is a string — a strict === here silently never matched those,
+ * which dropped the persisted page selection on reload and hid the
+ * proposal card's "Target page:" label.
  */
 function ppChatFindPageById(pageId, pages) {
     if (!pageId || !pages) return null;
     for (var i = 0; i < pages.length; i++) {
-        if (pages[i].id === pageId) return pages[i];
+        if (Number(pages[i].id) === Number(pageId)) return pages[i];
     }
     return null;
 }
@@ -398,7 +404,9 @@ function ppChatAppendValidationItems(container, items, className) {
 
     if (pageSelectEl) {
         pageSelectEl.addEventListener('change', function () {
-            activePageId = this.value || null;
+            // <select> values are strings; activePageId is canonically a
+            // number (matching config.pages ids) everywhere else.
+            activePageId = this.value ? Number(this.value) : null;
             saveState();
         });
     }
@@ -1008,7 +1016,9 @@ function ppChatAppendValidationItems(container, items, className) {
         switchBtn.className = 'button pp-ai-page-switch-btn';
         switchBtn.textContent = 'Switch to it for next message?';
         switchBtn.addEventListener('click', function () {
-            activePageId = detectedPage.id;
+            // Number() upholds the numeric activePageId invariant even if
+            // config.pages ever carries string ids.
+            activePageId = Number(detectedPage.id);
             syncPageSelectValue();
             saveState();
             div.remove();
@@ -1640,10 +1650,18 @@ function ppChatAppendValidationItems(container, items, className) {
 
     function restoreConversation() {
         var state = loadState();
-        if (!state || !Array.isArray(state.conversation) || !state.conversation.length) return;
+        if (!state) return;
+
+        // Restore the page selection whenever saved state parses — a page
+        // picked before the first message must survive reload even though
+        // the conversation is still empty. Number() also migrates states
+        // saved before activePageId was normalized, which stored the
+        // <select>'s string value.
+        activePageId = state.activePageId ? Number(state.activePageId) : null;
+
+        if (!Array.isArray(state.conversation) || !state.conversation.length) return;
 
         conversation = state.conversation;
-        activePageId = state.activePageId || null;
 
         // Re-render messages from conversation history
         conversation.forEach(function (msg) {
