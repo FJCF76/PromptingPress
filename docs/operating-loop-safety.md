@@ -141,6 +141,8 @@ action that would actually run.
 
 ## 📚 Related
 
+- 📦 Every `wp pp apply` command, flag, output shape, and error: [reference-apply-cli.md](reference-apply-cli.md)
+- 🧭 The safe apply→rollback walkthrough: [howto-apply-and-rollback.md](howto-apply-and-rollback.md)
 - 🔁 The operating contract and command reference: [`ai-instructions/operating-loop.md`](../ai-instructions/operating-loop.md)
 - 🤖 How to prompt an agent to run your site safely: [running-an-ai-agent.md](running-an-ai-agent.md)
 - 🛡️ Why direct theme-file edits are blocked (the sibling file-safety system): [upgrade-safety.md](upgrade-safety.md)

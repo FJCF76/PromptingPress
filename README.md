@@ -257,6 +257,8 @@ the HANDOFF report.
 
 → How to prompt your agent to use it safely: [docs/running-an-ai-agent.md](docs/running-an-ai-agent.md)
 → Why a DB write can't land before the safety gate (the design): [docs/operating-loop-safety.md](docs/operating-loop-safety.md)
+→ Every `wp pp apply` command, flag, and error (reference): [docs/reference-apply-cli.md](docs/reference-apply-cli.md)
+→ Apply a token change and roll it back, step by step (how-to): [docs/howto-apply-and-rollback.md](docs/howto-apply-and-rollback.md)
 
 ---
 
