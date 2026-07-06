@@ -1371,15 +1371,18 @@ function pp_revert_tokens(array $snapshot, array $touched_keys): bool {
  *
  * Used when freezing a run's pre-apply baseline: taking the read inside the lock means
  * a concurrent apply cannot interleave and produce a baseline that never existed
- * atomically. Degrades to the plain cached read if the lock cannot be acquired (a
- * slightly racy baseline is still far better than no snapshot).
+ * atomically. Fail-closed: if the lock cannot be acquired the read would be non-atomic
+ * exactly when contention is happening — the one scenario the lock exists to protect
+ * against — so it returns null instead of silently degrading to a plain cached read.
+ * The caller must treat null as a hard failure (no baseline recorded) rather than
+ * freezing a stale snapshot that a later `apply restore` would roll back to.
  *
- * @return array  token => value map.
+ * @return array|null  token => value map, or null if the lock could not be acquired.
  */
-function pp_snapshot_token_overrides(): array {
+function pp_snapshot_token_overrides(): ?array {
     return _pp_with_token_lock( function ( $wpdb ) {
         return _pp_read_token_overrides_locked( $wpdb );
-    }, pp_get_token_overrides() );
+    }, null );
 }
 
 // ── Token Family Derivation ─────────────────────────────────────────────────

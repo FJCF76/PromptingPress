@@ -643,10 +643,19 @@ class PP_Apply_Command extends WP_CLI_Command {
         // load-bearing: mutating gates (action execute / operate patch) unlock on
         // the recorded coverage alone, so a partial write must never leave the run
         // unlocked. First-write-wins inside the recorder keeps the rollback
-        // baseline stable across re-runs; token overrides are read under the lock
-        // for an atomic baseline. If this cannot be recorded the run has neither a
-        // mutation unlock nor a rollback net, so fail here.
-        if (!pp_operate_record_preflight($run_id, $context['post_id'] ?? null, pp_snapshot_token_overrides())) {
+        // baseline stable across re-runs.
+        //
+        // The snapshot is read under the token lock for an atomic baseline. If the
+        // lock is contended it returns null rather than a stale, non-atomic read —
+        // recording that as the rollback baseline would let a later `apply restore`
+        // silently revert to a state that never existed. A null snapshot is a hard
+        // preflight failure: record nothing (leaving both gates fail-closed) and
+        // surface the contention so the operator can retry.
+        $token_snapshot = pp_snapshot_token_overrides();
+        if ($token_snapshot === null) {
+            WP_CLI::error('Could not read an atomic pre-apply token baseline for run token "' . $run_id . '": the token lock is contended. PREFLIGHT was not recorded. Re-run `wp pp apply preflight` once the contention clears.');
+        }
+        if (!pp_operate_record_preflight($run_id, $context['post_id'] ?? null, $token_snapshot)) {
             WP_CLI::error('Could not record PREFLIGHT state for run token "' . $run_id . '". State file may be missing or expired. Re-run `wp pp operate inspect`.');
         }
     }
