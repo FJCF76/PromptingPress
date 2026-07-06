@@ -130,7 +130,7 @@ theme itself). For **site customization**, the parent-theme rows (`templates/`,
 | /lib/guardrails.php      | CSS conflict detection, surface classification, theme integrity | Extend for new checks |
 | /lib/operate.php         | Operating loop: inspect, preflight, run tokens | Extend for new checks |
 | /lib/apply.php           | Apply layer (file + option mutations) | Add applies following the contract |
-| /lib/cli.php             | WP-CLI `wp pp action` + `wp pp apply` + `wp pp operate` + `wp pp check` + `wp pp validate` + `wp pp integrity` + `wp pp screenshot` | Yes        |
+| /lib/cli.php             | WP-CLI `wp pp action` + `wp pp apply` + `wp pp operate` + `wp pp check` + `wp pp validate` + `wp pp integrity` + `wp pp screenshot` + `wp pp target` + `wp pp sync` | Yes        |
 | /lib/components.php      | Component loader                | No                               |
 | /lib/ai-context.php      | AI site context layer             | Extend for new context sources     |
 | /lib/ai-provider.php     | LLM provider proxy                | Extend for new providers           |

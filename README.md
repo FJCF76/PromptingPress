@@ -300,7 +300,7 @@ No theme files were edited. No WordPress internals were called. No visual builde
 /lib/actions.php           Typed action model (20 actions)
 /lib/apply.php             Apply layer (file + option mutations, backup/rollback)
 /lib/operate.php           Operating loop: inspect, preflight, run tokens
-/lib/cli.php               WP-CLI commands (wp pp action · apply · operate · check · validate · integrity · screenshot)
+/lib/cli.php               WP-CLI commands (wp pp action · apply · operate · check · validate · integrity · screenshot · target · sync)
 /lib/admin.php             Composition editor (accordion + CodeMirror + preview)
 /lib/ai-chat.php           AI chat admin page + AJAX handlers
 /lib/ai-context.php        AI system prompt assembly (site state, media, tokens)
