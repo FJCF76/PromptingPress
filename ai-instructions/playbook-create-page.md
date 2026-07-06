@@ -29,16 +29,15 @@ Run a site-scoped `wp pp apply preflight --run-id=<uuid>` (no `--post_id` — th
 
 ### 4. EDIT
 Execute actions in order:
-1. `add_page` — Create the page with composition template (site-scoped; covered by the site PREFLIGHT above)
-2. `set_composition` — Set the full composition array. If you set composition as a separate page-scoped step (rather than inline at creation), first run `wp pp apply preflight --run-id=<uuid> --post_id=<new_page_id>` once the page exists, since page-scoped mutations require a PREFLIGHT covering that post.
-3. Any token updates if the brief requires brand changes
+1. `create_page` — Create the page, ideally with its full `composition` (and optional `slug`) inline: `wp pp action execute create_page --run-id=<uuid> --params='{"title":"...","composition":[...]}'` (site-scoped; covered by the site PREFLIGHT above)
+2. `update_composition` — Only needed if you set the composition as a separate page-scoped step rather than inline at creation. First run `wp pp apply preflight --run-id=<uuid> --post_id=<new_page_id>` once the page exists, since page-scoped mutations require a PREFLIGHT covering that post.
 
 Token applies are database-backed, so no `--planned-files` is needed for design token changes.
 
 ### 5. APPLY
-Execute any file-based applies (e.g., `wp pp apply execute --apply=update_design_token --params='...'`).
+Execute any token/font applies the brief requires (e.g., `wp pp apply execute update_design_token --run-id=<uuid> --params='{"token":"--color-accent","value":"#b45309"}'`). These are database-backed applies covered by the site PREFLIGHT from step 3.
 
-If no file-based applies are needed (all changes were DB actions), skip to SCREENSHOT.
+If no applies are needed (all changes were page actions), skip to SCREENSHOT.
 
 ### 6. SCREENSHOT
 Run `wp pp screenshot capture --post_id=<new_page_id> --playbook=create-page`

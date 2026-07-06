@@ -54,9 +54,9 @@ don't have to.
 ```
 1. INSPECT     read the site, get a run token       wp pp operate inspect
 2. PLAN        say what will change, before doing it
-3. EDIT        change the page via typed commands    wp pp action execute ...
-4. PREFLIGHT   check it's safe to apply              wp pp apply preflight ...
-5. APPLY       commit the change, with a backup      wp pp apply execute ...
+3. PREFLIGHT   prove it's safe to change the target  wp pp apply preflight ...
+4. EDIT        change the page via typed commands    wp pp action execute ...
+5. APPLY       commit design applies, with a backup  wp pp apply execute ...
 6. SCREENSHOT  capture the result                    wp pp screenshot capture ...
 7. REVIEW      compare the screenshot to the goal
 8. HANDOFF     report what changed and what's verified
@@ -88,7 +88,9 @@ Rules:
 - Make every change through typed commands: `wp pp action execute <name>
   --run-id=<uuid> --params='...'` and `wp pp apply execute <name> --run-id=<uuid>
   --params='...'`, plus compositions and design tokens. No raw file writes.
-- Run `wp pp apply preflight --run-id=<uuid>` before any apply. If it fails, stop.
+- Run `wp pp apply preflight --run-id=<uuid>` BEFORE any mutation (add
+  --post_id=<id> when the change targets a page). Every mutating command refuses
+  to run without a preflight covering its exact target. If preflight fails, stop.
 - Take screenshots (`wp pp screenshot capture --post_id=<id> --playbook=<name>`)
   before claiming anything looks right.
 - Finish with a HANDOFF report: status (VERIFIED / NEEDS_VISUAL_VERIFICATION /

@@ -14,7 +14,7 @@ Repeatable patterns for the most common change types in this backlog, plus the l
 4. **Style-slot & token values are injection-guarded:** every value that becomes CSS passes the `{};<>` guard (`_pp_validate_token_value` in `lib/apply.php`, mirrored in `pp_render_style_vars` in `lib/wp.php`). Never render a raw slot value.
 5. **Escaping at output:** `esc_html` for text, `esc_url` for URLs, `esc_attr` for attributes, `wp_kses_post` for rich HTML fields. Do not widen `esc_url` protocols globally.
 6. **Composition is stored as a JSON string** in `_pp_composition` post meta. Read via `pp_get_composition($post_id)` (it decodes and tolerates array fixtures) — never `get_post_meta(...)` + `is_array()` (that was bug #119).
-7. **Capabilities:** mutations must check the right capability for their scope. The AJAX execute path is `edit_posts`-only today and under-gated — see #131; do not copy that pattern.
+7. **Capabilities:** mutations must check the right capability for their scope. The AJAX preview/execute path resolves per-action/apply capabilities through `_pp_required_caps_for()` (`lib/ai-chat.php`, shipped for #131) and fails closed (`manage_options`) for unknown names, unknown scopes, or an unresolvable `post_id` — a new action must be covered by that resolver, not bolted on with its own check.
 8. **Preserve the file-vs-composition authority model.** Presentation changes go through tokens / style slots / composition, not ad hoc CSS in core files.
 
 ---
@@ -28,7 +28,7 @@ Used by: #99, #100, #108, #111, #61 (and the #99 scaffold issue defines the reus
    "--{name}-{slot}": { "type": "color|length|number|duration|font-family|shadow|gradient", "default": "<css>", "description": "<what it controls>" }
    ```
 2. **Validation is automatic** for known types via `_pp_validate_token_value()` (`lib/apply.php`) — but if you introduce a *new* type (e.g. `gradient`, #99), add its validator there and to the `switch` in `_pp_validate_token_value`, keeping the `{};<>` guard and a positive-pattern grammar (see `_pp_validate_length` clamp/calc handling as the model). Reject `var()`/`url()`/`env()` unless explicitly allowlisted.
-3. **Render:** the slot is emitted by `pp_render_style_vars($props['__pp_style'] ?? [], '{name}')` in `components/{name}/{name}.php` (already wired for hero/section/grid/cta; add the call for components that lack it). Reference the CSS var in `assets/css/components.css` with a fallback: `color: var(--{name}-{slot}, var(--color-text));`
+3. **Render:** the slot is emitted by `pp_render_style_vars($props['__pp_style'] ?? [], '{name}')` in `components/{name}/{name}.php` (already wired for hero/section/grid/cta/faq/stats/testimonials; add the call for components that lack it). Reference the CSS var in `assets/css/components.css` with a fallback: `color: var(--{name}-{slot}, var(--color-text));`
 4. **Do not** hardcode a color that beats the slot (that is bug #61 for `.faq__heading`). If a hardcoded rule exists, relax it so the slot wins.
 5. **Test:** `tests/ComponentPropsTest.php` — assert the schema declares the slot with `type`+`default`; a render test asserts setting the slot emits the inline `--{name}-{slot}: <value>`; a negative test asserts an injection value (`}<script>`) is dropped.
 6. **Verify:** `composer test`.
@@ -45,7 +45,7 @@ Used by: #132 (menus), #134 (slug), #105 (import media), #122, #133.
    - `preview(array $params): array` — compute before/after via `_pp_action_preview(...)`, **never write**;
    - `execute`/`apply(array $params): array` — do the write, return `_pp_action_result(...)` / `_pp_action_error(...)`.
 2. **All WP calls go through a `pp_*` wrapper in `lib/wp.php`** (add one if missing) — do not call `wp_*` directly from the action closure except through those wrappers already used there.
-3. **Capability:** if this is reachable from the AJAX chat path, ensure the (post-#131) capability check covers it. Page/section → `edit_post` on the post; site → `manage_options`; publish → `publish_pages`.
+3. **Capability:** if this is reachable from the AJAX chat path, ensure `_pp_required_caps_for()` (`lib/ai-chat.php`) covers it. Defaults: page/section → `edit_post` on the post (fail-closed to `manage_options` without a resolved `post_id`); site → `manage_options`; all applies → `manage_options`. Named overrides: publish/unpublish → `edit_post` + `publish_pages`; trash/restore → `delete_post`; `create_page` → `publish_pages`; menu actions → `edit_theme_options`. A new action with different needs gets an explicit case there, plus a denial test.
 4. **Register editable fields** (only if the action edits component props addressable by selector) in `lib/operate.php` `pp_register_component_fields()` — and **every field name must exist in that component's `schema.json`** (drift is bug #120/#85). Add the assertion test.
 5. **Surface in the AI prompt:** actions/applies auto-appear in `pp_ai_system_prompt()` (`lib/ai-context.php`) via the registry — no extra step, but verify the `description` is accurate.
 6. **CLI:** if operators need it, add a subcommand in `lib/cli.php`. Method name = subcommand name; add `@subcommand hyphen-form` if the docs use hyphens (that mismatch is #95).

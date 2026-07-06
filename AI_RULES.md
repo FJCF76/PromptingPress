@@ -105,7 +105,7 @@ Playwright tests in `tests/e2e/` run against a live WordPress instance via wp-en
 
 ```
 npm run env:start   # boot Docker WordPress on port 8889
-npm run test:e2e    # 15 tests: editor round-trip, serialization gate, CLI actions, post-apply validation
+npm run test:e2e    # 34 specs: editor round-trip, serialization gate, CLI actions, post-apply validation, AI chat streaming/apply, token concurrency
 npm run env:stop    # tear down
 ```
 
@@ -126,11 +126,11 @@ theme itself). For **site customization**, the parent-theme rows (`templates/`,
 | /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Release-level only — run npm test after |
 | /assets/js/main.js       | Nav toggle, active link         | Release-level only — inspect for site work |
 | /lib/wp.php              | WP function wrappers (read + write) | Only to add pp_ functions   |
-| /lib/actions.php         | Typed action model (14 actions) | Add actions following the contract |
+| /lib/actions.php         | Typed action model (20 actions) | Add actions following the contract |
 | /lib/guardrails.php      | CSS conflict detection, surface classification, theme integrity | Extend for new checks |
 | /lib/operate.php         | Operating loop: inspect, preflight, run tokens | Extend for new checks |
 | /lib/apply.php           | Apply layer (file + option mutations) | Add applies following the contract |
-| /lib/cli.php             | WP-CLI `wp pp action` + `wp pp apply` + `wp pp check` + `wp pp integrity` | Yes        |
+| /lib/cli.php             | WP-CLI `wp pp action` + `wp pp apply` + `wp pp operate` + `wp pp check` + `wp pp validate` + `wp pp integrity` + `wp pp screenshot` | Yes        |
 | /lib/components.php      | Component loader                | No                               |
 | /lib/ai-context.php      | AI site context layer             | Extend for new context sources     |
 | /lib/ai-provider.php     | LLM provider proxy                | Extend for new providers           |
