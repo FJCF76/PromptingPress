@@ -82,7 +82,7 @@ wp pp apply preview update_design_token --params='{"token":"--color-accent","val
 {
   "ok": true,
   "apply": "update_design_token",
-  "domain": "design_token",
+  "domain": "design",
   "target": { ... },
   "changes": [ { "token": "--color-accent", ... } ],
   "error": null
