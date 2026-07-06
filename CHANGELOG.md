@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.50] — 2026-07-07 — Component logo_id must be an image, rejected at the action boundary (#155)
+
+**A nav or footer `logo_id` pointing at a PDF, video, or bogus attachment ID no longer slips through validation to silently render nothing. It is rejected when the action runs, the same way the site-wide logo already was.**
+
+Setting a logo has two surfaces: the site option (`pp_logo_id`) and a per-component `logo_id` prop on nav/footer. The site option already rejected any attachment that isn't an image. The component prop did not. It only avoided rendering a broken logo because WordPress core happens to return `false` for a non-image attachment, so the resolver quietly fell back to the text wordmark. That is someone else's internal behavior doing our validation for us, and the AI media surface only ever lists images, so a proposed action pointing at a non-image attachment was an unguarded trust-boundary gap. This closes it: a component `logo_id` is now validated as a real Media Library image at the action boundary, and the logo resolver has its own explicit image guard so the wordmark fallback is a deliberate, tested code path rather than an accident of WP internals.
+
+### Fixed
+- **Component `logo_id` props are now validated as image attachments.** `update_component`, `add_component`, and `update_composition` (and the CLI/patch paths that share `pp_validate_action()`) reject a `logo_id` that isn't a live Media Library image with a clear `invalid_logo_id` error, mirroring the `pp_logo_id` site-option rule. A non-image (PDF/video), a non-existent or trashed ID, and malformed shapes (`"12abc"`, negatives, arrays, floats) are all rejected; an empty or absent `logo_id` still means "no logo" and passes. Both the action validator and the render-time resolver share one predicate, `pp_is_image_attachment()`, so the definition of "valid image attachment" can never drift between the three enforcement points. The resolver (`pp_resolve_logo()`) now applies that predicate explicitly before resolving a URL, so its wordmark fallback is intentional and tested rather than relying on WP core returning `false`. 15 new PHPUnit tests covering the predicate, the resolver guard (including the `custom_logo` theme-mod path), the value validator, the params walker, and the wiring into action validation. (#155)
+
+### Documentation
+- The AI-facing surface now states the constraint so the site-building model gets it right the first time: the nav and footer `schema.json` and `README.md` `logo_id` descriptions, plus `AI_CONTEXT.md`, note that a component `logo_id` must be an image attachment and is rejected at action-validation time (same rule as `pp_logo_id`).
+
 ## [v0.16.49] — 2026-07-06 — Fail-closed pre-apply token snapshot on lock contention (#200)
 
 **The pre-apply rollback baseline that `wp pp apply restore` reverts to could be a stale, non-atomic read exactly when a concurrent writer was racing — the one scenario the token lock exists to protect against.**
