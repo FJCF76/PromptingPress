@@ -307,6 +307,23 @@ class AiChatHandlersTest extends TestCase
         );
     }
 
+    public function testRequiredCapsForMenuActionsIsEditThemeOptions(): void
+    {
+        // Menu structure is core Appearance territory (Appearance > Menus is
+        // gated on edit_theme_options), not the stricter manage_options
+        // default for other site-scoped actions (issue 132). The resolver
+        // routes these through _pp_is_menu_action() BEFORE the name switch —
+        // pin all four so a miss there can't silently fall through to the
+        // site-scope manage_options default.
+        foreach (['create_menu', 'add_menu_item', 'assign_menu_location', 'set_menu'] as $name) {
+            $this->assertSame(
+                [['cap' => 'edit_theme_options']],
+                _pp_required_caps_for('action', $name, []),
+                "menu action '$name' must require edit_theme_options"
+            );
+        }
+    }
+
     public function testRequiredCapsForZeroPostIdIsNotTreatedAsMissing(): void
     {
         // post_id=0 is_numeric() but not a real post. It is passed through to
