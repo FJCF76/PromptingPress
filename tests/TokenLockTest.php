@@ -263,6 +263,28 @@ class TokenLockTest extends TestCase
             'A NULL lock result must surface as a null snapshot, not a degraded read.');
     }
 
+    /**
+     * #200: the null-vs-empty distinction the fix depends on. A lock-ACQUIRED snapshot of
+     * an install with no overrides must return [] (a valid, recordable empty baseline),
+     * never null (which the preflight CLI now treats as a hard lock-contention failure).
+     * A regression that returned null here would make every preflight on a fresh install
+     * wrongly report contention and record nothing.
+     */
+    public function testSnapshotReturnsEmptyArrayNotNullWhenNoOverridesAndLockAcquired(): void
+    {
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->get_lock_return = '1'; // lock acquired
+        $wpdb->db_overrides = null;   // fresh install: no pp_token_overrides row
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $snapshot = pp_snapshot_token_overrides();
+
+        $this->assertNotNull($snapshot, 'An empty-but-valid baseline must not be confused with lock failure.');
+        $this->assertSame([], $snapshot, 'No overrides under a held lock is a recordable empty baseline, not null.');
+        $releases = array_filter($wpdb->calls, fn ($c) => strpos($c, 'RELEASE_LOCK') !== false);
+        $this->assertNotEmpty($releases, 'A lock that was acquired must be released.');
+    }
+
     public function testLockNameVariesByInstall(): void
     {
         // _pp_token_lock_name() keys on DB identity (here $wpdb->dbname, since DB_NAME is
