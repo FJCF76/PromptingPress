@@ -28,7 +28,7 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 * AI chat: explicit user-chosen page targeting, Stop button with automatic fallback for stuck responses, atomic multi-step proposals with rollback (including navigation menus), and menu-building actions
 * Per-action capability model for chat endpoints — Contributors can no longer publish, trash, or rewrite the site
 * wp pp validate page runs the same rendered-HTML validation that gates the AI chat's success message from the CLI
-* 1226 PHP tests, 350 JS tests, 34 E2E specs
+* 1230 PHP tests, 350 JS tests, 34 E2E specs
 
 = 0.16.0 =
 * The site logo is a safe surface: set it via the update_site_option action with a Media Library attachment ID — no theme file edits
