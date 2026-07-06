@@ -455,9 +455,11 @@ function _pp_restore_menu_state(array $state): void {
 }
 
 /**
- * Normalized fingerprint of a menu's item list, covering every field the
- * restore path preserves. Two lists with the same signature render the same
- * menu, so restoring over one would only churn item ids.
+ * Normalized fingerprint of a menu's item list. ID and menu_item_parent are
+ * included as touched-at-all detectors (any mutation churns item ids), not
+ * as fields the restore preserves; the rest are the fields
+ * _pp_recreate_menu_item() carries. Equal signatures mean the batch never
+ * touched the menu, so restoring over it would only churn item ids.
  */
 function _pp_menu_items_signature(array $items): string {
     $sig = array_map(function (object $item): array {
@@ -477,7 +479,11 @@ function _pp_menu_items_signature(array $items): string {
             (string) ($item->description ?? ''),
         ];
     }, array_values($items));
-    return (string) json_encode($sig);
+    // serialize(), not json_encode(): json_encode returns false on invalid
+    // UTF-8 (possible in legacy DB titles), which would make BOTH sides ''
+    // and false-equal — skipping the restore of a menu the batch really
+    // mutated. serialize never fails, so the gate fails closed.
+    return serialize($sig);
 }
 
 /**
@@ -1845,8 +1851,18 @@ pp_register_action('set_menu', [
             $item_id = pp_add_nav_menu_item($menu_id, $link);
             if (is_wp_error($item_id)) {
                 if ($existing) {
+                    // Inside a failed batch this restore is redundant (the
+                    // batch snapshot layer rebuilds the menu again — its id
+                    // churn defeats the signature skip). Accepted: the
+                    // failed-batch path is rare and the final state stays
+                    // correct at every entry point.
                     pp_clear_nav_menu_items($menu_id);
                     _pp_rebuild_menu_items($menu_id, $previous_items);
+                } else {
+                    // set_menu created this menu itself — a half-populated
+                    // leftover would break the atomicity contract just as
+                    // much as a gutted pre-existing menu.
+                    wp_delete_nav_menu($menu_id);
                 }
                 return _pp_action_error('set_menu', 'site', $item_id->get_error_message());
             }

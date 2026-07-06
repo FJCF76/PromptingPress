@@ -3063,6 +3063,69 @@ class ActionsTest extends TestCase
         $this->assertSame('Beta', $menus[0]['items'][1]['title']);
     }
 
+    public function testSetMenuDeletesItsOwnHalfBuiltMenuWhenAnItemFailsMidLoop(): void
+    {
+        // set_menu created the menu itself: a mid-loop item failure must not
+        // leave a half-populated menu behind at single-step entry points.
+        $GLOBALS['_pp_test_store']['fail_menu_item_titles'] = ['Bad'];
+        $result = pp_execute_action('set_menu', [
+            'name'  => 'Fresh Menu',
+            'items' => [
+                ['url' => 'https://example.com/good', 'label' => 'Good'],
+                ['url' => 'https://example.com/bad', 'label' => 'Bad'],
+            ],
+        ]);
+        unset($GLOBALS['_pp_test_store']['fail_menu_item_titles']);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame([], pp_get_menus());
+    }
+
+    public function testBatchRollbackRestoresMenuWithInvalidUtf8ItemTitle(): void
+    {
+        $menu = pp_execute_action('create_menu', ['name' => 'Legacy Menu']);
+        $menu_id = $menu['target']['menu_id'];
+
+        // Invalid UTF-8 in a title: json_encode() would return false for BOTH
+        // the snapshot and current signatures, making a mutated menu look
+        // untouched ('' === '') and skipping its restore — the signature must
+        // fail closed instead.
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = [
+            (object) ['ID' => 9601, 'title' => "Legacy \xB1\xFF Item", 'url' => 'https://example.com/legacy', 'menu_item_parent' => 0],
+        ];
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'add_menu_item', 'params' => [
+                'menu_id' => $menu_id, 'url' => 'https://example.com/x', 'label' => 'X',
+            ]],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertTrue($batch['rolled_back']);
+        $items = $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id];
+        $this->assertCount(1, $items);
+        $this->assertSame("Legacy \xB1\xFF Item", $items[0]->title);
+    }
+
+    public function testBatchRollbackRestoresPreExistingEmptyMenuToZeroItems(): void
+    {
+        $menu = pp_execute_action('create_menu', ['name' => 'Empty Menu']);
+        $menu_id = $menu['target']['menu_id'];
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'add_menu_item', 'params' => [
+                'menu_id' => $menu_id, 'url' => 'https://example.com/x', 'label' => 'X',
+            ]],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertTrue($batch['rolled_back']);
+        // The menu existed empty before the batch — restore means zero items.
+        $menus = pp_get_menus();
+        $this->assertCount(1, $menus);
+        $this->assertSame([], $menus[0]['items']);
+    }
+
     public function testBatchStopsExecutingAfterFirstFailure(): void
     {
         $id = pp_create_page('Stop Test', 'draft');
