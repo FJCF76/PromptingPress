@@ -217,28 +217,35 @@ class SchemaValidationTest extends TestCase
      */
     public function testDocsStyleSlotCountMatchesSchema(): void
     {
-        $components = ['hero', 'section', 'grid', 'cta'];
+        // Derive the component list from the schemas themselves rather than a
+        // hardcoded set: the original ['hero', 'section', 'grid', 'cta'] list
+        // silently under-counted once faq/stats (#100) and testimonials (#1)
+        // gained slots — the exact drift this test exists to kill.
         $perComponent = [];
-        foreach ($components as $component) {
-            $schema = json_decode(
-                file_get_contents($this->themeRoot . "/components/{$component}/schema.json"),
-                true
-            );
-            $perComponent[$component] = count($schema['styling']['style_slots'] ?? []);
+        foreach (glob($this->themeRoot . '/components/*/schema.json') as $schemaFile) {
+            $schema = json_decode(file_get_contents($schemaFile), true);
+            $count  = count($schema['styling']['style_slots'] ?? []);
+            if ($count > 0) {
+                $perComponent[basename(dirname($schemaFile))] = $count;
+            }
         }
         $total = array_sum($perComponent);
 
-        // AI_CONTEXT.md: the bolded total AND the per-component breakdown must both match.
+        // AI_CONTEXT.md: the bolded total AND the per-component breakdown must
+        // both match. The breakdown lists every slot-bearing component in
+        // descending slot-count order.
         $aiContext = file_get_contents($this->themeRoot . '/AI_CONTEXT.md');
         $this->assertStringContainsString(
             "**{$total} style slots**",
             $aiContext,
             "AI_CONTEXT.md must state the schema-derived total of {$total} style slots."
         );
-        $breakdown = sprintf(
-            'hero (%d), section (%d), grid (%d), cta (%d)',
-            $perComponent['hero'], $perComponent['section'], $perComponent['grid'], $perComponent['cta']
-        );
+        arsort($perComponent);
+        $breakdown = implode(', ', array_map(
+            fn($component, $count) => "{$component} ({$count})",
+            array_keys($perComponent),
+            $perComponent
+        ));
         $this->assertStringContainsString(
             $breakdown,
             $aiContext,
