@@ -206,6 +206,63 @@ class TokenLockTest extends TestCase
             'The locked write must merge onto the fresh DB row, not overwrite it with a stale cache.');
     }
 
+    /**
+     * #200: the pre-apply snapshot must be read UNDER the lock for an atomic baseline.
+     * When the lock is acquired, pp_snapshot_token_overrides() returns the authoritative
+     * in-lock DB read (the same fresh row the writers see), not a stale cache.
+     */
+    public function testSnapshotReturnsInLockReadWhenLockAcquired(): void
+    {
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->db_overrides = ['--a' => '1', '--b' => '2']; // authoritative committed row
+        $GLOBALS['wpdb'] = $wpdb;
+        $GLOBALS['_pp_test_store']['options']['pp_token_overrides'] = ['--a' => 'stale']; // stale cache
+
+        $snapshot = pp_snapshot_token_overrides();
+
+        $this->assertSame(['--a' => '1', '--b' => '2'], $snapshot,
+            'The snapshot must be the fresh in-lock DB read, not the stale cache.');
+        $lockCalls = $wpdb->lockCalls();
+        $this->assertStringContainsString('GET_LOCK', $lockCalls[0], 'The read must happen inside the lock.');
+        $this->assertStringContainsString('RELEASE_LOCK', end($lockCalls));
+    }
+
+    /**
+     * #200: on lock contention the snapshot must fail closed (return null), NOT silently
+     * degrade to a plain, non-atomic cached read. A stale baseline recorded here is
+     * exactly the wrong rollback target for a later `apply restore`, and it happens
+     * precisely when a concurrent writer is racing — the case the lock exists to protect.
+     */
+    public function testSnapshotReturnsNullOnLockContention(): void
+    {
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->get_lock_return = '0'; // another writer holds the lock (timed out)
+        $wpdb->db_overrides = ['--a' => '1'];
+        $GLOBALS['wpdb'] = $wpdb;
+        $GLOBALS['_pp_test_store']['options']['pp_token_overrides'] = ['--a' => 'stale'];
+
+        $snapshot = pp_snapshot_token_overrides();
+
+        $this->assertNull($snapshot,
+            'A contended snapshot must fail closed, not return a stale non-atomic read.');
+        $releases = array_filter($wpdb->calls, fn ($c) => strpos($c, 'RELEASE_LOCK') !== false);
+        $this->assertEmpty($releases, 'A lock that was never acquired must not be released.');
+    }
+
+    /**
+     * #200: a NULL GET_LOCK result (DB error / unhealthy server) is also a hard snapshot
+     * failure — null, never a degraded read.
+     */
+    public function testSnapshotReturnsNullOnLockError(): void
+    {
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->get_lock_return = null; // GET_LOCK error / unsupported backend
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $this->assertNull(pp_snapshot_token_overrides(),
+            'A NULL lock result must surface as a null snapshot, not a degraded read.');
+    }
+
     public function testLockNameVariesByInstall(): void
     {
         // _pp_token_lock_name() keys on DB identity (here $wpdb->dbname, since DB_NAME is

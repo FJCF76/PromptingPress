@@ -96,6 +96,13 @@ snapshot — inside a **single locked write**. The run gains the complete
 post-preflight state or none of it. Any failure leaves both the action gate and
 the apply gate fail-closed: no coverage recorded means no mutation unlocked.
 
+The rollback snapshot itself is read **under the token lock** for an atomic
+baseline. If that lock is contended — another writer is racing, exactly the case
+the baseline protects against — the snapshot fails closed rather than degrading to
+a stale, non-atomic read. `wp pp apply preflight` then **errors and records
+nothing** instead of freezing a baseline that a later `apply restore` would
+silently revert to. Re-run the preflight once the contention clears.
+
 ### Validate first, so errors point at the real problem
 
 A mutating action validates its parameters *before* it checks the gate. If you
