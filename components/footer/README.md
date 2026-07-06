@@ -9,7 +9,7 @@ Site footer. Renders a WP nav menu (by theme location) and a copyright line usin
 | `location`  | string | No       | `'footer'` | WP theme location slug |
 | `show_logo` | bool   | No       | `false`    | Whether to render the site logo in the footer (opt-in) |
 | `logo_text` | string | No       | —          | Logo text (falls back to site title) |
-| `logo_id`   | int    | No       | —          | Media Library attachment ID for an image logo (takes priority over `logo_text`) |
+| `logo_id`   | int    | No       | —          | Media Library attachment ID for an image logo (takes priority over `logo_text`). Must be an image attachment; a non-image or non-existent ID is rejected at action-validation time |
 | `logo_alt`  | string | No       | —          | Alt text for the image logo |
 
 ## Usage

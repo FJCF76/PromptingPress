@@ -18,7 +18,7 @@
       "type": "number",
       "required": false,
       "default": 0,
-      "description": "Media Library attachment ID for the logo image (NOT a URL). When it resolves to an image, renders an img tag instead of the text wordmark. Resolution order: this prop, then the pp_logo_id site option, then the WP custom_logo theme-mod."
+      "description": "Media Library attachment ID for the logo image (NOT a URL). Must be an image attachment; a non-image or non-existent ID is rejected when the action is validated (same rule as the pp_logo_id site option). When set to a valid image it renders an img tag instead of the text wordmark. Resolution order: this prop, then the pp_logo_id site option, then the WP custom_logo theme-mod."
     },
     "logo_alt": {
       "type": "string",

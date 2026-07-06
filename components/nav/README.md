@@ -8,7 +8,7 @@ Site header with logo, primary navigation menu, and a hamburger toggle for mobil
 |-------------|--------|----------|-------------|-------------|
 | `location`  | string | No       | `'primary'` | WP theme location slug |
 | `logo_text` | string | No       | —           | Logo text (falls back to site title) |
-| `logo_id`   | int    | No       | —           | Media Library attachment ID for an image logo (takes priority over `logo_text`) |
+| `logo_id`   | int    | No       | —           | Media Library attachment ID for an image logo (takes priority over `logo_text`). Must be an image attachment; a non-image or non-existent ID is rejected at action-validation time |
 | `logo_alt`  | string | No       | —           | Alt text for the image logo |
 
 ## Behavior

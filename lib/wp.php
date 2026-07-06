@@ -1618,6 +1618,25 @@ function pp_allowed_site_options(): array {
 }
 
 /**
+ * Single source of truth for "is $id a Media Library image attachment?".
+ *
+ * Every trust boundary that accepts an attachment ID meant to render as an
+ * image (the `pp_logo_id` site option, component `logo_id` props, the logo
+ * resolver) funnels through this predicate so the definition of "valid image
+ * attachment" can never drift between them. A non-image, trashed, non-existent,
+ * or non-attachment ID all return false. SVGs are excluded because WP core's
+ * wp_attachment_is_image() rejects them (see AiContextTest).
+ *
+ * @param int $id  Attachment post ID.
+ * @return bool    True only for a live attachment whose type is a displayable image.
+ */
+function pp_is_image_attachment(int $id): bool {
+    return $id > 0
+        && get_post_type($id) === 'attachment'
+        && wp_attachment_is_image($id);
+}
+
+/**
  * Validates a site-option value against its declared type.
  *
  * @param string $key    Whitelisted option key (caller has already checked membership).
@@ -1627,8 +1646,7 @@ function pp_allowed_site_options(): array {
 function pp_validate_site_option_value(string $key, string $value) {
     $type = pp_allowed_site_options()[$key] ?? null;
     if ($type === 'attachment_id') {
-        $id = (int) $value;
-        if ($id <= 0 || get_post_type($id) !== 'attachment' || !wp_attachment_is_image($id)) {
+        if (!pp_is_image_attachment((int) $value)) {
             return new WP_Error('invalid_option_value', sprintf(
                 'Option "%s" requires a Media Library image attachment ID, got "%s".',
                 $key, $value
@@ -1681,7 +1699,12 @@ function pp_resolve_logo(array $props): array {
         $id = (int) $mod;
     }
 
-    if ($id > 0) {
+    // Explicit image guard: only resolve an <img> for a real image attachment.
+    // Previously this relied on wp_get_attachment_image_url() incidentally
+    // returning false for non-images (#155). Making the check explicit means a
+    // non-image ID (from any source above) deterministically falls through to
+    // the text wordmark instead of depending on WP core internals.
+    if (pp_is_image_attachment($id)) {
         $url = wp_get_attachment_image_url($id, 'full');
         if ($url) {
             $alt = $props['logo_alt'] ?? '';

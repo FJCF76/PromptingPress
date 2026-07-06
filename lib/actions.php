@@ -103,6 +103,16 @@ function pp_validate_action(string $name, array $params) {
         return $url_error;
     }
 
+    // Component-prop logo_id is an attachment ID (not a URL), so it bypasses the
+    // media-URL walker above. Validate it with the same fail-closed rigor as the
+    // pp_logo_id site option and #124's URL props, so a non-image/non-existent
+    // logo_id is rejected at the action boundary instead of silently rendering a
+    // text wordmark downstream (#155).
+    $logo_error = _pp_validate_logo_ids_in_params($params);
+    if (is_wp_error($logo_error)) {
+        return $logo_error;
+    }
+
     // Semantic validation: action's own checks
     return call_user_func($action['validate'], $params);
 }
@@ -162,6 +172,106 @@ function _pp_validate_media_urls_in_params(array $params) {
     }
 
     return true;
+}
+
+/**
+ * Validates that every component `logo_id` prop in action params references a
+ * real Media Library image attachment (#155). Mirrors the traversal of
+ * _pp_extract_urls_from_params() exactly — flat props, composition[].props, and
+ * items[] — so the two walkers cannot drift over the shapes they cover. An
+ * absent or cleared logo_id (empty per PHP `empty()`, matching pp_resolve_logo's
+ * `!empty()` gate) passes: it just means "no explicit logo".
+ *
+ * @return true|WP_Error
+ */
+function _pp_validate_logo_ids_in_params(array $params) {
+    $logo_ids = _pp_extract_logo_ids_from_params($params);
+    foreach ($logo_ids as $value) {
+        $error = _pp_validate_single_logo_id($value);
+        if (is_wp_error($error)) {
+            return $error;
+        }
+    }
+    return true;
+}
+
+/**
+ * Validates a single logo_id value. Strict about shape before casting: a
+ * non-empty logo_id must be an int or an all-digits string, so malformed input
+ * (arrays, floats, "12abc", negatives) is rejected rather than silently coerced
+ * by (int) into a valid-looking ID (#155, codex review).
+ *
+ * @param mixed $value
+ * @return true|WP_Error
+ */
+function _pp_validate_single_logo_id($value) {
+    // Absent/cleared logo — nothing to validate. Mirrors pp_resolve_logo()'s
+    // `!empty($props['logo_id'])` gate so '0'/0/''/null are treated as "no logo".
+    if (empty($value)) {
+        return true;
+    }
+
+    if (is_int($value)) {
+        $id = $value;
+    } elseif (is_string($value) && ctype_digit($value)) {
+        $id = (int) $value;
+    } else {
+        return new WP_Error('invalid_logo_id', sprintf(
+            'Component "logo_id" must be a Media Library image attachment ID, got "%s".',
+            is_scalar($value) ? (string) $value : gettype($value)
+        ));
+    }
+
+    if (!pp_is_image_attachment($id)) {
+        return new WP_Error('invalid_logo_id', sprintf(
+            'Component "logo_id" must reference a Media Library image attachment, got ID %d.',
+            $id
+        ));
+    }
+
+    return true;
+}
+
+/**
+ * Collects all `logo_id` values from action params. Traverses the same
+ * locations as _pp_extract_urls_from_params(): flat props, composition[].props,
+ * and items[] — keeping the two extractors' coverage identical.
+ */
+function _pp_extract_logo_ids_from_params(array $params): array {
+    $logo_ids = [];
+
+    // Direct props (flat) — update_component / add_component.
+    if (isset($params['props']) && is_array($params['props'])) {
+        _pp_collect_logo_ids_from_props($params['props'], $logo_ids);
+    }
+
+    // Composition array — update_composition / create_page.
+    if (isset($params['composition']) && is_array($params['composition'])) {
+        foreach ($params['composition'] as $component) {
+            if (isset($component['props']) && is_array($component['props'])) {
+                _pp_collect_logo_ids_from_props($component['props'], $logo_ids);
+            }
+        }
+    }
+
+    return $logo_ids;
+}
+
+/**
+ * Collects logo_id values from a props array, including nested items arrays.
+ * Structural mirror of _pp_collect_urls_from_props().
+ */
+function _pp_collect_logo_ids_from_props(array $props, array &$logo_ids): void {
+    if (array_key_exists('logo_id', $props)) {
+        $logo_ids[] = $props['logo_id'];
+    }
+    if (isset($props['items']) && is_array($props['items'])) {
+        foreach ($props['items'] as $item) {
+            if (is_array($item) && array_key_exists('logo_id', $item)) {
+                $logo_ids[] = $item['logo_id'];
+            }
+        }
+    }
 }
 
 /**

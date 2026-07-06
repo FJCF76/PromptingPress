@@ -24,7 +24,7 @@
       "type": "number",
       "required": false,
       "default": 0,
-      "description": "Media Library attachment ID for the footer logo image (NOT a URL; only when show_logo is true). Same resolution as nav: this prop, then the pp_logo_id site option, then the WP custom_logo theme-mod."
+      "description": "Media Library attachment ID for the footer logo image (NOT a URL; only when show_logo is true). Must be an image attachment; a non-image or non-existent ID is rejected when the action is validated (same rule as the pp_logo_id site option). Same resolution as nav: this prop, then the pp_logo_id site option, then the WP custom_logo theme-mod."
     },
     "logo_alt": {
       "type": "string",
