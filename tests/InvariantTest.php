@@ -172,6 +172,33 @@ class InvariantTest extends TestCase
         );
     }
 
+    // ── WP-CLI docblock synopsis constraint ───────────────────────────────
+
+    /**
+     * WP-CLI folds a second consecutive "* : " line into the generated
+     * synopsis and warns "invalid synopsis part: <word>" on every run —
+     * each OPTIONS description must stay on ONE ": " line (plain "*   "
+     * indentation is fine for continuations). Regression guard for the
+     * v0.16.48 `operate patch --run-id` fix.
+     */
+    public function testCliOptionDescriptionsNeverContinueOnASecondColonLine(): void
+    {
+        $lines = file($this->themeRoot . '/lib/cli.php');
+        $this->assertNotFalse($lines);
+
+        foreach ($lines as $i => $line) {
+            if (preg_match('/^\s*\* : /', $line) && preg_match('/^\s*\* : /', $lines[$i - 1] ?? '')) {
+                $this->fail(sprintf(
+                    'lib/cli.php:%d continues an option description on a second ": " line — '
+                    . 'WP-CLI folds it into the synopsis as bogus parts. Keep each description '
+                    . 'on one ": " line, or use plain "*   " indentation.',
+                    $i + 1
+                ));
+            }
+        }
+        $this->addToAssertionCount(1);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
 
     private function phpFilesIn(string $dir): array
