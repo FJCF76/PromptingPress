@@ -213,4 +213,169 @@ class LogoTest extends TestCase
         $this->assertSame('text', $logo['type']);
         $this->assertSame('Fallback', $logo['text']);
     }
+
+    // ── #155: shared image-attachment predicate ─────────────────────────────
+
+    public function testImageAttachmentPredicateRejectsZeroAndNegative(): void
+    {
+        $this->assertFalse(pp_is_image_attachment(0));
+        $this->assertFalse(pp_is_image_attachment(-5));
+    }
+
+    public function testImageAttachmentPredicateRejectsNonExistent(): void
+    {
+        // Nothing seeded for 404 — not an attachment.
+        $this->assertFalse(pp_is_image_attachment(404));
+    }
+
+    public function testImageAttachmentPredicateRejectsNonImageAttachment(): void
+    {
+        $this->seedAttachment(50, 'https://example.com/doc.pdf', '', false);
+        $this->assertFalse(pp_is_image_attachment(50));
+    }
+
+    public function testImageAttachmentPredicateAcceptsImage(): void
+    {
+        $this->seedAttachment(51, 'https://example.com/img.png');
+        $this->assertTrue(pp_is_image_attachment(51));
+    }
+
+    // ── #155: resolver hardening (explicit guard, tested fallback) ──────────
+
+    public function testResolveTextWhenComponentLogoIdIsNonImage(): void
+    {
+        // A component logo_id pointing at a non-image attachment (PDF/video)
+        // must deterministically fall back to the wordmark, not rely on WP
+        // core's silent-false behavior.
+        $this->seedAttachment(60, 'https://example.com/movie.mp4', '', false);
+        $logo = pp_resolve_logo(['logo_id' => 60, 'logo_text' => 'Wordmark']);
+        $this->assertSame('text', $logo['type']);
+        $this->assertSame('', $logo['url']);
+        $this->assertSame('Wordmark', $logo['text']);
+    }
+
+    public function testResolveTextWhenCustomLogoThemeModIsNonImage(): void
+    {
+        // The theme-mod custom_logo path is also covered by the explicit guard.
+        $this->seedAttachment(61, 'https://example.com/notimage.pdf', '', false);
+        $GLOBALS['_pp_test_store']['theme_mods']['custom_logo'] = 61;
+        $logo = pp_resolve_logo(['logo_text' => 'Brand']);
+        $this->assertSame('text', $logo['type']);
+        $this->assertSame('Brand', $logo['text']);
+    }
+
+    // ── #155: single logo_id value validation ───────────────────────────────
+
+    public function testValidateSingleLogoIdAllowsEmptyClearValues(): void
+    {
+        // Absent/cleared logo (empty per PHP empty()) — nothing to validate.
+        foreach (['', '0', 0, null, false] as $empty) {
+            $this->assertTrue(
+                _pp_validate_single_logo_id($empty),
+                sprintf('empty logo_id %s should pass', var_export($empty, true))
+            );
+        }
+    }
+
+    public function testValidateSingleLogoIdAcceptsImageId(): void
+    {
+        $this->seedAttachment(70, 'https://example.com/logo.png');
+        $this->assertTrue(_pp_validate_single_logo_id(70));
+        $this->assertTrue(_pp_validate_single_logo_id('70')); // integer-string
+    }
+
+    public function testValidateSingleLogoIdRejectsNonImage(): void
+    {
+        $this->seedAttachment(71, 'https://example.com/doc.pdf', '', false);
+        $result = _pp_validate_single_logo_id(71);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_logo_id', $result->get_error_code());
+    }
+
+    public function testValidateSingleLogoIdRejectsMalformedShapes(): void
+    {
+        // (int) coercion would silently accept these — the shape check must not.
+        $this->seedAttachment(12, 'https://example.com/img.png'); // real image ID 12
+        foreach (['12abc', '12.0', '-4', 'https://evil.test/x.png', [12], 12.0, true] as $bad) {
+            $result = _pp_validate_single_logo_id($bad);
+            $this->assertInstanceOf(
+                \WP_Error::class,
+                $result,
+                sprintf('malformed logo_id %s must be rejected', var_export($bad, true))
+            );
+            $this->assertSame('invalid_logo_id', $result->get_error_code());
+        }
+    }
+
+    // ── #155: params walker (mirrors #124 traversal) ────────────────────────
+
+    public function testValidateLogoIdsRejectsNonImageInFlatProps(): void
+    {
+        $this->seedAttachment(80, 'https://example.com/doc.pdf', '', false);
+        $result = _pp_validate_logo_ids_in_params(['props' => ['logo_id' => 80]]);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_logo_id', $result->get_error_code());
+    }
+
+    public function testValidateLogoIdsRejectsNonImageInComposition(): void
+    {
+        $this->seedAttachment(81, 'https://example.com/doc.pdf', '', false);
+        $params = ['composition' => [
+            ['component' => 'nav', 'props' => ['logo_id' => 81]],
+        ]];
+        $result = _pp_validate_logo_ids_in_params($params);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_logo_id', $result->get_error_code());
+    }
+
+    public function testValidateLogoIdsAcceptsValidAndEmpty(): void
+    {
+        $this->seedAttachment(82, 'https://example.com/logo.png');
+        $this->assertTrue(_pp_validate_logo_ids_in_params(['props' => ['logo_id' => 82]]));
+        $this->assertTrue(_pp_validate_logo_ids_in_params(['props' => ['heading' => 'Hi']]));
+        $this->assertTrue(_pp_validate_logo_ids_in_params([]));
+    }
+
+    /**
+     * Decision 3 (eng review): the logo_id walker must cover exactly the same
+     * locations as #124's URL walker so the two cannot drift. Feed one payload
+     * carrying both a logo_id and an image_url at each traversal location
+     * (flat props, composition[].props, items[]) and assert both extractors
+     * pull three values.
+     */
+    public function testLogoIdWalkerMirrorsUrlWalkerLocations(): void
+    {
+        $params = [
+            'props' => [
+                'logo_id'   => 1,
+                'image_url' => 'https://example.com/a.png',
+                'items'     => [
+                    ['logo_id' => 2, 'image_url' => 'https://example.com/b.png'],
+                ],
+            ],
+            'composition' => [
+                ['props' => [
+                    'logo_id'   => 3,
+                    'image_url' => 'https://example.com/c.png',
+                ]],
+            ],
+        ];
+        $this->assertCount(3, _pp_extract_logo_ids_from_params($params));
+        $this->assertCount(3, _pp_extract_urls_from_params($params));
+    }
+
+    // ── #155: wired into the central action-validation choke point ──────────
+
+    public function testActionValidationRejectsNonImageComponentLogoId(): void
+    {
+        // Runs before the action's own page-existence validate, so a bad
+        // logo_id short-circuits regardless of a real target page.
+        $this->seedAttachment(90, 'https://example.com/doc.pdf', '', false);
+        $result = pp_validate_action('update_component', [
+            'post_id' => 999,
+            'props'   => ['logo_id' => 90],
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_logo_id', $result->get_error_code());
+    }
 }
