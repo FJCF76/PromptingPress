@@ -322,7 +322,14 @@ if (!function_exists('has_nav_menu')) {
 
 if (!function_exists('wp_get_nav_menu_items')) {
     function wp_get_nav_menu_items($menu) {
-        return $GLOBALS['_pp_test_store']['nav_menu_items'][$menu] ?? false;
+        $items = $GLOBALS['_pp_test_store']['nav_menu_items'][$menu] ?? false;
+        if (!is_array($items)) {
+            return $items;
+        }
+        // Real WP orders by menu_order; usort is stable (PHP 8+), so items
+        // without a menu_order keep insertion order.
+        usort($items, fn($a, $b) => (int) ($a->menu_order ?? 0) <=> (int) ($b->menu_order ?? 0));
+        return $items;
     }
 }
 
@@ -364,10 +371,30 @@ if (!function_exists('wp_create_nav_menu')) {
     }
 }
 
+if (!function_exists('wp_delete_nav_menu')) {
+    function wp_delete_nav_menu($menu) {
+        $menus = $GLOBALS['_pp_test_store']['nav_menus'] ?? [];
+        if (!is_numeric($menu) || !isset($menus[(int) $menu])) {
+            return false;
+        }
+        unset($GLOBALS['_pp_test_store']['nav_menus'][(int) $menu]);
+        unset($GLOBALS['_pp_test_store']['nav_menu_items'][(int) $menu]);
+        return true;
+    }
+}
+
 if (!function_exists('wp_update_nav_menu_item')) {
     function wp_update_nav_menu_item(int $menu_id, int $menu_item_db_id = 0, array $menu_item_data = []) {
         if (!isset($GLOBALS['_pp_test_store']['nav_menus'][$menu_id])) {
             return new WP_Error('invalid_menu_id', 'Invalid menu ID.');
+        }
+
+        // Failure-injection knob: tests seed titles here to exercise the
+        // WP_Error paths (item recreation failing mid-restore, set_menu
+        // failing mid-loop) that are otherwise unreachable via the stubs.
+        $raw_title = (string) ($menu_item_data['menu-item-title'] ?? '');
+        if (in_array($raw_title, $GLOBALS['_pp_test_store']['fail_menu_item_titles'] ?? [], true)) {
+            return new WP_Error('item_create_failed', 'Simulated menu item failure.');
         }
 
         if (($menu_item_data['menu-item-type'] ?? '') === 'post_type') {
@@ -375,12 +402,27 @@ if (!function_exists('wp_update_nav_menu_item')) {
             $title   = $GLOBALS['_pp_test_store']['posts'][$post_id]['post_title'] ?? '';
             $url     = 'https://example.com/?p=' . $post_id;
         } else {
-            $title = $menu_item_data['menu-item-title'] ?? '';
+            $title = $raw_title;
             $url   = $menu_item_data['menu-item-url'] ?? '';
         }
 
         $item_id = $menu_item_db_id ?: $GLOBALS['_pp_test_store']['next_id']++;
-        $item    = (object) ['ID' => $item_id, 'title' => $title, 'url' => $url];
+        $item    = (object) [
+            'ID'               => $item_id,
+            'title'            => $title,
+            'url'              => $url,
+            // Recorded so tests can observe the batch-rollback restore's
+            // parents-first id remapping (_pp_restore_menu_state()).
+            'menu_item_parent' => (int) ($menu_item_data['menu-item-parent-id'] ?? 0),
+            // Recorded so tests can observe position + decorated-field
+            // preservation through clear/rebuild cycles.
+            'menu_order'       => (int) ($menu_item_data['menu-item-position'] ?? 0),
+            'target'           => (string) ($menu_item_data['menu-item-target'] ?? ''),
+            'classes'          => array_values(array_filter(explode(' ', (string) ($menu_item_data['menu-item-classes'] ?? '')))),
+            'xfn'              => (string) ($menu_item_data['menu-item-xfn'] ?? ''),
+            'attr_title'       => (string) ($menu_item_data['menu-item-attr-title'] ?? ''),
+            'description'      => (string) ($menu_item_data['menu-item-description'] ?? ''),
+        ];
 
         $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id][] = $item;
 

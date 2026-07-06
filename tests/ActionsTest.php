@@ -2680,6 +2680,389 @@ class ActionsTest extends TestCase
         $this->assertSame('.hero { color: red; }', $GLOBALS['_pp_test_store']['custom_css']);
     }
 
+    public function testBatchDeletesMenuCreatedInSameBatchOnLaterFailure(): void
+    {
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'create_menu', 'params' => ['name' => 'Batch Menu']],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+        $this->assertTrue($batch['steps'][0]['ok']);
+        // The menu created during the failed batch must not survive it.
+        $this->assertSame([], pp_get_menus());
+    }
+
+    public function testBatchRestoresMenuItemsReplacedBySetMenuOnLaterFailure(): void
+    {
+        $post_id = pp_create_page('Pricing', 'publish');
+        pp_execute_action('set_menu', [
+            'name'     => 'Main Menu',
+            'items'    => [
+                ['page_id' => $post_id],
+                ['url' => 'https://example.com/blog', 'label' => 'Blog'],
+            ],
+            'location' => 'primary',
+        ]);
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'set_menu', 'params' => [
+                'name'  => 'Main Menu',
+                'items' => [['url' => 'https://example.com/only', 'label' => 'Only Item']],
+            ]],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+
+        $menus = pp_get_menus();
+        $this->assertCount(1, $menus);
+        $this->assertCount(2, $menus[0]['items']);
+        $this->assertSame('Pricing', $menus[0]['items'][0]['title']);
+        $this->assertSame('Blog', $menus[0]['items'][1]['title']);
+        $this->assertSame('https://example.com/blog', $menus[0]['items'][1]['url']);
+        $this->assertSame('primary', $menus[0]['location']);
+    }
+
+    public function testBatchRestoresMenuLocationAssignmentOnLaterFailure(): void
+    {
+        $menu = pp_execute_action('create_menu', ['name' => 'Main Menu']);
+        $menu_id = $menu['target']['menu_id'] ?? $menu['changes']['menu_id'] ?? null;
+        $this->assertNotNull($menu_id);
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'assign_menu_location', 'params' => [
+                'menu_id' => $menu_id, 'location' => 'primary',
+            ]],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+        // The location assignment made during the failed batch is reverted.
+        $menus = pp_get_menus();
+        $this->assertCount(1, $menus);
+        $this->assertNull($menus[0]['location']);
+    }
+
+    public function testBatchKeepsMenuChangesWhenEveryStepSucceeds(): void
+    {
+        $post_id = pp_create_page('Pricing', 'publish');
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'set_menu', 'params' => [
+                'name'     => 'Main Menu',
+                'items'    => [['page_id' => $post_id]],
+                'location' => 'primary',
+            ]],
+        ]);
+
+        $this->assertTrue($batch['ok']);
+        $this->assertFalse($batch['rolled_back']);
+        $menus = pp_get_menus();
+        $this->assertCount(1, $menus);
+        $this->assertSame('primary', $menus[0]['location']);
+        $this->assertSame('Pricing', $menus[0]['items'][0]['title']);
+    }
+
+    public function testBatchRollbackRemapsNestedMenuItemParentsToNewIds(): void
+    {
+        $menu = pp_execute_action('create_menu', ['name' => 'Nested Menu']);
+        $menu_id = $menu['target']['menu_id'];
+
+        // Seed a nested item tree directly in the store (the actions' public
+        // surface has no parent support): the child is listed BEFORE its
+        // parent so the restore's parents-first rebuild must defer it to a
+        // second pass and remap its parent id.
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = [
+            (object) ['ID' => 9501, 'title' => 'Child', 'url' => 'https://example.com/child', 'menu_item_parent' => 9500],
+            (object) ['ID' => 9500, 'title' => 'Parent', 'url' => 'https://example.com/parent', 'menu_item_parent' => 0],
+        ];
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'add_menu_item', 'params' => [
+                'menu_id' => $menu_id, 'url' => 'https://example.com/new', 'label' => 'New',
+            ]],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+
+        $items = $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id];
+        $this->assertCount(2, $items);
+        $byTitle = [];
+        foreach ($items as $item) {
+            $byTitle[$item->title] = $item;
+        }
+        $this->assertSame(0, $byTitle['Parent']->menu_item_parent);
+        // The child's parent must be remapped to the parent's NEW item id —
+        // not left pointing at the stale pre-rollback id 9500.
+        $this->assertSame($byTitle['Parent']->ID, $byTitle['Child']->menu_item_parent);
+        $this->assertNotSame(9500, $byTitle['Child']->menu_item_parent);
+    }
+
+    public function testBatchRollbackRestoresItemWithMissingParentAsTopLevel(): void
+    {
+        $menu = pp_execute_action('create_menu', ['name' => 'Dangling Menu']);
+        $menu_id = $menu['target']['menu_id'];
+
+        // The item's parent id points at nothing in the snapshot (parent
+        // removed outside the menu APIs) — restore must not defer it
+        // forever; it comes back as a top-level item.
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = [
+            (object) ['ID' => 9601, 'title' => 'Orphan', 'url' => 'https://example.com/orphan', 'menu_item_parent' => 8888],
+        ];
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'add_menu_item', 'params' => [
+                'menu_id' => $menu_id, 'url' => 'https://example.com/x', 'label' => 'X',
+            ]],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertTrue($batch['rolled_back']);
+        $items = $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id];
+        $this->assertCount(1, $items);
+        $this->assertSame('Orphan', $items[0]->title);
+        $this->assertSame(0, $items[0]->menu_item_parent);
+    }
+
+    public function testBatchRollbackFlushesParentCycleAsTopLevelItems(): void
+    {
+        $menu = pp_execute_action('create_menu', ['name' => 'Cycle Menu']);
+        $menu_id = $menu['target']['menu_id'];
+
+        // A parent cycle can't exist in a real menu, but the restore loop
+        // must terminate anyway: a pass with no progress flushes the
+        // remainder as top-level instead of spinning forever.
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = [
+            (object) ['ID' => 9701, 'title' => 'Alpha', 'url' => 'https://example.com/a', 'menu_item_parent' => 9702],
+            (object) ['ID' => 9702, 'title' => 'Beta', 'url' => 'https://example.com/b', 'menu_item_parent' => 9701],
+        ];
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'add_menu_item', 'params' => [
+                'menu_id' => $menu_id, 'url' => 'https://example.com/x', 'label' => 'X',
+            ]],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertTrue($batch['rolled_back']);
+        $items = $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id];
+        $this->assertCount(2, $items);
+        foreach ($items as $item) {
+            $this->assertSame(0, $item->menu_item_parent);
+        }
+    }
+
+    public function testBatchRollbackRestoresMalformedSnapshotItemWithDefaults(): void
+    {
+        $menu = pp_execute_action('create_menu', ['name' => 'Sparse Menu']);
+        $menu_id = $menu['target']['menu_id'];
+
+        // Only ID present: snapshot items are whatever wp_get_nav_menu_items()
+        // returned, and the restore's field access must not assume any
+        // decoration beyond that (the ?? defaults in _pp_recreate_menu_item).
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = [
+            (object) ['ID' => 9801],
+        ];
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'add_menu_item', 'params' => [
+                'menu_id' => $menu_id, 'url' => 'https://example.com/x', 'label' => 'X',
+            ]],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertTrue($batch['rolled_back']);
+        $items = $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id];
+        $this->assertCount(1, $items);
+        $this->assertSame('', $items[0]->title);
+        $this->assertSame('', $items[0]->url);
+        $this->assertSame(0, $items[0]->menu_item_parent);
+    }
+
+    public function testFailedBatchWithoutMenuStepsLeavesExistingMenusUntouched(): void
+    {
+        pp_execute_action('set_menu', [
+            'name'     => 'Main Menu',
+            'items'    => [['url' => 'https://example.com/blog', 'label' => 'Blog']],
+            'location' => 'primary',
+        ]);
+        $before = $GLOBALS['_pp_test_store']['nav_menu_items'];
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'create_page', 'params' => ['title' => 'Unrelated']],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+        // No menu step in the batch — the menu snapshot is never taken and
+        // the restore path (which rewrites item ids) must never run.
+        $this->assertSame($before, $GLOBALS['_pp_test_store']['nav_menu_items']);
+        $menus = pp_get_menus();
+        $this->assertCount(1, $menus);
+        $this->assertSame('primary', $menus[0]['location']);
+    }
+
+    public function testBatchRollbackSkipsMenusUntouchedByTheBatch(): void
+    {
+        pp_execute_action('set_menu', [
+            'name'  => 'Untouched Menu',
+            'items' => [['url' => 'https://example.com/a', 'label' => 'A']],
+        ]);
+        $untouched_id = pp_get_menus()[0]['id'];
+        $before_items = $GLOBALS['_pp_test_store']['nav_menu_items'][$untouched_id];
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'set_menu', 'params' => [
+                'name'  => 'Target Menu',
+                'items' => [['url' => 'https://example.com/b', 'label' => 'B']],
+            ]],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertTrue($batch['rolled_back']);
+        // The untouched menu's items keep their exact objects and ids —
+        // rollback must not clear+rebuild a menu the batch never changed.
+        $this->assertSame($before_items, $GLOBALS['_pp_test_store']['nav_menu_items'][$untouched_id]);
+    }
+
+    public function testBatchRollbackPreservesDecoratedMenuItemFields(): void
+    {
+        $menu = pp_execute_action('create_menu', ['name' => 'Decorated Menu']);
+        $menu_id = $menu['target']['menu_id'];
+
+        // Raw post_title differs from the decorated ->title: restore must
+        // write the raw title back (a frozen resolved title breaks
+        // page-title inheritance), and must carry the decoration fields.
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = [
+            (object) [
+                'ID'               => 9700,
+                'post_title'       => 'Raw Label',
+                'title'            => 'Resolved Label',
+                'url'              => 'https://example.com/deco',
+                'menu_item_parent' => 0,
+                'menu_order'       => 3,
+                'target'           => '_blank',
+                'classes'          => ['cta', 'highlight'],
+                'xfn'              => 'me',
+                'attr_title'       => 'Hover text',
+                'description'      => 'A decorated item',
+            ],
+        ];
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'add_menu_item', 'params' => [
+                'menu_id' => $menu_id, 'url' => 'https://example.com/x', 'label' => 'X',
+            ]],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertTrue($batch['rolled_back']);
+        $items = $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id];
+        $this->assertCount(1, $items);
+        $this->assertSame('Raw Label', $items[0]->title);
+        $this->assertSame(3, $items[0]->menu_order);
+        $this->assertSame('_blank', $items[0]->target);
+        $this->assertSame(['cta', 'highlight'], $items[0]->classes);
+        $this->assertSame('me', $items[0]->xfn);
+        $this->assertSame('Hover text', $items[0]->attr_title);
+        $this->assertSame('A decorated item', $items[0]->description);
+    }
+
+    public function testBatchRollbackRestoresMenuItemPositionsFromMenuOrder(): void
+    {
+        $menu = pp_execute_action('create_menu', ['name' => 'Ordered Menu']);
+        $menu_id = $menu['target']['menu_id'];
+
+        // Array order contradicts menu_order: only position preservation can
+        // restore the real rendered order.
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = [
+            (object) ['ID' => 9901, 'title' => 'Second', 'url' => 'https://example.com/2', 'menu_item_parent' => 0, 'menu_order' => 2],
+            (object) ['ID' => 9902, 'title' => 'First', 'url' => 'https://example.com/1', 'menu_item_parent' => 0, 'menu_order' => 1],
+        ];
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'add_menu_item', 'params' => [
+                'menu_id' => $menu_id, 'url' => 'https://example.com/x', 'label' => 'X',
+            ]],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertTrue($batch['rolled_back']);
+        $items = wp_get_nav_menu_items($menu_id);
+        $this->assertCount(2, $items);
+        $this->assertSame('First', $items[0]->title);
+        $this->assertSame(1, $items[0]->menu_order);
+        $this->assertSame('Second', $items[1]->title);
+        $this->assertSame(2, $items[1]->menu_order);
+    }
+
+    public function testBatchRollbackContinuesWhenOneItemRecreationFails(): void
+    {
+        $menu = pp_execute_action('create_menu', ['name' => 'Flaky Menu']);
+        $menu_id = $menu['target']['menu_id'];
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = [
+            (object) ['ID' => 9500, 'title' => 'Parent', 'url' => 'https://example.com/p', 'menu_item_parent' => 0],
+            (object) ['ID' => 9501, 'title' => 'Child', 'url' => 'https://example.com/c', 'menu_item_parent' => 9500],
+        ];
+        // Simulated wp_update_nav_menu_item failure for the parent: the
+        // restore must keep going and degrade the child to top-level
+        // (a failed parent never enters the id remap).
+        $GLOBALS['_pp_test_store']['fail_menu_item_titles'] = ['Parent'];
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'add_menu_item', 'params' => [
+                'menu_id' => $menu_id, 'url' => 'https://example.com/x', 'label' => 'X',
+            ]],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+        unset($GLOBALS['_pp_test_store']['fail_menu_item_titles']);
+
+        $this->assertTrue($batch['rolled_back']);
+        $items = $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id];
+        $this->assertCount(1, $items);
+        $this->assertSame('Child', $items[0]->title);
+        $this->assertSame(0, $items[0]->menu_item_parent);
+    }
+
+    public function testSetMenuRestoresPreviousItemsWhenAnItemFailsMidLoop(): void
+    {
+        pp_execute_action('set_menu', [
+            'name'  => 'Main Menu',
+            'items' => [
+                ['url' => 'https://example.com/a', 'label' => 'Alpha'],
+                ['url' => 'https://example.com/b', 'label' => 'Beta'],
+            ],
+        ]);
+
+        // Second replacement item fails mid-loop: set_menu has already
+        // cleared the menu, so without its own restore the menu would be
+        // left with only 'Good' — the half-mutated state issue 137's batch
+        // layer prevents, now guaranteed at every entry point.
+        $GLOBALS['_pp_test_store']['fail_menu_item_titles'] = ['Bad'];
+        $result = pp_execute_action('set_menu', [
+            'name'  => 'Main Menu',
+            'items' => [
+                ['url' => 'https://example.com/good', 'label' => 'Good'],
+                ['url' => 'https://example.com/bad', 'label' => 'Bad'],
+            ],
+        ]);
+        unset($GLOBALS['_pp_test_store']['fail_menu_item_titles']);
+
+        $this->assertFalse($result['ok']);
+        $menus = pp_get_menus();
+        $this->assertCount(1, $menus);
+        $this->assertCount(2, $menus[0]['items']);
+        $this->assertSame('Alpha', $menus[0]['items'][0]['title']);
+        $this->assertSame('Beta', $menus[0]['items'][1]['title']);
+    }
+
     public function testBatchStopsExecutingAfterFirstFailure(): void
     {
         $id = pp_create_page('Stop Test', 'draft');
