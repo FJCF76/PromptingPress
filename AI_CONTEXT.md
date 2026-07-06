@@ -468,7 +468,7 @@ All mutations go through typed actions. AJAX handlers, WP-CLI, and future AI cal
 - `pp_validate_action($name, $params)` — structural + semantic validation, returns true|WP_Error
 - `pp_preview_action($name, $params)` — validates, computes diff, never writes
 - `pp_execute_action($name, $params)` — validates then executes, returns canonical result
-- `pp_ai_execute_batch($steps)` — executes an array of `['type','name','params']` steps atomically: snapshots every target first, rolls all of them back if any step fails (issue 137). Returns `['ok', 'steps', 'failed_at', 'rolled_back']`
+- `pp_ai_execute_batch($steps)` — executes an array of `['type','name','params']` steps atomically: snapshots every target first, rolls all of them back if any step fails (issue 137). Returns `['ok', 'steps', 'failed_at', 'rolled_back', 'rollback_errors']` — `rollback_errors` (string[]) names anything the rollback itself could not fully restore, so never treat `rolled_back: true` as a clean restore without checking it
 
 ### Actions
 
