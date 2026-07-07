@@ -32,6 +32,13 @@ class PP_Mock_Wpdb
     public string $options = 'wp_options';
     /** @var array|null The pp_token_overrides row the DB returns (null = no row). */
     public $db_overrides = null;
+    /**
+     * @var string|null Verbatim option_value bytes to return for the pp_token_overrides
+     * read, bypassing serialize(). Set this to simulate a corrupt/truncated/hand-edited
+     * row (anything that does not maybe_unserialize() to an array). Takes precedence over
+     * $db_overrides when non-null.
+     */
+    public $db_overrides_raw = null;
 
     public function prepare(string $query, ...$args): string
     {
@@ -49,6 +56,10 @@ class PP_Mock_Wpdb
         }
         // The in-lock authoritative read of pp_token_overrides (#97).
         if (strpos($sql, 'option_value') !== false && strpos($sql, 'pp_token_overrides') !== false) {
+            // A corrupt/truncated row (#207): return the raw bytes verbatim, unserialized.
+            if ($this->db_overrides_raw !== null) {
+                return $this->db_overrides_raw;
+            }
             return $this->db_overrides === null ? null : serialize($this->db_overrides);
         }
         return null;
@@ -283,6 +294,92 @@ class TokenLockTest extends TestCase
         $this->assertSame([], $snapshot, 'No overrides under a held lock is a recordable empty baseline, not null.');
         $releases = array_filter($wpdb->calls, fn ($c) => strpos($c, 'RELEASE_LOCK') !== false);
         $this->assertNotEmpty($releases, 'A lock that was acquired must be released.');
+    }
+
+    /**
+     * #207: under a HELD lock, a corrupt/unreadable pp_token_overrides row (anything that
+     * does not unserialize to an array) must snapshot as null — NOT [] — so the run's
+     * rollback baseline is never silently recorded as empty. Recording [] would make a
+     * later `apply restore` DELETE every touched token (the unset() branch of
+     * pp_revert_tokens) instead of restoring it. This is the sibling of #200's lock-
+     * failure fail-close, reached through the corrupt-row door.
+     */
+    public function testSnapshotReturnsNullOnCorruptOverridesRowUnderHeldLock(): void
+    {
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->get_lock_return = '1';                 // lock acquired
+        $wpdb->db_overrides_raw = 'a:1:{s:3:"--a";'; // truncated serialized row — unreadable
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $snapshot = pp_snapshot_token_overrides();
+
+        $this->assertNull($snapshot,
+            'A corrupt/unreadable overrides row must fail closed (null), not coerce to an [] baseline.');
+        $releases = array_filter($wpdb->calls, fn ($c) => strpos($c, 'RELEASE_LOCK') !== false);
+        $this->assertNotEmpty($releases, 'A lock that was acquired must still be released.');
+    }
+
+    /**
+     * #207 Option A boundary: the fail-closed distinction lives ONLY at the snapshot
+     * caller. The writer paths keep their pre-#207 "[]-means-start-fresh" handling of a
+     * corrupt row — a set on an unreadable row must merge onto [], not abort. This proves
+     * the shared _pp_read_token_overrides_locked() wrapper still coerces the strict null
+     * back to [] for writers.
+     */
+    public function testWriterTreatsCorruptOverridesRowAsStartFresh(): void
+    {
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->get_lock_return = '1';                 // lock acquired
+        $wpdb->db_overrides_raw = 'a:1:{s:3:"--a";'; // truncated serialized row — unreadable
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $result = pp_set_token_override('--color-accent', '#abcdef');
+
+        $this->assertTrue($result, 'A writer must still succeed on a corrupt row (start-fresh semantics).');
+        $this->assertSame(
+            ['--color-accent' => '#abcdef'],
+            $GLOBALS['_pp_test_store']['options']['pp_token_overrides'] ?? null,
+            'The write must merge onto a fresh [] baseline, not inherit the unreadable row.'
+        );
+    }
+
+    /**
+     * #207: a legitimately-empty overrides state stored as a serialized empty array
+     * (a:0:{}) must snapshot as [] — a valid recordable baseline — NOT be misclassified
+     * as corrupt (null). The writer paths delete_option() when empty, so a stored []
+     * is rare, but it must never be confused with an unreadable row.
+     */
+    public function testSnapshotReturnsEmptyArrayForSerializedEmptyArrayRow(): void
+    {
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->get_lock_return = '1';        // lock acquired
+        $wpdb->db_overrides = [];            // stored empty array → serialize() = 'a:0:{}'
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $snapshot = pp_snapshot_token_overrides();
+
+        $this->assertNotNull($snapshot, 'A serialized empty array is a valid empty baseline, not a corrupt row.');
+        $this->assertSame([], $snapshot, 'a:0:{} must snapshot as [], never null.');
+    }
+
+    /**
+     * #207: a serialized scalar (boolean/null/string) is a non-array row and must fail
+     * closed as null, exactly like truncated bytes. Covers the b:0; (false), N; (null),
+     * and s:5:"hello"; (string) shapes a hand-edit or a wrong writer could leave behind.
+     */
+    public function testSnapshotReturnsNullForSerializedScalarRows(): void
+    {
+        foreach (['b:0;', 'N;', 's:5:"hello";'] as $rawScalar) {
+            $wpdb = new PP_Mock_Wpdb();
+            $wpdb->get_lock_return = '1';           // lock acquired
+            $wpdb->db_overrides_raw = $rawScalar;   // serialized non-array value
+            $GLOBALS['wpdb'] = $wpdb;
+
+            $this->assertNull(
+                pp_snapshot_token_overrides(),
+                "A serialized scalar row ($rawScalar) must fail closed as null, not coerce to []."
+            );
+        }
     }
 
     public function testLockNameVariesByInstall(): void

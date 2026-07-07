@@ -645,15 +645,19 @@ class PP_Apply_Command extends WP_CLI_Command {
         // unlocked. First-write-wins inside the recorder keeps the rollback
         // baseline stable across re-runs.
         //
-        // The snapshot is read under the token lock for an atomic baseline. If the
-        // lock is contended it returns null rather than a stale, non-atomic read —
-        // recording that as the rollback baseline would let a later `apply restore`
-        // silently revert to a state that never existed. A null snapshot is a hard
-        // preflight failure: record nothing (leaving both gates fail-closed) and
-        // surface the contention so the operator can retry.
+        // The snapshot is read under the token lock for an atomic baseline. It returns
+        // null on either of two fail-closed conditions rather than a baseline that a
+        // later `apply restore` would wrongly roll back to:
+        //   - lock contended (#200): a stale, non-atomic read, or
+        //   - unreadable overrides row (#207): a corrupt/hand-edited pp_token_overrides
+        //     row that would otherwise be recorded as an empty [] baseline, causing
+        //     restore to DELETE the touched tokens instead of restoring them.
+        // Either way a null snapshot is a hard preflight failure: record nothing
+        // (leaving both gates fail-closed) and surface the cause so the operator can act
+        // (retry once contention clears; repair the corrupt row before re-running).
         $token_snapshot = pp_snapshot_token_overrides();
         if ($token_snapshot === null) {
-            WP_CLI::error('Could not read an atomic pre-apply token baseline for run token "' . $run_id . '": the token lock is contended. PREFLIGHT was not recorded. Re-run `wp pp apply preflight` once the contention clears.');
+            WP_CLI::error('Could not read an atomic pre-apply token baseline for run token "' . $run_id . '": the token lock is contended, or the pp_token_overrides row is corrupt/unreadable. PREFLIGHT was not recorded. Re-run `wp pp apply preflight` once the contention clears; if it persists, inspect and repair the pp_token_overrides option.');
         }
         if (!pp_operate_record_preflight($run_id, $context['post_id'] ?? null, $token_snapshot)) {
             WP_CLI::error('Could not record PREFLIGHT state for run token "' . $run_id . '". State file may be missing or expired. Re-run `wp pp operate inspect`.');
