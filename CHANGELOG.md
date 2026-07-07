@@ -4,6 +4,15 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.53] — 2026-07-07 — Post-apply site validation now flags a missing local image in any URL shape (#83)
+
+**After an apply, the site check that catches broken images used to miss a same-site image whenever its rendered URL didn't byte-match the uploads base URL — an `http` vs `https` or host mismatch. So a page could render an unresolvable image and still report "validation passed." It's caught now, in every URL shape.**
+
+`pp_post_apply_validate()` re-renders a page after an apply and flags images that point at missing Media Library files (`missing_local_media`). It only treated a rendered image or `background-image` URL as local to verify when the URL was byte-for-byte prefixed by the resolved uploads base URL. A same-site image whose scheme, host, port, or path shape differed even slightly — the exact situation on some setups where the live base URL comes back `https` while the rendered URL is `http` — was classed "external" and skipped, so an unresolvable image passed silently. This reuses the same-site URL matcher introduced in #153 so the post-apply validator and the action-param validator now agree on what "same-site" means.
+
+### Fixed
+- **A missing local image is flagged in any URL shape (#83).** The two rendered-HTML scan sites (`<img src>` and inline `background-image:url()`) now classify a same-site image via the origin-aware matcher instead of an exact base-URL prefix, so an unresolvable image written as an absolute-under-baseurl, site-relative `/wp-content/uploads/…`, protocol-relative, or `http`/`https`-swapped URL all correctly surface `missing_local_media`. A genuinely external image (a different host) stays skipped, unchanged. The relative-path derivation is percent-encoding safe, so a valid file referenced with an encoded uploads segment still resolves instead of false-flagging, and a `?ver=` cachebuster on a valid image no longer reports it missing.
+
 ## [v0.16.52] — 2026-07-07 — Media-URL validation now catches same-site images in any URL shape, and no longer fails open (#153)
 
 **A same-site image URL that pointed at a non-image attachment used to slip past validation whenever it wasn't written in the one exact canonical form — a relative `/wp-content/uploads/…` path, a CDN/offloaded URL, an `http`/`https` or `:443` variant. Those are all validated now, and a misconfigured uploads path no longer disables the check entirely.**

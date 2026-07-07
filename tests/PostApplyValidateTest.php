@@ -303,6 +303,150 @@ class PostApplyValidateTest extends TestCase
         $this->assertEmpty($result['errors']);
     }
 
+    // ── #83: same-site media classification (any URL shape) ──────────────
+    // Default test uploads baseurl is https://example.com/wp-content/uploads.
+
+    private function registerAttachment(int $id, string $relative): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][$id] = [
+            'post_type'   => 'attachment',
+            'post_status' => 'inherit',
+        ];
+        $GLOBALS['_pp_test_store']['post_meta'][$id] = ['_wp_attached_file' => $relative];
+    }
+
+    /** WP 7.0 regression: http URL vs https baseurl no longer misclassified as external. */
+    public function testSchemeMismatchedSameSiteImgMissingIsError(): void
+    {
+        $imgUrl = 'http://example.com/wp-content/uploads/2026/06/nope.jpg'; // http, baseurl is https
+        $this->createTestComponent('card', '<div><img src="' . $imgUrl . '" alt="x"></div>');
+        $this->setComposition([['component' => 'card', 'props' => [], 'style' => []]]);
+
+        $result = pp_post_apply_validate($this->postId);
+
+        $this->assertFalse($result['ok']);
+        $errors = array_filter($result['errors'], fn($e) => $e['check'] === 'missing_local_media');
+        $this->assertCount(1, $errors);
+        $this->assertStringContainsString('2026/06/nope.jpg', $errors[array_key_first($errors)]['message']);
+    }
+
+    /** Scheme-mismatched URL that IS in the library still passes (relative resolves). */
+    public function testSchemeMismatchedSameSiteImgInLibraryPasses(): void
+    {
+        $imgUrl = 'http://example.com/wp-content/uploads/2026/06/ok.jpg';
+        $this->createTestComponent('card', '<div><img src="' . $imgUrl . '" alt="x"></div>');
+        $this->setComposition([['component' => 'card', 'props' => [], 'style' => []]]);
+        $this->registerAttachment(210, '2026/06/ok.jpg');
+
+        $result = pp_post_apply_validate($this->postId);
+
+        $this->assertTrue($result['ok']);
+        $this->assertEmpty($result['errors']);
+    }
+
+    /** Site-relative uploads path is same-site and gets verified. */
+    public function testSiteRelativeSameSiteImgMissingIsError(): void
+    {
+        $imgUrl = '/wp-content/uploads/2026/06/rel.jpg';
+        $this->createTestComponent('card', '<div><img src="' . $imgUrl . '" alt="x"></div>');
+        $this->setComposition([['component' => 'card', 'props' => [], 'style' => []]]);
+
+        $result = pp_post_apply_validate($this->postId);
+
+        $this->assertFalse($result['ok']);
+        $errors = array_filter($result['errors'], fn($e) => $e['check'] === 'missing_local_media');
+        $this->assertCount(1, $errors);
+        $this->assertStringContainsString('2026/06/rel.jpg', $errors[array_key_first($errors)]['message']);
+    }
+
+    /** Protocol-relative same-site URL is verified. */
+    public function testProtocolRelativeSameSiteImgMissingIsError(): void
+    {
+        $imgUrl = '//example.com/wp-content/uploads/2026/06/proto.jpg';
+        $this->createTestComponent('card', '<div><img src="' . $imgUrl . '" alt="x"></div>');
+        $this->setComposition([['component' => 'card', 'props' => [], 'style' => []]]);
+
+        $result = pp_post_apply_validate($this->postId);
+
+        $this->assertFalse($result['ok']);
+        $errors = array_filter($result['errors'], fn($e) => $e['check'] === 'missing_local_media');
+        $this->assertCount(1, $errors);
+    }
+
+    /** The background-image scan uses the same classifier (both scan sites fixed). */
+    public function testSchemeMismatchedSameSiteBackgroundMissingIsError(): void
+    {
+        $bgUrl = 'http://example.com/wp-content/uploads/2026/06/bgnope.jpg';
+        $this->createTestComponent('hero', '<section style="background-image:url(' . $bgUrl . ')"><h1>Hi</h1></section>');
+        $this->setComposition([['component' => 'hero', 'props' => [], 'style' => []]]);
+
+        $result = pp_post_apply_validate($this->postId);
+
+        $this->assertFalse($result['ok']);
+        $errors = array_filter($result['errors'], fn($e) => $e['check'] === 'missing_local_media');
+        $this->assertCount(1, $errors);
+    }
+
+    /** A ?ver= cachebuster on a valid local image no longer reports it missing. */
+    public function testSameSiteImgWithQueryStringResolves(): void
+    {
+        $imgUrl = 'https://example.com/wp-content/uploads/2026/06/qs.jpg?ver=5';
+        $this->createTestComponent('card', '<div><img src="' . $imgUrl . '" alt="x"></div>');
+        $this->setComposition([['component' => 'card', 'props' => [], 'style' => []]]);
+        $this->registerAttachment(211, '2026/06/qs.jpg');
+
+        $result = pp_post_apply_validate($this->postId);
+
+        $this->assertTrue($result['ok']);
+        $this->assertEmpty($result['errors']);
+    }
+
+    /** Hostile near-match host (example.com.evil) is a different origin → skipped, not flagged. */
+    public function testHostileExternalNearMatchIsSkipped(): void
+    {
+        $imgUrl = 'https://example.com.evil/wp-content/uploads/2026/06/evil.jpg';
+        $this->createTestComponent('card', '<div><img src="' . $imgUrl . '" alt="x"></div>');
+        $this->setComposition([['component' => 'card', 'props' => [], 'style' => []]]);
+
+        $result = pp_post_apply_validate($this->postId);
+
+        $this->assertTrue($result['ok']);
+        $this->assertEmpty($result['errors']);
+    }
+
+    /** Same origin but OUTSIDE the uploads path (theme asset) is not a media lookup. */
+    public function testSameOriginOutsideUploadsIsSkipped(): void
+    {
+        $imgUrl = 'https://example.com/wp-content/themes/pp/assets/logo.png';
+        $this->createTestComponent('card', '<div><img src="' . $imgUrl . '" alt="x"></div>');
+        $this->setComposition([['component' => 'card', 'props' => [], 'style' => []]]);
+
+        $result = pp_post_apply_validate($this->postId);
+
+        $this->assertTrue($result['ok']);
+        $this->assertEmpty($result['errors']);
+    }
+
+    /**
+     * Regression (#83 codex adversarial): the classifier boundary-checks the
+     * decoded path but returns the encoded one, so deriving the relative path
+     * by byte-stripping the encoded form corrupted a percent-encoded uploads
+     * segment. A `%75ploads` (= "uploads") URL for a real file must still
+     * resolve to the stored relative path and PASS, not false-flag as missing.
+     */
+    public function testEncodedUploadsSegmentResolvesToStoredPath(): void
+    {
+        $imgUrl = 'https://example.com/wp-content/%75ploads/2026/06/enc.jpg';
+        $this->createTestComponent('card', '<div><img src="' . $imgUrl . '" alt="x"></div>');
+        $this->setComposition([['component' => 'card', 'props' => [], 'style' => []]]);
+        $this->registerAttachment(212, '2026/06/enc.jpg');
+
+        $result = pp_post_apply_validate($this->postId);
+
+        $this->assertTrue($result['ok']);
+        $this->assertEmpty($result['errors']);
+    }
+
     // ── DOM inspection: background-image:url() ───────────────────────────
 
     public function testEmptyBackgroundImageUrlIsError(): void

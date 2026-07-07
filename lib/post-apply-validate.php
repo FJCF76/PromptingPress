@@ -135,15 +135,24 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
                 continue;
             }
 
-            // Check if local URL.
-            if (strpos($src, $uploads_baseurl) === 0) {
+            // Classify as same-site media to verify. An exact byte-prefix match
+            // against the uploads baseurl is too brittle: a same-site URL whose
+            // scheme/host/port differs byte-for-byte (http vs https, :443, a
+            // site-relative or protocol-relative path) gets misclassified as
+            // external and skipped, so missing_local_media never fires for it
+            // (#83 — same defect class as #153 in the action-param validator).
+            // Reuse #153's origin-aware classifier (lib/actions.php) to derive
+            // the stored _wp_attached_file relative path; null => genuinely
+            // external (CDN/offloaded) and skipped.
+            $relative = _pp_uploads_relative_path($src, $uploads_baseurl);
+            if ($relative !== null) {
                 $local_urls_to_verify[$src] = [
                     'component_index' => $index,
                     'component_name'  => $name,
                     'element'         => 'img',
+                    'relative'        => $relative,
                 ];
             }
-            // External/CDN URLs skipped for MVP.
         }
 
         // 3b. Inline CSS background-image:url(...) references.
@@ -165,11 +174,14 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
                         continue;
                     }
 
-                    if (strpos($bg_url, $uploads_baseurl) === 0) {
+                    // Same origin-aware classification as the img src scan (#83).
+                    $relative = _pp_uploads_relative_path($bg_url, $uploads_baseurl);
+                    if ($relative !== null) {
                         $local_urls_to_verify[$bg_url] = [
                             'component_index' => $index,
                             'component_name'  => $name,
                             'element'         => 'background-image',
+                            'relative'        => $relative,
                         ];
                     }
                 }
@@ -222,10 +234,12 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
     // 5. Batch media library verification for local URLs.
     if (!empty($local_urls_to_verify)) {
         $relative_paths = [];
-        foreach (array_keys($local_urls_to_verify) as $url) {
-            // _wp_attached_file stores relative paths, strip uploads baseurl prefix.
-            $relative = str_replace($uploads_baseurl . '/', '', $url);
-            $relative_paths[$relative] = $url;
+        foreach ($local_urls_to_verify as $url => $info) {
+            // _pp_uploads_relative_path() already resolved the stored
+            // _wp_attached_file-relative form during classification (origin +
+            // uploads-path aware, query/fragment dropped), so we no longer
+            // re-derive it by byte-stripping the raw URL (#83).
+            $relative_paths[$info['relative']] = $url;
         }
 
         // Single batch query: find which relative paths exist in Media Library.
@@ -286,4 +300,65 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
         'warnings' => $warnings,
         'errors'   => $errors,
     ];
+}
+
+/**
+ * Resolves a rendered image/background URL to the `_wp_attached_file`-relative
+ * path used by the batch Media Library lookup, or null when the URL is
+ * genuinely external and should be skipped.
+ *
+ * Reuses #153's origin-aware classifier from lib/actions.php
+ * (_pp_canonicalize_same_site_url, always loaded before this file via both
+ * functions.php and tests/bootstrap.php) so the two media validators agree on
+ * what "same-site" means:
+ *
+ *   same-site (absolute-under-baseurl, site-relative, protocol-relative,
+ *     scheme- or default-port-mismatched)  → stored relative path (verify it)
+ *   same-origin but OUTSIDE the uploads path (/wp-content/themes/…, /about.jpg)
+ *                                            → null (canonicalizer rejects it)
+ *   different origin (CDN/offloaded/external) → null (skip; out of #83 scope)
+ *
+ * Only classification changed here (#83). Verification stays the exact
+ * `_wp_attached_file` batch query, so its pre-existing limits are unchanged and
+ * inherited, not introduced: size derivatives (image-1024x768.jpg vs the stored
+ * image.jpg) and CDN/offloaded resolution are still out of scope — the
+ * action-param validator (#153) owns those via attachment_url_to_postid().
+ *
+ * Query strings and fragments are dropped (the canonical path is used), which
+ * also removes the old str_replace path's `?ver=` false-missing class for free.
+ */
+function _pp_uploads_relative_path(string $url, string $uploads_baseurl): ?string {
+    // Same-site absolute/relative under the real uploads baseurl. The
+    // canonicalizer returns null unless the path sits under the uploads path,
+    // so a same-origin URL elsewhere on the site can't produce a bogus lookup.
+    if ($uploads_baseurl !== '') {
+        $canonical = _pp_canonicalize_same_site_url($url, $uploads_baseurl);
+        if ($canonical !== null) {
+            $base_path  = rtrim((string) parse_url($uploads_baseurl, PHP_URL_PATH), '/');
+            $canon_path = (string) parse_url($canonical, PHP_URL_PATH);
+            // The classifier guarantees `rawurldecode(url path)` sits under the
+            // (raw) $base_path — that is exactly the boundary it checks via
+            // _pp_path_is_under(). Strip on the SAME decoded path so a
+            // percent-encoded uploads segment (…/%75ploads/…) yields the real
+            // relative path (`foo.jpg`) instead of a length-shifted garbage
+            // slice. For an unencoded URL rawurldecode is a no-op, so this is
+            // identical to a plain strip; a DOM-decoded multibyte filename
+            // (café.jpg) has no `%` and stays byte-for-byte matched against
+            // _wp_attached_file.
+            return ltrim(substr(rawurldecode($canon_path), strlen($base_path)), '/');
+        }
+        return null;
+    }
+
+    // Fail-open parity with #153: when the uploads baseurl is empty/filtered we
+    // can't derive the real path, but a conventional site-relative uploads path
+    // is still verifiable rather than silently skipped.
+    if (_pp_url_is_relative_uploads_path($url)) {
+        // Decode first, mirroring _pp_url_is_relative_uploads_path()'s own
+        // decoded prefix test, so an encoded uploads segment strips cleanly.
+        $path = rawurldecode((string) parse_url(trim($url), PHP_URL_PATH));
+        return ltrim(substr($path, strlen('/wp-content/uploads')), '/');
+    }
+
+    return null;
 }

@@ -38,11 +38,11 @@
 
 - **Concurrent edit hash check for patch** — `pp_patch_composition()` currently has a TOCTOU gap: the composition can change between preview and apply. Add a content hash to `inspect-composition` output, accept it as an optional `--etag` flag on `patch`, and reject the apply if the composition changed. Single-operator use makes this low-risk for v1 but should be addressed before multi-operator scenarios. Deferred from Semantic Composition Operator v1 sprint (2026-06-12).
 
-- **Investigate broken-media missing_local_media validation on WP 7.0** — The E2E spec `validation.spec.ts › broken media` is quarantined (`test.fixme`): `style_component` succeeds but post-apply validation returns `ok=true` — `missing_local_media` does not fire for an unresolvable local image URL. Determine whether it's a product gap in `pp_post_apply_validate()` or a test-setup mismatch, then re-enable. See #83. Surfaced by /plan-eng-review D2 spike (2026-06-22).
-
 - **Positively track menus created during a batch instead of negative inference** — `_pp_restore_menu_state()` deletes ANY menu absent from the pre-batch snapshot, so a menu another admin creates in Appearance → Menus during the batch window would be destroyed by a rollback (and a menu they edit during the window is rebuilt to pre-batch state with all item ids churned). Track the term_ids the batch's own `create_menu`/`set_menu` steps created (mirroring `created_posts`) and delete only those. Belongs to the concurrency cluster (#13 optimistic locking, #113 preflight freshness) — single-operator run tokens make the window small today. Surfaced by /ship adversarial review, 2026-07-06.
 
 ## Completed
+
+- **Broken-media `missing_local_media` validation on WP 7.0** — Root cause was a product gap: `pp_post_apply_validate()` classified a rendered image as local only on an exact uploads-baseurl byte-prefix, so a scheme/host-mismatched same-site URL was skipped on WP 7.0. Fixed by reusing #153's same-site matcher; the quarantined E2E was re-enabled (its seed also needed `image`→`image_url` + a rendering variant to actually render the broken image). **Completed:** v0.16.53 (#83, 2026-07-07)
 
 - **`wp pp validate page` CLI command** — Shipped as `wp pp validate page --post_id=N [--component-index=N]` reusing `pp_post_apply_validate()` (issue #77 / PR #196), and documented in ai-instructions/validate-site.md. **Completed:** v0.16.46 (#196), documented v0.16.48 (2026-07-06)
 
