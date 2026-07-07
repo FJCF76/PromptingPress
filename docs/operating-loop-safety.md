@@ -70,6 +70,23 @@ target?* The match is strict and refuses to weaken:
 That strictness is the whole point. A preflight for post 4 never unlocks a write
 to post 7, and a site preflight never quietly unlocks a page edit.
 
+### Coverage proves a preflight ran; freshness proves it's still valid (#113)
+
+Coverage answers "did a preflight for this target run?" — but not "is the target
+still what the preflight checked?" Between a covering preflight and the mutation (or
+across two mutations after one preflight), the composition can change through another
+path: another CLI run, the dashboard editor, the publish flow. The mutation would
+then land on a state nobody preflighted.
+
+So a page-scoped preflight also records a **freshness marker** for the composition — a
+`{version, hash}` pair bumped on every write. A composition-mutating `action execute`
+or `operate patch` re-reads the live marker and rejects a target that changed since
+the preflight with a `composition_conflict` error. Your own run's sequential edits
+still flow, because the run's baseline refreshes to the new marker after each write;
+only a change from *another* path trips the gate. When it does, re-inspect and
+re-preflight. (Rejecting a concurrent write that lands in the instant between the
+freshness check and the write itself is a separate, tighter guarantee tracked as #13.)
+
 ### The loop runs PREFLIGHT before EDIT
 
 ```
