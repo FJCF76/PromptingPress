@@ -97,18 +97,21 @@ post-preflight state or none of it. Any failure leaves both the action gate and
 the apply gate fail-closed: no coverage recorded means no mutation unlocked.
 
 The rollback snapshot itself is read **under the token lock** for an atomic
-baseline, and it fails closed on two conditions rather than freezing a baseline a
+baseline, and it fails closed on three conditions rather than freezing a baseline a
 later `apply restore` would wrongly revert to. First, if the lock is contended —
 another writer is racing, exactly the case the baseline protects against — it
 refuses to degrade to a stale, non-atomic read. Second, if the stored
 `pp_token_overrides` row is unreadable — corrupt, truncated, or hand-edited into
-something that isn't an array — it refuses to treat that as "no overrides." That
-second case matters because an empty baseline is not harmless: `apply restore`
-reverts every touched token off an empty snapshot by **deleting** it, so recording
-`[]` for a corrupt row would turn a restore into silent token loss. In either case
+something that isn't an array — it refuses to treat that as "no overrides." Third,
+if the option read itself fails at the database (a query error on the `SELECT`,
+detected via a non-empty `$wpdb->last_error`), it refuses to mistake that failed
+read for a genuinely absent row. The last two cases matter because an empty
+baseline is not harmless: `apply restore` reverts every touched token off an empty
+snapshot by **deleting** it, so recording `[]` for a corrupt row or a failed read
+would turn a restore into silent token loss. In any of these cases
 `wp pp apply preflight` **errors and records nothing**. Re-run the preflight once
 the contention clears; if the error persists, inspect and repair the
-`pp_token_overrides` option — the row itself is unreadable.
+`pp_token_overrides` option, or check whether the database is erroring.
 
 ### Validate first, so errors point at the real problem
 

@@ -39,6 +39,17 @@ class PP_Mock_Wpdb
      * $db_overrides when non-null.
      */
     public $db_overrides_raw = null;
+    /**
+     * @var bool When true, the pp_token_overrides option SELECT simulates a DB read
+     * FAILURE (#212): get_var() returns null AND sets $last_error non-empty, exactly as
+     * wpdb does on a query error. Distinct from an absent row (null + empty last_error).
+     */
+    public bool $fail_option_read = false;
+    /**
+     * @var string Mirrors wpdb::$last_error. wpdb::query() flushes this to '' at the start
+     * of every query and repopulates it on error, so get_var() below resets it per call.
+     */
+    public string $last_error = '';
 
     public function prepare(string $query, ...$args): string
     {
@@ -51,11 +62,18 @@ class PP_Mock_Wpdb
     public function get_var(string $sql)
     {
         $this->calls[] = $sql;
+        // wpdb::query() flush()es last_error to '' at the start of every query.
+        $this->last_error = '';
         if (strpos($sql, 'GET_LOCK') !== false) {
             return $this->get_lock_return;
         }
         // The in-lock authoritative read of pp_token_overrides (#97).
         if (strpos($sql, 'option_value') !== false && strpos($sql, 'pp_token_overrides') !== false) {
+            // A DB read failure (#212): null return WITH a non-empty last_error.
+            if ($this->fail_option_read) {
+                $this->last_error = 'MySQL server has gone away';
+                return null;
+            }
             // A corrupt/truncated row (#207): return the raw bytes verbatim, unserialized.
             if ($this->db_overrides_raw !== null) {
                 return $this->db_overrides_raw;
@@ -380,6 +398,98 @@ class TokenLockTest extends TestCase
                 "A serialized scalar row ($rawScalar) must fail closed as null, not coerce to []."
             );
         }
+    }
+
+    /**
+     * #212: under a HELD lock, a DB READ FAILURE on the option SELECT (get_var() returns
+     * null AND sets last_error) must snapshot as null — NOT [] — completing the fail-closed
+     * trilogy (#200 lock-failure → #207 corrupt-row → #212 read-failure). get_var() returns
+     * null on both a genuinely absent row and a query failure; last_error is what tells them
+     * apart. Recording [] on a read failure would let a later `apply restore` DELETE every
+     * touched token, the exact silent loss the trilogy exists to prevent.
+     */
+    public function testSnapshotReturnsNullOnOptionReadFailureUnderHeldLock(): void
+    {
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->get_lock_return = '1';       // lock acquired (GET_LOCK succeeds)
+        $wpdb->fail_option_read = true;     // the option SELECT errors → null + last_error
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $snapshot = pp_snapshot_token_overrides();
+
+        $this->assertNull($snapshot,
+            'A DB read failure on the option SELECT must fail closed (null), not coerce to an [] baseline.');
+        $releases = array_filter($wpdb->calls, fn ($c) => strpos($c, 'RELEASE_LOCK') !== false);
+        $this->assertNotEmpty($releases, 'A lock that was acquired must still be released.');
+    }
+
+    /**
+     * #212: the null-vs-[] distinction the fix hinges on. A genuinely absent row (get_var()
+     * returns null with an EMPTY last_error — the query ran and matched nothing) must still
+     * snapshot as [] — a valid recordable empty baseline — preserving the #207 absent-row
+     * contract. Only a non-empty last_error turns null into a hard failure.
+     */
+    public function testSnapshotReturnsEmptyArrayForAbsentRowWithNoReadError(): void
+    {
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->get_lock_return = '1';       // lock acquired
+        $wpdb->db_overrides = null;         // absent row → get_var null, last_error stays ''
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $snapshot = pp_snapshot_token_overrides();
+
+        $this->assertSame('', $wpdb->last_error, 'An absent row is not an error — last_error must stay empty.');
+        $this->assertNotNull($snapshot, 'An absent row is a valid empty baseline, not a read failure.');
+        $this->assertSame([], $snapshot, 'A genuinely absent row must snapshot as [], never null.');
+    }
+
+    /**
+     * #212 boundary (mirrors the #207 writer test): the fail-closed distinction lives ONLY
+     * at the snapshot caller. A writer that hits a read failure keeps the pre-existing
+     * "[]-means-start-fresh" handling — the shared _pp_read_token_overrides_locked() wrapper
+     * coerces the strict null back to [] — so a set on a read failure merges onto [], not
+     * aborts. Writer paths must stay unchanged (issue #212 acceptance criteria).
+     */
+    public function testWriterTreatsOptionReadFailureAsStartFresh(): void
+    {
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->get_lock_return = '1';       // lock acquired
+        $wpdb->fail_option_read = true;     // the read-modify-write's read errors
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $result = pp_set_token_override('--color-accent', '#abcdef');
+
+        $this->assertTrue($result, 'A writer must still succeed on a read failure (start-fresh semantics).');
+        $this->assertSame(
+            ['--color-accent' => '#abcdef'],
+            $GLOBALS['_pp_test_store']['options']['pp_token_overrides'] ?? null,
+            'The write must merge onto a fresh [] baseline, not fail closed like the snapshot.'
+        );
+    }
+
+    /**
+     * #212 contract guard: the fix relies on wpdb::query() flushing last_error to '' at the
+     * START of every query, so error state from a PRIOR query can never be mistaken for a
+     * failure of the option SELECT. This asserts that reliance directly — a non-empty
+     * last_error left over from before the snapshot must NOT turn a genuinely absent row
+     * into a false-positive null. Both the successful GET_LOCK and the option read flush it,
+     * so a clean absent row still snapshots as []. Guards against a future mock/impl change
+     * that stops resetting last_error per query (which would silently break this invariant).
+     */
+    public function testStalePriorErrorDoesNotPoisonAbsentRowSnapshot(): void
+    {
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->get_lock_return = '1';       // lock acquired (GET_LOCK flushes last_error to '')
+        $wpdb->db_overrides = null;         // absent row
+        $wpdb->last_error = 'stale error from an earlier unrelated query';
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $snapshot = pp_snapshot_token_overrides();
+
+        $this->assertSame('', $wpdb->last_error,
+            'Each query flushes last_error; the option read must leave it empty on success.');
+        $this->assertSame([], $snapshot,
+            'A stale pre-operation last_error must not misclassify an absent row as a read failure.');
     }
 
     public function testLockNameVariesByInstall(): void
