@@ -230,7 +230,8 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_render_responsive_image($url, $alt, $class, $loading, $attachment_id)` | Renders `wp_get_attachment_image()` (real srcset/sizes) when `$attachment_id` resolves to an image attachment; plain escaped `<img src="$url">` otherwise |
 | `pp_render_faq_schema($items)` | Returns the FAQPage JSON-LD `<script>` block for faq items (plain-text-stripped), or `''` when no complete items |
 | `pp_default_homepage_composition()` | Default homepage component array (hero, section, cta) — single source of truth for activation seeding and blank-page fallback |
-| `pp_get_composition($post_id)` | Composition array for any page by ID (returns [] if absent) |
+| `pp_get_composition($post_id)` | Composition array for any page by ID (returns [] if absent, corrupt, or non-list) |
+| `pp_get_composition_result($post_id)` | State-classifying read: `['ok'=>bool,'composition'=>array,'error'=>?string,'raw'=>?string]`. Distinguishes absent vs empty `[]` vs `decode_error` (undecodable JSON) vs `unexpected_shape` (valid JSON that isn't a list, e.g. an object). Use this (not `pp_get_composition`) when a check must tell a corrupted page apart from a blank one; `wp pp check page`/`validate site`/`validate page` and `pp_inspect_site()` all surface its error (issue 144) |
 | `pp_composition_pages()`       | All composition pages: [{id, title, status, url}, ...] (static cached) |
 | `pp_get_menus()`               | All navigation menus: [{id, name, location (registered theme location or null), items: [{title, url}, ...]}, ...] (issue 132) |
 | `pp_create_nav_menu($name)`    | Creates a menu. Returns menu (term) ID\|WP_Error |
@@ -419,7 +420,7 @@ Pages using the **Composition** template store their layout in `_pp_composition`
 - Invalid compositions are rejected on save — the DB retains the last valid value
 - AI can write `_pp_composition` directly (via WP CLI or REST) — same format
 
-**To read the composition in PHP:** use `pp_composition()` (no args — reads the current loop post) or `pp_get_composition($post_id)` (any post by ID) from `lib/wp.php`. Both return `[]` when meta is absent or invalid JSON. Off the main loop, always pass an explicit `$post_id` via `pp_get_composition()`.
+**To read the composition in PHP:** use `pp_composition()` (no args — reads the current loop post) or `pp_get_composition($post_id)` (any post by ID) from `lib/wp.php`. Both return `[]` when meta is absent or invalid JSON. Off the main loop, always pass an explicit `$post_id` via `pp_get_composition()`. To tell an *absent* page apart from a *corrupted* one (undecodable JSON or a non-list shape), read through `pp_get_composition_result($post_id)` instead — the render path stays defensive (degrades to empty, never fatal), but inspect/check/validate act on its `error` (issue 144).
 
 **To write a composition as AI (preferred):**
 ```bash

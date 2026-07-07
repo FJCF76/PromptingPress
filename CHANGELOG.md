@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.56] — 2026-07-07 — A corrupted page composition is now flagged, not silently reported as blank (#144)
+
+**A page whose stored composition is corrupted — truncated JSON, a bad encoding, or a shape that isn't a list — used to look identical to a genuinely empty page in every inspection command. An agent that runs INSPECT before editing a page would see a clean "no smells" report and mutate against corrupt data. Corruption now surfaces as a distinct data-integrity signal in inspect, check, and validate, while page rendering stays defensive and degrades to empty rather than fataling.**
+
+`pp_get_composition()` collapsed four different states — absent meta, an empty `[]`, undecodable JSON, and valid-but-non-list JSON — into the same empty array. Since #119, `pp_inspect_site()` reads through it, so a corrupt page reported a clean INSPECT indistinguishable from a blank one. A new state-classifying accessor, `pp_get_composition_result()`, tells the four apart and becomes the single decode owner: `wp pp operate inspect` now carries a `composition_decode_error` field, and `wp pp check page`, `wp pp validate site`, and `wp pp validate page` report the corruption distinctly instead of "no composition." A JSON object (which decodes to an associative PHP array that a bare `is_array()` check would wrongly accept) is now correctly classified as an unexpected shape via a list check, and the falsy-but-present payload `"0"` is no longer mistaken for an absent page. `pp_get_composition()` becomes a thin wrapper that still degrades any corrupt or non-list row to `[]`, so template and front-page rendering never fatal on a bad row.
+
+### Fixed
+- **A corrupted composition is surfaced distinctly from an empty one (#144).** `pp_get_composition_result($post_id)` returns `['ok'=>bool,'composition'=>array,'error'=>?string,'raw'=>?string]`, distinguishing absent meta, empty `[]`, `decode_error` (undecodable JSON), and `unexpected_shape` (valid JSON that isn't a list). `pp_inspect_site()` exposes the error as `composition_decode_error`; `wp pp check page`, `wp pp validate site`, and `wp pp validate page` (`pp_post_apply_validate()`) all report the integrity error rather than treating a corrupt page as blank. Rendering paths are unchanged and still degrade to an empty page on a bad row. 24 new unit tests cover every state, the `array_is_list` shim (`pp_is_list()`, PHP 8.0 compatible), the `"0"` falsy-payload trap, an already-decoded associative-array fixture, and the front-page no-fatal regression.
+
+### For contributors
+- New `pp_get_composition_result()` and `pp_is_list()` in `lib/wp.php`; `AI_CONTEXT.md` documents the classifying accessor and when to use it over `pp_get_composition()`.
+
 ## [v0.16.55] — 2026-07-07 — AI-chat history is now private to each WordPress user, even on a shared browser (#157)
 
 **Two WordPress admins who share one computer login and browser used to see each other's AI-chat conversation history, because the chat was saved under a key tied only to the site, not the user. It's now saved per site and per user, so your chat history stays yours. If a page ever loads without a valid user id, the chat simply won't persist that session rather than fall back to a shared bucket.**
