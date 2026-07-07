@@ -1,6 +1,6 @@
 # Component: logos
 
-A flex-wrap image grid. Use for client logo strips (items without labels) or icon-category tiles (items with labels). Both use cases share the same component and CSS — the `label` field controls the layout variant.
+A flex-wrap image grid. Use for client logo strips (items without labels) or icon-category tiles (items with labels). Both use cases share the same component and CSS — the `label` field controls which layout renders.
 
 ## Props
 
@@ -8,7 +8,7 @@ A flex-wrap image grid. Use for client logo strips (items without labels) or ico
 |---------|--------|----------|---------|-------------|
 | `id`    | string | No       | `''`    | HTML id for anchor linking |
 | `title` | string | No       | `''`    | Optional heading above the grid |
-| `variant` | enum | No       | `default` | Background presentation: `default` (page background), `dark` (surface background with borders), `inverted` (inverted background for strong contrast) |
+| `theme`   | enum | No       | `default` | Background color/tone: `default` (page background), `dark` (surface background with borders), `inverted` (inverted background for strong contrast) |
 | `items` | array  | Yes      | —       | Array of image items |
 
 Each item:

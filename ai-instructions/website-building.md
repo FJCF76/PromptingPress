@@ -9,7 +9,7 @@ Every visual change maps to exactly one mutation surface. Writing to the wrong s
 | Page layout (which components, what order) | `_pp_composition` post meta | `update_composition` or `add_component` action |
 | Component content (text, images, URLs) | `_pp_composition` post meta | `update_component` action |
 | Site-wide colors, spacing, fonts | `pp_token_overrides` option (defaults in `base.css`) | `update_design_token` apply |
-| Component variants (dark, inverted, steps) | `_pp_composition` post meta | `update_component` action (set `variant` or `theme` prop) |
+| Component structure + tone (steps layout, dark/inverted theme) | `_pp_composition` post meta | `update_component` action (set `layout` or `theme` prop) |
 | Component-specific CSS (spacing, layout) | `assets/css/components.css` | Direct file edit (BEM classes, token values only) |
 | Site name, tagline | WordPress options | `update_site_option` action |
 | Site logo (nav, and footer via `show_logo`) | WordPress option (Media Library attachment) | `update_site_option` action (key `pp_logo_id`, an attachment ID) |
@@ -63,6 +63,6 @@ At 1280px+ viewport width, verify:
 ## Composition is not a presentation-polish tool
 
 Hero's `width` and `spacing` props are structural knobs, not fixes for a page that feels cramped, memo-like, or visually weak (issue 51). Reaching for `width: narrow` or `spacing: compact` repeatedly across a page is a symptom, not a solution — it produces a composition that is structurally valid but visually worse. If a page feels wrong:
-- Prefer a `hero`/`section` variant change, an image, or a different component (grid, stats) to break up rhythm — not a narrower/tighter version of the same layout.
-- A `hero` with `variant: left` needs a balancing image; without one, use `centered` or `split`.
+- Prefer a `hero`/`section` `layout` or `theme` change, an image, or a different component (grid, stats) to break up rhythm — not a narrower/tighter version of the same layout.
+- A `hero` with `layout: left` needs a balancing image; without one, use `centered` or `split`.
 - Three or more consecutive components with `width: narrow`, or three or more with `spacing: compact`, will surface as a `consecutive_narrow_width`/`consecutive_compact_spacing` composition smell in `wp pp check page` — treat that as a signal to change the component or its content, not to suppress the warning by varying the count.

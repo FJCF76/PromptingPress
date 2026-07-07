@@ -345,14 +345,14 @@ function pp_validate_composition_smells(array $composition): array {
         }
         $props = is_array($item['props'] ?? null) ? $item['props'] : [];
         $component = $item['component'] ?? '';
-        $variant = $props['variant'] ?? 'centered';
+        $hero_layout = $props['layout'] ?? 'centered';
         $image_url = $props['image_url'] ?? '';
 
         // Hero left without image
-        if ($component === 'hero' && $variant === 'left' && empty($image_url)) {
+        if ($component === 'hero' && $hero_layout === 'left' && empty($image_url)) {
             $warnings[] = [
                 'type' => 'hero_left_no_image',
-                'message' => 'Hero variant "left" without an image creates unbalanced dead space on desktop. Consider "centered" or "split" with an image.',
+                'message' => 'Hero layout "left" without an image creates unbalanced dead space on desktop. Consider "centered" or "split" with an image.',
                 'index' => $i,
             ];
         }

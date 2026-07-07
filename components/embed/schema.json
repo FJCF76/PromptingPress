@@ -19,12 +19,12 @@
       "required": true,
       "description": "WP shortcode string or pre-rendered HTML. Passed through do_shortcode() and wp_kses_post(). Example: '[contact-form-7 id=\"123\"]'."
     },
-    "variant": {
+    "theme": {
       "type": "enum",
       "values": ["default", "dark", "inverted"],
       "required": false,
       "default": "default",
-      "description": "Background presentation. 'default' = page background. 'dark' = surface background with borders. 'inverted' = inverted background for strong contrast."
+      "description": "Background color/tone. 'default' = page background. 'dark' = surface background with borders. 'inverted' = inverted background for strong contrast."
     }
   },
   "styling": {

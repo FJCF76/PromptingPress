@@ -26,7 +26,7 @@ pp_base_template(function () {
         'subtitle' => pp_field('lp_hero_subtitle') ?: 'One sentence that explains what you do and who it is for.',
         'cta_text' => pp_field('lp_cta_text')      ?: 'Get Started',
         'cta_url'  => pp_field('lp_cta_url')       ?: '#contact',
-        'variant'  => 'centered',
+        'layout'   => 'centered',
     ]);
 
     // What is it — narrative section
@@ -86,7 +86,7 @@ pp_base_template(function () {
         'text'        => pp_field('lp_final_cta_text')   ?: 'One sentence reinforcing the value.',
         'button_text' => pp_field('lp_final_cta_button') ?: 'Start Now',
         'button_url'  => pp_field('lp_final_cta_url')    ?: '#contact',
-        'variant'     => 'full-width',
+        'layout'      => 'full-width',
     ]);
 
 });

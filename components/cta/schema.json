@@ -1,6 +1,6 @@
 {
   "component": "cta",
-  "description": "Call-to-action block with title, optional supporting text, and a button. Two variants: full-width (centered, bg surface) and inline (flex row).",
+  "description": "Call-to-action block with title, optional supporting text, and a button. Two layouts: full-width (centered, bg surface) and inline (flex row).",
   "props": {
     "id": {
       "type": "string",
@@ -41,19 +41,19 @@
       "required": true,
       "description": "Button destination URL."
     },
-    "variant": {
+    "layout": {
       "type": "enum",
       "values": ["full-width", "inline"],
       "required": false,
       "default": "full-width",
-      "description": "'full-width' — centered block with surface background. 'inline' — flex row, text left, button right."
+      "description": "Structural layout. 'full-width' — centered block with surface background. 'inline' — flex row, text left, button right."
     },
     "theme": {
       "type": "enum",
       "values": ["default", "dark", "inverted"],
       "required": false,
       "default": "default",
-      "description": "Color theme. 'default' = surface/page background. 'dark' = dark surface. 'inverted' = inverted background for strong contrast. Combines with variant for layout + color."
+      "description": "Color theme. 'default' = surface/page background. 'dark' = dark surface. 'inverted' = inverted background for strong contrast. Combines with layout for structure + color."
     },
     "background_image": {
       "type": "string",

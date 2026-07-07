@@ -17,7 +17,7 @@ The format is AI-native: the same JSON a human edits in the admin meta box is wh
 
 ```json
 [
-  { "component": "hero",    "props": { "title": "Welcome", "variant": "centered" }, "style": { "--hero-bg": "#0d1117", "--hero-text": "#f0f0f0" } },
+  { "component": "hero",    "props": { "title": "Welcome", "layout": "centered" }, "style": { "--hero-bg": "#0d1117", "--hero-text": "#f0f0f0" } },
   { "component": "section", "props": { "body": "<p>Content.</p>" } },
   { "component": "faq",     "props": { "items": [{ "question": "Q?", "answer": "A." }] } },
   { "component": "cta",     "props": { "title": "Go", "button_text": "Click", "button_url": "/" } }
@@ -38,22 +38,22 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 
 | Name    | Required props                          | Optional props (selection)                              |
 |---------|-----------------------------------------|---------------------------------------------------------|
-| hero    | title                                   | title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, variant, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof |
-| section | body                                    | title, title_accent, eyebrow, subheading, heading_align, layout, variant, image_url, image_id, image_alt, background_image |
+| hero    | title                                   | title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, layout, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof |
+| section | body                                    | title, title_accent, eyebrow, subheading, heading_align, layout, theme, image_url, image_id, image_alt, background_image |
 | faq     | items[] {question, answer}              | title, title_accent                                     |
-| grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, heading_align, variant, theme |
+| grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, heading_align, layout, theme |
 | table   | headers[], rows[][]                     | title, caption                                          |
-| cta     | title, button_text, button_url          | title_accent, eyebrow, text, variant, theme, background_image, button_variant |
+| cta     | title, button_text, button_url          | title_accent, eyebrow, text, layout, theme, background_image, button_variant |
 | nav     | (no required props)                     | location, logo_text, logo_id, logo_alt                  |
 | footer  | (no required props)                     | location, show_logo, logo_text, logo_id, logo_alt       |
-| stats   | items[] {number, label}                 | title, title_accent, variant, background_image          |
-| logos   | items[] {image_url, image_alt, image_id?, label?} | title, variant                                |
-| embed   | content                                 | title, variant                                          |
-| testimonials | items[] {quote}                    | title, title_accent, eyebrow, subheading, heading_align, variant, theme |
+| stats   | items[] {number, label}                 | title, title_accent, theme, background_image            |
+| logos   | items[] {image_url, image_alt, image_id?, label?} | title, theme                                  |
+| embed   | content                                 | title, theme                                            |
+| testimonials | items[] {quote}                    | title, title_accent, eyebrow, subheading, heading_align, layout, theme |
 
-### section.variant
+### section.theme
 
-Controls per-section background for visual rhythm on marketing pages.
+Controls per-section background color/tone for visual rhythm on marketing pages. (Independent of `section.layout`.)
 
 | Value      | Effect                                                      |
 |------------|-------------------------------------------------------------|
@@ -63,8 +63,8 @@ Controls per-section background for visual rhythm on marketing pages.
 
 Example — alternating section rhythm:
 ```json
-{ "component": "section", "props": { "body": "<p>...</p>", "variant": "dark" } },
-{ "component": "section", "props": { "body": "<p>...</p>", "variant": "inverted" } }
+{ "component": "section", "props": { "body": "<p>...</p>", "theme": "dark" } },
+{ "component": "section", "props": { "body": "<p>...</p>", "theme": "inverted" } }
 ```
 
 ### section.layout
@@ -78,20 +78,20 @@ Example — alternating section rhythm:
 
 `text-only` fills the container width — titles and headings match adjacent components (grid, table, CTA). Prose text is constrained for readable line length. `centered` constrains the body block to a narrower column with center-aligned text — use for short intros and taglines, not for multi-paragraph marketing content.
 
-### grid.variant: "steps"
+### grid.layout: "steps"
 
 Renders numbered process cards. Use for How-It-Works or sequential flows. Cards get a filled circular number badge and a subtle connector line between badges at desktop (1024px+).
 
-- Set `variant: "steps"` on the grid
+- Set `layout: "steps"` on the grid (the default `layout` is `cards`)
 - Include a `number` field on each item (`"1"`, `"01"`, `"Step 1"`, etc.)
-- Images are suppressed in steps variant; use title + text only
+- Images are suppressed in the steps layout; use title + text only
 
 ```json
 {
   "component": "grid",
   "props": {
     "title": "How it works",
-    "variant": "steps",
+    "layout": "steps",
     "items": [
       { "number": "1", "title": "Sign up", "text": "Create your account." },
       { "number": "2", "title": "Configure", "text": "Set your preferences." },
@@ -143,7 +143,7 @@ wp pp apply execute import_media --run-id=<uuid> --params='{"url":"https://examp
 Then set both fields on the component:
 
 ```json
-{ "component": "hero", "props": { "variant": "split", "image_url": "https://yoursite.com/wp-content/uploads/2026/07/logo.png", "image_id": 123, "image_alt": "Client logo" } }
+{ "component": "hero", "props": { "layout": "split", "image_url": "https://yoursite.com/wp-content/uploads/2026/07/logo.png", "image_id": 123, "image_alt": "Client logo" } }
 ```
 
 Always verify against `components/{name}/schema.json` before writing — the source of truth.
@@ -161,7 +161,7 @@ Always verify against `components/{name}/schema.json` before writing — the sou
 
 # Update a composition on page ID 42
 wp pp action execute update_composition --run-id=<uuid> --params='{"post_id":42,"composition":[
-  {"component":"hero","props":{"title":"My Page","variant":"centered"}},
+  {"component":"hero","props":{"title":"My Page","layout":"centered"}},
   {"component":"section","props":{"body":"<p>Content goes here.</p>","layout":"text-only"}}
 ]}'
 
@@ -228,7 +228,7 @@ wp post meta update 42 _pp_composition '[
       "subtitle": "A theme designed for AI-first editing.",
       "cta_text": "Get Started",
       "cta_url": "/docs",
-      "variant": "centered"
+      "layout": "centered"
     }
   },
   {
@@ -244,7 +244,7 @@ wp post meta update 42 _pp_composition '[
       "title": "Ready to build?",
       "button_text": "View on GitHub",
       "button_url": "https://github.com/FJCF76/PromptingPress",
-      "variant": "full-width"
+      "layout": "full-width"
     }
   }
 ]'

@@ -116,7 +116,7 @@ test.describe('Post-Apply Validation', () => {
         component: 'hero',
         props: {
           title: 'Hero With Bad Image',
-          variant: 'cover',
+          layout: 'cover',
           image_url: 'http://localhost:8889/wp-content/uploads/2026/06/nonexistent-image.jpg',
         },
       },

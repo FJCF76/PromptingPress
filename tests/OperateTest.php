@@ -248,7 +248,7 @@ class OperateTest extends TestCase
         // must read it through pp_get_composition() so smells are detected.
         $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Smelly Page', 'post_status' => 'publish']);
         update_post_meta($post_id, '_pp_composition', json_encode([
-            ['component' => 'hero', 'props' => ['id' => 'pp-hero1111', 'variant' => 'left']],
+            ['component' => 'hero', 'props' => ['id' => 'pp-hero1111', 'layout' => 'left']],
         ]));
 
         $result = pp_inspect_site($post_id);
@@ -312,7 +312,7 @@ class OperateTest extends TestCase
     {
         $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Smelly Page', 'post_status' => 'publish']);
         update_post_meta($post_id, '_pp_composition', json_encode([
-            ['component' => 'hero', 'props' => ['id' => 'pp-hero1111', 'variant' => 'left']],
+            ['component' => 'hero', 'props' => ['id' => 'pp-hero1111', 'layout' => 'left']],
         ]));
 
         $result = pp_inspect_site($post_id);

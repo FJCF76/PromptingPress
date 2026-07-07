@@ -12,15 +12,15 @@ Responsive card grid for discrete content objects. Use this for blog post listin
 | `eyebrow`       | string | No       | `''`      | Short kicker/label rendered as a pill above the title |
 | `subheading`    | string | No       | `''`      | Supporting line below the title |
 | `heading_align` | enum   | No       | `'start'` | Header block alignment: `start` / `center` |
-| `variant`       | enum   | No       | `'default'` | Layout: `default` (card grid) / `steps` (numbered process cards) |
-| `theme`         | enum   | No       | `'default'` | Background color: `default` / `dark` / `inverted` (independent of `variant`) |
+| `layout`        | enum   | No       | `'cards'`   | Structural layout: `cards` (card grid) / `steps` (numbered process cards) |
+| `theme`         | enum   | No       | `'default'` | Background color: `default` / `dark` / `inverted` (independent of `layout`) |
 | `items`         | array  | Yes      | —         | Array of card objects |
 
 Each item in `items`:
 
 | Key         | Type   | Required | Default        | Description |
 |-------------|--------|----------|----------------|-------------|
-| `number`    | string | No*      | —              | Step number label, e.g. `'1'`. *Required when `variant` is `'steps'`. |
+| `number`    | string | No*      | —              | Step number label, e.g. `'1'`. *Required when `layout` is `'steps'`. |
 | `title`     | string | No       | `''`           | Card heading (h3) |
 | `text`      | string | No       | `''`           | Card body text |
 | `bullets`   | array  | No       | —              | Checklist lines rendered below `text`, each prefixed with a check mark. Plain text only. |
@@ -38,9 +38,9 @@ Each item in `items`:
 | Tablet (md 768px+) | 2  |
 | Desktop (lg 1024px+) | 3 |
 
-## Steps variant
+## Steps layout
 
-Set `variant: 'steps'` for a numbered process/how-it-works layout. Cards get a filled circular number badge and a subtle connector line between badges at desktop (1024px+). `theme` still controls background color independently of the steps layout.
+Set `layout: 'steps'` for a numbered process/how-it-works layout (the default `layout` is `cards`). Cards get a filled circular number badge and a subtle connector line between badges at desktop (1024px+). `theme` still controls background color independently of the steps layout.
 
 ## Usage
 

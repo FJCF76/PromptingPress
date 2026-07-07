@@ -26,7 +26,7 @@ pp_base_template(function () {
 
     pp_get_component('hero', [
         'title'   => $archive_title,
-        'variant' => 'left',
+        'layout' => 'left',
     ]);
 
     // Iterate WordPress's own main query for this route (issue 126) — it is

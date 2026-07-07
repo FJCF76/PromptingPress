@@ -19,7 +19,7 @@ $image_url        = $props['image_url']        ?? '';
 $image_alt        = $props['image_alt']        ?? '';
 $image_id         = (int) ($props['image_id']  ?? 0);
 $layout           = $props['layout']           ?? 'text-only';
-$variant          = $props['variant']          ?? 'default';
+$theme            = $props['theme']            ?? 'default';
 $background_image = $props['background_image'] ?? '';
 
 $allowed_layouts = ['text-only', 'image-left', 'image-right', 'centered'];
@@ -33,9 +33,9 @@ if ($layout !== 'centered' && !$image_url) {
     $layout = 'text-only';
 }
 
-$allowed_variants = ['default', 'dark', 'inverted'];
-if (!in_array($variant, $allowed_variants, true)) {
-    $variant = 'default';
+$allowed_themes = ['default', 'dark', 'inverted'];
+if (!in_array($theme, $allowed_themes, true)) {
+    $theme = 'default';
 }
 
 $allowed_heading_aligns = ['start', 'center'];
@@ -44,7 +44,7 @@ if (!in_array($heading_align, $allowed_heading_aligns, true)) {
 }
 $header_align_class = $heading_align === 'center' ? ' section__header--center' : '';
 
-$variant_class = $variant !== 'default' ? ' pp-section--' . $variant : '';
+$theme_class = $theme !== 'default' ? ' pp-section--' . $theme : '';
 $bg_image_class = $background_image ? ' section--has-bg-image' : '';
 
 // Style slot overrides (per-instance visual customization).
@@ -60,7 +60,7 @@ if ($background_image) {
 $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"' : '';
 
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="section section--<?php echo esc_attr($layout); ?><?php echo esc_attr($variant_class); ?><?php echo esc_attr($bg_image_class); ?>" data-pp-component="section"<?php echo $style_attr; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="section section--<?php echo esc_attr($layout); ?><?php echo esc_attr($theme_class); ?><?php echo esc_attr($bg_image_class); ?>" data-pp-component="section"<?php echo $style_attr; ?>>
     <?php if ($background_image) : ?>
         <div class="section__overlay" aria-hidden="true"></div>
     <?php endif; ?>

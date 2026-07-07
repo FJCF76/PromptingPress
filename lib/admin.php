@@ -84,6 +84,65 @@ function pp_normalize_composition(array $items): array {
             unset($items[$i]['style']);
         }
     }
+    // TRANSITIONAL (issue #69): rewrite the legacy `variant` prop to the new
+    // `layout`/`theme` split. Remove this call (and pp_migrate_legacy_variant_keys)
+    // at the v1.0.0 tag — v1 ships the consistent naming with no permanent alias.
+    return pp_migrate_legacy_variant_keys($items);
+}
+
+/**
+ * TRANSITIONAL one-time shim (issue #69) — REMOVE AT v1.0.0 TAG.
+ *
+ * Before v1, `variant` meant two different things depending on the component:
+ * a structural mode on hero/grid/cta/testimonials, and a color/tone preset on
+ * section/stats/logos/embed. v1 splits these into `layout` (structure) and
+ * `theme` (tone) so no component uses `variant` for two meanings. This rewrites
+ * any legacy `variant` key on stored or AI-authored compositions to the new key
+ * so existing content renders unchanged. It is deliberately NOT a permanent
+ * alias: delete it once dev/poc compositions are migrated (by the v1.0.0 tag).
+ *
+ * Mapping:
+ *   structural (variant -> layout): hero, grid, cta, testimonials
+ *     grid also renames the value `default` -> `cards`
+ *   tone       (variant -> theme):  section, stats, logos, embed
+ * An explicit new key already present wins; the legacy `variant` is then dropped.
+ *
+ * @param  array $items  Composition array (component key already canonicalized).
+ * @return array         Composition array with legacy `variant` keys migrated.
+ */
+function pp_migrate_legacy_variant_keys(array $items): array {
+    static $structural = ['hero', 'grid', 'cta', 'testimonials'];
+    static $tone       = ['section', 'stats', 'logos', 'embed'];
+
+    foreach ($items as $i => $item) {
+        if (!is_array($item) || !isset($item['props']) || !is_array($item['props'])) {
+            continue;
+        }
+        if (!array_key_exists('variant', $item['props'])) {
+            continue;
+        }
+        $component = (string) ($item['component'] ?? $item['type'] ?? '');
+
+        if (in_array($component, $structural, true)) {
+            $target = 'layout';
+        } elseif (in_array($component, $tone, true)) {
+            $target = 'theme';
+        } else {
+            // Unknown/other component: no defined mapping, leave props untouched.
+            continue;
+        }
+
+        $value = $item['props']['variant'];
+        // grid renamed its default structural value.
+        if ($component === 'grid' && $value === 'default') {
+            $value = 'cards';
+        }
+        // An explicit new key wins; otherwise carry the legacy value across.
+        if (!array_key_exists($target, $item['props'])) {
+            $items[$i]['props'][$target] = $value;
+        }
+        unset($items[$i]['props']['variant']);
+    }
     return $items;
 }
 
@@ -383,10 +442,17 @@ function pp_composition_workspace_page(): void {
     }
 
     $raw        = get_post_meta($post_id, '_pp_composition', true);
-    // Pretty-print stored JSON so the editor shows readable multi-line content
+    // Pretty-print stored JSON so the editor shows readable multi-line content.
+    // For a valid list composition, also migrate any legacy `variant` key so the
+    // editor never surfaces the retired prop on a pre-rename page (issue #69 read
+    // path — remove with the shim at v1.0.0). A corrupt/non-list payload is shown
+    // raw and unmigrated so the operator can still repair it.
     if ($raw) {
-        $decoded = json_decode($raw);
-        if ($decoded !== null) {
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            if (pp_is_list($decoded)) {
+                $decoded = pp_migrate_legacy_variant_keys($decoded);
+            }
             $raw = json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
         }
     }

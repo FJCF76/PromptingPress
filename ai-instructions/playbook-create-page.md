@@ -20,7 +20,7 @@ Run `wp pp operate inspect`. Review:
 ### 2. PLAN
 Map the brief to PromptingPress components:
 - Hero, section, grid, CTA, FAQ, stats, footer, etc.
-- Choose variants and layouts based on the brief's intent
+- Choose layouts and themes based on the brief's intent
 - Plan the composition array (component order, props)
 - Note any design token changes needed (stored in database, not file-based)
 

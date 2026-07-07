@@ -11,18 +11,18 @@
 
 $id      = $props['id']      ?? '';
 $title   = $props['title']   ?? '';
-$variant = $props['variant'] ?? 'default';
+$theme = $props['theme'] ?? 'default';
 $items   = $props['items']   ?? [];
 
-$allowed_variants = ['default', 'dark', 'inverted'];
-if (!in_array($variant, $allowed_variants, true)) {
-    $variant = 'default';
+$allowed_themes = ['default', 'dark', 'inverted'];
+if (!in_array($theme, $allowed_themes, true)) {
+    $theme = 'default';
 }
 
-$variant_class = $variant !== 'default' ? ' logos--' . $variant : '';
+$theme_class = $theme !== 'default' ? ' logos--' . $theme : '';
 
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="logos<?php echo esc_attr($variant_class); ?>" data-pp-component="logos">
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="logos<?php echo esc_attr($theme_class); ?>" data-pp-component="logos">
     <div class="container">
 
         <?php if ($title) : ?>

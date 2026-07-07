@@ -196,18 +196,18 @@ function pp_ai_system_prompt(): string {
     $parts[] = '- Match images to the task by filename and alt text. Copy the full URL exactly as listed. Never invent, guess, or modify URLs.';
     $parts[] = '- If the Media Library section shows no images, tell the user no images are available. Do not hallucinate URLs. To bring in an external image (e.g. a brand\'s real logo) as a locally-owned asset, use the `import_media` apply — it returns `{attachment_id, url}`.';
     $parts[] = '- Foreground images require `image_alt` (non-empty, descriptive):';
-    $parts[] = '  - hero (variant: "split"): `image_url` + `image_alt`, optionally `image_id` (Media Library attachment ID from `import_media`) for responsive srcset/sizes output';
+    $parts[] = '  - hero (layout: "split"): `image_url` + `image_alt`, optionally `image_id` (Media Library attachment ID from `import_media`) for responsive srcset/sizes output';
     $parts[] = '  - section (layout: "image-left" or "image-right"): `image_url` + `image_alt`, optionally `image_id` (same as hero)';
-    $parts[] = '  - grid items (default variant only): `items[].image_url` + `items[].image_alt`';
+    $parts[] = '  - grid items (cards layout only): `items[].image_url` + `items[].image_alt`';
     $parts[] = '  - logos items: `items[].image_url` + `items[].image_alt`, optionally `items[].image_id` (same as hero)';
     $parts[] = '  - nav/footer: `logo_id` (Media Library attachment ID, not a URL) + `logo_alt`';
     $parts[] = '- Background images (no `image_alt` needed):';
-    $parts[] = '  - hero (variant: "cover"): `image_url` rendered as CSS background-image';
+    $parts[] = '  - hero (layout: "cover"): `image_url` rendered as CSS background-image';
     $parts[] = '  - section: `background_image`';
     $parts[] = '  - cta: `background_image`';
     $parts[] = '  - stats: `background_image`';
     $parts[] = '- Image focal point / aspect ratio: when an image crops badly (off-center subject) or needs a specific box shape, use `style_component` on the `position`-typed slot (`--hero-image-position`, `--section-image-position`, or the four `--{component}-bg-position` slots for background images) and, for hero/section content images only, the `ratio`-typed `--hero-image-aspect-ratio`/`--section-image-aspect-ratio` slots. Not available for logos or the plain `image_url`/`background_image` fallback path — these are style slots, set via `style_component`, not props.';
-    $parts[] = '- Grid component: images only render in the default variant, not the steps variant.';
+    $parts[] = '- Grid component: images only render in the cards layout, not the steps layout.';
     $parts[] = '- When editing a single item in a grid or logos component, pass the complete `items` array with the modification applied at the correct index. `update_component` uses shallow merge, not positional patching.';
 
     return implode("\n", $parts);
@@ -370,12 +370,14 @@ function _pp_summarize_component(array $item, ?array $inspect_target = null): st
     }
     $parts = [$name_str];
 
-    // Variant or layout (the main structural differentiator)
-    if (!empty($props['variant'])) {
-        $parts[] = "variant: {$props['variant']}";
-    }
+    // Structural layout (the main structural differentiator) and, separately,
+    // the color/tone theme — kept distinct so inspect never conflates the two
+    // (issue #69: `variant` was split into `layout` + `theme`).
     if (!empty($props['layout'])) {
         $parts[] = "layout: {$props['layout']}";
+    }
+    if (!empty($props['theme'])) {
+        $parts[] = "theme: {$props['theme']}";
     }
 
     // Title (short identifier)

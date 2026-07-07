@@ -34,7 +34,7 @@ class HeroCompositionTest extends TestCase
     {
         $html = $this->render([
             'title' => 'Test',
-            'variant' => 'split',
+            'layout' => 'split',
             'split_ratio' => '60-40',
         ]);
         $this->assertStringContainsString('data-pp-split-ratio="60-40"', $html);
@@ -44,7 +44,7 @@ class HeroCompositionTest extends TestCase
     {
         $html = $this->render([
             'title' => 'Test',
-            'variant' => 'split',
+            'layout' => 'split',
             'split_ratio' => '40-60',
         ]);
         $this->assertStringContainsString('data-pp-split-ratio="40-60"', $html);
@@ -54,7 +54,7 @@ class HeroCompositionTest extends TestCase
     {
         $html = $this->render([
             'title' => 'Test',
-            'variant' => 'split',
+            'layout' => 'split',
             'split_ratio' => '50-50',
         ]);
         $this->assertStringNotContainsString('data-pp-split-ratio', $html);
@@ -64,7 +64,7 @@ class HeroCompositionTest extends TestCase
     {
         $html = $this->render([
             'title' => 'Test',
-            'variant' => 'split',
+            'layout' => 'split',
             'split_ratio' => '70-30',
         ]);
         $this->assertStringNotContainsString('data-pp-split-ratio', $html);
@@ -74,7 +74,7 @@ class HeroCompositionTest extends TestCase
     {
         $html = $this->render([
             'title' => 'Test',
-            'variant' => 'centered',
+            'layout' => 'centered',
             'split_ratio' => '60-40',
         ]);
         $this->assertStringNotContainsString('data-pp-split-ratio', $html);
@@ -86,7 +86,7 @@ class HeroCompositionTest extends TestCase
     {
         $html = $this->render([
             'title' => 'Test',
-            'variant' => 'cover',
+            'layout' => 'cover',
             'vertical_align' => 'top',
         ]);
         $this->assertStringContainsString('data-pp-vertical-align="top"', $html);
@@ -96,7 +96,7 @@ class HeroCompositionTest extends TestCase
     {
         $html = $this->render([
             'title' => 'Test',
-            'variant' => 'split',
+            'layout' => 'split',
             'vertical_align' => 'bottom',
         ]);
         $this->assertStringContainsString('data-pp-vertical-align="bottom"', $html);
@@ -106,7 +106,7 @@ class HeroCompositionTest extends TestCase
     {
         $html = $this->render([
             'title' => 'Test',
-            'variant' => 'cover',
+            'layout' => 'cover',
             'vertical_align' => 'center',
         ]);
         $this->assertStringNotContainsString('data-pp-vertical-align', $html);
@@ -116,7 +116,7 @@ class HeroCompositionTest extends TestCase
     {
         $html = $this->render([
             'title' => 'Test',
-            'variant' => 'cover',
+            'layout' => 'cover',
             'vertical_align' => 'middle',
         ]);
         $this->assertStringNotContainsString('data-pp-vertical-align', $html);
@@ -126,7 +126,7 @@ class HeroCompositionTest extends TestCase
     {
         $html = $this->render([
             'title' => 'Test',
-            'variant' => 'centered',
+            'layout' => 'centered',
             'vertical_align' => 'top',
         ]);
         $this->assertStringNotContainsString('data-pp-vertical-align', $html);
@@ -168,7 +168,7 @@ class HeroCompositionTest extends TestCase
     {
         $html = $this->render([
             'title' => 'Test',
-            'variant' => 'split',
+            'layout' => 'split',
             'proof' => '<p class="hero__surface-label">Workflow surface</p>',
         ]);
         $this->assertStringContainsString('hero__surface', $html);

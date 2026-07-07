@@ -76,7 +76,7 @@ When building or editing components:
 
 ## Desktop width expectations
 
-Hero width and spacing props serve variant-specific layout needs. All other
+Hero width and spacing props serve layout-specific needs. All other
 components use CSS defaults — no composition-level layout overrides.
 
 A page built with all-default composition props should look credible on desktop.

@@ -17,17 +17,17 @@
 $id      = $props['id']      ?? '';
 $title   = $props['title']   ?? '';
 $content = $props['content'] ?? '';
-$variant = $props['variant'] ?? 'default';
+$theme = $props['theme'] ?? 'default';
 
-$allowed_variants = ['default', 'dark', 'inverted'];
-if (!in_array($variant, $allowed_variants, true)) {
-    $variant = 'default';
+$allowed_themes = ['default', 'dark', 'inverted'];
+if (!in_array($theme, $allowed_themes, true)) {
+    $theme = 'default';
 }
 
-$variant_class = $variant !== 'default' ? ' embed--' . $variant : '';
+$theme_class = $theme !== 'default' ? ' embed--' . $theme : '';
 
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="embed<?php echo esc_attr($variant_class); ?>" data-pp-component="embed">
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="embed<?php echo esc_attr($theme_class); ?>" data-pp-component="embed">
     <div class="container">
 
         <?php if ($title) : ?>

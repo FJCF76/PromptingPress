@@ -18,7 +18,7 @@ $cta2_text = $props['cta2_text'] ?? '';
 $cta2_url  = $props['cta2_url']  ?? '#';
 $cta_variant  = $props['cta_variant']  ?? 'primary';
 $cta2_variant = $props['cta2_variant'] ?? 'outline';
-$variant   = $props['variant']   ?? 'centered';
+$layout    = $props['layout']    ?? 'centered';
 $image_url = $props['image_url'] ?? '';
 $image_alt = $props['image_alt'] ?? '';
 $image_id  = (int) ($props['image_id'] ?? 0);
@@ -28,10 +28,10 @@ $split_ratio     = $props['split_ratio']     ?? '50-50';
 $vertical_align  = $props['vertical_align']  ?? 'center';
 $proof           = $props['proof']           ?? '';
 
-// Validate variant.
-$allowed_variants = ['left', 'centered', 'split', 'cover'];
-if (!in_array($variant, $allowed_variants, true)) {
-    $variant = 'centered';
+// Validate layout.
+$allowed_layouts = ['left', 'centered', 'split', 'cover'];
+if (!in_array($layout, $allowed_layouts, true)) {
+    $layout = 'centered';
 }
 
 // Validate CTA button variants (same shared .btn--* primitive as components/cta/cta.php).
@@ -68,8 +68,8 @@ if (!in_array($vertical_align, $allowed_vertical_aligns, true)) {
 
 $spacing_attr        = $spacing !== 'default' ? ' data-pp-spacing="' . esc_attr($spacing) . '"' : '';
 $width_attr          = $width !== 'default' ? ' data-pp-width="' . esc_attr($width) . '"' : '';
-$split_ratio_attr    = ($variant === 'split' && $split_ratio !== '50-50') ? ' data-pp-split-ratio="' . esc_attr($split_ratio) . '"' : '';
-$vertical_align_attr = (in_array($variant, ['cover', 'split'], true) && $vertical_align !== 'center') ? ' data-pp-vertical-align="' . esc_attr($vertical_align) . '"' : '';
+$split_ratio_attr    = ($layout === 'split' && $split_ratio !== '50-50') ? ' data-pp-split-ratio="' . esc_attr($split_ratio) . '"' : '';
+$vertical_align_attr = (in_array($layout, ['cover', 'split'], true) && $vertical_align !== 'center') ? ' data-pp-vertical-align="' . esc_attr($vertical_align) . '"' : '';
 $proof_markup        = trim((string) $proof);
 
 // Style slot overrides (per-instance visual customization).
@@ -80,13 +80,13 @@ $inline_styles = [];
 if ($slot_style) {
     $inline_styles[] = $slot_style;
 }
-if ($variant === 'cover' && $image_url) {
+if ($layout === 'cover' && $image_url) {
     $inline_styles[] = 'background-image:url(' . pp_esc_image_src($image_url) . ')';
 }
 $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"' : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="hero hero--<?php echo esc_attr($variant); ?>" data-pp-component="hero"<?php echo $spacing_attr; ?><?php echo $width_attr; ?><?php echo $split_ratio_attr; ?><?php echo $vertical_align_attr; ?><?php echo $style_attr; ?>>
-    <?php if ($variant === 'cover') : ?>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="hero hero--<?php echo esc_attr($layout); ?>" data-pp-component="hero"<?php echo $spacing_attr; ?><?php echo $width_attr; ?><?php echo $split_ratio_attr; ?><?php echo $vertical_align_attr; ?><?php echo $style_attr; ?>>
+    <?php if ($layout === 'cover') : ?>
         <div class="hero__overlay" aria-hidden="true"></div>
     <?php endif; ?>
     <div class="container">
@@ -114,16 +114,16 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                     </div>
                 <?php endif; ?>
 
-                <?php if ($proof_markup && $variant !== 'split') : ?>
+                <?php if ($proof_markup && $layout !== 'split') : ?>
                     <div class="hero__proof"><?php echo wp_kses_post($proof_markup); ?></div>
                 <?php endif; ?>
             </div>
 
-            <?php if ($variant === 'split' && $proof_markup) : ?>
+            <?php if ($layout === 'split' && $proof_markup) : ?>
                 <div class="hero__surface" aria-label="Product workflow surface">
                     <?php echo wp_kses_post($proof_markup); ?>
                 </div>
-            <?php elseif ($variant === 'split' && $image_url) : ?>
+            <?php elseif ($layout === 'split' && $image_url) : ?>
                 <div class="hero__image-wrap">
                     <?php echo pp_render_responsive_image($image_url, $image_alt, 'hero__image', 'eager', $image_id); ?>
                 </div>

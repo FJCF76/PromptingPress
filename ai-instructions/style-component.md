@@ -95,8 +95,8 @@ The `position` and `ratio` types (#108) control image focal point and aspect rat
 per-instance. `position` accepts 1-2 keyword/length tokens (no functions, no `var()`);
 `ratio` accepts `auto` (natural proportions) or a number/fraction. `--{hero,section}-image-position`
 and `--{hero,section}-image-aspect-ratio` control the content `<img>` (hero's split
-variant, section's image-left/image-right); `--{hero,section,cta,stats}-bg-position`
-controls the `background_image`/cover-variant CSS background. Not exposed on logos
+layout, section's image-left/image-right); `--{hero,section,cta,stats}-bg-position`
+controls the `background_image`/cover-layout CSS background. Not exposed on logos
 (fixed `object-fit: contain` layout, not a crop model).
 
 > **Button and text styling are PROPS, not style slots.** A CTA's button style
