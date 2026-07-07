@@ -597,4 +597,78 @@ class TokenLockTest extends TestCase
         $this->assertSame(_pp_composition_lock_name(10), _pp_composition_lock_name(10), 'Stable per post.');
         $this->assertNotSame(_pp_composition_lock_name(10), _pp_composition_lock_name(11), 'Distinct per post.');
     }
+
+    // ── Write-time compare-and-swap (#13) ──────────────────────────────────
+
+    public function testUpdateCompositionCasMatchWritesAndBumps(): void
+    {
+        // expected_version matches the fresh in-lock DB version → the write proceeds and the
+        // version bumps normally.
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->db_composition_version = '5';
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $result = pp_update_composition(90, [['component' => 'hero', 'props' => ['title' => 'M']]], 5);
+
+        $this->assertTrue($result);
+        $this->assertSame(6, (int) get_post_meta(90, '_pp_composition_version', true), 'Matched CAS bumps 5→6.');
+        unset($GLOBALS['_pp_test_store']['post_meta'][90]);
+    }
+
+    public function testUpdateCompositionCasMismatchReturnsConflictAndWritesNothing(): void
+    {
+        // An interleaved external write bumped the version (DB=9) after the caller read v5.
+        // The CAS must reject with composition_conflict and touch NOTHING — not the
+        // composition, not either marker — but still release the lock it took (finally).
+        update_post_meta(91, '_pp_composition', 'SENTINEL_JSON');
+        update_post_meta(91, '_pp_composition_hash', 'SENTINEL_HASH');
+        update_post_meta(91, '_pp_composition_version', 9);
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->db_composition_version = '9'; // DB truth moved to 9 since the caller read 5
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $result = pp_update_composition(91, [['component' => 'hero', 'props' => ['title' => 'STALE']]], 5);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('composition_conflict', $result->get_error_code());
+        // Markers and composition unchanged — a rejected write leaves state exactly as it was.
+        $this->assertSame('SENTINEL_JSON', get_post_meta(91, '_pp_composition', true), 'Composition must be untouched on conflict.');
+        $this->assertSame('SENTINEL_HASH', get_post_meta(91, '_pp_composition_hash', true), 'Hash marker must be untouched on conflict.');
+        $this->assertSame(9, (int) get_post_meta(91, '_pp_composition_version', true), 'Version marker must not bump on conflict.');
+        // The lock is still acquired and released even when the CAS rejects inside it.
+        $releases = array_filter($wpdb->calls, fn ($c) => strpos($c, 'RELEASE_LOCK') !== false);
+        $this->assertCount(1, $releases, 'The lock must be released even on a CAS conflict.');
+        unset($GLOBALS['_pp_test_store']['post_meta'][91]);
+    }
+
+    public function testUpdateCompositionCasNullSkipsCheck(): void
+    {
+        // Back-compat: a null expected_version skips the CAS entirely, so a legacy/direct
+        // caller writes unconditionally regardless of the current version.
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->db_composition_version = '9';
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $result = pp_update_composition(92, [['component' => 'hero', 'props' => ['title' => 'N']]], null);
+
+        $this->assertTrue($result, 'Omitted expected_version must still write.');
+        $this->assertSame(10, (int) get_post_meta(92, '_pp_composition_version', true), 'No CAS → normal bump 9→10.');
+        unset($GLOBALS['_pp_test_store']['post_meta'][92]);
+    }
+
+    public function testUpdateCompositionCasLegacyZeroInitializes(): void
+    {
+        // A legacy/never-written page has no marker → the in-lock read is 0. A caller that
+        // read that absent marker sends expected_version=0; it matches and the write
+        // initializes the marker to version 1.
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->db_composition_version = null; // absent row → 0
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $result = pp_update_composition(93, [['component' => 'hero', 'props' => ['title' => 'L']]], 0);
+
+        $this->assertTrue($result, 'expected_version=0 against an absent marker must write.');
+        $this->assertSame(1, (int) get_post_meta(93, '_pp_composition_version', true), 'First write initializes to v1.');
+        unset($GLOBALS['_pp_test_store']['post_meta'][93]);
+    }
 }

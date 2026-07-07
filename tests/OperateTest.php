@@ -1103,6 +1103,36 @@ class OperateTest extends TestCase
         $this->assertSame('/new', $comp[0]['props']['button_url']);
     }
 
+    public function testPatchCompositionThreadsCasBaseline(): void
+    {
+        // The operate patch path (wp pp operate <page> --target=... --value=...) routes
+        // through the update_component action. When the caller supplies the freshness
+        // baseline, a stale one must conflict and a current one must apply (#13).
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Patch CAS', 'post_status' => 'publish']);
+        // Seed through pp_update_composition so the freshness marker exists (→ v1).
+        pp_update_composition($post_id, [
+            ['component' => 'cta', 'props' => ['title' => 'Join', 'button_text' => 'Old', 'button_url' => '/old']],
+        ]);
+        $this->assertSame(1, pp_get_composition_marker($post_id)['version']);
+
+        // Stale baseline (0) → composition_conflict, nothing written.
+        $stale = pp_patch_composition($post_id, 'cta.button_text', 'New', false, 0);
+        $this->assertFalse($stale['ok']);
+        $this->assertSame('composition_conflict', $stale['error_code']);
+        $this->assertSame('Old', pp_get_composition($post_id)[0]['props']['button_text'], 'Conflict must not write.');
+
+        // Current baseline (1) → applies and bumps.
+        $ok = pp_patch_composition($post_id, 'cta.button_text', 'New', false, 1);
+        $this->assertTrue($ok['ok']);
+        $this->assertSame('New', pp_get_composition($post_id)[0]['props']['button_text']);
+        $this->assertSame(2, pp_get_composition_marker($post_id)['version']);
+
+        // Null baseline (default) → back-compat, writes without CAS.
+        $nocas = pp_patch_composition($post_id, 'cta.button_text', 'Newer');
+        $this->assertTrue($nocas['ok']);
+        $this->assertSame('Newer', pp_get_composition($post_id)[0]['props']['button_text']);
+    }
+
     public function testPatchCtaDeadFieldsNowFailNotEditable(): void
     {
         // Regression (#120 write path): before the fix, patching these dead

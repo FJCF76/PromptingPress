@@ -1435,13 +1435,17 @@ function _pp_pick_nested_match_field(string $component_type): ?string {
  * Parses the selector, resolves the target component, checks field editability,
  * and routes through the update_component action for preview or apply.
  *
- * @param int    $post_id          The WordPress post ID.
- * @param string $selector_string  Semantic selector (e.g. "hero.subtitle").
- * @param string $value            The new value for the targeted field.
- * @param bool   $preview          If true, return diff without writing.
+ * @param int      $post_id          The WordPress post ID.
+ * @param string   $selector_string  Semantic selector (e.g. "hero.subtitle").
+ * @param string   $value            The new value for the targeted field.
+ * @param bool     $preview          If true, return diff without writing.
+ * @param int|null $expected_version Optimistic-locking baseline (#13) threaded into the
+ *                                   update_component action so the apply is an atomic
+ *                                   compare-and-swap. Null skips the CAS (preview / callers
+ *                                   without a run baseline).
  * @return array|WP_Error  Preview diff or action result, or WP_Error.
  */
-function pp_patch_composition(int $post_id, string $selector_string, string $value, bool $preview = false) {
+function pp_patch_composition(int $post_id, string $selector_string, string $value, bool $preview = false, ?int $expected_version = null) {
     // 1. Parse selector
     $parsed = pp_parse_composition_selector($selector_string);
     if (is_wp_error($parsed)) {
@@ -1572,6 +1576,11 @@ function pp_patch_composition(int $post_id, string $selector_string, string $val
     // 6. Preview or apply
     if ($preview) {
         return pp_preview_action('update_component', $action_params);
+    }
+    // Thread the optimistic-locking baseline (#13) into the apply so the write is an
+    // atomic compare-and-swap. Null (preview or no run baseline) skips the CAS.
+    if ($expected_version !== null) {
+        $action_params['expected_version'] = $expected_version;
     }
     return pp_execute_action('update_component', $action_params);
 }

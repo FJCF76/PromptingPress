@@ -23,6 +23,14 @@
     var postStatus   = ppAdminEditor.postStatus || 'draft';
     var postLink     = ppAdminEditor.postLink || '';
     var previewLink  = ppAdminEditor.previewLink || '';
+    // Optimistic-locking baseline (#13): the composition version this editor loaded. Sent
+    // as expected_version on every save/publish so an interleaved write (the AI chat, a
+    // CLI action, another tab) is rejected with composition_conflict instead of silently
+    // clobbered. Refreshed from each successful save's response so a second save in the
+    // same session doesn't false-conflict against the editor's own prior write.
+    var currentVersion = (typeof ppAdminEditor.compositionVersion === 'number')
+        ? ppAdminEditor.compositionVersion
+        : parseInt(ppAdminEditor.compositionVersion, 10) || 0;
     var cm           = null;
     var lastCursor   = null;  // preserved across focus loss
     var isSyncingFromAccordion = false;  // guard flag to prevent sync loops
@@ -712,6 +720,24 @@
         if (state) $s.addClass(state);
     }
 
+    // Maps a wp_send_json_error payload to a user-facing message (#13). The handlers send a
+    // structured object {message, code}; older/other errors send a bare string. A
+    // composition_conflict means another writer changed the page since this editor loaded —
+    // the local edit can't be saved without clobbering it, so prompt a reload.
+    function saveErrorMessage(data, fallback) {
+        var msg = (data && typeof data === 'object') ? (data.message || fallback) : (data || fallback);
+        var code = (data && typeof data === 'object') ? data.code : '';
+        if (code === 'composition_conflict') {
+            return 'This page was changed elsewhere (the AI chat, another tab, or a CLI edit) '
+                + 'since you opened it. Reload to get the latest version before saving — '
+                + 'saving now would overwrite that change.';
+        }
+        if (msg === 'Invalid nonce.') {
+            return 'Session expired. Please reload the page.';
+        }
+        return msg;
+    }
+
     function doSaveDraft() {
         if (!cm) return;
         var value = cm.getValue().trim();
@@ -726,13 +752,20 @@
         setSaveStatus('is-saving', 'Saving draft\u2026');
 
         $.post(ajaxUrl, {
-            action:      'pp_save_composition',
-            post_id:     postId,
-            composition: value,
-            nonce:       nonce,
+            action:           'pp_save_composition',
+            post_id:          postId,
+            composition:      value,
+            nonce:            nonce,
+            expected_version: currentVersion,
         })
         .done(function (res) {
             if (res.success) {
+                // Advance the optimistic-locking baseline (#13) to the version just written,
+                // so a follow-up save in the same session compares against it, not the stale
+                // load-time version.
+                if (res.data && typeof res.data.version !== 'undefined') {
+                    currentVersion = parseInt(res.data.version, 10) || currentVersion;
+                }
                 // Refresh CM from server-returned normalized composition
                 if (res.data && res.data.composition) {
                     isSyncingFromAccordion = true;
@@ -755,11 +788,7 @@
                 }
                 setTimeout(function () { setSaveStatus('', ''); }, 3000);
             } else {
-                var msg = res.data || 'Save failed.';
-                if (msg === 'Invalid nonce.') {
-                    msg = 'Session expired. Please reload the page.';
-                }
-                setSaveStatus('is-error', msg);
+                setSaveStatus('is-error', saveErrorMessage(res.data, 'Save failed.'));
             }
         })
         .fail(function () { setSaveStatus('is-error', 'Network error.'); })
@@ -816,16 +845,22 @@
         setSaveStatus('is-saving', wasPublished ? 'Updating\u2026' : 'Publishing\u2026');
 
         $.post(ajaxUrl, {
-            action:      'pp_publish_page',
-            post_id:     postId,
-            composition: value,
-            nonce:       nonce,
+            action:           'pp_publish_page',
+            post_id:          postId,
+            composition:      value,
+            nonce:            nonce,
+            expected_version: currentVersion,
         })
         .done(function (res) {
             if (res.success) {
                 postStatus  = res.data.status;
                 postLink    = res.data.post_link;
                 previewLink = res.data.preview_link;
+
+                // Advance the optimistic-locking baseline (#13) to the just-written version.
+                if (typeof res.data.version !== 'undefined') {
+                    currentVersion = parseInt(res.data.version, 10) || currentVersion;
+                }
 
                 // Refresh CM from server-returned normalized composition
                 if (res.data.composition) {
@@ -857,9 +892,7 @@
                 }
                 setTimeout(function () { setSaveStatus('', ''); }, 3000);
             } else {
-                var msg = res.data || (wasPublished ? 'Update failed.' : 'Publish failed.');
-                if (msg === 'Invalid nonce.') msg = 'Session expired. Please reload the page.';
-                setSaveStatus('is-error', msg);
+                setSaveStatus('is-error', saveErrorMessage(res.data, wasPublished ? 'Update failed.' : 'Publish failed.'));
             }
         })
         .fail(function () { setSaveStatus('is-error', 'Network error.'); })

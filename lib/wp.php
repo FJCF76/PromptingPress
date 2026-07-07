@@ -2008,7 +2008,9 @@ function pp_resolve_logo(array $props): array {
 // ── Site-state write functions (persistence wrappers) ────────────────────────
 
 /**
- * Writes a composition array to post meta, bumping the freshness marker (#113).
+ * Writes a composition array to post meta, bumping the freshness marker (#113), with
+ * optional write-time compare-and-swap on the version (#13).
+ *
  * Thin persistence wrapper — handles JSON serialization internally.
  * Does NOT validate (the action layer owns validation).
  *
@@ -2019,11 +2021,27 @@ function pp_resolve_logo(array $props): array {
  * content hash is computed on the canonical PRE-id-injection form (see
  * pp_composition_content_hash) so the id injection below can't false-conflict the marker.
  *
- * @param int   $post_id      WordPress post ID.
- * @param array $composition  Array of component objects.
- * @return true|WP_Error
+ * Optimistic locking (#13): when $expected_version is non-null, the fresh in-lock version
+ * read must equal it or the write is rejected with a `composition_conflict` WP_Error and
+ * NOTHING is written — neither the composition nor either marker moves. The check happens
+ * AFTER the advisory lock is held and against the same fresh-from-DB read that computes the
+ * next version, so it is atomic: an interleaved external write that lands between a caller's
+ * read and this write bumps the version and is caught here, not just at a pre-check (closing
+ * the TOCTOU gap #113's preflight gate left open). The comparison is on the version integer,
+ * which the stable-id injection below never changes, so an id round-trip can't false-conflict.
+ * A null $expected_version skips the CAS entirely (documented back-compat: legacy callers,
+ * new-page creation, and the homepage seed all write unconditionally). An absent marker reads
+ * as version 0, so a legacy/never-written page accepts $expected_version === 0 and initializes
+ * to version 1.
+ *
+ * @param int      $post_id           WordPress post ID.
+ * @param array    $composition       Array of component objects.
+ * @param int|null $expected_version  The version the caller based its edit on, or null to
+ *                                    skip the compare-and-swap.
+ * @return true|WP_Error  true on write; WP_Error('composition_conflict') on a version
+ *                        mismatch; WP_Error('composition_lock_failed') on lock-acquire failure.
  */
-function pp_update_composition(int $post_id, array $composition) {
+function pp_update_composition(int $post_id, array $composition, ?int $expected_version = null) {
     // Hash the canonical PRE-stable-id form, before the id-injection loop below mutates
     // the array. (pp_composition_content_hash also strips ids defensively, so the two are
     // belt-and-suspenders — the hash is stable across the id round-trip either way.)
@@ -2041,10 +2059,27 @@ function pp_update_composition(int $post_id, array $composition) {
 
     $json = wp_json_encode($composition, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-    return _pp_with_composition_lock($post_id, function ($wpdb) use ($post_id, $json, $hash) {
+    return _pp_with_composition_lock($post_id, function ($wpdb) use ($post_id, $json, $hash, $expected_version) {
         // Read the version fresh from the DB inside the lock (bypassing the meta cache the
         // pre-lock freshness check may have warmed). Absent → 0, so the first write is v1.
-        $next_version = _pp_read_composition_version_locked($wpdb, $post_id) + 1;
+        $current_version = _pp_read_composition_version_locked($wpdb, $post_id);
+
+        // Write-time compare-and-swap (#13). Only when the caller supplied a baseline: reject
+        // if the target moved since. This runs under the same lock and against the same fresh
+        // read as the bump below, so the check-and-set is atomic — no window for an external
+        // write to slip between them. Nothing has been written yet, so a mismatch leaves the
+        // composition and both markers exactly as they were.
+        if ($expected_version !== null && $current_version !== $expected_version) {
+            return new WP_Error(
+                'composition_conflict',
+                'The composition for post ' . $post_id . ' changed since you last read it '
+                . '(expected version ' . $expected_version . ', current version ' . $current_version . '). '
+                . 'Another writer (a CLI action, the dashboard editor, or the AI chat) modified it. '
+                . 'Re-read the current composition and re-apply your change. [composition_conflict]'
+            );
+        }
+
+        $next_version = $current_version + 1;
 
         // Write the composition first, then the hash, then the version LAST. A concurrent
         // marker reader (the freshness check, which is NOT under this lock) therefore
