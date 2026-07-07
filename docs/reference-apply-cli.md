@@ -113,6 +113,12 @@ wp pp apply preflight --run-id=<uuid> --post_id=42
 
 **Coverage grain.** A preflight with `--post_id=N` covers mutations on post N; a preflight with no post covers **site-grain** changes. They don't substitute for each other — a page mutation needs a page preflight, a site mutation needs a site preflight. This is what `execute`/`action execute`/`operate patch` check.
 
+**Composition freshness (#113).** A `--post_id=N` preflight also records the page's composition **freshness marker** — a `{version, hash}` pair bumped on every composition write (`_pp_composition_version` / `_pp_composition_hash`). A composition-mutating `action execute` (`update_composition`, `add_component`, `remove_component`, `reorder_components`, `update_component`, `style_component`) or `operate patch` re-reads the live marker and **rejects** if the composition changed since your preflight — coverage proves a preflight *ran* for the target, freshness proves the target is *unchanged since*:
+
+> `Stale preflight for post N: the composition changed since preflight (preflight version X, live version Y). Another path (a CLI action, the dashboard editor, or publish flow) modified it. Re-inspect and re-run 'wp pp apply preflight --run-id=<uuid> --post_id=N' before executing. [composition_conflict]`
+
+Your own run's sequential composition mutations are fine — the baseline refreshes to the new marker after each successful write. Only a change from *another* path (another run, the dashboard editor, publish flow) trips the gate. When it fires, re-inspect the page and re-preflight, then re-issue the action. `preview` never consumes or requires freshness state. (Write-time compare-and-swap — rejecting a concurrent write that lands between this check and the write itself — is tracked separately as #13.)
+
 **Output** — the preflight result:
 
 ```json
