@@ -1393,6 +1393,7 @@ pp_register_action('list_redirects', [
 
 pp_register_action('update_composition', [
     'scope'          => 'page',
+    'mutates_composition' => true,
     'impact_warning' => 'Replaces entire page composition',
     'description' => 'Replaces the entire composition array for a page. Each item is {"component": "name", "props": {...}}.',
     'semantics'   => 'Replace. The full composition array is replaced. Pass the complete array, not a partial update. Items use {"component", "props"} shape.',
@@ -1470,6 +1471,7 @@ pp_register_action('publish_page', [
 
 pp_register_action('add_component', [
     'scope'       => 'page',
+    'mutates_composition' => true,
     'description' => 'Adds a component to a page composition.',
     'semantics'   => 'Append by default. If position is provided, insert at that index (0-based). Validates the resulting composition.',
     'params'      => [
@@ -1535,6 +1537,7 @@ pp_register_action('add_component', [
 
 pp_register_action('remove_component', [
     'scope'          => 'page',
+    'mutates_composition' => true,
     'impact_warning' => 'Removes component from page',
     'description' => 'Removes a component from a page composition. Accepts component_id (stable pp-<hex8>) or component_index (0-based). component_id takes precedence when both are provided.',
     'semantics'   => 'Remove by component_id or 0-based index. Validates target is valid. Remaining components shift down.',
@@ -1593,6 +1596,7 @@ pp_register_action('remove_component', [
 
 pp_register_action('reorder_components', [
     'scope'       => 'page',
+    'mutates_composition' => true,
     'description' => 'Reorders components in a page composition.',
     'semantics'   => 'Permutation. Order must be a valid permutation of 0..N-1 where N is the current composition length. No duplicates, no gaps, no out-of-bounds indices.',
     'params'      => [
@@ -1657,6 +1661,7 @@ pp_register_action('reorder_components', [
 
 pp_register_action('update_component', [
     'scope'       => 'section',
+    'mutates_composition' => true,
     'description' => 'Updates a single component\'s props via shallow merge (patch, not replace). Optionally accepts style to also update per-instance style slots in the same call. Accepts component_id (stable pp-<hex8>) or component_index (0-based). component_id takes precedence when both are provided.',
     'semantics'   => 'Patch. Props are shallow-merged into existing props. Unspecified props unchanged. null removes a prop. Optional style param shallow-merges style slots (same as style_component). Validates the merged composition via pp_validate_composition(). Target component by component_id or component_index.',
     'params'      => [
@@ -1880,6 +1885,7 @@ pp_register_action('unpublish_page', [
 
 pp_register_action('style_component', [
     'scope'       => 'section',
+    'mutates_composition' => true,
     'description' => 'Updates a component instance\'s per-instance style overrides via shallow merge. Optionally accepts a recipe name that expands into slot values (explicit style overrides recipe slots). Use wp pp operate inspect-composition to see available slots and recipes.',
     'semantics'   => 'Patch. Recipe expands first, then explicit style values override. null removes a slot. Validates against schema.json style_slots for the target component type.',
     'params'      => [

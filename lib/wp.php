@@ -1252,29 +1252,34 @@ function _pp_token_lock_name(): string {
 }
 
 /**
- * Runs $mutator inside a serialized critical section for pp_token_overrides.
+ * Runs $mutator inside a serialized critical section guarded by a named MySQL advisory
+ * lock. Shared engine behind both the token-override lock (_pp_with_token_lock, one
+ * install-scoped name) and the per-post composition lock (_pp_with_composition_lock,
+ * one name per post) — they differ only in the lock NAME, so the GET_LOCK acquire /
+ * bounded-timeout / release-in-finally / degrade-without-$wpdb machinery lives here once.
  *
- * Acquires the advisory lock with a bounded timeout, runs the mutator, and releases
- * in `finally` so normal AND exception unwinding both free it. This is not an absolute
- * guarantee — a hard fatal/SIGKILL or a persistent connection can still strand a lock —
- * so the bounded acquire timeout and MySQL's connection-close auto-release are the
- * backstops. On acquisition failure the mutator does NOT run and $fail_value is returned
- * (explicit failure, never a silent partial write). Degrades to running the mutator
- * directly when no $wpdb is present (unit context); production always has $wpdb.
+ * Acquires the lock with a bounded timeout, runs the mutator, and releases in `finally`
+ * so normal AND exception unwinding both free it. This is not an absolute guarantee — a
+ * hard fatal/SIGKILL or a persistent connection can still strand a lock — so the bounded
+ * acquire timeout and MySQL's connection-close auto-release are the backstops. On
+ * acquisition failure the mutator does NOT run and $fail_value is returned (explicit
+ * failure, never a silent partial write). Degrades to running the mutator directly when
+ * no $wpdb is present (unit context); production always has $wpdb.
  *
+ * @param string   $lock_name   The raw advisory-lock name (bounded <= 64 chars by callers).
  * @param callable $mutator     Performs the cache-authoritative read/modify/write.
  * @param mixed    $fail_value  Returned if the lock cannot be acquired.
+ * @param string   $context     Short label for the error_log line on acquisition failure.
  * @return mixed
  */
-function _pp_with_token_lock(callable $mutator, $fail_value) {
+function _pp_with_advisory_lock(string $lock_name, callable $mutator, $fail_value, string $context = 'advisory lock') {
     global $wpdb;
     $has_db = isset($wpdb) && is_object($wpdb) && method_exists($wpdb, 'get_var');
     if (!$has_db) {
         return $mutator(null);
     }
 
-    $name = $wpdb->prepare('%s', _pp_token_lock_name());
-    // GET_LOCK: 1 = acquired, 0 = timed out, NULL = error.
+    $name = $wpdb->prepare('%s', $lock_name);
     // GET_LOCK: '1' acquired, '0' timed out (another writer holds it), NULL on error
     // (killed connection, OOM, privilege) or on a backend without GET_LOCK. WordPress
     // core requires MySQL/MariaDB, which always support GET_LOCK, so any non-'1' result
@@ -1286,8 +1291,8 @@ function _pp_with_token_lock(callable $mutator, $fail_value) {
         $reason = ($got === '0' || $got === 0)
             ? 'lock busy (GET_LOCK timed out after ' . _pp_token_lock_timeout() . 's)'
             : 'lock unavailable (GET_LOCK returned ' . var_export($got, true) . ')';
-        error_log('PromptingPress: pp_token_overrides ' . $reason
-            . '; token write skipped to avoid a lost update.');
+        error_log('PromptingPress: ' . $context . ' ' . $reason
+            . '; write skipped to avoid a lost update.');
         return $fail_value;
     }
 
@@ -1296,6 +1301,135 @@ function _pp_with_token_lock(callable $mutator, $fail_value) {
     } finally {
         $wpdb->query("SELECT RELEASE_LOCK($name)");
     }
+}
+
+/**
+ * Runs $mutator inside a serialized critical section for pp_token_overrides.
+ *
+ * Thin wrapper over _pp_with_advisory_lock() keyed on the single install-scoped token
+ * lock name. On acquisition failure the mutator does NOT run and $fail_value is returned.
+ *
+ * @param callable $mutator     Performs the cache-authoritative read/modify/write.
+ * @param mixed    $fail_value  Returned if the lock cannot be acquired.
+ * @return mixed
+ */
+function _pp_with_token_lock(callable $mutator, $fail_value) {
+    return _pp_with_advisory_lock(_pp_token_lock_name(), $mutator, $fail_value, 'pp_token_overrides');
+}
+
+// ── Composition-write serialization (#113) ──────────────────────────────────
+// pp_update_composition() does a read-modify-write of the freshness marker
+// (_pp_composition_version / _pp_composition_hash) alongside the composition
+// itself. Concurrent writers to the SAME post otherwise interleave and lose a
+// version bump. We serialize per post with a MySQL advisory lock — the #200
+// lesson (a lock-acquire failure propagates, never a silent non-atomic write),
+// applied at composition-write time.
+
+/**
+ * Per-post advisory lock name for a composition write. Includes DB name + blog id (so
+ * writers on the SAME store serialize while unrelated sites/installs never collide) plus
+ * the post id (so writes to DIFFERENT posts never serialize against each other). MySQL
+ * caps lock names at 64 chars; the md5 slice keeps it bounded regardless of DB name.
+ */
+function _pp_composition_lock_name(int $post_id): string {
+    global $wpdb;
+    $db   = defined('DB_NAME') ? DB_NAME : (isset($wpdb->dbname) ? $wpdb->dbname : 'db');
+    $blog = function_exists('get_current_blog_id') ? (int) get_current_blog_id() : 0;
+    return 'pp_comp_' . substr(md5($db . '|' . $blog . '|' . $post_id), 0, 32);
+}
+
+/**
+ * Runs $mutator inside a serialized critical section for a single post's composition.
+ * Thin wrapper over _pp_with_advisory_lock() keyed per post. On acquisition failure the
+ * mutator does NOT run and $fail_value is returned.
+ *
+ * @param int      $post_id     The post whose composition write is being serialized.
+ * @param callable $mutator     Performs the marker read/bump + composition write.
+ * @param mixed    $fail_value  Returned if the lock cannot be acquired.
+ * @return mixed
+ */
+function _pp_with_composition_lock(int $post_id, callable $mutator, $fail_value) {
+    return _pp_with_advisory_lock(
+        _pp_composition_lock_name($post_id),
+        $mutator,
+        $fail_value,
+        'composition post ' . $post_id
+    );
+}
+
+/**
+ * Reads the current _pp_composition_version straight from the DB inside the composition
+ * lock, bypassing the post-meta object cache (#113).
+ *
+ * The freshness check (pp_get_composition_marker) runs BEFORE the lock and warms the meta
+ * cache with the pre-write version. Reading through get_post_meta() inside the lock would
+ * then return that stale cached value, so two writers serialized by the lock could both
+ * compute the same next version — a lost bump, the exact lost-update the lock exists to
+ * prevent (the #200 lesson, mirrored from _pp_read_token_overrides_locked_strict). Reading
+ * the one meta row directly keeps the counter monotonic per write. Degrades to the cached
+ * read when no $wpdb is present (unit context), where the store isn't shared across
+ * processes so staleness can't arise.
+ *
+ * @param object|null $wpdb     The DB handle inside the lock, or null in unit context.
+ * @param int         $post_id  WordPress post ID.
+ * @return int  The current version (0 if absent).
+ */
+function _pp_read_composition_version_locked($wpdb, int $post_id): int {
+    if (is_object($wpdb) && method_exists($wpdb, 'get_var')) {
+        $raw = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = %s LIMIT 1",
+                $post_id,
+                '_pp_composition_version'
+            )
+        );
+        return (int) $raw; // absent row → null → 0
+    }
+    return (int) get_post_meta($post_id, '_pp_composition_version', true);
+}
+
+/**
+ * Computes the freshness content-hash of a composition (#113).
+ *
+ * Hashes the CANONICAL pre-stable-id form: the auto-generated top-level props.id (the
+ * only field pp_update_composition() injects) is stripped before hashing, so the hash is
+ * stable across the id-injection round-trip — a composition written without ids hashes
+ * the same as the same composition re-read WITH its injected ids. Without this, every
+ * write would false-conflict against itself.
+ *
+ * The marker compares two hashes both produced HERE at write time (never a rebuilt one),
+ * so byte-stable canonicalization beyond the id strip is not required for correctness.
+ *
+ * @param array $composition  Array of component objects.
+ * @return string  A 64-char sha256 hex digest.
+ */
+function pp_composition_content_hash(array $composition): string {
+    $canonical = array_map(function ($item) {
+        if (is_array($item) && isset($item['props']) && is_array($item['props'])) {
+            unset($item['props']['id']);
+        }
+        return $item;
+    }, $composition);
+    return hash('sha256', (string) wp_json_encode($canonical, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+}
+
+/**
+ * Returns the freshness marker for a post's composition (#113).
+ *
+ * The marker is the {version, hash} pair written by pp_update_composition() as sibling
+ * post meta. An absent marker (a page never written through pp_update_composition, or a
+ * legacy page) reads as version 0 / hash '' — the first write initializes version 1.
+ * Strict casts at this boundary guarantee the caller always gets an int + a string, so a
+ * downstream hash_equals() never sees a non-string.
+ *
+ * @param int $post_id  WordPress post ID.
+ * @return array{version: int, hash: string}
+ */
+function pp_get_composition_marker(int $post_id): array {
+    return [
+        'version' => (int) get_post_meta($post_id, '_pp_composition_version', true),
+        'hash'    => (string) get_post_meta($post_id, '_pp_composition_hash', true),
+    ];
 }
 
 /**
@@ -1853,15 +1987,27 @@ function pp_resolve_logo(array $props): array {
 // ── Site-state write functions (persistence wrappers) ────────────────────────
 
 /**
- * Writes a composition array to post meta.
+ * Writes a composition array to post meta, bumping the freshness marker (#113).
  * Thin persistence wrapper — handles JSON serialization internally.
  * Does NOT validate (the action layer owns validation).
+ *
+ * The composition write and the marker bump (_pp_composition_version +
+ * _pp_composition_hash) happen under a per-post advisory lock so concurrent writers to
+ * the same post can't interleave and lose a version bump. Lock-acquire failure returns a
+ * WP_Error and writes NOTHING — never a silent non-atomic write (the #200 lesson). The
+ * content hash is computed on the canonical PRE-id-injection form (see
+ * pp_composition_content_hash) so the id injection below can't false-conflict the marker.
  *
  * @param int   $post_id      WordPress post ID.
  * @param array $composition  Array of component objects.
  * @return true|WP_Error
  */
 function pp_update_composition(int $post_id, array $composition) {
+    // Hash the canonical PRE-stable-id form, before the id-injection loop below mutates
+    // the array. (pp_composition_content_hash also strips ids defensively, so the two are
+    // belt-and-suspenders — the hash is stable across the id round-trip either way.)
+    $hash = pp_composition_content_hash($composition);
+
     // Auto-assign stable IDs to entries that don't have one.
     // Generated once at write time so IDs are persisted and never shift.
     foreach ($composition as &$item) {
@@ -1873,8 +2019,26 @@ function pp_update_composition(int $post_id, array $composition) {
     unset($item);
 
     $json = wp_json_encode($composition, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    update_post_meta($post_id, '_pp_composition', wp_slash($json));
-    return true;
+
+    return _pp_with_composition_lock($post_id, function ($wpdb) use ($post_id, $json, $hash) {
+        // Read the version fresh from the DB inside the lock (bypassing the meta cache the
+        // pre-lock freshness check may have warmed). Absent → 0, so the first write is v1.
+        $next_version = _pp_read_composition_version_locked($wpdb, $post_id) + 1;
+
+        // Write the composition first, then the hash, then the version LAST. A concurrent
+        // marker reader (the freshness check, which is NOT under this lock) therefore
+        // either sees the fully-updated marker or the pre-write version — a torn read
+        // (new version, stale hash) can only make the freshness check MISMATCH, which
+        // fails closed (rejects), never a silent false pass.
+        update_post_meta($post_id, '_pp_composition', wp_slash($json));
+        update_post_meta($post_id, '_pp_composition_hash', $hash);
+        update_post_meta($post_id, '_pp_composition_version', $next_version);
+        return true;
+    }, new WP_Error(
+        'composition_lock_failed',
+        'Could not acquire the composition write lock for post ' . $post_id
+        . '; the write was skipped to avoid a lost update. Retry once contention clears.'
+    ));
 }
 
 /**

@@ -76,6 +76,57 @@ function _pp_cli_require_preflight_for_action(string $run_id, array $action, arr
 }
 
 /**
+ * Preflight-freshness gate (#113). For a composition-mutating action, halts with an
+ * actionable WP_CLI::error unless the target composition is UNCHANGED since the freshness
+ * marker recorded at preflight (or refreshed by this run's own last mutation). Ordering
+ * (#96 coverage) proves a preflight ran for the target; this proves the target still
+ * matches what that preflight validated — closing the TOCTOU gap where the composition
+ * changed through another path between preflight and execute.
+ *
+ * No-op for actions that don't mutate the composition (title/slug/seo/publish) and for
+ * site-scoped actions (no post_id). Fail-closed: a missing recorded baseline blocks.
+ * Call AFTER the coverage gate so the two errors stay distinct.
+ */
+function _pp_cli_require_composition_fresh(string $run_id, array $action, ?int $post_id): void {
+    if (empty($action['mutates_composition']) || $post_id === null) {
+        return;
+    }
+
+    $recorded = pp_operate_get_composition_snapshot($run_id, $post_id);
+    if ($recorded === null) {
+        WP_CLI::error('Run token "' . $run_id . '" recorded no composition freshness baseline for post '
+            . $post_id . '. Re-run `wp pp apply preflight --run-id=' . $run_id . ' --post_id=' . $post_id . '`.');
+    }
+
+    $live = pp_get_composition_marker($post_id);
+    if (!pp_composition_marker_matches($recorded, $live)) {
+        WP_CLI::error('Stale preflight for post ' . $post_id . ': the composition changed since preflight '
+            . '(preflight version ' . (int) $recorded['version'] . ', live version ' . (int) $live['version'] . '). '
+            . 'Another path (a CLI action, the dashboard editor, or publish flow) modified it. '
+            . 'Re-inspect and re-run `wp pp apply preflight --run-id=' . $run_id . ' --post_id=' . $post_id
+            . '` before executing. [composition_conflict]');
+    }
+}
+
+/**
+ * Refreshes a run's composition freshness baseline after a successful in-run mutation
+ * (#113). Re-reads the just-written live marker and records it, so the run's OWN next
+ * mutation on the same post passes the freshness gate while an external interleaved write
+ * still conflicts. Best-effort: a failed refresh is fail-closed — the run's next mutation
+ * would just require a fresh preflight — so it warns rather than halting a completed write.
+ */
+function _pp_cli_refresh_composition_baseline(string $run_id, array $action, ?int $post_id): void {
+    if (empty($action['mutates_composition']) || $post_id === null) {
+        return;
+    }
+    if (!pp_operate_record_composition_snapshot($run_id, $post_id, pp_get_composition_marker($post_id))) {
+        WP_CLI::warning('Could not refresh the composition freshness baseline for post ' . $post_id
+            . ' on run token "' . $run_id . '"; a further mutation on this post in the same run will '
+            . 'require a new `wp pp apply preflight`.');
+    }
+}
+
+/**
  * Parses the --params JSON argument. Shared by action and apply CLI commands.
  */
 function pp_cli_parse_params(array $assoc_args): array {
@@ -223,6 +274,9 @@ class PP_Action_Command extends WP_CLI_Command {
                 WP_CLI::error($validation->get_error_message());
             }
             _pp_cli_require_preflight_for_action($run_id, $action, $params);
+            // Freshness gate (#113): after coverage, reject a composition-mutating action
+            // whose target changed since preflight.
+            _pp_cli_require_composition_fresh($run_id, $action, isset($params['post_id']) ? (int) $params['post_id'] : null);
         }
 
         $result = pp_execute_action($name, $params);
@@ -230,6 +284,11 @@ class PP_Action_Command extends WP_CLI_Command {
         WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
         if ($result['ok']) {
+            // Refresh the freshness baseline (#113) so this run's own next mutation on the
+            // same post flows; an external interleaved write still conflicts.
+            if ($action !== null) {
+                _pp_cli_refresh_composition_baseline($run_id, $action, isset($params['post_id']) ? (int) $params['post_id'] : null);
+            }
             WP_CLI::success('Action "' . $name . '" executed.');
         } else {
             WP_CLI::halt(1);
@@ -659,7 +718,13 @@ class PP_Apply_Command extends WP_CLI_Command {
         if ($token_snapshot === null) {
             WP_CLI::error('Could not read an atomic pre-apply token baseline for run token "' . $run_id . '": the token lock is contended, or the pp_token_overrides row is corrupt/unreadable. PREFLIGHT was not recorded. Re-run `wp pp apply preflight` once the contention clears; if it persists, inspect and repair the pp_token_overrides option.');
         }
-        if (!pp_operate_record_preflight($run_id, $context['post_id'] ?? null, $token_snapshot)) {
+        // Freshness baseline (#113): for a page-scoped preflight, record the target's
+        // composition marker so a later `action execute` / `operate patch` can reject a
+        // composition changed since this preflight. Null for a site-grain preflight.
+        $composition_marker = isset($context['post_id'])
+            ? pp_get_composition_marker((int) $context['post_id'])
+            : null;
+        if (!pp_operate_record_preflight($run_id, $context['post_id'] ?? null, $token_snapshot, $composition_marker)) {
             WP_CLI::error('Could not record PREFLIGHT state for run token "' . $run_id . '". State file may be missing or expired. Re-run `wp pp operate inspect`.');
         }
     }
@@ -1114,17 +1179,27 @@ class PP_Operate_Command extends WP_CLI_Command {
         // behind the same run-token discipline as `action execute`: a valid
         // run-id, a completed INSPECT, and a PREFLIGHT covering this page. The
         // --preview path stays read-only and ungated.
+        // The mutating patch path writes the composition through the update_component
+        // action, so it is composition-mutating: gate it on freshness (#113) just like
+        // `action execute`. Resolve that action once for both the gate and the refresh.
+        $patch_action = ['mutates_composition' => true];
         if (!$preview) {
             $run_id = _pp_cli_require_run_id($assoc_args);
             if (!pp_operate_check_step($run_id, 'INSPECT')) {
                 WP_CLI::error('Run token "' . $run_id . '" has no completed INSPECT step. Run `wp pp operate inspect` first.');
             }
             _pp_cli_require_preflight_covers($run_id, $post_id);
+            _pp_cli_require_composition_fresh($run_id, $patch_action, $post_id);
         }
 
         $result = pp_patch_composition($post_id, $selector, $value, $preview);
         if (is_wp_error($result)) {
             WP_CLI::error($result->get_error_message());
+        }
+
+        // Refresh the freshness baseline (#113) after a successful apply (not preview).
+        if (!$preview && isset($run_id)) {
+            _pp_cli_refresh_composition_baseline($run_id, $patch_action, $post_id);
         }
 
         WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));

@@ -30,6 +30,9 @@ class PP_Mock_Wpdb
     public $get_lock_return = '1';
     public string $dbname = 'pp_test_db';
     public string $options = 'wp_options';
+    public string $postmeta = 'wp_postmeta';
+    /** @var mixed Scripted DB value for the in-lock _pp_composition_version read (#113). */
+    public $db_composition_version = null;
     /** @var array|null The pp_token_overrides row the DB returns (null = no row). */
     public $db_overrides = null;
     /**
@@ -54,7 +57,10 @@ class PP_Mock_Wpdb
     public function prepare(string $query, ...$args): string
     {
         foreach ($args as $a) {
-            $query = preg_replace('/%s/', "'" . $a . "'", $query, 1);
+            // Substitute the first remaining %s (quoted) or %d (bare), in order, like wpdb.
+            $query = preg_replace_callback('/%[sd]/', function ($m) use ($a) {
+                return $m[0] === '%d' ? (string) (int) $a : "'" . $a . "'";
+            }, $query, 1);
         }
         return $query;
     }
@@ -79,6 +85,13 @@ class PP_Mock_Wpdb
                 return $this->db_overrides_raw;
             }
             return $this->db_overrides === null ? null : serialize($this->db_overrides);
+        }
+        // The in-lock fresh read of _pp_composition_version (#113). Matches on the
+        // postmeta table (interpolated before prepare) so it's robust to placeholder
+        // substitution; returns the scripted DB value so a test can prove the bump reads
+        // from the DB, not the meta cache.
+        if (strpos($sql, 'meta_value') !== false && strpos($sql, $this->postmeta) !== false) {
+            return $this->db_composition_version;
         }
         return null;
     }
@@ -508,5 +521,80 @@ class TokenLockTest extends TestCase
         $nameTwo = _pp_token_lock_name();
 
         $this->assertNotSame($nameOne, $nameTwo, 'Distinct installs must get distinct lock names.');
+    }
+
+    // ── Composition write lock (#113) ──────────────────────────────────────
+
+    public function testUpdateCompositionAcquiresThenReleasesLock(): void
+    {
+        $wpdb = new PP_Mock_Wpdb();
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $result = pp_update_composition(77, [['component' => 'hero', 'props' => ['title' => 'X']]]);
+
+        $this->assertTrue($result);
+        $gets     = array_filter($wpdb->calls, fn ($c) => strpos($c, 'GET_LOCK') !== false);
+        $releases = array_filter($wpdb->calls, fn ($c) => strpos($c, 'RELEASE_LOCK') !== false);
+        $this->assertCount(1, $gets, 'Exactly one GET_LOCK around the composition write.');
+        $this->assertCount(1, $releases, 'The composition lock must be released after the write.');
+    }
+
+    public function testUpdateCompositionLockContentionReturnsWpError(): void
+    {
+        // The #200 lesson at composition-write time: a lock-acquire failure must propagate
+        // as a WP_Error and write NOTHING — never a silent non-atomic write.
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->get_lock_return = '0'; // another writer holds the per-post lock
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $result = pp_update_composition(78, [['component' => 'hero', 'props' => ['title' => 'Y']]]);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('composition_lock_failed', $result->get_error_code());
+        $releases = array_filter($wpdb->calls, fn ($c) => strpos($c, 'RELEASE_LOCK') !== false);
+        $this->assertEmpty($releases, 'A lock never acquired must not be released.');
+    }
+
+    public function testUpdateCompositionNullLockResultReturnsWpError(): void
+    {
+        // NULL from GET_LOCK (sick DB / unsupported backend) is a hard failure, not a
+        // degrade-to-unlocked-write.
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->get_lock_return = null;
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $result = pp_update_composition(79, [['component' => 'hero', 'props' => ['title' => 'Z']]]);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('composition_lock_failed', $result->get_error_code());
+    }
+
+    public function testUpdateCompositionBumpsFromDbVersionNotStaleCache(): void
+    {
+        // #113 stale-cache guard: warm the post-meta cache with an OLD version, then have
+        // the DB report a NEWER version (as a concurrent writer would have committed while
+        // we waited on the lock). The bump must read the DB value, so the write lands at
+        // db_version + 1 — not cache_version + 1.
+        update_post_meta(80, '_pp_composition_version', 5); // stale cache = 5
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->db_composition_version = '9'; // DB truth = 9 (wpdb returns strings)
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $result = pp_update_composition(80, [['component' => 'hero', 'props' => ['title' => 'Q']]]);
+
+        $this->assertTrue($result);
+        $this->assertSame(10, (int) get_post_meta(80, '_pp_composition_version', true), 'Bump must be DB(9)+1, not cache(5)+1.');
+        unset($GLOBALS['_pp_test_store']['post_meta'][80]);
+    }
+
+    public function testCompositionLockNameVariesByPost(): void
+    {
+        // Different posts must get distinct lock names so writes to different posts never
+        // serialize against each other; the same post is stable.
+        $wpdb = new PP_Mock_Wpdb();
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $this->assertSame(_pp_composition_lock_name(10), _pp_composition_lock_name(10), 'Stable per post.');
+        $this->assertNotSame(_pp_composition_lock_name(10), _pp_composition_lock_name(11), 'Distinct per post.');
     }
 }

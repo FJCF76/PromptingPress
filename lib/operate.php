@@ -795,14 +795,18 @@ function pp_operate_get_token_snapshot( string $run_id ): ?array {
  * Idempotent: the step and each covered post_id de-dupe; the token snapshot is
  * first-write-wins, so re-running preflight never moves the rollback baseline.
  *
- * @param string   $run_id          The run token UUID.
- * @param int|null $post_id         Target post for page/section preflight, or null for site grain.
- * @param array    $token_overrides Current pp_token_overrides, read under the token lock.
+ * @param string     $run_id              The run token UUID.
+ * @param int|null   $post_id             Target post for page/section preflight, or null for site grain.
+ * @param array      $token_overrides     Current pp_token_overrides, read under the token lock.
+ * @param array|null $composition_marker  The target's {version, hash} freshness marker (#113),
+ *                                        for a page/section preflight. Recorded so `action
+ *                                        execute` can reject a composition changed since this
+ *                                        preflight. Null (or a null $post_id) records no marker.
  * @return bool    True on a confirmed write; false if the run state is
  *                 missing/expired/corrupt or identity-mismatched.
  */
-function pp_operate_record_preflight( string $run_id, ?int $post_id, array $token_overrides ): bool {
-    return pp_operate_mutate_state( $run_id, static function ( array $data ) use ( $post_id, $token_overrides ) {
+function pp_operate_record_preflight( string $run_id, ?int $post_id, array $token_overrides, ?array $composition_marker = null ): bool {
+    return pp_operate_mutate_state( $run_id, static function ( array $data ) use ( $post_id, $token_overrides, $composition_marker ) {
         // PREFLIGHT step (idempotent) — keeps apply execute's check_step gate working.
         if ( ! in_array( 'PREFLIGHT', $data['steps_completed'], true ) ) {
             $data['steps_completed'][] = 'PREFLIGHT';
@@ -818,6 +822,17 @@ function pp_operate_record_preflight( string $run_id, ?int $post_id, array $toke
             if ( ! in_array( $post_id, $data['preflight_post_ids'], true ) ) {
                 $data['preflight_post_ids'][] = $post_id;
             }
+
+            // Freshness baseline (#113): record the composition marker this preflight
+            // validated against, keyed per post. LAST-write-wins (unlike the rollback
+            // snapshot below) so re-running preflight after a legitimate change
+            // re-acknowledges the current state as the new baseline.
+            if ( $composition_marker !== null ) {
+                if ( ! isset( $data['composition_snapshot'] ) || ! is_array( $data['composition_snapshot'] ) ) {
+                    $data['composition_snapshot'] = [];
+                }
+                $data['composition_snapshot'][ (string) $post_id ] = $composition_marker;
+            }
         } else {
             $data['preflight_site'] = true;
         }
@@ -829,6 +844,70 @@ function pp_operate_record_preflight( string $run_id, ?int $post_id, array $toke
 
         return $data;
     } );
+}
+
+/**
+ * Records the composition freshness marker for a post as the run's current baseline (#113).
+ *
+ * LAST-write-wins. Called after a successful in-run composition mutation to refresh the
+ * baseline to the just-written {version, hash}, so a run's OWN sequential mutations on the
+ * same post keep passing the freshness gate while an EXTERNAL interleaved write (dashboard,
+ * another run) still mismatches and is rejected. Returns false (never silently) if the run
+ * state is missing/expired/corrupt or identity-mismatched, so the caller can surface that
+ * the run's freshness baseline may be stale.
+ *
+ * @param string $run_id  The run token UUID.
+ * @param int    $post_id The mutated post.
+ * @param array  $marker  The just-written {version, hash} marker.
+ * @return bool  True only on a confirmed write.
+ */
+function pp_operate_record_composition_snapshot( string $run_id, int $post_id, array $marker ): bool {
+    return pp_operate_mutate_state( $run_id, static function ( array $data ) use ( $post_id, $marker ) {
+        if ( ! isset( $data['composition_snapshot'] ) || ! is_array( $data['composition_snapshot'] ) ) {
+            $data['composition_snapshot'] = [];
+        }
+        $data['composition_snapshot'][ (string) $post_id ] = $marker;
+        return $data;
+    } );
+}
+
+/**
+ * Returns the recorded composition freshness marker for a post in a run, or null (#113).
+ *
+ * Null when the run is unusable (missing/expired/corrupt/identity-mismatch), no marker was
+ * recorded for this post, or the stored marker is not an array. Fail-closed: the execute
+ * freshness gate treats null as "no baseline recorded", which blocks the mutation.
+ *
+ * @param string $run_id  The run token UUID.
+ * @param int    $post_id The mutation target post.
+ * @return array|null  The {version, hash} marker, or null.
+ */
+function pp_operate_get_composition_snapshot( string $run_id, int $post_id ): ?array {
+    $data = pp_operate_read_state( $run_id );
+    if ( $data === null || ! isset( $data['composition_snapshot'] ) || ! is_array( $data['composition_snapshot'] ) ) {
+        return null;
+    }
+    $key = (string) $post_id;
+    if ( ! isset( $data['composition_snapshot'][ $key ] ) || ! is_array( $data['composition_snapshot'][ $key ] ) ) {
+        return null;
+    }
+    return $data['composition_snapshot'][ $key ];
+}
+
+/**
+ * True iff two composition freshness markers match (#113): same version AND same hash.
+ *
+ * Pure comparator so the freshness decision is unit-testable without WP-CLI. Uses
+ * hash_equals for the hash (both sides are strings by pp_get_composition_marker's cast)
+ * and a strict int compare for the version.
+ *
+ * @param array $recorded  The marker recorded at preflight / last in-run write.
+ * @param array $live      The marker re-read live at execute time.
+ * @return bool
+ */
+function pp_composition_marker_matches( array $recorded, array $live ): bool {
+    return (int) ( $recorded['version'] ?? -1 ) === (int) ( $live['version'] ?? -2 )
+        && hash_equals( (string) ( $recorded['hash'] ?? '' ), (string) ( $live['hash'] ?? '' ) );
 }
 
 /**

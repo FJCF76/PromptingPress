@@ -1938,4 +1938,133 @@ class OperateTest extends TestCase
             }
         }
     }
+
+    // ── Preflight Composition Freshness (#113) ─────────────────────────────
+
+    public function testRecordPreflightStoresCompositionSnapshotForPost(): void
+    {
+        $run_id = pp_operate_create_run();
+        $marker = ['version' => 3, 'hash' => 'abc123'];
+        $this->assertTrue(pp_operate_record_preflight($run_id, 42, [], $marker));
+        $this->assertSame($marker, pp_operate_get_composition_snapshot($run_id, 42));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRecordPreflightNoCompositionSnapshotForSiteGrain(): void
+    {
+        // A no-post (site-grain) preflight records no composition snapshot even if a
+        // marker is somehow passed — freshness is a page/section concern.
+        $run_id = pp_operate_create_run();
+        pp_operate_record_preflight($run_id, null, [], ['version' => 1, 'hash' => 'x']);
+        $data = json_decode(file_get_contents(pp_operate_run_path($run_id)), true);
+        $this->assertArrayNotHasKey('composition_snapshot', $data);
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRecordPreflightNoCompositionSnapshotWhenMarkerNull(): void
+    {
+        // Back-compat: the marker arg defaults to null, so existing callers record
+        // coverage without a composition snapshot.
+        $run_id = pp_operate_create_run();
+        pp_operate_record_preflight($run_id, 7, []);
+        $this->assertNull(pp_operate_get_composition_snapshot($run_id, 7));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testCompositionSnapshotIsLastWriteWins(): void
+    {
+        // Unlike the token rollback baseline (first-write-wins), the freshness baseline
+        // moves to the latest preflight so a re-preflight after a change re-acknowledges it.
+        $run_id = pp_operate_create_run();
+        pp_operate_record_preflight($run_id, 4, [], ['version' => 1, 'hash' => 'first']);
+        pp_operate_record_preflight($run_id, 4, [], ['version' => 2, 'hash' => 'second']);
+        $this->assertSame(['version' => 2, 'hash' => 'second'], pp_operate_get_composition_snapshot($run_id, 4));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testGetCompositionSnapshotNullWhenNeverRecorded(): void
+    {
+        $run_id = pp_operate_create_run();
+        $this->assertNull(pp_operate_get_composition_snapshot($run_id, 99));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testGetCompositionSnapshotNullForDifferentPost(): void
+    {
+        $run_id = pp_operate_create_run();
+        pp_operate_record_preflight($run_id, 4, [], ['version' => 1, 'hash' => 'h']);
+        $this->assertNull(pp_operate_get_composition_snapshot($run_id, 5));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testGetCompositionSnapshotNullForMissingRun(): void
+    {
+        // Fail-closed: an unusable run yields null so the execute gate blocks.
+        $this->assertNull(pp_operate_get_composition_snapshot('00000000-0000-4000-8000-000000000000', 4));
+    }
+
+    public function testRecordCompositionSnapshotRefreshesBaseline(): void
+    {
+        // The refresh-after-write path: a run's own mutation updates the baseline.
+        $run_id = pp_operate_create_run();
+        pp_operate_record_preflight($run_id, 4, [], ['version' => 1, 'hash' => 'h1']);
+        $this->assertTrue(pp_operate_record_composition_snapshot($run_id, 4, ['version' => 2, 'hash' => 'h2']));
+        $this->assertSame(['version' => 2, 'hash' => 'h2'], pp_operate_get_composition_snapshot($run_id, 4));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRecordCompositionSnapshotReturnsFalseForMissingRun(): void
+    {
+        $this->assertFalse(pp_operate_record_composition_snapshot('00000000-0000-4000-8000-000000000000', 4, ['version' => 1, 'hash' => 'h']));
+    }
+
+    public function testCompositionMarkerMatchesWhenIdentical(): void
+    {
+        $m = ['version' => 5, 'hash' => 'deadbeef'];
+        $this->assertTrue(pp_composition_marker_matches($m, $m));
+    }
+
+    public function testCompositionMarkerMismatchOnVersion(): void
+    {
+        $this->assertFalse(pp_composition_marker_matches(
+            ['version' => 5, 'hash' => 'same'],
+            ['version' => 6, 'hash' => 'same']
+        ));
+    }
+
+    public function testCompositionMarkerMismatchOnHash(): void
+    {
+        $this->assertFalse(pp_composition_marker_matches(
+            ['version' => 5, 'hash' => 'aaa'],
+            ['version' => 5, 'hash' => 'bbb']
+        ));
+    }
+
+    public function testCompositionMarkerMatchAcrossPreflightExecuteRoundTrip(): void
+    {
+        // End-to-end at the function layer: preflight records the live marker; with no
+        // intervening write the live marker still matches (execute would pass). A write
+        // bumps the marker so it no longer matches (execute would reject).
+        $post_id = pp_create_page('Freshness round trip');
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'A']]]);
+
+        $run_id = pp_operate_create_run();
+        $at_preflight = pp_get_composition_marker($post_id);
+        pp_operate_record_preflight($run_id, $post_id, [], $at_preflight);
+
+        // No change → still fresh.
+        $this->assertTrue(pp_composition_marker_matches(
+            pp_operate_get_composition_snapshot($run_id, $post_id),
+            pp_get_composition_marker($post_id)
+        ));
+
+        // External change → stale.
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+        $this->assertFalse(pp_composition_marker_matches(
+            pp_operate_get_composition_snapshot($run_id, $post_id),
+            pp_get_composition_marker($post_id)
+        ));
+
+        pp_operate_cleanup_run($run_id);
+    }
 }
