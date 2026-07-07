@@ -1306,17 +1306,29 @@ function _pp_with_token_lock(callable $mutator, $fail_value) {
  * inside the critical section. Reads exactly the one row rather than busting the whole
  * `alloptions` autoload cache.
  *
- * Three distinct outcomes (#207):
+ * Four distinct outcomes (#207 + #212):
+ *   - read FAILED         → null  (DB error on the SELECT — #212, fail closed)
  *   - no row              → []    (legitimately no overrides)
  *   - row unserializes to an array → that array
  *   - row exists but does NOT unserialize to an array → null (UNREADABLE)
+ *
+ * #212: $wpdb->get_var() returns null in TWO distinct cases — the query ran and matched
+ * no rows (a genuinely absent row → correct []), AND the query FAILED (DB error, killed
+ * connection mid-statement). Treating a read failure as "no overrides exist" would record
+ * [] as the run's rollback baseline, and a later `apply restore` would DELETE every touched
+ * token (the unset() branch of pp_revert_tokens) — the exact silent loss #200/#207 close.
+ * Disambiguate via $wpdb->last_error: wpdb::query() flushes it to '' at the start of every
+ * query and sets it on error, so after the option SELECT a non-empty last_error means the
+ * read failed → fail closed (null). This check must precede the ($raw === null) branch: a
+ * failed read also returns null, and must not be mistaken for a genuinely absent row.
  *
  * Only the snapshot caller (pp_snapshot_token_overrides) needs the unreadable-vs-empty
  * distinction, so it reads through this strict variant. The writer paths read through
  * _pp_read_token_overrides_locked(), which coerces null to [] — see that wrapper.
  *
  * @param object|null $wpdb  The DB handle inside the lock, or null in unit context.
- * @return array|null  The overrides map, [] if absent, or null if the row is unreadable.
+ * @return array|null  The overrides map, [] if absent, or null if the read failed or the
+ *                     row is unreadable.
  */
 function _pp_read_token_overrides_locked_strict($wpdb = null): ?array {
     if (is_object($wpdb) && method_exists($wpdb, 'get_var')) {
@@ -1326,6 +1338,11 @@ function _pp_read_token_overrides_locked_strict($wpdb = null): ?array {
                 'pp_token_overrides'
             )
         );
+        // #212: a read failure (non-empty last_error) is NOT an absent row — fail closed.
+        // Checked before ($raw === null) because a failed get_var() also yields null.
+        if (! empty($wpdb->last_error)) {
+            return null;
+        }
         if ($raw === null) {
             return [];
         }
