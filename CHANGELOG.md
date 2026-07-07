@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.54] — 2026-07-07 — A corrupt design-token row now fails the pre-apply safety check instead of arming a destructive rollback (#207)
+
+**Before you apply a design change, PromptingPress freezes a snapshot of your current tokens so it can undo the change later. If that stored token row was corrupt or hand-edited into garbage, the snapshot came back empty — and undoing against an empty snapshot doesn't restore your tokens, it deletes them. The safety check now refuses to record an empty snapshot for an unreadable row, so a later undo can't quietly wipe your design tokens.**
+
+`pp_snapshot_token_overrides()` reads the `pp_token_overrides` row under a lock to freeze an atomic rollback baseline. A hardening in #200 made it fail closed when the lock is contended. This closes the sibling gap: a corrupt, truncated, or hand-edited row that doesn't decode to an array was silently treated as "no overrides exist," so the run recorded an empty `[]` baseline. Because `apply restore` reverts every touched token off an empty snapshot by deleting it, that empty baseline turned a later undo into silent token loss. The snapshot now returns `null` for an unreadable row exactly as it does for lock contention, so `wp pp apply preflight` errors and records nothing rather than arming a destructive rollback. A genuinely empty override set (a fresh install) still records a valid `[]` baseline — empty and unreadable are no longer confused.
+
+### Fixed
+- **A corrupt `pp_token_overrides` row fails the preflight closed (#207).** The pre-apply token snapshot now distinguishes an absent row (records `[]`, proceeds) from an unreadable one (corrupt/truncated/non-array → records nothing, errors), so `apply restore` can never delete your touched tokens by rolling back against a baseline that was empty only because the row couldn't be read. The three token writers (`set` / `clear` / `clear-all`) and the revert path keep their existing "start fresh on a missing row" behavior unchanged — only the rollback-baseline snapshot treats an unreadable row as a hard failure. The `wp pp apply preflight` error now names both causes (lock contention or a corrupt row) and points at the fix for each. 6 new PHPUnit tests cover corrupt/truncated rows, serialized scalars, and a valid empty-array row across the snapshot and writer paths.
+
+### Documentation
+- The operating-loop safety explanation, the apply-CLI reference, and the apply/rollback how-to now describe the second fail-closed trigger (an unreadable token row) alongside lock contention, so an operator who hits the preflight error knows a persistent failure means the `pp_token_overrides` option itself needs repair. (#207)
+
 ## [v0.16.53] — 2026-07-07 — Post-apply site validation now flags a missing local image in any URL shape (#83)
 
 **After an apply, the site check that catches broken images used to miss a same-site image whenever its rendered URL didn't byte-match the uploads base URL — an `http` vs `https` or host mismatch. So a page could render an unresolvable image and still report "validation passed." It's caught now, in every URL shape.**
