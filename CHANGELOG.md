@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.52] — 2026-07-07 — Media-URL validation now catches same-site images in any URL shape, and no longer fails open (#153)
+
+**A same-site image URL that pointed at a non-image attachment used to slip past validation whenever it wasn't written in the one exact canonical form — a relative `/wp-content/uploads/…` path, a CDN/offloaded URL, an `http`/`https` or `:443` variant. Those are all validated now, and a misconfigured uploads path no longer disables the check entirely.**
+
+`pp_validate_action()` rejects a proposed `image_url`/`background_image` that references the site's Media Library but isn't a real image (#124). That guard only fired when the URL was byte-for-byte prefixed by the uploads base URL, so any same-site image written in a non-canonical shape — a site-relative path, a protocol-relative `//host/…` URL, an `http` vs `https` or default-port mismatch, or a CDN/offloaded URL — was treated as "external" and passed through unchecked. Separately, if the uploads base URL was ever empty or filtered away, the whole check short-circuited to "allow everything." This closes both gaps.
+
+### Fixed
+- **Same-site media references are validated in any URL shape (#153).** A same-origin uploads URL is now recognized whether it arrives as a site-relative `/wp-content/uploads/…` path, a protocol-relative `//host/…` URL, an `http`/`https`-swapped or explicit default-port (`:80`/`:443`) variant, or a percent-encoded uploads path — each gets the same existence + image-type check that the canonical absolute form always did. A CDN/offloaded URL that still resolves to an attachment is image-checked too. Genuinely external URLs (a different host that resolves to no attachment) stay allowed, unchanged.
+
+### Security
+- **Fail-open closed.** An empty or filtered uploads base URL no longer disables validation — same-site-shaped paths are still resolved and rejected when they don't map to a real image, so a misconfigured install fails closed instead of trusting every URL. The image-type check is gated on whether the URL resolves to an attachment, not on how it's written, so a crafted default-port or percent-encoded path can't smuggle a non-image (PDF/video/SVG) attachment past the guard. 16 new PHPUnit tests cover each shape (relative, protocol-relative, scheme/port variants, encoded path, CDN resolve-through, empty-baseurl) across present-image / non-image / absent / external cases. Surfaced by adversarial review during the #153 backlog loop.
+
+### Documentation
+- The `AI_CONTEXT.md` media-URL-validation note now describes the broadened same-site matching and the fail-closed behavior, so the site-building model knows a relative or offloaded uploads URL to a non-image will be rejected. (#153)
+
 ## [v0.16.51] — 2026-07-07 — Safe-surface redirects so a renamed page's old URL 301s instead of 404ing (#62)
 
 **Renaming a page's slug used to strand its old URL on the 404 page. Now the AI can record a redirect so the old path 301s to the new one, with no theme-file edits and no open-redirect risk.**
