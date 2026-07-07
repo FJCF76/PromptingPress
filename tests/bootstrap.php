@@ -895,6 +895,11 @@ if (!function_exists('wp_delete_post')) {
 // ── wp_get_upload_dir stub ────────────────────────────────────────────────
 if (!function_exists('wp_get_upload_dir')) {
     function wp_get_upload_dir(): array {
+        // Overridable so tests can exercise a misconfigured/empty baseurl
+        // (#153 fail-open fix). Defaults to the standard test uploads dir.
+        if (isset($GLOBALS['_pp_test_store']['upload_dir']) && is_array($GLOBALS['_pp_test_store']['upload_dir'])) {
+            return $GLOBALS['_pp_test_store']['upload_dir'];
+        }
         return [
             'baseurl' => 'https://example.com/wp-content/uploads',
             'basedir' => sys_get_temp_dir() . '/pp-test-uploads',

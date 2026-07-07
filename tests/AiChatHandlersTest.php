@@ -839,6 +839,214 @@ class AiChatHandlersTest extends TestCase
         $this->assertStringContainsString('does not match any file', $result->get_error_message());
     }
 
+    // ── Same-site matching in non-canonical shapes (#153) ───────────────────
+    // The uploads baseurl in the bootstrap stub is
+    // https://example.com/wp-content/uploads. A same-site media reference must
+    // get the existence + image-type check no matter what shape it arrives in:
+    // relative, protocol-relative, or http/https-mismatched.
+
+    public function testValidateMediaUrlsAcceptsSiteRelativeUploadsPath(): void
+    {
+        $this->seedAttachment(80, 'https://example.com/wp-content/uploads/photo.jpg', true);
+
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => '/wp-content/uploads/photo.jpg'],
+        ]);
+
+        $this->assertTrue($result);
+    }
+
+    public function testValidateMediaUrlsAcceptsProtocolRelativeUploadsUrl(): void
+    {
+        $this->seedAttachment(81, 'https://example.com/wp-content/uploads/photo.jpg', true);
+
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => '//example.com/wp-content/uploads/photo.jpg'],
+        ]);
+
+        $this->assertTrue($result);
+    }
+
+    public function testValidateMediaUrlsAcceptsSchemeMismatchedUploadsUrl(): void
+    {
+        // Attachment stored under https; action proposes the same file over http.
+        $this->seedAttachment(82, 'https://example.com/wp-content/uploads/photo.jpg', true);
+
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => 'http://example.com/wp-content/uploads/photo.jpg'],
+        ]);
+
+        $this->assertTrue($result);
+    }
+
+    public function testValidateMediaUrlsRejectsSiteRelativeNonImage(): void
+    {
+        // Same-site relative path that resolves to a PDF — must be rejected as
+        // not-an-image, proving the image check runs on non-canonical shapes too.
+        $this->seedAttachment(83, 'https://example.com/wp-content/uploads/brochure.pdf', false);
+
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => '/wp-content/uploads/brochure.pdf'],
+        ]);
+
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_media_url', $result->get_error_code());
+        $this->assertStringContainsString('does not point to an image', $result->get_error_message());
+    }
+
+    public function testValidateMediaUrlsRejectsSiteRelativeUnknownUpload(): void
+    {
+        // Same-site relative path that matches no attachment — previously slipped
+        // through as "external" (bug #153); now rejected.
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => '/wp-content/uploads/ghost.jpg'],
+        ]);
+
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_media_url', $result->get_error_code());
+        $this->assertStringContainsString('does not match any file', $result->get_error_message());
+    }
+
+    public function testValidateMediaUrlsAllowsRelativeNonUploadsPath(): void
+    {
+        // A root-relative path NOT under the uploads dir is out of scope (can't be
+        // a media-library file). It's treated as external and allowed — and the
+        // segment boundary means "uploads-evil" is not mistaken for "uploads".
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => '/wp-content/uploads-evil/photo.jpg'],
+        ]);
+
+        $this->assertTrue($result);
+    }
+
+    public function testValidateMediaUrlsImageChecksResolvingCdnUrl(): void
+    {
+        // A different-host (offloaded/CDN) URL that core/an offload plugin can
+        // resolve to an attachment (modeled here via the seeded resolver) still
+        // gets the image-type check — a non-image is rejected.
+        $this->seedAttachment(84, 'https://cdn.example.net/uploads/brochure.pdf', false);
+
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => 'https://cdn.example.net/uploads/brochure.pdf'],
+        ]);
+
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_media_url', $result->get_error_code());
+        $this->assertStringContainsString('does not point to an image', $result->get_error_message());
+    }
+
+    public function testValidateMediaUrlsAllowsResolvingCdnImageUrl(): void
+    {
+        // Same CDN case, but the offloaded URL resolves to a real image — passes.
+        $this->seedAttachment(85, 'https://cdn.example.net/uploads/photo.jpg', true);
+
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => 'https://cdn.example.net/uploads/photo.jpg'],
+        ]);
+
+        $this->assertTrue($result);
+    }
+
+    public function testValidateMediaUrlsEmptyBaseurlStillValidatesSameSiteShapes(): void
+    {
+        // #153 fail-open fix: a misconfigured/filtered baseurl must NOT disable
+        // validation. A same-site-shaped relative path that resolves to nothing is
+        // rejected rather than silently skipped.
+        $GLOBALS['_pp_test_store']['upload_dir'] = ['baseurl' => '', 'basedir' => ''];
+
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => '/wp-content/uploads/ghost.jpg'],
+        ]);
+
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_media_url', $result->get_error_code());
+        $this->assertStringContainsString('does not match any file', $result->get_error_message());
+    }
+
+    public function testValidateMediaUrlsEmptyBaseurlStillAllowsExternalUrls(): void
+    {
+        // Fail-open fix must not over-reject: a genuinely external URL is still
+        // allowed even when baseurl is empty.
+        $GLOBALS['_pp_test_store']['upload_dir'] = ['baseurl' => '', 'basedir' => ''];
+
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => 'https://cdn.example.net/some-photo.jpg'],
+        ]);
+
+        $this->assertTrue($result);
+    }
+
+    public function testValidateMediaUrlsNormalizesDefaultPortImage(): void
+    {
+        // https://…:443 is the same origin as https://… — the explicit default
+        // port must not push a same-site image out to "external" (codex #153).
+        $this->seedAttachment(86, 'https://example.com/wp-content/uploads/photo.jpg', true);
+
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => 'https://example.com:443/wp-content/uploads/photo.jpg'],
+        ]);
+
+        $this->assertTrue($result);
+    }
+
+    public function testValidateMediaUrlsDefaultPortNonImageCannotBypass(): void
+    {
+        // The bypass codex flagged: reference a non-image attachment with an
+        // explicit :443 so it looks external. Port normalization keeps it same-site
+        // and the image check rejects it.
+        $this->seedAttachment(87, 'https://example.com/wp-content/uploads/brochure.pdf', false);
+
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => 'https://example.com:443/wp-content/uploads/brochure.pdf'],
+        ]);
+
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_media_url', $result->get_error_code());
+        $this->assertStringContainsString('does not point to an image', $result->get_error_message());
+    }
+
+    public function testValidateMediaUrlsPercentEncodedUploadsPathCannotBypass(): void
+    {
+        // /wp-content/%75ploads/ decodes to /wp-content/uploads/ on the server, so
+        // an encoded path must not evade classification and slip through as
+        // "external" unchecked. It's treated as same-site; not resolving the encoded
+        // form, it is rejected (fail-closed) rather than allowed (codex #153).
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => 'https://example.com/wp-content/%75ploads/brochure.pdf'],
+        ]);
+
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_media_url', $result->get_error_code());
+        $this->assertStringContainsString('does not match any file', $result->get_error_message());
+    }
+
+    public function testValidateMediaUrlsCrossSchemeDefaultPortNonImageCannotBypass(): void
+    {
+        // http://…:443 (scheme/port cross): still the same site, since http/https
+        // and their standard ports collapse to one origin. A non-image referenced
+        // this way is image-checked and rejected, not allowed through as external.
+        $this->seedAttachment(88, 'https://example.com/wp-content/uploads/brochure.pdf', false);
+
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => 'http://example.com:443/wp-content/uploads/brochure.pdf'],
+        ]);
+
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_media_url', $result->get_error_code());
+        $this->assertStringContainsString('does not point to an image', $result->get_error_message());
+    }
+
+    public function testValidateMediaUrlsAllowsGenuinelyDifferentPort(): void
+    {
+        // A genuinely different (non-default) port is a different origin — external,
+        // allowed when it doesn't resolve. Proves normalization is default-port-only.
+        $result = _pp_validate_media_urls_in_params([
+            'props' => ['image_url' => 'https://example.com:8443/wp-content/uploads/photo.jpg'],
+        ]);
+
+        $this->assertTrue($result);
+    }
+
     // ── Non-Streaming Chat Fallback (issue 16) ──────────────────────────────
     //
     // _pp_ai_chat_fallback_response() was extracted from the wp_ajax_pp_ai_chat

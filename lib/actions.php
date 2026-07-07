@@ -131,11 +131,9 @@ function pp_validate_action(string $name, array $params) {
  * @return true|WP_Error
  */
 function _pp_validate_media_urls_in_params(array $params) {
-    $upload_dir = wp_get_upload_dir();
-    $upload_base = $upload_dir['baseurl'] ?? '';
-    if (empty($upload_base)) {
-        return true;
-    }
+    $upload_dir  = wp_get_upload_dir();
+    $upload_base = is_array($upload_dir) ? (string) ($upload_dir['baseurl'] ?? '') : '';
+    $upload_base = rtrim($upload_base, '/');
 
     $urls = _pp_extract_urls_from_params($params);
     if (empty($urls)) {
@@ -143,35 +141,194 @@ function _pp_validate_media_urls_in_params(array $params) {
     }
 
     foreach ($urls as $url) {
-        // Only validate URLs that look like they reference the site's uploads
-        if (strpos($url, $upload_base) !== 0) {
-            continue;
-        }
-
-        // Check if this URL matches any attachment in the media library
-        $attachment_id = _pp_resolve_attachment_id_by_url($url);
-        if ($attachment_id <= 0) {
-            $filename = basename($url);
-            return new WP_Error(
-                'invalid_media_url',
-                sprintf('Image URL does not match any file in the media library: %s', $filename)
-            );
-        }
-
-        // Defense in depth: pp_ai_media_inventory() only lists image
-        // attachments, but nothing stops the model from fabricating a URL to
-        // a non-image attachment it saw elsewhere (or hallucinating one that
-        // happens to resolve). Reject at execute time too (#124).
-        if (!wp_attachment_is_image($attachment_id)) {
-            $filename = basename($url);
-            return new WP_Error(
-                'invalid_media_url',
-                sprintf('URL does not point to an image file: %s', $filename)
-            );
+        $error = _pp_validate_single_media_url($url, $upload_base);
+        if (is_wp_error($error)) {
+            return $error;
         }
     }
 
     return true;
+}
+
+/**
+ * Validates a single candidate URL against the media library (#124 image gate,
+ * #153 same-site matching + fail-open fix).
+ *
+ * A URL is classified as "same-site" — a media-library reference in any shape —
+ * when it is (a) an absolute URL sharing the uploads baseurl's origin (host+port,
+ * any scheme) and sitting under its path, (b) protocol-relative to that origin, or
+ * (c) a site-relative uploads path. Same-site URLs are canonicalized to the stored
+ * absolute form so attachment_url_to_postid() can resolve non-canonical shapes
+ * (relative, protocol-relative, http/https-mismatched). Different-host (CDN/
+ * offloaded) URLs are looked up as-is — WordPress core and offload plugins hook
+ * attachment_url_to_postid() to unrewrite them.
+ *
+ *   resolves to an attachment → must be an image, else reject          (#124)
+ *   unresolved + same-site    → reject "does not match any file"        (#153)
+ *   unresolved + external     → allow (out of scope; validated elsewhere)
+ *
+ * The image-type check is gated on RESOLUTION, not classification: any URL that
+ * maps to an attachment is image-checked regardless of shape or encoding, so a
+ * crafted path cannot smuggle a non-image through. Classification only decides how
+ * strict we are about UNRESOLVED URLs (the fail-closed direction). An empty/filtered
+ * baseurl no longer disables validation (#153 fail-open): a same-site-shaped
+ * relative path is still resolved and rejected when it doesn't map.
+ *
+ * @return true|WP_Error
+ */
+function _pp_validate_single_media_url(string $url, string $upload_base) {
+    $canonical = ($upload_base !== '')
+        ? _pp_canonicalize_same_site_url($url, $upload_base)
+        : null;
+
+    // The relative-uploads fallback only matters when baseurl is empty (canonical
+    // is null there); with a real baseurl, canonicalization already covered it.
+    $same_site = ($canonical !== null) || _pp_url_is_relative_uploads_path($url);
+    $lookup    = $canonical ?? $url;
+
+    $attachment_id = _pp_resolve_attachment_id_by_url($lookup);
+
+    if ($attachment_id > 0) {
+        // Defense in depth: pp_ai_media_inventory() only lists image attachments,
+        // but nothing stops the model from pointing at a non-image attachment it
+        // saw elsewhere (or hallucinating one that resolves). Reject it (#124).
+        if (!wp_attachment_is_image($attachment_id)) {
+            return new WP_Error(
+                'invalid_media_url',
+                sprintf('URL does not point to an image file: %s', basename($url))
+            );
+        }
+        return true;
+    }
+
+    if ($same_site) {
+        return new WP_Error(
+            'invalid_media_url',
+            sprintf('Image URL does not match any file in the media library: %s', basename($url))
+        );
+    }
+
+    // Genuinely external, unresolvable URL — allowed. Narrowing this (e.g. forcing
+    // external images through import_media, #105) is a separate product decision.
+    return true;
+}
+
+/**
+ * If $url references the same origin as the uploads baseurl and sits under its
+ * path — in any scheme/shape, or as a site-relative uploads path — returns the
+ * canonical absolute uploads URL (baseurl's scheme+host[:port] + path, query and
+ * fragment dropped to match how _wp_attached_file is stored) so that
+ * attachment_url_to_postid() can resolve it. Returns null for a different-origin
+ * URL (host or port differs → handled by a raw lookup so offload filters can
+ * unrewrite it) or anything not under the uploads path. Scheme is ignored for
+ * classification (http/https/protocol-relative all normalize to baseurl's scheme).
+ *
+ *   /wp-content/uploads/x.jpg                   → https://site/wp-content/uploads/x.jpg
+ *   //site/wp-content/uploads/x.jpg             → https://site/wp-content/uploads/x.jpg
+ *   http://site/wp-content/uploads/x.jpg        → https://site/wp-content/uploads/x.jpg
+ *   https://cdn.other/wp-content/uploads/x.jpg  → null (raw lookup)
+ *   /wp-content/uploads-evil/x.jpg              → null (segment-boundary miss)
+ */
+function _pp_canonicalize_same_site_url(string $url, string $upload_base): ?string {
+    $base = parse_url($upload_base);
+    if (!is_array($base) || empty($base['scheme']) || empty($base['host'])) {
+        return null;
+    }
+    $base_scheme = strtolower($base['scheme']);
+    $base_authority = _pp_url_authority((string) $base['host'], $base['port'] ?? null);
+    $base_origin = $base_scheme . '://' . $base_authority;
+    $base_path = isset($base['path']) ? rtrim($base['path'], '/') : '';
+    if ($base_path === '') {
+        return null;
+    }
+
+    $url = trim($url);
+    if ($url === '') {
+        return null;
+    }
+
+    // Site-relative path (/wp-content/uploads/…), but NOT protocol-relative (//host).
+    if ($url[0] === '/' && (!isset($url[1]) || $url[1] !== '/')) {
+        $path = parse_url($url, PHP_URL_PATH);
+        // Decode before the boundary test so an encoded uploads segment
+        // (/wp-content/%75ploads/…) can't dodge classification and slip through as
+        // "external"; the canonical lookup keeps the original path so it still
+        // matches how the attachment URL is stored (#153 codex hardening).
+        if (is_string($path) && _pp_path_is_under(rawurldecode($path), $base_path)) {
+            return $base_origin . $path;
+        }
+        return null;
+    }
+
+    // Protocol-relative (//host/…): borrow baseurl's scheme so parse_url yields a host.
+    if (strncmp($url, '//', 2) === 0) {
+        $url = $base_scheme . ':' . $url;
+    }
+
+    $parts = parse_url($url);
+    if (!is_array($parts) || empty($parts['host'])) {
+        return null;
+    }
+    // Compare origin by authority with standard web ports normalized, so
+    // https://site:443/… (or http://site:443/…) is recognized as same-site rather
+    // than skipped as external. Scheme is intentionally not part of the authority.
+    $authority = _pp_url_authority((string) $parts['host'], $parts['port'] ?? null);
+    if ($authority !== $base_authority) {
+        return null; // different origin (host or non-default port) — CDN/external, raw lookup
+    }
+    $path = $parts['path'] ?? '';
+    if (!_pp_path_is_under(rawurldecode($path), $base_path)) {
+        return null;
+    }
+    return $base_origin . $path;
+}
+
+/**
+ * Normalized origin authority: lowercased host with the standard web ports (80 and
+ * 443) dropped. http and https on the same host are treated as one origin for media
+ * classification (scheme is normalized to the uploads baseurl's), so both default
+ * ports collapse to "no port" regardless of scheme — otherwise a same-site uploads
+ * URL carrying an explicit :80/:443 would be misclassified as external and skip the
+ * image check (#153). A genuinely non-standard port (e.g. :8443) is kept, so it
+ * stays a distinct origin.
+ *
+ * @param int|string|null $port
+ */
+function _pp_url_authority(string $host, $port): string {
+    $host = strtolower($host);
+    if ($port === null || $port === '') {
+        return $host;
+    }
+    $port = (int) $port;
+    if ($port === 80 || $port === 443) {
+        return $host;
+    }
+    return $host . ':' . $port;
+}
+
+/**
+ * True when $path is $base_path itself or a descendant at a segment boundary, so
+ * "/wp-content/uploads" matches "/wp-content/uploads/x" but NOT
+ * "/wp-content/uploads-evil/x". Callers pass a percent-decoded path (a traversal
+ * like /wp-content/uploads/../x that survives still resolves to nothing and is
+ * rejected, since classification only gates the reject-vs-allow of UNRESOLVED URLs).
+ */
+function _pp_path_is_under(string $path, string $base_path): bool {
+    return $path === $base_path
+        || strncmp($path, $base_path . '/', strlen($base_path) + 1) === 0;
+}
+
+/**
+ * Conventional site-relative uploads path (/wp-content/uploads/…). Used ONLY when
+ * the uploads baseurl is empty/filtered (#153 fail-open fix), where the real
+ * uploads path cannot be derived — so a same-site-shaped relative path is still
+ * treated as validate-able and rejected when it doesn't resolve, rather than
+ * silently skipped. (Custom/multisite upload paths under an empty baseurl fall
+ * through to "external → allowed", the pre-existing behavior.)
+ */
+function _pp_url_is_relative_uploads_path(string $url): bool {
+    // Decode first so an encoded uploads segment can't dodge the fail-open check.
+    return strncmp(rawurldecode(trim($url)), '/wp-content/uploads/', 20) === 0;
 }
 
 /**
