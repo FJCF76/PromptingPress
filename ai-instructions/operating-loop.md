@@ -37,7 +37,7 @@ old order let typed edits land before the safety gate; they no longer can.
 
 Run: `wp pp operate inspect` (or `wp pp operate inspect --post_id=<id>` for page-specific smells).
 
-This returns the full operating picture: target environment, composition pages, drift state, preflight status, design tokens, CSS conflicts, and composition smells.
+This returns the full operating picture: target environment, composition pages, drift state, preflight status, design tokens, CSS conflicts, composition smells, and (with `--post_id`) a `composition_decode_error` signal that is set when the page's stored composition is corrupt or not a valid list rather than genuinely empty (issue 144).
 
 **Required output**: `site_state` — the full inspect result. Store it; you'll reference it throughout the loop.
 

@@ -13,6 +13,7 @@ Diagnose and fix a reported issue. INSPECT includes a screenshot of the current 
 ### 1. INSPECT
 Run `wp pp operate inspect --post_id=<page_id>`. Review:
 - Current composition (look for structural issues)
+- `composition_decode_error` (if set, the stored composition is corrupt/undecodable or not a list — that data-integrity problem is likely the root cause; don't treat the page as blank)
 - Composition smells (may identify the root cause)
 - Design tokens (token issues cause visual bugs)
 - CSS conflicts (custom CSS may be overriding components)
