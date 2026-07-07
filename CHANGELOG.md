@@ -4,7 +4,17 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [v0.16.54] — 2026-07-07 — A corrupt design-token row now fails the pre-apply safety check instead of arming a destructive rollback (#207)
+## [v0.16.55] — 2026-07-07 — AI-chat history is now private to each WordPress user, even on a shared browser (#157)
+
+**Two WordPress admins who share one computer login and browser used to see each other's AI-chat conversation history, because the chat was saved under a key tied only to the site, not the user. It's now saved per site and per user, so your chat history stays yours. If a page ever loads without a valid user id, the chat simply won't persist that session rather than fall back to a shared bucket.**
+
+The AI-chat panel saves your conversation in the browser's `localStorage` so it survives a page reload. That entry was keyed by site URL alone (`pp_ai_chat_<siteUrl>`), so on a shared OS/browser profile a second admin opened the panel and read the first admin's history, including apply-confirmation messages that name specific pages and changes. The conversation is now keyed by site **and** the current WordPress user id, so each user's browser-local history is isolated. Because `wp_localize_script` hands the user id to JavaScript as a string, the client validates it as a positive whole number; if it's missing or invalid — which on this `edit_posts`-gated screen means a broken page config, not a real state — persistence fails closed (the conversation lives in memory for that page load only) rather than writing to a shared, unscoped key. The old site-only key is cleared on load.
+
+### Fixed
+- **AI-chat conversation history is scoped to site + WordPress user (#157).** The persisted chat is now keyed `pp_ai_chat_<siteUrl>_<userId>`, so two admins sharing a browser profile can no longer read each other's history. The user id comes from the `ppAiChat` page config; the client accepts it only as a positive decimal integer (`wp_localize_script` delivers it as a string) and, when it's absent or invalid, disables save/load/clear for that page load and logs a one-line console warning instead of persisting to a shared bucket. Your existing single-key chat history is cleared once on upgrade (the legacy `pp_ai_chat_<siteUrl>` entry is removed on load); a fresh per-user history starts empty. 15 new unit tests cover cross-user isolation, same-user restore, legacy-key removal, and the full invalid-id set.
+
+### Security
+- **Closes a cross-user information-disclosure path and fails closed.** A missing or malformed user id no longer degrades to a shared, unscoped storage key — the exact bucket that leaked history between users — it disables persistence for that session instead. Note: multiple chat tabs open for the same site and user still share one storage entry and can overwrite each other's saved context (single-active-tab assumption; multi-tab reconciliation is tracked in #205).
 
 **Before you apply a design change, PromptingPress freezes a snapshot of your current tokens so it can undo the change later. If that stored token row was corrupt or hand-edited into garbage, the snapshot came back empty — and undoing against an empty snapshot doesn't restore your tokens, it deletes them. The safety check now refuses to record an empty snapshot for an unreadable row, so a later undo can't quietly wipe your design tokens.**
 
