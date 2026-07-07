@@ -229,3 +229,85 @@ test.describe('Preflight-before-mutation gate (#96)', () => {
     expect(result.ok).toBe(true);
   });
 });
+
+/**
+ * #62: a create_redirect makes a renamed/moved path 301 to its canonical target
+ * instead of 404ing; remove_redirect restores the 404. Both actions are
+ * site-scoped and resolve on template_redirect only for otherwise-unmatched
+ * (404) requests.
+ */
+test.describe('Front-end redirects (#62)', () => {
+  let pageId = 0;
+  const fromPath = '/e2e-redirect-old-source';
+
+  // The resolver fires on WordPress's 404, which only sees a slug path when
+  // pretty permalinks route it through index.php. wp-env defaults to plain
+  // permalinks (Apache 404s slug paths before PHP), so switch to the realistic
+  // pretty-permalink scenario for this spec, then restore plain + a clean map.
+  test.beforeAll(() => {
+    wpCli(`wp rewrite structure '/%postname%/' --hard`);
+    wpCli(`wp rewrite flush --hard`);
+  });
+
+  test.afterAll(() => {
+    wpCli(`wp option delete pp_redirects || true`);
+    wpCli(`wp rewrite structure '' `);
+    wpCli(`wp rewrite flush`);
+  });
+
+  test.afterEach(() => {
+    // Redirects are DB-backed and outlive the page, so always clear the map.
+    try {
+      const runId = ppOperateInspect();
+      ppPreflight(runId);
+      ppAction('remove_redirect', { from: fromPath }, runId);
+    } catch { /* nothing to clean */ }
+    if (pageId) {
+      try { deletePage(pageId); } catch { /* already cleaned */ }
+      pageId = 0;
+    }
+  });
+
+  test('create_redirect 301s an old path to a live page, remove restores 404 @smoke', async ({ page, request }) => {
+    const runId = ppOperateInspect();
+    ppPreflight(runId);
+
+    // A published target page the redirect points at.
+    const created = ppAction('create_page', {
+      title: 'E2E Redirect Target',
+      composition: [{ component: 'hero', props: { title: 'Redirect Target Hero' } }],
+      status: 'publish',
+    }, runId);
+    expect(created.ok).toBe(true);
+    pageId = (created.target as any).post_id;
+
+    const targetUrl = wpCli(`wp post get ${pageId} --field=url`);
+    const parsed = new URL(targetUrl);
+    const targetPath = parsed.pathname + parsed.search;
+
+    // Before any redirect exists, the old path 404s.
+    const before = await request.get(fromPath, { maxRedirects: 0 });
+    expect(before.status()).toBe(404);
+
+    // create_redirect is site-scoped — record a fresh site preflight, then add it.
+    ppPreflight(runId);
+    const redir = ppAction('create_redirect', { from: fromPath, to: targetPath }, runId);
+    expect(redir.ok).toBe(true);
+
+    // The old path now 301s to the target...
+    const resp = await request.get(fromPath, { maxRedirects: 0 });
+    expect(resp.status()).toBe(301);
+    expect(resp.headers()['location']).toContain(targetPath);
+
+    // ...which resolves 200 and renders the target page.
+    await page.goto(fromPath);
+    await expect(page.locator('.hero__title').first()).toContainText('Redirect Target Hero');
+
+    // remove_redirect restores the original 404.
+    ppPreflight(runId);
+    const removed = ppAction('remove_redirect', { from: fromPath }, runId);
+    expect(removed.ok).toBe(true);
+    const after = await request.get(fromPath, { maxRedirects: 0 });
+    expect(after.status()).toBe(404);
+  });
+});

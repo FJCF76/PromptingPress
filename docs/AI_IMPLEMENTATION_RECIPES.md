@@ -37,7 +37,7 @@ Used by: #99, #100, #108, #111, #61 (and the #99 scaffold issue defines the reus
 
 ## Recipe B — Add an action or apply
 
-Used by: #132 (menus), #134 (slug), #105 (import media), #122, #133.
+Used by: #132 (menus), #134 (slug), #105 (import media), #122, #133, #62 (front-end redirects — DB option, `template_redirect` resolver).
 
 1. In `lib/actions.php` (DB/WP mutations) or `lib/apply.php` (file/option mutations), call `pp_register_action('name', [...])` / `pp_register_apply(...)` with:
    - `scope` (`site`|`page`|`section`) or `domain`; `description`; `params` (`['type'=>'int|string|array|bool','required'=>bool]`);

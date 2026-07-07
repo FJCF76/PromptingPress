@@ -171,6 +171,7 @@ Every visual change maps to one surface. Writing to the wrong surface creates sp
 | Site name / tagline | WordPress options | Action: `update_site_option` |
 | Navigation menus | WP nav menus + `nav_menu_locations` theme mod | Actions: `set_menu` (declarative replace), `create_menu`, `add_menu_item`, `assign_menu_location` |
 | Page SEO metadata | `_pp_seo_meta` post meta | Action: `update_seo_meta` (patch semantics) |
+| Front-end redirects | `pp_redirects` option | Actions: `create_redirect` (old path → same-site target, 301/302), `remove_redirect`, `list_redirects`. Resolves on a 404 only — pair with `update_page_slug` so a renamed page's old URL keeps working |
 | External images | Media Library | Apply: `import_media` (sideload; returns attachment id + local URL) |
 
 **Never use:** WordPress Custom CSS (Appearance > Additional CSS). Use `clear_custom_css` action if conflicts exist.

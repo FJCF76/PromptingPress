@@ -7,7 +7,7 @@
  */
 
 // ── Theme version (single source of truth — keep in sync with style.css) ──
-define('PP_VERSION', '0.16.50');
+define('PP_VERSION', '0.16.51');
 
 // ── Load lib files ─────────────────────────────────────────────────────────
 require_once get_template_directory() . '/lib/wp.php';
@@ -126,3 +126,8 @@ add_action('wp_enqueue_scripts', function () {
 add_action('wp_head', 'pp_seo_meta_description_tag', 1);
 add_filter('pre_get_document_title', 'pp_seo_document_title_override');
 add_filter('get_canonical_url', 'pp_seo_canonical_url_override', 10, 2);
+
+// ── Front-end redirects (#62) ────────────────────────────────────────────────
+// Rescues renamed/moved URLs: on an otherwise-404 request, a matching
+// pp_redirects entry 301s to its canonical target instead of the 404 template.
+add_action('template_redirect', 'pp_redirect_template_hook');
