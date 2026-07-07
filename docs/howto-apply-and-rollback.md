@@ -125,8 +125,8 @@ You didn't pass `--run-id`, or the value isn't a UUID. Re-run `wp pp operate ins
 **`Run token "..." has no completed PREFLIGHT step`**
 You skipped step 3, or the run expired. Run `wp pp apply preflight --run-id=$RUN` (add `--post_id=<id>` for page work). If it still fails, the 2-hour token likely expired — mint a fresh one with `wp pp operate inspect`.
 
-**Preflight errors: `Could not read an atomic pre-apply token baseline ... the token lock is contended`**
-Another process is writing tokens right now. Preflight fails closed on purpose rather than freezing a stale rollback point (issue #200). Wait a moment and re-run the same `preflight` command; it succeeds once the contention clears.
+**Preflight errors: `Could not read an atomic pre-apply token baseline ... the token lock is contended, or the pp_token_overrides row is corrupt/unreadable`**
+Preflight fails closed rather than freezing a rollback point it can't trust. Two causes: another process is writing tokens right now (lock contention, issue #200) — wait a moment and re-run the same `preflight` command, it succeeds once the contention clears; or the stored `pp_token_overrides` option is corrupt/hand-edited into a non-array (issue #207) — re-running won't help because the row stays unreadable, so inspect and repair the `pp_token_overrides` option before retrying. Recording an empty baseline for a corrupt row would make a later `restore` delete the touched tokens instead of restoring them, which is why it refuses.
 
 **`Refusing to apply: run "..." has no usable rollback snapshot`**
 The run has no snapshot to undo to, so `execute`/`reset` won't mutate. Re-run `wp pp operate inspect` then `wp pp apply preflight --run-id=$RUN` to establish a fresh, reversible baseline.

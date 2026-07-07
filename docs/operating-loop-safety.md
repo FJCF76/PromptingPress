@@ -97,11 +97,18 @@ post-preflight state or none of it. Any failure leaves both the action gate and
 the apply gate fail-closed: no coverage recorded means no mutation unlocked.
 
 The rollback snapshot itself is read **under the token lock** for an atomic
-baseline. If that lock is contended — another writer is racing, exactly the case
-the baseline protects against — the snapshot fails closed rather than degrading to
-a stale, non-atomic read. `wp pp apply preflight` then **errors and records
-nothing** instead of freezing a baseline that a later `apply restore` would
-silently revert to. Re-run the preflight once the contention clears.
+baseline, and it fails closed on two conditions rather than freezing a baseline a
+later `apply restore` would wrongly revert to. First, if the lock is contended —
+another writer is racing, exactly the case the baseline protects against — it
+refuses to degrade to a stale, non-atomic read. Second, if the stored
+`pp_token_overrides` row is unreadable — corrupt, truncated, or hand-edited into
+something that isn't an array — it refuses to treat that as "no overrides." That
+second case matters because an empty baseline is not harmless: `apply restore`
+reverts every touched token off an empty snapshot by **deleting** it, so recording
+`[]` for a corrupt row would turn a restore into silent token loss. In either case
+`wp pp apply preflight` **errors and records nothing**. Re-run the preflight once
+the contention clears; if the error persists, inspect and repair the
+`pp_token_overrides` option — the row itself is unreadable.
 
 ### Validate first, so errors point at the real problem
 

@@ -146,13 +146,13 @@ The checks that can run (`pp_preflight`, `lib/operate.php`):
 **Exit codes and errors**
 
 - If any error-grade check fails: prints the JSON, then exits **1** (`WP_CLI::halt(1)`). Nothing is recorded.
-- **Token-lock contention (#200):** the snapshot is read under the token advisory lock for an atomic baseline. If the lock is contended, the snapshot comes back `null` and preflight **records nothing** and errors:
-  > `Could not read an atomic pre-apply token baseline for run token "<uuid>": the token lock is contended. PREFLIGHT was not recorded. Re-run 'wp pp apply preflight' once the contention clears.`
+- **Unreadable baseline (#200 lock contention, #207 corrupt row):** the snapshot is read under the token advisory lock for an atomic baseline. It comes back `null` — and preflight **records nothing** and errors — in two cases: the lock is contended (another writer is racing, #200), or the stored `pp_token_overrides` row is corrupt/truncated/hand-edited into a non-array (#207). Either way:
+  > `Could not read an atomic pre-apply token baseline for run token "<uuid>": the token lock is contended, or the pp_token_overrides row is corrupt/unreadable. PREFLIGHT was not recorded. Re-run 'wp pp apply preflight' once the contention clears; if it persists, inspect and repair the pp_token_overrides option.`
 
-  This is deliberate fail-closed behavior: recording a stale, non-atomic baseline would let a later `restore` revert to a state that never existed. Retry once contention clears.
+  This is deliberate fail-closed behavior. Recording a stale baseline (contention) would let a later `restore` revert to a state that never existed; recording an empty `[]` baseline for a corrupt row is worse — `restore` reverts every touched token off an empty snapshot by **deleting** it, so a corrupt row silently coerced to `[]` would turn a restore into token loss. Retry once contention clears; if the error persists, the row itself is unreadable — inspect and repair `pp_token_overrides`.
 - If the run state can't be written: `Could not record PREFLIGHT state for run token "<uuid>". State file may be missing or expired. Re-run 'wp pp operate inspect'.`
 
-An empty override set is a **valid** baseline: on a fresh install with no overrides the snapshot is `[]` (recorded normally), never `null`. `null` means only "could not read atomically."
+An empty override set is a **valid** baseline: on a fresh install with no overrides the snapshot is `[]` (recorded normally), never `null`. `null` means "could not read an atomic baseline" — either lock contention or an unreadable/corrupt row, never a legitimately empty one.
 
 ---
 

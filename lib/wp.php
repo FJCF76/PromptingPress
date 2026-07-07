@@ -1221,15 +1221,26 @@ function _pp_with_token_lock(callable $mutator, $fail_value) {
 }
 
 /**
- * Reads pp_token_overrides authoritatively inside the lock. Reads the single option
- * row straight from the DB (bypassing the options cache) so a concurrent writer's
+ * Reads pp_token_overrides authoritatively inside the lock, distinguishing an ABSENT
+ * row from an UNREADABLE (corrupt/truncated/non-array) one. Reads the single option row
+ * straight from the DB (bypassing the options cache) so a concurrent writer's
  * just-committed value is visible and a stale cached map can't overwrite a newer one
  * inside the critical section. Reads exactly the one row rather than busting the whole
  * `alloptions` autoload cache.
  *
+ * Three distinct outcomes (#207):
+ *   - no row              → []    (legitimately no overrides)
+ *   - row unserializes to an array → that array
+ *   - row exists but does NOT unserialize to an array → null (UNREADABLE)
+ *
+ * Only the snapshot caller (pp_snapshot_token_overrides) needs the unreadable-vs-empty
+ * distinction, so it reads through this strict variant. The writer paths read through
+ * _pp_read_token_overrides_locked(), which coerces null to [] — see that wrapper.
+ *
  * @param object|null $wpdb  The DB handle inside the lock, or null in unit context.
+ * @return array|null  The overrides map, [] if absent, or null if the row is unreadable.
  */
-function _pp_read_token_overrides_locked($wpdb = null): array {
+function _pp_read_token_overrides_locked_strict($wpdb = null): ?array {
     if (is_object($wpdb) && method_exists($wpdb, 'get_var')) {
         $raw = $wpdb->get_var(
             $wpdb->prepare(
@@ -1241,10 +1252,26 @@ function _pp_read_token_overrides_locked($wpdb = null): array {
             return [];
         }
         $value = maybe_unserialize($raw);
-        return is_array($value) ? $value : [];
+        return is_array($value) ? $value : null;
     }
     // No DB handle (unit context): fall back to the cached/stubbed option.
     return pp_get_token_overrides();
+}
+
+/**
+ * Reads pp_token_overrides authoritatively inside the lock for the WRITER paths, where
+ * `[]`-means-"start fresh" is the correct handling of both an absent AND an unreadable
+ * row. Thin wrapper over _pp_read_token_overrides_locked_strict() that coerces the
+ * strict variant's null (unreadable row) back to []. Keeping this coercion here — not in
+ * the strict read — is the Option A boundary from #207: only the rollback-baseline
+ * snapshot treats an unreadable row as a hard failure; set/clear/clear-all/revert keep
+ * their pre-#207 "start fresh on a missing/unreadable row" semantics unchanged.
+ *
+ * @param object|null $wpdb  The DB handle inside the lock, or null in unit context.
+ */
+function _pp_read_token_overrides_locked($wpdb = null): array {
+    $value = _pp_read_token_overrides_locked_strict($wpdb);
+    return $value === null ? [] : $value;
 }
 
 /**
@@ -1371,17 +1398,26 @@ function pp_revert_tokens(array $snapshot, array $touched_keys): bool {
  *
  * Used when freezing a run's pre-apply baseline: taking the read inside the lock means
  * a concurrent apply cannot interleave and produce a baseline that never existed
- * atomically. Fail-closed: if the lock cannot be acquired the read would be non-atomic
- * exactly when contention is happening — the one scenario the lock exists to protect
- * against — so it returns null instead of silently degrading to a plain cached read.
+ * atomically. Fail-closed on TWO distinct failure modes, both surfaced as null:
+ *   1. Lock not acquired (#200): the read would be non-atomic exactly when contention
+ *      is happening — the one scenario the lock exists to protect against — so it
+ *      returns null instead of silently degrading to a plain cached read.
+ *   2. Unreadable row (#207): a corrupt/truncated/hand-edited pp_token_overrides row
+ *      that does not unserialize to an array. Reading through the STRICT locked read
+ *      surfaces this as null rather than coercing it to [] — recording [] as the
+ *      baseline would let a later `apply restore` delete the touched tokens instead of
+ *      restoring them (an [] baseline reverts every touched key via the unset() branch
+ *      of pp_revert_tokens).
  * The caller must treat null as a hard failure (no baseline recorded) rather than
- * freezing a stale snapshot that a later `apply restore` would roll back to.
+ * freezing a snapshot that a later `apply restore` would roll back to. An absent row
+ * still yields [] (a valid, recordable empty baseline), never null.
  *
- * @return array|null  token => value map, or null if the lock could not be acquired.
+ * @return array|null  token => value map, [] if no overrides, or null if the lock could
+ *                     not be acquired OR the overrides row is unreadable.
  */
 function pp_snapshot_token_overrides(): ?array {
     return _pp_with_token_lock( function ( $wpdb ) {
-        return _pp_read_token_overrides_locked( $wpdb );
+        return _pp_read_token_overrides_locked_strict( $wpdb );
     }, null );
 }
 
