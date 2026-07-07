@@ -37,6 +37,7 @@ dom.window.ppAiChat = {
     ajaxUrl: '/wp-admin/admin-ajax.php',
     executeNonce: 'test-nonce',
     siteUrl: 'http://restore-empty-selection.example.com',
+    currentUserId: '7', // string, matching wp_localize_script scalar casting (#157)
     streamUrl: '/wp-admin/admin-ajax.php?action=pp_ai_stream',
     streamNonce: 'stream-nonce',
     pages: [
@@ -48,7 +49,7 @@ global.window.ppAiChat = dom.window.ppAiChat;
 
 // Unique STORAGE_KEY per file (see pp-ai-chat-restore.test.js on cross-file
 // localStorage bleed).
-const STORAGE_KEY = 'pp_ai_chat_' + dom.window.ppAiChat.siteUrl;
+const STORAGE_KEY = 'pp_ai_chat_' + dom.window.ppAiChat.siteUrl + '_' + dom.window.ppAiChat.currentUserId;
 
 // The select-then-reload-before-first-message shape: page picked, no
 // conversation yet. Stored as a string to also cover pre-normalization

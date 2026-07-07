@@ -39,6 +39,7 @@ dom.window.ppAiChat = {
     ajaxUrl: '/wp-admin/admin-ajax.php',
     executeNonce: 'test-nonce',
     siteUrl: 'http://page-select-coercion.example.com',
+    currentUserId: '7', // string, matching wp_localize_script scalar casting (#157)
     streamUrl: '/wp-admin/admin-ajax.php?action=pp_ai_stream',
     streamNonce: 'stream-nonce',
     pages: [
@@ -50,7 +51,7 @@ global.window.ppAiChat = dom.window.ppAiChat;
 
 // Unique STORAGE_KEY per file (see pp-ai-chat-restore.test.js on cross-file
 // localStorage bleed).
-const STORAGE_KEY = 'pp_ai_chat_' + dom.window.ppAiChat.siteUrl;
+const STORAGE_KEY = 'pp_ai_chat_' + dom.window.ppAiChat.siteUrl + '_' + dom.window.ppAiChat.currentUserId;
 
 // Pre-normalization state: activePageId persisted as the <select>'s string
 // value. The old strict === lookup in ppChatFindPageById never matched it,

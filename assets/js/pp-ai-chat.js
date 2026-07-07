@@ -429,9 +429,46 @@ function ppChatAppendValidationItems(container, items, className) {
 
     // ── Persistence ───────────────────────────────────────────────────
 
-    var STORAGE_KEY = 'pp_ai_chat_' + (config.siteUrl || 'default');
+    // Persistence is scoped to site + WP user so two admins sharing an OS/
+    // browser profile can't read each other's chat history (#157).
+    //
+    //   ppAiChat.currentUserId ──▶ valid decimal string (/^[1-9]\d*$/, safe int)?
+    //     ├─ yes ─▶ STORAGE_KEY = pp_ai_chat_<siteUrl>_<userId>  (persist)
+    //     └─ no  ─▶ STORAGE_KEY = null  ──▶ FAIL CLOSED (in-memory only)
+    //
+    // The edit_posts-gated chat page always runs for a logged-in user, so a
+    // missing/invalid id is a broken localized-config contract, not a normal
+    // state. We fail closed rather than fall back to a shared bucket: an
+    // unscoped key would recreate the exact cross-user leak this fix closes.
+    // wp_localize_script casts scalars to strings, so the id arrives as e.g.
+    // "5" — validate the string, don't assume a JS number.
+    var SITE_SEGMENT = config.siteUrl || 'default';
+    var LEGACY_STORAGE_KEY = 'pp_ai_chat_' + SITE_SEGMENT;
+
+    var STORAGE_KEY = (function () {
+        var raw = config.currentUserId;
+        var str = (raw === undefined || raw === null) ? '' : String(raw);
+        if (/^[1-9]\d*$/.test(str) && Number.isSafeInteger(Number(str))) {
+            return LEGACY_STORAGE_KEY + '_' + str;
+        }
+        // eslint-disable-next-line no-console
+        console.warn('[pp-ai-chat] persistence disabled: missing/invalid currentUserId in ppAiChat config — chat history will not be saved for this session.');
+        return null;
+    })();
+
+    // Drop the legacy unscoped key on load regardless of currentUserId validity
+    // — that bucket may hold another user's conversation on a shared profile,
+    // and the new scoped key (when valid) starts empty by design (no migration).
+    // Wrapped in try/catch so a throwing localStorage (Safari private mode,
+    // quota, security policy) can't break chat initialization.
+    try {
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
+    } catch (e) {
+        // Ignore — cleanup is best-effort
+    }
 
     function saveState() {
+        if (!STORAGE_KEY) { return; }
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify({
                 conversation: conversation,
@@ -443,6 +480,7 @@ function ppChatAppendValidationItems(container, items, className) {
     }
 
     function loadState() {
+        if (!STORAGE_KEY) { return null; }
         try {
             var raw = localStorage.getItem(STORAGE_KEY);
             if (raw) {
@@ -456,6 +494,7 @@ function ppChatAppendValidationItems(container, items, className) {
     }
 
     function clearState() {
+        if (!STORAGE_KEY) { return; }
         try {
             localStorage.removeItem(STORAGE_KEY);
         } catch (e) {
