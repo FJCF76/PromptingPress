@@ -1117,6 +1117,120 @@ pp_register_action('update_seo_meta', [
     },
 ]);
 
+// ── Action: create_redirect ──────────────────────────────────────────────────
+// Scope: site | Semantics: create/replace a front-end redirect (#62)
+
+pp_register_action('create_redirect', [
+    'scope'       => 'site',
+    'description' => 'Records a front-end redirect so a renamed/moved/deprecated path 301s (or 302s) to its canonical target instead of 404ing. Use after update_page_slug (#134) so the old URL keeps working. `to` must be same-site (a path like "/new-page" or an absolute URL on this site).',
+    'semantics'   => 'Create/replace. `from` and `to` are normalized to paths (scheme/host/query/trailing-slash stripped) — a second create for the same `from` replaces it. Target is validated same-site only (external hosts, protocol-relative "//", and javascript:/data: are rejected). Rejects from == to and any chain that would loop. code defaults to 301; pass 302 for a temporary redirect. Redirects are DB-backed and survive theme updates.',
+    'params'      => [
+        'from' => ['type' => 'string', 'required' => true],
+        'to'   => ['type' => 'string', 'required' => true],
+        'code' => ['type' => 'int',    'required' => false],
+    ],
+    'validate' => function (array $params) {
+        $from_norm = _pp_normalize_redirect_path($params['from']);
+        if ($from_norm === '/') {
+            return new WP_Error('invalid_redirect_source', 'Redirect source must be a non-root path.');
+        }
+        $code = isset($params['code']) ? (int) $params['code'] : 301;
+        if (!in_array($code, [301, 302], true)) {
+            return new WP_Error('invalid_redirect_code', 'Redirect status code must be 301 or 302.');
+        }
+        $target_valid = _pp_validate_redirect_target((string) $params['to']);
+        if (is_wp_error($target_valid)) {
+            return $target_valid;
+        }
+        if ($from_norm === _pp_normalize_redirect_path((string) $params['to'])) {
+            return new WP_Error('redirect_loop', 'A redirect source and target must differ.');
+        }
+        if (_pp_redirect_would_loop($from_norm, (string) $params['to'], pp_get_redirects())) {
+            return new WP_Error('redirect_loop', 'This redirect would create a loop.');
+        }
+        return true;
+    },
+    'preview' => function (array $params): array {
+        $from_norm = _pp_normalize_redirect_path($params['from']);
+        $code = isset($params['code']) ? (int) $params['code'] : 301;
+        $existing = pp_get_redirects();
+        $before = $existing[$from_norm] ?? null;
+        $after = ['to' => trim((string) $params['to']), 'code' => $code];
+        return _pp_action_preview('create_redirect', 'site', ['from' => $from_norm], $before, $after, [
+            ['path' => $from_norm, 'from' => $before, 'to' => $after],
+        ]);
+    },
+    'execute' => function (array $params): array {
+        $code = isset($params['code']) ? (int) $params['code'] : 301;
+        $result = pp_create_redirect((string) $params['from'], (string) $params['to'], $code);
+        if (is_wp_error($result)) {
+            return _pp_action_error('create_redirect', 'site', $result->get_error_message());
+        }
+        return _pp_action_result('create_redirect', 'site', ['from' => $result], [
+            ['path' => $result, 'from' => null, 'to' => ['to' => trim((string) $params['to']), 'code' => $code]],
+        ]);
+    },
+]);
+
+// ── Action: remove_redirect ──────────────────────────────────────────────────
+// Scope: site | Semantics: delete a front-end redirect (#62)
+
+pp_register_action('remove_redirect', [
+    'scope'       => 'site',
+    'description' => 'Removes a front-end redirect by its source path, restoring prior behavior (the source 404s or resolves normally again).',
+    'semantics'   => 'Delete. `from` is normalized the same way create_redirect stores it. A no-op (no redirect for that source) returns ok with removed=false.',
+    'params'      => [
+        'from' => ['type' => 'string', 'required' => true],
+    ],
+    'validate' => function (array $params) {
+        if (_pp_normalize_redirect_path($params['from']) === '/') {
+            return new WP_Error('invalid_redirect_source', 'Redirect source must be a non-root path.');
+        }
+        return true;
+    },
+    'preview' => function (array $params): array {
+        $from_norm = _pp_normalize_redirect_path($params['from']);
+        $existing = pp_get_redirects();
+        $before = $existing[$from_norm] ?? null;
+        return _pp_action_preview('remove_redirect', 'site', ['from' => $from_norm], $before, null, [
+            ['path' => $from_norm, 'from' => $before, 'to' => null],
+        ]);
+    },
+    'execute' => function (array $params): array {
+        $from_norm = _pp_normalize_redirect_path($params['from']);
+        $before = pp_get_redirects()[$from_norm] ?? null;
+        $removed = pp_remove_redirect((string) $params['from']);
+        return _pp_action_result('remove_redirect', 'site', ['from' => $from_norm], [
+            ['path' => $from_norm, 'from' => $before, 'to' => null, 'removed' => $removed],
+        ]);
+    },
+]);
+
+// ── Action: list_redirects ───────────────────────────────────────────────────
+// Scope: site | Semantics: read-only listing of front-end redirects (#62)
+
+pp_register_action('list_redirects', [
+    'scope'       => 'site',
+    'description' => 'Lists all front-end redirects (source path → target + status code). Read-only.',
+    'semantics'   => 'Read-only. Never mutates. Returns the current redirect map under changes.redirects.',
+    'params'      => [],
+    'validate' => function (array $params) {
+        return true;
+    },
+    'preview' => function (array $params): array {
+        $redirects = pp_get_redirects();
+        return _pp_action_preview('list_redirects', 'site', [], $redirects, $redirects, [
+            ['path' => 'redirects', 'from' => $redirects, 'to' => $redirects],
+        ]);
+    },
+    'execute' => function (array $params): array {
+        $redirects = pp_get_redirects();
+        return _pp_action_result('list_redirects', 'site', [], [
+            ['path' => 'redirects', 'redirects' => $redirects, 'count' => count($redirects)],
+        ]);
+    },
+]);
+
 // ── Action: update_composition ──────────────────────────────────────────────
 // Scope: page | Semantics: replace entire composition array
 

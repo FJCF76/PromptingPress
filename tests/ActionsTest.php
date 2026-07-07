@@ -2,7 +2,7 @@
 /**
  * tests/ActionsTest.php — PHPUnit tests for the PromptingPress Action Layer
  *
- * Covers: registry functions, wp.php read/write functions, and all 20 actions
+ * Covers: registry functions, wp.php read/write functions, and all 23 actions
  * across validate, preview, and execute paths.
  */
 
@@ -27,7 +27,7 @@ class ActionsTest extends TestCase
     public function testRegistryReturnsAllTwentyActions(): void
     {
         $actions = pp_get_registered_actions();
-        $this->assertCount(20, $actions);
+        $this->assertCount(23, $actions);
         $expected = [
             'create_page', 'update_site_option', 'update_page_title',
             'update_page_slug', 'update_seo_meta',
@@ -36,6 +36,7 @@ class ActionsTest extends TestCase
             'style_component',
             'trash_page', 'restore_page', 'unpublish_page', 'clear_custom_css',
             'create_menu', 'add_menu_item', 'assign_menu_location', 'set_menu',
+            'create_redirect', 'remove_redirect', 'list_redirects',
         ];
         foreach ($expected as $name) {
             $this->assertArrayHasKey($name, $actions, "Action '{$name}' not registered.");
@@ -3347,5 +3348,135 @@ class ActionsTest extends TestCase
         pp_execute_action('create_menu', ['name' => 'Orphan Menu']);
         $menus = pp_get_menus();
         $this->assertNull($menus[0]['location']);
+    }
+
+    // ── Front-end redirects (#62) ──────────────────────────────────────────
+
+    public function testNormalizeRedirectPathStripsHostQueryAndTrailingSlash(): void
+    {
+        $this->assertSame('/old', _pp_normalize_redirect_path('/old/'));
+        $this->assertSame('/old', _pp_normalize_redirect_path('/old?ref=nav#top'));
+        $this->assertSame('/old', _pp_normalize_redirect_path('https://example.com/old/'));
+        $this->assertSame('/a/b', _pp_normalize_redirect_path('a/b'));
+        $this->assertSame('/', _pp_normalize_redirect_path(''));
+        $this->assertSame('/', _pp_normalize_redirect_path('/'));
+    }
+
+    public function testValidateRedirectTargetAcceptsSameSite(): void
+    {
+        $this->assertTrue(_pp_validate_redirect_target('/new-page'));
+        $this->assertTrue(_pp_validate_redirect_target('https://example.com/new-page'));
+    }
+
+    public function testValidateRedirectTargetRejectsExternalAndDangerous(): void
+    {
+        $this->assertInstanceOf(WP_Error::class, _pp_validate_redirect_target('https://evil.com/x'));
+        $this->assertInstanceOf(WP_Error::class, _pp_validate_redirect_target('//evil.com/x'));
+        $this->assertInstanceOf(WP_Error::class, _pp_validate_redirect_target('javascript:alert(1)'));
+        $this->assertInstanceOf(WP_Error::class, _pp_validate_redirect_target('data:text/html,x'));
+        $this->assertInstanceOf(WP_Error::class, _pp_validate_redirect_target(''));
+    }
+
+    public function testCreateRedirectValidateRejectsExternalTarget(): void
+    {
+        $result = pp_validate_action('create_redirect', ['from' => '/old', 'to' => 'https://evil.com/x']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('external_redirect_target', $result->get_error_code());
+    }
+
+    public function testCreateRedirectValidateRejectsSameFromAndTo(): void
+    {
+        $result = pp_validate_action('create_redirect', ['from' => '/old/', 'to' => '/old']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('redirect_loop', $result->get_error_code());
+    }
+
+    public function testCreateRedirectValidateRejectsLoopingChain(): void
+    {
+        // Existing: /a -> /b. Adding /b -> /a would cycle.
+        pp_execute_action('create_redirect', ['from' => '/a', 'to' => '/b']);
+        $result = pp_validate_action('create_redirect', ['from' => '/b', 'to' => '/a']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('redirect_loop', $result->get_error_code());
+    }
+
+    public function testCreateRedirectValidateRejectsNonRootSourceOnly(): void
+    {
+        $result = pp_validate_action('create_redirect', ['from' => '/', 'to' => '/somewhere']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_redirect_source', $result->get_error_code());
+    }
+
+    public function testCreateRedirectValidateRejectsBadCode(): void
+    {
+        $result = pp_validate_action('create_redirect', ['from' => '/old', 'to' => '/new', 'code' => 307]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_redirect_code', $result->get_error_code());
+    }
+
+    public function testCreateRedirectPreviewDoesNotWrite(): void
+    {
+        pp_preview_action('create_redirect', ['from' => '/old', 'to' => '/new']);
+        $this->assertArrayNotHasKey('pp_redirects', $GLOBALS['_pp_test_store']['options']);
+        $this->assertSame([], pp_get_redirects());
+    }
+
+    public function testCreateRedirectExecuteStoresAndReadsBack(): void
+    {
+        $result = pp_execute_action('create_redirect', ['from' => '/old-path/', 'to' => '/new-path', 'code' => 302]);
+        $this->assertTrue($result['ok']);
+        $this->assertSame('/old-path', $result['target']['from']);
+
+        $match = pp_resolve_redirect('/old-path?ref=nav');
+        $this->assertNotNull($match);
+        $this->assertSame('/new-path', $match['to']);
+        $this->assertSame(302, $match['code']);
+    }
+
+    public function testCreateRedirectDefaultsTo301(): void
+    {
+        pp_execute_action('create_redirect', ['from' => '/old', 'to' => '/new']);
+        $match = pp_resolve_redirect('/old');
+        $this->assertSame(301, $match['code']);
+    }
+
+    public function testCreateRedirectReplacesExistingSource(): void
+    {
+        pp_execute_action('create_redirect', ['from' => '/old', 'to' => '/first']);
+        pp_execute_action('create_redirect', ['from' => '/old', 'to' => '/second']);
+        $this->assertCount(1, pp_get_redirects());
+        $this->assertSame('/second', pp_resolve_redirect('/old')['to']);
+    }
+
+    public function testRemoveRedirectRestoresPriorBehavior(): void
+    {
+        pp_execute_action('create_redirect', ['from' => '/old', 'to' => '/new']);
+        $this->assertNotNull(pp_resolve_redirect('/old'));
+
+        $result = pp_execute_action('remove_redirect', ['from' => '/old/']);
+        $this->assertTrue($result['ok']);
+        $this->assertTrue($result['changes'][0]['removed']);
+        $this->assertNull(pp_resolve_redirect('/old'));
+    }
+
+    public function testRemoveRedirectNoOpReportsRemovedFalse(): void
+    {
+        $result = pp_execute_action('remove_redirect', ['from' => '/never-existed']);
+        $this->assertTrue($result['ok']);
+        $this->assertFalse($result['changes'][0]['removed']);
+    }
+
+    public function testListRedirectsIsReadOnly(): void
+    {
+        pp_execute_action('create_redirect', ['from' => '/a', 'to' => '/x']);
+        pp_execute_action('create_redirect', ['from' => '/b', 'to' => '/y']);
+
+        $snapshot = $GLOBALS['_pp_test_store']['options']['pp_redirects'];
+        $result = pp_execute_action('list_redirects', []);
+        $this->assertTrue($result['ok']);
+        $this->assertSame(2, $result['changes'][0]['count']);
+        $this->assertArrayHasKey('/a', $result['changes'][0]['redirects']);
+        // Read-only: the store is untouched.
+        $this->assertSame($snapshot, $GLOBALS['_pp_test_store']['options']['pp_redirects']);
     }
 }

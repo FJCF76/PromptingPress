@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.51] — 2026-07-07 — Safe-surface redirects so a renamed page's old URL 301s instead of 404ing (#62)
+
+**Renaming a page's slug used to strand its old URL on the 404 page. Now the AI can record a redirect so the old path 301s to the new one, with no theme-file edits and no open-redirect risk.**
+
+`update_page_slug` (#134) let a page's URL change, but the old URL had nowhere to go — it fell through to the 404 template, and every "redirect" in the codebase was either SSRF-safety terminology or a wp-admin internal navigation, never a front-end 301. This adds the one generic, site-agnostic capability that was missing: a safe-surface redirect. It is DB-backed (survives theme updates), same-site only, and resolves on the 404 path so a redirect can never shadow a live page.
+
+### Added
+- **`create_redirect` / `remove_redirect` / `list_redirects` actions** (validate/preview/execute, site scope) record a `from` path → same-site `to` target with a 301 (default) or 302 status code in the `pp_redirects` option. A `template_redirect` resolver applies a matching redirect only on an otherwise-unmatched (404) front-end request, so the old URL 301s to its canonical target instead of 404ing; `remove_redirect` restores the original behavior. Pair `create_redirect` with `update_page_slug` so a renamed page keeps working. The actions auto-surface in the AI system prompt via the registry.
+
+### Security
+- **Open-redirect safe by construction.** Targets are validated same-site only at write time (`_pp_validate_redirect_target` rejects external hosts, protocol-relative `//`, and `javascript:`/`data:`/`vbscript:` schemes), and `wp_safe_redirect()` re-validates the host at resolve time as a runtime backstop. `from == to` and any chain that would loop are rejected at creation (`_pp_redirect_would_loop`, hop-capped). Stored paths only ever reach the escaped `Location` header, never HTML. The three mutation actions are admin-gated (`manage_options`, fail-closed). 15 new PHPUnit tests (normalization, target validation, loop/self/external rejection, preview-no-write, execute round-trip, remove restores) plus an end-to-end test asserting 301 → 200 and that removal restores the 404.
+
+### Documentation
+- The AI-facing surface now maps the capability: a redirect row in the `AI_CONTEXT.md` mutation-surfaces table and the `ai-instructions/website-building.md` surface-routing table (next to `update_page_slug`, so the model reaches for a redirect after renaming a slug), plus `docs/AI_IMPLEMENTATION_RECIPES.md` Recipe B lists #62 as a worked example. (#62)
+
 ## [v0.16.50] — 2026-07-07 — Component logo_id must be an image, rejected at the action boundary (#155)
 
 **A nav or footer `logo_id` pointing at a PDF, video, or bogus attachment ID no longer slips through validation to silently render nothing. It is rejected when the action runs, the same way the site-wide logo already was.**

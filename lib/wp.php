@@ -2016,6 +2016,227 @@ function pp_update_site_option(string $key, string $value) {
     return true;
 }
 
+// ── Front-end redirects (#62) ────────────────────────────────────────────────
+// A generic, site-agnostic safe-surface redirect capability. Renamed/moved
+// pages (see update_page_slug, #134) leave their old URL 404ing; a redirect
+// records old-path → canonical-target so the old URL 301s instead. Storage is
+// a single DB option (survives theme updates — never hardcoded in theme files).
+//
+// Store shape (option `pp_redirects`):
+//   [ normalized_from_path => ['to' => string, 'code' => int(301|302)], ... ]
+//
+// Resolver runs only on an otherwise-unmatched (404) front-end request, so a
+// redirect never shadows a live page and the lookup stays off the hot path for
+// every normal hit. Open-redirect safety is layered: same-site validation at
+// write time (_pp_validate_redirect_target) AND wp_safe_redirect()'s own host
+// allowlist at resolve time.
+//
+//   create_redirect(from,to) ──▶ validate ──▶ pp_redirects option
+//                                   │
+//   GET /old  ─(404)─▶ template_redirect ─▶ pp_resolve_redirect('/old')
+//                                   │                    │ match {to,code}
+//                                   └────────────────────▶ wp_safe_redirect(to)
+
+const PP_REDIRECTS_OPTION = 'pp_redirects';
+
+/**
+ * Normalizes a path or URL to the canonical form used as a redirect map key.
+ * Drops scheme/host/query/fragment, forces a single leading slash, strips a
+ * trailing slash (root stays "/"). Same normalizer runs on both write (the
+ * stored `from`) and read (the incoming request path) so a match can never be
+ * missed on a trailing-slash or query-string difference.
+ *
+ * @param string $path  A path ("/old") or full URL ("https://site/old?x=1").
+ * @return string       Canonical path, always starting with "/".
+ */
+function _pp_normalize_redirect_path(string $path): string {
+    $only_path = parse_url(trim($path), PHP_URL_PATH);
+    if (!is_string($only_path) || $only_path === '') {
+        return '/';
+    }
+    $only_path = '/' . ltrim($only_path, '/');
+    $trimmed = rtrim($only_path, '/');
+    return $trimmed === '' ? '/' : $trimmed;
+}
+
+/**
+ * Validates a redirect target for open-redirect safety: same-site only.
+ * Accepts a site-relative path ("/new") or an absolute URL whose host matches
+ * the site's home host. Rejects external hosts, protocol-relative "//host",
+ * and dangerous schemes (javascript:, data:, vbscript:). wp_safe_redirect() at
+ * resolve time re-checks the host allowlist as a runtime backstop.
+ *
+ * @param string $to  Proposed target.
+ * @return true|WP_Error
+ */
+function _pp_validate_redirect_target(string $to) {
+    $to = trim($to);
+    if ($to === '') {
+        return new WP_Error('invalid_redirect_target', 'Redirect target must not be empty.');
+    }
+    if (preg_match('#^\s*(?:javascript|data|vbscript)\s*:#i', $to)) {
+        return new WP_Error('invalid_redirect_target', 'Redirect target scheme is not allowed.');
+    }
+    // Protocol-relative "//host/path" points off-site — reject before the
+    // leading-slash path check below would treat it as same-site.
+    if (strpos($to, '//') === 0) {
+        return new WP_Error('external_redirect_target', 'Protocol-relative redirect targets are not allowed; use a same-site path or absolute same-host URL.');
+    }
+    // Site-relative path.
+    if ($to[0] === '/') {
+        return true;
+    }
+    // Absolute URL: host must equal the site's home host.
+    $host = parse_url($to, PHP_URL_HOST);
+    $home_host = parse_url(home_url('/'), PHP_URL_HOST);
+    if (!is_string($host) || $host === '' || !is_string($home_host) || strcasecmp($host, $home_host) !== 0) {
+        return new WP_Error('external_redirect_target', 'Redirect target must be a same-site path or an absolute URL on this site.');
+    }
+    return true;
+}
+
+/**
+ * Returns the stored redirect map, normalized to the documented shape.
+ *
+ * @return array<string,array{to:string,code:int}>
+ */
+function pp_get_redirects(): array {
+    $raw = get_option(PP_REDIRECTS_OPTION, []);
+    if (!is_array($raw)) {
+        return [];
+    }
+    $out = [];
+    foreach ($raw as $from => $entry) {
+        if (!is_string($from) || !is_array($entry) || !isset($entry['to'])) {
+            continue;
+        }
+        $code = (int) ($entry['code'] ?? 301);
+        $out[$from] = [
+            'to'   => (string) $entry['to'],
+            'code' => in_array($code, [301, 302], true) ? $code : 301,
+        ];
+    }
+    return $out;
+}
+
+/**
+ * Resolves an incoming path to its redirect entry, or null if none matches.
+ *
+ * @param string $path  Incoming request path or URL.
+ * @return array{to:string,code:int}|null
+ */
+function pp_resolve_redirect(string $path): ?array {
+    $redirects = pp_get_redirects();
+    $norm = _pp_normalize_redirect_path($path);
+    return $redirects[$norm] ?? null;
+}
+
+/**
+ * Detects whether adding from → to would create a redirect loop. Rejects the
+ * degenerate from == to case and any multi-hop chain that cycles back, by
+ * walking targets (each `to` reduces to a same-site path) with a hop cap.
+ *
+ * @param string $from_norm  Normalized source path being added.
+ * @param string $to         Proposed (validated same-site) target.
+ * @param array  $existing   Current redirect map.
+ * @return bool  True if the redirect would loop.
+ */
+function _pp_redirect_would_loop(string $from_norm, string $to, array $existing): bool {
+    $visited = [$from_norm => true];
+    $cursor = _pp_normalize_redirect_path($to);
+    $hops = 0;
+    while (true) {
+        if (isset($visited[$cursor])) {
+            return true;
+        }
+        if (++$hops > 20) {
+            return true;
+        }
+        $visited[$cursor] = true;
+        if (!isset($existing[$cursor]['to'])) {
+            return false;
+        }
+        $cursor = _pp_normalize_redirect_path((string) $existing[$cursor]['to']);
+    }
+}
+
+/**
+ * Creates (or replaces) a redirect from a source path to a same-site target.
+ * Validates the target for open-redirect safety and refuses from == to or a
+ * chain that would loop.
+ *
+ * @param string $from  Source path (or URL) to redirect away from.
+ * @param string $to    Same-site target path or absolute same-host URL.
+ * @param int    $code  301 (default) or 302.
+ * @return string|WP_Error  The normalized source path stored, or WP_Error.
+ */
+function pp_create_redirect(string $from, string $to, int $code = 301) {
+    if (!in_array($code, [301, 302], true)) {
+        return new WP_Error('invalid_redirect_code', 'Redirect status code must be 301 or 302.');
+    }
+    $from_norm = _pp_normalize_redirect_path($from);
+    if ($from_norm === '/') {
+        return new WP_Error('invalid_redirect_source', 'Refusing to redirect the site root.');
+    }
+    $target_valid = _pp_validate_redirect_target($to);
+    if (is_wp_error($target_valid)) {
+        return $target_valid;
+    }
+    $to = trim($to);
+    if ($from_norm === _pp_normalize_redirect_path($to)) {
+        return new WP_Error('redirect_loop', 'A redirect source and target must differ.');
+    }
+    $redirects = pp_get_redirects();
+    if (_pp_redirect_would_loop($from_norm, $to, $redirects)) {
+        return new WP_Error('redirect_loop', 'This redirect would create a loop.');
+    }
+    $redirects[$from_norm] = ['to' => $to, 'code' => $code];
+    update_option(PP_REDIRECTS_OPTION, $redirects);
+    return $from_norm;
+}
+
+/**
+ * Removes a redirect by source path. Returns true if one was removed, false if
+ * no redirect existed for that (normalized) source.
+ *
+ * @param string $from  Source path (or URL).
+ * @return bool
+ */
+function pp_remove_redirect(string $from): bool {
+    $from_norm = _pp_normalize_redirect_path($from);
+    $redirects = pp_get_redirects();
+    if (!isset($redirects[$from_norm])) {
+        return false;
+    }
+    unset($redirects[$from_norm]);
+    update_option(PP_REDIRECTS_OPTION, $redirects);
+    return true;
+}
+
+/**
+ * template_redirect resolver. Fires on every front-end request but acts only
+ * when WordPress found nothing to render (is_404) — an unmatched request — so a
+ * redirect can rescue a renamed/moved URL without ever shadowing a live page.
+ * Registered in functions.php.
+ */
+function pp_redirect_template_hook(): void {
+    if (is_admin() || !is_404()) {
+        return;
+    }
+    $request_uri = isset($_SERVER['REQUEST_URI']) ? (string) wp_unslash($_SERVER['REQUEST_URI']) : '';
+    if ($request_uri === '') {
+        return;
+    }
+    $match = pp_resolve_redirect($request_uri);
+    if ($match === null) {
+        return;
+    }
+    // wp_safe_redirect() re-validates the target host (open-redirect backstop)
+    // and escapes the Location header.
+    wp_safe_redirect($match['to'], $match['code']);
+    exit;
+}
+
 // ── Template tags ──────────────────────────────────────────────────────────
 
 /**
