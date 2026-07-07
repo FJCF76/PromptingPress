@@ -22,7 +22,7 @@ pp_base_template(function () {
 
     pp_get_component('hero', [
         'title'   => pp_field('hero_title') ?: 'Page Title',
-        'variant' => 'centered',
+        'layout'  => 'centered',
     ]);
 
     pp_get_component('section', [

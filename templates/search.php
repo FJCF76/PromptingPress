@@ -24,7 +24,7 @@ pp_base_template(function () {
         'title'   => $count > 0
             ? sprintf('Results for "%s"', $query)
             : sprintf('No results for "%s"', $query),
-        'variant' => 'left',
+        'layout' => 'left',
     ]);
 
     $items = [];

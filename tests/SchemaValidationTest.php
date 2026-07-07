@@ -180,6 +180,46 @@ class SchemaValidationTest extends TestCase
         }
     }
 
+    // ── Consistent layout/theme naming (issue #69) ──────────────────────
+
+    /**
+     * The retired `variant` prop must not appear in any component schema — v1
+     * ships a consistent surface where structure is `layout` and tone is `theme`,
+     * and no component overloads one key for both meanings.
+     */
+    public function testNoComponentSchemaDeclaresVariantProp(): void
+    {
+        foreach (glob($this->themeRoot . '/components/*/schema.json') as $schemaFile) {
+            $schema = json_decode(file_get_contents($schemaFile), true);
+            $this->assertNotNull($schema, "Schema should be valid JSON: {$schemaFile}");
+            $this->assertArrayNotHasKey(
+                'variant',
+                $schema['props'] ?? [],
+                "Component '{$schema['component']}' must not declare a `variant` prop (issue #69: use `layout` and/or `theme`)."
+            );
+        }
+    }
+
+    /**
+     * Structural components expose `layout`; tone-bearing components expose
+     * `theme`. Pins the canonical split so a future edit can't silently
+     * reintroduce the ambiguity.
+     */
+    public function testStructuralAndToneComponentsUseCanonicalKeys(): void
+    {
+        $expectLayout = ['hero', 'section', 'grid', 'cta', 'testimonials'];
+        $expectTheme  = ['section', 'stats', 'logos', 'embed', 'grid', 'cta', 'testimonials'];
+
+        foreach ($expectLayout as $component) {
+            $schema = json_decode(file_get_contents($this->themeRoot . "/components/{$component}/schema.json"), true);
+            $this->assertArrayHasKey('layout', $schema['props'], "Component '{$component}' should declare a `layout` prop.");
+        }
+        foreach ($expectTheme as $component) {
+            $schema = json_decode(file_get_contents($this->themeRoot . "/components/{$component}/schema.json"), true);
+            $this->assertArrayHasKey('theme', $schema['props'], "Component '{$component}' should declare a `theme` prop.");
+        }
+    }
+
     // ── Style slot schema validation ────────────────────────────────────
 
     /**

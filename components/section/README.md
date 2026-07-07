@@ -16,8 +16,8 @@ Generic text + optional image section. Use this for "what is this", "how it work
 | `image_url`        | string | No       | `''`          | Image URL (required for image-left / image-right) |
 | `image_id`         | int    | No       | `0`           | Media Library attachment ID for the image. When set and it resolves, renders responsively (`srcset`/`sizes`) via `wp_get_attachment_image()`; falls back to `image_url` otherwise |
 | `image_alt`        | string | No       | `''`          | Image alt text |
-| `layout`           | enum   | No       | `'text-only'` | Layout variant |
-| `variant`          | enum   | No       | `'default'`   | Background color: `default` / `dark` / `inverted` |
+| `layout`           | enum   | No       | `'text-only'` | Structural layout: `text-only` / `image-left` / `image-right` / `centered` |
+| `theme`            | enum   | No       | `'default'`   | Background color/tone: `default` / `dark` / `inverted` |
 | `background_image` | string | No       | `''`          | Optional background image URL with dark overlay for text readability |
 
 ## Variants
@@ -30,7 +30,7 @@ Layout (`layout`):
 
 If `image_url` is empty, image-left/image-right layouts fall back to `text-only`.
 
-Background color (`variant`), independent of layout:
+Background color/tone (`theme`), independent of layout:
 - **default** — Page background.
 - **dark** — Surface background with borders.
 - **inverted** — Inverted background for strong contrast.

@@ -13,14 +13,14 @@ pp_base_template(function () {
     pp_get_component('hero', [
         'title'    => 'Page Not Found',
         'subtitle' => 'The page you\'re looking for doesn\'t exist or has been moved.',
-        'variant'  => 'left',
+        'layout'  => 'left',
     ]);
 
     pp_get_component('cta', [
         'title'       => 'Lost? Head back home.',
         'button_text' => 'Go to Homepage',
         'button_url'  => pp_site_url(),
-        'variant'     => 'inline',
+        'layout'     => 'inline',
     ]);
 
 });

@@ -1,6 +1,6 @@
 {
   "component": "testimonials",
-  "description": "Customer quotes with attribution — for social proof sections. 'grid' variant lays out quote cards 1-col mobile / 2-3 col desktop; 'stack' variant is a single centered column for one or two large quotes.",
+  "description": "Customer quotes with attribution — for social proof sections. 'grid' layout lays out quote cards 1-col mobile / 2-3 col desktop; 'stack' layout is a single centered column for one or two large quotes.",
   "props": {
     "id": {
       "type": "string",
@@ -39,19 +39,19 @@
       "default": "start",
       "description": "Alignment of the eyebrow/title/subheading header block. 'start' = left-aligned (default). 'center' = centered."
     },
-    "variant": {
+    "layout": {
       "type": "enum",
       "values": ["grid", "stack"],
       "required": false,
       "default": "grid",
-      "description": "Layout. 'grid' = card grid, 1-col mobile / 2-3 col desktop. 'stack' = single centered column, for one or two large pull-quotes."
+      "description": "Structural layout. 'grid' = card grid, 1-col mobile / 2-3 col desktop. 'stack' = single centered column, for one or two large pull-quotes."
     },
     "theme": {
       "type": "enum",
       "values": ["default", "dark", "inverted"],
       "required": false,
       "default": "default",
-      "description": "Background color. Independent of variant (layout). 'default' = page background. 'dark' = surface background with borders. 'inverted' = inverted background for strong contrast."
+      "description": "Background color/tone. Independent of layout. 'default' = page background. 'dark' = surface background with borders. 'inverted' = inverted background for strong contrast."
     },
     "items": {
       "type": "array",
@@ -80,7 +80,7 @@
       "--testimonials-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color" },
       "--testimonials-eyebrow-bg": { "type": "color", "default": "var(--color-surface-accent)", "description": "Eyebrow pill background color" },
       "--testimonials-subheading-color": { "type": "color", "default": "var(--color-muted)", "description": "Subheading text color" },
-      "--testimonials-gap": { "type": "length", "default": "var(--space-lg)", "description": "Gap between testimonial cards (grid variant) or between stacked quotes (stack variant)" },
+      "--testimonials-gap": { "type": "length", "default": "var(--space-lg)", "description": "Gap between testimonial cards (grid layout) or between stacked quotes (stack layout)" },
       "--testimonials-card-bg": { "type": "gradient", "default": "var(--color-surface)", "description": "Card background color or gradient" },
       "--testimonials-card-border": { "type": "color", "default": "var(--color-border)", "description": "Card border color" },
       "--testimonials-card-border-width": { "type": "length", "default": "1px", "description": "Card border width" },

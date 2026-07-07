@@ -35,7 +35,7 @@ changing `--color-text` auto-derives `--color-text-secondary`:
 --color-border:       #e5e7eb;  /* Dividers, outlines */
 --color-accent:       #0055cc;  /* Primary action color */
 --color-accent-hover: #0044aa;  /* Hover / active state */
---color-bg-inverted:  #1a1a1a;  /* Section variant: inverted bg (semantic opposite of --color-bg) */
+--color-bg-inverted:  #1a1a1a;  /* Section theme: inverted bg (semantic opposite of --color-bg) */
 ```
 
 **WCAG AA requirement:** `--color-accent` on `--color-bg` must have contrast ratio ≥ 4.5:1.

@@ -1045,7 +1045,7 @@ class ComponentPropsTest extends TestCase
         $svg = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>';
         $html = $this->render('hero', [
             'title' => 'Welcome',
-            'variant' => 'split',
+            'layout' => 'split',
             'image_url' => $svg,
         ]);
         $this->assertStringNotContainsString('src=""', $html, 'The exact #36 production regression: src="" instead of the data URI.');
@@ -1057,7 +1057,7 @@ class ComponentPropsTest extends TestCase
         $svg = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>';
         $html = $this->render('hero', [
             'title' => 'Welcome',
-            'variant' => 'cover',
+            'layout' => 'cover',
             'image_url' => $svg,
         ]);
         $this->assertStringContainsString('background-image:url(data:image/svg+xml,', $html);
@@ -1524,13 +1524,13 @@ class ComponentPropsTest extends TestCase
 
     public function testTestimonialsVariantStackAddsClass(): void
     {
-        $html = $this->render('testimonials', $this->testimonialsProps(['variant' => 'stack']));
+        $html = $this->render('testimonials', $this->testimonialsProps(['layout' => 'stack']));
         $this->assertStringContainsString('class="testimonials testimonials--stack"', $html);
     }
 
     public function testTestimonialsInvalidVariantFallsBackToGrid(): void
     {
-        $html = $this->render('testimonials', $this->testimonialsProps(['variant' => 'carousel']));
+        $html = $this->render('testimonials', $this->testimonialsProps(['layout' => 'carousel']));
         $this->assertStringNotContainsString('testimonials--carousel', $html);
         $this->assertStringNotContainsString('testimonials--stack', $html);
     }
@@ -1617,7 +1617,7 @@ class ComponentPropsTest extends TestCase
     public function testHeroSplitImageRendersPlainImgWithoutImageId(): void
     {
         $html = $this->render('hero', $this->heroProps([
-            'variant' => 'split', 'image_url' => 'https://example.com/photo.jpg', 'image_alt' => 'Photo',
+            'layout' => 'split', 'image_url' => 'https://example.com/photo.jpg', 'image_alt' => 'Photo',
         ]));
         $this->assertStringContainsString('<img src="https://example.com/photo.jpg"', $html);
         $this->assertStringNotContainsString('srcset', $html);
@@ -1627,7 +1627,7 @@ class ComponentPropsTest extends TestCase
     {
         $GLOBALS['_pp_test_store']['attachment_urls'][7] = 'https://example.com/wp-content/uploads/hero.jpg';
         $html = $this->render('hero', $this->heroProps([
-            'variant' => 'split', 'image_url' => 'https://example.com/fallback.jpg', 'image_id' => 7,
+            'layout' => 'split', 'image_url' => 'https://example.com/fallback.jpg', 'image_id' => 7,
         ]));
         $this->assertStringContainsString('srcset=', $html);
         $this->assertStringContainsString('hero.jpg', $html);
@@ -1694,7 +1694,7 @@ class ComponentPropsTest extends TestCase
     public function testHeroCoverBgPositionOverrideRenders(): void
     {
         $html = $this->render('hero', $this->heroProps([
-            'variant' => 'cover', 'image_url' => 'https://example.com/bg.jpg',
+            'layout' => 'cover', 'image_url' => 'https://example.com/bg.jpg',
             '__pp_style' => ['--hero-bg-position' => 'top left'],
         ]));
         $this->assertStringContainsString('--hero-bg-position: top left', $html);
@@ -1703,7 +1703,7 @@ class ComponentPropsTest extends TestCase
     public function testHeroImagePositionAndAspectRatioOverrideRenders(): void
     {
         $html = $this->render('hero', $this->heroProps([
-            'variant' => 'split', 'image_url' => 'https://example.com/photo.jpg',
+            'layout' => 'split', 'image_url' => 'https://example.com/photo.jpg',
             '__pp_style' => ['--hero-image-position' => 'top', '--hero-image-aspect-ratio' => '16/9'],
         ]));
         $this->assertStringContainsString('--hero-image-position: top', $html);
@@ -1741,7 +1741,7 @@ class ComponentPropsTest extends TestCase
     public function testHeroImagePositionRejectsInjectionInStyleSlot(): void
     {
         $html = $this->render('hero', $this->heroProps([
-            'variant' => 'split', 'image_url' => 'https://example.com/photo.jpg',
+            'layout' => 'split', 'image_url' => 'https://example.com/photo.jpg',
             '__pp_style' => ['--hero-image-position' => 'top; background:url(evil)'],
         ]));
         $this->assertStringNotContainsString('url(evil)', $html);

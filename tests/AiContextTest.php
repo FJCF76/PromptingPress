@@ -237,8 +237,8 @@ class AiContextTest extends TestCase
     {
         $prompt = pp_ai_system_prompt();
         $this->assertStringContainsString('## Image Selection Rules', $prompt);
-        $this->assertStringContainsString('hero (variant: "cover")', $prompt);
-        $this->assertStringContainsString('hero (variant: "split")', $prompt);
+        $this->assertStringContainsString('hero (layout: "cover")', $prompt);
+        $this->assertStringContainsString('hero (layout: "split")', $prompt);
         $this->assertStringContainsString('shallow merge', $prompt);
     }
 
@@ -400,12 +400,16 @@ class AiContextTest extends TestCase
 
     // ── Component Summary ────────────────────────────────────────────────
 
-    public function testSummarizeComponentIncludesVariant(): void
+    public function testSummarizeComponentIncludesLayoutAndTheme(): void
     {
-        $item = ['component' => 'hero', 'props' => ['title' => 'Welcome', 'variant' => 'cover']];
+        // Issue #69: inspect surfaces structural `layout` and tonal `theme`
+        // separately, and never the retired `variant` key.
+        $item = ['component' => 'grid', 'props' => ['title' => 'Welcome', 'layout' => 'steps', 'theme' => 'dark']];
         $result = _pp_summarize_component($item);
-        $this->assertStringContainsString('hero', $result);
-        $this->assertStringContainsString('variant: cover', $result);
+        $this->assertStringContainsString('grid', $result);
+        $this->assertStringContainsString('layout: steps', $result);
+        $this->assertStringContainsString('theme: dark', $result);
+        $this->assertStringNotContainsString('variant', $result);
         $this->assertStringContainsString('Welcome', $result);
     }
 
@@ -420,7 +424,7 @@ class AiContextTest extends TestCase
     public function testSummarizeComponentIncludesImageFilename(): void
     {
         $item = ['component' => 'hero', 'props' => [
-            'variant' => 'cover',
+            'layout' => 'cover',
             'image_url' => 'https://example.com/wp-content/uploads/photo.jpg',
         ]];
         $result = _pp_summarize_component($item);
@@ -446,7 +450,7 @@ class AiContextTest extends TestCase
             'post_status' => 'publish',
         ];
         $GLOBALS['_pp_test_store']['post_meta'][40]['_pp_composition'] = wp_json_encode([
-            ['component' => 'hero', 'props' => ['title' => 'Welcome', 'variant' => 'cover']],
+            ['component' => 'hero', 'props' => ['title' => 'Welcome', 'layout' => 'cover']],
             ['component' => 'section', 'props' => ['title' => 'About', 'layout' => 'image-left']],
         ]);
 
@@ -533,7 +537,7 @@ class AiContextTest extends TestCase
     {
         $schema = [
             'props' => [
-                'variant' => [
+                'layout' => [
                     'type' => 'enum',
                     'values' => ['left', 'centered', 'split', 'cover'],
                     'required' => false,
@@ -568,7 +572,7 @@ class AiContextTest extends TestCase
         $GLOBALS['_pp_test_store']['post_meta'][60]['_pp_composition'] = wp_json_encode([
             [
                 'component' => 'hero',
-                'props' => ['id' => 'pp-test123', 'title' => 'Welcome', 'variant' => 'split'],
+                'props' => ['id' => 'pp-test123', 'title' => 'Welcome', 'layout' => 'split'],
                 'style' => ['--hero-bg' => '#0d1117', '--hero-text' => '#f0f0f0', '__recipe' => 'dark-spacious'],
             ],
         ]);

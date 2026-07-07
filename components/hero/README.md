@@ -17,17 +17,17 @@ Full-width hero section with headline, optional subtitle, optional CTA button, a
 | `cta2_url`      | string | No       | `'#'`        | Secondary CTA button URL |
 | `cta_variant`   | enum   | No       | `'primary'`  | Primary button style: `primary` / `secondary` / `outline` / `ghost` |
 | `cta2_variant`  | enum   | No       | `'outline'`  | Secondary button style: `primary` / `secondary` / `outline` / `ghost` |
-| `variant`       | enum   | No       | `'centered'` | Layout: `left`, `centered`, `split`, or `cover` |
-| `image_url`     | string | No       | `''`         | Image URL — inline image in `split` variant, background image in `cover` variant |
-| `image_id`      | int    | No       | `0`          | Media Library attachment ID for the `split` variant image. When set and it resolves, renders responsively (`srcset`/`sizes`) via `wp_get_attachment_image()`; falls back to `image_url` otherwise |
-| `image_alt`     | string | No       | `''`         | Alt text for the `split` variant image |
+| `layout`       | enum   | No       | `'centered'` | Layout: `left`, `centered`, `split`, or `cover` |
+| `image_url`     | string | No       | `''`         | Image URL — inline image in `split` layout, background image in `cover` layout |
+| `image_id`      | int    | No       | `0`          | Media Library attachment ID for the `split` layout image. When set and it resolves, renders responsively (`srcset`/`sizes`) via `wp_get_attachment_image()`; falls back to `image_url` otherwise |
+| `image_alt`     | string | No       | `''`         | Alt text for the `split` layout image |
 | `spacing`       | enum   | No       | `'default'`  | Vertical padding: `default` / `compact` / `spacious` |
 | `width`         | enum   | No       | `'default'`  | Content width: `default` / `narrow` (56rem) / `full` |
-| `split_ratio`   | enum   | No       | `'50-50'`    | Column ratio for `split` variant: `50-50` / `60-40` / `40-60` |
-| `vertical_align`| enum   | No       | `'center'`   | Vertical content alignment for `cover`/`split` variants: `top` / `center` / `bottom` |
+| `split_ratio`   | enum   | No       | `'50-50'`    | Column ratio for `split` layout: `50-50` / `60-40` / `40-60` |
+| `vertical_align`| enum   | No       | `'center'`   | Vertical content alignment for `cover`/`split` layouts: `top` / `center` / `bottom` |
 | `proof`         | string | No       | `''`         | HTML string for trust signals (logos, ratings), rendered after the CTA group |
 
-## Variants
+## Layouts
 
 - **centered** — All content centered horizontally. Best for homepage hero.
 - **left** — Content aligned left. Best for interior page headers.
@@ -43,21 +43,21 @@ pp_get_component('hero', [
     'subtitle' => 'PromptingPress gives AI tools a clear map of your site.',
     'cta_text' => 'Get Started',
     'cta_url'  => '/get-started',
-    'variant'  => 'centered',
+    'layout'  => 'centered',
 ]);
 
 // Split hero with image
 pp_get_component('hero', [
     'title'     => 'The Abstraction Layer',
     'subtitle'  => 'lib/wp.php is the only file that calls WordPress.',
-    'variant'   => 'split',
+    'layout'   => 'split',
     'image_url' => get_template_directory_uri() . '/assets/images/diagram.png',
 ]);
 
 // Interior page header (left-aligned, no CTA)
 pp_get_component('hero', [
     'title'   => pp_page_title(),
-    'variant' => 'left',
+    'layout' => 'left',
 ]);
 ```
 
@@ -65,7 +65,7 @@ pp_get_component('hero', [
 
 Styles live in `assets/css/components.css` under the `/* === COMPONENT: hero === */` section.
 
-Variants are applied via the BEM modifier class `hero--{variant}`.
+Layouts are applied via the BEM modifier class `hero--{layout}`.
 
 ## What NOT to change
 

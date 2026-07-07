@@ -15,12 +15,12 @@ $eyebrow       = $props['eyebrow']       ?? '';
 $subheading    = $props['subheading']    ?? '';
 $heading_align = $props['heading_align'] ?? 'start';
 $items   = $props['items']   ?? [];
-$variant = $props['variant'] ?? 'grid';
+$layout  = $props['layout']  ?? 'grid';
 $theme   = $props['theme']   ?? 'default';
 
-$allowed_variants = ['grid', 'stack'];
-if (!in_array($variant, $allowed_variants, true)) {
-    $variant = 'grid';
+$allowed_layouts = ['grid', 'stack'];
+if (!in_array($layout, $allowed_layouts, true)) {
+    $layout = 'grid';
 }
 
 $allowed_themes = ['default', 'dark', 'inverted'];
@@ -34,8 +34,8 @@ if (!in_array($heading_align, $allowed_heading_aligns, true)) {
 }
 $header_align_class = $heading_align === 'center' ? ' testimonials__header--center' : '';
 
-$is_stack      = $variant === 'stack';
-$variant_class = $is_stack ? ' testimonials--stack' : '';
+$is_stack      = $layout === 'stack';
+$layout_class  = $is_stack ? ' testimonials--stack' : '';
 $theme_class   = $theme !== 'default' ? ' testimonials--' . $theme : '';
 
 // Style slot overrides (per-instance visual customization).
@@ -43,7 +43,7 @@ $slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'testimonials');
 $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
 
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="testimonials<?php echo esc_attr($variant_class); ?><?php echo esc_attr($theme_class); ?>" data-pp-component="testimonials"<?php echo $style_attr; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="testimonials<?php echo esc_attr($layout_class); ?><?php echo esc_attr($theme_class); ?>" data-pp-component="testimonials"<?php echo $style_attr; ?>>
     <div class="container">
 
         <?php if ($title || $eyebrow || $subheading) : ?>

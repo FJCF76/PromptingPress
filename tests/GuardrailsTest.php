@@ -313,10 +313,10 @@ class GuardrailsTest extends TestCase
         // Regression (#119 follow-up): a malformed/corrupted composition
         // decoded from JSON can contain non-array elements. Non-array items
         // must be skipped rather than indexed into (string-offset access
-        // would otherwise coerce garbage into $props/$variant/$image_url).
+        // would otherwise coerce garbage into $props/$hero_layout/$image_url).
         $composition = [
             'not-an-array',
-            ['component' => 'hero', 'props' => ['variant' => 'left', 'image_url' => '/img/x.jpg']],
+            ['component' => 'hero', 'props' => ['layout' => 'left', 'image_url' => '/img/x.jpg']],
         ];
         $this->assertSame([], pp_validate_composition_smells($composition));
     }
@@ -326,10 +326,10 @@ class GuardrailsTest extends TestCase
         // The item itself is a valid array, but its 'props' value is a
         // scalar. Without the props-level guard (not just the item-level
         // guard above), this must still not coerce garbage into
-        // $props/$variant/$image_url via string-offset access.
+        // $props/$hero_layout/$image_url via string-offset access.
         $composition = [
             ['component' => 'hero', 'props' => 'not-an-array'],
-            ['component' => 'hero', 'props' => ['variant' => 'left', 'image_url' => '/img/x.jpg']],
+            ['component' => 'hero', 'props' => ['layout' => 'left', 'image_url' => '/img/x.jpg']],
         ];
         $this->assertSame([], pp_validate_composition_smells($composition));
     }
@@ -337,7 +337,7 @@ class GuardrailsTest extends TestCase
     public function testSmellsHeroLeftNoImageTriggersWarning(): void
     {
         $composition = [
-            ['component' => 'hero', 'props' => ['variant' => 'left', 'title' => 'Test']],
+            ['component' => 'hero', 'props' => ['layout' => 'left', 'title' => 'Test']],
         ];
         $warnings = pp_validate_composition_smells($composition);
 
@@ -349,7 +349,7 @@ class GuardrailsTest extends TestCase
     public function testSmellsHeroLeftWithImageDoesNotTrigger(): void
     {
         $composition = [
-            ['component' => 'hero', 'props' => ['variant' => 'left', 'image_url' => '/img/test.jpg']],
+            ['component' => 'hero', 'props' => ['layout' => 'left', 'image_url' => '/img/test.jpg']],
         ];
         $this->assertSame([], pp_validate_composition_smells($composition));
     }
@@ -357,7 +357,7 @@ class GuardrailsTest extends TestCase
     public function testSmellsHeroCenteredNoImageDoesNotTrigger(): void
     {
         $composition = [
-            ['component' => 'hero', 'props' => ['variant' => 'centered', 'title' => 'Test']],
+            ['component' => 'hero', 'props' => ['layout' => 'centered', 'title' => 'Test']],
         ];
         $this->assertSame([], pp_validate_composition_smells($composition));
     }
@@ -365,7 +365,7 @@ class GuardrailsTest extends TestCase
     public function testSmellsMixedWarnings(): void
     {
         $composition = [
-            ['component' => 'hero', 'props' => ['variant' => 'left']],
+            ['component' => 'hero', 'props' => ['layout' => 'left']],
             ['component' => 'section', 'props' => ['body' => 'Content']],
             ['component' => 'section', 'props' => ['body' => 'More content']],
         ];

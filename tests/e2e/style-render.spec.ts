@@ -122,7 +122,7 @@ test.describe('Safe-surface rendered proof', () => {
         component: 'hero',
         props: {
           id: 'pp-hero01',
-          variant: 'split',
+          layout: 'split',
           title: 'Hero',
           proof: '<p>Product workflow surface</p>',
         },

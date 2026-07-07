@@ -19,7 +19,7 @@ pp_base_template(function () {
 
     pp_get_component('hero', [
         'title'   => 'Blog',
-        'variant' => 'left',
+        'layout' => 'left',
     ]);
 
     // Iterate WordPress's own main query for this route (#126) — already

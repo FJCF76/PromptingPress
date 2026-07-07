@@ -12,7 +12,7 @@ pp_base_template(function () {
 
     pp_get_component('hero', [
         'title'   => pp_page_title(),
-        'variant' => 'left',
+        'layout' => 'left',
     ]);
 
     pp_get_component('section', [

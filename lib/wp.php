@@ -282,7 +282,7 @@ function pp_get_composition_result(int $post_id): array {
         if (!pp_is_list($raw)) {
             return ['ok' => false, 'composition' => [], 'error' => 'unexpected_shape', 'raw' => null];
         }
-        return ['ok' => true, 'composition' => $raw, 'error' => null, 'raw' => null];
+        return ['ok' => true, 'composition' => pp_migrate_stored_composition($raw), 'error' => null, 'raw' => null];
     }
 
     // Normal storage is a JSON string. A truthy non-string scalar (int, float,
@@ -301,7 +301,28 @@ function pp_get_composition_result(int $post_id): array {
         return ['ok' => false, 'composition' => [], 'error' => 'unexpected_shape', 'raw' => $raw];
     }
 
-    return ['ok' => true, 'composition' => $items, 'error' => null, 'raw' => $raw];
+    return ['ok' => true, 'composition' => pp_migrate_stored_composition($items), 'error' => null, 'raw' => $raw];
+}
+
+/**
+ * TRANSITIONAL read-path shim (issue #69) — REMOVE AT v1.0.0 TAG.
+ *
+ * Renderers, inspect, and guardrails read stored compositions directly (they do
+ * not run pp_normalize_composition, which only covers the apply/write path). A
+ * composition persisted before the `variant` -> `layout`/`theme` split would
+ * otherwise lose its structural/tone setting after the rename. This migrates the
+ * decoded items on read so pre-rename content renders unchanged, mirroring the
+ * write-path migration in pp_normalize_composition(). Delegates to the single
+ * migration helper in lib/admin.php; guarded so a partial include (some unit
+ * tests load lib/wp.php alone) degrades to the raw items instead of fatally.
+ *
+ * @param  array $items  Decoded composition items.
+ * @return array         Items with any legacy `variant` keys migrated.
+ */
+function pp_migrate_stored_composition(array $items): array {
+    return function_exists('pp_migrate_legacy_variant_keys')
+        ? pp_migrate_legacy_variant_keys($items)
+        : $items;
 }
 
 /**
@@ -2562,7 +2583,7 @@ function pp_default_homepage_composition(): array {
             'subtitle' => 'PromptingPress is built for real WordPress page workflows where AI can move fast on the first pass without turning revisions, handoff, and maintenance into cleanup debt.',
             'cta_text' => 'See how it works',
             'cta_url'  => '/how-promptingpress-works/',
-            'variant'  => 'split',
+            'layout'   => 'split',
             'split_ratio' => '60-40',
             'proof'    => '<p class="hero__surface-label">Product workflow surface</p><div class="hero__surface-list"><div class="hero__surface-item"><span class="hero__surface-key">Read</span><span class="hero__surface-value">Structured site context</span></div><div class="hero__surface-item"><span class="hero__surface-key">Edit</span><span class="hero__surface-value">Page composition, not builder clutter</span></div><div class="hero__surface-item"><span class="hero__surface-key">Validate</span><span class="hero__surface-value">Screenshot-backed changes before apply</span></div></div>',
         ]],
@@ -2576,7 +2597,7 @@ function pp_default_homepage_composition(): array {
             'text'        => 'Start with the theme, fill in AI_CONTEXT.md, and let your AI tool do the rest.',
             'button_text' => 'Get Started on GitHub',
             'button_url'  => 'https://github.com/FJCF76/PromptingPress',
-            'variant'     => 'full-width',
+            'layout'      => 'full-width',
         ]],
     ];
 }

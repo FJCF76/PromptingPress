@@ -12,16 +12,16 @@
 $id               = $props['id']               ?? '';
 $title            = $props['title']            ?? '';
 $title_accent     = $props['title_accent']     ?? '';
-$variant          = $props['variant']          ?? 'default';
+$theme            = $props['theme']            ?? 'default';
 $items            = $props['items']            ?? [];
 $background_image = $props['background_image'] ?? '';
 
-$allowed_variants = ['default', 'dark', 'inverted'];
-if (!in_array($variant, $allowed_variants, true)) {
-    $variant = 'default';
+$allowed_themes = ['default', 'dark', 'inverted'];
+if (!in_array($theme, $allowed_themes, true)) {
+    $theme = 'default';
 }
 
-$variant_class  = $variant !== 'default' ? ' stats--' . $variant : '';
+$theme_class    = $theme !== 'default' ? ' stats--' . $theme : '';
 $bg_image_class = $background_image ? ' stats--has-bg-image' : '';
 
 // Style slot overrides (per-instance visual customization).
@@ -37,7 +37,7 @@ if ($background_image) {
 $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"' : '';
 
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="stats<?php echo esc_attr($variant_class); ?><?php echo esc_attr($bg_image_class); ?>" data-pp-component="stats"<?php echo $style_attr; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="stats<?php echo esc_attr($theme_class); ?><?php echo esc_attr($bg_image_class); ?>" data-pp-component="stats"<?php echo $style_attr; ?>>
     <?php if ($background_image) : ?>
         <div class="stats__overlay" aria-hidden="true"></div>
     <?php endif; ?>

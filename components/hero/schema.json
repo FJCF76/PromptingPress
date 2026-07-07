@@ -1,6 +1,6 @@
 {
   "component": "hero",
-  "description": "Full-width hero section with headline, optional subtitle, optional CTA buttons (primary + secondary), and optional image. Supports four layout variants.",
+  "description": "Full-width hero section with headline, optional subtitle, optional CTA buttons (primary + secondary), and optional image. Supports four structural layouts.",
   "props": {
     "id": {
       "type": "string",
@@ -69,30 +69,30 @@
       "default": "outline",
       "description": "Secondary CTA button style — defaults to 'outline' to match the historical always-outline second button. 'primary' = filled accent. 'secondary' = muted surface fill. 'ghost' = borderless text button. Set via update_component (a prop, not a style slot)."
     },
-    "variant": {
+    "layout": {
       "type": "enum",
       "values": ["left", "centered", "split", "cover"],
       "required": false,
       "default": "centered",
-      "description": "Layout variant. 'centered' centers all content. 'left' aligns content left. 'split' places text left and image right at lg+. 'cover' uses image_url as a full-width background image with dark overlay and white text."
+      "description": "Structural layout. 'centered' centers all content. 'left' aligns content left. 'split' places text left and image right at lg+. 'cover' uses image_url as a full-width background image with dark overlay and white text. (Color/tone is controlled by style slots, not this prop.)"
     },
     "image_url": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Image URL. Rendered as an inline image in 'split' variant, or as a CSS background-image in 'cover' variant."
+      "description": "Image URL. Rendered as an inline image in the 'split' layout, or as a CSS background-image in the 'cover' layout."
     },
     "image_alt": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Alt text for the split variant image. Use a descriptive string for meaningful images; leave empty only if image is purely decorative."
+      "description": "Alt text for the split-layout image. Use a descriptive string for meaningful images; leave empty only if image is purely decorative."
     },
     "image_id": {
       "type": "number",
       "required": false,
       "default": 0,
-      "description": "Media Library attachment ID for the split variant image (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply."
+      "description": "Media Library attachment ID for the split-layout image (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply."
     },
     "spacing": {
       "type": "enum",
@@ -113,14 +113,14 @@
       "values": ["50-50", "60-40", "40-60"],
       "required": false,
       "default": "50-50",
-      "description": "Grid column ratio for the split variant. '60-40' gives more space to text, '40-60' gives more to the image. Ignored on non-split variants."
+      "description": "Grid column ratio for the split layout. '60-40' gives more space to text, '40-60' gives more to the image. Ignored on non-split layouts."
     },
     "vertical_align": {
       "type": "enum",
       "values": ["top", "center", "bottom"],
       "required": false,
       "default": "center",
-      "description": "Vertical alignment of content within the hero. Applies to cover and split variants only. Ignored on centered/left variants. Ignored below 1024px."
+      "description": "Vertical alignment of content within the hero. Applies to cover and split layouts only. Ignored on centered/left layouts. Ignored below 1024px."
     },
     "proof": {
       "type": "string",
@@ -155,11 +155,11 @@
       "--hero-subtitle-color": { "type": "color", "default": "var(--color-muted)", "description": "Subtitle text color" },
       "--hero-content-gap": { "type": "length", "default": "var(--space-md)", "description": "Gap between content elements" },
       "--hero-content-width": { "type": "length", "default": "var(--measure-centered)", "description": "Max width of the content column" },
-      "--hero-overlay-bg": { "type": "gradient", "default": "var(--overlay-bg)", "description": "Cover variant overlay background color or gradient (e.g. a transparent-to-dark scrim for text legibility over an image)" },
-      "--hero-image-radius": { "type": "length", "default": "var(--radius)", "description": "Split variant image border radius" },
-      "--hero-image-position": { "type": "position", "default": "center", "description": "Split variant image focal point (object-position) — where the image crops from when its aspect ratio doesn't match --hero-image-aspect-ratio" },
-      "--hero-image-aspect-ratio": { "type": "ratio", "default": "auto", "description": "Split variant image aspect ratio (e.g. '16/9', '1'). Default 'auto' preserves the image's natural proportions" },
-      "--hero-bg-position": { "type": "position", "default": "center", "description": "Cover variant background image focal point" },
+      "--hero-overlay-bg": { "type": "gradient", "default": "var(--overlay-bg)", "description": "Cover-layout overlay background color or gradient (e.g. a transparent-to-dark scrim for text legibility over an image)" },
+      "--hero-image-radius": { "type": "length", "default": "var(--radius)", "description": "Split-layout image border radius" },
+      "--hero-image-position": { "type": "position", "default": "center", "description": "Split-layout image focal point (object-position) — where the image crops from when its aspect ratio doesn't match --hero-image-aspect-ratio" },
+      "--hero-image-aspect-ratio": { "type": "ratio", "default": "auto", "description": "Split-layout image aspect ratio (e.g. '16/9', '1'). Default 'auto' preserves the image's natural proportions" },
+      "--hero-bg-position": { "type": "position", "default": "center", "description": "Cover-layout background image focal point" },
       "--hero-border-color": { "type": "color", "default": "transparent", "description": "Border color of the hero section" },
       "--hero-border-width": { "type": "length", "default": "0", "description": "Border width of the hero section" },
       "--hero-radius": { "type": "length", "default": "0", "description": "Border radius of the hero section" },

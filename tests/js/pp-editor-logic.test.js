@@ -58,7 +58,7 @@ const SECTION = {
             body:    { type: 'string',  required: true, description: 'HTML body content.' },
             title:   { type: 'string',  required: false, default: '' },
             layout:  { type: 'enum', values: ['text-only', 'image-left', 'image-right', 'centered'], required: false, default: 'text-only' },
-            variant: { type: 'enum', values: ['default', 'dark', 'inverted'], required: false, default: 'default' },
+            theme:   { type: 'enum', values: ['default', 'dark', 'inverted'], required: false, default: 'default' },
         },
     },
 };
@@ -542,7 +542,7 @@ describe('getCollapsedRowPreview (#76)', () => {
         const compData = {
             fields: [
                 { name: 'body', type: 'string', required: true, value: 'Some body text' },
-                { name: 'variant', type: 'enum', required: false, value: 'default' },
+                { name: 'theme', type: 'enum', required: false, value: 'default' },
             ],
         };
         expect(getCollapsedRowPreview(compData)).toBe('Some body text');

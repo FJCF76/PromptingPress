@@ -1368,12 +1368,77 @@ class ActionsTest extends TestCase
     public function testNormalizeCompositionPreservesProps(): void
     {
         $raw = [
-            ['type' => 'hero', 'props' => ['title' => 'Welcome', 'variant' => 'split', 'image_url' => 'https://example.com/photo.jpg']],
+            ['type' => 'hero', 'props' => ['title' => 'Welcome', 'layout' => 'split', 'image_url' => 'https://example.com/photo.jpg']],
         ];
         $normalized = pp_normalize_composition($raw);
         $this->assertEquals('Welcome', $normalized[0]['props']['title']);
-        $this->assertEquals('split', $normalized[0]['props']['variant']);
+        $this->assertEquals('split', $normalized[0]['props']['layout']);
         $this->assertEquals('https://example.com/photo.jpg', $normalized[0]['props']['image_url']);
+    }
+
+    // ── Legacy `variant` migration (issue #69) — remove with the shim at v1.0.0 ──
+
+    public function testNormalizeMigratesStructuralVariantToLayout(): void
+    {
+        // hero/cta/testimonials: structural `variant` -> `layout`.
+        $raw = [
+            ['component' => 'hero', 'props' => ['title' => 'Hi', 'variant' => 'split']],
+            ['component' => 'cta', 'props' => ['title' => 'Go', 'variant' => 'inline']],
+            ['component' => 'testimonials', 'props' => ['variant' => 'stack']],
+        ];
+        $normalized = pp_normalize_composition($raw);
+        foreach ([0, 1, 2] as $i) {
+            $this->assertArrayNotHasKey('variant', $normalized[$i]['props']);
+        }
+        $this->assertEquals('split', $normalized[0]['props']['layout']);
+        $this->assertEquals('inline', $normalized[1]['props']['layout']);
+        $this->assertEquals('stack', $normalized[2]['props']['layout']);
+    }
+
+    public function testNormalizeMigratesGridDefaultVariantToCardsLayout(): void
+    {
+        // grid also renames the legacy structural value `default` -> `cards`.
+        $raw = [
+            ['component' => 'grid', 'props' => ['variant' => 'default']],
+            ['component' => 'grid', 'props' => ['variant' => 'steps']],
+        ];
+        $normalized = pp_normalize_composition($raw);
+        $this->assertEquals('cards', $normalized[0]['props']['layout']);
+        $this->assertEquals('steps', $normalized[1]['props']['layout']);
+        $this->assertArrayNotHasKey('variant', $normalized[0]['props']);
+    }
+
+    public function testNormalizeMigratesToneVariantToTheme(): void
+    {
+        // section/stats/logos/embed: tonal `variant` -> `theme`.
+        $raw = [
+            ['component' => 'section', 'props' => ['body' => 'x', 'variant' => 'dark']],
+            ['component' => 'stats', 'props' => ['variant' => 'inverted', 'items' => []]],
+            ['component' => 'logos', 'props' => ['variant' => 'dark', 'items' => []]],
+            ['component' => 'embed', 'props' => ['content' => 'x', 'variant' => 'inverted']],
+        ];
+        $normalized = pp_normalize_composition($raw);
+        $this->assertEquals('dark', $normalized[0]['props']['theme']);
+        $this->assertEquals('inverted', $normalized[1]['props']['theme']);
+        $this->assertEquals('dark', $normalized[2]['props']['theme']);
+        $this->assertEquals('inverted', $normalized[3]['props']['theme']);
+        foreach ([0, 1, 2, 3] as $i) {
+            $this->assertArrayNotHasKey('variant', $normalized[$i]['props']);
+        }
+    }
+
+    public function testNormalizeVariantDoesNotOverwriteExplicitNewKey(): void
+    {
+        // If the new key is already present, it wins; legacy `variant` is dropped.
+        $raw = [
+            ['component' => 'hero', 'props' => ['layout' => 'cover', 'variant' => 'split']],
+            ['component' => 'section', 'props' => ['body' => 'x', 'theme' => 'inverted', 'variant' => 'dark']],
+        ];
+        $normalized = pp_normalize_composition($raw);
+        $this->assertEquals('cover', $normalized[0]['props']['layout']);
+        $this->assertEquals('inverted', $normalized[1]['props']['theme']);
+        $this->assertArrayNotHasKey('variant', $normalized[0]['props']);
+        $this->assertArrayNotHasKey('variant', $normalized[1]['props']);
     }
 
     public function testNormalizeCompositionHandlesEmptyArray(): void

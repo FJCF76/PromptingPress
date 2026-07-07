@@ -24,7 +24,7 @@ Correlate the reported issue with the inspect data. Note what you see in the scr
 
 ### 2. PLAN
 Diagnose the root cause. Common categories:
-- **Composition issue**: Wrong props, missing component, wrong variant
+- **Composition issue**: Wrong props, missing component, wrong layout/theme
 - **Token issue**: Incorrect design token value (color, spacing, font)
 - **CSS conflict**: Custom CSS overriding component styles
 - **Content issue**: Wrong text, missing image URL, broken link

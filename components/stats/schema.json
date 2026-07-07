@@ -20,12 +20,12 @@
       "default": "",
       "description": "Optional exact substring of title to render in an accent color. Must match title exactly (case-sensitive) or it is ignored."
     },
-    "variant": {
+    "theme": {
       "type": "enum",
       "values": ["default", "dark", "inverted"],
       "required": false,
       "default": "default",
-      "description": "Background presentation. 'default' = page background. 'dark' = surface background with borders. 'inverted' = inverted background for strong contrast."
+      "description": "Background color/tone. 'default' = page background. 'dark' = surface background with borders. 'inverted' = inverted background for strong contrast."
     },
     "background_image": {
       "type": "string",

@@ -13,7 +13,7 @@ pp_base_template(function () {
     pp_get_component('hero', [
         'title'     => pp_page_title(),
         'image_url' => pp_thumbnail_url('large'),
-        'variant'   => 'left',
+        'layout'   => 'left',
     ]);
 
     pp_get_component('section', [
@@ -25,7 +25,7 @@ pp_base_template(function () {
         'title'       => 'More from the blog',
         'button_text' => '&larr; Back to all posts',
         'button_url'  => pp_site_url('/blog'),
-        'variant'     => 'inline',
+        'layout'     => 'inline',
     ]);
 
     pp_comments_template();

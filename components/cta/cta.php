@@ -2,7 +2,7 @@
 /**
  * components/cta/cta.php
  *
- * Call-to-action block. Two variants: full-width (centered) and inline (flex row).
+ * Call-to-action block. Two layouts: full-width (centered) and inline (flex row).
  * Props: see schema.json
  *
  * @var array $props
@@ -15,14 +15,14 @@ $eyebrow          = $props['eyebrow']          ?? '';
 $text             = $props['text']             ?? '';
 $button_text      = $props['button_text']      ?? 'Get Started';
 $button_url       = $props['button_url']       ?? '#';
-$variant          = $props['variant']          ?? 'full-width';
+$layout           = $props['layout']           ?? 'full-width';
 $theme            = $props['theme']            ?? 'default';
 $background_image = $props['background_image'] ?? '';
 $button_variant   = $props['button_variant']   ?? 'primary';
 
-$allowed_variants = ['full-width', 'inline'];
-if (!in_array($variant, $allowed_variants, true)) {
-    $variant = 'full-width';
+$allowed_layouts = ['full-width', 'inline'];
+if (!in_array($layout, $allowed_layouts, true)) {
+    $layout = 'full-width';
 }
 
 $allowed_button_variants = ['primary', 'secondary', 'outline', 'ghost'];
@@ -53,7 +53,7 @@ if ($background_image) {
 $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"' : '';
 
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="cta cta--<?php echo esc_attr($variant); ?><?php echo esc_attr($theme_class); ?><?php echo esc_attr($bg_image_class); ?>" data-pp-component="cta"<?php echo $style_attr; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="cta cta--<?php echo esc_attr($layout); ?><?php echo esc_attr($theme_class); ?><?php echo esc_attr($bg_image_class); ?>" data-pp-component="cta"<?php echo $style_attr; ?>>
     <?php if ($background_image) : ?>
         <div class="cta__overlay" aria-hidden="true"></div>
     <?php endif; ?>

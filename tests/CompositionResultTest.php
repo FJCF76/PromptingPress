@@ -251,4 +251,29 @@ class CompositionResultTest extends TestCase
     {
         $this->assertSame([], pp_get_composition($this->postId));
     }
+
+    // ── Legacy `variant` read-path migration (issue #69) ─────────────────
+    // A composition stored before the `variant` -> `layout`/`theme` split must
+    // render unchanged: renderers read through pp_get_composition(), which now
+    // migrates on read. Remove with the shim at the v1.0.0 tag.
+
+    public function testGetCompositionMigratesLegacyVariantOnRead(): void
+    {
+        $stored = [
+            ['component' => 'hero', 'props' => ['title' => 'Hi', 'variant' => 'split']],
+            ['component' => 'grid', 'props' => ['variant' => 'default']],
+            ['component' => 'section', 'props' => ['body' => 'x', 'variant' => 'dark']],
+        ];
+        $this->setRawMeta(json_encode($stored));
+
+        $composition = pp_get_composition($this->postId);
+
+        $this->assertSame('split', $composition[0]['props']['layout']);
+        $this->assertArrayNotHasKey('variant', $composition[0]['props']);
+        // grid renames the legacy default value.
+        $this->assertSame('cards', $composition[1]['props']['layout']);
+        // tone component moves to theme.
+        $this->assertSame('dark', $composition[2]['props']['theme']);
+        $this->assertArrayNotHasKey('variant', $composition[2]['props']);
+    }
 }

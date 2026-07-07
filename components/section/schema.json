@@ -1,6 +1,6 @@
 {
   "component": "section",
-  "description": "Generic text section with an optional image. Supports three layout variants: text only, image left, image right.",
+  "description": "Generic text section with an optional image. Supports four structural layouts: text-only, image-left, image-right, centered.",
   "props": {
     "id": {
       "type": "string",
@@ -69,18 +69,18 @@
       "default": "text-only",
       "description": "Column layout. 'centered' centers text with no image (image_url suppressed). Falls back to text-only if image_url is empty for image layouts."
     },
-    "variant": {
+    "theme": {
       "type": "enum",
       "values": ["default", "dark", "inverted"],
       "required": false,
       "default": "default",
-      "description": "Background presentation. 'default' = page background. 'dark' = dark surface. 'inverted' = inverted background for strong contrast. Controls per-section visual rhythm on marketing pages."
+      "description": "Background color/tone. 'default' = page background. 'dark' = dark surface. 'inverted' = inverted background for strong contrast. Controls per-section visual rhythm on marketing pages. Independent of layout."
     },
     "background_image": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional background image URL. When set, renders as a CSS background-image with a dark overlay for text readability. Combines with any variant. Text automatically uses light colors for contrast."
+      "description": "Optional background image URL. When set, renders as a CSS background-image with a dark overlay for text readability. Combines with any theme. Text automatically uses light colors for contrast."
     }
   },
   "styling": {

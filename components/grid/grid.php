@@ -16,12 +16,12 @@ $eyebrow       = $props['eyebrow']       ?? '';
 $subheading    = $props['subheading']    ?? '';
 $heading_align = $props['heading_align'] ?? 'start';
 $items   = $props['items']   ?? [];
-$variant = $props['variant'] ?? 'default';
+$layout  = $props['layout']  ?? 'cards';
 $theme   = $props['theme']   ?? 'default';
 
-$allowed_variants = ['default', 'steps'];
-if (!in_array($variant, $allowed_variants, true)) {
-    $variant = 'default';
+$allowed_layouts = ['cards', 'steps'];
+if (!in_array($layout, $allowed_layouts, true)) {
+    $layout = 'cards';
 }
 
 $allowed_themes = ['default', 'dark', 'inverted'];
@@ -35,8 +35,8 @@ if (!in_array($heading_align, $allowed_heading_aligns, true)) {
 }
 $header_align_class = $heading_align === 'center' ? ' grid__header--center' : '';
 
-$is_steps      = $variant === 'steps';
-$variant_class = $is_steps ? ' grid--steps' : '';
+$is_steps      = $layout === 'steps';
+$layout_class  = $is_steps ? ' grid--steps' : '';
 $theme_class   = $theme !== 'default' ? ' grid--' . $theme : '';
 
 // Style slot overrides (per-instance visual customization).
@@ -44,7 +44,7 @@ $slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'grid');
 $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
 
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($variant_class); ?><?php echo esc_attr($theme_class); ?>" data-pp-component="grid"<?php echo $style_attr; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($layout_class); ?><?php echo esc_attr($theme_class); ?>" data-pp-component="grid"<?php echo $style_attr; ?>>
     <div class="container">
 
         <?php if ($title || $eyebrow || $subheading) : ?>

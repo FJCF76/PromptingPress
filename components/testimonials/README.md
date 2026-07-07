@@ -12,7 +12,7 @@ Customer quotes with attribution, for social-proof sections. Use this instead of
 | `eyebrow`       | string | No       | `''`    | Short kicker/label above the title |
 | `subheading`    | string | No       | `''`    | Supporting line below the title |
 | `heading_align` | enum   | No       | `start` | `start` or `center` |
-| `variant`       | enum   | No       | `grid`  | Layout: `grid` (card grid) or `stack` (single centered column) |
+| `layout`       | enum   | No       | `grid`  | Layout: `grid` (card grid) or `stack` (single centered column) |
 | `theme`         | enum   | No       | `default` | Background color: `default` / `dark` / `inverted` |
 | `items`         | array  | Yes      | —       | Array of testimonial objects |
 
@@ -27,7 +27,7 @@ Each item in `items`:
 | `image_url` | string | No       | `''`    | Optional avatar image URL |
 | `image_alt` | string | No       | `''`    | Alt text for the avatar |
 
-`variant` and `theme` are independent axes, same pattern as `grid` and `cta`: `variant` controls layout, `theme` controls background color.
+`layout` and `theme` are independent axes, same pattern as `grid` and `cta`: `layout` controls structure, `theme` controls background color.
 
 ## Usage
 
@@ -50,7 +50,7 @@ pp_get_component('testimonials', [
 
 // Single large pull-quote
 pp_get_component('testimonials', [
-    'variant' => 'stack',
+    'layout' => 'stack',
     'items' => [
         ['quote' => 'The best WordPress theme for AI-first sites.', 'author' => 'Ada Lovelace'],
     ],

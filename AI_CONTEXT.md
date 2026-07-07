@@ -110,26 +110,32 @@ site-customization permission.
 
 | Component | File                           | Description                                      | Key props                                          |
 |-----------|--------------------------------|--------------------------------------------------|----------------------------------------------------|
-| hero      | components/hero/hero.php       | Full-width headline + optional CTA and image     | title (req), title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, variant, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof, id |
-| section   | components/section/section.php | Text + optional image. 3 layout variants         | body (req), title, title_accent, eyebrow, subheading, heading_align, image_url, image_id, image_alt, layout, variant, background_image, id |
+| hero      | components/hero/hero.php       | Full-width headline + optional CTA and image     | title (req), title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, layout, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof, id |
+| section   | components/section/section.php | Text + optional image. 4 structural layouts      | body (req), title, title_accent, eyebrow, subheading, heading_align, image_url, image_id, image_alt, layout, theme, background_image, id |
 | faq       | components/faq/faq.php         | Native details/summary accordion. Zero JS. Auto-emits FAQPage JSON-LD. | items[] (req) {question, answer}, title, title_accent |
-| grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {number, title, text, text_role, bullets[], image_url, image_alt, link_url, link_text}, title, title_accent, eyebrow, subheading, heading_align, variant, theme, id |
+| grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {number, title, text, text_role, bullets[], image_url, image_alt, link_url, link_text}, title, title_accent, eyebrow, subheading, heading_align, layout, theme, id |
 | table     | components/table/table.php     | Data/comparison table, horizontal scroll mobile  | headers[] (req), rows[][] (req), title, caption    |
-| cta       | components/cta/cta.php         | Call-to-action block. Layout + color + bg-image  | title (req), title_accent, eyebrow, button_text (req), button_url (req), button_variant, text, variant, theme, background_image, id |
+| cta       | components/cta/cta.php         | Call-to-action block. Layout + color + bg-image  | title (req), title_accent, eyebrow, button_text (req), button_url (req), button_variant, text, layout, theme, background_image, id |
 | nav       | components/nav/nav.php         | Site header, logo, hamburger mobile nav          | location, logo_text, logo_id, logo_alt             |
 | footer    | components/footer/footer.php   | Site footer with nav menu and copyright          | location, show_logo, logo_text, logo_id, logo_alt  |
-| stats     | components/stats/stats.php     | Horizontal row of large-number metrics + labels  | items[] (req) {number, label}, title, title_accent, variant, background_image, id |
-| logos     | components/logos/logos.php     | Flex-wrap image grid — logo strips or icon tiles | items[] (req) {image_url, image_alt, image_id?, label?}, title, variant, id |
-| embed     | components/embed/embed.php     | WP shortcode / plugin content wrapper            | content (req), title, variant, id                  |
-| testimonials | components/testimonials/testimonials.php | Customer quotes with attribution — card grid or single-column stack | items[] (req) {quote (req), author, role, company, image_url, image_alt}, title, title_accent, eyebrow, subheading, heading_align, variant, theme, id |
+| stats     | components/stats/stats.php     | Horizontal row of large-number metrics + labels  | items[] (req) {number, label}, title, title_accent, theme, background_image, id |
+| logos     | components/logos/logos.php     | Flex-wrap image grid — logo strips or icon tiles | items[] (req) {image_url, image_alt, image_id?, label?}, title, theme, id |
+| embed     | components/embed/embed.php     | WP shortcode / plugin content wrapper            | content (req), title, theme, id                    |
+| testimonials | components/testimonials/testimonials.php | Customer quotes with attribution — card grid or single-column stack | items[] (req) {quote (req), author, role, company, image_url, image_alt}, title, title_accent, eyebrow, subheading, heading_align, layout, theme, id |
 
 ### Component capabilities reference
 
-**Variants (color themes):** Most section-level components support `variant` with values `default`, `dark`, `inverted`. CTA, grid, and testimonials are exceptions — see below.
+**Two consistent axes — `layout` (structure) and `theme` (color/tone).** There is no `variant` prop anywhere; the name is retired. Structure is always `layout`, color/tone is always `theme`, and they never overload one key:
 
-**Three components have dual-axis control.** CTA, grid, and testimonials all use `variant` for layout and `theme` for color, because they need independent control of both. CTA: `variant` = layout (`full-width`, `inline`), `theme` = color (`default`, `dark`, `inverted`). Grid: `variant` = layout (`default`, `steps`), `theme` = color (`default`, `dark`, `inverted`). Testimonials: `variant` = layout (`grid`, `stack`), `theme` = color (`default`, `dark`, `inverted`). Two other components use `variant` for something other than color: hero's `variant` is its layout (`left`, `centered`, `split`, `cover` — hero colors come from style slots), and section splits the axes into `layout` (`text-only`, `image-left`, `image-right`, `centered`) plus `variant` for color. Every remaining component uses `variant` for color because it has only one layout. If a future component needs both layout and color control, follow the CTA/grid/testimonials pattern.
+- **`layout`** (structural, changes DOM/rendering) is used by the components that have more than one structure: `hero` (`left`, `centered`, `split`, `cover`), `section` (`text-only`, `image-left`, `image-right`, `centered`), `grid` (`cards`, `steps`), `cta` (`full-width`, `inline`), `testimonials` (`grid`, `stack`).
+- **`theme`** (color/tone preset, `default` | `dark` | `inverted`) is used by the section-level components that carry a background tone: `section`, `stats`, `logos`, `embed`, `grid`, `cta`, `testimonials`.
+- `hero` has no `theme` prop — its color comes entirely from style slots (`--hero-bg`, etc.).
+- Components with a single structure (`stats`, `logos`, `embed`) expose only `theme`, not `layout`.
+- `style_component` / recipes / style slots remain the final visual authority over any `theme` or default CSS.
 
-**Background images:** hero (via `cover` variant + `image_url`), section (`background_image` prop), cta (`background_image` prop), and stats (`background_image` prop) support CSS background-image with a dark overlay and light text. All four use the same implementation pattern:
+If a future component needs both structure and color control, give it both `layout` and `theme` — never reuse one key for two meanings.
+
+**Background images:** hero (via `cover` layout + `image_url`), section (`background_image` prop), cta (`background_image` prop), and stats (`background_image` prop) support CSS background-image with a dark overlay and light text. All four use the same implementation pattern:
 - `background-image` inline style on the root `<section>` element
 - A child `div.{component}__overlay` (e.g. `.hero__overlay`) with `background: var(--overlay-bg)`
 - Container gets `position: relative; z-index: 1` to sit above the overlay
@@ -137,19 +143,19 @@ site-customization permission.
 
 If adding background-image support to another component, follow this exact pattern.
 
-**Responsive images (hero, section, logos):** `image_url` (hero's `split` variant, section's `image-left`/`image-right` layouts, each logos item) has a companion `image_id` — a Media Library attachment ID, not a URL. When `image_id` resolves to a real attachment, the `<img>` renders responsively via `wp_get_attachment_image()` (real `srcset`/`sizes`); when unset or unresolvable, the plain `image_url` renders exactly as before. Get an attachment ID via the `import_media` apply. Not used for `background_image`/`cover` (CSS `background-image`, not an `<img>` tag).
+**Responsive images (hero, section, logos):** `image_url` (hero's `split` layout, section's `image-left`/`image-right` layouts, each logos item) has a companion `image_id` — a Media Library attachment ID, not a URL. When `image_id` resolves to a real attachment, the `<img>` renders responsively via `wp_get_attachment_image()` (real `srcset`/`sizes`); when unset or unresolvable, the plain `image_url` renders exactly as before. Get an attachment ID via the `import_media` apply. Not used for `background_image`/`cover` (CSS `background-image`, not an `<img>` tag).
 
 **Anchor IDs:** All 8 section-level components (hero, section, stats, grid, logos, cta, embed, testimonials) accept an `id` prop that renders as the HTML `id` attribute on the root `<section>` element. Use for anchor navigation.
 
-**Hero:** Variants `left`, `centered`, `split` (inline image), `cover` (fullscreen background-image with overlay). Supports dual CTA buttons (`cta_text` + `cta2_text`), each with an independent `cta_variant`/`cta2_variant` (`primary`/`secondary`/`outline`/`ghost`; secondary defaults to `outline`). Composition props: `spacing` (compact/default/spacious), `width` (narrow/default/full), `split_ratio` (50-50/60-40/40-60, split variant only), `vertical_align` (top/center/bottom, cover and split only), `proof` (HTML string for trust signals like logos/ratings, rendered after CTA group). Hero content uses `--measure-centered` (56rem) as default max-width.
+**Hero:** `layout` = `left`, `centered`, `split` (inline image), `cover` (fullscreen background-image with overlay). Supports dual CTA buttons (`cta_text` + `cta2_text`), each with an independent `cta_variant`/`cta2_variant` (`primary`/`secondary`/`outline`/`ghost`; secondary defaults to `outline` — these are button-style props, unrelated to the layout `layout`). Composition props: `spacing` (compact/default/spacious), `width` (narrow/default/full), `split_ratio` (50-50/60-40/40-60, split layout only), `vertical_align` (top/center/bottom, cover and split only), `proof` (HTML string for trust signals like logos/ratings, rendered after CTA group). Hero content uses `--measure-centered` (56rem) as default max-width.
 
 **Nav/Footer:** Supports image logos via `logo_id` (Media Library attachment ID, not a URL) + `logo_alt`. Both the `logo_id` component prop and the `pp_logo_id` site option must be an **image** attachment; a non-image or non-existent ID is rejected when the action is validated (`update_component`/`add_component`/`update_composition` for the prop, `update_site_option` for the option). Resolution: `logo_id` prop → `pp_logo_id` site option → WP `custom_logo` theme-mod → `logo_text` (text) wordmark. Footer logo is opt-in via `show_logo` (default off). Set the site-wide logo through the `update_site_option` action with key `pp_logo_id`.
 
-**Grid:** Variants `default` (card grid), `steps` (numbered process cards — filled circular number badge, subtle connector line between badges at desktop). `theme` controls background color independently of layout variant. Card items accept `bullets` — a checklist of plain-text lines rendered below `text`, each prefixed with a check mark.
+**Grid:** `layout` = `cards` (card grid), `steps` (numbered process cards — filled circular number badge, subtle connector line between badges at desktop). `theme` controls background color independently of `layout`. Card items accept `bullets` — a checklist of plain-text lines rendered below `text`, each prefixed with a check mark.
 
 **FAQ structured data (#3):** The FAQ component always emits a `<script type="application/ld+json">` FAQPage schema block immediately after its own markup, derived from `items` — zero-config, no toggle prop. `question`/`answer` are stripped of HTML (`wp_strip_all_tags()`) before encoding, since Google's FAQPage schema expects plain text; items missing a question or answer are skipped. Nothing is emitted if there are no complete items.
 
-**Section headers (hero, section, grid, cta, testimonials):** `eyebrow` renders a short kicker label as a pill above the title on all five. `subheading` (section, grid, testimonials only) renders a supporting line below the title — hero uses `subtitle` and cta uses `text` for the same concept, so neither has a `subheading` prop. `heading_align` (`start` default, or `center`; section, grid, testimonials only) centers the eyebrow/title/subheading block, independent of the component's own layout variant.
+**Section headers (hero, section, grid, cta, testimonials):** `eyebrow` renders a short kicker label as a pill above the title on all five. `subheading` (section, grid, testimonials only) renders a supporting line below the title — hero uses `subtitle` and cta uses `text` for the same concept, so neither has a `subheading` prop. `heading_align` (`start` default, or `center`; section, grid, testimonials only) centers the eyebrow/title/subheading block, independent of the component's own `layout`.
 
 **title_accent (hero, section, grid, cta, faq, stats, testimonials):** All seven heading-bearing components accept `title_accent` — an exact, case-sensitive substring of `title` rendered in a per-component accent color slot (e.g. `--hero-title-accent-color`). It is a structured plain-text mechanism, not an HTML allowlist: if `title_accent` isn't a literal substring of `title`, it is silently ignored and `title` renders in full.
 
@@ -194,7 +200,7 @@ pp_get_component('hero', [
     'subtitle' => pp_field('hero_subtitle'),
     'cta_text' => pp_field('hero_cta_text') ?: 'Get Started',
     'cta_url'  => pp_field('hero_cta_url')  ?: '#',
-    'variant'  => 'centered',
+    'layout'   => 'centered',
 ]);
 ```
 
@@ -405,9 +411,9 @@ Pages using the **Composition** template store their layout in `_pp_composition`
 
 ```json
 [
-  { "component": "hero", "props": { "id": "top", "title": "Welcome", "variant": "cover", "image_url": "/path/to/bg.jpg" }, "style": { "--hero-padding-top": "8rem", "--hero-bg": "#1a1a2e" } },
+  { "component": "hero", "props": { "id": "top", "title": "Welcome", "layout": "cover", "image_url": "/path/to/bg.jpg" }, "style": { "--hero-padding-top": "8rem", "--hero-bg": "#1a1a2e" } },
   { "component": "section", "props": { "id": "about", "body": "<p>Content here.</p>", "layout": "text-only" } },
-  { "component": "stats", "props": { "variant": "dark", "items": [{ "number": "50+", "label": "Clients" }] } },
+  { "component": "stats", "props": { "theme": "dark", "items": [{ "number": "50+", "label": "Clients" }] } },
   { "component": "cta", "props": { "title": "Go", "button_text": "Click", "button_url": "/", "theme": "inverted" } }
 ]
 ```
