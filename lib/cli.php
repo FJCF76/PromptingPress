@@ -86,10 +86,17 @@ function _pp_cli_require_preflight_for_action(string $run_id, array $action, arr
  * No-op for actions that don't mutate the composition (title/slug/seo/publish) and for
  * site-scoped actions (no post_id). Fail-closed: a missing recorded baseline blocks.
  * Call AFTER the coverage gate so the two errors stay distinct.
+ *
+ * Returns the validated baseline version so `execute` can thread it into the action as
+ * `expected_version` for an atomic write-time compare-and-swap (#13) — closing the TOCTOU
+ * window between this pre-check and the actual write. Returns null for the no-op cases
+ * (non-mutating / site-scoped), where no CAS baseline applies.
+ *
+ * @return int|null  The baseline version to use as expected_version, or null (no CAS).
  */
-function _pp_cli_require_composition_fresh(string $run_id, array $action, ?int $post_id): void {
+function _pp_cli_require_composition_fresh(string $run_id, array $action, ?int $post_id): ?int {
     if (empty($action['mutates_composition']) || $post_id === null) {
-        return;
+        return null;
     }
 
     $recorded = pp_operate_get_composition_snapshot($run_id, $post_id);
@@ -106,6 +113,8 @@ function _pp_cli_require_composition_fresh(string $run_id, array $action, ?int $
             . 'Re-inspect and re-run `wp pp apply preflight --run-id=' . $run_id . ' --post_id=' . $post_id
             . '` before executing. [composition_conflict]');
     }
+
+    return (int) $recorded['version'];
 }
 
 /**
@@ -275,8 +284,16 @@ class PP_Action_Command extends WP_CLI_Command {
             }
             _pp_cli_require_preflight_for_action($run_id, $action, $params);
             // Freshness gate (#113): after coverage, reject a composition-mutating action
-            // whose target changed since preflight.
-            _pp_cli_require_composition_fresh($run_id, $action, isset($params['post_id']) ? (int) $params['post_id'] : null);
+            // whose target changed since preflight. Its return is the validated baseline
+            // version, which we thread into the action as expected_version so the write is
+            // an atomic compare-and-swap (#13) — a live write landing between this gate and
+            // pp_update_composition() is caught at write time, not silently clobbered.
+            $baseline_version = _pp_cli_require_composition_fresh(
+                $run_id, $action, isset($params['post_id']) ? (int) $params['post_id'] : null
+            );
+            if ($baseline_version !== null) {
+                $params['expected_version'] = $baseline_version;
+            }
         }
 
         $result = pp_execute_action($name, $params);
@@ -1183,16 +1200,19 @@ class PP_Operate_Command extends WP_CLI_Command {
         // action, so it is composition-mutating: gate it on freshness (#113) just like
         // `action execute`. Resolve that action once for both the gate and the refresh.
         $patch_action = ['mutates_composition' => true];
+        $expected_version = null;
         if (!$preview) {
             $run_id = _pp_cli_require_run_id($assoc_args);
             if (!pp_operate_check_step($run_id, 'INSPECT')) {
                 WP_CLI::error('Run token "' . $run_id . '" has no completed INSPECT step. Run `wp pp operate inspect` first.');
             }
             _pp_cli_require_preflight_covers($run_id, $post_id);
-            _pp_cli_require_composition_fresh($run_id, $patch_action, $post_id);
+            // The freshness gate returns the validated baseline version; thread it into the
+            // patch so the apply is an atomic compare-and-swap (#13), not check-then-write.
+            $expected_version = _pp_cli_require_composition_fresh($run_id, $patch_action, $post_id);
         }
 
-        $result = pp_patch_composition($post_id, $selector, $value, $preview);
+        $result = pp_patch_composition($post_id, $selector, $value, $preview, $expected_version);
         if (is_wp_error($result)) {
             WP_CLI::error($result->get_error_message());
         }

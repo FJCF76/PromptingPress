@@ -1023,24 +1023,82 @@ function pp_ai_execute_batch(array $steps): array {
 
 function _pp_action_result(string $name, string $scope, array $target, array $changes): array {
     return [
-        'ok'      => true,
-        'action'  => $name,
-        'scope'   => $scope,
-        'target'  => $target,
-        'changes' => $changes,
-        'error'   => null,
+        'ok'         => true,
+        'action'     => $name,
+        'scope'      => $scope,
+        'target'     => $target,
+        'changes'    => $changes,
+        'error'      => null,
+        'error_code' => '', // uniform shape with _pp_action_error (#13); no error on success.
     ];
 }
 
-function _pp_action_error(string $name, string $scope, string $error): array {
+function _pp_action_error(string $name, string $scope, string $error, string $error_code = ''): array {
     return [
-        'ok'      => false,
-        'action'  => $name,
-        'scope'   => $scope,
-        'target'  => [],
-        'changes' => [],
-        'error'   => $error,
+        'ok'         => false,
+        'action'     => $name,
+        'scope'      => $scope,
+        'target'     => [],
+        'changes'    => [],
+        'error'      => $error,
+        // Structured machine-detectable code (#13). Callers (AJAX/JS, the AI chat) key on
+        // this rather than parsing the human message — e.g. 'composition_conflict' so the
+        // editor can prompt a reload instead of surfacing a generic failure. Empty when the
+        // error has no structured code (most validation failures carry only a message).
+        'error_code' => $error_code,
     ];
+}
+
+/**
+ * Extracts the optional optimistic-locking baseline (#13) from an action's params.
+ *
+ * Returns the `expected_version` the caller based its edit on as an int, or null when the
+ * param is absent — null tells pp_update_composition() to skip the compare-and-swap
+ * (documented back-compat). pp_validate_action() has already type-checked the param as an
+ * int when present, so the cast is defensive, not load-bearing.
+ *
+ * @param array $params  Action params.
+ * @return int|null
+ */
+function _pp_action_expected_version(array $params): ?int {
+    return isset($params['expected_version']) ? (int) $params['expected_version'] : null;
+}
+
+/**
+ * The optional `expected_version` param registered on every composition-mutating action
+ * (#13). Spread into the action's `params` map. Optional so direct/legacy callers keep
+ * writing unconditionally; the AI/AJAX/CLI execute paths always supply it.
+ */
+function _pp_expected_version_param(): array {
+    return ['type' => 'int', 'required' => false];
+}
+
+/**
+ * Extracts the optimistic-locking baseline (#13) from an untrusted request array ($_POST),
+ * returning a clean non-negative integer version or null.
+ *
+ * The version counter is always a non-negative integer. Anything that is not a plain
+ * non-negative integer string (a float like "1.9", a mixed value like "12abc", an array
+ * from `expected_version[]=`, a bool) is a malformed/hostile client value — treated as
+ * ABSENT (null) rather than `(int)`-coerced into a wrong baseline that would either
+ * spuriously conflict or, worse, silently match the wrong version. Absent → the write
+ * skips the CAS (documented back-compat), the same as any caller that omits it.
+ *
+ * @param array $src  An untrusted request array (typically $_POST).
+ * @return int|null
+ */
+function _pp_expected_version_from_request(array $src): ?int {
+    if (!isset($src['expected_version'])) {
+        return null;
+    }
+    $raw = $src['expected_version'];
+    // A real int is accepted when non-negative. Otherwise ONLY a plain digit string counts
+    // — this deliberately rejects bools (true casts to "1"), floats ("1.9"), signed/mixed
+    // strings ("-1", "12abc"), and arrays, none of which are a legitimate version baseline.
+    if (is_int($raw)) {
+        return $raw >= 0 ? $raw : null;
+    }
+    return (is_string($raw) && ctype_digit($raw)) ? (int) $raw : null;
 }
 
 function _pp_action_preview(string $name, string $scope, array $target, $before, $after, array $changes): array {
@@ -1398,8 +1456,9 @@ pp_register_action('update_composition', [
     'description' => 'Replaces the entire composition array for a page. Each item is {"component": "name", "props": {...}}.',
     'semantics'   => 'Replace. The full composition array is replaced. Pass the complete array, not a partial update. Items use {"component", "props"} shape.',
     'params'      => [
-        'post_id'     => ['type' => 'int',   'required' => true],
-        'composition' => ['type' => 'array', 'required' => true],
+        'post_id'          => ['type' => 'int',   'required' => true],
+        'composition'      => ['type' => 'array', 'required' => true],
+        'expected_version' => _pp_expected_version_param(),
     ],
     'validate' => function (array $params) {
         $exists = _pp_validate_page_exists($params['post_id']);
@@ -1419,9 +1478,9 @@ pp_register_action('update_composition', [
     'execute' => function (array $params): array {
         $params['composition'] = pp_normalize_composition($params['composition']);
         $current = pp_get_composition($params['post_id']);
-        $result = pp_update_composition($params['post_id'], $params['composition']);
+        $result = pp_update_composition($params['post_id'], $params['composition'], _pp_action_expected_version($params));
         if (is_wp_error($result)) {
-            return _pp_action_error('update_composition', 'page', $result->get_error_message());
+            return _pp_action_error('update_composition', 'page', $result->get_error_message(), $result->get_error_code());
         }
         return _pp_action_result('update_composition', 'page', ['post_id' => $params['post_id']], [
             ['path' => 'composition', 'from' => $current, 'to' => $params['composition']],
@@ -1475,10 +1534,11 @@ pp_register_action('add_component', [
     'description' => 'Adds a component to a page composition.',
     'semantics'   => 'Append by default. If position is provided, insert at that index (0-based). Validates the resulting composition.',
     'params'      => [
-        'post_id'   => ['type' => 'int',    'required' => true],
-        'component' => ['type' => 'string', 'required' => true],
-        'props'     => ['type' => 'array',  'required' => true],
-        'position'  => ['type' => 'int',    'required' => false],
+        'post_id'          => ['type' => 'int',    'required' => true],
+        'component'        => ['type' => 'string', 'required' => true],
+        'props'            => ['type' => 'array',  'required' => true],
+        'position'         => ['type' => 'int',    'required' => false],
+        'expected_version' => _pp_expected_version_param(),
     ],
     'validate' => function (array $params) {
         $exists = _pp_validate_page_exists($params['post_id']);
@@ -1522,9 +1582,9 @@ pp_register_action('add_component', [
         } else {
             $after[] = $new_item;
         }
-        $result = pp_update_composition($params['post_id'], $after);
+        $result = pp_update_composition($params['post_id'], $after, _pp_action_expected_version($params));
         if (is_wp_error($result)) {
-            return _pp_action_error('add_component', 'page', $result->get_error_message());
+            return _pp_action_error('add_component', 'page', $result->get_error_message(), $result->get_error_code());
         }
         return _pp_action_result('add_component', 'page', ['post_id' => $params['post_id']], [
             ['path' => 'composition', 'from' => count($current) . ' components', 'to' => count($after) . ' components'],
@@ -1542,9 +1602,10 @@ pp_register_action('remove_component', [
     'description' => 'Removes a component from a page composition. Accepts component_id (stable pp-<hex8>) or component_index (0-based). component_id takes precedence when both are provided.',
     'semantics'   => 'Remove by component_id or 0-based index. Validates target is valid. Remaining components shift down.',
     'params'      => [
-        'post_id'         => ['type' => 'int',    'required' => true],
-        'component_index' => ['type' => 'int',    'required' => false],
-        'component_id'    => ['type' => 'string', 'required' => false],
+        'post_id'          => ['type' => 'int',    'required' => true],
+        'component_index'  => ['type' => 'int',    'required' => false],
+        'component_id'     => ['type' => 'string', 'required' => false],
+        'expected_version' => _pp_expected_version_param(),
     ],
     'validate' => function (array $params) {
         $exists = _pp_validate_page_exists($params['post_id']);
@@ -1581,9 +1642,9 @@ pp_register_action('remove_component', [
         $removed = $current[$params['component_index']];
         $after   = $current;
         array_splice($after, $params['component_index'], 1);
-        $result = pp_update_composition($params['post_id'], $after);
+        $result = pp_update_composition($params['post_id'], $after, _pp_action_expected_version($params));
         if (is_wp_error($result)) {
-            return _pp_action_error('remove_component', 'page', $result->get_error_message());
+            return _pp_action_error('remove_component', 'page', $result->get_error_message(), $result->get_error_code());
         }
         return _pp_action_result('remove_component', 'page', ['post_id' => $params['post_id']], [
             ['path' => 'composition[' . $params['component_index'] . ']', 'from' => $removed['component'], 'to' => null],
@@ -1600,8 +1661,9 @@ pp_register_action('reorder_components', [
     'description' => 'Reorders components in a page composition.',
     'semantics'   => 'Permutation. Order must be a valid permutation of 0..N-1 where N is the current composition length. No duplicates, no gaps, no out-of-bounds indices.',
     'params'      => [
-        'post_id' => ['type' => 'int',   'required' => true],
-        'order'   => ['type' => 'array', 'required' => true],
+        'post_id'          => ['type' => 'int',   'required' => true],
+        'order'            => ['type' => 'array', 'required' => true],
+        'expected_version' => _pp_expected_version_param(),
     ],
     'validate' => function (array $params) {
         $exists = _pp_validate_page_exists($params['post_id']);
@@ -1646,9 +1708,9 @@ pp_register_action('reorder_components', [
         foreach ($params['order'] as $idx) {
             $after[] = $current[$idx];
         }
-        $result = pp_update_composition($params['post_id'], $after);
+        $result = pp_update_composition($params['post_id'], $after, _pp_action_expected_version($params));
         if (is_wp_error($result)) {
-            return _pp_action_error('reorder_components', 'page', $result->get_error_message());
+            return _pp_action_error('reorder_components', 'page', $result->get_error_message(), $result->get_error_code());
         }
         return _pp_action_result('reorder_components', 'page', ['post_id' => $params['post_id']], [
             ['path' => 'composition.order', 'from' => range(0, count($current) - 1), 'to' => $params['order']],
@@ -1665,11 +1727,12 @@ pp_register_action('update_component', [
     'description' => 'Updates a single component\'s props via shallow merge (patch, not replace). Optionally accepts style to also update per-instance style slots in the same call. Accepts component_id (stable pp-<hex8>) or component_index (0-based). component_id takes precedence when both are provided.',
     'semantics'   => 'Patch. Props are shallow-merged into existing props. Unspecified props unchanged. null removes a prop. Optional style param shallow-merges style slots (same as style_component). Validates the merged composition via pp_validate_composition(). Target component by component_id or component_index.',
     'params'      => [
-        'post_id'         => ['type' => 'int',    'required' => true],
-        'component_index' => ['type' => 'int',    'required' => false],
-        'component_id'    => ['type' => 'string', 'required' => false],
-        'props'           => ['type' => 'array',  'required' => true],
-        'style'           => ['type' => 'array',  'required' => false],
+        'post_id'          => ['type' => 'int',    'required' => true],
+        'component_index'  => ['type' => 'int',    'required' => false],
+        'component_id'     => ['type' => 'string', 'required' => false],
+        'props'            => ['type' => 'array',  'required' => true],
+        'style'            => ['type' => 'array',  'required' => false],
+        'expected_version' => _pp_expected_version_param(),
     ],
     'validate' => function (array $params) {
         $exists = _pp_validate_page_exists($params['post_id']);
@@ -1750,9 +1813,9 @@ pp_register_action('update_component', [
             $changes = array_merge($changes, _pp_diff_style($before_style, $after_style, $params['component_index']));
         }
 
-        $result = pp_update_composition($params['post_id'], $composition);
+        $result = pp_update_composition($params['post_id'], $composition, _pp_action_expected_version($params));
         if (is_wp_error($result)) {
-            return _pp_action_error('update_component', 'section', $result->get_error_message());
+            return _pp_action_error('update_component', 'section', $result->get_error_message(), $result->get_error_code());
         }
 
         return _pp_action_result('update_component', 'section',
@@ -1889,11 +1952,12 @@ pp_register_action('style_component', [
     'description' => 'Updates a component instance\'s per-instance style overrides via shallow merge. Optionally accepts a recipe name that expands into slot values (explicit style overrides recipe slots). Use wp pp operate inspect-composition to see available slots and recipes.',
     'semantics'   => 'Patch. Recipe expands first, then explicit style values override. null removes a slot. Validates against schema.json style_slots for the target component type.',
     'params'      => [
-        'post_id'         => ['type' => 'int',    'required' => true],
-        'component_id'    => ['type' => 'string', 'required' => false],
-        'component_index' => ['type' => 'int',    'required' => false],
-        'style'           => ['type' => 'array',  'required' => false],
-        'recipe'          => ['type' => 'string', 'required' => false],
+        'post_id'          => ['type' => 'int',    'required' => true],
+        'component_id'     => ['type' => 'string', 'required' => false],
+        'component_index'  => ['type' => 'int',    'required' => false],
+        'style'            => ['type' => 'array',  'required' => false],
+        'recipe'           => ['type' => 'string', 'required' => false],
+        'expected_version' => _pp_expected_version_param(),
     ],
     'validate' => function (array $params) {
         if (empty($params['style']) && empty($params['recipe'])) {
@@ -1991,9 +2055,9 @@ pp_register_action('style_component', [
             $composition[$params['component_index']]['style'] = $after_style;
         }
 
-        $result = pp_update_composition($params['post_id'], $composition);
+        $result = pp_update_composition($params['post_id'], $composition, _pp_action_expected_version($params));
         if (is_wp_error($result)) {
-            return _pp_action_error('style_component', 'section', $result->get_error_message());
+            return _pp_action_error('style_component', 'section', $result->get_error_message(), $result->get_error_code());
         }
 
         return _pp_action_result('style_component', 'section',

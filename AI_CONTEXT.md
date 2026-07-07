@@ -251,7 +251,7 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_clear_token_override($token)` | Removes a single token override (reverts to default). |
 | `pp_clear_all_token_overrides()` | Removes all overrides (reverts site to shipped defaults). |
 | `pp_site_option($key)`         | Whitelisted option value (blogname, blogdescription, pp_logo_id, pp_logo_alt) or WP_Error |
-| `pp_update_composition($post_id, $composition)` | Writes composition array to post meta (handles JSON serialization). Returns true\|WP_Error |
+| `pp_update_composition($post_id, $composition, $expected_version = null)` | Writes composition array to post meta (handles JSON serialization) and bumps the freshness marker under a per-post lock. Optional `$expected_version` (#13) does a write-time compare-and-swap: if the current version differs it returns a `composition_conflict` WP_Error and writes nothing. Null skips the CAS. Returns true\|WP_Error |
 | `pp_update_page_title($post_id, $title)` | Updates page title. Returns true\|WP_Error |
 | `pp_update_page_slug($post_id, $slug)` | Updates page slug/permalink (#134). Sanitizes via sanitize_title(); WordPress de-duplicates on collision. Returns the actual resulting slug\|WP_Error |
 | `pp_get_seo_meta($post_id)`   | Returns `{meta_description, seo_title, canonical_url}` for a page (empty strings if unset) |

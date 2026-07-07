@@ -385,20 +385,34 @@ add_action('wp_ajax_pp_save_composition', function () {
         wp_send_json_error('Invalid JSON.');
     }
 
-    $result = pp_execute_action('update_composition', [
-        'post_id'     => $post_id,
-        'composition' => $decoded,
-    ]);
+    // Optimistic-locking baseline (#13): the version the editor loaded. Threaded into the
+    // action for an atomic compare-and-swap so a save that would clobber an interleaved
+    // write (the AI chat, a CLI action, another tab) is rejected with composition_conflict.
+    // Absent/empty → null → the write skips the CAS (documented back-compat).
+    $params = ['post_id' => $post_id, 'composition' => $decoded];
+    $expected_version = _pp_expected_version_from_request($_POST);
+    if ($expected_version !== null) {
+        $params['expected_version'] = $expected_version;
+    }
+
+    $result = pp_execute_action('update_composition', $params);
 
     if (!$result['ok']) {
-        wp_send_json_error($result['error']);
+        // Structured payload so the editor can key on the code (composition_conflict →
+        // reload prompt) rather than parsing the human message (#13).
+        wp_send_json_error(['message' => $result['error'], 'code' => $result['error_code'] ?? '']);
     }
 
     // Auto-draft → draft promotion happens inside pp_execute_action() itself
     // (lib/actions.php) — one place, covering AJAX/CLI/operate.php alike.
 
     $saved = pp_get_composition($post_id);
-    wp_send_json_success(['composition' => $saved]);
+    wp_send_json_success([
+        'composition' => $saved,
+        // Return the new baseline so the editor advances currentVersion and a follow-up
+        // save doesn't false-conflict against its own prior write (#13).
+        'version'     => pp_get_composition_marker($post_id)['version'],
+    ]);
 });
 
 // ── Admin Page Registration ───────────────────────────────────────────────────
@@ -696,26 +710,30 @@ add_action('wp_ajax_pp_publish_page', function (): void {
         wp_send_json_error('Insufficient permissions.');
     }
 
-    // Save composition first (short-circuit: if save fails, publish never fires).
+    // Save composition first (short-circuit: if save fails, publish never fires). The CAS
+    // (#13) rides on this save step: a composition_conflict here returns before publish_page
+    // runs, so a stale editor can't publish over an interleaved write.
     $raw = isset($_POST['composition']) ? stripslashes($_POST['composition']) : '';
     if ($raw !== '') {
         $decoded = json_decode($raw, true);
         if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
             wp_send_json_error('Invalid JSON.');
         }
-        $save_result = pp_execute_action('update_composition', [
-            'post_id'     => $post_id,
-            'composition' => $decoded,
-        ]);
+        $save_params = ['post_id' => $post_id, 'composition' => $decoded];
+        $expected_version = _pp_expected_version_from_request($_POST);
+        if ($expected_version !== null) {
+            $save_params['expected_version'] = $expected_version;
+        }
+        $save_result = pp_execute_action('update_composition', $save_params);
         if (!$save_result['ok']) {
-            wp_send_json_error($save_result['error']);
+            wp_send_json_error(['message' => $save_result['error'], 'code' => $save_result['error_code'] ?? '']);
         }
     }
 
     // Publish the page.
     $pub_result = pp_execute_action('publish_page', ['post_id' => $post_id]);
     if (!$pub_result['ok']) {
-        wp_send_json_error($pub_result['error']);
+        wp_send_json_error(['message' => $pub_result['error'], 'code' => $pub_result['error_code'] ?? '']);
     }
 
     $saved = pp_get_composition($post_id);
@@ -724,6 +742,7 @@ add_action('wp_ajax_pp_publish_page', function (): void {
         'post_link'    => (string) (get_permalink($post_id) ?: ''),
         'preview_link' => (string) (get_preview_post_link($post_id) ?: ''),
         'composition'  => $saved,
+        'version'      => pp_get_composition_marker($post_id)['version'],
     ]);
 });
 
@@ -786,6 +805,9 @@ add_action('admin_enqueue_scripts', function (string $hook) {
         'postStatus'         => get_post_field('post_status', $post_id),
         'postLink'           => (string) (get_permalink($post_id) ?: ''),
         'previewLink'        => (string) (get_preview_post_link($post_id) ?: ''),
+        // Optimistic-locking baseline (#13): the composition version this editor is loading.
+        // Sent back as expected_version on save/publish so a concurrent write is caught.
+        'compositionVersion' => pp_get_composition_marker($post_id)['version'],
     ]);
 });
 

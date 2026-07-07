@@ -388,4 +388,41 @@ test.describe('Composition Editor', () => {
     expect(clipboardContent).toContain('props');
     expect(clipboardContent).toContain('added');
   });
+
+  // ── Test 12: Optimistic-locking conflict on concurrent edit (#13) ─────────
+
+  test('editor save is rejected when the page changed elsewhere (#13) @smoke', async ({ page }) => {
+    pageId = createPage('E2E CAS Conflict');
+    await openWorkspace(page, pageId);
+
+    // First save from the editor establishes version 1 and advances the editor's baseline.
+    await switchToJsonView(page);
+    await setCM(page, HERO_ONLY_JSON);
+    await page.locator('#pp-save-btn').click();
+    await expect(page.locator('#pp-save-status')).toContainText('Draft saved', { timeout: 10000 });
+
+    // An external writer (agent/CLI/another tab) mutates the same page, bumping the marker
+    // to version 2 while this editor still holds version 1.
+    execSync(
+      `npx wp-env run cli wp eval "pp_update_composition(${pageId}, [['component' => 'hero', 'props' => ['title' => 'Changed by CLI']]]);"`,
+      { cwd: process.cwd() },
+    );
+
+    // The editor's next save carries its stale expected_version → the CAS rejects it and the
+    // editor surfaces the reload prompt instead of clobbering the external change.
+    await setCM(page, JSON.stringify([{ component: 'hero', props: { title: 'Stale editor edit' } }]));
+    await page.locator('#pp-save-btn').click();
+
+    const status = page.locator('#pp-save-status');
+    await expect(status).toHaveClass(/is-error/, { timeout: 10000 });
+    await expect(status).toContainText(/changed elsewhere|Reload/i);
+
+    // The external change survived — the stale editor write did not overwrite it.
+    const stored = execSync(
+      `npx wp-env run cli wp post meta get ${pageId} _pp_composition`,
+      { cwd: process.cwd(), encoding: 'utf-8' },
+    );
+    expect(stored).toContain('Changed by CLI');
+    expect(stored).not.toContain('Stale editor edit');
+  });
 });

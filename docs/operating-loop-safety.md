@@ -84,8 +84,19 @@ or `operate patch` re-reads the live marker and rejects a target that changed si
 the preflight with a `composition_conflict` error. Your own run's sequential edits
 still flow, because the run's baseline refreshes to the new marker after each write;
 only a change from *another* path trips the gate. When it does, re-inspect and
-re-preflight. (Rejecting a concurrent write that lands in the instant between the
-freshness check and the write itself is a separate, tighter guarantee tracked as #13.)
+re-preflight.
+
+That preflight check is a pre-check, so it still leaves a hair-thin window: a
+concurrent write could land in the instant between the check and the write itself.
+The write-time **compare-and-swap** (#13) closes it. The run threads the validated
+baseline version into the write, and the single composition-write choke point
+(`pp_update_composition`) re-reads the version fresh from the DB **inside the per-post
+advisory lock** and refuses the write if it moved, returning the same
+`composition_conflict`. Because the compare and the write are both under the one lock,
+there is no gap left for a lost update to slip through. The baseline is optional at the
+choke point (a new page or a legacy direct write omits it and writes unconditionally),
+so the guarantee is opt-in per writer, and every agent-driven or editor-driven write
+opts in.
 
 ### The loop runs PREFLIGHT before EDIT
 

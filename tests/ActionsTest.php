@@ -308,6 +308,106 @@ class ActionsTest extends TestCase
         }
     }
 
+    // ── Write-time compare-and-swap through the action layer (#13) ─────────
+
+    public function testActionExecuteRejectsStaleExpectedVersion(): void
+    {
+        // A composition-mutating action given a stale expected_version must fail with a
+        // structured composition_conflict, not silently clobber the newer state.
+        $post_id = pp_create_page('CAS stale');
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'Live']]]); // → v1
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'          => $post_id,
+            'composition'      => [['component' => 'hero', 'props' => ['title' => 'Stale edit']]],
+            'expected_version' => 0, // caller thought it was still the un-written page
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('composition_conflict', $result['error_code']);
+        // The live composition is untouched by the rejected write.
+        $this->assertSame('Live', pp_get_composition($post_id)[0]['props']['title']);
+        $this->assertSame(1, pp_get_composition_marker($post_id)['version'], 'Rejected write must not bump the version.');
+    }
+
+    public function testActionExecuteAcceptsCurrentExpectedVersion(): void
+    {
+        $post_id = pp_create_page('CAS match');
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'V1']]]); // → v1
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'          => $post_id,
+            'composition'      => [['component' => 'hero', 'props' => ['title' => 'V2']]],
+            'expected_version' => 1, // matches the live version
+        ]);
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame('V2', pp_get_composition($post_id)[0]['props']['title']);
+        $this->assertSame(2, pp_get_composition_marker($post_id)['version'], 'Matched CAS bumps 1→2.');
+    }
+
+    public function testActionExecuteOmittedExpectedVersionStillWrites(): void
+    {
+        // Documented back-compat: an action called without expected_version writes
+        // unconditionally, no CAS.
+        $post_id = pp_create_page('CAS omitted');
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'X']]]); // → v1
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => $post_id,
+            'composition' => [['component' => 'hero', 'props' => ['title' => 'Y']]],
+        ]);
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame('Y', pp_get_composition($post_id)[0]['props']['title']);
+        $this->assertSame(2, pp_get_composition_marker($post_id)['version']);
+    }
+
+    public function testCreatePageWithCompositionWritesWithoutCas(): void
+    {
+        // The new-page path routes through pp_update_composition but must NOT require an
+        // expected_version — there is no prior version to compare — and initializes v1.
+        $result = pp_execute_action('create_page', [
+            'title'       => 'CAS new page',
+            'composition' => [['component' => 'hero', 'props' => ['title' => 'Fresh']]],
+        ]);
+
+        $this->assertTrue($result['ok']);
+        $post_id = $result['target']['post_id'];
+        $this->assertSame('Fresh', pp_get_composition($post_id)[0]['props']['title']);
+        $this->assertSame(1, pp_get_composition_marker($post_id)['version'], 'Seed write initializes v1.');
+    }
+
+    public function testExpectedVersionFromRequestAcceptsCleanIntegerOnly(): void
+    {
+        // A clean non-negative integer string is a valid CAS baseline.
+        $this->assertSame(0, _pp_expected_version_from_request(['expected_version' => '0']));
+        $this->assertSame(7, _pp_expected_version_from_request(['expected_version' => '7']));
+        $this->assertSame(7, _pp_expected_version_from_request(['expected_version' => 7]));
+        // Malformed/hostile client values → treated as absent (null), never coerced into a
+        // wrong baseline: mixed strings, floats, negatives, arrays, bools, empty, missing.
+        $this->assertNull(_pp_expected_version_from_request(['expected_version' => '12abc']));
+        $this->assertNull(_pp_expected_version_from_request(['expected_version' => '1.9']));
+        $this->assertNull(_pp_expected_version_from_request(['expected_version' => '-1']));
+        $this->assertNull(_pp_expected_version_from_request(['expected_version' => ['x']]));
+        $this->assertNull(_pp_expected_version_from_request(['expected_version' => true]));
+        $this->assertNull(_pp_expected_version_from_request(['expected_version' => '']));
+        $this->assertNull(_pp_expected_version_from_request([]));
+    }
+
+    public function testExpectedVersionRegisteredOnAllMutatingActions(): void
+    {
+        // Every composition-mutating action must accept the optional optimistic-locking
+        // baseline so the CAS can be threaded from any caller (#13).
+        $mutating = ['update_composition', 'add_component', 'remove_component', 'reorder_components', 'update_component', 'style_component'];
+        foreach ($mutating as $name) {
+            $def = pp_get_action($name);
+            $this->assertArrayHasKey('expected_version', $def['params'], "Action '$name' must accept expected_version");
+            $this->assertSame('int', $def['params']['expected_version']['type']);
+            $this->assertTrue(empty($def['params']['expected_version']['required']), "expected_version must be optional on '$name'");
+        }
+    }
+
     public function testPpCreatePageReturnsIdAndSetsTemplate(): void
     {
         $id = pp_create_page('Test Page', 'draft');
