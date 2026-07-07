@@ -99,25 +99,25 @@ test.describe('Post-Apply Validation', () => {
     expect(result.data.validation.errors).toHaveLength(0);
   });
 
-  // QUARANTINED (D2 spike, 2026-06-22): on WP 7.0 the style_component action now
-  // succeeds (result.success === true after fixing the test's stale param name
-  // `styles`→`style` and invalid slot `--hero-padding`→`--hero-padding-top`), but
-  // post-apply validation returns validation.ok === true — the `missing_local_media`
-  // check does NOT fire for an unresolvable local image URL. Unclear yet whether
-  // that's a product gap in pp_post_apply_validate() or a test-setup mismatch in how
-  // the broken image is attached. Tracked in #83. Re-enable once resolved.
-  // All other E2E specs pass on WP 7.0.
-  test.fixme('broken media: missing image triggers validation error', async ({
+  // #83 (resolved 2026-07-07): the earlier quarantine had two causes. The product
+  // gap — pp_post_apply_validate() only treated a URL as local media on an exact
+  // uploads-baseurl byte-prefix, so a scheme/host-mismatched same-site URL was
+  // skipped on WP 7.0 — is fixed by reusing #153's same-site classifier. The test
+  // itself also never rendered an image: hero only renders a URL when the prop is
+  // `image_url` AND the variant is `cover`/`split` (the seed used `image` +
+  // default `centered`). Both are fixed below so the check genuinely fires.
+  test('broken media: missing image triggers validation error', async ({
     page,
   }) => {
-    // 1. Create page with a hero that has a fake local image URL.
+    // 1. Create page with a cover hero whose background image URL is unresolvable.
     pageId = createPage('E2E Validation Broken Media');
     setComposition(pageId, [
       {
         component: 'hero',
         props: {
           title: 'Hero With Bad Image',
-          image: 'http://localhost:8889/wp-content/uploads/2026/06/nonexistent-image.jpg',
+          variant: 'cover',
+          image_url: 'http://localhost:8889/wp-content/uploads/2026/06/nonexistent-image.jpg',
         },
       },
     ]);
