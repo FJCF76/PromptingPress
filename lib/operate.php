@@ -155,25 +155,32 @@ function pp_inspect_site(?int $post_id = null): array {
     $drift = pp_check_drift();
 
     $smells = [];
+    $composition_decode_error = null;
     if ($post_id !== null) {
-        // Read through the canonical accessor: normal storage is a JSON string
+        // Read through the classifying accessor: normal storage is a JSON string
         // (pp_update_composition), so a raw get_post_meta + is_array() check
         // always reports empty for real pages. See lib/operate.php preflight
-        // check 6 for the same pattern.
-        $composition = pp_get_composition($post_id);
-        if (!empty($composition)) {
-            $smells = pp_validate_composition_smells($composition);
+        // check 6 for the same pattern. A corrupt/undecodable row is surfaced as
+        // composition_decode_error rather than masquerading as a clean, blank
+        // page (issue #144) — an agent relying on INSPECT before a mutation must
+        // be warned about data corruption instead of seeing smells: [].
+        $result = pp_get_composition_result($post_id);
+        if (!$result['ok']) {
+            $composition_decode_error = $result['error'];
+        } elseif (!empty($result['composition'])) {
+            $smells = pp_validate_composition_smells($result['composition']);
         }
     }
 
     return [
-        'target'    => pp_get_target(),
-        'pages'     => pp_composition_pages(),
-        'drift'     => $drift,
-        'preflight' => pp_preflight([], $drift),
-        'tokens'    => pp_design_tokens(),
-        'conflicts' => pp_check_custom_css_conflicts(),
-        'smells'    => $smells,
+        'target'                   => pp_get_target(),
+        'pages'                    => pp_composition_pages(),
+        'drift'                    => $drift,
+        'preflight'                => pp_preflight([], $drift),
+        'tokens'                   => pp_design_tokens(),
+        'conflicts'                => pp_check_custom_css_conflicts(),
+        'smells'                   => $smells,
+        'composition_decode_error' => $composition_decode_error,
     ];
 }
 

@@ -272,6 +272,55 @@ class OperateTest extends TestCase
         $this->assertSame([], $result['smells']);
     }
 
+    public function testInspectSiteSurfacesCorruptCompositionDistinctly(): void
+    {
+        // Issue #144: a corrupt/undecodable composition must report a decode
+        // error, NOT a clean smells: [] indistinguishable from a blank page.
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Corrupt Page', 'post_status' => 'publish']);
+        update_post_meta($post_id, '_pp_composition', '{"component":');
+
+        $result = pp_inspect_site($post_id);
+
+        $this->assertSame([], $result['smells']);
+        $this->assertSame('decode_error', $result['composition_decode_error']);
+    }
+
+    public function testInspectSiteFlagsNonListJsonAsUnexpectedShape(): void
+    {
+        // A JSON object decodes to an associative array; it is a data-integrity
+        // anomaly, not an absent page.
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Object Page', 'post_status' => 'publish']);
+        update_post_meta($post_id, '_pp_composition', '{"component":"hero"}');
+
+        $result = pp_inspect_site($post_id);
+
+        $this->assertSame([], $result['smells']);
+        $this->assertSame('unexpected_shape', $result['composition_decode_error']);
+    }
+
+    public function testInspectSiteBlankPageHasNoDecodeError(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Blank Page', 'post_status' => 'publish']);
+
+        $result = pp_inspect_site($post_id);
+
+        $this->assertSame([], $result['smells']);
+        $this->assertNull($result['composition_decode_error'], 'a genuinely blank page must not report a decode error');
+    }
+
+    public function testInspectSiteValidPageHasNoDecodeError(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Smelly Page', 'post_status' => 'publish']);
+        update_post_meta($post_id, '_pp_composition', json_encode([
+            ['component' => 'hero', 'props' => ['id' => 'pp-hero1111', 'variant' => 'left']],
+        ]));
+
+        $result = pp_inspect_site($post_id);
+
+        $this->assertNotEmpty($result['smells']);
+        $this->assertNull($result['composition_decode_error']);
+    }
+
     // ── Preflight ──────────────────────────────────────────────────────────
 
     public function testPreflightIncludesDriftCheck(): void

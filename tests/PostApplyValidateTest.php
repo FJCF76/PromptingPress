@@ -108,6 +108,30 @@ class PostApplyValidateTest extends TestCase
         $this->assertEquals('composition_readback', $result['errors'][0]['check']);
     }
 
+    public function testCorruptCompositionReportsDecodeError(): void
+    {
+        // Issue #144: a corrupt/undecodable row after apply must surface a
+        // distinct composition_decode_error, not the generic empty-readback.
+        update_post_meta($this->postId, '_pp_composition', '{"component":');
+
+        $result = pp_post_apply_validate($this->postId);
+
+        $this->assertFalse($result['ok']);
+        $this->assertCount(1, $result['errors']);
+        $this->assertEquals('composition_decode_error', $result['errors'][0]['check']);
+    }
+
+    public function testNonListJsonReportsDecodeError(): void
+    {
+        // A JSON object (decodes to associative array) is corrupt, not empty.
+        update_post_meta($this->postId, '_pp_composition', '{"component":"hero"}');
+
+        $result = pp_post_apply_validate($this->postId);
+
+        $this->assertFalse($result['ok']);
+        $this->assertEquals('composition_decode_error', $result['errors'][0]['check']);
+    }
+
     public function testValidCompositionPasses(): void
     {
         $this->createTestComponent('hero', '<section class="hero"><h1>Hello</h1></section>');
