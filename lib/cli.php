@@ -710,7 +710,15 @@ class PP_Check_Command extends WP_CLI_Command {
             WP_CLI::error('--post_id is required.');
         }
 
-        $composition = pp_get_composition($post_id);
+        $result = pp_get_composition_result($post_id);
+        if (!$result['ok']) {
+            // Corrupt/undecodable _pp_composition — distinct from a blank page
+            // so a data-integrity problem isn't reported as "no composition"
+            // (issue #144).
+            WP_CLI::warning("Page {$post_id}: composition data integrity error ({$result['error']}). The stored _pp_composition is not a valid composition list — treat as corrupted, not empty.");
+            return;
+        }
+        $composition = $result['composition'];
         if (empty($composition)) {
             WP_CLI::warning('No composition found for page ' . $post_id . '.');
             return;
@@ -823,7 +831,16 @@ class PP_Validate_Command extends WP_CLI_Command {
             foreach ($pages as $page) {
                 $post_id     = $page['id'];
                 $title       = $page['title'] ?? '(untitled)';
-                $composition = pp_get_composition($post_id);
+                $result      = pp_get_composition_result($post_id);
+                if (!$result['ok']) {
+                    // Corrupt row must fail validation, not report clean (issue
+                    // #144). This is the command CI runs, so a silent-clean here
+                    // would hide data corruption from the pipeline.
+                    $pass = false;
+                    WP_CLI::warning("Page {$post_id} ({$title}): composition data integrity error ({$result['error']}) — stored _pp_composition is not a valid composition list.");
+                    continue;
+                }
+                $composition = $result['composition'];
                 $warnings    = pp_validate_composition_styling($composition);
                 $smells      = pp_validate_composition_smells($composition);
 

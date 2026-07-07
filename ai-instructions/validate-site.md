@@ -21,6 +21,7 @@ wp pp validate site
 This checks:
 1. **Custom CSS conflicts** — selectors in WordPress Custom CSS that target PP component classes (also surfaced via admin notice on composition edit screens)
 2. **Composition styling** — duplicate component types without stable IDs (ambiguous targeting)
+3. **Composition data integrity** — a page whose stored composition is corrupt (undecodable JSON) or not a valid composition list is flagged as a data-integrity error and fails validation, instead of being silently treated as a blank page (issue 144). `wp pp check page` reports the same corruption distinctly from "no composition".
 
 Individual checks:
 

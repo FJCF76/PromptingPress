@@ -222,24 +222,102 @@ function pp_composition(): array {
 // ── Site-state read functions (action-layer support) ─────────────────────────
 
 /**
+ * Compatibility shim for array_is_list() (PHP 8.1+); the plugin floor is PHP 8.0.
+ *
+ * A list has sequential integer keys 0..n-1. The empty array is a list. Guard
+ * the empty case first — range(0, count($a) - 1) is range(0, -1) on [], which
+ * yields [0], not [].
+ *
+ * @param array $arr
+ * @return bool
+ */
+function pp_is_list(array $arr): bool {
+    if ($arr === []) {
+        return true;
+    }
+    return array_keys($arr) === range(0, count($arr) - 1);
+}
+
+/**
+ * Reads _pp_composition and classifies its state, so callers can tell a
+ * genuinely blank page apart from a corrupted one (issue #144).
+ *
+ * Return shape: ['ok' => bool, 'composition' => array, 'error' => ?string, 'raw' => ?string].
+ *
+ * State classification, checked in this exact order:
+ *
+ *   absent / blank meta ('' / falsy)   ok=true  composition=[]     error=null               raw=null
+ *   already-decoded list (fixture)     ok=true  composition=$raw   error=null               raw=null
+ *   already-decoded NON-list array     ok=false composition=[]     error='unexpected_shape' raw=null
+ *   non-string scalar meta (int/bool)  ok=false composition=[]     error='unexpected_shape' raw=null
+ *   undecodable JSON string            ok=false composition=[]     error='decode_error'     raw=<raw>
+ *   valid JSON, non-list (obj/scalar)  ok=false composition=[]     error='unexpected_shape' raw=<raw>
+ *   valid JSON list ([] or [ ... ])    ok=true  composition=$items error=null               raw=<raw>
+ *
+ * A JSON object decodes to an associative PHP array that is_array() would accept,
+ * so list-shape is enforced via pp_is_list() to keep objects out of compositions.
+ *
+ * This is the single owner of composition decode + state classification for
+ * consuming callers (inspect / check / validate). Render paths (pp_composition())
+ * keep their own defensive decode by design — issue #144 leaves rendering untouched.
+ *
+ * @param int $post_id  WordPress post ID.
+ * @return array{ok: bool, composition: array, error: ?string, raw: ?string}
+ */
+function pp_get_composition_result(int $post_id): array {
+    $raw = get_post_meta($post_id, '_pp_composition', true);
+
+    // Absent meta: get_post_meta(single=true) returns '' when the key does not
+    // exist. Match only genuine absence here — NOT every falsy value — so a
+    // stored falsy-but-present payload (the JSON string "0", an int 0) still
+    // reaches shape classification below instead of masquerading as a blank page.
+    if ($raw === '' || $raw === null || $raw === false) {
+        return ['ok' => true, 'composition' => [], 'error' => null, 'raw' => null];
+    }
+
+    // Defensive: a caller/fixture may have persisted an already-decoded array.
+    // Enforce the same list-shape as the JSON path so a decoded object (an
+    // associative array) is flagged, not silently accepted.
+    if (is_array($raw)) {
+        if (!pp_is_list($raw)) {
+            return ['ok' => false, 'composition' => [], 'error' => 'unexpected_shape', 'raw' => null];
+        }
+        return ['ok' => true, 'composition' => $raw, 'error' => null, 'raw' => null];
+    }
+
+    // Normal storage is a JSON string. A truthy non-string scalar (int, float,
+    // bool) is neither a composition nor a JSON payload we should decode.
+    if (!is_string($raw)) {
+        return ['ok' => false, 'composition' => [], 'error' => 'unexpected_shape', 'raw' => null];
+    }
+
+    $items = json_decode($raw, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        // Truncated write, encoding bug, malformed UTF-8: undecodable.
+        return ['ok' => false, 'composition' => [], 'error' => 'decode_error', 'raw' => $raw];
+    }
+    if (!is_array($items) || !pp_is_list($items)) {
+        // Valid JSON but the wrong shape: object, scalar, or literal null.
+        return ['ok' => false, 'composition' => [], 'error' => 'unexpected_shape', 'raw' => $raw];
+    }
+
+    return ['ok' => true, 'composition' => $items, 'error' => null, 'raw' => $raw];
+}
+
+/**
  * Returns the composition array for a specific page by post ID.
  * Unlike pp_composition(), this works outside the loop.
+ *
+ * Legacy array-only accessor: delegates to pp_get_composition_result() (the
+ * single decode owner) and returns only the items. A corrupt or non-list row
+ * degrades to [] here — callers that need to distinguish corruption from an
+ * empty page use pp_get_composition_result() directly.
  *
  * @param int $post_id  WordPress post ID.
  * @return array  Array of component objects, or [] if absent/invalid.
  */
 function pp_get_composition(int $post_id): array {
-    $raw = get_post_meta($post_id, '_pp_composition', true);
-    if (!$raw) {
-        return [];
-    }
-    // Normal storage is a JSON string (pp_update_composition). Be defensive about
-    // callers/fixtures that persist an already-decoded array.
-    if (is_array($raw)) {
-        return $raw;
-    }
-    $items = json_decode($raw, true);
-    return is_array($items) ? $items : [];
+    return pp_get_composition_result($post_id)['composition'];
 }
 
 /**

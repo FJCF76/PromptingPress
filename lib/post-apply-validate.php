@@ -29,7 +29,18 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
     $warnings = [];
 
     // 1. Composition read-back from DB.
-    $composition = pp_get_composition($post_id);
+    $composition_result = pp_get_composition_result($post_id);
+    if (!$composition_result['ok']) {
+        // Corrupt/undecodable row after apply — surfaced distinctly from a
+        // genuinely-empty read-back so the failure names data corruption
+        // (issue #144), not just "empty".
+        $errors[] = [
+            'check'   => 'composition_decode_error',
+            'message' => "Stored composition is corrupted after apply ({$composition_result['error']}): not a valid composition list.",
+        ];
+        return ['ok' => false, 'warnings' => $warnings, 'errors' => $errors];
+    }
+    $composition = $composition_result['composition'];
     if (empty($composition)) {
         $errors[] = [
             'check'   => 'composition_readback',
