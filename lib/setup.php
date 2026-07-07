@@ -48,15 +48,13 @@ function pp_setup_homepage(): void {
     // ordering during this synthetic insert.
     update_post_meta($post_id, '_wp_page_template', 'composition.php');
 
-    // Seed composition at creation time, not at first render.
-    update_post_meta(
-        $post_id,
-        '_pp_composition',
-        wp_slash(wp_json_encode(
-            pp_default_homepage_composition(),
-            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
-        ))
-    );
+    // Seed composition at creation time, not at first render. Route through
+    // pp_update_composition() (the single composition writer) so the seed gets stable
+    // ids and initializes the #113 freshness marker (version 1), instead of a direct
+    // meta write that would leave the marker absent. Best-effort: a lock failure at
+    // theme activation is effectively impossible (no concurrent writer exists yet), and
+    // if it somehow fails the render path is defensive about an empty composition.
+    pp_update_composition($post_id, pp_default_homepage_composition());
 
     update_option('show_on_front', 'page');
     update_option('page_on_front', $post_id);

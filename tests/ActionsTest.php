@@ -226,6 +226,88 @@ class ActionsTest extends TestCase
         $this->assertStringStartsWith('pp-', $stored[0]['props']['id'], 'Auto-assigned ID expected.');
     }
 
+    // ── Composition freshness marker (#113) ────────────────────────────────
+
+    public function testCompositionMarkerAbsentReadsAsZero(): void
+    {
+        $marker = pp_get_composition_marker(9911);
+        $this->assertSame(0, $marker['version']);
+        $this->assertSame('', $marker['hash']);
+    }
+
+    public function testUpdateCompositionInitializesMarkerAtVersionOne(): void
+    {
+        $post_id = pp_create_page('Marker init');
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        $marker = pp_get_composition_marker($post_id);
+        $this->assertSame(1, $marker['version'], 'First write initializes version 1.');
+        $this->assertNotSame('', $marker['hash']);
+    }
+
+    public function testUpdateCompositionBumpsMarkerVersionByOnePerWrite(): void
+    {
+        $post_id = pp_create_page('Marker bump');
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'C']]]);
+        $this->assertSame(3, pp_get_composition_marker($post_id)['version']);
+    }
+
+    public function testContentHashStableAcrossIdInjectionRoundTrip(): void
+    {
+        // The canonical hash strips the auto-injected top-level props.id, so a
+        // composition written WITHOUT ids hashes the same as the same composition
+        // re-read WITH its injected ids — no false conflict on the round trip.
+        $without_id = [['component' => 'hero', 'props' => ['title' => 'Stable']]];
+        $post_id = pp_create_page('Hash round trip');
+        pp_update_composition($post_id, $without_id);
+        $reread_with_id = pp_get_composition($post_id);
+        $this->assertArrayHasKey('id', $reread_with_id[0]['props'], 'id was injected on write');
+        $this->assertSame(
+            pp_composition_content_hash($without_id),
+            pp_composition_content_hash($reread_with_id),
+            'Hash must ignore the injected stable id.'
+        );
+        // And it matches the hash stored in the marker.
+        $this->assertSame(pp_composition_content_hash($without_id), pp_get_composition_marker($post_id)['hash']);
+    }
+
+    public function testContentHashDiffersForDifferentContent(): void
+    {
+        $this->assertNotSame(
+            pp_composition_content_hash([['component' => 'hero', 'props' => ['title' => 'One']]]),
+            pp_composition_content_hash([['component' => 'hero', 'props' => ['title' => 'Two']]])
+        );
+    }
+
+    public function testContentHashHandlesItemWithoutProps(): void
+    {
+        // Defensive: a malformed item without a props array must not fatal the hash.
+        $hash = pp_composition_content_hash([['component' => 'hero']]);
+        $this->assertIsString($hash);
+        $this->assertSame(64, strlen($hash));
+    }
+
+    public function testCompositionMutatingActionsCarryTheFreshnessFlag(): void
+    {
+        // The #113 execute freshness gate keys off 'mutates_composition'. Every action
+        // that writes the composition must carry it; actions that don't touch the
+        // composition must NOT (or a stray composition change would falsely block them).
+        $mutating     = ['update_composition', 'add_component', 'remove_component', 'reorder_components', 'update_component', 'style_component'];
+        $non_mutating = ['update_page_title', 'update_page_slug', 'update_seo_meta', 'publish_page'];
+
+        foreach ($mutating as $name) {
+            $def = pp_get_action($name);
+            $this->assertNotNull($def, "Action '$name' must be registered");
+            $this->assertTrue(!empty($def['mutates_composition']), "Action '$name' must be flagged mutates_composition");
+        }
+        foreach ($non_mutating as $name) {
+            $def = pp_get_action($name);
+            $this->assertNotNull($def, "Action '$name' must be registered");
+            $this->assertTrue(empty($def['mutates_composition']), "Action '$name' must NOT be flagged mutates_composition");
+        }
+    }
+
     public function testPpCreatePageReturnsIdAndSetsTemplate(): void
     {
         $id = pp_create_page('Test Page', 'draft');

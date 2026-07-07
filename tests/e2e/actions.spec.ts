@@ -311,3 +311,115 @@ test.describe('Front-end redirects (#62)', () => {
     expect(after.status()).toBe(404);
   });
 });
+
+/**
+ * #113: a composition mutation is rejected when the composition changed since the
+ * covering PREFLIGHT (freshness, not just ordering). A run's OWN sequential mutations
+ * still flow (the baseline refreshes after each write); an EXTERNAL interleaved write
+ * (here, a second run) makes the first run's next mutation stale. Previews stay ungated.
+ */
+test.describe('Preflight composition freshness (#113)', () => {
+  let pageId = 0;
+
+  // Seed one published page with a hero composition, freshly for each test.
+  function seedPage(runId: string, title: string): number {
+    ppPreflight(runId);
+    const created = ppAction('create_page', {
+      title,
+      composition: [{ component: 'hero', props: { title: 'Seed', subtitle: 'before' } }],
+      status: 'publish',
+    }, runId);
+    expect(created.ok).toBe(true);
+    return (created.target as any).post_id;
+  }
+
+  test.afterEach(() => {
+    if (pageId) {
+      try { deletePage(pageId); } catch { /* already cleaned */ }
+      pageId = 0;
+    }
+  });
+
+  test('unchanged composition passes the freshness gate', () => {
+    const runId = ppOperateInspect();
+    pageId = seedPage(runId, 'Freshness Control Page');
+
+    ppPreflight(runId, pageId);
+    // No intervening change → the update lands.
+    const ok = ppAction('update_component', {
+      post_id: pageId, component_index: 0, props: { subtitle: 'after' },
+    }, runId);
+    expect(ok.ok).toBe(true);
+  });
+
+  test('a composition changed via another run is rejected as stale @smoke', () => {
+    const runA = ppOperateInspect();
+    pageId = seedPage(runA, 'Freshness Stale Page');
+
+    // Run A preflights the page (records the marker as its baseline).
+    ppPreflight(runA, pageId);
+
+    // A SECOND run mutates the same page's composition, bumping the marker.
+    const runB = ppOperateInspect();
+    ppPreflight(runB, pageId);
+    const bWrite = ppAction('update_component', {
+      post_id: pageId, component_index: 0, props: { subtitle: 'changed-by-B' },
+    }, runB);
+    expect(bWrite.ok).toBe(true);
+
+    // Run A's mutation now sees a stale baseline → rejected with a distinct conflict.
+    const json = JSON.stringify({ post_id: pageId, component_index: 0, props: { subtitle: 'A-too-late' } }).replace(/'/g, "'\\''");
+    const err = wpCliExpectFail(`wp pp action execute update_component --run-id=${runA} --params='${json}'`);
+    expect(err).toContain('Stale preflight for post ' + pageId);
+    expect(err).toContain('composition_conflict');
+  });
+
+  test("a run's own sequential mutations keep passing (baseline refresh)", () => {
+    const runId = ppOperateInspect();
+    pageId = seedPage(runId, 'Freshness Same-Run Page');
+
+    ppPreflight(runId, pageId);
+    // First mutation bumps the marker AND refreshes this run's baseline.
+    const first = ppAction('add_component', {
+      post_id: pageId, component: 'hero', props: { title: 'Second Hero' },
+    }, runId);
+    expect(first.ok).toBe(true);
+
+    // Second mutation in the SAME run must still pass despite the marker having moved.
+    const second = ppAction('update_component', {
+      post_id: pageId, component_index: 0, props: { subtitle: 'after' },
+    }, runId);
+    expect(second.ok).toBe(true);
+  });
+
+  test('operate patch is rejected when the composition changed since preflight', () => {
+    const runA = ppOperateInspect();
+    pageId = seedPage(runA, 'Freshness Patch Page');
+    ppPreflight(runA, pageId);
+
+    // External change via a second run.
+    const runB = ppOperateInspect();
+    ppPreflight(runB, pageId);
+    ppAction('update_component', { post_id: pageId, component_index: 0, props: { subtitle: 'b' } }, runB);
+
+    const err = wpCliExpectFail(
+      `wp pp operate patch ${pageId} --target=hero.subtitle --value="a" --run-id=${runA}`,
+    );
+    expect(err).toContain('Stale preflight for post ' + pageId);
+  });
+
+  test('preview is never blocked by a stale composition', () => {
+    const runId = ppOperateInspect();
+    pageId = seedPage(runId, 'Freshness Preview Page');
+
+    // Change the composition after seeding, without any preflight for a preview run.
+    const runB = ppOperateInspect();
+    ppPreflight(runB, pageId);
+    ppAction('update_component', { post_id: pageId, component_index: 0, props: { subtitle: 'b' } }, runB);
+
+    // Preview needs no run-id and must still work despite the marker having moved.
+    const raw = wpCli(`wp pp operate patch ${pageId} --target=hero.subtitle --value="preview-only" --preview`);
+    const result = parseCliJson(raw, 'patch preview');
+    expect(result.ok).toBe(true);
+  });
+});
