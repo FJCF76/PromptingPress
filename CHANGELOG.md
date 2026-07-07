@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.57] — 2026-07-07 — A database read failure while snapshotting the token-rollback baseline now fails closed instead of quietly deleting tokens on restore (#212)
+
+**Before a design-token apply records its rollback baseline, it snapshots the current `pp_token_overrides` under the token advisory lock. That snapshot read used `$wpdb->get_var()`, which returns `null` both when the row is genuinely absent AND when the database query itself fails. The absent-row path is correct (`[]` is a valid empty baseline); the failed-read path was silently treated the same way, recording `[]` as the baseline. A later `wp pp apply restore` reverts every touched token off an empty snapshot by deleting it, so a transient DB read error during preflight could turn a restore into silent token loss. This closes the third and final door in the #200 (lock failure) / #207 (corrupt row) / #212 (read failure) fail-closed trilogy.**
+
+The strict in-lock reader `_pp_read_token_overrides_locked_strict()` now distinguishes a database read failure from a genuinely absent row via `$wpdb->last_error`: `wpdb::query()` flushes `last_error` to `''` at the start of every query and repopulates it on error, so a non-empty `last_error` immediately after the option `SELECT` means the read failed. The reader returns `null` in that case (checked before the `$raw === null` absent-row branch, since a failed read also yields `null`), which propagates as a `null` snapshot and makes `wp pp apply preflight` hard-error and record nothing rather than freezing a `[]` baseline. A genuinely absent row (query ran, matched nothing, empty `last_error`) still returns `[]` — the #207 contract is preserved. The writer paths are unchanged: the shared `_pp_read_token_overrides_locked()` wrapper still coerces the strict `null` back to `[]`, so a set/clear on a read failure keeps its pre-existing "start fresh" behavior.
+
+### Fixed
+- **A DB read failure while snapshotting the rollback baseline fails closed as `null` instead of recording a destructive `[]` (#212).** `_pp_read_token_overrides_locked_strict()` in `lib/wp.php` guards on `! empty($wpdb->last_error)` after the `pp_token_overrides` `SELECT`, returning `null` on a read failure so `pp_snapshot_token_overrides()` fails closed and `apply preflight` refuses to record a baseline. An absent row with empty `last_error` still records `[]`. Four new unit tests in `tests/TokenLockTest.php` cover the read-failure snapshot, the absent-row-still-`[]` distinction, the writer start-fresh boundary on a read failure, and a contract guard proving a stale prior `last_error` cannot poison an absent-row snapshot (the reliance on wpdb's per-query flush).
+
+### For contributors
+- `docs/reference-apply-cli.md`, `docs/operating-loop-safety.md`, and `docs/howto-apply-and-rollback.md` now document the read-failure case as the third cause (alongside #200 lock contention and #207 corrupt row) of a `null` fail-closed baseline in `wp pp apply preflight`.
+
 ## [v0.16.56] — 2026-07-07 — A corrupted page composition is now flagged, not silently reported as blank (#144)
 
 **A page whose stored composition is corrupted — truncated JSON, a bad encoding, or a shape that isn't a list — used to look identical to a genuinely empty page in every inspection command. An agent that runs INSPECT before editing a page would see a clean "no smells" report and mutate against corrupt data. Corruption now surfaces as a distinct data-integrity signal in inspect, check, and validate, while page rendering stays defensive and degrades to empty rather than fataling.**
