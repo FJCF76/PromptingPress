@@ -31,6 +31,9 @@ dom.window.ppAiChat = {
     ajaxUrl: '/wp-admin/admin-ajax.php',
     executeNonce: 'test-nonce',
     siteUrl: 'http://restore.example.com',
+    // wp_localize_script casts scalars to strings, so a real page receives the
+    // user id as a string (e.g. "7"), never a JS number — seed it that way (#157).
+    currentUserId: '7',
     streamUrl: '/wp-admin/admin-ajax.php?action=pp_ai_stream',
     streamNonce: 'stream-nonce'
 };
@@ -41,7 +44,7 @@ global.window.ppAiChat = dom.window.ppAiChat;
 // conversation content, so a shared key risks cross-file bleed if vitest's
 // per-file isolation is ever disabled for a CI speed optimization (#140
 // adversarial review finding).
-const STORAGE_KEY = 'pp_ai_chat_' + dom.window.ppAiChat.siteUrl;
+const STORAGE_KEY = 'pp_ai_chat_' + dom.window.ppAiChat.siteUrl + '_' + dom.window.ppAiChat.currentUserId;
 
 const conversation = [
     { role: 'user', content: 'Add a hero section' },

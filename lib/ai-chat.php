@@ -108,6 +108,12 @@ add_action('admin_enqueue_scripts', function (string $hook) {
         'impact_warnings'  => $impact_warnings,
         'connectorsUrl'    => admin_url('options-connectors.php'),
         'siteUrl'          => site_url(),
+        // Scopes the browser-local chat history to this WP user so two admins
+        // sharing an OS/browser profile can't read each other's conversation
+        // (#157). wp_localize_script casts scalars to strings, so JS receives
+        // this as e.g. "5"; pp-ai-chat.js validates it as a decimal string and
+        // fails closed (in-memory only) if it's absent/invalid.
+        'currentUserId'    => get_current_user_id(),
         'pages'            => $pages,
         'providers'        => $providers_js,
         'selectedProvider' => $ai_config['provider'],

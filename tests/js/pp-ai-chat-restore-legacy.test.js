@@ -32,12 +32,13 @@ dom.window.ppAiChat = {
     ajaxUrl: '/wp-admin/admin-ajax.php',
     executeNonce: 'test-nonce',
     siteUrl: 'http://legacy.example.com',
+    currentUserId: '7', // string, matching wp_localize_script scalar casting (#157)
     streamUrl: '/wp-admin/admin-ajax.php?action=pp_ai_stream',
     streamNonce: 'stream-nonce'
 };
 global.window.ppAiChat = dom.window.ppAiChat;
 
-const STORAGE_KEY = 'pp_ai_chat_' + dom.window.ppAiChat.siteUrl;
+const STORAGE_KEY = 'pp_ai_chat_' + dom.window.ppAiChat.siteUrl + '_' + dom.window.ppAiChat.currentUserId;
 
 // Pre-fix shape: no `internal` key anywhere — this is what's actually sitting
 // in real users' browsers the moment this fix ships. Also includes a
