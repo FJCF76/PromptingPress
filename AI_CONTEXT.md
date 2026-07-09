@@ -116,12 +116,21 @@ site-customization permission.
 | grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {number, title, text, text_role, bullets[], image_url, image_alt, link_url, link_text}, title, title_accent, eyebrow, subheading, heading_align, layout, theme, id |
 | table     | components/table/table.php     | Data/comparison table, horizontal scroll mobile  | headers[] (req), rows[][] (req), title, caption    |
 | cta       | components/cta/cta.php         | Call-to-action block. Layout + color + bg-image  | title (req), title_accent, eyebrow, button_text (req), button_url (req), button_variant, text, layout, theme, background_image, id |
-| nav       | components/nav/nav.php         | Site header, logo, hamburger mobile nav          | location, logo_text, logo_id, logo_alt             |
-| footer    | components/footer/footer.php   | Site footer with nav menu and copyright          | location, show_logo, logo_text, logo_id, logo_alt  |
 | stats     | components/stats/stats.php     | Horizontal row of large-number metrics + labels  | items[] (req) {number, label}, title, title_accent, theme, background_image, id |
 | logos     | components/logos/logos.php     | Flex-wrap image grid — logo strips or icon tiles | items[] (req) {image_url, image_alt, image_id?, label?}, title, theme, id |
 | embed     | components/embed/embed.php     | WP shortcode / plugin content wrapper            | content (req), title, theme, id                    |
 | testimonials | components/testimonials/testimonials.php | Customer quotes with attribution — card grid or single-column stack | items[] (req) {quote (req), author, role, company, image_url, image_alt}, title, title_accent, eyebrow, subheading, heading_align, layout, theme, id |
+
+### Site chrome — rendered by the template, NOT composable (#223)
+
+`pp_base_template` renders these on every page. Putting either in `_pp_composition`
+renders the header or footer twice, and the write is rejected with the error code
+`template_owned_component`. Their props are set by the template, not by a page.
+
+| Component | File                         | Description                             | Configure it via |
+|-----------|------------------------------|-----------------------------------------|------------------|
+| nav       | components/nav/nav.php       | Site header, logo, hamburger mobile nav | Logo: `pp_logo_id` site option. Menu: `set_menu` / `assign_menu_location` (location `primary`) |
+| footer    | components/footer/footer.php | Site footer with nav menu and copyright | Logo: `pp_logo_id` site option. Menu: `set_menu` / `assign_menu_location` (location `footer`) |
 
 ### Component capabilities reference
 

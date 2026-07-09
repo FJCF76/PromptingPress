@@ -36,6 +36,11 @@ The format is AI-native: the same JSON a human edits in the admin meta box is wh
 
 See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 
+> `nav` and `footer` are **not** in this table. They are site chrome, rendered on
+> every page by `pp_base_template`. Putting either in a composition renders the
+> header or footer twice, and the write is rejected with `template_owned_component`.
+> See "Site chrome" below for the surfaces that do configure them.
+
 | Name    | Required props                          | Optional props (selection)                              |
 |---------|-----------------------------------------|---------------------------------------------------------|
 | hero    | title                                   | title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, layout, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof |
@@ -44,8 +49,6 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 | grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, heading_align, layout, theme |
 | table   | headers[], rows[][]                     | title, caption                                          |
 | cta     | title, button_text, button_url          | title_accent, eyebrow, text, layout, theme, background_image, button_variant |
-| nav     | (no required props)                     | location, logo_text, logo_id, logo_alt                  |
-| footer  | (no required props)                     | location, show_logo, logo_text, logo_id, logo_alt       |
 | stats   | items[] {number, label}                 | title, title_accent, theme, background_image            |
 | logos   | items[] {image_url, image_alt, image_id?, label?} | title, theme                                  |
 | embed   | content                                 | title, theme                                            |
@@ -265,6 +268,33 @@ See `ai-instructions/build-landing-page.md` → Step 5 for the full verification
 - Arbitrary CSS (only schema-declared style slots are allowed in the `style` key)
 - Navigation or footer configuration (nav and footer are injected by `pp_base_template` automatically)
 - ACF field data (use `pp_field()` in templates or component props for that)
+
+### Site chrome
+
+`nav` and `footer` are registered, renderable components, but they are **not
+composable**. `pp_base_template` renders them itself on every page:
+
+```
+templates/base.php
+  ├── nav      (location: primary)   ← chrome, always rendered
+  ├── <main>   … your composition …  ← the only part a page controls
+  └── footer   (location: footer)    ← chrome, always rendered
+```
+
+Adding either to `_pp_composition` is rejected at write time with the error code
+`template_owned_component`, and `wp pp check page` / `wp pp validate page` /
+`wp pp validate site` all fail on a page that already contains one.
+
+To configure the chrome, use these surfaces instead:
+
+| Goal | Surface |
+|------|---------|
+| Set the site logo | The `pp_logo_id` site option (`update_site_option`). Must be an image attachment id. |
+| Build a nav or footer menu | The menu actions: `create_menu` / `set_menu` / `add_menu_item` |
+| Attach a menu to the header or footer | `assign_menu_location` with location `primary` or `footer` |
+
+Run `wp pp apply preflight` to see chrome readiness warnings (`nav_readiness`):
+unassigned locations, empty menus, and a `pp_logo_id` that isn't an image.
 
 The database stores page data (composition + component content + per-instance style overrides).
 Files store global visual defaults (tokens, component CSS).
