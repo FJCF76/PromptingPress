@@ -308,6 +308,98 @@ class GuardrailsTest extends TestCase
         $this->assertSame([], pp_validate_composition_smells([]));
     }
 
+    // ── Template-owned chrome smell (#223) ───────────────────────────────
+    //
+    // The read-time half of the fix. `wp pp check page` and `wp pp validate site`
+    // never call pp_validate_composition(), so a chrome row that predates the
+    // write-time rejection (or arrived via a raw meta write / legacy history
+    // restore) would otherwise still be certified clean.
+
+    public function testSmellsFlagComposedNav(): void
+    {
+        $warnings = pp_validate_composition_smells([
+            ['component' => 'nav', 'props' => []],
+        ]);
+
+        $this->assertCount(1, $warnings);
+        $this->assertSame('template_owned_component', $warnings[0]['type']);
+        $this->assertSame(0, $warnings[0]['index']);
+        $this->assertStringContainsString('renders it twice', $warnings[0]['message']);
+    }
+
+    public function testSmellsFlagComposedFooterAndNameTheRemediation(): void
+    {
+        $warnings = pp_validate_composition_smells([
+            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            ['component' => 'footer', 'props' => []],
+        ]);
+
+        $chrome = array_values(array_filter($warnings, fn($w) => $w['type'] === 'template_owned_component'));
+        $this->assertCount(1, $chrome);
+        $this->assertSame(1, $chrome[0]['index']);
+        // The operator needs the escape hatch, and the index that identifies it.
+        $this->assertStringContainsString('remove_component', $chrome[0]['message']);
+        $this->assertStringContainsString('index 1', $chrome[0]['message']);
+    }
+
+    public function testSmellMessageWarnsThatIndicesShiftOnRemoval(): void
+    {
+        // remove_component array_splices the composition (lib/actions.php), so every
+        // later index shifts down. Handing the operator two literal indices to remove
+        // in order would make them delete the wrong component on a nav+hero+footer
+        // page. Same failure class as #228: instructions that can't be followed
+        // literally. The message names the action and the ordering rule instead.
+        $warnings = pp_validate_composition_smells([
+            ['component' => 'nav', 'props' => []],
+            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            ['component' => 'footer', 'props' => []],
+        ]);
+
+        $chrome = array_values(array_filter($warnings, fn($w) => $w['type'] === 'template_owned_component'));
+        $this->assertCount(2, $chrome);
+        foreach ($chrome as $w) {
+            $this->assertStringContainsString('remove_component', $w['message']);
+            $this->assertStringContainsString('highest index first', $w['message']);
+            $this->assertStringNotContainsString(
+                '--component_index=',
+                $w['message'],
+                'Do not emit a literal index flag. Indices shift after each removal, and this '
+                . 'function has no post_id to build a runnable command from.'
+            );
+            $this->assertStringNotContainsString(
+                'wp pp apply',
+                $w['message'],
+                'remove_component is an action (wp pp action execute), not an apply.'
+            );
+        }
+    }
+
+    public function testSmellsFlagEveryChromeItemIndependently(): void
+    {
+        $warnings = pp_validate_composition_smells([
+            ['component' => 'nav', 'props' => []],
+            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            ['component' => 'footer', 'props' => []],
+        ]);
+
+        $chrome = array_values(array_filter($warnings, fn($w) => $w['type'] === 'template_owned_component'));
+        $this->assertCount(2, $chrome);
+        $this->assertSame([0, 2], array_column($chrome, 'index'));
+    }
+
+    public function testSmellsIgnoreChromeFreeComposition(): void
+    {
+        $warnings = pp_validate_composition_smells([
+            ['component' => 'hero', 'props' => ['title' => 'Hi', 'image_url' => '/a.jpg']],
+        ]);
+
+        $this->assertSame(
+            [],
+            array_filter($warnings, fn($w) => $w['type'] === 'template_owned_component'),
+            'A normal content page must not be flagged for chrome.'
+        );
+    }
+
     public function testSmellsSkipsNonArrayItems(): void
     {
         // Regression (#119 follow-up): a malformed/corrupted composition
