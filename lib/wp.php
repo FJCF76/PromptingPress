@@ -342,67 +342,93 @@ function pp_get_composition(int $post_id): array {
 }
 
 /**
- * Diagnoses navigation readiness for the locations a composition actually uses.
+ * The menu locations the base template renders on every page.
  *
- * Scoped to locations REFERENCED by `nav` components in the composition (a nav
- * component defaults to the 'primary' location). Registered-but-unused locations
- * are intentionally NOT flagged — that avoids false failures on, e.g., a site
- * that registers a footer menu it never renders.
+ * Mirrors the pp_get_component() calls in templates/base.php:
  *
- * For each referenced location it flags, in order:
- *   - reference to an UNREGISTERED location (a real config error),
+ *   templates/base.php:35   pp_get_component('nav',    ['location' => 'primary'])
+ *   templates/base.php:49   pp_get_component('footer', ['location' => 'footer'])
+ *
+ * Chrome is template-owned, not composition-declared (#223), so this is the only
+ * honest source for "which locations does this site actually render?".
+ * NavReadinessTest::testTemplateOwnedLocationsMatchBaseTemplate() reads the
+ * template back and fails if the two ever drift.
+ *
+ * @return string[]  Registered nav-menu location slugs the template renders.
+ */
+function pp_template_owned_menu_locations(): array {
+    return ['primary', 'footer'];
+}
+
+/**
+ * Diagnoses readiness of the site chrome the base template renders.
+ *
+ * Scoped to the TEMPLATE-OWNED locations (pp_template_owned_menu_locations()),
+ * not to anything a page composition declares — chrome is not composable (#223).
+ * Registered-but-unrendered locations (e.g. one a plugin adds) are intentionally
+ * NOT flagged; that would be noise about markup this theme never emits.
+ *
+ * For each rendered location it flags, in order:
+ *   - an UNREGISTERED location (the template renders a location nobody declared),
  *   - a registered location with NO menu assigned,
  *   - an assigned menu that resolves to ZERO items.
- * A ready location reports a passing row. Every row is severity=warning: nav
+ * It additionally flags a site logo option that does not resolve to an image
+ * attachment, which pp_resolve_logo() silently falls back to a text wordmark for.
+ *
+ * A ready location reports a passing row. Every row is severity=warning: chrome
  * readiness is an operator-facing diagnostic, never a gate on content mutations.
  *
- * @param array $composition  Component objects (e.g. from pp_get_composition()).
  * @return array[]  Rows: ['check'=>'nav_readiness','pass'=>bool,'severity'=>'warning','message'=>string].
  */
-function pp_check_nav_readiness(array $composition): array {
-    // Collect locations referenced by nav components (nav defaults to 'primary').
-    // Defensive: a malformed composition that bypassed validation may carry
-    // non-array items or props, so guard both before indexing.
-    $referenced = [];
-    foreach ($composition as $item) {
-        if (!is_array($item) || ($item['component'] ?? '') !== 'nav') {
-            continue;
-        }
-        $props = is_array($item['props'] ?? null) ? $item['props'] : [];
-        $referenced[$props['location'] ?? 'primary'] = true;
-    }
-    if (empty($referenced)) {
-        return []; // No nav rendered — nothing to diagnose.
-    }
-
+function pp_check_nav_readiness(): array {
     $registered = array_keys(get_registered_nav_menus());
     $locations  = get_nav_menu_locations(); // location => menu_id
     $checks     = [];
 
-    foreach (array_keys($referenced) as $loc) {
-        // $loc is operator/AI-controlled composition data — escape it for display
-        // (messages may be rendered in the admin UI). Raw $loc is used for lookups.
+    foreach (pp_template_owned_menu_locations() as $loc) {
+        // Messages may be rendered in the admin UI. $loc is a theme constant now
+        // rather than AI-controlled composition data, but escaping it costs
+        // nothing and keeps the guarantee local. Raw $loc is used for lookups.
         $safe_loc = esc_html((string) $loc);
 
         if (!in_array($loc, $registered, true)) {
             $checks[] = ['check' => 'nav_readiness', 'pass' => false, 'severity' => 'warning',
-                'message' => 'Navigation references unregistered location "' . $safe_loc . '". Register it in functions.php or fix the nav component\'s location.'];
+                'message' => 'The page template renders menu location "' . $safe_loc . '", which is not registered. Register it in functions.php.'];
             continue;
         }
         if (!has_nav_menu($loc)) {
             $checks[] = ['check' => 'nav_readiness', 'pass' => false, 'severity' => 'warning',
-                'message' => 'Navigation location "' . $safe_loc . '" has no menu assigned. Use the set_menu action (or Appearance → Menus) to create one and assign it (issue 132).'];
+                'message' => 'Site chrome location "' . $safe_loc . '" has no menu assigned. Use the set_menu action (or Appearance → Menus) to create one and assign it (issue 132).'];
             continue;
         }
         $menu_id = $locations[$loc] ?? 0;
         $items   = $menu_id ? wp_get_nav_menu_items($menu_id) : false;
         if (empty($items)) {
             $checks[] = ['check' => 'nav_readiness', 'pass' => false, 'severity' => 'warning',
-                'message' => 'Navigation menu assigned to "' . $safe_loc . '" is empty. Use the set_menu or add_menu_item action (or Appearance → Menus) to add links (issue 132).'];
+                'message' => 'The menu assigned to site chrome location "' . $safe_loc . '" is empty. Use the set_menu or add_menu_item action (or Appearance → Menus) to add links (issue 132).'];
             continue;
         }
         $checks[] = ['check' => 'nav_readiness', 'pass' => true, 'severity' => 'warning',
-            'message' => 'Navigation location "' . $safe_loc . '" is ready (' . count($items) . ' item(s)).'];
+            'message' => 'Site chrome location "' . $safe_loc . '" is ready (' . count($items) . ' item(s)).'];
+    }
+
+    // Site logo: the only chrome surface reachable without the menu API. An id that
+    // isn't an image attachment makes pp_resolve_logo() fall through to the text
+    // wordmark silently (#155), so an operator who set the option sees no logo and
+    // no explanation.
+    //
+    // Only a POSITIVE id means "the operator set a logo". '' / '0' / 0 / false all
+    // mean cleared — 0 is WordPress's conventional cleared attachment id — and a
+    // cleared logo is a deliberate text wordmark, not a finding. Testing `!== ''`
+    // here would warn forever on a cleared option, and the message would read
+    // "attachment 0, which is not an image". Report nothing rather than a passing
+    // row: a site with no logo should not carry a standing chrome warning.
+    $logo_option = (int) get_option('pp_logo_id', '');
+    if ($logo_option > 0 && !pp_is_image_attachment($logo_option)) {
+        $checks[] = ['check' => 'nav_readiness', 'pass' => false, 'severity' => 'warning',
+            'message' => 'The "pp_logo_id" site option is set to attachment ' . $logo_option
+                . ', which is not an image. The site chrome falls back to a text wordmark. '
+                . 'Set pp_logo_id to an image attachment id, or clear it to use the wordmark deliberately.'];
     }
 
     return $checks;
