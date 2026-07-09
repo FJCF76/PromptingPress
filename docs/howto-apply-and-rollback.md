@@ -117,6 +117,35 @@ wp pp apply restore --run-id=$RUN --token=--color-accent
 
   `reset` records its touched tokens too, so a reset inside a run is itself restorable.
 
+## Rolling back a page composition (#133)
+
+The cycle above rolls back **design tokens**. Page **compositions** (the components on a page) are just as reversible now. Every composition write records the prior state on a per-post history ring, so you can undo one page or a whole run.
+
+**Undo one page to its previous state:**
+
+```bash
+# See what's on the ring (read-only, no run token)
+wp pp operate composition-history 42
+
+# Preview the restore (read-only)
+wp pp action preview restore_composition --params='{"post_id":42,"steps_back":1}'
+
+# Apply it (same run-token + preflight discipline as any page mutation)
+wp pp action execute restore_composition --run-id=$RUN --params='{"post_id":42,"steps_back":1}'
+```
+
+`steps_back=1` is the most recent prior state; increase it to walk further back, or pass `history_index` for an absolute ring position.
+
+**Undo every page a run changed** (the composition counterpart of `wp pp apply restore`):
+
+```bash
+wp pp apply restore-composition --run-id=$RUN
+```
+
+It reverts exactly the pages this run touched to their pre-run content and leaves pages changed by other runs alone.
+
+**In the AI chat:** after a proposal that edits a page's components applies, click **"Undo these changes"** on the result card. It walks that page's history back to the state before the proposal.
+
 ## Troubleshooting
 
 **`--run-id is required` / `--run-id must be a valid UUID v4`**

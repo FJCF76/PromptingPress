@@ -35,7 +35,10 @@ Pass the same `run_id` to `preflight`, then to `execute`/`reset`, then to `resto
 | `preflight` | no (records run state) | **yes** | — | Validate the execution surface; freeze the rollback snapshot |
 | `execute` | **yes** | **yes** | yes | Apply a named change |
 | `reset` | **yes** | **yes** | yes | Clear overrides back to product defaults |
-| `restore` | **yes** | **yes** | yes | Roll this run's changes back to its preflight snapshot |
+| `restore` | **yes** | **yes** | yes | Roll this run's token changes back to its preflight snapshot |
+| `restore-composition` | **yes** | **yes** | yes | Roll this run's page-composition changes back to their pre-run state (#133) |
+
+> **Tokens vs compositions.** `execute` / `reset` / `restore` operate on **design tokens**. Page **compositions** (the component arrays that make up a page) are mutated through the `wp pp action` family (`update_composition`, `add_component`, `remove_component`, …) and rolled back with `restore-composition` (run-scoped) or the `restore_composition` action (single page). Both surfaces share one run token and the same preflight discipline.
 
 ---
 
@@ -269,6 +272,62 @@ wp pp apply restore --run-id=<uuid> --token=--color-accent
 | Preserves unrelated overrides | yes | no |
 | Undoes another run's work | no | (clears everything) |
 | Reversible afterward | it *is* the reversal | yes (records touched tokens) |
+
+---
+
+## Composition history & restore (#133)
+
+Design-token writes have always been reversible (snapshot at preflight, `restore`). Composition writes — the page content itself — now match that parity. Every composition write (`update_composition`, `add_component`, `remove_component`, `reorder_components`, `update_component`, and `restore_composition` itself) pushes the **prior** composition onto a bounded per-post history ring (last 10 entries) before overwriting. Restore reads that ring.
+
+There are two restore surfaces, both conflict-checked writes that land their own history entry (so a restore is itself reversible):
+
+### `restore_composition` action (single page)
+
+Registered in the `wp pp action` family. Rewrites one page's composition to a prior history entry.
+
+```bash
+# Preview the diff (read-only, no run token)
+wp pp action preview restore_composition --params='{"post_id":42,"steps_back":1}'
+
+# Execute (needs a run token + PREFLIGHT covering post 42, like any composition mutation)
+wp pp action execute restore_composition --run-id=<uuid> --params='{"post_id":42,"steps_back":1}'
+```
+
+Target selectors (params):
+
+- `steps_back` (int, default `1`) — `1` = the most recent prior state (the last write's before-image), `2` = the one before it, … up to the number of retained entries.
+- `history_index` (int) — absolute 0-based index into the ring (oldest = 0). Takes precedence over `steps_back`.
+- `expected_version` (int, optional) — optimistic-locking baseline (#13); the restore is rejected with `composition_conflict` if the page moved since.
+
+Errors: `no_history` (the page has no recorded prior state), `history_out_of_bounds` (selector past the ring), `composition_conflict` (stale `expected_version`).
+
+### `wp pp apply restore-composition` (run-scoped)
+
+The composition counterpart of `wp pp apply restore`. Reverts **every page the run changed** back to the content frozen at the run's PREFLIGHT. Scoped strictly to this run's touched posts — a page a different run mutated is never touched.
+
+```bash
+wp pp apply restore-composition --run-id=<uuid>
+```
+
+Fail-closed: if the run's touched-post record is missing / expired / corrupt / from another install, nothing is changed. Per-post snapshot-missing or write failures are reported under `skipped` in the JSON output while the rest proceed. On success:
+
+- `Success: Reverted N composition(s) to the pre-run state (of M touched).`
+- `Success: Touched compositions already matched the pre-run state; nothing to revert.`
+
+### `wp pp operate composition-history <page>` (read-only)
+
+Lists a page's history ring so you know which `steps_back` / `history_index` to restore. Needs no run token.
+
+```bash
+wp pp operate composition-history 42
+wp pp operate composition-history about-us
+```
+
+Output carries `count`, the ring `max` (10), and per-entry `{history_index, steps_back, version, timestamp, components}`, newest first.
+
+### In the AI chat
+
+After a proposal that changes a page's composition applies, the chat renders an **"Undo these changes"** link (parity with the token "Reset to default" link). It calls `restore_composition` with `steps_back` equal to the number of composition mutations in the proposal, walking the ring back to the state before the proposal. It appears only when the proposal's composition mutations all target a single page.
 
 ---
 
