@@ -1652,6 +1652,95 @@ pp_register_action('remove_component', [
     },
 ]);
 
+// ── Action: restore_composition ─────────────────────────────────────────────
+// Scope: page | Semantics: rewrite the composition to a prior history entry (#133)
+
+/**
+ * Resolves the target history-ring index for a restore_composition call (#133).
+ *
+ * The history ring (pp_get_composition_history) is oldest-first, so the most recent
+ * prior state is the LAST entry. Two selectors:
+ *   - history_index: absolute 0-based index into the ring (takes precedence).
+ *   - steps_back:    1 = most recent prior state (last entry), 2 = the one before it,
+ *                    … N = the oldest retained entry. Defaults to 1.
+ * Returns the resolved absolute index, or a WP_Error when the ring is empty or the
+ * selector is out of range.
+ *
+ * @param array $history  The history ring from pp_get_composition_history().
+ * @param array $params   Action params (may carry history_index and/or steps_back).
+ * @return int|WP_Error
+ */
+function _pp_resolve_history_target(array $history, array $params) {
+    $count = count($history);
+    if ($count === 0) {
+        return new WP_Error('no_history', 'No composition history exists for this page; nothing to restore.');
+    }
+    if (isset($params['history_index'])) {
+        $idx = (int) $params['history_index'];
+        if ($idx < 0 || $idx >= $count) {
+            return new WP_Error('history_out_of_bounds', sprintf('history_index %d is out of bounds (0..%d).', $idx, $count - 1));
+        }
+        return $idx;
+    }
+    $steps = isset($params['steps_back']) ? (int) $params['steps_back'] : 1;
+    if ($steps < 1 || $steps > $count) {
+        return new WP_Error('history_out_of_bounds', sprintf('steps_back %d is out of range (1..%d).', $steps, $count));
+    }
+    return $count - $steps;
+}
+
+pp_register_action('restore_composition', [
+    'scope'          => 'page',
+    'mutates_composition' => true,
+    'impact_warning' => 'Rewrites the page composition to a prior version',
+    'description' => 'Restores a page composition to a prior version recorded in its history ring. Select the target with steps_back (1 = most recent prior state, the default) or history_index (absolute 0-based). history_index takes precedence.',
+    'semantics'   => 'Rewrite. The composition is replaced with a prior snapshot captured before an earlier write. Restore is itself a conflict-checked write (records its own history entry), so it can be undone in turn.',
+    'params'      => [
+        'post_id'          => ['type' => 'int', 'required' => true],
+        'steps_back'       => ['type' => 'int', 'required' => false],
+        'history_index'    => ['type' => 'int', 'required' => false],
+        'expected_version' => _pp_expected_version_param(),
+    ],
+    'validate' => function (array $params) {
+        $exists = _pp_validate_page_exists($params['post_id']);
+        if (is_wp_error($exists)) {
+            return $exists;
+        }
+        $history = pp_get_composition_history($params['post_id']);
+        $target  = _pp_resolve_history_target($history, $params);
+        if (is_wp_error($target)) {
+            return $target;
+        }
+        return true;
+    },
+    'preview' => function (array $params): array {
+        $current = pp_get_composition($params['post_id']);
+        $history = pp_get_composition_history($params['post_id']);
+        $idx     = _pp_resolve_history_target($history, $params);
+        // validate() already gated this; guard defensively so preview never indexes null.
+        $target  = is_wp_error($idx) ? [] : $history[$idx]['composition'];
+        return _pp_action_preview('restore_composition', 'page', ['post_id' => $params['post_id']], $current, $target, [
+            ['path' => 'composition', 'from' => $current, 'to' => $target],
+        ]);
+    },
+    'execute' => function (array $params): array {
+        $current = pp_get_composition($params['post_id']);
+        $history = pp_get_composition_history($params['post_id']);
+        $idx     = _pp_resolve_history_target($history, $params);
+        if (is_wp_error($idx)) {
+            return _pp_action_error('restore_composition', 'page', $idx->get_error_message(), $idx->get_error_code());
+        }
+        $target = $history[$idx]['composition'];
+        $result = pp_update_composition($params['post_id'], $target, _pp_action_expected_version($params));
+        if (is_wp_error($result)) {
+            return _pp_action_error('restore_composition', 'page', $result->get_error_message(), $result->get_error_code());
+        }
+        return _pp_action_result('restore_composition', 'page', ['post_id' => $params['post_id']], [
+            ['path' => 'composition', 'from' => $current, 'to' => $target],
+        ]);
+    },
+]);
+
 // ── Action: reorder_components ──────────────────────────────────────────────
 // Scope: page | Semantics: permutation, validated
 

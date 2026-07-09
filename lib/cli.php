@@ -305,6 +305,16 @@ class PP_Action_Command extends WP_CLI_Command {
             // same post flows; an external interleaved write still conflicts.
             if ($action !== null) {
                 _pp_cli_refresh_composition_baseline($run_id, $action, isset($params['post_id']) ? (int) $params['post_id'] : null);
+                // Touched-post tracking (#133): record this post so a run-scoped restore
+                // can revert exactly the compositions this run changed. Only for
+                // composition-mutating actions targeting a page. Fail loud on a recording
+                // failure — a missing touched-post entry silently narrows what restore
+                // can undo, the composition analogue of the touched-token contract.
+                if (!empty($action['mutates_composition']) && isset($params['post_id'])) {
+                    if (!pp_operate_record_touched_post_id($run_id, (int) $params['post_id'])) {
+                        WP_CLI::error('Action "' . $name . '" executed, but recording its touched post for run "' . $run_id . '" FAILED. `wp pp apply restore-composition` may not be able to revert this change. Run state may be missing or corrupt; re-run `wp pp operate inspect` before making further changes.');
+                    }
+                }
             }
             WP_CLI::success('Action "' . $name . '" executed.');
         } else {
@@ -590,6 +600,59 @@ class PP_Apply_Command extends WP_CLI_Command {
     }
 
     /**
+     * Reverts every page composition a run changed back to its pre-run state (#133).
+     *
+     * The composition counterpart of `wp pp apply restore` (which reverts tokens). For
+     * each post the run mutated (recorded as it ran), rewrites the composition to the
+     * content frozen at the run's PREFLIGHT. Scoped strictly to THIS run's touched posts
+     * — a page changed by a different run is never touched. Each revert is a real
+     * pp_update_composition write (its own lock + marker bump + history entry), so the
+     * revert is itself reversible.
+     *
+     * Fails closed: if the run's touched-post record is missing, expired, corrupt, or
+     * from another install, nothing is changed. Per-post snapshot-missing or write
+     * failures are reported under `skipped` while the rest proceed.
+     *
+     * ## OPTIONS
+     *
+     * --run-id=<uuid>
+     * : Run token from `wp pp operate inspect`. Required.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp apply restore-composition --run-id=<uuid>
+     *
+     * @subcommand restore-composition
+     */
+    public function restore_composition($args, $assoc_args) {
+        $run_id = _pp_cli_require_run_id($assoc_args);
+        if (!pp_operate_check_step($run_id, 'PREFLIGHT')) {
+            WP_CLI::error('Run token "' . $run_id . '" has no completed PREFLIGHT step. Run `wp pp apply preflight --run-id=' . $run_id . '` first.');
+        }
+
+        _pp_cli_require_apply_cap();
+
+        $report = pp_operate_restore_run_compositions($run_id);
+        if (!$report['ok']) {
+            WP_CLI::error('Run "' . $run_id . '" has no usable touched-post record; cannot revert compositions. The run state may be missing, expired, corrupt, or from a different site. Nothing was changed.');
+        }
+
+        WP_CLI::line(json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+        if (!empty($report['skipped'])) {
+            WP_CLI::warning(count($report['skipped']) . ' post(s) skipped (missing snapshot or write failure); see the report above.');
+        }
+
+        $reverted = count($report['reverted']);
+        $changed  = count(array_filter($report['reverted'], static function ($r) { return !empty($r['changed']); }));
+
+        pp_operate_record_step($run_id, 'APPLY');
+        WP_CLI::success($changed > 0
+            ? "Reverted $changed composition(s) to the pre-run state (of $reverted touched)."
+            : 'Touched compositions already matched the pre-run state; nothing to revert.');
+    }
+
+    /**
      * Resets design tokens to product defaults (NOT a per-run rollback).
      *
      * Clears token overrides so the site reverts to the values shipped in base.css.
@@ -743,6 +806,16 @@ class PP_Apply_Command extends WP_CLI_Command {
             : null;
         if (!pp_operate_record_preflight($run_id, $context['post_id'] ?? null, $token_snapshot, $composition_marker)) {
             WP_CLI::error('Could not record PREFLIGHT state for run token "' . $run_id . '". State file may be missing or expired. Re-run `wp pp operate inspect`.');
+        }
+        // Composition content snapshot (#133): for a page-scoped preflight, freeze the
+        // pre-apply composition so a run-scoped restore (`wp pp apply restore-composition`)
+        // can revert this post to its pre-run state. First-write-wins inside the recorder
+        // keeps the baseline stable across preflight re-runs in the same run.
+        if (isset($context['post_id'])) {
+            $pid = (int) $context['post_id'];
+            if (!pp_operate_record_composition_content_snapshot($run_id, $pid, pp_get_composition($pid))) {
+                WP_CLI::error('Could not record the pre-apply composition snapshot for run token "' . $run_id . '" (post ' . $pid . '). State file may be missing or expired. Re-run `wp pp operate inspect`.');
+            }
         }
     }
 }
@@ -1220,9 +1293,70 @@ class PP_Operate_Command extends WP_CLI_Command {
         // Refresh the freshness baseline (#113) after a successful apply (not preview).
         if (!$preview && isset($run_id)) {
             _pp_cli_refresh_composition_baseline($run_id, $patch_action, $post_id);
+            // Touched-post tracking (#133): patch writes _pp_composition through the
+            // update_component action, so a run-scoped restore must be able to revert it
+            // too. Same fail-loud contract as `action execute`.
+            if (!pp_operate_record_touched_post_id($run_id, $post_id)) {
+                WP_CLI::error('Patch applied, but recording its touched post for run "' . $run_id . '" FAILED. `wp pp apply restore-composition` may not be able to revert this change. Run state may be missing or corrupt; re-run `wp pp operate inspect`.');
+            }
         }
 
         WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * Lists the composition history ring for a page (#133).
+     *
+     * Shows the prior-composition snapshots recorded before each write, newest first,
+     * with the index and steps_back selector to pass to the restore_composition action.
+     * Read-only — needs no run token.
+     *
+     * ## OPTIONS
+     *
+     * <page>
+     * : Post ID or slug of the page.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp operate composition-history 19
+     *     wp pp operate composition-history about-us
+     *
+     * @subcommand composition-history
+     */
+    public function composition_history($args, $assoc_args) {
+        $page = $args[0] ?? null;
+        if (!$page) {
+            WP_CLI::error('Page argument is required.');
+        }
+
+        $post_id = is_numeric($page) ? (int) $page : url_to_postid(home_url($page));
+        if (!$post_id) {
+            WP_CLI::error(sprintf('Could not resolve page "%s".', $page));
+        }
+
+        $history = pp_get_composition_history($post_id);
+        $count   = count($history);
+
+        // Render newest-first: the last ring entry is the most recent prior state,
+        // reachable as steps_back=1. history_index stays the absolute ring position.
+        $rows = [];
+        foreach ($history as $index => $entry) {
+            $rows[] = [
+                'history_index' => $index,
+                'steps_back'    => $count - $index,
+                'version'       => $entry['version'],
+                'timestamp'     => $entry['timestamp'],
+                'components'    => count($entry['composition']),
+            ];
+        }
+        $rows = array_reverse($rows);
+
+        WP_CLI::line(json_encode([
+            'post_id' => $post_id,
+            'max'     => pp_composition_history_max(),
+            'count'   => $count,
+            'entries' => $rows,
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
 }
 

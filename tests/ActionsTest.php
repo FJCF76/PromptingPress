@@ -2,7 +2,7 @@
 /**
  * tests/ActionsTest.php — PHPUnit tests for the PromptingPress Action Layer
  *
- * Covers: registry functions, wp.php read/write functions, and all 23 actions
+ * Covers: registry functions, wp.php read/write functions, and all 24 actions
  * across validate, preview, and execute paths.
  */
 
@@ -27,12 +27,12 @@ class ActionsTest extends TestCase
     public function testRegistryReturnsAllTwentyActions(): void
     {
         $actions = pp_get_registered_actions();
-        $this->assertCount(23, $actions);
+        $this->assertCount(24, $actions);
         $expected = [
             'create_page', 'update_site_option', 'update_page_title',
             'update_page_slug', 'update_seo_meta',
             'update_composition', 'publish_page', 'add_component',
-            'remove_component', 'reorder_components', 'update_component',
+            'remove_component', 'restore_composition', 'reorder_components', 'update_component',
             'style_component',
             'trash_page', 'restore_page', 'unpublish_page', 'clear_custom_css',
             'create_menu', 'add_menu_item', 'assign_menu_location', 'set_menu',
@@ -251,6 +251,139 @@ class ActionsTest extends TestCase
         pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
         pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'C']]]);
         $this->assertSame(3, pp_get_composition_marker($post_id)['version']);
+    }
+
+    // ── Composition history ring + restore_composition (#133) ──────────────
+
+    public function testCompositionHistoryEmptyBeforeAnyWrite(): void
+    {
+        $this->assertSame([], pp_get_composition_history(4242));
+    }
+
+    public function testFirstWriteRecordsNoHistory(): void
+    {
+        // A brand-new page's first write has no prior state to preserve.
+        $post_id = pp_create_page('History first');
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        $this->assertSame([], pp_get_composition_history($post_id));
+    }
+
+    public function testWritePushesPriorStateOntoHistory(): void
+    {
+        $post_id = pp_create_page('History push');
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+        $history = pp_get_composition_history($post_id);
+        $this->assertCount(1, $history);
+        $this->assertSame('A', $history[0]['composition'][0]['props']['title']);
+        $this->assertSame(1, $history[0]['version'], 'entry carries the prior marker version');
+    }
+
+    public function testRestoreReturnsByteIdenticalPriorComposition(): void
+    {
+        // Acceptance criterion #1: update_composition then restore_composition returns
+        // the byte-identical prior composition (JSON-string storage).
+        $post_id = pp_create_page('Byte identical');
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        $stored_v1 = get_post_meta($post_id, '_pp_composition', true);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertTrue($result['ok'], $result['error'] ?? 'restore failed');
+        $this->assertSame(
+            $stored_v1,
+            get_post_meta($post_id, '_pp_composition', true),
+            'restore reproduces the prior stored composition JSON byte-for-byte'
+        );
+    }
+
+    public function testHistoryRingBoundedAtMax(): void
+    {
+        // Acceptance criterion #2: writing N+5 times keeps exactly N entries.
+        $post_id = pp_create_page('Ring bound');
+        $max = pp_composition_history_max();
+        for ($i = 0; $i < $max + 5; $i++) {
+            pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'v' . $i]]]);
+        }
+        $history = pp_get_composition_history($post_id);
+        $this->assertCount($max, $history, 'ring is capped at the max, oldest evicted');
+        $this->assertGreaterThan(1, $history[0]['version'], 'earliest entries were evicted');
+        $this->assertSame(
+            'v' . ($max + 3),
+            $history[$max - 1]['composition'][0]['props']['title'],
+            'newest entry is the state just before the final write'
+        );
+    }
+
+    public function testRestoreCompositionValidateFailsWithNoHistory(): void
+    {
+        $post_id = pp_create_page('No history');
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'only']]]);
+        $err = pp_validate_action('restore_composition', ['post_id' => $post_id]);
+        $this->assertInstanceOf(WP_Error::class, $err);
+        $this->assertSame('no_history', $err->get_error_code());
+    }
+
+    public function testRestoreCompositionValidateRejectsOutOfRangeStepsBack(): void
+    {
+        $post_id = pp_create_page('Range');
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+        $err = pp_validate_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 5]);
+        $this->assertInstanceOf(WP_Error::class, $err);
+        $this->assertSame('history_out_of_bounds', $err->get_error_code());
+    }
+
+    public function testRestoreCompositionPreviewDoesNotWrite(): void
+    {
+        $post_id = pp_create_page('Preview');
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+        $before = get_post_meta($post_id, '_pp_composition', true);
+        $preview = pp_preview_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertTrue($preview['ok']);
+        $this->assertSame('A', $preview['after'][0]['props']['title']);
+        $this->assertSame('B', $preview['before'][0]['props']['title']);
+        $this->assertSame($before, get_post_meta($post_id, '_pp_composition', true), 'preview must not write');
+    }
+
+    public function testRestoreCompositionByHistoryIndex(): void
+    {
+        $post_id = pp_create_page('By index');
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'C']]]);
+        // history ring (oldest first): [ (v1,A), (v2,B) ] — index 0 = A.
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'history_index' => 0]);
+        $this->assertTrue($result['ok'], $result['error'] ?? 'restore failed');
+        $this->assertSame('A', pp_get_composition($post_id)[0]['props']['title']);
+    }
+
+    public function testRestoreCompositionHonorsExpectedVersionConflict(): void
+    {
+        $post_id = pp_create_page('CAS');
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+        // Current version is 2; a stale expected_version=1 must conflict, not overwrite.
+        $result = pp_execute_action('restore_composition', [
+            'post_id' => $post_id, 'steps_back' => 1, 'expected_version' => 1,
+        ]);
+        $this->assertFalse($result['ok']);
+        $this->assertSame('composition_conflict', $result['error_code']);
+    }
+
+    public function testRestoreIsItselfReversible(): void
+    {
+        // Restore lands its own history entry, so a restore can be undone in turn.
+        $post_id = pp_create_page('Reversible restore');
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+        // Restore back to A (steps_back=1). This pushes B onto history.
+        pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertSame('A', pp_get_composition($post_id)[0]['props']['title']);
+        // Undo the restore: the most-recent prior state is now B again.
+        pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertSame('B', pp_get_composition($post_id)[0]['props']['title']);
     }
 
     public function testContentHashStableAcrossIdInjectionRoundTrip(): void
