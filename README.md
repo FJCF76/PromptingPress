@@ -127,7 +127,7 @@ No blocks. No shortcodes. No visual-builder serialization. AI can read, write, d
 
 ### 🧩 Typed components — contracts, not conventions
 
-12 components, each isolated in its own directory with a `schema.json`:
+12 components, each isolated in its own directory with a `schema.json`. Ten of them are composable — a page places them:
 
 | Component | Purpose | Key props |
 |-----------|---------|-----------|

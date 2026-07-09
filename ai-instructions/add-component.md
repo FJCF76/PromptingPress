@@ -168,6 +168,19 @@ pp_get_component('mycomponent', [
 ]);
 ```
 
+> **If you call it from `templates/base.php`, it is site chrome, and you are not done.**
+> `base.php` runs on every page, so a component rendered there is *also* placeable in a page
+> composition unless you say otherwise — the page would then render it twice while every
+> validator reports success. That was issue #223.
+>
+> Declare it: add the name to `pp_template_owned_components()` in `lib/admin.php`, and its menu
+> location to `pp_template_owned_menu_locations()` in `lib/wp.php` if it reads one.
+> `pp_validate_composition()` will then reject it from `_pp_composition` with
+> `template_owned_component`, and it will be dropped from the catalog the AI reads.
+>
+> The drift guards in `tests/NavReadinessTest.php` read `base.php` back and fail if you forget.
+> Calling it from any other template (`front-page.php`, `single.php`, …) needs none of this.
+
 ---
 
 ## Step 7 — Update AI_CONTEXT.md
