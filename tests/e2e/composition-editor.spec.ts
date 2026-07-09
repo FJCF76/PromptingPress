@@ -230,14 +230,22 @@ test.describe('Composition Editor', () => {
 
   // ── Serialization Invariant Gate Tests ──────────────────────────────────
 
-  // Fixture: footer component without props key — triggers invariant drift
-  // because the round-trip adds `props: {}`.
-  const FOOTER_NO_PROPS_JSON = JSON.stringify([{ component: 'footer' }]);
+  // Fixture: a component without a props key — triggers invariant drift because
+  // the accordion round-trip adds `props: {}`. That is the ONLY drift class the
+  // gate can see, and it requires a component with no required prop.
+  //
+  // Until #223 this was `[{ component: 'footer' }]`: nav/footer were the only two
+  // zero-required-prop components, so the fixture both validated and drifted. They
+  // are template-owned chrome now and rejected from compositions, so a drifting
+  // composition is necessarily INVALID — `hero` omits its required `title`.
+  // SchemaValidationTest::testEveryComposableComponentDeclaresARequiredProp()
+  // pins that premise; if it ever fails, revisit Test 9 and Test 10 below.
+  const DRIFT_NO_PROPS_JSON = JSON.stringify([{ component: 'hero' }]);
 
-  // Fixture: footer component WITH props key — passes invariant.
-  const FOOTER_WITH_PROPS_JSON = JSON.stringify([
-    { component: 'footer', props: { location: 'footer' } },
-  ]);
+  // Fixture: valid, and stable across the accordion round-trip.
+  // HERO_ONLY_JSON (module scope) is exactly that — reuse it rather than minting
+  // a second hero fixture that has to be kept in step with the schema.
+  const CLEAN_JSON = HERO_ONLY_JSON;
 
   /**
    * Set composition via WP-CLI post meta (bypasses editor validation).
@@ -260,7 +268,7 @@ test.describe('Composition Editor', () => {
     pageId = createPage('E2E Invariant Happy');
 
     // Inject a valid composition that passes invariant check
-    setCompositionMeta(pageId, FOOTER_WITH_PROPS_JSON);
+    setCompositionMeta(pageId, CLEAN_JSON);
 
     // Open workspace — invariant passes, accordion should render
     await openWorkspace(page, pageId);
@@ -277,7 +285,7 @@ test.describe('Composition Editor', () => {
     pageId = createPage('E2E Invariant Blocked');
 
     // Inject composition with missing props key via WP-CLI
-    setCompositionMeta(pageId, FOOTER_NO_PROPS_JSON);
+    setCompositionMeta(pageId, DRIFT_NO_PROPS_JSON);
 
     // Open workspace — invariant check runs at boot
     await openWorkspace(page, pageId);
@@ -306,20 +314,54 @@ test.describe('Composition Editor', () => {
     await expect(notice.locator('.pp-copy-issue-btn')).toBeVisible();
   });
 
-  // ── Test 9: Save unlocks accordion ────────────────────────────────────
+  // ── Test 9: Saving a drifted composition is refused ───────────────────
+  //
+  // Pre-#223 this test asserted the opposite: save normalized the drift away and
+  // unlocked the accordion. That path is gone. Drift requires a component with no
+  // required prop, chrome was the last such component, so every drifting
+  // composition is now invalid and doSaveDraft() refuses it before it reaches the
+  // server. The author's recourse is the JSON editor, which the notice points at.
 
-  test('invariant gate: save resolves drift and restores accordion', async ({ page }) => {
-    pageId = createPage('E2E Invariant Save Unlock');
+  test('invariant gate: save is refused while the composition is drifted', async ({ page }) => {
+    pageId = createPage('E2E Invariant Save Refused');
 
     // Inject composition with missing props key
-    setCompositionMeta(pageId, FOOTER_NO_PROPS_JSON);
+    setCompositionMeta(pageId, DRIFT_NO_PROPS_JSON);
 
     // Open workspace — should be blocked
     await openWorkspace(page, pageId);
     await expect(page.locator('.pp-serialization-error')).toBeVisible();
     await expect(page.locator('#pp-view-toggle')).not.toBeVisible();
 
-    // Save — server adds props.id, CM refreshes, invariant re-checks
+    // Save — client validation rejects it: drift implies a missing required prop.
+    await page.locator('#pp-save-btn').click();
+
+    await expect(page.locator('#pp-save-status')).toContainText('Fix errors first.', { timeout: 10000 });
+    await expect(page.locator('#pp-error-bar')).toContainText('required prop');
+
+    // Verify: still blocked — no silent unlock, no partial write.
+    await expect(page.locator('.pp-serialization-error')).toBeVisible();
+    await expect(page.locator('#pp-accordion-view')).not.toBeVisible();
+    await expect(page.locator('#pp-view-toggle')).not.toBeVisible();
+  });
+
+  // ── Test 9b: Fixing the JSON unlocks the accordion ────────────────────
+
+  test('invariant gate: repairing the composition restores the accordion', async ({ page }) => {
+    pageId = createPage('E2E Invariant Save Unlock');
+
+    // Inject composition with missing props key
+    setCompositionMeta(pageId, DRIFT_NO_PROPS_JSON);
+
+    // Open workspace — should be blocked
+    await openWorkspace(page, pageId);
+    await expect(page.locator('.pp-serialization-error')).toBeVisible();
+    await expect(page.locator('#pp-view-toggle')).not.toBeVisible();
+
+    // Repair the JSON in the editor, the way the notice instructs.
+    await setCM(page, CLEAN_JSON);
+
+    // Save — now valid, server adds props.id, CM refreshes, invariant re-checks.
     await page.locator('#pp-save-btn').click();
 
     // Wait for "Drift resolved" feedback
@@ -338,12 +380,17 @@ test.describe('Composition Editor', () => {
     pageId = createPage('E2E Invariant Publish Unlock');
 
     // Inject composition with missing props key
-    setCompositionMeta(pageId, FOOTER_NO_PROPS_JSON);
+    setCompositionMeta(pageId, DRIFT_NO_PROPS_JSON);
 
     // Open workspace — should be blocked
     await openWorkspace(page, pageId);
     await expect(page.locator('.pp-serialization-error')).toBeVisible();
     await expect(page.locator('#pp-view-toggle')).not.toBeVisible();
+
+    // Repair first: doPublishOrUpdate() validates exactly like doSaveDraft(), and
+    // a drifted composition is always invalid now (#223), so publishing a drifted
+    // page is refused rather than normalized.
+    await setCM(page, CLEAN_JSON);
 
     // Publish — server adds props.id, CM refreshes, invariant re-checks
     await page.locator('#pp-publish-btn').click();
@@ -364,7 +411,7 @@ test.describe('Composition Editor', () => {
     pageId = createPage('E2E Copy Issue');
 
     // Inject composition with missing props key
-    setCompositionMeta(pageId, FOOTER_NO_PROPS_JSON);
+    setCompositionMeta(pageId, DRIFT_NO_PROPS_JSON);
 
     // Grant clipboard permissions (Chromium-based)
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);

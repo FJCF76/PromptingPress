@@ -109,6 +109,16 @@ function validateCompositionData(jsonString, componentRegistry) {
             errors.push('Unknown component: "' + item.component + '".');
             return;
         }
+        // Site chrome stays in the registry so the preview can render it, but a
+        // composition may not declare it (#223). Mirrors pp_validate_composition().
+        // The wording lives once, in PHP, and ships as ownedMessage. The terse
+        // fallback covers a registry entry that predates that field; it is not a
+        // second copy of the sentence.
+        if (comp.templateOwned) {
+            errors.push(comp.ownedMessage ||
+                ('"' + item.component + '" is site chrome and cannot be placed in a page composition.'));
+            return;
+        }
         var props = (comp.schema || {}).props || {};
         Object.keys(props).forEach(function (k) {
             if (!props[k].required) return;

@@ -442,6 +442,144 @@ class SchemaValidationTest extends TestCase
         $this->assertTrue($result);
     }
 
+    // ── Template-owned chrome rejection (#223) ───────────────────────────
+
+    /**
+     * @dataProvider templateOwnedComponentProvider
+     */
+    public function testCompositionRejectsTemplateOwnedComponent(string $name): void
+    {
+        $result = pp_validate_composition([
+            ['component' => $name, 'props' => []],
+        ]);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame(
+            'template_owned_component',
+            $result->get_error_code(),
+            'The code must be distinct from invalid_composition so the action layer can '
+            . 'tell "that name is chrome" apart from "that name does not exist".'
+        );
+        $this->assertStringContainsString('site chrome', $result->get_error_message());
+        $this->assertStringContainsString('pp_logo_id', $result->get_error_message());
+    }
+
+    public static function templateOwnedComponentProvider(): array
+    {
+        return [['nav'], ['footer']];
+    }
+
+    public function testCompositionRejectsChromeEvenWhenItTrailsValidContent(): void
+    {
+        $result = pp_validate_composition([
+            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            ['component' => 'footer', 'props' => []],
+        ]);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('template_owned_component', $result->get_error_code());
+    }
+
+    public function testChromeRejectionPrecedesRequiredPropCheck(): void
+    {
+        // `nav` has no required props, so this only proves ordering for `hero`-like
+        // shapes. What matters: a chrome item with no props object still names the
+        // chrome problem rather than a missing-prop problem.
+        $result = pp_validate_composition([['component' => 'nav']]);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('template_owned_component', $result->get_error_code());
+    }
+
+    /**
+     * LLMs emit `{"type":"nav"}`. pp_normalize_composition() aliases `type` to
+     * `component`, and every validating write path normalizes before validating,
+     * so chrome rejection for the alias depends entirely on that ordering. Pin it:
+     * if the ordering ever regresses, alias-keyed chrome gets rejected only as a
+     * generic "missing component key" and this test says so out loud.
+     */
+    public function testTypeAliasedChromeIsRejectedAsChrome(): void
+    {
+        $normalized = pp_normalize_composition([['type' => 'nav', 'props' => []]]);
+        $result     = pp_validate_composition($normalized);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame(
+            'template_owned_component',
+            $result->get_error_code(),
+            'A `type`-aliased chrome item must be rejected AS CHROME, not as a missing component key.'
+        );
+    }
+
+    public function testTemplateOwnedComponentsRemainRegistered(): void
+    {
+        // They must stay in the registry: templates/base.php renders them, and the
+        // admin preview needs their schemas. Registered != composable.
+        $registered = pp_get_registered_components();
+        foreach (pp_template_owned_components() as $name) {
+            $this->assertArrayHasKey($name, $registered);
+        }
+    }
+
+    public function testComposableComponentsExcludeChromeButKeepContent(): void
+    {
+        $composable = pp_composable_components();
+
+        foreach (pp_template_owned_components() as $name) {
+            $this->assertArrayNotHasKey(
+                $name,
+                $composable,
+                "pp_composable_components() must not advertise chrome '{$name}' — this is the "
+                . 'list lib/ai-context.php shows the AI.'
+            );
+        }
+        $this->assertArrayHasKey('hero', $composable);
+        $this->assertArrayHasKey('section', $composable);
+    }
+
+    /**
+     * Component-library invariant: a composable component always requires
+     * something of the author.
+     *
+     * A component with no required prop can be declared as a bare
+     * `{"component": "x"}` — no `props` key at all — and still validate. Such a
+     * component renders empty (the #87 empty-section smell exists to catch that),
+     * and it is the one composition shape the accordion round-trip cannot
+     * preserve: `serializeAccordionData()` re-emits `props: {}`, so the editor's
+     * serialization-invariant gate locks the accordion.
+     *
+     * Until #223, `nav` and `footer` were the only zero-required-prop components,
+     * which is exactly why `[{"component":"footer"}]` was the fixture for the
+     * invariant-gate E2E. They are chrome now, and not composable, so no valid
+     * composition can drift.
+     *
+     * Test 9 in tests/e2e/composition-editor.spec.ts depends on that: it asserts
+     * that saving a drifted composition is REFUSED, because drift now implies
+     * invalidity. If this invariant ever breaks, a valid-but-drifting composition
+     * becomes constructible again and Test 9's premise is wrong — so this fails
+     * in `composer test` (a required CI check) rather than hiding in the E2E
+     * suite, which does not run on pull requests.
+     */
+    public function testEveryComposableComponentDeclaresARequiredProp(): void
+    {
+        foreach (pp_composable_components() as $name => $schema) {
+            $required = array_filter(
+                $schema['props'] ?? [],
+                fn($def) => !empty($def['required'])
+            );
+
+            $this->assertNotEmpty(
+                $required,
+                "Composable component '{$name}' declares no required prop. A composition that "
+                . 'omits its `props` key would then be VALID and would drift on the accordion '
+                . "round-trip, so '{$name}' renders empty and the editor locks the accordion. "
+                . 'Give it a required prop, or make it template-owned. If this is deliberate, '
+                . 'Test 9 in tests/e2e/composition-editor.spec.ts must be revisited: it assumes '
+                . 'a drifting composition is always invalid and therefore unsaveable.'
+            );
+        }
+    }
+
     public function testCompositionRejectsUnknownStyleSlot(): void
     {
         $composition = [

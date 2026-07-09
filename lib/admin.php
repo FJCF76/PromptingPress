@@ -4,6 +4,7 @@
  *
  * Responsibilities:
  * - pp_get_registered_components()  scan components/ directory
+ * - pp_template_owned_components()  components the base template renders itself
  * - pp_validate_composition()       validate a composition array
  * - register_post_meta              declare _pp_composition meta
  * - add_meta_boxes                  "Edit Composition →" link on page edit screen
@@ -57,6 +58,82 @@ function pp_get_registered_components(): array {
     }
 
     return $cache;
+}
+
+/**
+ * Components the base template renders itself — site chrome, not page content.
+ *
+ * These stay in the registry: templates/base.php renders them via
+ * pp_get_component(), and the admin preview needs their schemas. They are
+ * simply not composable — placing one in _pp_composition would render the
+ * chrome twice (issue #223).
+ *
+ *   templates/base.php
+ *     ├── pp_get_component('nav',    ['location' => 'primary'])   ← chrome
+ *     ├── <main> … _pp_composition renders here …  </main>        ← content
+ *     └── pp_get_component('footer', ['location' => 'footer'])    ← chrome
+ *
+ * Registered ⊋ composable. Every consumer of that distinction reads this list:
+ * pp_validate_composition() (write-time), pp_validate_composition_smells()
+ * (stored rows), pp_post_apply_validate() (rendered pages), pp_ai_context()
+ * (the catalog the AI reads), and the editor's JS registry.
+ *
+ * @return string[]  Component names that may not appear in a composition.
+ */
+function pp_template_owned_components(): array {
+    return ['nav', 'footer'];
+}
+
+/**
+ * Whether a component is site chrome rather than page content.
+ *
+ * The membership test every consumer needs. Named, so the rule reads the same at
+ * each call site and there is one place to change if the list ever stops being a
+ * flat array of names.
+ *
+ * @param  string $name  Component name.
+ * @return bool
+ */
+function pp_is_template_owned_component(string $name): bool {
+    return in_array($name, pp_template_owned_components(), true);
+}
+
+/**
+ * The registered components that may actually appear in a composition.
+ *
+ * Registered means "the theme can render it". Composable means "a page may
+ * declare it". The two are not the same set, and every AI-facing surface must
+ * advertise the composable one.
+ *
+ * @return array  Same shape as pp_get_registered_components(), minus chrome.
+ */
+function pp_composable_components(): array {
+    return array_diff_key(
+        pp_get_registered_components(),
+        array_flip(pp_template_owned_components())
+    );
+}
+
+/**
+ * Builds the operator-facing reason a template-owned component was rejected.
+ *
+ * Names the supported surface for each, so the caller (AI or human) is pointed
+ * at the path that actually works instead of retrying the composition write.
+ *
+ * @param  string $name  Component name (assumed template-owned).
+ * @return string
+ */
+function pp_template_owned_component_message(string $name): string {
+    $surfaces = [
+        'nav'    => 'Set the site logo via the "pp_logo_id" site option, and the navigation menu via the menu actions (create_menu / assign_menu_location).',
+        'footer' => 'Set the site logo via the "pp_logo_id" site option, and the footer menu via the menu actions (create_menu / assign_menu_location).',
+    ];
+
+    return sprintf(
+        '"%s" is site chrome rendered by the page template; it cannot be placed in a page composition. %s',
+        $name,
+        $surfaces[$name] ?? ''
+    );
 }
 
 // ── Validation ───────────────────────────────────────────────────────────────
@@ -169,6 +246,25 @@ function pp_validate_composition(array $items) {
             return new WP_Error(
                 'invalid_composition',
                 sprintf('Unknown component: "%s".', $name)
+            );
+        }
+
+        // Site chrome is template-owned. Rejecting here covers every action-layer
+        // write (create_page, update_composition, add_component, update_component)
+        // and the editor save, which routes through update_composition.
+        //
+        // It is NOT the only path that can persist a composition: pp_update_composition()
+        // is a thin, non-validating writer, so restore_composition and a raw
+        // update_post_meta() still write unchecked bytes. Chrome arriving that way is
+        // caught after the fact by pp_validate_composition_smells() and
+        // pp_post_apply_validate(). Restore policy is tracked in #233.
+        //
+        // Distinct error code so the action layer can tell "that name is chrome"
+        // apart from "that name doesn't exist" (issue #223).
+        if (pp_is_template_owned_component($name)) {
+            return new WP_Error(
+                'template_owned_component',
+                pp_template_owned_component_message($name)
             );
         }
 
@@ -789,10 +885,20 @@ add_action('admin_enqueue_scripts', function (string $hook) {
         true
     );
 
-    $components = pp_get_registered_components();
+    $components    = pp_get_registered_components();
     $js_components = [];
     foreach ($components as $name => $schema) {
-        $js_components[] = ['name' => $name, 'schema' => $schema];
+        // Chrome stays in the registry (the preview renders it) but is tagged so
+        // autocomplete hides it and the client validator can name it as chrome
+        // rather than reporting "Unknown component" (issue #223). The message is
+        // authored once, in PHP, and shipped to the client.
+        $owned = pp_is_template_owned_component($name);
+        $js_components[] = [
+            'name'          => $name,
+            'schema'        => $schema,
+            'templateOwned' => $owned,
+            'ownedMessage'  => $owned ? pp_template_owned_component_message($name) : '',
+        ];
     }
 
     wp_localize_script('pp-admin-editor', 'ppAdminEditor', [

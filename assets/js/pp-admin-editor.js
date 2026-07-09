@@ -60,8 +60,13 @@
         return null;
     }
 
+    // Autocomplete offers only composable components. Site chrome (nav/footer)
+    // stays in `components` because the preview renders it, but suggesting it
+    // would lead the author straight into a save rejection (#223).
     function componentNames() {
-        return components.map(function (c) { return c.name; });
+        return components
+            .filter(function (c) { return !c.templateOwned; })
+            .map(function (c) { return c.name; });
     }
 
     // ── Validation (300ms debounce) ───────────────────────────────────────────

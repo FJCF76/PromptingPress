@@ -65,8 +65,11 @@ function pp_ai_system_prompt(): string {
     }
     $parts[] = '';
 
-    // Component catalog (condensed: name + required props only)
-    $components = pp_get_registered_components();
+    // Component catalog (condensed: name + required props only).
+    // Template-owned chrome (nav/footer) is excluded: it is registered and
+    // renderable but not composable, and listing it here is what led an agent
+    // to compose duplicate chrome in the first place (issue #223).
+    $components = pp_composable_components();
     if ($components) {
         $parts[] = '## Available Components';
         foreach ($components as $name => $schema) {
@@ -346,7 +349,7 @@ function pp_ai_site_context(): array {
         ],
         'pages'      => pp_composition_pages(),
         'menus'      => pp_get_menus(),
-        'components' => array_keys(pp_get_registered_components()),
+        'components' => array_keys(pp_composable_components()),
         'actions'    => array_keys(pp_get_registered_actions()),
         'applies'    => array_keys(pp_get_registered_applies()),
         'tokens'     => pp_design_tokens(),
