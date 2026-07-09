@@ -128,6 +128,12 @@ Your own run's sequential composition mutations are fine — the baseline refres
 
 `expected_version` is an **optional** param on every composition-mutating action (`update_composition`, `add_component`, `remove_component`, `reorder_components`, `update_component`, `style_component`). Omit it and the write proceeds unconditionally (back-compat: new-page creation, the homepage seed, and legacy direct callers all skip the CAS). Supply it — the CLI agent path, the AI chat, and the dashboard composition editor all do — and a concurrent write is rejected instead of silently clobbered. The dashboard editor keys on the structured `composition_conflict` code to prompt a reload; the version it sends is refreshed from each successful save so a run's own sequential edits never false-conflict.
 
+**Template-owned chrome (#223).** `nav` and `footer` are rendered on every page by `templates/base.php`. They are registered, renderable components, but they are **not composable** — a composition containing either would render the site header or footer twice. `pp_validate_composition()` rejects them, so `create_page`, `update_composition`, `add_component`, `update_component`, and the dashboard editor's save all fail with:
+
+> `"nav" is site chrome rendered by the page template; it cannot be placed in a page composition. Set the site logo via the "pp_logo_id" site option, and the navigation menu via the menu actions (create_menu / assign_menu_location). [template_owned_component]`
+
+The code is distinct from `invalid_composition` so a caller can tell "that name is chrome" apart from "that name doesn't exist." A page whose stored composition already contains chrome (written before this rule, or through a non-action path) is not silently accepted: `wp pp check page` and `wp pp validate site` report a `template_owned_component` composition smell, and `wp pp validate page` fails with a `template_owned_component` error. Remove the offending items with `remove_component` — each removal shifts later indices down, so remove the highest index first.
+
 **Output** — the preflight result:
 
 ```json
@@ -153,7 +159,7 @@ The checks that can run (`pp_preflight`, `lib/operate.php`):
 | `theme_writable` | file-targeting applies only | yes (skipped for DB-backed token applies) |
 | `target_page` | `--post_id` given | yes |
 | `surface` | `planned_files` given | yes if a `core` file is planned |
-| `nav_readiness` | `--post_id` given | no (`severity: warning`) |
+| `nav_readiness` | always (site chrome is not page-scoped, #223) | no (`severity: warning`) |
 | `screenshot_readiness` | always | no (`severity: warning`) |
 
 `ok` is `true` only when no **error-grade** check failed. Rows with `severity: warning` (nav readiness, screenshot readiness, non-overlapping drift) surface a problem without blocking.

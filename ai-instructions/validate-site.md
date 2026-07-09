@@ -43,10 +43,11 @@ wp pp validate page --post_id=42 --component-index=1  # scope to one component
 ```
 
 It flags render failures, broken `<img>` sources, background-image and link URLs
-pointing at missing local media, empty content, and a component render count that
-doesn't match the composition. Exits non-zero on failure, so it can gate a
-deployment workflow the same way it gates the chat. Use it as the automated half
-of the rendered review checklist below.
+pointing at missing local media, empty content, a component render count that
+doesn't match the composition, and any template-owned chrome (`nav`/`footer`) found
+in the composition. Exits non-zero on failure, so it can gate a deployment workflow
+the same way it gates the chat. Use it as the automated half of the rendered review
+checklist below.
 
 ## What the checks catch
 
@@ -54,12 +55,13 @@ of the rendered review checklist below.
 |---|---|---|
 | Custom CSS conflict | `.hero { ... }` in Additional CSS | Run `clear_custom_css` action, move styling to tokens or components.css |
 | Ambiguous targeting | Two `section` components without IDs | Save the composition (IDs auto-assign) or set explicit IDs |
+| `template_owned_component` | A `nav` or `footer` in the composition — the template already renders both, so the page shows the chrome twice (#223) | Remove them with `remove_component`, highest index first. Configure the logo via `pp_logo_id` and the menus via `set_menu` / `assign_menu_location` |
 
-## Navigation readiness (v0.12.0)
+## Site chrome readiness (v0.12.0, rescoped in #223)
 
-`pp_check_nav_readiness()` diagnoses empty or incomplete navigation for the nav
-locations a page actually uses. It runs automatically -- you do not call it
-directly. The rows appear:
+`pp_check_nav_readiness()` diagnoses the site chrome the page template renders on
+every page: the `primary` and `footer` menu locations, and the site logo. It runs
+automatically -- you do not call it directly. The rows appear:
 
 - in **preflight** output before any mutation (`wp pp apply preflight`), and
 - in the **post-apply validation** report after a composition changes.
@@ -69,18 +71,21 @@ never blocks the mutation. Find the rows by their `check` field:
 
 ```
 { "check": "nav_readiness", "pass": false, "severity": "warning",
-  "message": "Navigation location \"primary\" has no menu assigned. Assign one under Appearance -> Menus." }
+  "message": "Site chrome location \"primary\" has no menu assigned. Use the set_menu action (or Appearance -> Menus) to create one and assign it (issue 132)." }
 ```
 
-It is scoped to the locations a `nav` component in the composition references (a
-nav component defaults to the `primary` location). A registered location that no
-page renders stays silent -- no false alarms.
+It is scoped to the locations the template actually renders, not to anything a
+page composition declares -- chrome is not composable (see `composition.md` ->
+Site chrome). Because chrome renders on every page, these rows appear on every
+preflight, including a site-scoped one with no `--post_id`. A registered location
+the template never renders (say, one a plugin adds) stays silent -- no false alarms.
 
 | It flags | Meaning | What to do |
 |---|---|---|
-| `no menu assigned` | The location has no WP menu attached | Assign one via the `assign_menu_location` action, or build menu + items + location in one call with `set_menu` (registered locations: `primary`, `footer`) |
+| `no menu assigned` | The location has no WP menu attached | Assign one via the `assign_menu_location` action, or build menu + items + location in one call with `set_menu` (rendered locations: `primary`, `footer`) |
 | `menu ... is empty` | A menu is attached but has zero items | Add items via the `add_menu_item` action (or replace declaratively with `set_menu`) |
-| `references unregistered location` | A nav component's `location` prop is not a registered location | Fix the nav component's `location`, or register it in `functions.php` |
+| `not registered` | The template renders a location nothing registered | Register it in `functions.php` |
+| `pp_logo_id ... is not an image` | The site logo option points at a non-image attachment, so the chrome silently falls back to a text wordmark | Set `pp_logo_id` to an image attachment ID via `update_site_option`, or clear it to use the wordmark deliberately |
 
 This is the diagnostic for a "broken" or missing mobile menu: if the hamburger
 opens to nothing, preflight will already be telling you the menu is empty or

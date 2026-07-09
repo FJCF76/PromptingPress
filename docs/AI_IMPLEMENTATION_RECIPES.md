@@ -10,6 +10,7 @@ Repeatable patterns for the most common change types in this backlog, plus the l
 
 1. **Only `lib/wp.php` calls WordPress functions directly.** Templates and components call `pp_*` wrappers. If you need a new WP capability in a component/template, add a `pp_*` wrapper in `lib/wp.php` and call that.
 2. **Components auto-load by convention:** `components/{name}/{name}.php` + `components/{name}/schema.json`. No registration. Do not edit `lib/components.php` (the loader contract).
+2b. **Registered ⊋ composable (#223).** Auto-loading makes a component *renderable*, not *composable*. A component the page template renders itself is site chrome and must be declared in `pp_template_owned_components()` (`lib/admin.php`); `pp_validate_composition()` then rejects it from `_pp_composition`. Skip that step and the component is both rendered by the template and placeable in a page, so the page renders it twice while every validator passes. `tests/NavReadinessTest.php` fails if `templates/base.php` renders a component the list does not declare.
 3. **Actions/applies follow the contract:** `name`, `scope`/`domain`, `description`, `params`, and `validate` / `preview` (never writes) / `execute`|`apply` callables returning the canonical result shape. See `lib/actions.php` / `lib/apply.php`.
 4. **Style-slot & token values are injection-guarded:** every value that becomes CSS passes the `{};<>` guard (`_pp_validate_token_value` in `lib/apply.php`, mirrored in `pp_render_style_vars` in `lib/wp.php`). Never render a raw slot value.
 5. **Escaping at output:** `esc_html` for text, `esc_url` for URLs, `esc_attr` for attributes, `wp_kses_post` for rich HTML fields. Do not widen `esc_url` protocols globally.
@@ -74,8 +75,9 @@ Used by: #1 (testimonial), #102, #103, #56.
 2. Renderer: read `$props`, validate enums against an allowlist (see hero/section for the pattern), escape all output, and call `pp_render_style_vars(..., '{name}')` if it has style slots.
 3. `schema.json`: `props` (with `required`), and `styling.style_slots` sized to the component's real visual jobs (Recipe A).
 4. If it should be editable by semantic selector, register fields (Recipe B step 4).
-5. **Test:** `tests/ComponentLoaderTest.php` picks it up; `tests/ComponentPropsTest.php` for required props; a render test for output shape and escaping.
-6. **Verify:** `composer test`.
+5. **Decide composable vs chrome (#223).** If a page places it, it is composable — give it at least one required prop, or a bare `{"component":"x"}` validates while the accordion round-trip cannot preserve it (`SchemaValidationTest::testEveryComposableComponentDeclaresARequiredProp()` pins this). If instead `templates/base.php` renders it on every page, it is chrome: add it to `pp_template_owned_components()` (`lib/admin.php`) so `pp_validate_composition()` rejects it from a composition, and to `pp_template_owned_menu_locations()` (`lib/wp.php`) if it reads a nav-menu location. The drift guards in `tests/NavReadinessTest.php` read `templates/base.php` back and fail if the two disagree.
+6. **Test:** `tests/ComponentLoaderTest.php` picks it up; `tests/ComponentPropsTest.php` for required props; a render test for output shape and escaping.
+7. **Verify:** `composer test`.
 
 ---
 

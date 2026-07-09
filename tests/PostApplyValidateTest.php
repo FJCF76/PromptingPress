@@ -30,6 +30,16 @@ class PostApplyValidateTest extends TestCase
         $GLOBALS['_pp_test_store']['post_meta'] = [];
         $GLOBALS['_pp_test_store']['posts'] = [];
 
+        // Site chrome readiness is now checked on every page, unconditionally
+        // (#223) — it no longer depends on the composition containing a `nav`.
+        // Seed it READY so the only warnings a test sees are the ones it sets up.
+        // pp_check_nav_readiness() emits nothing for ready chrome, and
+        // pp_post_apply_validate() only forwards failing rows.
+        $GLOBALS['_pp_test_store']['registered_nav_menus'] = ['primary' => 'Primary', 'footer' => 'Footer'];
+        $GLOBALS['_pp_test_store']['nav_menu_locations']   = ['primary' => 1, 'footer' => 2];
+        $GLOBALS['_pp_test_store']['nav_menu_items']       = [1 => [['id' => 1]], 2 => [['id' => 2]]];
+        unset($GLOBALS['_pp_test_store']['options']['pp_logo_id']);
+
         // Create a test post.
         $this->postId = 42;
         $GLOBALS['_pp_test_store']['posts'][$this->postId] = [
@@ -543,14 +553,12 @@ class PostApplyValidateTest extends TestCase
 
     public function testBareHashHrefIsWarning(): void
     {
-        $this->createTestComponent('nav', '<div><a href="#">Link</a></div>');
+        // Deliberately not named 'nav': chrome may not appear in a composition
+        // (#223), and this test is about the bare-# href, not about chrome.
+        $this->createTestComponent('linkbar', '<div><a href="#">Link</a></div>');
         $this->setComposition([
-            ['component' => 'nav', 'props' => [], 'style' => []],
+            ['component' => 'linkbar', 'props' => [], 'style' => []],
         ]);
-        // Make the referenced nav location ready so the only warning under test is
-        // the bare-# href (otherwise nav_readiness adds a "no menu assigned" warning).
-        $GLOBALS['_pp_test_store']['nav_menu_locations'] = ['primary' => 1];
-        $GLOBALS['_pp_test_store']['nav_menu_items']     = [1 => [['id' => 1]]];
 
         $result = pp_post_apply_validate($this->postId);
 
@@ -572,15 +580,110 @@ class PostApplyValidateTest extends TestCase
         $this->assertEmpty($result['warnings']);
     }
 
+    // ── Template-owned chrome in a stored composition (#223) ─────────────
+    //
+    // These rows can only exist by predating the write-time rejection, by a raw
+    // meta write, or by restoring a legacy history snapshot. `wp pp validate page`
+    // used to render them and report success, certifying a visibly broken page.
+
+    public function testComposedNavIsAnErrorNotACertifiedPass(): void
+    {
+        $this->createTestComponent('nav', '<header class="site-header">Nav</header>');
+        $this->setComposition([
+            ['component' => 'nav', 'props' => [], 'style' => []],
+        ]);
+
+        $result = pp_post_apply_validate($this->postId);
+
+        $this->assertFalse($result['ok'], 'A composed nav must never validate clean.');
+        $chrome = array_values(array_filter(
+            $result['errors'],
+            fn($e) => $e['check'] === 'template_owned_component'
+        ));
+        $this->assertCount(1, $chrome);
+        $this->assertSame(0, $chrome[0]['component_index']);
+        $this->assertStringContainsString('site chrome', $chrome[0]['message']);
+    }
+
+    public function testComposedFooterIsAnErrorNotACertifiedPass(): void
+    {
+        $this->createTestComponent('footer', '<footer>Footer</footer>');
+        $this->setComposition([
+            ['component' => 'footer', 'props' => [], 'style' => []],
+        ]);
+
+        $result = pp_post_apply_validate($this->postId);
+
+        $this->assertFalse($result['ok']);
+        $this->assertNotEmpty(array_filter(
+            $result['errors'],
+            fn($e) => $e['check'] === 'template_owned_component'
+        ));
+    }
+
+    public function testChromeIsFlaggedAlongsideValidContent(): void
+    {
+        // The exact shape ai-instructions/composition.md used to document:
+        // nav ... hero ... footer. Both chrome items must be named.
+        $this->createTestComponent('nav', '<header class="site-header">Nav</header>');
+        $this->createTestComponent('hero', '<section><h1>Hello</h1></section>');
+        $this->createTestComponent('footer', '<footer>Footer</footer>');
+        $this->setComposition([
+            ['component' => 'nav', 'props' => [], 'style' => []],
+            ['component' => 'hero', 'props' => [], 'style' => []],
+            ['component' => 'footer', 'props' => [], 'style' => []],
+        ]);
+
+        $result = pp_post_apply_validate($this->postId);
+
+        $this->assertFalse($result['ok']);
+        $chrome = array_values(array_filter(
+            $result['errors'],
+            fn($e) => $e['check'] === 'template_owned_component'
+        ));
+        $this->assertCount(2, $chrome);
+        $this->assertSame([0, 2], array_column($chrome, 'component_index'));
+
+        // One defect, one error. Chrome is deliberately not rendered, so it must not
+        // ALSO be reported as a component that failed to produce output — an agent in
+        // a fix loop would chase a phantom render bug instead of removing the chrome.
+        $this->assertSame(
+            [],
+            array_values(array_filter(
+                $result['errors'],
+                fn($e) => $e['check'] === 'component_count_mismatch'
+            )),
+            'Skipped chrome must not also trigger component_count_mismatch.'
+        );
+    }
+
+    public function testChromeFreeCompositionIsUnaffected(): void
+    {
+        // The constraint from #223: existing content pages must validate exactly
+        // as they did before.
+        $this->createTestComponent('hero', '<section><h1>Hello</h1></section>');
+        $this->createTestComponent('cta', '<div>CTA</div>');
+        $this->setComposition([
+            ['component' => 'hero', 'props' => [], 'style' => []],
+            ['component' => 'cta', 'props' => [], 'style' => []],
+        ]);
+
+        $result = pp_post_apply_validate($this->postId);
+
+        $this->assertTrue($result['ok']);
+        $this->assertEmpty($result['errors']);
+        $this->assertEmpty($result['warnings']);
+    }
+
     // ── Composition-level: count mismatch ────────────────────────────────
 
     public function testComponentCountMatchPasses(): void
     {
         $this->createTestComponent('hero', '<section><h1>Hello</h1></section>');
-        $this->createTestComponent('footer', '<footer>Footer</footer>');
+        $this->createTestComponent('colophon', '<div>Colophon</div>');
         $this->setComposition([
             ['component' => 'hero', 'props' => [], 'style' => []],
-            ['component' => 'footer', 'props' => [], 'style' => []],
+            ['component' => 'colophon', 'props' => [], 'style' => []],
         ]);
 
         $result = pp_post_apply_validate($this->postId);

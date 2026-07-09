@@ -348,6 +348,27 @@ function pp_validate_composition_smells(array $composition): array {
         $hero_layout = $props['layout'] ?? 'centered';
         $image_url = $props['image_url'] ?? '';
 
+        // Template-owned chrome stored in a composition (issue #223). Write-time
+        // validation rejects this now, so a row can only get here by predating
+        // the fix or by bypassing the action layer (a raw meta write, or a
+        // restore of a legacy history snapshot). Either way the page renders the
+        // header and footer twice, so no validator may report it clean.
+        if (pp_is_template_owned_component((string) $component)) {
+            $warnings[] = [
+                'type' => 'template_owned_component',
+                // Name the action, not a literal command: this function has no
+                // post_id to build one from, and remove_component shifts every
+                // later index down — a copy-pasted index removes the wrong
+                // component on a page with two chrome items.
+                'message' => sprintf(
+                    '"%s" at index %d is site chrome rendered by the page template — this page renders it twice. Remove it with the remove_component action. Each removal shifts later indices down, so remove the highest index first.',
+                    $component,
+                    $i
+                ),
+                'index' => $i,
+            ];
+        }
+
         // Hero left without image
         if ($component === 'hero' && $hero_layout === 'left' && empty($image_url)) {
             $warnings[] = [

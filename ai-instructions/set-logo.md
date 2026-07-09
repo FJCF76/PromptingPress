@@ -1,6 +1,6 @@
 # Set the Site Logo
 
-Use the `update_site_option` action to set the site-wide logo through a safe surface. The logo is a **Media Library attachment ID** (`pp_logo_id`), never a raw URL. It renders in the nav automatically, and in the footer when opted in.
+Use the `update_site_option` action to set the site-wide logo through a safe surface. The logo is a **Media Library attachment ID** (`pp_logo_id`), never a raw URL. It renders in the nav automatically. The footer keeps its copyright line — see [Footer logo](#footer-logo) below.
 
 ---
 
@@ -67,18 +67,24 @@ Load the homepage and confirm the nav renders an `<img class="nav__logo-image">`
 
 The nav and footer share one resolver. It picks the first source that yields an image, then falls back to text:
 
-1. an explicit `logo_id` prop on the component (if the nav/footer is invoked with one),
+1. an explicit `logo_id` prop on the component (the base template never passes one),
 2. the `pp_logo_id` site option (what you set above),
 3. WordPress' native `custom_logo` theme-mod (Appearance → Customize → Logo),
 4. the text wordmark (`logo_text`, defaulting to the site title).
 
 So if you never set `pp_logo_id`, a logo set through the WordPress Customizer still shows. If nothing resolves to an image, the nav shows the site name as text.
 
+`wp pp apply preflight` warns (`nav_readiness`) when `pp_logo_id` is set to an attachment that is not an image — the resolver silently falls through to the wordmark, so without the warning you would see no logo and no explanation.
+
 ---
 
-## Footer logo (opt-in)
+## Footer logo
 
-The footer does **not** show the logo by default, so existing footers are unchanged. To turn it on, the footer component must be invoked with `show_logo: true`; it then uses the same resolution as the nav. Nav is always on; footer is opt-in.
+The footer does **not** show the logo, and there is currently **no supported surface to turn it on**.
+
+`footer.show_logo` gates it, and the only way to pass that prop was to put a `footer` component into a page composition. Since #223 that is rejected: `nav` and `footer` are site chrome rendered by the base template, and composing one renders the chrome twice. `templates/base.php` invokes the footer with `location` only.
+
+`pp_logo_id` therefore sets the **header** logo. The footer keeps its copyright line. Tracked in #234. Do not work around this by composing a `footer` component — the write is rejected with `template_owned_component`, and every validator flags the page.
 
 ---
 

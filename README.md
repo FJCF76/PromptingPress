@@ -13,7 +13,7 @@
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
 [![Tests](https://img.shields.io/badge/Tests-1550+_passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-0.16.61-6366F1?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.16.62-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -127,7 +127,7 @@ No blocks. No shortcodes. No visual-builder serialization. AI can read, write, d
 
 ### 🧩 Typed components — contracts, not conventions
 
-12 components, each isolated in its own directory with a `schema.json`:
+12 components, each isolated in its own directory with a `schema.json`. Ten of them are composable — a page places them:
 
 | Component | Purpose | Key props |
 |-----------|---------|-----------|
@@ -141,8 +141,8 @@ No blocks. No shortcodes. No visual-builder serialization. AI can read, write, d
 | table | Data/comparison table, horizontal scroll on mobile | `headers[]`, `rows[][]` |
 | embed | WordPress shortcode / plugin content wrapper | `content` |
 | testimonials | Customer quotes with attribution — card grid or single-column stack | `items[]` |
-| nav | Site header with hamburger mobile nav | -- |
-| footer | Site footer with nav menu and copyright | -- |
+
+Two more components ship with the theme but are **not composable**: `nav` and `footer` are site chrome, rendered on every page by the base template. Putting either into a page composition renders the header or footer twice, so the write is rejected with `template_owned_component`. Set the site logo through the `pp_logo_id` option and the menus through the menu actions.
 
 The auto-loader picks up any new component at `/components/{name}/{name}.php` — drop a file, add a schema, it works. No registration code.
 

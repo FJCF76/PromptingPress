@@ -57,6 +57,9 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
     $uploads_baseurl      = rtrim($uploads['baseurl'], '/');
 
     $rendered_count = 0;
+    // Chrome items are skipped, not rendered (#223). Tracked separately so the
+    // count reconciliation below doesn't double-report them as missing output.
+    $skipped_chrome = 0;
 
     // 2. Render each component and inspect.
     foreach ($composition as $index => $item) {
@@ -74,6 +77,24 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
                 'component_index' => $index,
                 'message'         => "Component #{$index}: empty component name.",
             ];
+            continue;
+        }
+
+        // Site chrome in a composition renders the header/footer twice. This is
+        // an error, not a warning: rendered validation previously certified such
+        // a page as correct, which is the worse half of issue #223. Skip the
+        // render — the duplicate is the finding, and its DOM adds nothing.
+        if (pp_is_template_owned_component($name)) {
+            $errors[] = [
+                'check'           => 'template_owned_component',
+                'component_index' => $index,
+                'message'         => "Component #{$index} ({$name}): " . pp_template_owned_component_message($name),
+            ];
+            // Counts toward the composition total: this item was deliberately not
+            // rendered, so it must not also be reported as a component that failed
+            // to produce output (component_count_mismatch below). One defect, one
+            // error — an agent in a fix loop should not chase a phantom render bug.
+            $skipped_chrome++;
             continue;
         }
 
@@ -217,11 +238,13 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
 
     // 4. Composition-level checks.
 
-    // 4a. Rendered count vs DB count (D4).
-    if ($rendered_count !== $db_count) {
+    // 4a. Rendered count vs DB count (D4). Chrome items were deliberately not
+    // rendered and already carry their own error, so they are not missing output.
+    $expected_render_count = $db_count - $skipped_chrome;
+    if ($rendered_count !== $expected_render_count) {
         $errors[] = [
             'check'   => 'component_count_mismatch',
-            'message' => "Expected {$db_count} components, but {$rendered_count} rendered non-empty output.",
+            'message' => "Expected {$expected_render_count} components, but {$rendered_count} rendered non-empty output.",
         ];
     }
 
@@ -294,10 +317,11 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
         }
     }
 
-    // Navigation readiness (warning-grade): surface empty/incomplete nav config for
-    // the locations this composition references. Never an error — it does not gate
-    // the apply's success, only informs the operator.
-    foreach (pp_check_nav_readiness($composition) as $nav_check) {
+    // Chrome readiness (warning-grade): surface empty/incomplete menu and logo
+    // config for the site chrome the template renders on every page. Never an
+    // error — it does not gate the apply's success, only informs the operator.
+    // Site-scoped, not composition-scoped: chrome is template-owned (#223).
+    foreach (pp_check_nav_readiness() as $nav_check) {
         if (!$nav_check['pass']) {
             $warnings[] = [
                 'check'   => 'nav_readiness',

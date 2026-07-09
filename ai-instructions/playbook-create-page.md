@@ -58,7 +58,7 @@ Evaluate each item against the screenshots:
 | hero_has_cta | Hero section has a visible call-to-action | hard | desktop |
 | brand_tokens_applied | Brand colors and typography match design tokens | soft | desktop |
 | images_loaded | All referenced images load without broken placeholders | soft | any |
-| nav_footer_present | Navigation and footer render correctly | soft | desktop |
+| nav_footer_present | The template renders the site nav and footer exactly once (never add them to the composition) | soft | desktop |
 
 If any **hard gate** fails: loop back to PLAN. Maximum 2 retries.
 

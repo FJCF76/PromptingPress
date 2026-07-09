@@ -316,12 +316,12 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
         }
     }
 
-    // Check 8: Navigation readiness (warning-grade, advisory — never blocks a mutation).
-    // Scoped to nav locations the target page's composition actually references.
-    if (isset($context['post_id'])) {
-        foreach (pp_check_nav_readiness(pp_get_composition($context['post_id'])) as $nav_check) {
-            $checks[] = $nav_check;
-        }
+    // Check 8: Site chrome readiness (warning-grade, advisory — never blocks a mutation).
+    // Unconditional: chrome is template-owned (#223), so it renders on every page
+    // regardless of which page (if any) this mutation targets. A site-scoped action
+    // such as update_site_option on pp_logo_id has no post_id yet changes the chrome.
+    foreach (pp_check_nav_readiness() as $nav_check) {
+        $checks[] = $nav_check;
     }
 
     // Check 9: Screenshot readiness (warning-grade, advisory — never blocks a mutation).
@@ -372,7 +372,7 @@ function pp_operate_checklists(): array {
             ['id' => 'hero_has_cta',         'description' => 'Hero section has a visible call-to-action',                 'gate' => 'hard', 'viewport' => 'desktop'],
             ['id' => 'brand_tokens_applied', 'description' => 'Brand colors and typography match design tokens',           'gate' => 'soft', 'viewport' => 'desktop'],
             ['id' => 'images_loaded',        'description' => 'All referenced images load without broken placeholders',    'gate' => 'soft', 'viewport' => 'any'],
-            ['id' => 'nav_footer_present',   'description' => 'Navigation and footer render correctly',                    'gate' => 'soft', 'viewport' => 'desktop'],
+            ['id' => 'nav_footer_present',   'description' => 'The template renders the site nav and footer exactly once (never add them to the composition)', 'gate' => 'soft', 'viewport' => 'desktop'],
         ],
         'revise-section' => [
             ['id' => 'target_section_changed', 'description' => 'The target section reflects the requested changes',       'gate' => 'hard', 'viewport' => 'desktop'],
