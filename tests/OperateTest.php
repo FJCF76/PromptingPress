@@ -1715,6 +1715,103 @@ class OperateTest extends TestCase
         pp_operate_cleanup_run($run_id);
     }
 
+    // ── Composition touched-post + content snapshot + run restore (#133) ────
+
+    public function testTouchedPostIdsDedupeAndFailClosed(): void
+    {
+        $run_id = pp_operate_create_run();
+        $this->assertNull(pp_operate_get_touched_post_ids($run_id), 'null before any record');
+        $this->assertTrue(pp_operate_record_touched_post_id($run_id, 701));
+        $this->assertTrue(pp_operate_record_touched_post_id($run_id, 701), 'dedupe: same post twice is a no-op');
+        $this->assertTrue(pp_operate_record_touched_post_id($run_id, 702));
+        $this->assertSame([701, 702], pp_operate_get_touched_post_ids($run_id));
+        // Fail-closed on an unusable run.
+        $this->assertFalse(pp_operate_record_touched_post_id('00000000-0000-4000-8000-000000000000', 701));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testCompositionContentSnapshotFirstWriteWins(): void
+    {
+        $run_id = pp_operate_create_run();
+        $this->assertNull(pp_operate_get_composition_content_snapshot($run_id, 701));
+        $first  = [['component' => 'hero', 'props' => ['title' => 'pre-run']]];
+        $second = [['component' => 'hero', 'props' => ['title' => 'later']]];
+        $this->assertTrue(pp_operate_record_composition_content_snapshot($run_id, 701, $first));
+        $this->assertTrue(pp_operate_record_composition_content_snapshot($run_id, 701, $second));
+        $this->assertSame($first, pp_operate_get_composition_content_snapshot($run_id, 701), 'first write wins');
+        // An empty pre-run composition is a legitimate baseline ([], not null).
+        $this->assertTrue(pp_operate_record_composition_content_snapshot($run_id, 702, []));
+        $this->assertSame([], pp_operate_get_composition_content_snapshot($run_id, 702));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRunScopedRestoreRevertsTouchedPostsAndLeavesOthersUntouched(): void
+    {
+        // Acceptance criterion #3: preflight → two composition mutations → restore-by-run
+        // reverts both pages; a page mutated by a DIFFERENT run is untouched.
+        $GLOBALS['_pp_test_store']['post_meta'] = [];
+
+        // Two pages this run will touch, plus a third owned by another run.
+        pp_update_composition(801, [['component' => 'hero', 'props' => ['title' => 'A0']]]);
+        pp_update_composition(802, [['component' => 'hero', 'props' => ['title' => 'B0']]]);
+        pp_update_composition(803, [['component' => 'hero', 'props' => ['title' => 'C0']]]);
+
+        // This run: freeze the pre-apply content for 801 and 802 (as preflight does).
+        $run_id = pp_operate_create_run();
+        pp_operate_record_step($run_id, 'PREFLIGHT');
+        pp_operate_record_composition_content_snapshot($run_id, 801, pp_get_composition(801));
+        pp_operate_record_composition_content_snapshot($run_id, 802, pp_get_composition(802));
+
+        // Two mutations by this run.
+        pp_update_composition(801, [['component' => 'hero', 'props' => ['title' => 'A1']]]);
+        pp_operate_record_touched_post_id($run_id, 801);
+        pp_update_composition(802, [['component' => 'hero', 'props' => ['title' => 'B1']]]);
+        pp_operate_record_touched_post_id($run_id, 802);
+
+        // A different run mutates 803.
+        pp_update_composition(803, [['component' => 'hero', 'props' => ['title' => 'C1']]]);
+
+        $report = pp_operate_restore_run_compositions($run_id);
+        $this->assertTrue($report['ok']);
+        $this->assertCount(2, $report['reverted']);
+        $this->assertSame([], $report['skipped']);
+
+        // Both touched pages reverted to their pre-run content.
+        $this->assertSame('A0', pp_get_composition(801)[0]['props']['title']);
+        $this->assertSame('B0', pp_get_composition(802)[0]['props']['title']);
+        // The page owned by a different run is untouched.
+        $this->assertSame('C1', pp_get_composition(803)[0]['props']['title']);
+
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRunScopedRestoreFailsClosedWithoutTouchedPosts(): void
+    {
+        $run_id = pp_operate_create_run();
+        $report = pp_operate_restore_run_compositions($run_id);
+        $this->assertFalse($report['ok']);
+        $this->assertSame('no_touched_post_ids', $report['error']);
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRunScopedRestoreSkipsPostMissingSnapshot(): void
+    {
+        $GLOBALS['_pp_test_store']['post_meta'] = [];
+        pp_update_composition(811, [['component' => 'hero', 'props' => ['title' => 'X0']]]);
+        $run_id = pp_operate_create_run();
+        // Touched but no content snapshot recorded → skipped, nothing reverted.
+        pp_update_composition(811, [['component' => 'hero', 'props' => ['title' => 'X1']]]);
+        pp_operate_record_touched_post_id($run_id, 811);
+
+        $report = pp_operate_restore_run_compositions($run_id);
+        $this->assertTrue($report['ok']);
+        $this->assertSame([], $report['reverted']);
+        $this->assertCount(1, $report['skipped']);
+        $this->assertSame('no_snapshot', $report['skipped'][0]['reason']);
+        $this->assertSame('X1', pp_get_composition(811)[0]['props']['title'], 'unchanged when snapshot missing');
+        pp_operate_cleanup_run($run_id);
+    }
+
     // ── apply reset rollback trail (#122) ──────────────────────────────────
 
     public function testApplyResetRecordsTouchedTokensRestorableViaRevert(): void

@@ -979,6 +979,141 @@ function pp_operate_get_touched_tokens( string $run_id ): ?array {
 }
 
 /**
+ * Records a post whose composition an action wrote, deduped, for a run (#133).
+ *
+ * The composition analogue of pp_operate_record_touched_tokens: the touched-post set
+ * scopes what a run-scoped composition restore is allowed to revert. Returns false
+ * (never silently) if the run state is missing/expired/corrupt or identity-mismatched,
+ * so the caller can surface that the change may not be reversible.
+ *
+ * @param string $run_id   The run token UUID.
+ * @param int    $post_id  The post whose composition was written.
+ * @return bool  True only on a confirmed write.
+ */
+function pp_operate_record_touched_post_id( string $run_id, int $post_id ): bool {
+    return pp_operate_mutate_state( $run_id, static function ( array $data ) use ( $post_id ) {
+        $existing = isset( $data['touched_post_ids'] ) && is_array( $data['touched_post_ids'] )
+            ? $data['touched_post_ids'] : [];
+        if ( ! in_array( $post_id, $existing, true ) ) {
+            $existing[] = $post_id;
+        }
+        $data['touched_post_ids'] = array_values( $existing );
+        return $data;
+    } );
+}
+
+/**
+ * Returns the touched-post set for a run, or null (#133).
+ *
+ * Null when the run is unusable or no touched_post_ids were recorded; a valid run that
+ * touched none returns []. Run-scoped composition restore fails-closed on null.
+ *
+ * @param string $run_id  The run token UUID.
+ * @return array|null
+ */
+function pp_operate_get_touched_post_ids( string $run_id ): ?array {
+    $data = pp_operate_read_state( $run_id );
+    if ( $data === null || ! array_key_exists( 'touched_post_ids', $data ) || ! is_array( $data['touched_post_ids'] ) ) {
+        return null;
+    }
+    return array_map( 'intval', $data['touched_post_ids'] );
+}
+
+/**
+ * Freezes the pre-apply composition CONTENT for a post in a run, first-write-wins (#133).
+ *
+ * The composition analogue of the token_snapshot: captured at PREFLIGHT, this is the
+ * full composition array a run-scoped restore reverts each touched post to. Distinct
+ * from #113's composition_snapshot, which stores only the freshness MARKER (version +
+ * hash) for the TOCTOU gate — the marker can't rebuild content. First-write-wins per
+ * post so re-running preflight in the same run keeps the true pre-run baseline stable.
+ *
+ * @param string $run_id       The run token UUID.
+ * @param int    $post_id      The post being snapshotted.
+ * @param array  $composition  The pre-apply composition array.
+ * @return bool
+ */
+function pp_operate_record_composition_content_snapshot( string $run_id, int $post_id, array $composition ): bool {
+    return pp_operate_mutate_state( $run_id, static function ( array $data ) use ( $post_id, $composition ) {
+        if ( ! isset( $data['composition_content_snapshot'] ) || ! is_array( $data['composition_content_snapshot'] ) ) {
+            $data['composition_content_snapshot'] = [];
+        }
+        $key = (string) $post_id;
+        if ( ! array_key_exists( $key, $data['composition_content_snapshot'] ) ) {
+            $data['composition_content_snapshot'][ $key ] = $composition;
+        }
+        return $data;
+    } );
+}
+
+/**
+ * Returns the frozen pre-apply composition content for a post in a run, or null (#133).
+ *
+ * Null when the run is unusable or no content snapshot was recorded for this post. A
+ * valid run that snapshotted an empty composition returns [] — load-bearing: a
+ * run-scoped restore reverts to [] (an intentionally empty page), not fail-closed.
+ *
+ * @param string $run_id   The run token UUID.
+ * @param int    $post_id  The post whose pre-run composition is wanted.
+ * @return array|null
+ */
+function pp_operate_get_composition_content_snapshot( string $run_id, int $post_id ): ?array {
+    $data = pp_operate_read_state( $run_id );
+    if ( $data === null || ! isset( $data['composition_content_snapshot'] ) || ! is_array( $data['composition_content_snapshot'] ) ) {
+        return null;
+    }
+    $key = (string) $post_id;
+    if ( ! array_key_exists( $key, $data['composition_content_snapshot'] ) || ! is_array( $data['composition_content_snapshot'][ $key ] ) ) {
+        return null;
+    }
+    return $data['composition_content_snapshot'][ $key ];
+}
+
+/**
+ * Reverts every composition a run touched back to its pre-run content snapshot (#133).
+ *
+ * The composition analogue of `wp pp apply restore`'s token revert: for each post in the
+ * run's touched_post_ids, rewrite its composition to the pre-apply content frozen at
+ * preflight. Scoped strictly to THIS run's touched posts — a page a DIFFERENT run
+ * mutated is never touched. Each revert goes through pp_update_composition (its own lock
+ * + marker bump + history entry), unconditional (no CAS): restoring the pre-run baseline
+ * is the intent, mirroring the token restore's force-to-snapshot semantics.
+ *
+ * Fail-closed and per-post: a null touched set (unusable run) returns ok=false and
+ * reverts nothing; a post missing its snapshot or whose write fails is recorded under
+ * `skipped` while the rest proceed. Returns a structured report for the caller to render.
+ *
+ * @param string $run_id  The run token UUID.
+ * @return array{ok:bool, error:?string, reverted:array, skipped:array}
+ */
+function pp_operate_restore_run_compositions( string $run_id ): array {
+    $touched = pp_operate_get_touched_post_ids( $run_id );
+    if ( $touched === null ) {
+        return [ 'ok' => false, 'error' => 'no_touched_post_ids', 'reverted' => [], 'skipped' => [] ];
+    }
+
+    $reverted = [];
+    $skipped  = [];
+    foreach ( $touched as $post_id ) {
+        $snapshot = pp_operate_get_composition_content_snapshot( $run_id, $post_id );
+        if ( $snapshot === null ) {
+            $skipped[] = [ 'post_id' => $post_id, 'reason' => 'no_snapshot' ];
+            continue;
+        }
+        $before = pp_get_composition( $post_id );
+        $result = pp_update_composition( $post_id, $snapshot );
+        if ( is_wp_error( $result ) ) {
+            $skipped[] = [ 'post_id' => $post_id, 'reason' => $result->get_error_code() ];
+            continue;
+        }
+        $after      = pp_get_composition( $post_id );
+        $reverted[] = [ 'post_id' => $post_id, 'changed' => ( $before !== $after ) ];
+    }
+
+    return [ 'ok' => true, 'error' => null, 'reverted' => $reverted, 'skipped' => $skipped ];
+}
+
+/**
  * True iff the run is currently usable as a rollback source: the state is valid for
  * this install AND a frozen pre-apply snapshot exists. Used as execute()'s pre-mutation
  * gate so a change that could not be rolled back is never applied in the first place.

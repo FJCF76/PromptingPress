@@ -173,6 +173,56 @@ function ppChatIsRevertEligible(steps) {
     return steps && steps.length === 1 && steps[0].name === 'update_design_token';
 }
 
+// Actions that overwrite a page's composition (#133). A proposal containing any of
+// these leaves a restorable history entry per step, so it earns an "Undo these
+// changes" affordance that calls restore_composition (parity with the token
+// "Reset to default" link, which only covers a single update_design_token).
+var PP_COMPOSITION_MUTATION_ACTIONS = {
+    update_composition: true,
+    add_component: true,
+    remove_component: true,
+    reorder_components: true,
+    update_component: true,
+    restore_composition: true
+};
+
+/**
+ * Resolves the restore_composition target for an applied proposal's steps (#133).
+ *
+ * Returns { postId, stepsBack } when the proposal's composition mutations all target a
+ * SINGLE page — stepsBack equals the count of those mutations, so restoring walks the
+ * history ring back to the state just before the proposal's first composition write.
+ * Returns null when there are no composition mutations, a mutation lacks a post target,
+ * or the mutations span multiple pages (no single-page undo makes sense there).
+ */
+function ppChatCompositionUndoTarget(steps) {
+    if (!steps || !steps.length) {
+        return null;
+    }
+    var postId = null;
+    var count = 0;
+    for (var i = 0; i < steps.length; i++) {
+        var s = steps[i];
+        if (!s || !s.name || !PP_COMPOSITION_MUTATION_ACTIONS[s.name]) {
+            continue;
+        }
+        var pid = s.params && s.params.post_id;
+        if (pid === null || pid === undefined || pid === '') {
+            return null; // composition mutation without a post target — can't scope an undo
+        }
+        if (postId === null) {
+            postId = pid;
+        } else if (String(pid) !== String(postId)) {
+            return null; // spans multiple pages — no single-page undo
+        }
+        count++;
+    }
+    if (postId === null || count === 0) {
+        return null;
+    }
+    return { postId: postId, stepsBack: count };
+}
+
 /**
  * Renders a user-friendly error message in a preview diff area.
  * Handles structured errors (from _pp_build_friendly_error) and plain strings.
@@ -1295,6 +1345,51 @@ function ppChatAppendValidationItems(container, items, className) {
             hasLinks = true;
         }
 
+        // Undo these changes link — composition mutations (#133). Parity with the token
+        // "Reset to default" link: walks the page's history ring back to the state before
+        // this proposal's composition writes via the restore_composition action.
+        var undoTarget = ppChatCompositionUndoTarget(steps);
+        if (undoTarget) {
+            var undoLink = document.createElement('a');
+            undoLink.href = '#';
+            undoLink.textContent = 'Undo these changes';
+            undoLink.style.marginLeft = hasLinks ? '16px' : '0';
+            undoLink.addEventListener('click', function (e) {
+                e.preventDefault();
+                undoLink.textContent = 'Undoing…';
+                undoLink.style.pointerEvents = 'none';
+
+                var undoData = new FormData();
+                undoData.append('action', 'pp_ai_execute');
+                undoData.append('nonce', config.executeNonce);
+                undoData.append('type', 'action');
+                undoData.append('name', 'restore_composition');
+                undoData.append('params[post_id]', undoTarget.postId);
+                undoData.append('params[steps_back]', undoTarget.stepsBack);
+
+                fetch(config.ajaxUrl, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    body: undoData
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (resp) {
+                    if (resp.success) {
+                        undoLink.textContent = 'Changes undone ✓';
+                    } else {
+                        undoLink.textContent = 'Undo failed';
+                        undoLink.className = 'pp-ai-link-error';
+                    }
+                })
+                .catch(function () {
+                    undoLink.textContent = 'Undo failed';
+                    undoLink.className = 'pp-ai-link-error';
+                });
+            });
+            linksDiv.appendChild(undoLink);
+            hasLinks = true;
+        }
+
         if (hasLinks) {
             card.appendChild(linksDiv);
         }
@@ -1789,6 +1884,7 @@ if (typeof module !== 'undefined' && module.exports) {
         formatDiffValue: ppChatFormatDiffValue,
         shouldShowMultiStepWarning: ppChatShouldShowMultiStepWarning,
         isRevertEligible: ppChatIsRevertEligible,
+        compositionUndoTarget: ppChatCompositionUndoTarget,
         renderPreviewError: ppChatRenderPreviewError,
         getErrorStepClass: ppChatGetErrorStepClass,
         getStatusMessage: ppChatGetStatusMessage,

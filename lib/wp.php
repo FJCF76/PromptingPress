@@ -1410,6 +1410,38 @@ function _pp_read_composition_version_locked($wpdb, int $post_id): int {
 }
 
 /**
+ * Reads the current stored composition JSON straight from the DB inside the composition
+ * lock, bypassing the post-meta object cache (#133).
+ *
+ * The composition history ring (see pp_update_composition) must capture the EXACT prior
+ * stored payload — the bytes a later restore replays — so it reads `_pp_composition`
+ * directly, the same lost-update reasoning as _pp_read_composition_version_locked: the
+ * pre-lock freshness check may have warmed a stale meta cache. Returns the raw JSON
+ * string, or null when the row is absent (a brand-new page with no prior state to
+ * preserve). Degrades to the cached read with no $wpdb (unit context).
+ *
+ * @param object|null $wpdb     The DB handle inside the lock, or null in unit context.
+ * @param int         $post_id  WordPress post ID.
+ * @return string|null  The stored composition JSON, or null if absent.
+ */
+function _pp_read_composition_json_locked($wpdb, int $post_id): ?string {
+    if (is_object($wpdb) && method_exists($wpdb, 'get_var')) {
+        $raw = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = %s LIMIT 1",
+                $post_id,
+                '_pp_composition'
+            )
+        );
+        return ($raw === null) ? null : (string) $raw;
+    }
+    $raw = get_post_meta($post_id, '_pp_composition', true);
+    // get_post_meta(single=true) returns '' for an absent key; treat only genuine
+    // absence as "no prior state", matching pp_get_composition_result's guard.
+    return ($raw === '' || $raw === false || $raw === null) ? null : (string) $raw;
+}
+
+/**
  * Computes the freshness content-hash of a composition (#113).
  *
  * Hashes the CANONICAL pre-stable-id form: the auto-generated top-level props.id (the
@@ -1451,6 +1483,70 @@ function pp_get_composition_marker(int $post_id): array {
         'version' => (int) get_post_meta($post_id, '_pp_composition_version', true),
         'hash'    => (string) get_post_meta($post_id, '_pp_composition_hash', true),
     ];
+}
+
+// ── Composition history ring (#133) ─────────────────────────────────────────
+// Design-token writes earned a full snapshot/restore subsystem; composition
+// writes (page content) had none — a replaced or component-removed composition
+// was lost permanently. Every composition write now pushes the PRIOR state onto
+// a bounded per-post history meta so an operator/AI can restore it. The push
+// happens inside pp_update_composition's per-post advisory lock, alongside the
+// #113 marker bump, so history stays consistent with the version counter.
+//
+//   pp_update_composition(post, C_new)
+//     └─ [lock] read prior JSON J_prior  ──►  push {ts, version, hash, C_prior}
+//                write C_new, bump marker      onto _pp_composition_history (ring, last N)
+//
+// restore_composition (lib/actions.php) reads this ring and re-writes a chosen
+// entry's composition back through pp_update_composition — so a restore is
+// itself a conflict-checked write that lands its own history entry.
+
+/**
+ * Maximum number of prior-composition snapshots retained per post (#133).
+ *
+ * A bounded ring: the Nth-oldest entry is evicted when a newer write pushes past N.
+ * Fixed (not configurable) — 10 covers realistic undo depth without unbounded meta
+ * growth on a hot page.
+ *
+ * @return int
+ */
+function pp_composition_history_max(): int {
+    return 10;
+}
+
+/**
+ * Returns the composition history ring for a post, newest-last (#133).
+ *
+ * Each entry is `{timestamp:int, version:int, hash:string, composition:array}` — the
+ * composition is the state as it was BEFORE the write that pushed the entry. Defensive
+ * like pp_get_composition_result: an absent, non-JSON, non-list, or shape-wrong meta row
+ * degrades to [] (no history) rather than fataling, and malformed individual entries are
+ * dropped. Callers get a clean list they can index or walk backwards.
+ *
+ * @param int $post_id  WordPress post ID.
+ * @return array  List of history entries, oldest first, or [] if none/unreadable.
+ */
+function pp_get_composition_history(int $post_id): array {
+    $raw = get_post_meta($post_id, '_pp_composition_history', true);
+    if ($raw === '' || $raw === null || $raw === false) {
+        return [];
+    }
+    $entries = is_array($raw) ? $raw : json_decode((string) $raw, true);
+    if (!is_array($entries) || !pp_is_list($entries)) {
+        return [];
+    }
+    $clean = [];
+    foreach ($entries as $entry) {
+        if (is_array($entry) && isset($entry['composition']) && is_array($entry['composition'])) {
+            $clean[] = [
+                'timestamp'   => (int) ($entry['timestamp'] ?? 0),
+                'version'     => (int) ($entry['version'] ?? 0),
+                'hash'        => (string) ($entry['hash'] ?? ''),
+                'composition' => $entry['composition'],
+            ];
+        }
+    }
+    return $clean;
 }
 
 /**
@@ -2080,6 +2176,37 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
         }
 
         $next_version = $current_version + 1;
+
+        // History ring (#133): push the PRIOR composition onto the bounded per-post
+        // history meta BEFORE overwriting, so the state this write replaces stays
+        // restorable. Runs inside this same advisory lock as the marker bump, so the
+        // ring never interleaves with a concurrent write to the same post. Only when a
+        // prior composition exists — a brand-new page's first write has nothing to
+        // preserve (and pushing an empty baseline would waste a ring slot). Read the
+        // prior JSON straight from the DB (bypassing a possibly-stale meta cache) so the
+        // captured bytes are exactly what a later restore replays.
+        $prior_json = _pp_read_composition_json_locked($wpdb, $post_id);
+        if ($prior_json !== null) {
+            $prior_items = json_decode($prior_json, true);
+            if (is_array($prior_items)) {
+                $history   = pp_get_composition_history($post_id);
+                $history[] = [
+                    'timestamp'   => time(),
+                    'version'     => $current_version,
+                    'hash'        => (string) get_post_meta($post_id, '_pp_composition_hash', true),
+                    'composition' => $prior_items,
+                ];
+                $max = pp_composition_history_max();
+                if (count($history) > $max) {
+                    $history = array_slice($history, -$max);
+                }
+                update_post_meta(
+                    $post_id,
+                    '_pp_composition_history',
+                    wp_slash(wp_json_encode($history, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
+                );
+            }
+        }
 
         // Write the composition first, then the hash, then the version LAST. A concurrent
         // marker reader (the freshness check, which is NOT under this lock) therefore

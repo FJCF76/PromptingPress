@@ -48,6 +48,7 @@ const {
     formatDiffValue,
     shouldShowMultiStepWarning,
     isRevertEligible,
+    compositionUndoTarget,
     renderPreviewError,
     getErrorStepClass,
     getStatusMessage,
@@ -489,5 +490,63 @@ describe('buildCompositionSummary', function () {
         var result = buildCompositionSummary(null, null);
         expect(result.fromCount).toBe(0);
         expect(result.toCount).toBe(0);
+    });
+});
+
+// ─── compositionUndoTarget (#133 — "Undo these changes" affordance) ───────────
+
+describe('compositionUndoTarget', function () {
+    test('single remove_component proposal → stepsBack 1 on its post', function () {
+        var steps = [{ name: 'remove_component', params: { post_id: 42, component_index: 1 } }];
+        expect(compositionUndoTarget(steps)).toEqual({ postId: 42, stepsBack: 1 });
+    });
+
+    test('multi-step composition proposal on one post → stepsBack = count', function () {
+        var steps = [
+            { name: 'add_component', params: { post_id: 7, component: 'hero', props: {} } },
+            { name: 'update_component', params: { post_id: 7 } },
+            { name: 'remove_component', params: { post_id: 7, component_index: 0 } },
+        ];
+        expect(compositionUndoTarget(steps)).toEqual({ postId: 7, stepsBack: 3 });
+    });
+
+    test('ignores non-composition steps when counting', function () {
+        var steps = [
+            { name: 'update_design_token', params: { token: '--color-accent' } },
+            { name: 'remove_component', params: { post_id: 9, component_index: 0 } },
+        ];
+        expect(compositionUndoTarget(steps)).toEqual({ postId: 9, stepsBack: 1 });
+    });
+
+    test('returns null when no composition mutations present', function () {
+        var steps = [{ name: 'update_design_token', params: { token: '--color-accent' } }];
+        expect(compositionUndoTarget(steps)).toBeNull();
+    });
+
+    test('returns null when composition mutations span multiple posts', function () {
+        var steps = [
+            { name: 'remove_component', params: { post_id: 1, component_index: 0 } },
+            { name: 'add_component', params: { post_id: 2, component: 'hero', props: {} } },
+        ];
+        expect(compositionUndoTarget(steps)).toBeNull();
+    });
+
+    test('returns null when a composition mutation lacks a post target', function () {
+        var steps = [{ name: 'remove_component', params: { component_index: 0 } }];
+        expect(compositionUndoTarget(steps)).toBeNull();
+    });
+
+    test('returns null for empty or missing steps', function () {
+        expect(compositionUndoTarget([])).toBeNull();
+        expect(compositionUndoTarget(null)).toBeNull();
+        expect(compositionUndoTarget(undefined)).toBeNull();
+    });
+
+    test('treats string post_id consistently (wp_localize casts to string)', function () {
+        var steps = [
+            { name: 'remove_component', params: { post_id: '5', component_index: 0 } },
+            { name: 'add_component', params: { post_id: 5, component: 'hero', props: {} } },
+        ];
+        expect(compositionUndoTarget(steps)).toEqual({ postId: '5', stepsBack: 2 });
     });
 });

@@ -228,6 +228,55 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
     expect(JSON.parse(stepsField![1])).toHaveLength(2);
   });
 
+  test('remove_component proposal then Undo restores the removed section (#133)', async ({ page }) => {
+    pageId = createPage('E2E Chat Undo');
+    // Seed a two-component composition so the removed section is observable and
+    // its return after Undo is unambiguous.
+    wpCli(`wp post meta update ${pageId} _pp_composition '[{"component":"hero","props":{"title":"Keep Me"}},{"component":"section","props":{"title":"Remove Me","body":"section body"}}]'`);
+
+    await gotoChat(page, pageId);
+    await mockStream(page, [
+      {
+        done: true,
+        proposal: {
+          steps: [
+            { type: 'action', name: 'remove_component', description: 'Remove the section', params: { post_id: pageId, component_index: 1 } },
+          ],
+        },
+      },
+    ]);
+    // NOTE: no admin-ajax mock — preview, execute, and restore_composition all run
+    // against real WordPress, so the composition actually changes and Undo actually
+    // restores it (that is the behavior under test, #133 acceptance criterion #4).
+
+    await page.fill('#pp-ai-input', 'Remove the section');
+    await page.click('#pp-ai-send');
+
+    const applyBtn = page.locator('.pp-ai-proposal-apply');
+    await expect(applyBtn).toBeVisible({ timeout: 10000 });
+    await applyBtn.click();
+
+    // The post-apply card renders the "Undo these changes" affordance (#133). It is
+    // the last link in the container (after "View Page"); grab it by position so the
+    // locator survives the label change on click.
+    const undoLink = page.locator('.pp-ai-post-apply-links a').last();
+    await expect(undoLink).toHaveText('Undo these changes', { timeout: 10000 });
+
+    // After the apply the section is gone (one component left).
+    const afterRemove = JSON.parse(wpCli(`wp post meta get ${pageId} _pp_composition`));
+    expect(afterRemove).toHaveLength(1);
+    expect(afterRemove[0].component).toBe('hero');
+
+    // Click Undo → restore_composition walks the history ring back → section reappears.
+    await undoLink.click();
+    await expect(undoLink).toHaveText('Changes undone ✓', { timeout: 10000 });
+
+    const afterUndo = JSON.parse(wpCli(`wp post meta get ${pageId} _pp_composition`));
+    expect(afterUndo).toHaveLength(2);
+    expect(afterUndo.map((c: { component: string }) => c.component)).toEqual(['hero', 'section']);
+    expect(afterUndo[1].props.title).toBe('Remove Me');
+  });
+
   test('Cancel discards a previewed proposal without applying', async ({ page }) => {
     pageId = createPage('E2E Chat Cancel');
     await gotoChat(page, pageId);
