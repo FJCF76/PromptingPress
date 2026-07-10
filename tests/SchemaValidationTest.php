@@ -480,6 +480,194 @@ class SchemaValidationTest extends TestCase
         $this->assertSame('template_owned_component', $result->get_error_code());
     }
 
+    // ── First-error contract vs the collect-all engine (#233) ──────────────
+    //
+    // pp_validate_composition() delegates to pp_validate_composition_errors() and returns
+    // errors[0]. Every write-time caller (create_page, update_composition, add_component,
+    // update_component, the editor save) depends on the first-error shape. These pin that
+    // the refactor did not change what those callers observe.
+
+    /** A composition with three distinct violations, in document order. */
+    private function multiErrorComposition(): array
+    {
+        return [
+            ['component' => 'nav', 'props' => []],   // template_owned_component
+            ['component' => 'ghost', 'props' => []], // invalid_composition: unknown component
+            ['component' => 'hero', 'props' => []],  // invalid_composition: missing "title"
+        ];
+    }
+
+    public function testValidateCompositionStillReturnsOnlyTheFirstError(): void
+    {
+        $result = pp_validate_composition($this->multiErrorComposition());
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('template_owned_component', $result->get_error_code());
+    }
+
+    public function testValidateCompositionErrorsCollectsEveryError(): void
+    {
+        $errors = pp_validate_composition_errors($this->multiErrorComposition());
+
+        $this->assertCount(3, $errors);
+        $this->assertSame('template_owned_component', $errors[0]->get_error_code());
+        $this->assertSame('invalid_composition', $errors[1]->get_error_code());
+        $this->assertStringContainsString('ghost', $errors[1]->get_error_message());
+        $this->assertSame('invalid_composition', $errors[2]->get_error_code());
+        $this->assertStringContainsString('title', $errors[2]->get_error_message());
+    }
+
+    public function testFirstCollectedErrorIsExactlyWhatValidateReturns(): void
+    {
+        // The contract, stated as an invariant rather than a coincidence: whatever
+        // pp_validate_composition() returns IS errors[0] — same code, same message.
+        $composition = $this->multiErrorComposition();
+
+        $first  = pp_validate_composition($composition);
+        $errors = pp_validate_composition_errors($composition);
+
+        $this->assertSame($errors[0]->get_error_code(), $first->get_error_code());
+        $this->assertSame($errors[0]->get_error_message(), $first->get_error_message());
+    }
+
+    public function testValidateCompositionErrorsReportsAtMostOneErrorPerItem(): void
+    {
+        // A single item that trips several checks must not cascade. `ghost` is unknown, so
+        // the schema lookups below that check never run against it.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'ghost', 'style' => ['nope' => 'red']],
+        ]);
+
+        $this->assertCount(1, $errors);
+        $this->assertSame('invalid_composition', $errors[0]->get_error_code());
+    }
+
+    public function testMultipleMissingRequiredPropsOnOneItemReportOneError(): void
+    {
+        // Exercises the `continue 2` in the REQUIRED-PROP loop. `cta` requires title,
+        // button_text and button_url; all three are absent. Without `continue 2` this item
+        // would emit three errors, shifting every later index and breaking the invariant
+        // that errors[0] is the only error pp_validate_composition() would have returned.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'cta', 'props' => []],
+        ]);
+
+        $this->assertCount(1, $errors, 'an item stops at its first failing prop check');
+        $this->assertSame('invalid_composition', $errors[0]->get_error_code());
+        $this->assertStringContainsString('title', $errors[0]->get_error_message());
+    }
+
+    public function testMissingPropSkipsTheStyleChecksForThatItem(): void
+    {
+        // `continue 2` in the prop loop must jump to the next ITEM, not fall through into
+        // the style-slot checks below it. A bad style slot on the same item stays unreported.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'cta', 'props' => [], 'style' => ['--not-a-slot' => 'red']],
+        ]);
+
+        $this->assertCount(1, $errors);
+        $this->assertStringContainsString('title', $errors[0]->get_error_message());
+    }
+
+    public function testMultipleInvalidStyleSlotsOnOneItemReportOneError(): void
+    {
+        // Exercises the `continue 2` in the STYLE loop. Two unknown slots on one item.
+        $errors = pp_validate_composition_errors([
+            [
+                'component' => 'hero',
+                'props'     => ['title' => 'A'],
+                'style'     => ['--not-a-slot' => 'red', '--also-not-a-slot' => 'blue'],
+            ],
+        ]);
+
+        $this->assertCount(1, $errors, 'an item stops at its first failing style check');
+        $this->assertSame('invalid_style_slot', $errors[0]->get_error_code());
+    }
+
+    public function testEachItemContributesItsOwnErrorAcrossItems(): void
+    {
+        // The other half of the invariant: one error PER ITEM, so three bad items give
+        // three errors, in document order.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'cta', 'props' => []],
+            ['component' => 'hero', 'props' => ['title' => 'A'], 'style' => ['--nope' => 'red']],
+            ['component' => 'ghost', 'props' => []],
+        ]);
+
+        $this->assertCount(3, $errors);
+        $this->assertSame('invalid_composition', $errors[0]->get_error_code());
+        $this->assertSame('invalid_style_slot', $errors[1]->get_error_code());
+        $this->assertSame('invalid_composition', $errors[2]->get_error_code());
+    }
+
+    public function testEmptyCompositionIsValid(): void
+    {
+        $this->assertSame([], pp_validate_composition_errors([]));
+        $this->assertTrue(pp_validate_composition([]));
+    }
+
+    public function testMalformedItemsAreReportedNotFatal(): void
+    {
+        // Legacy history snapshots reach the validators through restore's findings (#233),
+        // so malformed shapes must produce an error rather than a warning or a fatal.
+        // isset() on a string/int offset with a non-numeric key returns false, so a scalar
+        // item takes the "missing component" branch before any cast runs.
+        $errors = pp_validate_composition_errors([
+            'nav',              // scalar item
+            123,                // scalar item
+            [],                 // array with no component key
+        ]);
+
+        $this->assertCount(3, $errors);
+        foreach ($errors as $error) {
+            $this->assertSame('invalid_composition', $error->get_error_code());
+            $this->assertStringContainsString('missing the "component" key', $error->get_error_message());
+        }
+    }
+
+    public function testNonScalarComponentKeyIsAValidationErrorNotAPhpWarning(): void
+    {
+        // A raw-written or corrupt row can hold an array here. Casting it would emit
+        // "Array to string conversion" and report a component named "Array". Restore's
+        // findings (#233) run these rules over arbitrary snapshots, so this path is live.
+        $raised = [];
+        set_error_handler(static function (int $no, string $str) use (&$raised): bool {
+            $raised[] = $str;
+            return true;
+        });
+
+        try {
+            $errors = pp_validate_composition_errors([
+                ['component' => []],
+                ['component' => ['nested' => 'hero']],
+            ]);
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertSame([], $raised, 'no PHP warning is emitted for a non-scalar component');
+        $this->assertCount(2, $errors);
+        foreach ($errors as $error) {
+            $this->assertSame('invalid_composition', $error->get_error_code());
+            $this->assertStringContainsString('non-scalar "component" key', $error->get_error_message());
+        }
+
+        // And the first-error contract still holds for this input.
+        $first = pp_validate_composition([['component' => []]]);
+        $this->assertInstanceOf(\WP_Error::class, $first);
+        $this->assertSame('invalid_composition', $first->get_error_code());
+    }
+
+    public function testValidCompositionCollectsNoErrors(): void
+    {
+        $this->assertSame([], pp_validate_composition_errors([
+            ['component' => 'hero', 'props' => ['title' => 'A']],
+        ]));
+        $this->assertTrue(pp_validate_composition([
+            ['component' => 'hero', 'props' => ['title' => 'A']],
+        ]));
+    }
+
     public function testChromeRejectionPrecedesRequiredPropCheck(): void
     {
         // `nav` has no required props, so this only proves ordering for `hero`-like
