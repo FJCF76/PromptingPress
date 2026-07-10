@@ -307,6 +307,46 @@ Target selectors (params):
 
 Errors: `no_history` (the page has no recorded prior state), `history_out_of_bounds` (selector past the ring), `composition_conflict` (stale `expected_version`).
 
+#### Restore reports, it does not block (#233)
+
+A snapshot captured before a validation rule existed still restores. Current rules never veto a restore — undo is wired to this action, so a restore that today's rules refuse would make undo fail exactly when you most need it. Instead the restore succeeds and tells you what is wrong with what it just wrote.
+
+Two things follow from that, and both are visible in the result:
+
+**Legacy shape is canonicalized on the way in.** The snapshot passes through `pp_normalize_composition()`, which rewrites `type` → `component` and the pre-#69 `variant` → `layout`/`theme`. This is decoding, not a rewrite of intent: no component is added, removed, or reordered. Nothing else about the snapshot is touched. Chrome (`nav`/`footer`) and every other rule violation are preserved verbatim — **content is never stripped from history**.
+
+**The result carries a `findings` array**, on both `preview` and `execute`. It is `[]` when the snapshot is clean under current rules:
+
+```jsonc
+{
+  "ok": true,
+  "action": "restore_composition",
+  "findings": [
+    {
+      "type": "template_owned_component",
+      "severity": "error",
+      "message": "\"nav\" is site chrome rendered by the page template …",
+      "index": null
+    },
+    {
+      "type": "template_owned_component",
+      "severity": "warning",
+      "message": "\"nav\" at index 0 is site chrome … Remove it with the remove_component action.",
+      "index": 0
+    }
+  ]
+}
+```
+
+- `severity: "error"` — a rule that would reject this composition on a normal write. Produced by `pp_validate_composition_errors()`, which reports **every** violation, not just the first. `index` is `null`; the message names the offending item.
+- `severity: "warning"` — advisory. Produced by `pp_validate_composition_smells()`. `index` is the composition offset.
+
+A single problem can surface as both, from the two different engines. That is not duplication to filter out: the error tells you a subsequent normal write will be rejected, the warning tells you what the rendered page does wrong and how to fix it.
+
+`preview` computes the identical findings and writes nothing, so an agent sees the required remediation before executing rather than discovering it in the next validator run. Its `after` field is the normalized composition — what `execute` would actually persist.
+
+`restore_composition` is the only action that returns `findings`. The canonical result keys are a minimum, not an exhaustive set.
+
 ### `wp pp apply restore-composition` (run-scoped)
 
 The composition counterpart of `wp pp apply restore`. Reverts **every page the run changed** back to the content frozen at the run's PREFLIGHT. Scoped strictly to this run's touched posts — a page a different run mutated is never touched.
