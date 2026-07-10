@@ -1604,7 +1604,7 @@ pp_register_action('remove_component', [
     'scope'          => 'page',
     'mutates_composition' => true,
     'impact_warning' => 'Removes component from page',
-    'description' => 'Removes a component from a page composition. Accepts component_id (stable pp-<hex8>) or component_index (0-based). component_id takes precedence when both are provided.',
+    'description' => 'Removes a component from a page composition. Accepts component_id (an authored id prop, or the auto-generated pp-<hex8> — note auto-generated ids do not survive a full update_composition re-apply) or component_index (0-based). component_id takes precedence when both are provided.',
     'semantics'   => 'Remove by component_id or 0-based index. Validates target is valid. Remaining components shift down.',
     'params'      => [
         'post_id'          => ['type' => 'int',    'required' => true],
@@ -1891,7 +1891,7 @@ pp_register_action('reorder_components', [
 pp_register_action('update_component', [
     'scope'       => 'section',
     'mutates_composition' => true,
-    'description' => 'Updates a single component\'s props via shallow merge (patch, not replace). Optionally accepts style to also update per-instance style slots in the same call. Accepts component_id (stable pp-<hex8>) or component_index (0-based). component_id takes precedence when both are provided.',
+    'description' => 'Updates a single component\'s props via shallow merge (patch, not replace). Optionally accepts style to also update per-instance style slots in the same call. Accepts component_id (an authored id prop, or the auto-generated pp-<hex8> — note auto-generated ids do not survive a full update_composition re-apply) or component_index (0-based). component_id takes precedence when both are provided.',
     'semantics'   => 'Patch. Props are shallow-merged into existing props. Unspecified props unchanged. null removes a prop. Optional style param shallow-merges style slots (same as style_component). Validates the merged composition via pp_validate_composition(). Target component by component_id or component_index.',
     'params'      => [
         'post_id'          => ['type' => 'int',    'required' => true],

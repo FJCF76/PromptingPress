@@ -24,12 +24,16 @@ Every visual change maps to exactly one mutation surface. Writing to the wrong s
 
 **WordPress Custom CSS (Appearance > Additional CSS)** creates split visual authority. All styling must go through design tokens or components.css. If Custom CSS exists and conflicts with theme classes, the system prompt will flag it. Use the `clear_custom_css` action to remove it.
 
-## Stable component IDs
+## Component IDs: authored vs auto-generated
 
-Every component in a composition gets a persisted stable ID (e.g. `pp-a3f2b1`) on save. These IDs:
-- Survive reordering, insertion, and deletion of other components
-- Appear as HTML `id` attributes in the rendered DOM
-- Are the only safe way to target a specific component instance in CSS
+Every component in a composition has a persisted ID on save. There are two kinds, with different durability:
+
+- **Authored IDs** — an explicit `id` prop you set (e.g. `"id": "pricing"`). These are stable: they live in your composition JSON, survive reordering, insertion, and deletion of other components, survive full `update_composition` re-applies, and double as HTML anchor targets.
+- **Auto-generated IDs** — components written without an `id` prop get one in the reserved `pp-<hex8>` format (e.g. `pp-0a38d49e`). These persist across in-place actions (`update_component`, `insert_component`, `remove_component`, reordering), but a **full-composition re-apply** (`update_composition` / `create_page` from a source JSON that has no `id` for that component) regenerates them. A `component_id` you recorded earlier then stops resolving (`component_not_found`).
+
+Both kinds appear as HTML `id` attributes in the rendered DOM and are the only safe way to target a specific component instance in CSS.
+
+**If you plan to target a component later — by `component_id` in actions, by anchor link, or in CSS — give it an explicit `id` in your source JSON.** To make an existing page durable, read the composition back (`wp pp operate inspect-composition <post_id>`) and set explicit `id`s for the components you care about; `wp pp check page` warns about components that only have auto-generated ids. The `pp-<hex8>` shape is reserved for generated ids — do not author ids in that format.
 
 Never use positional selectors (`nth-of-type`, `nth-child`) to target components. They break on reorder.
 
