@@ -53,7 +53,7 @@ Expected result (abridged):
 { "ok": true, "checks": [ { "check": "target", "pass": true, "message": "..." }, ... ] }
 ```
 
-You must see `"ok": true` here. If not, jump to [Troubleshooting](#troubleshooting) — do not proceed to `execute`, it will refuse.
+You must see `"ok": true` here — it is printed only after the preflight state was actually recorded, so `ok: true` means the gate is genuinely unlocked. On any failure (a failed check, or a state that could not be recorded) the JSON itself reports `"ok": false` with an `error` field and the command exits 1. If that happens, jump to [Troubleshooting](#troubleshooting) — do not proceed to `execute`, it will refuse.
 
 > Editing a specific page instead of site-wide tokens? Add `--post_id=<id>` so the preflight covers that page.
 

@@ -11,6 +11,25 @@ if (!class_exists('WP_CLI') || !class_exists('WP_CLI_Command')) {
 }
 
 /**
+ * Reports a preflight whose checks passed but whose state could not be
+ * recorded (#227). Every post-check failure exit in `apply preflight` goes
+ * through here so the single emit path keeps the JSON contract fail-closed:
+ * stdout — the machine-readable channel — gets {"ok": false, "error": ...}
+ * (with the computed checks for diagnosis), and the human-readable detail
+ * goes to STDERR via WP_CLI::error, which exits 1. Never printing
+ * {"ok": true} for a preflight that did not complete is the invariant.
+ *
+ * @param array  $result  The pp_preflight() result whose checks passed.
+ * @param string $message The failure detail (also used as the JSON "error").
+ */
+function _pp_cli_preflight_record_failed(array $result, string $message): void {
+    $result['ok']    = false;
+    $result['error'] = $message;
+    WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    WP_CLI::error($message);
+}
+
+/**
  * Validates and returns the --run-id from CLI args.
  * Halts with WP_CLI::error if missing or not a valid UUID v4.
  */
@@ -769,11 +788,21 @@ class PP_Apply_Command extends WP_CLI_Command {
 
         $result = pp_preflight($context);
 
-        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-
         if (!$result['ok']) {
+            // Error-grade check failed: report the checks and stop. Nothing is
+            // recorded, so downstream gates stay closed.
+            WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
             WP_CLI::halt(1);
         }
+
+        // The success JSON is emitted LAST, only after every recording step below
+        // has succeeded (#227). Emitting it before recording made the gate fail-open
+        // in its reported result: a consumer parsing stdout — the machine-readable
+        // contract — saw {"ok": true} for a preflight whose state was never
+        // recorded, then hit a contradictory error on the next command. Any
+        // recording failure now reports {"ok": false, "error": ...} on stdout
+        // (via _pp_cli_preflight_record_failed) so `ok` reflects whether the
+        // preflight actually completed, including recording its state.
 
         // Record PREFLIGHT only on success, in ONE atomic write: the PREFLIGHT
         // step, the target this preflight covered (post_id for page/section work,
@@ -785,18 +814,20 @@ class PP_Apply_Command extends WP_CLI_Command {
         // baseline stable across re-runs.
         //
         // The snapshot is read under the token lock for an atomic baseline. It returns
-        // null on either of two fail-closed conditions rather than a baseline that a
+        // null on any of three fail-closed conditions rather than a baseline that a
         // later `apply restore` would wrongly roll back to:
-        //   - lock contended (#200): a stale, non-atomic read, or
+        //   - lock contended (#200): a stale, non-atomic read,
         //   - unreadable overrides row (#207): a corrupt/hand-edited pp_token_overrides
         //     row that would otherwise be recorded as an empty [] baseline, causing
-        //     restore to DELETE the touched tokens instead of restoring them.
+        //     restore to DELETE the touched tokens instead of restoring them, or
+        //   - database read failure (#212): a failed SELECT (non-empty $wpdb->last_error)
+        //     that would otherwise be indistinguishable from a genuinely absent row.
         // Either way a null snapshot is a hard preflight failure: record nothing
         // (leaving both gates fail-closed) and surface the cause so the operator can act
         // (retry once contention clears; repair the corrupt row before re-running).
         $token_snapshot = pp_snapshot_token_overrides();
         if ($token_snapshot === null) {
-            WP_CLI::error('Could not read an atomic pre-apply token baseline for run token "' . $run_id . '": the token lock is contended, or the pp_token_overrides row is corrupt/unreadable. PREFLIGHT was not recorded. Re-run `wp pp apply preflight` once the contention clears; if it persists, inspect and repair the pp_token_overrides option.');
+            _pp_cli_preflight_record_failed($result, 'Could not read an atomic pre-apply token baseline for run token "' . $run_id . '": the token lock is contended, or the pp_token_overrides row is corrupt/unreadable. PREFLIGHT was not recorded. Re-run `wp pp apply preflight` once the contention clears; if it persists, inspect and repair the pp_token_overrides option.');
         }
         // Freshness baseline (#113): for a page-scoped preflight, record the target's
         // composition marker so a later `action execute` / `operate patch` can reject a
@@ -805,7 +836,7 @@ class PP_Apply_Command extends WP_CLI_Command {
             ? pp_get_composition_marker((int) $context['post_id'])
             : null;
         if (!pp_operate_record_preflight($run_id, $context['post_id'] ?? null, $token_snapshot, $composition_marker)) {
-            WP_CLI::error('Could not record PREFLIGHT state for run token "' . $run_id . '". State file may be missing or expired. Re-run `wp pp operate inspect`.');
+            _pp_cli_preflight_record_failed($result, 'Could not record PREFLIGHT state for run token "' . $run_id . '". State file may be missing or expired. Re-run `wp pp operate inspect`.');
         }
         // Composition content snapshot (#133): for a page-scoped preflight, freeze the
         // pre-apply composition so a run-scoped restore (`wp pp apply restore-composition`)
@@ -814,9 +845,16 @@ class PP_Apply_Command extends WP_CLI_Command {
         if (isset($context['post_id'])) {
             $pid = (int) $context['post_id'];
             if (!pp_operate_record_composition_content_snapshot($run_id, $pid, pp_get_composition($pid))) {
-                WP_CLI::error('Could not record the pre-apply composition snapshot for run token "' . $run_id . '" (post ' . $pid . '). State file may be missing or expired. Re-run `wp pp operate inspect`.');
+                // PREFLIGHT itself is already recorded at this point (that write is
+                // the atomic unlock and stays first-write-wins), so the run is
+                // unlocked while the command reports failure. That is the safe
+                // direction: the operator re-runs preflight (idempotent — baselines
+                // are first-write-wins) instead of proceeding on a false success.
+                _pp_cli_preflight_record_failed($result, 'Could not record the pre-apply composition snapshot for run token "' . $run_id . '" (post ' . $pid . '). State file may be missing or expired. Re-run `wp pp operate inspect`.');
             }
         }
+
+        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     }
 }
 
