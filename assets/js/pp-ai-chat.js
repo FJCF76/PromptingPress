@@ -317,6 +317,37 @@ function ppChatGetStatusMessage(data) {
 }
 
 /**
+ * Renders restore_composition's findings on a SUCCESSFUL undo (#233).
+ *
+ * Restore is never blocked by current validation rules — a snapshot today's validators
+ * reject still restores, because undo is the user's safety net and must not fail. The
+ * findings therefore describe a write that happened. They render as warnings on a
+ * succeeded undo; rendering them as an error would tell the user undo broke when it
+ * worked, which is its own trust bug.
+ *
+ * Renders `findings` only. The AJAX handler also injects `validation`
+ * (pp_post_apply_validate), which flags template-owned chrome as well, so rendering both
+ * would list the same component twice.
+ */
+function ppChatAppendUndoFindings(card, findings) {
+    if (!findings || !findings.length) return;
+
+    var section = document.createElement('div');
+    section.setAttribute('role', 'status');
+    section.setAttribute('aria-live', 'polite');
+
+    var heading = document.createElement('div');
+    heading.className = 'pp-ai-step-warning';
+    heading.textContent = '⚠ Restored, but the previous version has '
+        + findings.length + ' issue' + (findings.length === 1 ? '' : 's')
+        + ' under current rules:';
+    section.appendChild(heading);
+
+    ppChatAppendValidationItems(section, findings, 'pp-ai-step-warning');
+    card.appendChild(section);
+}
+
+/**
  * Appends validation items (errors or warnings) to a container.
  * Shows first 5 inline; collapses the rest in a <details> disclosure (D6).
  */
@@ -1376,6 +1407,7 @@ function ppChatAppendValidationItems(container, items, className) {
                 .then(function (resp) {
                     if (resp.success) {
                         undoLink.textContent = 'Changes undone ✓';
+                        ppChatAppendUndoFindings(card, (resp.data && resp.data.findings) || []);
                     } else {
                         undoLink.textContent = 'Undo failed';
                         undoLink.className = 'pp-ai-link-error';
@@ -1889,6 +1921,7 @@ if (typeof module !== 'undefined' && module.exports) {
         getErrorStepClass: ppChatGetErrorStepClass,
         getStatusMessage: ppChatGetStatusMessage,
         appendValidationItems: ppChatAppendValidationItems,
+        appendUndoFindings: ppChatAppendUndoFindings,
         buildCompositionSummary: ppChatBuildCompositionSummary,
         detectPageId: ppChatDetectPageId,
         findPageById: ppChatFindPageById,
