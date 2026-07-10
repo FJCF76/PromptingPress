@@ -386,6 +386,179 @@ class ActionsTest extends TestCase
         $this->assertSame('B', pp_get_composition($post_id)[0]['props']['title']);
     }
 
+    // ── restore_composition reports current-rule findings (#233) ────────────
+    //
+    // Restore never blocks on current validation rules (undo is wired to it), so it must
+    // never report a bare ok:true for a composition those rules reject. Snapshots below are
+    // seeded with pp_update_composition(), the non-validating writer — the only way to get
+    // a rule-violating composition into a history ring, and exactly how legacy rows got
+    // there before the rule existed.
+
+    public function testRestorePreservesChromeAndReportsFindings(): void
+    {
+        $post_id = pp_create_page('Chrome snapshot');
+        // Legal before #223: chrome in the composition. Seeded past write-time validation.
+        pp_update_composition($post_id, [
+            ['component' => 'nav', 'props' => []],
+            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+        ]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'Hi']]]);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+
+        // The write succeeds — a rule that landed after the snapshot may not veto undo.
+        $this->assertTrue($result['ok'], $result['error'] ?? 'restore failed');
+
+        // Content is preserved verbatim: chrome is reported, never stripped.
+        $restored = pp_get_composition($post_id);
+        $this->assertSame('nav', $restored[0]['component'], 'chrome survives the restore');
+        $this->assertCount(2, $restored);
+
+        // ...and the result carries the findings rather than a bare ok:true.
+        $this->assertNotEmpty($result['findings'], 'restore must report current-rule findings');
+        $types = array_column($result['findings'], 'type');
+        $this->assertContains('template_owned_component', $types);
+    }
+
+    public function testCleanRestoreReportsNoFindings(): void
+    {
+        $post_id = pp_create_page('Clean snapshot');
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertTrue($result['ok']);
+        $this->assertSame([], $result['findings'], 'a clean snapshot reports nothing');
+    }
+
+    public function testRestoreFindingsReportEveryValidationError(): void
+    {
+        // Three DISTINCT violations. A first-error-wins report would surface only the nav.
+        $post_id = pp_create_page('Many violations');
+        pp_update_composition($post_id, [
+            ['component' => 'nav', 'props' => []],                 // template_owned_component
+            ['component' => 'ghost', 'props' => []],               // unknown component
+            ['component' => 'hero', 'props' => []],                // missing required prop "title"
+        ]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertTrue($result['ok']);
+
+        $errors = array_values(array_filter(
+            $result['findings'],
+            static function ($f) { return $f['severity'] === 'error'; }
+        ));
+        $this->assertCount(3, $errors, 'every validation error is reported, not just the first');
+
+        $messages = implode(' | ', array_column($errors, 'message'));
+        $this->assertStringContainsString('ghost', $messages);
+        $this->assertStringContainsString('title', $messages);
+    }
+
+    public function testRestoreNormalizesLegacyVariantSnapshot(): void
+    {
+        // TRIPWIRE (#233). Pre-#69 snapshots in a live history ring are keyed on `variant`.
+        // restore_composition decodes them via pp_normalize_composition() ->
+        // pp_migrate_legacy_variant_keys(). That shim is marked for removal at the v1.0.0
+        // tag; #69's migration plan covered stored _pp_composition, never the history ring.
+        // If this test fails because the shim was deleted, the ring needs a migration first
+        // — otherwise restore silently writes a composition nothing decodes.
+        $post_id = pp_create_page('Legacy variant snapshot');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['title' => 'A', 'variant' => 'left']],
+        ]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertTrue($result['ok']);
+
+        $props = pp_get_composition($post_id)[0]['props'];
+        $this->assertSame('left', $props['layout'], 'legacy variant is decoded to layout');
+        $this->assertArrayNotHasKey('variant', $props, 'the legacy key does not survive the restore');
+    }
+
+    public function testRestoreNormalizesAndReportsOnTheSameSnapshot(): void
+    {
+        // The two motivations of #233 in one snapshot: a pre-#69 `variant` key that must be
+        // decoded, and chrome that must be preserved and reported. Normalization and
+        // findings have to coexist — neither may swallow the other.
+        $post_id = pp_create_page('Legacy plus chrome');
+        pp_update_composition($post_id, [
+            ['component' => 'nav', 'props' => []],
+            ['component' => 'hero', 'props' => ['title' => 'A', 'variant' => 'left']],
+        ]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertTrue($result['ok']);
+
+        $restored = pp_get_composition($post_id);
+        $this->assertSame('nav', $restored[0]['component'], 'chrome preserved');
+        $this->assertSame('left', $restored[1]['props']['layout'], 'legacy variant decoded');
+        $this->assertArrayNotHasKey('variant', $restored[1]['props']);
+
+        $this->assertContains('template_owned_component', array_column($result['findings'], 'type'));
+    }
+
+    public function testRestoreOfMalformedSnapshotReportsRatherThanFatals(): void
+    {
+        // A raw-written or corrupt ring entry. Computing findings must not throw: the write
+        // has already landed by then, so a fatal here would show the user an error for an
+        // undo that actually succeeded — the exact false-signal class #233 exists to kill.
+        $post_id = pp_create_page('Malformed snapshot');
+        pp_update_composition($post_id, [
+            ['component' => [], 'props' => []],
+            ['component' => 'hero', 'props' => ['title' => 'A']],
+        ]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? 'restore failed');
+        $messages = implode(' | ', array_column($result['findings'], 'message'));
+        $this->assertStringContainsString('non-scalar "component" key', $messages);
+    }
+
+    public function testRestorePreviewReportsFindingsAndWritesNothing(): void
+    {
+        $post_id = pp_create_page('Preview findings');
+        pp_update_composition($post_id, [
+            ['component' => 'nav', 'props' => []],
+            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+        ]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'Hi']]]);
+        $before = get_post_meta($post_id, '_pp_composition', true);
+
+        $preview = pp_preview_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+
+        $this->assertTrue($preview['ok']);
+        $types = array_column($preview['findings'], 'type');
+        $this->assertContains('template_owned_component', $types, 'preview surfaces the same findings');
+        $this->assertSame(
+            $before,
+            get_post_meta($post_id, '_pp_composition', true),
+            'preview writes nothing'
+        );
+    }
+
+    public function testRestorePreviewAfterMatchesWhatExecuteWrites(): void
+    {
+        // preview.after is the normalized target, so an operator sees the shape execute
+        // will actually persist — not its legacy encoding.
+        $post_id = pp_create_page('Preview parity');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['title' => 'A', 'variant' => 'left']],
+        ]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+
+        $preview = pp_preview_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertSame('left', $preview['after'][0]['props']['layout']);
+
+        pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertSame('left', pp_get_composition($post_id)[0]['props']['layout']);
+    }
+
     public function testContentHashStableAcrossIdInjectionRoundTrip(): void
     {
         // The canonical hash strips the auto-injected top-level props.id, so a
