@@ -29,7 +29,7 @@ Every visual change maps to exactly one mutation surface. Writing to the wrong s
 Every component in a composition has a persisted ID on save. There are two kinds, with different durability:
 
 - **Authored IDs** — an explicit `id` prop you set (e.g. `"id": "pricing"`). These are stable: they live in your composition JSON, survive reordering, insertion, and deletion of other components, survive full `update_composition` re-applies, and double as HTML anchor targets.
-- **Auto-generated IDs** — components written without an `id` prop get one in the reserved `pp-<hex8>` format (e.g. `pp-0a38d49e`). These persist across in-place actions (`update_component`, `insert_component`, `remove_component`, reordering), but a **full-composition re-apply** (`update_composition` / `create_page` from a source JSON that has no `id` for that component) regenerates them. A `component_id` you recorded earlier then stops resolving (`component_not_found`).
+- **Auto-generated IDs** — components written without an `id` prop get one in the reserved `pp-<hex8>` format (e.g. `pp-0a38d49e`). These persist across in-place actions (`update_component`, `add_component`, `remove_component`, reordering), but a **full-composition re-apply** (`update_composition` / `create_page` from a source JSON that has no `id` for that component) regenerates them. A `component_id` you recorded earlier then stops resolving (`component_not_found`).
 
 Both kinds appear as HTML `id` attributes in the rendered DOM and are the only safe way to target a specific component instance in CSS.
 

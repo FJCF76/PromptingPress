@@ -10,7 +10,7 @@ All notable changes to PromptingPress are documented here.
 
 The duplicate-type ambiguous-targeting check is alive again for the same reason. Id injection at write time fills every persisted entry, so a check keyed on "has an id" could never fire on a real page — two same-type components with only generated ids sailed through as "no ambiguous targeting." Generated-pattern ids no longer count as stable, in `check page` and `wp pp validate site` both.
 
-Nothing about the write path changed: ids are injected exactly as before, in-place actions (`update_component`, `insert_component`, reordering) still round-trip them untouched, and a stale id still fails loudly with `component_not_found`. What changed is that every surface describing the contract — action descriptions, `AI_CONTEXT.md`, `website-building.md`, `AI_RULES.md` — now distinguishes authored ids (durable) from auto-generated ones (regenerated on full re-apply), and the `pp-<hex8>` shape is documented as reserved for the generator.
+Nothing about the write path changed: ids are injected exactly as before, in-place actions (`update_component`, `add_component`, reordering) still round-trip them untouched, and a stale id still fails loudly with `component_not_found`. What changed is that every surface describing the contract — action descriptions, `AI_CONTEXT.md`, `website-building.md`, `AI_RULES.md` — now distinguishes authored ids (durable) from auto-generated ones (regenerated on full re-apply), and the `pp-<hex8>` shape is documented as reserved for the generator.
 
 ### What changed for you
 
