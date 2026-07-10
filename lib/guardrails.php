@@ -228,10 +228,93 @@ function _pp_surface_guidance(string $path): string {
 }
 
 /**
+ * Returns true when a component id matches the reserved auto-generated format.
+ *
+ * pp_update_composition() assigns `pp-<hex8>` ids (pp_generate_component_id(),
+ * lib/wp.php) to entries written without an authored `id` prop — a NEW random id
+ * on every full-composition write (#232). This helper is the single detector for
+ * that reserved shape, letting read-time validators tell generated ids (not
+ * durable across a declarative re-apply) from authored ids (durable). The
+ * `pp-<hex8>` format is documented as reserved; an authored id that deliberately
+ * matches it is treated as generated.
+ *
+ * @param  string $id  Component id from props.
+ * @return bool
+ */
+function pp_is_generated_component_id(string $id): bool {
+    // \z, not $: PCRE $ also matches before a trailing newline, which would
+    // classify "pp-xxxxxxxx\n" as generated while the strict-equality resolver
+    // (pp_resolve_component_target) treats it as a distinct id.
+    return (bool) preg_match('/^pp-[0-9a-f]{8}\z/', $id);
+}
+
+/**
+ * Returns the durable (authored) id from a component's props, or '' when the
+ * component has no id that survives a full-composition re-apply: absent,
+ * non-scalar, falsy, or matching the auto-generated `pp-<hex8>` shape (#232).
+ *
+ * Single classification point shared by pp_find_generated_component_ids() and
+ * pp_validate_composition_styling() so "what counts as a durable id" cannot
+ * drift between the two validators.
+ *
+ * @param  array $props  Component props.
+ * @return string        The authored id, or '' when none is durable.
+ */
+function _pp_component_durable_id(array $props): string {
+    $raw = $props['id'] ?? '';
+    if (empty($raw) || !is_scalar($raw)) {
+        return '';
+    }
+    $id = (string) $raw;
+    return pp_is_generated_component_id($id) ? '' : $id;
+}
+
+/**
+ * Returns components whose id cannot be targeted durably by component_id.
+ *
+ * Flags entries whose persisted id is absent or auto-generated (`pp-<hex8>`):
+ * a full-composition re-apply from source JSON regenerates those ids, so a
+ * recorded component_id stops resolving (#232). Same defensive non-array
+ * guards as pp_validate_composition_styling().
+ *
+ * @param  array $composition  Composition array (component + props).
+ * @return array[]             Each entry: ['index' => int, 'component' => string, 'id' => string]
+ */
+function pp_find_generated_component_ids(array $composition): array {
+    $findings = [];
+
+    foreach ($composition as $i => $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+        $props = is_array($item['props'] ?? null) ? $item['props'] : [];
+
+        if (_pp_component_durable_id($props) === '') {
+            $raw       = $props['id'] ?? '';
+            $component = $item['component'] ?? '';
+            $findings[] = [
+                'index'     => $i,
+                // Corrupt rows can carry non-scalar values here; the CLI
+                // interpolates both fields, so coerce defensively (same class
+                // of guard as pp_validate_composition_errors(), #233).
+                'component' => is_scalar($component) ? (string) $component : '',
+                'id'        => is_scalar($raw) ? (string) $raw : '',
+            ];
+        }
+    }
+
+    return $findings;
+}
+
+/**
  * Validates composition styling for ambiguous targeting.
  *
  * Flags duplicate component types that lack stable IDs — these cannot be
  * targeted individually by CSS and are prone to nth-of-type fragility.
+ * An auto-generated `pp-<hex8>` id does not count as a stable id (#232):
+ * id injection at write time fills every persisted entry, so counting
+ * generated ids as stable made this check unreachable on any composition
+ * that had been through pp_update_composition().
  *
  * @param  array $composition  Composition array (component + props).
  * @return array[]             Each entry: ['component' => string, 'indices' => int[]]
@@ -246,10 +329,10 @@ function pp_validate_composition_styling(array $composition): array {
             continue;
         }
         $component = $item['component'] ?? '';
+        $component = is_scalar($component) ? (string) $component : '';
         $props     = is_array($item['props'] ?? null) ? $item['props'] : [];
-        $has_id    = !empty($props['id']);
 
-        if (!$has_id) {
+        if (_pp_component_durable_id($props) === '') {
             $type_map[$component][] = $i;
         }
     }

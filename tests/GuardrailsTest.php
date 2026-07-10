@@ -172,6 +172,197 @@ class GuardrailsTest extends TestCase
         $this->assertSame([], pp_validate_composition_styling($composition));
     }
 
+    // ── Generated component IDs (#232) ─────────────────────────────────────
+
+    public function testGeneratedIdPatternMatches(): void
+    {
+        $this->assertTrue(pp_is_generated_component_id('pp-0a38d49e'));
+        $this->assertTrue(pp_is_generated_component_id('pp-00000000'));
+        $this->assertTrue(pp_is_generated_component_id('pp-deadbeef'));
+    }
+
+    public function testGeneratedIdPatternRejectsAuthoredShapes(): void
+    {
+        $this->assertFalse(pp_is_generated_component_id('inicio'));
+        $this->assertFalse(pp_is_generated_component_id('home-hero'));
+        $this->assertFalse(pp_is_generated_component_id('pp-abc123'));      // 6 hex — too short
+        $this->assertFalse(pp_is_generated_component_id('pp-0a38d49e0'));   // 9 hex — too long
+        $this->assertFalse(pp_is_generated_component_id('pp-DEADBEEF'));    // uppercase hex
+        $this->assertFalse(pp_is_generated_component_id('pp-has-id00'));    // non-hex chars
+        $this->assertFalse(pp_is_generated_component_id('xpp-0a38d49e'));   // wrong prefix
+        $this->assertFalse(pp_is_generated_component_id('pp-0a38d49e-x'));  // trailing chars
+        $this->assertFalse(pp_is_generated_component_id("pp-0a38d49e\n"));  // trailing newline (\z, not $)
+        $this->assertFalse(pp_is_generated_component_id(''));
+    }
+
+    public function testGeneratorAndDetectorStayInSync(): void
+    {
+        // Drift guard: calls the PRODUCTION generator (lib/wp.php), so a format
+        // change on either side fails here instead of silently unmatching.
+        for ($i = 0; $i < 5; $i++) {
+            $this->assertTrue(pp_is_generated_component_id(pp_generate_component_id()));
+        }
+    }
+
+    public function testDuplicateTypesWithGeneratedIdsAreFlagged(): void
+    {
+        // Persisted compositions always carry an id (injection at write time),
+        // so generated-pattern ids must count as "no stable id" or the
+        // duplicate-type check is unreachable post-persist (#232).
+        $composition = [
+            ['component' => 'grid', 'props' => ['id' => 'pp-0a38d49e']],
+            ['component' => 'hero', 'props' => ['id' => 'home-hero']],
+            ['component' => 'grid', 'props' => ['id' => 'pp-03455932']],
+        ];
+        $warnings = pp_validate_composition_styling($composition);
+
+        $this->assertCount(1, $warnings);
+        $this->assertEquals('grid', $warnings[0]['component']);
+        $this->assertEquals([0, 2], $warnings[0]['indices']);
+    }
+
+    public function testDuplicateTypeWithOneAuthoredIdNotFlagged(): void
+    {
+        // Only one of the two grids is unidentifiable — no ambiguity.
+        $composition = [
+            ['component' => 'grid', 'props' => ['id' => 'services']],
+            ['component' => 'grid', 'props' => ['id' => 'pp-03455932']],
+        ];
+        $this->assertSame([], pp_validate_composition_styling($composition));
+    }
+
+    public function testAuthoredIdsStillCleanRegression(): void
+    {
+        // Regression: realistic authored ids (seed homepage / dogfood pages)
+        // must keep producing zero warnings after the #232 tightening.
+        $composition = [
+            ['component' => 'hero', 'props' => ['id' => 'home-hero']],
+            ['component' => 'grid', 'props' => ['id' => 'indicadores']],
+            ['component' => 'grid', 'props' => ['id' => 'especificaciones']],
+            ['component' => 'grid', 'props' => ['id' => 'contacto']],
+        ];
+        $this->assertSame([], pp_validate_composition_styling($composition));
+    }
+
+    public function testFindGeneratedIdsFlagsGeneratedAndMissing(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['id' => 'inicio']],
+            ['component' => 'section', 'props' => ['body' => 'A']],
+            ['component' => 'faq', 'props' => ['id' => 'pp-03455932']],
+        ];
+        $findings = pp_find_generated_component_ids($composition);
+
+        $this->assertCount(2, $findings);
+        $this->assertSame(['index' => 1, 'component' => 'section', 'id' => ''], $findings[0]);
+        $this->assertSame(['index' => 2, 'component' => 'faq', 'id' => 'pp-03455932'], $findings[1]);
+    }
+
+    public function testFindGeneratedIdsCleanOnAuthoredComposition(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['id' => 'inicio']],
+            ['component' => 'cta', 'props' => ['id' => 'contacto']],
+        ];
+        $this->assertSame([], pp_find_generated_component_ids($composition));
+        $this->assertSame([], pp_find_generated_component_ids([]));
+    }
+
+    public function testFindGeneratedIdsGuardsMalformedEntries(): void
+    {
+        // Mirrors the styling validator's guards: non-array items and
+        // non-array props must be skipped/handled, never indexed into.
+        // A non-scalar component value must be coerced to '' — check page
+        // interpolates it into CLI output (same guard class as #233).
+        $composition = [
+            'not-an-array',
+            ['component' => 'section', 'props' => 'not-an-array'],
+            ['component' => 'grid', 'props' => ['id' => ['nested']]],
+            ['component' => ['corrupt'], 'props' => []],
+        ];
+        $findings = pp_find_generated_component_ids($composition);
+
+        $this->assertCount(3, $findings);
+        $this->assertEquals('section', $findings[0]['component']);
+        $this->assertEquals('grid', $findings[1]['component']);
+        $this->assertSame('', $findings[1]['id']);
+        $this->assertSame('', $findings[2]['component']);
+    }
+
+    public function testStylingValidatorTreatsNonScalarIdAsMissing(): void
+    {
+        // The finder and the styling validator share _pp_component_durable_id():
+        // a corrupt array-valued id must count as "no stable id" in both, so two
+        // same-type components with one corrupt id and one generated id are
+        // ambiguous.
+        $composition = [
+            ['component' => 'grid', 'props' => ['id' => ['nested']]],
+            ['component' => 'grid', 'props' => ['id' => 'pp-03455932']],
+        ];
+        $warnings = pp_validate_composition_styling($composition);
+
+        $this->assertCount(1, $warnings);
+        $this->assertEquals([0, 1], $warnings[0]['indices']);
+    }
+
+    public function testStylingValidatorCoercesNonScalarComponent(): void
+    {
+        // Two corrupt rows with array components and no durable ids must not
+        // fatal (illegal offset type on $type_map[$component]); they coerce to
+        // '' and group together as one ambiguous-type warning.
+        $composition = [
+            ['component' => ['corrupt'], 'props' => []],
+            ['component' => ['also-corrupt'], 'props' => ['id' => 'pp-03455932']],
+        ];
+        $warnings = pp_validate_composition_styling($composition);
+
+        $this->assertCount(1, $warnings);
+        $this->assertSame('', $warnings[0]['component']);
+        $this->assertEquals([0, 1], $warnings[0]['indices']);
+    }
+
+    public function testFalsyIdBoundaryTreatedAsMissing(): void
+    {
+        // '0' is empty() in PHP, so the write path would overwrite it with a
+        // generated id — the validators classify it the same way (missing),
+        // staying consistent with pp_update_composition()'s injection check.
+        $composition = [
+            ['component' => 'section', 'props' => ['id' => '0']],
+        ];
+        $findings = pp_find_generated_component_ids($composition);
+        $this->assertCount(1, $findings);
+        $this->assertSame('0', $findings[0]['id']);
+    }
+
+    public function testFullRewriteRegeneratesGeneratedIdsButKeepsAuthored(): void
+    {
+        // The #232 behavior itself: writing the same id-less source JSON twice
+        // yields two DIFFERENT generated ids for the id-less component, while
+        // an authored id survives both writes. Also pins the write site to the
+        // reserved shape (a format drift at lib/wp.php's injection loop would
+        // fail here even if the pure generator/detector pair stayed in sync).
+        $post_id = 501;
+        $source  = [
+            ['component' => 'hero', 'props' => ['id' => 'inicio', 'title' => 'Hi']],
+            ['component' => 'faq', 'props' => ['items' => [['question' => 'Q', 'answer' => 'A']]]],
+        ];
+
+        $this->assertTrue(pp_update_composition($post_id, $source));
+        $first = pp_get_composition($post_id);
+
+        $this->assertTrue(pp_update_composition($post_id, $source));
+        $second = pp_get_composition($post_id);
+
+        $this->assertSame('inicio', $first[0]['props']['id']);
+        $this->assertSame('inicio', $second[0]['props']['id']);
+        $this->assertTrue(pp_is_generated_component_id($first[1]['props']['id']));
+        $this->assertTrue(pp_is_generated_component_id($second[1]['props']['id']));
+        $this->assertNotSame($first[1]['props']['id'], $second[1]['props']['id']);
+
+        $this->assertSame([], pp_find_generated_component_ids([$first[0]]));
+        $this->assertCount(1, pp_find_generated_component_ids([$first[1]]));
+    }
+
     // ── Admin Notice ───────────────────────────────────────────────────────
 
     public function testAdminNoticeReturnsWarningWhenConflictsExist(): void

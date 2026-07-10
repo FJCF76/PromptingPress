@@ -2130,6 +2130,21 @@ function pp_resolve_logo(array $props): array {
 // ── Site-state write functions (persistence wrappers) ────────────────────────
 
 /**
+ * Generates a component id for entries written without an authored `id` prop.
+ *
+ * The `pp-<hex8>` shape is RESERVED for generated ids: pp_is_generated_component_id()
+ * (lib/guardrails.php) pattern-matches this exact format to tell generated ids from
+ * authored ones, and tests pin the two together — change one, change both. A new
+ * random id is produced on every full-composition write for id-less entries (#232),
+ * so these ids are NOT durable across a declarative re-apply.
+ *
+ * @return string  Generated id in the reserved `pp-<hex8>` format.
+ */
+function pp_generate_component_id(): string {
+    return 'pp-' . bin2hex(random_bytes(4)); // 4 bytes → exactly 8 hex chars
+}
+
+/**
  * Writes a composition array to post meta, bumping the freshness marker (#113), with
  * optional write-time compare-and-swap on the version (#13).
  *
@@ -2169,12 +2184,16 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
     // belt-and-suspenders — the hash is stable across the id round-trip either way.)
     $hash = pp_composition_content_hash($composition);
 
-    // Auto-assign stable IDs to entries that don't have one.
-    // Generated once at write time so IDs are persisted and never shift.
+    // Auto-assign generated IDs to entries that don't have one. The id persists in
+    // props, so it survives in-place actions (update/insert/remove/reorder) that
+    // round-trip the stored array — but a full-array rewrite (update_composition /
+    // create_page from a source JSON without ids) regenerates it (#232). Only an
+    // explicit authored `id` is durable across declarative re-apply; validators
+    // detect the generated shape via pp_is_generated_component_id().
     foreach ($composition as &$item) {
         $props = $item['props'] ?? [];
         if (empty($props['id'])) {
-            $item['props']['id'] = 'pp-' . substr(bin2hex(random_bytes(4)), 0, 8);
+            $item['props']['id'] = pp_generate_component_id();
         }
     }
     unset($item);
