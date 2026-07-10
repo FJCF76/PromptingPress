@@ -345,6 +345,15 @@ function pp_validate_composition_smells(array $composition): array {
         }
         $props = is_array($item['props'] ?? null) ? $item['props'] : [];
         $component = $item['component'] ?? '';
+        // Same posture, one level down: a corrupt row can hold an array/object here.
+        // Casting it below would warn, and _pp_component_is_empty() declares `string`,
+        // so it would throw. restore's findings (#233) run these smells over arbitrary
+        // history-ring snapshots, so a malformed item must be skipped, not fatal — the
+        // collect-all validator reports it as an error on the same pass.
+        if (!is_scalar($component)) {
+            continue;
+        }
+        $component = (string) $component;
         $hero_layout = $props['layout'] ?? 'centered';
         $image_url = $props['image_url'] ?? '';
 
