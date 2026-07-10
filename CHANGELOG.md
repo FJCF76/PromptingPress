@@ -4,6 +4,34 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.64] — 2026-07-10 — `check page` stops calling auto-generated component ids "stable" — because they aren't (#232)
+
+**Components written without an `id` prop get an auto-generated `pp-<hex8>` id, and a full `update_composition` re-apply from source JSON mints a fresh one every time. A `component_id` you recorded stops resolving, the section-scoped actions' documented targeting key silently rots — and `wp pp check page` reported "all components have stable IDs" anyway. The declarative re-apply workflow is the one `composition.md` advertises as the AI-native path, so this was the validator certifying exactly the state it exists to catch. `check page` now tells the truth: it warns per component whose id is auto-generated, names the fix (author an explicit `id`), and reserves its success line for pages where every component actually has one.**
+
+The duplicate-type ambiguous-targeting check is alive again for the same reason. Id injection at write time fills every persisted entry, so a check keyed on "has an id" could never fire on a real page — two same-type components with only generated ids sailed through as "no ambiguous targeting." Generated-pattern ids no longer count as stable, in `check page` and `wp pp validate site` both.
+
+Nothing about the write path changed: ids are injected exactly as before, in-place actions (`update_component`, `add_component`, reordering) still round-trip them untouched, and a stale id still fails loudly with `component_not_found`. What changed is that every surface describing the contract — action descriptions, `AI_CONTEXT.md`, `website-building.md`, `AI_RULES.md` — now distinguishes authored ids (durable) from auto-generated ones (regenerated on full re-apply), and the `pp-<hex8>` shape is documented as reserved for the generator.
+
+### What changed for you
+
+| Before | After |
+|---|---|
+| `check page` said "all components have stable IDs" on a page whose ids change every re-apply | It warns per affected component, with the remediation |
+| Duplicate same-type components with generated ids passed the ambiguous-targeting check | They are flagged — generated ids don't disambiguate durably |
+| Docs said ids "survive reordering, insertion, and deletion" unconditionally | Docs scope the claim: authored ids are durable, generated ids are not |
+| No way to tell a generated id from an authored one | `pp-<hex8>` is the reserved generated shape, detected by `pp_is_generated_component_id()` |
+
+### Fixed
+- **`wp pp check page` certified non-durable ids as stable (#232).** New `pp_find_generated_component_ids()` (`lib/guardrails.php`) flags components whose persisted id is absent or matches the reserved auto-generated `pp-<hex8>` shape; `check page` (`lib/cli.php`) prints one warning per finding and only prints its success line when styling warnings, smells, and generated-id findings are all empty.
+- **`pp_validate_composition_styling()` was unreachable on persisted pages.** Generated-pattern ids now count as "no stable id" via the shared `_pp_component_durable_id()` classifier, so the duplicate-type ambiguous-targeting warning fires again after write-time id injection. Non-scalar `component`/`id` values from corrupt rows are coerced defensively (same guard class as #233) instead of fataling on PHP 8 or interpolating "Array" into CLI output.
+- **The generator and detector are pinned together.** The id recipe is extracted to `pp_generate_component_id()` (`lib/wp.php`) and a drift-guard test asserts the production generator's output always matches the detector — a format change on either side fails the suite. The detector regex uses `\z`, not `$`, so a trailing newline can't classify a distinct id as generated.
+- **Docs claimed unqualified stability.** `website-building.md` (rewritten "Component IDs: authored vs auto-generated" section with remediation guidance), `AI_CONTEXT.md` (action table, selector table, guardrails inventory), `AI_RULES.md`, `validate-site.md`, `style-component.md`, and the `remove_component`/`update_component` action descriptions now state the durability contract; the misleading write-site comment in `pp_update_composition()` is corrected.
+
+### Tests
+- 13 new PHPUnit tests (`tests/GuardrailsTest.php`): detector boundary cases (incl. trailing newline and the `'0'` falsy-id boundary), production-generator drift guard, duplicate-type flagging with generated ids, authored-id regression fixtures, finder shape pins, corrupt-row guards, and an end-to-end write-path test proving a full re-apply regenerates generated ids while authored ids survive.
+
+---
+
 ## [v0.16.63] — 2026-07-10 — Restoring an old version of a page now tells you what that version breaks, instead of reporting a clean success (#233)
 
 **Undo always works. That is the point of undo, and it is why `restore_composition` never asks a validator for permission — a rule that landed after you saved a page must not be the reason you can't get that page back. But restore was also silent. It replayed a stored snapshot through the non-validating writer, said `ok: true`, and left you to discover on the next validator run that the page you just restored renders the site header twice. A mutation surface reporting unqualified success for a composition every current rule rejects is the same false pass v0.16.62 closed for `nav`/`footer`. Restore now restores, reports, and normalizes: the write still lands, nothing is stripped from your history, and the result carries a `findings` array describing exactly what today's rules say about what came back.**

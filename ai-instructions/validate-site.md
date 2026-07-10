@@ -20,7 +20,7 @@ wp pp validate site
 
 This checks:
 1. **Custom CSS conflicts** — selectors in WordPress Custom CSS that target PP component classes (also surfaced via admin notice on composition edit screens)
-2. **Composition styling** — duplicate component types without stable IDs (ambiguous targeting)
+2. **Composition styling** — duplicate component types without authored IDs (ambiguous targeting; auto-generated `pp-<hex8>` ids do not count as stable)
 3. **Composition data integrity** — a page whose stored composition is corrupt (undecodable JSON) or not a valid composition list is flagged as a data-integrity error and fails validation, instead of being silently treated as a blank page (issue 144). `wp pp check page` reports the same corruption distinctly from "no composition".
 
 Individual checks:
@@ -118,5 +118,5 @@ After automated checks pass, verify rendered output:
 A site passes validation when:
 1. `wp pp validate site` returns success (exit code 0)
 2. No Custom CSS exists
-3. All composition components have stable IDs in the DOM
+3. All composition components have IDs in the DOM (authored `id` props for anything you need to target durably — `wp pp check page` warns about components with only auto-generated ids)
 4. Desktop and mobile rendered review passes

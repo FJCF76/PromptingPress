@@ -28,7 +28,7 @@ Capture a **before-screenshot**: `wp pp screenshot capture --post_id=<page_id> -
 Run `wp pp apply preflight --run-id=<uuid> --post_id=<page_id>` (add planned_files if file mutations are needed). This records a PREFLIGHT covering the page and unlocks the typed mutation in EDIT. Without it, the edit refuses to run.
 
 ### 4. EDIT
-Use `update_component` (patch semantics — only the props you pass change) targeted by stable `component_id` or `component_index`, or `wp pp operate patch` with a semantic selector for a single field. Do not rewrite the entire composition via `update_composition` — modify only the target section. Both paths are gated: they require the page-covering PREFLIGHT from step 3 and a `--run-id`.
+Use `update_component` (patch semantics — only the props you pass change) targeted by `component_id` (prefer an authored `id` prop — auto-generated `pp-<hex8>` ids are stable across this in-place path but not across a full `update_composition` re-apply) or `component_index`, or `wp pp operate patch` with a semantic selector for a single field. Do not rewrite the entire composition via `update_composition` — modify only the target section. Both paths are gated: they require the page-covering PREFLIGHT from step 3 and a `--run-id`.
 
 ### 5. APPLY
 Execute any token/font applies needed for the revision (`wp pp apply execute <name> --run-id=<uuid> --params='...'` — needs a site-scoped preflight).
