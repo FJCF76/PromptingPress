@@ -526,7 +526,12 @@ function pp_preview_action(string $name, array $params) {
  * Executes an action: validates first, then executes.
  * Returns the canonical result shape.
  *
- * @return array  Canonical result: ['ok', 'action', 'scope', 'target', 'changes', 'error']
+ * The canonical keys are the MINIMUM every action returns, not an exhaustive list: an
+ * action may add its own. restore_composition adds `findings` (#233). Read the shape as
+ * "at least these keys", and key on what you need rather than the exact key set.
+ *
+ * @return array  Canonical result: ['ok', 'action', 'scope', 'target', 'changes', 'error',
+ *                'error_code'], plus any action-specific keys.
  */
 function pp_execute_action(string $name, array $params): array {
     $validation = pp_validate_action($name, $params);
@@ -1656,6 +1661,59 @@ pp_register_action('remove_component', [
 // Scope: page | Semantics: rewrite the composition to a prior history entry (#133)
 
 /**
+ * Reports what CURRENT validation rules say about a composition, without blocking it (#233).
+ *
+ * For mutation surfaces that legitimately write a composition the action layer's write-time
+ * validation would reject. Today that is restore_composition alone: undo is wired to it
+ * (assets/js/pp-ai-chat.js), so a restore that current rules refuse would make undo fail
+ * exactly when a user most needs it. Instead the write proceeds and the caller is told what
+ * is wrong with what it just restored.
+ *
+ * Reads the two shared engines rather than deriving a third view of the rules — a second
+ * surface with its own idea of what is legal is the root cause of #223. Every future rule
+ * (#147 prop-key allowlist, #151 calc/clamp, #154 image-prop allowlist, #230 color validator)
+ * lands in those engines and is reported here for free.
+ *
+ *   pp_validate_composition_errors()  -> severity 'error'    (collect-all; would block a write)
+ *   pp_validate_composition_smells()  -> severity 'warning'  (advisory; never blocks a write)
+ *
+ * `index` is the composition offset for smells, null for errors (whose messages already name
+ * the offending item or component).
+ *
+ * `severity` separates "a write-time rule rejects this" from "advisory". It is payload, not
+ * styling: the chat renders every finding as a warning, because by the time a caller reads
+ * them the restore has already succeeded. The distinction is for CLI/agent consumers reading
+ * the JSON result, which need to know which findings block a subsequent normal write.
+ *
+ * @param  array $items  Decoded composition array, already normalized.
+ * @return array[]       Each: ['type' => string, 'severity' => string, 'message' => string,
+ *                       'index' => int|null]. Empty when the composition is clean.
+ */
+function _pp_composition_findings(array $items): array {
+    $findings = [];
+
+    foreach (pp_validate_composition_errors($items) as $error) {
+        $findings[] = [
+            'type'     => $error->get_error_code(),
+            'severity' => 'error',
+            'message'  => $error->get_error_message(),
+            'index'    => null,
+        ];
+    }
+
+    foreach (pp_validate_composition_smells($items) as $smell) {
+        $findings[] = [
+            'type'     => $smell['type'],
+            'severity' => 'warning',
+            'message'  => $smell['message'],
+            'index'    => $smell['index'],
+        ];
+    }
+
+    return $findings;
+}
+
+/**
  * Resolves the target history-ring index for a restore_composition call (#133).
  *
  * The history ring (pp_get_composition_history) is oldest-first, so the most recent
@@ -1718,10 +1776,14 @@ pp_register_action('restore_composition', [
         $history = pp_get_composition_history($params['post_id']);
         $idx     = _pp_resolve_history_target($history, $params);
         // validate() already gated this; guard defensively so preview never indexes null.
-        $target  = is_wp_error($idx) ? [] : $history[$idx]['composition'];
-        return _pp_action_preview('restore_composition', 'page', ['post_id' => $params['post_id']], $current, $target, [
+        // Normalize so `after` is what execute would actually write, and so the findings
+        // below describe the restored composition rather than its legacy encoding (#233).
+        $target  = is_wp_error($idx) ? [] : pp_normalize_composition($history[$idx]['composition']);
+        $preview = _pp_action_preview('restore_composition', 'page', ['post_id' => $params['post_id']], $current, $target, [
             ['path' => 'composition', 'from' => $current, 'to' => $target],
         ]);
+        $preview['findings'] = _pp_composition_findings($target);
+        return $preview;
     },
     'execute' => function (array $params): array {
         $current = pp_get_composition($params['post_id']);
@@ -1730,14 +1792,30 @@ pp_register_action('restore_composition', [
         if (is_wp_error($idx)) {
             return _pp_action_error('restore_composition', 'page', $idx->get_error_message(), $idx->get_error_code());
         }
-        $target = $history[$idx]['composition'];
+        // Canonicalize legacy shape on the way in (type -> component, variant -> layout/theme).
+        // This is decoding, not a rewrite of intent: no component is added, removed, or
+        // reordered. Nothing else about the snapshot is touched — chrome and every other
+        // rule violation is preserved verbatim and reported below (#233).
+        $target = pp_normalize_composition($history[$idx]['composition']);
         $result = pp_update_composition($params['post_id'], $target, _pp_action_expected_version($params));
         if (is_wp_error($result)) {
             return _pp_action_error('restore_composition', 'page', $result->get_error_message(), $result->get_error_code());
         }
-        return _pp_action_result('restore_composition', 'page', ['post_id' => $params['post_id']], [
+        // Restore is never blocked by current validation rules, so it must never report a
+        // bare ok:true for a composition those rules reject. `findings` is deliberately a
+        // restore-only key: the shared _pp_action_result() envelope stays as-is (findings
+        // are meaningless for the token actions that share it). It is NOT named `validation`
+        // — the AJAX handler (lib/ai-chat.php) already occupies that key with
+        // pp_post_apply_validate() output.
+        //
+        // Findings describe $target, the array this call wrote. pp_update_composition() takes
+        // it by value and injects props.id into its own copy, so $target stays id-free; no
+        // validator or smell reads props.id, so the report matches the stored bytes either way.
+        $result = _pp_action_result('restore_composition', 'page', ['post_id' => $params['post_id']], [
             ['path' => 'composition', 'from' => $current, 'to' => $target],
         ]);
+        $result['findings'] = _pp_composition_findings($target);
+        return $result;
     },
 ]);
 

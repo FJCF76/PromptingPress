@@ -472,8 +472,10 @@ All mutations go through typed actions. AJAX handlers, WP-CLI, and future AI cal
 
 **Every action returns the same canonical result shape:**
 ```php
-['ok' => bool, 'action' => string, 'scope' => string, 'target' => array, 'changes' => array, 'error' => string|null]
+['ok' => bool, 'action' => string, 'scope' => string, 'target' => array, 'changes' => array, 'error' => string|null, 'error_code' => string]
 ```
+
+These are the keys every action returns, not the complete set for every action. An action may add its own: `restore_composition` adds `findings` (#233). Key on what you need rather than on the exact key set.
 
 **Execute always validates first.** Callers never need to pre-validate.
 

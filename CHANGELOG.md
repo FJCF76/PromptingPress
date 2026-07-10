@@ -4,6 +4,43 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.63] — 2026-07-10 — Restoring an old version of a page now tells you what that version breaks, instead of reporting a clean success (#233)
+
+**Undo always works. That is the point of undo, and it is why `restore_composition` never asks a validator for permission — a rule that landed after you saved a page must not be the reason you can't get that page back. But restore was also silent. It replayed a stored snapshot through the non-validating writer, said `ok: true`, and left you to discover on the next validator run that the page you just restored renders the site header twice. A mutation surface reporting unqualified success for a composition every current rule rejects is the same false pass v0.16.62 closed for `nav`/`footer`. Restore now restores, reports, and normalizes: the write still lands, nothing is stripped from your history, and the result carries a `findings` array describing exactly what today's rules say about what came back.**
+
+The findings come from the two engines that already own the rules, `pp_validate_composition_errors()` and `pp_validate_composition_smells()`. There is no restore-specific validator, so every rule added to those engines from now on is inherited by restore's report for free. That is the actual value here: the rule is written once. `wp pp action preview restore_composition` computes the identical findings and writes nothing, so an agent sees the remediation before it commits to the restore rather than after.
+
+Pages saved before the `variant` → `layout`/`theme` rename are quietly translated to the current shape as they come back. That is decoding, not a rewrite of intent: no component is added, removed, or reordered, and site chrome sitting in an old snapshot is preserved and reported, never silently deleted. Your history is a record, not a draft.
+
+In the AI chat, "Undo these changes" still succeeds on a snapshot current rules reject. It now lists what it found underneath, as warnings. An undo that worked never reports itself as an undo that failed.
+
+### What changed for you
+
+| Before | After |
+|---|---|
+| Restoring a pre-#223 snapshot returned a bare `ok: true` | The result carries `findings` naming every violation |
+| You learned the page was broken on the next `wp pp check page` | You learn it in the restore's own output |
+| `preview` gave no hint the restore would produce a broken page | `preview` reports the same findings and writes nothing |
+| A pre-rename snapshot came back still keyed on `variant` | It is decoded to `layout`/`theme` on the way in |
+| Only the first validation error was ever reported | Every violation is reported in one pass |
+| The chat's "Undo" said only "Changes undone" | It lists the issues it found, as warnings, not a failure |
+
+### Fixed
+- **`restore_composition` reported success for a composition current validators reject (#233).** Its `execute` and `preview` (`lib/actions.php`) now return a `findings` array: `['type', 'severity' => 'error'|'warning', 'message', 'index']`, empty when the snapshot is clean. `severity: error` means a normal write of this composition would be rejected; `severity: warning` is advisory. The new `_pp_composition_findings()` reads the two shared engines and never derives its own view of the rules. `findings` is a restore-specific key: the canonical `_pp_action_result()` envelope shared by every action is unchanged, and it is deliberately not named `validation`, which the AJAX layer already uses for `pp_post_apply_validate()` output.
+- **Only the first validation error was ever reported.** New `pp_validate_composition_errors()` (`lib/admin.php`) collects every violation, at most one per composition item so a malformed item cannot cascade. `pp_validate_composition()` now delegates to it and returns `$errors[0]`, preserving its exact first-error-wins contract, code, message, and document order for the write-time callers that depend on it.
+- **A corrupt composition could crash the smell checker.** A row holding an array in its `component` key made `pp_validate_composition_smells()` (`lib/guardrails.php`) emit an `Array to string conversion` warning and then throw a `TypeError`. Because restore's findings run these rules over arbitrary history snapshots, that fatal would have fired *after* the write landed, showing an error for an undo that actually succeeded. Malformed items are now skipped by the smell checker and reported as `Item %d has a non-scalar "component" key.` by the validator, instead of being cast to a component literally named `Array`.
+
+### Changed
+- **Legacy shape is canonicalized on restore.** The snapshot passes through `pp_normalize_composition()` before it is written, so `type` → `component` and the pre-v0.16.59 `variant` → `layout`/`theme` are decoded on the way in. `preview`'s `after` field is the normalized composition, so it shows what `execute` would actually persist.
+
+### For contributors
+- **Restore reports, never blocks** is now load-bearing invariant 2c in `docs/AI_IMPLEMENTATION_RECIPES.md`, alongside a correction to 2b: `pp_validate_composition()` rejects chrome on every *write-time* path, and `restore_composition` is the one deliberate exception. `pp_update_composition()` (`lib/wp.php`) stays a non-validating writer; the action layer owns validation. Recipe C now warns that the smell checker runs over compositions that never passed write-time validation, so a check declaring `string $component` and receiving an array is a fatal, not a warning.
+- The `variant` → `layout`/`theme` shim (`pp_migrate_legacy_variant_keys()`) carries a removal-dependency note. Restore relies on it to decode pre-v0.16.59 snapshots still sitting in live history rings, which v0.16.59's migration plan never covered — it addressed stored `_pp_composition`, not `_pp_composition_history`. Deleting the shim at the v1.0.0 tag without migrating those rings makes an old page come back subtly wrong rather than loudly wrong. `ActionsTest::testRestoreNormalizesLegacyVariantSnapshot()` fails the moment the shim goes.
+- `docs/reference-apply-cli.md` documents the `findings` shape and the report-don't-block policy; `docs/howto-apply-and-rollback.md` shows how to read it; `AI_CONTEXT.md` records that the canonical action-result keys are a minimum, not an exhaustive set.
+- Follow-up filed, not fixed here: the run-scoped `wp pp apply restore-composition` reverts through the same non-validating writer and reports success the same way (#236).
+
+---
+
 ## [v0.16.62] — 2026-07-09 — The site header and footer can no longer be composed into a page, so the validators stop certifying pages that render their chrome twice (#223)
 
 **`nav` and `footer` were registered, documented, composable components. They were also rendered on every page by the base template. Put either one in a page composition and the page rendered its header or footer twice — and `wp pp validate page`, `wp pp check page`, and `wp pp validate site` all reported success. The docs walked you into it: the composable-component table listed `nav` and `footer` with their props, and the AI's own component catalog advertised them. An agent following the shipped playbook produced a visibly broken page, and PromptingPress's rendered-validation gate certified it as correct. That false pass is closed. Site chrome is template-owned now: composing it is rejected at write time with a distinct `template_owned_component` error that names the surfaces that actually work, the AI's catalog no longer lists it, and a page that already contains it fails every validator instead of passing them.**

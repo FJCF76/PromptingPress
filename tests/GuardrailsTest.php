@@ -1268,4 +1268,36 @@ class GuardrailsTest extends TestCase
 
         $this->assertEmpty($output);
     }
+
+    /**
+     * A corrupt row can hold an array in `component`. Casting it warns, and
+     * _pp_component_is_empty() declares `string $component`, so it would throw.
+     * restore_composition's findings (#233) run these smells over arbitrary
+     * history-ring snapshots, so a malformed item must be skipped, never fatal.
+     */
+    public function testSmellsSkipNonScalarComponentInsteadOfThrowing(): void
+    {
+        $raised = [];
+        set_error_handler(static function (int $no, string $str) use (&$raised): bool {
+            $raised[] = $str;
+            return true;
+        });
+
+        try {
+            $warnings = pp_validate_composition_smells([
+                ['component' => [], 'props' => []],
+                ['component' => ['nested' => 'nav'], 'props' => []],
+                ['component' => 'nav', 'props' => []],
+            ]);
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertSame([], $raised, 'no PHP warning from a non-scalar component');
+
+        // The malformed items are skipped; the real chrome item is still reported.
+        $types = array_column($warnings, 'type');
+        $this->assertContains('template_owned_component', $types);
+        $this->assertSame(2, $warnings[0]['index'], 'the surviving warning points at the nav item');
+    }
 }

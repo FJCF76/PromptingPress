@@ -176,7 +176,9 @@ pp_get_component('mycomponent', [
 > Declare it: add the name to `pp_template_owned_components()` in `lib/admin.php`, and its menu
 > location to `pp_template_owned_menu_locations()` in `lib/wp.php` if it reads one.
 > `pp_validate_composition()` will then reject it from `_pp_composition` with
-> `template_owned_component`, and it will be dropped from the catalog the AI reads.
+> `template_owned_component` on every write-time path, and it will be dropped from the catalog
+> the AI reads. `restore_composition` is the one deliberate exception (#233): it replays stored
+> history, so it writes the chrome and reports it as a finding rather than refusing the restore.
 >
 > The drift guards in `tests/NavReadinessTest.php` read `base.php` back and fail if you forget.
 > Calling it from any other template (`front-page.php`, `single.php`, …) needs none of this.

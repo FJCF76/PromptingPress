@@ -184,6 +184,16 @@ function pp_normalize_composition(array $items): array {
  *   tone       (variant -> theme):  section, stats, logos, embed
  * An explicit new key already present wins; the legacy `variant` is then dropped.
  *
+ * DEPENDENT — READ BEFORE REMOVING (#233): restore_composition runs every history-ring
+ * snapshot through pp_normalize_composition(), which calls this. Rings are bounded but
+ * long-lived, so a live install can still hold pre-#69 snapshots keyed on `variant`.
+ * Deleting this shim at the v1.0.0 tag without migrating those rings does not make a
+ * restore fail — it makes it succeed while writing a composition nothing decodes, so the
+ * page comes back subtly wrong rather than loudly wrong. #69's migration plan covers
+ * stored `_pp_composition` on read/save; it never covered `_pp_composition_history`.
+ * Removal must therefore either preserve restore compatibility or ship an explicit
+ * history migration. Pinned by ActionsTest::testRestoreNormalizesLegacyVariantSnapshot().
+ *
  * @param  array $items  Composition array (component key already canonicalized).
  * @return array         Composition array with legacy `variant` keys migrated.
  */
@@ -224,29 +234,55 @@ function pp_migrate_legacy_variant_keys(array $items): array {
 }
 
 /**
- * Validates a decoded composition array against the component registry.
+ * Validates a decoded composition array and returns EVERY error it finds.
  *
- * @param  array            $items  Decoded composition array.
- * @return true|WP_Error
+ * The collect-all engine behind pp_validate_composition(). Both read the same rules;
+ * they differ only in how much they report. Write-time callers want the first error
+ * (fail fast, one actionable message); reporting callers — restore_composition's
+ * `findings` (#233) — need the complete set, or a caller fixes one violation, retries,
+ * and discovers the next one only on the following run.
+ *
+ * At most ONE error per item: each item stops at its first failing check and moves on.
+ * That keeps errors[0] identical to the single error pp_validate_composition() has
+ * always returned (same code, same message, same document order), and it stops a
+ * malformed item from cascading bogus follow-on errors from the checks below it.
+ *
+ * @param  array      $items  Decoded composition array.
+ * @return WP_Error[]         Empty when the composition is valid.
  */
-function pp_validate_composition(array $items) {
+function pp_validate_composition_errors(array $items): array {
     $registered = pp_get_registered_components();
+    $errors     = [];
 
     foreach ($items as $i => $item) {
         if (!isset($item['component'])) {
-            return new WP_Error(
+            $errors[] = new WP_Error(
                 'invalid_composition',
                 sprintf('Item %d is missing the "component" key.', $i)
             );
+            continue;
+        }
+
+        // A corrupt or raw-written row can carry an array/object here. Casting it would
+        // emit "Array to string conversion" and then report a component literally named
+        // "Array". restore's findings (#233) run these rules over arbitrary history-ring
+        // snapshots, so malformed shapes reach this line — name the real problem instead.
+        if (!is_scalar($item['component'])) {
+            $errors[] = new WP_Error(
+                'invalid_composition',
+                sprintf('Item %d has a non-scalar "component" key.', $i)
+            );
+            continue;
         }
 
         $name = (string) $item['component'];
 
         if (!isset($registered[$name])) {
-            return new WP_Error(
+            $errors[] = new WP_Error(
                 'invalid_composition',
                 sprintf('Unknown component: "%s".', $name)
             );
+            continue;
         }
 
         // Site chrome is template-owned. Rejecting here covers every action-layer
@@ -254,18 +290,22 @@ function pp_validate_composition(array $items) {
         // and the editor save, which routes through update_composition.
         //
         // It is NOT the only path that can persist a composition: pp_update_composition()
-        // is a thin, non-validating writer, so restore_composition and a raw
-        // update_post_meta() still write unchecked bytes. Chrome arriving that way is
-        // caught after the fact by pp_validate_composition_smells() and
-        // pp_post_apply_validate(). Restore policy is tracked in #233.
+        // is a thin, non-validating writer, so a raw update_post_meta() still writes
+        // unchecked bytes. Chrome arriving that way is caught after the fact by
+        // pp_validate_composition_smells() and pp_post_apply_validate().
+        //
+        // restore_composition (#233) is the deliberate exception: it never blocks on
+        // these rules (undo must not fail), and instead reports them as `findings` via
+        // _pp_composition_findings(), which reads this function.
         //
         // Distinct error code so the action layer can tell "that name is chrome"
         // apart from "that name doesn't exist" (issue #223).
         if (pp_is_template_owned_component($name)) {
-            return new WP_Error(
+            $errors[] = new WP_Error(
                 'template_owned_component',
                 pp_template_owned_component_message($name)
             );
+            continue;
         }
 
         $schema = $registered[$name];
@@ -275,10 +315,11 @@ function pp_validate_composition(array $items) {
                     !empty($prop_def['required']) &&
                     (!isset($item['props']) || !array_key_exists($prop_name, $item['props']))
                 ) {
-                    return new WP_Error(
+                    $errors[] = new WP_Error(
                         'invalid_composition',
                         sprintf('Component "%s" is missing required prop "%s".', $name, $prop_name)
                     );
+                    continue 2;
                 }
             }
         }
@@ -293,7 +334,7 @@ function pp_validate_composition(array $items) {
                 }
                 if (!isset($available_slots[$slot_name])) {
                     $available = implode(', ', array_keys($available_slots));
-                    return new WP_Error(
+                    $errors[]  = new WP_Error(
                         'invalid_style_slot',
                         sprintf(
                             'Component "%s" has no style slot "%s". Available slots: %s',
@@ -302,12 +343,13 @@ function pp_validate_composition(array $items) {
                             $available ?: '(none)'
                         )
                     );
+                    continue 2;
                 }
                 // Validate value using same injection guard + type validators as tokens.
                 $slot_type  = $available_slots[$slot_name]['type'] ?? null;
                 $validation = _pp_validate_token_value((string) $slot_value, $slot_type);
                 if (is_wp_error($validation)) {
-                    return new WP_Error(
+                    $errors[] = new WP_Error(
                         'invalid_style_value',
                         sprintf(
                             'Component "%s" style slot "%s": %s',
@@ -316,12 +358,30 @@ function pp_validate_composition(array $items) {
                             $validation->get_error_message()
                         )
                     );
+                    continue 2;
                 }
             }
         }
     }
 
-    return true;
+    return $errors;
+}
+
+/**
+ * Validates a decoded composition array against the component registry.
+ *
+ * First-error-wins: returns the first violation in document order, exactly as it always
+ * has. Every write-time caller (create_page, update_composition, add_component,
+ * update_component, the editor save) depends on this shape. Use
+ * pp_validate_composition_errors() when you need the complete set instead.
+ *
+ * @param  array            $items  Decoded composition array.
+ * @return true|WP_Error
+ */
+function pp_validate_composition(array $items) {
+    $errors = pp_validate_composition_errors($items);
+
+    return $errors === [] ? true : $errors[0];
 }
 
 // ── Composition Page Discriminator ───────────────────────────────────────────
