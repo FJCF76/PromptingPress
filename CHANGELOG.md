@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.80] — 2026-07-12 — the featured first grid card now honors a custom card border color (#226)
+
+**Setting `--grid-card-border` on a `grid` with `layout: "cards"` changed every card's border except the first one. The first card gets a "featured" treatment (accent border, accent top bar, tinted fill), and its border color was pinned to the theme accent, so an author's declared border color silently did nothing on that card while the action still reported success. The featured card now respects `--grid-card-border`, falling back to the accent only when no value is set.**
+
+The featured first card already routed its background through the `--grid-card-bg` slot so an author could override it, but its border color was hardcoded to the accent token in two cascade rules (the later one is what actually rendered). Setting `--grid-card-border` therefore applied to cards 2..N and no-opped on card 1, which reads as a bug because the neighboring background slot did work. Both rules now route the border through `var(--grid-card-border, <accent>)`, matching how `--grid-card-bg` already behaves on the same card. When the slot is unset the featured accent border is unchanged; the top bar and tinted fill of the featured treatment are also unchanged. This closes the border half of #226; the featured treatment itself remains on by default (opting out of it entirely was the alternative the issue listed but did not require).
+
+### Fixed
+
+- The featured first card of a `grid` with `layout: "cards"` now honors the `--grid-card-border` style slot instead of silently forcing the theme accent, so a declared card border color applies uniformly across all cards. Unset compositions keep the featured accent border (#226).
+
+### Tests
+
+- A CSS lint pin extracts every `main > .grid:not(.grid--steps) .grid__item:first-child` rule that sets `border-color` and asserts each routes through `var(--grid-card-border, ...)` with an accent-token fallback; it fails if either featured-card rule reverts to a bare token. A nonzero-match guard prevents the pin from passing vacuously if the selector ever drifts.
+
 ## [v0.16.79] — 2026-07-11 — a CTA button label with no spaces can no longer scroll the page sideways (#266)
 
 **A `cta` button whose label had no place to break, a long unbroken string like a run-together phrase or a URL slug, grew wider than its column and pushed the page horizontally off screen at 768px. Normal labels, including long ones with spaces, wrap inside the button and were always fine; only a label with zero break opportunities could force the overflow. Any label now wraps inside the button instead of widening its column, so no author-supplied button text can scroll the page.**
