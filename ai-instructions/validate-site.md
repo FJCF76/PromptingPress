@@ -101,7 +101,7 @@ After automated checks pass, verify rendered output:
 - [ ] Component IDs visible in DOM inspector (search for `pp-`)
 - [ ] `data-pp-component` attributes present on all component root elements
 - [ ] Design tokens applied (no raw hex in computed styles)
-- [ ] Grid components show 3-column layout
+- [ ] Grid components lay out by item count (3 items = 3 across; 2 and 4 items = 2 across; `steps` = 3 across, but a 4-item `steps` grid = 2 x 2)
 - [ ] Hero CTA buttons styled correctly (primary solid, secondary outline)
 
 ### Mobile (375px)

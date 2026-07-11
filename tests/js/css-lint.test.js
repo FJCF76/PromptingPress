@@ -317,6 +317,102 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
     });
 });
 
+/**
+ * Grid desktop column layout (#224).
+ *
+ * The desktop column count is driven by the `data-pp-count` attribute that
+ * grid.php emits on `.grid__list`. Asserting a rule merely *exists* would not
+ * prove it wins the cascade: the generic `@media (min-width: 768px)` rule sets
+ * `repeat(2, 1fr)`, so a count rule only takes effect from inside the
+ * `min-width: 1024px` block that follows it. These pins therefore check
+ * containment in that block, not just presence in the file.
+ */
+describe('CSS lint: grid desktop columns by item count', () => {
+    // Extract the bodies of every `@media (min-width: 1024px)` block by brace matching.
+    function desktopBlocks(css) {
+        const blocks = [];
+        const opener = /@media\s*\(min-width:\s*1024px\)\s*\{/g;
+        let match;
+        while ((match = opener.exec(css)) !== null) {
+            let depth = 1;
+            let i = opener.lastIndex;
+            while (i < css.length && depth > 0) {
+                if (css[i] === '{') depth++;
+                else if (css[i] === '}') depth--;
+                i++;
+            }
+            blocks.push(css.slice(opener.lastIndex, i - 1));
+        }
+        return blocks;
+    }
+
+    const desktop = desktopBlocks(stripComments(COMPONENTS_CSS)).join('\n');
+
+    // Return the LAST grid-template-columns declared for `selector` across the
+    // desktop blocks — the cascade winner, not the first textual match. A rule
+    // added later that re-overrides the same selector must fail the pin rather
+    // than hide behind an earlier one. The selector is anchored to a rule start
+    // (`}` or start-of-input) so it cannot bind to a longer selector that merely
+    // ends with the same text.
+    function rulesFor(selector) {
+        const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const pattern = new RegExp(`(?:^|\\})\\s*${escaped}\\s*\\{([^}]*)\\}`, 'g');
+        const bodies = [];
+        let match;
+        while ((match = pattern.exec(desktop)) !== null) {
+            bodies.push(match[1]);
+            // Re-scan from the rule's own closing brace so back-to-back rules
+            // are not skipped by the leading `}` this pattern consumes.
+            pattern.lastIndex -= 1;
+        }
+        return bodies;
+    }
+
+    function columnsFor(selector) {
+        const bodies = rulesFor(selector);
+        if (bodies.length === 0) return null;
+        const winner = bodies
+            .map(body => /grid-template-columns\s*:\s*([^;]+);/.exec(body))
+            .filter(Boolean)
+            .pop();
+        return winner ? winner[1].trim() : null;
+    }
+
+    test('a 3-item cards grid gets 3 columns at desktop', () => {
+        expect(desktop).not.toEqual('');
+        expect(columnsFor('main > .grid:not(.grid--steps) .grid__list[data-pp-count="3"]'))
+            .toBe('repeat(3, minmax(0, 1fr))');
+    });
+
+    test('a 3-item cards grid spans the container (no narrowing max-width)', () => {
+        const bodies = rulesFor('main > .grid:not(.grid--steps) .grid__list[data-pp-count="3"]');
+        expect(bodies.length).toBeGreaterThan(0);
+        bodies.forEach(body => expect(body).not.toMatch(/max-width\s*:/));
+    });
+
+    test('the 3-item rule is declared exactly once (no later re-override)', () => {
+        expect(rulesFor('main > .grid:not(.grid--steps) .grid__list[data-pp-count="3"]'))
+            .toHaveLength(1);
+    });
+
+    // Scope guards (#224 changed the 3-item case only). If a future change
+    // generalizes the desktop grid, these are the pins that should be revisited
+    // deliberately rather than broken silently.
+    test('a 4-item cards grid still lays out 2 x 2', () => {
+        expect(columnsFor('main > .grid:not(.grid--steps) .grid__list[data-pp-count="4"]'))
+            .toBe('repeat(2, minmax(0, 1fr))');
+    });
+
+    test('a 2-item cards grid still lays out 2 across', () => {
+        expect(columnsFor('main > .grid:not(.grid--steps) .grid__list[data-pp-count="2"]'))
+            .toBe('repeat(2, minmax(0, 1fr))');
+    });
+
+    test('the steps layout keeps its own 3-column rule', () => {
+        expect(columnsFor('.grid--steps .grid__list')).toBe('repeat(3, 1fr)');
+    });
+});
+
 describe('CSS lint: no raw hex in components.css', () => {
     test('components.css has no raw hex color values', () => {
         const stripped = stripComments(COMPONENTS_CSS);

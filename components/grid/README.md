@@ -36,7 +36,18 @@ Each item in `items`:
 |------------|---------|
 | Mobile     | 1       |
 | Tablet (md 768px+) | 2  |
-| Desktop (lg 1024px+) | 3 |
+| Desktop (lg 1024px+) | depends on item count — see below |
+
+At desktop, a composed `cards` grid lays out by item count:
+
+| Items | Desktop columns |
+|-------|-----------------|
+| 2     | 2, centered in a narrower row |
+| 3     | 3 across, spanning the container |
+| 4     | 2 x 2, centered in a narrower row |
+| other | 2 |
+
+The `steps` layout is 3 across at desktop, except for a 4-item steps grid, which lays out 2 x 2.
 
 ## Steps layout
 
