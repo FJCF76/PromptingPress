@@ -147,6 +147,176 @@ describe('CSS lint: grid--steps only declared inside the COMPONENT: grid block (
     );
 });
 
+describe('CSS lint: theme variants survive the desktop typography cascade (#222)', () => {
+    // Regression guard for the inverted dark-on-dark bug. The "Premium body-section
+    // typography" media block declares `color` on `main > .grid .grid__heading` etc.
+    // Those selectors are [0,2,1]; every theme variant (`.grid--inverted ...`) is at
+    // most [0,2,0], so the theme can NEVER win this by specificity. Before #222 the
+    // desktop rules fell back straight to a global token (var(--color-text)), which
+    // silently overrode the theme's own fallback and painted dark text on the theme's
+    // dark background above 768px — while mobile, which has no such rule, rendered
+    // correctly. A screenshot-only mobile check would pass.
+    //
+    // The fix is cascade-independent: the theme variant sets an inheritable
+    // *-theme-color default, and every non-variant color declaration resolves
+    //     slot -> theme default -> global token
+    // so whichever selector wins, the theme still supplies the right default and the
+    // per-instance style slot still takes precedence over both (#86's contract).
+    //
+    // Asserting the theme var merely APPEARS is not enough — a malformed chain
+    // (theme var first, or global token before the theme var) would still contain the
+    // string. So pin the ORDER.
+    const stripped = stripComments(COMPONENTS_CSS);
+
+    const THEMED = [
+        // `desktop` = the element also carries a color declaration inside the >=768px
+        // typography block, i.e. it is exposed to the cascade defect. .grid__subheading
+        // has no desktop color rule; it was broken at every viewport for a different
+        // reason (no inverted rule existed at all), so it is pinned at the base rule only.
+        { el: '.grid__heading', slot: '--grid-heading-color', themeVar: '--grid-heading-theme-color', desktop: true },
+        { el: '.grid__subheading', slot: '--grid-subheading-color', themeVar: '--grid-subheading-theme-color', desktop: false },
+        { el: '.section__title', slot: '--section-title-color', themeVar: '--section-title-theme-color', desktop: true },
+        { el: '.section__content', slot: '--section-text', themeVar: '--section-text-theme-color', desktop: true },
+        { el: '.cta__body', slot: '--cta-body-color', themeVar: '--cta-body-theme-color', desktop: true },
+    ];
+
+    // Theme-variant rules (`.grid--inverted .grid__heading`) and page-specific ID
+    // overrides declare a color for one specific theme on purpose — they are not
+    // the general-purpose declaration this guard governs.
+    const isVariantOrIdRule = (selector) =>
+        /--inverted|--dark|--has-bg-image|#/.test(selector);
+
+    // Brace-match every `@media (min-width: 768px)` block so a declaration can be
+    // located as inside-desktop or not. Pinning "the chain appears somewhere in the
+    // file" is not enough: the bug lives specifically in the desktop rule, and if that
+    // rule's selector were reshaped so the element filter stopped matching it, the
+    // base-rule declaration alone would keep the suite green while the bug returned.
+    const desktopRanges = [];
+    const mediaRe = /@media\s*\(min-width:\s*768px\)\s*\{/g;
+    let mm;
+    while ((mm = mediaRe.exec(stripped)) !== null) {
+        let depth = 1;
+        let i = mm.index + mm[0].length;
+        while (i < stripped.length && depth > 0) {
+            if (stripped[i] === '{') depth++;
+            else if (stripped[i] === '}') depth--;
+            i++;
+        }
+        desktopRanges.push([mm.index, i]);
+    }
+    const inDesktopBlock = (index) =>
+        desktopRanges.some(([start, end]) => index > start && index < end);
+
+    // Collect innermost rules: `selector { body-without-braces }`. Rules nested in a
+    // media query still match, with the @media prelude left outside the capture.
+    const rules = [];
+    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+    let m;
+    while ((m = ruleRe.exec(stripped)) !== null) {
+        rules.push({ selector: m[1].trim(), body: m[2], index: m.index });
+    }
+
+    // Match the element as a whole token anywhere in a comma-part, not just at the end:
+    // `main > .section .section__content p` and `.grid__heading:hover` target the same
+    // element and must be held to the same chain. `endsWith` would silently skip them.
+    const targetsElement = (selector, el) =>
+        selector.split(',').some(s => new RegExp(`\\${el}(?![-\\w])`).test(s.trim()));
+
+    // Every `color:` in the body, not just the first — a later duplicate is what wins.
+    const colorValues = (body) =>
+        [...body.matchAll(/(?:^|;)\s*color\s*:\s*([^;]+)/g)].map(c => c[1].trim());
+
+    THEMED.forEach(({ el, slot, themeVar, desktop }) => {
+        // Every general-purpose `color:` declaration for this element — the base rule
+        // AND the desktop typography rule — must resolve slot -> theme -> global.
+        const chainRe = new RegExp(
+            `^var\\(${slot},\\s*var\\(${themeVar},\\s*var\\(--color-[a-z0-9-]+\\)\\)\\)$`
+        );
+
+        const declarations = rules
+            .filter(r => !isVariantOrIdRule(r.selector))
+            .filter(r => targetsElement(r.selector, el))
+            .flatMap(r => colorValues(r.body).map(value => ({
+                selector: r.selector,
+                value,
+                desktop: inDesktopBlock(r.index),
+            })));
+
+        test(`${el} has at least one themed color declaration`, () => {
+            // If this fails the element was renamed or its color rule dropped — the
+            // chain assertions below would then vacuously pass.
+            expect(declarations.length).toBeGreaterThan(0);
+        });
+
+        if (desktop) {
+            test(`${el} is still colored inside the >=768px typography block`, () => {
+                // The exact rule that caused #222. If it stops matching, the guard below
+                // is no longer guarding anything.
+                expect(declarations.filter(d => d.desktop).length).toBeGreaterThan(0);
+            });
+        }
+
+        test(`${el} color always resolves ${slot} -> ${themeVar} -> global token`, () => {
+            const offenders = declarations
+                .filter(d => !chainRe.test(d.value))
+                .map(d => `${d.selector.split('\n').pop().trim()} { color: ${d.value} }`);
+            expect(offenders).toEqual([]);
+        });
+    });
+
+    // The other half of the contract: every variant that paints a DARK surface must
+    // actually SET the defaults, or the chains above silently fall through to the
+    // light-theme global token and the dark-on-dark bug returns.
+    //
+    // The --has-bg-image variants are dark surfaces too: they lay a dark overlay
+    // (var(--overlay-bg)) over the image, and they lose to the very same desktop
+    // typography rules. They shipped the identical defect (issue 248) and are fixed
+    // by the same mechanism, so they are pinned here alongside the inverted variants.
+    // The --dark variants are deliberately absent: they use a light surface
+    // (--color-surface) with dark text, so they must NOT set a theme text default.
+    const VARIANT_DECLARES = [
+        { variant: '.grid--inverted', vars: ['--grid-heading-theme-color', '--grid-subheading-theme-color'] },
+        { variant: '.pp-section--inverted', vars: ['--section-title-theme-color', '--section-text-theme-color'] },
+        { variant: '.cta--inverted', vars: ['--cta-body-theme-color'] },
+        { variant: '.section--has-bg-image', vars: ['--section-title-theme-color', '--section-text-theme-color'] },
+        { variant: '.cta--has-bg-image', vars: ['--cta-body-theme-color'] },
+    ];
+
+    VARIANT_DECLARES.forEach(({ variant, vars }) => {
+        vars.forEach(v => {
+            test(`${variant} declares ${v}`, () => {
+                const block = rules.find(r =>
+                    r.selector.split(',').some(s => s.trim() === variant)
+                );
+                expect(block).toBeDefined();
+                expect(block.body).toMatch(new RegExp(`${v}\\s*:`));
+            });
+        });
+    });
+
+    // Inverted grid CARDS keep a light background (`--grid-card-bg: var(--color-bg)`),
+    // so their text must stay DARK. Theming it would be the inverse of #222: an
+    // inverted grid would render light-on-light card text. Pin both halves of that.
+    test('inverted grid card text resolves to a global token, never a theme var', () => {
+        const cardDecls = rules
+            .filter(r => targetsElement(r.selector, '.grid__item-title') ||
+                         targetsElement(r.selector, '.grid__item-text'))
+            .flatMap(r => colorValues(r.body).map(value => ({ selector: r.selector, value })));
+
+        expect(cardDecls.length).toBeGreaterThan(0);
+        const offenders = cardDecls
+            .filter(d => !/^var\(--grid-item-(title|text)-color,\s*var\(--color-[a-z0-9-]+\)\)$/.test(d.value))
+            .map(d => `${d.selector.split('\n').pop().trim()} { color: ${d.value} }`);
+        expect(offenders).toEqual([]);
+    });
+
+    test('.grid--inverted declares no --grid-item-* default (cards must not be themed)', () => {
+        const block = rules.find(r => r.selector.split(',').some(s => s.trim() === '.grid--inverted'));
+        expect(block).toBeDefined();
+        expect(block.body).not.toMatch(/--grid-item-[a-z-]*\s*:/);
+    });
+});
+
 describe('CSS lint: no raw hex in components.css', () => {
     test('components.css has no raw hex color values', () => {
         const stripped = stripComments(COMPONENTS_CSS);

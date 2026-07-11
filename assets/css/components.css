@@ -700,7 +700,7 @@
 
 .section__title {
   font-size: var(--section-title-size, inherit);
-  color: var(--section-title-color, var(--color-text));
+  color: var(--section-title-color, var(--section-title-theme-color, var(--color-text)));
   margin-bottom: var(--space-md);
 }
 
@@ -715,7 +715,7 @@
 }
 
 .section__content {
-  color: var(--section-text, var(--color-text));
+  color: var(--section-text, var(--section-text-theme-color, var(--color-text)));
   max-width: var(--section-body-width, 42rem);
 }
 
@@ -752,10 +752,14 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+/* --color-muted carries .section__subheading; --section-*-theme-color carry the
+   elements the desktop typography block re-colors at higher specificity (issue 222). */
 .pp-section--inverted {
   background-color: var(--color-bg-inverted);
   color: var(--color-bg);
   --color-muted: var(--color-bg);
+  --section-title-theme-color: var(--color-bg);
+  --section-text-theme-color: var(--color-bg);
 }
 
 .pp-section--inverted .section__title,
@@ -772,12 +776,17 @@
   color: var(--section-accent, var(--color-accent));
 }
 
-/* Section with background image */
+/* Section with background image. The dark overlay below makes this a dark surface,
+   so it needs the same theme text defaults as the inverted variant: the desktop
+   typography block outranks every rule here and would otherwise fall back to the
+   light-theme token, painting dark text on the overlay (issue 248). */
 .section--has-bg-image {
   position: relative;
   background-size: cover;
   background-position: var(--section-bg-position, center);
   background-repeat: no-repeat;
+  --section-title-theme-color: var(--color-bg);
+  --section-text-theme-color: var(--color-bg);
 }
 
 .section__overlay {
@@ -936,7 +945,7 @@
 }
 
 .grid__heading {
-  color: var(--grid-heading-color, var(--color-text));
+  color: var(--grid-heading-color, var(--grid-heading-theme-color, var(--color-text)));
   font-size: var(--grid-heading-size, inherit);
   max-width: var(--grid-heading-max-width, 40rem);
   margin-bottom: var(--space-lg);
@@ -953,7 +962,7 @@
 }
 
 .grid__subheading {
-  color: var(--grid-subheading-color, var(--color-muted));
+  color: var(--grid-subheading-color, var(--grid-subheading-theme-color, var(--color-muted)));
   margin-top: 0;
   margin-bottom: var(--space-lg);
   max-width: 40rem;
@@ -1135,8 +1144,19 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+/* Theme text defaults. The desktop typography block re-declares `color` at higher
+   specificity than any theme variant can reach (`main > .grid .grid__heading` is
+   [0,2,1]; this rule is [0,2,0]), so a theme cannot win by selector. It supplies an
+   inheritable DEFAULT instead, which the element's own fallback chain resolves at
+   use-time regardless of which selector won: slot > theme > global token (issue 222).
+   Names are component-scoped on purpose: a shared token would inherit into a
+   non-inverted component nested in an inverted one and paint light-on-light.
+   Deliberately NOT applied to .grid__item-* — inverted cards keep a light
+   background below, so their text must stay dark. */
 .grid--inverted {
   background: var(--grid-bg, var(--color-bg-inverted));
+  --grid-heading-theme-color: var(--color-bg);
+  --grid-subheading-theme-color: var(--color-bg);
 }
 
 .grid--inverted .grid__heading {
@@ -1271,7 +1291,7 @@
 }
 
 .cta__body {
-  color: var(--cta-body-color, var(--color-muted));
+  color: var(--cta-body-color, var(--cta-body-theme-color, var(--color-muted)));
   font-size: var(--cta-body-size, inherit);
   margin-bottom: 0;
 }
@@ -1380,6 +1400,7 @@
 
 .cta--inverted {
   background: var(--cta-bg, var(--color-bg-inverted));
+  --cta-body-theme-color: var(--color-bg);
 }
 
 .cta--inverted .cta__title {
@@ -1392,12 +1413,15 @@
 }
 
 /* CTA with background image */
+/* Same dark-overlay surface as .section--has-bg-image — same theme text default
+   (issue 248). */
 .cta--has-bg-image {
   position: relative;
   background-size: cover;
   background-position: var(--cta-bg-position, center);
   background-repeat: no-repeat;
   border: none;
+  --cta-body-theme-color: var(--color-bg);
 }
 
 .cta__overlay {
@@ -2608,13 +2632,16 @@
 
   /* Per-instance heading-color slots must survive this desktop typography rule (#86).
      Color is split per selector so each component's slot wins instead of a shared
-     hardcoded var(--color-text). */
+     hardcoded var(--color-text). The theme-color var sits between the slot and the
+     global token so a theme variant (e.g. .grid--inverted) still supplies the right
+     default here — this rule outranks every theme selector, so without it the theme
+     lost and inverted text rendered dark-on-dark above 768px (issue 222). */
   main > .grid .grid__heading {
-    color: var(--grid-heading-color, var(--color-text));
+    color: var(--grid-heading-color, var(--grid-heading-theme-color, var(--color-text)));
   }
 
   main > .section .section__title {
-    color: var(--section-title-color, var(--color-text));
+    color: var(--section-title-color, var(--section-title-theme-color, var(--color-text)));
   }
 
   main > .faq .faq__heading {
@@ -2623,7 +2650,7 @@
 
   main > .section .section__content,
   main > .section .section__content p {
-    color: var(--section-text, var(--color-text-secondary));
+    color: var(--section-text, var(--section-text-theme-color, var(--color-text-secondary)));
     font-size: 1.065rem;
     font-weight: 430;
     line-height: 1.76;
@@ -2686,7 +2713,7 @@
   }
 
   main > .cta .cta__body {
-    color: var(--cta-body-color, var(--color-text-secondary));
+    color: var(--cta-body-color, var(--cta-body-theme-color, var(--color-text-secondary)));
     font-size: 1.04rem;
     font-weight: 430;
     line-height: 1.66;
