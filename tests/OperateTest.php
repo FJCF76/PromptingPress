@@ -998,6 +998,94 @@ class OperateTest extends TestCase
         $this->assertTrue(true);
     }
 
+    // ── Fail-closed persistence (issue 243) ───────────────────────────────
+
+    public function testMutateStateEncodeFailureFailsClosedAndPreservesPriorState(): void
+    {
+        $run_id = pp_operate_create_run();
+        $path   = pp_operate_run_path($run_id);
+
+        // Establish a known prior state so we can prove it survives a failed persist.
+        $this->assertTrue(pp_operate_record_step($run_id, 'INSPECT'));
+        $before = file_get_contents($path);
+        $before_decoded = json_decode($before, true);
+        $this->assertContains('INSPECT', $before_decoded['steps_completed']);
+
+        // Mutator returns a structurally-valid array whose payload cannot be
+        // JSON-encoded: a lone malformed UTF-8 byte makes wp_json_encode() return
+        // false. Pre-fix, the file was truncated first and the function still
+        // returned true — destroying the prior state.
+        $result = pp_operate_mutate_state($run_id, static function (array $data) {
+            $data['bad'] = "\xB1\x31"; // invalid UTF-8 -> json_encode() === false
+            return $data;
+        });
+
+        // Fail closed: the write is refused...
+        $this->assertFalse($result);
+
+        // ...and the prior state file is byte-for-byte intact (not truncated/torn).
+        $after = file_get_contents($path);
+        $this->assertSame($before, $after);
+        $after_decoded = json_decode($after, true);
+        $this->assertIsArray($after_decoded);
+        $this->assertContains('INSPECT', $after_decoded['steps_completed']);
+
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testMutateStatePersistsFullMultibytePayload(): void
+    {
+        // Guards the full-payload byte-count check: a valid write of multibyte
+        // content (where byte length != character length) must still be accepted
+        // and persisted completely. If the check used mb_strlen instead of strlen,
+        // a correct write would be wrongly rejected as short.
+        $run_id = pp_operate_create_run();
+        $path   = pp_operate_run_path($run_id);
+
+        $result = pp_operate_mutate_state($run_id, static function (array $data) {
+            $data['note'] = 'café ☕ 日本語 déjà';
+            return $data;
+        });
+
+        $this->assertTrue($result);
+        $decoded = json_decode(file_get_contents($path), true);
+        $this->assertSame('café ☕ 日本語 déjà', $decoded['note']);
+
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testMutateStateShorterPayloadLeavesNoTrailingBytes(): void
+    {
+        // Guards truncate-correctness: writing a shorter state after a longer one
+        // must not leave stale trailing bytes from the prior payload (which would
+        // pass the byte-count check yet corrupt the JSON on disk).
+        $run_id = pp_operate_create_run();
+        $path   = pp_operate_run_path($run_id);
+
+        // Grow the file first with a large filler value.
+        $this->assertTrue(pp_operate_mutate_state($run_id, static function (array $data) {
+            $data['filler'] = str_repeat('x', 500);
+            return $data;
+        }));
+        $this->assertGreaterThan(400, strlen(file_get_contents($path)));
+
+        // Now persist a much shorter state.
+        $result = pp_operate_mutate_state($run_id, static function (array $data) {
+            unset($data['filler']);
+            return $data;
+        });
+        $this->assertTrue($result);
+
+        // The file must be exactly the new JSON — no leftover filler bytes.
+        $raw     = file_get_contents($path);
+        $decoded = json_decode($raw, true);
+        $this->assertIsArray($decoded);
+        $this->assertArrayNotHasKey('filler', $decoded);
+        $this->assertSame(wp_json_encode($decoded), $raw);
+
+        pp_operate_cleanup_run($run_id);
+    }
+
     // ── Validation Hardening Tests ────────────────────────────────────────
 
     public function testValidateLoopRunRejectsRetryCountAbove2(): void

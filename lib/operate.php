@@ -694,6 +694,14 @@ function pp_operate_read_state( string $run_id ): ?array {
  * invalid run-id, unopenable/unlockable file, structurally-invalid or expired state,
  * site-identity mismatch, or mutator abort.
  *
+ * Persistence is fail-closed: the new state is encoded BEFORE the file is truncated,
+ * and the write is verified to cover the full payload (byte count + flush). On any
+ * encode, truncate, seek, write, or flush failure, false is returned so callers never
+ * trust a torn state file. Prior state fully survives an encode or truncate failure
+ * (the file is untouched); after truncation a short/failed write restores the captured
+ * prior bytes on a best-effort basis. A failed persistence can never truncate the
+ * state file yet report true.
+ *
  * @param string   $run_id
  * @param callable $mutator  fn(array $data): array|false
  * @return bool  True only on a confirmed write.
@@ -714,7 +722,8 @@ function pp_operate_mutate_state( string $run_id, callable $mutator ): bool {
         return false;
     }
 
-    $data = json_decode( stream_get_contents( $fh ), true );
+    $raw  = stream_get_contents( $fh );
+    $data = json_decode( $raw, true );
 
     $abort = static function ( $fh ) {
         flock( $fh, LOCK_UN );
@@ -740,10 +749,45 @@ function pp_operate_mutate_state( string $run_id, callable $mutator ): bool {
         return $abort( $fh );
     }
 
-    ftruncate( $fh, 0 );
-    rewind( $fh );
-    fwrite( $fh, wp_json_encode( $new ) );
-    fflush( $fh );
+    // Fail closed: encode BEFORE touching the file. wp_json_encode() can return
+    // false (e.g. malformed UTF-8). If we truncated first and then discovered the
+    // encode failed, the prior state (INSPECT baseline, recorded snapshots) would
+    // already be destroyed while we returned true. Encoding first means an encode
+    // failure leaves the existing valid state file untouched.
+    $json = wp_json_encode( $new );
+    if ( ! is_string( $json ) ) {
+        return $abort( $fh );
+    }
+
+    // A failed truncate leaves the prior state fully intact, so abort without
+    // writing. Writing over a file we could not truncate would leave stale trailing
+    // bytes from the (longer) prior state after the new payload — corrupt JSON that
+    // still passes the byte-count check below and looks like a confirmed write.
+    if ( ! ftruncate( $fh, 0 ) ) {
+        return $abort( $fh );
+    }
+
+    // The file is now empty: the prior state MUST be rewritten. Any failure from here
+    // (seek, short/failed write, or flush) means the new payload did not fully land.
+    // Restore the captured prior bytes on a best-effort basis (they previously fit,
+    // so the space just freed by the truncate is available) and fail closed so the
+    // caller surfaces the error instead of trusting a torn or partial state file.
+    $seeked  = rewind( $fh );
+    $written = $seeked ? fwrite( $fh, $json ) : false;
+    $flushed = ( false !== $written ) ? fflush( $fh ) : false;
+
+    if ( ! $seeked || false === $written || strlen( $json ) !== $written || false === $flushed ) {
+        if ( rewind( $fh ) ) {
+            ftruncate( $fh, 0 );
+            rewind( $fh );
+            fwrite( $fh, $raw );
+            fflush( $fh );
+        }
+        flock( $fh, LOCK_UN );
+        fclose( $fh );
+        return false;
+    }
+
     flock( $fh, LOCK_UN );
     fclose( $fh );
 
