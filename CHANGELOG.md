@@ -4,6 +4,25 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.76] — 2026-07-11 — the homepage closing CTA no longer scrolls the page sideways on a tablet (#258)
+
+**A `cta` with `layout: "inline"` and the id `home-cta` pushed the page horizontally off screen on every viewport from 768px to about 912px. The two-column grid switches on at 768px, but the columns it asked for could not fit in the space that breakpoint actually leaves: 36rem for the headline, 18rem for the action copy and a gap of at least 3rem, against a content box of roughly 40rem. Those were floors, not preferences, so the grid could not shrink and the page scrolled instead. The columns are now allowed to shrink, and the shipped homepage fits at every width.**
+
+The arithmetic that made this invisible is worth naming, because the same trap is set for any component that turns a grid on at a breakpoint. The viewport is not the space the grid gets. By the time the tracks are laid out, `.container` has taken its padding from both sides (and at 768px that padding widens, from `--space-md` to `--space-lg`), and `.cta__inner` has taken its own `clamp(2rem, 4vw, 2.6rem)` of padding plus a border. What is left at the 768px breakpoint is about 40rem. The old tracks demanded about 57rem. A track whose minimum is a fixed length cannot go below it, so the overflow was not a rounding error, it was the layout doing exactly what it was told.
+
+The fix gives each column a minimum it can actually honor. The action column now floors at the width of the button itself, which is the one thing in that column that refuses to get narrower, so the button can never overflow the track it lives in. The headline column floors at zero and takes what remains. On desktop nothing moves: the headline and the body copy already cap themselves well before the tracks stop growing, so the two-column composition renders as it did before.
+
+Two related defects found while fixing this are filed rather than folded in, because they are separate pre-existing bugs: the shared rule behind `#how-cta`, `#agencies-cta` and `#implementers-cta` overflows the same way (#265), and a CTA button label with no place to break still outgrows its column (#266).
+
+### Fixed
+
+- `#home-cta` with `layout: "inline"` no longer scrolls the page horizontally between 768px and ~912px. Its grid tracks are now `minmax(0, 2fr) minmax(14.75rem, 1fr)` instead of `minmax(36rem, 40rem) minmax(18rem, 1fr)`, so the grid fits the content box the breakpoint provides. The desktop two-column composition is unchanged (#258).
+
+### Tests
+
+- Seven rendered end-to-end cases assert the page does not scroll sideways at 768px, 800px, 860px, 912px and 1024px, and cover a headline whose longest word cannot wrap and a button label long enough to need wrapping. Reverting the CSS turns six of them red.
+- Three stylesheet checks pin the parts the rendered proof silently depends on: the headline column floors at zero, the action column's floor is read from the button's own `min-width` rather than hardcoded, and `base.css` still lets a long word break (without it, a 0-floored column would let the word paint outside the layout and scroll the page anyway).
+
 ## [v0.16.75] — 2026-07-11 — the packaging gate now reads the archive's payload, not just its table of contents (#261)
 
 **A release ZIP whose compressed data was damaged used to pass validation and ship. Every check `scripts/package.sh` ran — the style.css membership test, the top-level-directory test, the size test — read only the archive's central directory, which is its table of contents. Corrupt the payload and leave the index intact and the build validated clean, uploaded itself as a release asset, and failed for the first time in someone's WordPress install. `scripts/validate-zip.sh` now inflates and CRC-checks the payload before a build is allowed out.**
