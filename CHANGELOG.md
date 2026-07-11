@@ -4,6 +4,25 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.74] — 2026-07-11 — the packaging gate says which failure it hit, and shows you the archive (#260)
+
+**A release build that fails on a bad ZIP now tells you which kind of bad. `scripts/package.sh` reported "style.css not found in ZIP" for three different failures — an archive it could not read, an archive genuinely missing the file, and any other hiccup in the check — and printed nothing about what the archive did contain. An unreadable archive and a missing file are now separate messages, and the missing-file case dumps the archive's entry list.**
+
+The conflation was a shell subtlety. The check was `if ! unzip -l "$ZIP" | grep -q 'promptingpress/style.css'`, and the script runs under `set -o pipefail`. A nonzero `unzip` makes the whole pipeline nonzero, `!` inverts that to true, and the missing-file branch fires — so "I could not open this archive" and "this archive has no style.css" printed the same sentence. When an intermittent CI failure hit that line, the message pointed at the wrong cause and the first diagnosis was wrong. Dumping the listing is the part that pays for itself: the next occurrence names itself instead of starting a hypothesis chain.
+
+The check moves to `scripts/validate-zip.sh` so both failure paths can be exercised by tests, which a real `package.sh` build cannot do — it has no way to produce a corrupt archive on demand. Membership is now an exact match on the archive's entry list rather than a substring search, because the old pattern was an unanchored regex: a ZIP carrying only `promptingpress/style.css.map`, or a stray `foo/promptingpress/style.css`, would have satisfied it and passed a build with no theme stylesheet in it. `scripts/` is excluded from the distributed ZIP, so none of this ships to sites; `package.sh` keeps the same usage, the same arguments, and the same output on success.
+
+### Fixed
+- **The ZIP gate distinguishes an unreadable archive from a missing `style.css`** (`scripts/validate-zip.sh`, `scripts/package.sh`). A read failure reports "could not read" and `unzip`'s own error. A missing file reports "style.css missing" and prints the archive's contents. Two guards keep the split honest: a path that is not literally a file is rejected up front, because `unzip` globs its argument and retries it with a `.zip` suffix, so a nonexistent path could otherwise resolve to a different archive and pass; and an empty archive (which `unzip` exits nonzero on) is reported as a missing `style.css`, which is what it is, not as a read failure.
+- **The gate no longer accepts a look-alike path.** Membership is an exact entry match, so `promptingpress/style.css.map` and `foo/promptingpress/style.css` are correctly not `promptingpress/style.css`.
+
+### Tests
+- `tests/js/package.test.js`: every branch of the validator is pinned — a clean archive; an unreadable one, asserting it reports a read failure and *not* a missing file; a nonexistent path; the glob/suffix resolution that could bless a different archive; a missing `style.css`, asserting the entry listing is actually dumped; an empty archive; both look-alike paths; and the usage errors. One test pins that `package.sh` invokes the validator on its real invocation line, so the suite cannot go green while the old inline check quietly persists.
+
+**Known limitation** (tracked in #261): the check reads the archive's central directory, so a ZIP whose payload is corrupt but whose directory is intact still passes. The previous check had the same blind spot; closing it needs an integrity pass, which is its own change.
+
+---
+
 ## [v0.16.73] — 2026-07-11 — the cta eyebrow is a pill above the title, not a band below the button (#255)
 
 **Same defect as v0.16.72, same prop, a different mechanism — and this one moved the eyebrow as well as stretching it. On `#home-cta` at 768px and up, `cta.eyebrow` rendered as a colored band the full width of the title column, sitting underneath the call-to-action button. It now renders where the schema has always said it does: a compact pill, sized to its own text, directly above the headline.**
