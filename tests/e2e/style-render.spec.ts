@@ -368,6 +368,55 @@ test.describe('Safe-surface rendered proof', () => {
     expect(Math.abs(eyebrowCenter - innerCenter)).toBeLessThan(2);
   });
 
+  // Same scope failure as #255, one row down. `#home-cta .cta__body { align-self: end }`
+  // and `#home-cta .cta__button { align-self: start }` are grid-cross-axis placement for
+  // the inline layout, but they were declared bare. `.cta__inner` is a flex COLUMN in the
+  // default full-width layout, where the cross axis is horizontal — so align-self:end
+  // shoved the body to the right edge and align-self:start shoved the button to the left,
+  // while the eyebrow and title stayed centered. The fix scopes both to `.cta--inline`; in
+  // full-width the body falls back to `.cta--full-width .cta__inner`'s align-items:center
+  // and the button to the shared four-CTA rule's align-self:center. Both end up centered.
+  test('#257 the full-width cta centers its body and button (fix stays scoped) @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E CTA Full Width Centering');
+    setComposition(pageId, [
+      {
+        component: 'cta',
+        props: {
+          id: 'home-cta',
+          layout: 'full-width',
+          title: 'A deliberately long closing headline for the full width layout',
+          text: 'Supporting copy that sits below the headline in the full-width layout.',
+          button_text: 'Get started',
+          button_url: '/start',
+        },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const body = page.locator('.cta__body');
+    const button = page.locator('.cta__button');
+    await expect(body).toBeVisible({ timeout: 10000 });
+    await expect(button).toBeVisible();
+
+    const bodyBox = (await body.boundingBox())!;
+    const buttonBox = (await button.boundingBox())!;
+    const innerBox = (await page.locator('.cta__inner').boundingBox())!;
+    const innerCenter = innerBox.x + innerBox.width / 2;
+
+    // Both boxes are narrower than .cta__inner (body caps at 22rem, the button at its
+    // fit-content width), so "centered" is a real constraint: the regression renders the
+    // body hard against the right edge (x+width ~ inner right) and the button hard against
+    // the left (x ~ inner left). Assert the centers line up instead.
+    const bodyCenter = bodyBox.x + bodyBox.width / 2;
+    const buttonCenter = buttonBox.x + buttonBox.width / 2;
+    expect(Math.abs(bodyCenter - innerCenter)).toBeLessThan(2);
+    expect(Math.abs(buttonCenter - innerCenter)).toBeLessThan(2);
+  });
+
   /*
    * #258: the inline CTA grid turns on at 768px, but the old track floors
    * (minmax(36rem, 40rem) + minmax(18rem, 1fr) + a >=3rem gap = ~57rem) could not fit

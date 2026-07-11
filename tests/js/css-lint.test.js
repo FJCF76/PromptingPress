@@ -811,6 +811,83 @@ describe('CSS lint: the inline cta grid can shrink to its breakpoint (#258)', ()
     });
 });
 
+/*
+ * #257: the full-width cta centers its body and button.
+ *
+ * `#home-cta .cta__text` is `display: contents` at >=768px, but the grid it feeds is
+ * `.cta--inline` only. `layout` defaults to 'full-width', where `.cta__inner` stays a
+ * flex COLUMN (align-items: center). grid-column/grid-row/justify-self are all inert on
+ * a flex item, so they are safe to declare bare — but `align-self` is NOT. A bare
+ * `#home-cta .cta__body { align-self: end }` and `#home-cta .cta__button { align-self:
+ * start }` therefore leaked into the full-width column and shoved the body to the right
+ * edge and the button to the left, while the eyebrow and title stayed centered.
+ *
+ * The fix scopes those two `align-self` declarations to `#home-cta.cta--inline`. The
+ * rendered proof (both boxes centered within .cta__inner) lives in the E2E suite; these
+ * pins guard the scope, which a later edit could quietly widen back to bare #home-cta.
+ */
+describe('CSS lint: the full-width cta centers its body and button (#257)', () => {
+    const DESKTOP = '(min-width: 768px)';
+
+    // The cross-axis values a flex column reads as horizontal placement. The shared
+    // four-CTA block legitimately sets `align-self: center` / `flex-start` on these same
+    // classes (centered / left in BOTH layouts), so a blanket "no align-self bare" pin
+    // would be wrong. `start` / `end` — the grid-cross-axis values that break the
+    // full-width column — must never sit on a bare #home-cta selector, and neither may
+    // `flex-end` (its column-axis synonym for `end`, which nothing here uses legitimately).
+    // `flex-start` is deliberately NOT in this set: the shared block declares it bare at
+    // the base breakpoint, so banning it would flag correct, pre-existing CSS.
+    const LEAK = /align-self\s*:\s*(?:start|end|flex-end)\b/;
+
+    test('no bare #home-cta body/button rule sets align-self:start or :end', () => {
+        ['.cta__body', '.cta__button'].forEach(cls =>
+            rulesMatching(cls)
+                .filter(r => LEAK.test(r.body))
+                .forEach(r =>
+                    r.selectors
+                        .filter(s => s.includes('#home-cta') && s.includes(cls))
+                        .forEach(s => expect(s).toContain('.cta--inline'))
+                )
+        );
+    });
+
+    // The positive half: the inline grid still gets its intended placement. Deleting the
+    // scoped rule would center the inline body/button too, silently undoing the grid
+    // layout while the leak guard above stayed green (nothing bare, nothing to catch).
+    function scopedAlignSelf(cls) {
+        const decls = rulesMatching(cls)
+            .filter(r => r.media === DESKTOP
+                && r.selectors.includes(`#home-cta.cta--inline ${cls}`))
+            .map(r => /align-self\s*:\s*([^;}]+)/.exec(r.body))
+            .filter(Boolean);
+        return decls.length ? decls[decls.length - 1][1].trim() : null;
+    }
+
+    test('the inline body keeps align-self:end, scoped to .cta--inline', () => {
+        expect(scopedAlignSelf('.cta__body')).toBe('end');
+    });
+
+    test('the inline button keeps align-self:start, scoped to .cta--inline', () => {
+        expect(scopedAlignSelf('.cta__button')).toBe('start');
+    });
+
+    // The bare rules still describe the inline grid (grid-column:2). If the grid
+    // placement is gone, the scoped align-self pins above still pass while describing a
+    // layout that no longer exists.
+    function bareDecl(cls, prop) {
+        const decls = rulesMatching(cls)
+            .filter(r => r.media === DESKTOP && r.selectors.includes(`#home-cta ${cls}`))
+            .map(r => new RegExp(prop + '\\s*:\\s*([^;}]+)').exec(r.body))
+            .filter(Boolean);
+        return decls.length ? decls[decls.length - 1][1].trim() : null;
+    }
+
+    test('the bare desktop body/button rules keep their grid column', () => {
+        expect(bareDecl('.cta__body', 'grid-column')).toBe('2');
+        expect(bareDecl('.cta__button', 'grid-column')).toBe('2');
+    });
+});
+
 describe('CSS lint: no raw hex in components.css', () => {
     test('components.css has no raw hex color values', () => {
         const stripped = stripComments(COMPONENTS_CSS);

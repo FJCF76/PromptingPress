@@ -2236,10 +2236,12 @@
      row 1 is exactly the eyebrow's height, so there is no free space to align within
      — and is kept to state the intent for a row that ever grows taller.
 
-     Do NOT "tidy" this selector to match the bare #home-cta siblings below. They are
-     bare only because grid-row is safely inert in the full-width flex column; their
-     own align-self declarations DO leak into it, which is a separate pre-existing
-     bug, not a pattern to copy. */
+     The bare #home-cta siblings below keep their grid-column/grid-row/justify-self
+     bare: those three are safely inert on a flex item, so they describe the inline
+     grid without disturbing the full-width flex column. Their align-self, which is
+     NOT inert on a flex item, is scoped to .cta--inline for the same reason this
+     selector is (issue 257) — a bare align-self:end/start leaked into the full-width
+     column and shoved the body and button to opposite edges. */
   #home-cta.cta--inline .cta__eyebrow {
     grid-column: 1;
     grid-row: 1;
@@ -2261,13 +2263,26 @@
     grid-row: 2;
     max-width: 22rem;
     margin: 0 0 1.15rem;
-    align-self: end;
   }
 
   #home-cta .cta__button {
     grid-column: 2;
     grid-row: 3;
     justify-self: start;
+  }
+
+  /* align-self is the one placement declaration that is NOT inert on a flex item,
+     so it is scoped to the inline grid. In the default full-width layout .cta__inner
+     stays a flex COLUMN whose cross axis is horizontal; a bare align-self:end/start
+     here shoved the body to the right edge and the button to the left while the
+     eyebrow and title stayed centered (issue 257). Left bare, they leak; scoped, the
+     full-width body falls back to .cta--full-width .cta__inner's align-items:center and
+     the button to the shared four-CTA rule's align-self:center just above. */
+  #home-cta.cta--inline .cta__body {
+    align-self: end;
+  }
+
+  #home-cta.cta--inline .cta__button {
     align-self: start;
   }
 }
