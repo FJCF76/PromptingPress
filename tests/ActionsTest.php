@@ -420,6 +420,45 @@ class ActionsTest extends TestCase
         $this->assertContains('template_owned_component', $types);
     }
 
+    public function testRestoreReportsDanglingVarStyleValueWithoutBlocking(): void
+    {
+        // #230 rider on #233: the first validation rule to land after #233 must
+        // prove restore surfaces it through the SHARED engine — no restore-
+        // specific rule path — and never blocks on it.
+        $post_id = pp_create_page('Dangling var snapshot');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['title' => 'A'], 'style' => ['--hero-cta2-bg' => 'var(--nonexistent-token)']],
+        ]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+
+        // The write succeeds and the snapshot is preserved verbatim.
+        $this->assertTrue($result['ok'], $result['error'] ?? 'restore failed');
+        $this->assertSame('var(--nonexistent-token)', pp_get_composition($post_id)[0]['style']['--hero-cta2-bg']);
+
+        // ...and the dangling reference is reported as a blocking-class finding.
+        $errors = array_values(array_filter(
+            $result['findings'],
+            static function ($f) { return $f['severity'] === 'error'; }
+        ));
+        $this->assertContains('invalid_style_value', array_column($errors, 'type'));
+    }
+
+    public function testRestoreOfValidVarStyleValueReportsNoFindings(): void
+    {
+        // The mirror case: a snapshot using the newly ACCEPTED forms is clean.
+        $post_id = pp_create_page('Valid var snapshot');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['title' => 'A'], 'style' => ['--hero-cta2-bg' => 'transparent', '--hero-accent' => 'var(--color-accent)']],
+        ]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertTrue($result['ok']);
+        $this->assertSame([], $result['findings']);
+    }
+
     public function testCleanRestoreReportsNoFindings(): void
     {
         $post_id = pp_create_page('Clean snapshot');
@@ -2263,6 +2302,39 @@ class ActionsTest extends TestCase
             'post_id'         => $post_id,
             'component_index' => 0,
             'style'           => ['--hero-bg' => 'not-a-color'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_style_value', $result->get_error_code());
+    }
+
+    public function testStyleComponentAcceptsTransparentAndVarReference(): void
+    {
+        // #230: the issue's style-slot examples — a transparent outline-button
+        // background, and a slot that follows the brand accent via var().
+        $post_id = pp_create_page('Style test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--hero-cta2-bg' => 'transparent', '--hero-accent' => 'var(--color-accent)'],
+        ]);
+        $this->assertTrue($result);
+    }
+
+    public function testStyleComponentRejectsVarReferenceToUnknownToken(): void
+    {
+        $post_id = pp_create_page('Style test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--hero-cta2-bg' => 'var(--nonexistent-token)'],
         ]);
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertEquals('invalid_style_value', $result->get_error_code());
