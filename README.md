@@ -13,7 +13,7 @@
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
 [![Tests](https://img.shields.io/badge/Tests-1936+_passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-0.16.80-6366F1?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.16.81-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -411,7 +411,7 @@ npm run test:e2e    # Playwright against http://localhost:8889
 npm run env:stop
 ```
 
-**Continuous integration** — `composer test` + `npm test` run on every push to `main` and gate every release before the ZIP is built, so a failing test can't reach a published theme. End-to-end runs in CI too: a non-blocking `@smoke` subset on push, plus a nightly full suite on WordPress 7.0.
+**Continuous integration** — `composer test` + `npm test` run on every push to `main` and gate every release before the ZIP is built, so a failing test can't reach a published theme. End-to-end runs in CI too: a `@smoke` subset on every pull request and on push to `main` (non-blocking until branch protection marks it a required check), plus a nightly full suite on WordPress 7.0.
 
 ---
 
