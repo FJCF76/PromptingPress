@@ -2842,6 +2842,13 @@ main > .grid .grid__item-link::after {
     margin-left: auto;
   }
 
+  main > .grid:not(.grid--steps) .grid__list[data-pp-count="3"] {
+    /* Three-across is the common marketing feature row. No max-width: the row
+       spans the container like grid--steps does, instead of being centered and
+       narrowed the way the 2- and 4-card rules are. */
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   main > .grid:not(.grid--steps) .grid__list[data-pp-count="2"] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     max-width: 52rem;

@@ -1102,6 +1102,27 @@ class ComponentPropsTest extends TestCase
         $this->assertStringNotContainsString('hero__eyebrow', $html);
     }
 
+    /**
+     * Regression pin for #224: the desktop column count is selected in CSS off
+     * data-pp-count, so the attribute is a contract, not a detail. Without this
+     * pin, dropping or renaming it would leave the CSS pins green while 3-item
+     * grids silently fell back to two columns and orphaned the third card.
+     */
+    public function testGridEmitsItemCountAttribute(): void
+    {
+        $items = [
+            ['title' => 'One',   'text' => 'A'],
+            ['title' => 'Two',   'text' => 'B'],
+            ['title' => 'Three', 'text' => 'C'],
+        ];
+
+        $html = $this->render('grid', ['items' => $items]);
+        $this->assertStringContainsString('data-pp-count="3"', $html);
+
+        $html = $this->render('grid', ['items' => array_slice($items, 0, 2)]);
+        $this->assertStringContainsString('data-pp-count="2"', $html);
+    }
+
     public function testGridEyebrowSubheadingAndCenterAlignRender(): void
     {
         $html = $this->render('grid', $this->gridProps([
