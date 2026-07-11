@@ -413,6 +413,148 @@ describe('CSS lint: grid desktop columns by item count', () => {
     });
 });
 
+/**
+ * Hero eyebrow stays a pill (#225).
+ *
+ * `.hero__eyebrow` declares `display: inline-block`, but it is a direct child of
+ * `.hero__content`, which is a flex column. Flex items are blockified, so the
+ * declared inline-block computes to block and the default `stretch` alignment
+ * spans the eyebrow across the full content width — a band, not a pill. The only
+ * thing holding the pill together is the cross-axis alignment, so that is what
+ * these pins assert.
+ *
+ * Asserting `align-self` merely *appears* somewhere would not prove the pill
+ * survives: the four benchmark pages carry an ID-specificity `.hero__eyebrow`
+ * block that outranks every class rule here. It does not set `align-self` today,
+ * and the pin below is what keeps it that way.
+ */
+describe('CSS lint: hero eyebrow is a pill, not a full-width band', () => {
+    // Every rule targeting `needle` as a whole class, in source order, each tagged with
+    // the @media condition wrapping it (null at top level). Media context is part of the
+    // identity of a rule: `.hero__eyebrow` inside `@media (max-width: 767px)` is a
+    // DIFFERENT rule from the base one, and a stretch declared there would restore the
+    // band at mobile while a media-blind scan reported green. components.css already
+    // redeclares `.hero__content` inside a max-width block, so this is a live pattern.
+    function rulesMatching(needle) {
+        const css = stripComments(COMPONENTS_CSS);
+        // Class-boundary match, so `.hero__eyebrow` never swallows `.hero__eyebrow--lg`.
+        const boundary = new RegExp(
+            needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\w-])'
+        );
+        const rules = [];
+        // A stack, not a depth counter: components.css already nests at-rules (@keyframes
+        // at :909), and any nested block — @supports, @keyframes, an inner @media — emits
+        // a closing brace of its own. A counter mistakes that brace for the media block's
+        // and reports every following rule as top-level, which is exactly how a
+        // mobile-scoped regression would hide from a media-aware-looking scan.
+        const pattern = /@([\w-]+)([^{;]*)\{|([^{}]+)\{([^{}]*)\}|\}|;/g;
+        const stack = [];
+        let match;
+        while ((match = pattern.exec(css)) !== null) {
+            if (match[1] !== undefined) {
+                stack.push(match[1] === 'media' ? match[2].trim() : null);
+            } else if (match[3] !== undefined) {
+                const selectors = match[3].split(',').map(s => s.trim().replace(/\s+/g, ' '));
+                if (selectors.some(s => boundary.test(s))) {
+                    // Nearest enclosing @media, looking outward past non-media at-rules.
+                    const media = [...stack].reverse().find(m => m !== null) ?? null;
+                    rules.push({ selectors, body: match[4], media });
+                }
+            } else if (match[0] === '}') {
+                stack.pop();
+            }
+        }
+        return rules;
+    }
+
+    // Declarations that can restore the band even with align-self intact: an explicit
+    // width/min-width, a flex shorthand that sets a basis, or place-self overriding the
+    // cross-axis alignment. Guarding align-self alone is not enough — `width: 100%` in a
+    // mobile media block reintroduces #225 with every alignment pin still green.
+    const BAND_RESTORING = /(?:^|[;{\s])(?:min-)?width\s*:|(?:^|[;\s])flex\s*:|place-self\s*:|align-self\s*:/;
+
+    // The cascade winner among equal-specificity rules is the LAST one, not the first.
+    // Taking the first match would let a duplicate appended later silently shadow the
+    // pin while it stayed green.
+    function alignSelfFor(selector, media = null) {
+        const decls = rulesMatching('.hero__eyebrow')
+            .filter(r => r.media === media && r.selectors.includes(selector))
+            .map(r => /align-self\s*:\s*([^;}]+)/.exec(r.body))
+            .filter(Boolean);
+        return decls.length ? decls[decls.length - 1][1].trim() : null;
+    }
+
+    const BASE = '.hero__eyebrow';
+    const CENTERED = '.hero--centered .hero__eyebrow';
+    const COVER = '.hero--cover .hero__eyebrow';
+
+    test('the eyebrow opts out of the flex stretch that would blockify it', () => {
+        expect(alignSelfFor(BASE)).toBe('flex-start');
+    });
+
+    // The pill is padding + background, not `display`. Pinning `inline-block` would be
+    // vacuous — the flex parent blockifies it regardless, which is the whole bug.
+    test('the eyebrow keeps its pill styling', () => {
+        const rule = rulesMatching(BASE).find(r => r.selectors.includes(BASE) && !r.media);
+        expect(rule.body).toMatch(/padding\s*:/);
+        expect(rule.body).toMatch(/background\s*:/);
+    });
+
+    // The pill must be sized by its text. A width on the base rule would defeat
+    // align-self without touching it.
+    test('the base rule sizes the pill by its content, not a width', () => {
+        const rule = rulesMatching(BASE).find(r => r.selectors.includes(BASE) && !r.media);
+        expect(rule.body).not.toMatch(/(?:^|[;\s])(?:min-)?width\s*:/);
+    });
+
+    // The two center-aligned layouts re-center the pill, matching the treatment their
+    // CTA groups already get. Both outrank the base rule on specificity (0,2,0 vs
+    // 0,1,0), so source order cannot flip these.
+    test('the centered layout centers the pill', () => {
+        expect(alignSelfFor(CENTERED)).toBe('center');
+    });
+
+    test('the cover layout centers the pill', () => {
+        expect(alignSelfFor(COVER)).toBe('center');
+    });
+
+    // Scope guard: left/split are left-aligned layouts and inherit the base flex-start.
+    // An override here would be a silent behavior change.
+    test('the left and split layouts inherit the base flex-start (no override)', () => {
+        expect(alignSelfFor('.hero--left .hero__eyebrow')).toBeNull();
+        expect(alignSelfFor('.hero--split .hero__eyebrow')).toBeNull();
+    });
+
+    // The cascade risks that would restore the band while every pin above stayed green:
+    // the benchmark pages' ID-specificity block (which outranks all four class rules),
+    // and any media-scoped or duplicate rule. Only the three known rules may size or
+    // align the eyebrow — everything else must leave it alone, in every media context.
+    test('no other eyebrow rule anywhere sizes or re-aligns the pill', () => {
+        const owners = [BASE, CENTERED, COVER];
+        rulesMatching(BASE)
+            .filter(r => r.media || !r.selectors.every(s => owners.includes(s)))
+            .forEach(r => expect(r.body).not.toMatch(BAND_RESTORING));
+    });
+
+    // The fix only matters while the parent is a flex column. If any rule, in any media
+    // context, makes it a row or a non-flex box (a grid parent re-points align-self at
+    // the block axis and lets justify-self stretch the item), align-self stops
+    // controlling the eyebrow's width and every pin above becomes dead code. Matching
+    // any selector ending in .hero__content catches layout-scoped overrides too.
+    test('the eyebrow parent is a flex column in every media context', () => {
+        const contentRules = rulesMatching('.hero__content');
+        const base = contentRules.find(r => r.selectors.includes('.hero__content') && !r.media);
+        expect(base.body).toMatch(/display\s*:\s*flex\s*;/);
+        expect(base.body).toMatch(/flex-direction\s*:\s*column\s*;/);
+        contentRules
+            .filter(r => r !== base)
+            .forEach(r => {
+                expect(r.body).not.toMatch(/display\s*:(?!\s*flex\s*;)/);
+                expect(r.body).not.toMatch(/flex-direction\s*:(?!\s*column\s*;)/);
+            });
+    });
+});
+
 describe('CSS lint: no raw hex in components.css', () => {
     test('components.css has no raw hex color values', () => {
         const stripped = stripComments(COMPONENTS_CSS);

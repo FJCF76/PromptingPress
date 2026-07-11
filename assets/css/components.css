@@ -288,8 +288,12 @@
   max-width: var(--hero-content-width, var(--measure-centered));
 }
 
+/* align-self keeps the pill sized to its text: .hero__content is a flex column,
+   which blockifies inline-block and would otherwise stretch the eyebrow to the
+   full content width. Centered/cover re-center it alongside their CTA overrides. */
 .hero__eyebrow {
   display: inline-block;
+  align-self: flex-start;
   padding: 0.35rem 0.85rem;
   margin-bottom: var(--space-sm);
   border-radius: 3px;
@@ -350,6 +354,10 @@
 
 .hero--centered .hero__subtitle {
   max-width: none;
+}
+
+.hero--centered .hero__eyebrow {
+  align-self: center;
 }
 
 .hero--centered .hero__cta-group {
@@ -425,6 +433,10 @@
   color: var(--hero-subtitle-color, var(--color-bg));
   opacity: 0.85;
   max-width: none;
+}
+
+.hero--cover .hero__eyebrow {
+  align-self: center;
 }
 
 .hero--cover .hero__cta-group {
