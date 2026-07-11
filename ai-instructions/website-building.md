@@ -35,6 +35,8 @@ Both kinds appear as HTML `id` attributes in the rendered DOM and are the only s
 
 **If you plan to target a component later — by `component_id` in actions, by anchor link, or in CSS — give it an explicit `id` in your source JSON.** To make an existing page durable, read the composition back (`wp pp operate inspect-composition <post_id>`) and set explicit `id`s for the components you care about; `wp pp check page` warns about components that only have auto-generated ids. The `pp-<hex8>` shape is reserved for generated ids — do not author ids in that format.
 
+**Component ids must be unique within a composition.** Two components sharing the same `id` are rejected at write time (`create_page` / `update_composition` fail with `duplicate_component_id`), because `component_id` targeting would otherwise resolve silently to the first match and mutate the wrong component. If a duplicate ever reaches state through a raw write, `update_component` / `remove_component` / `style_component` fail closed with `component_ambiguous` rather than guessing.
+
 Never use positional selectors (`nth-of-type`, `nth-child`) to target components. They break on reorder.
 
 ## Escalation triggers
