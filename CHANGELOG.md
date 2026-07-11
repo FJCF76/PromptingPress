@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.81] — 2026-07-12 — the browser-rendered @smoke E2E check now runs on every pull request (#82)
+
+**The `@smoke` end-to-end subset used to run only after a change landed on `main`, so a pull request could be merged without ever seeing the rendered-browser signal that catches CSS cascade regressions unit tests miss. `@smoke` now runs on every pull request against `main` and reports its own check, so the browser evidence is available before merge instead of after. It still runs on push to `main` as a post-merge watcher and as the full suite nightly and on manual dispatch.**
+
+The E2E workflow triggered on `push` to `main` (the `@smoke` subset) plus a nightly full run. That is a signal on the mainline commit, not a gate on the change that introduced a regression. The workflow now also triggers on `pull_request`, running the same fast `@smoke` subset so a check reports on every PR. The pull-request trigger intentionally carries no `paths-ignore` filter: a check that is required but skipped on a docs-only PR would leave that PR blocked on a status that never reports, so `@smoke` always runs and reports on a PR. Making the check actually required is a separate manual repository-admin step (branch protection on `main` requiring `E2E (WordPress 7.0) / e2e` and `ai-ready-check`), which the automation's token cannot set; until that is enabled the PR check is visible but non-blocking.
+
+### Changed
+
+- The `E2E (WordPress 7.0)` workflow now runs the `@smoke` subset on `pull_request` against `main` in addition to `push`, so every pull request gets a browser-rendered check before merge. Nightly and manual runs still execute the full suite (#82).
+
+### Docs
+
+- The README continuous-integration note now states that `@smoke` runs on every pull request and on push to `main`, non-blocking until branch protection marks it a required check (#82).
+
 ## [v0.16.80] — 2026-07-12 — the featured first grid card now honors a custom card border color (#226)
 
 **Setting `--grid-card-border` on a `grid` with `layout: "cards"` changed every card's border except the first one. The first card gets a "featured" treatment (accent border, accent top bar, tinted fill), and its border color was pinned to the theme accent, so an author's declared border color silently did nothing on that card while the action still reported success. The featured card now respects `--grid-card-border`, falling back to the accent only when no value is set.**
