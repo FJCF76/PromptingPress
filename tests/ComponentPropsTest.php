@@ -1220,6 +1220,31 @@ class ComponentPropsTest extends TestCase
         $this->assertStringNotContainsString('cta__eyebrow', $html);
     }
 
+    /**
+     * Regression pin for #255: the pill only holds because `display: contents` on
+     * .cta__text dissolves that box and promotes the eyebrow into the .cta__inner
+     * grid, where the CSS places it in row 1. display:contents only dissolves the ONE
+     * box it is set on — wrapping the eyebrow in any intermediate element leaves it
+     * inside a box that is still there, so it stops being a grid item, the placement
+     * rules stop applying, and every CSS pin stays green while the render changes.
+     */
+    public function testCtaEyebrowIsDirectChildOfCtaText(): void
+    {
+        foreach (['full-width', 'inline'] as $layout) {
+            $html = $this->render('cta', $this->ctaProps([
+                'eyebrow' => 'NEW',
+                'layout'  => $layout,
+            ]));
+            // No element of ANY kind may open between the two tags. Attributes and
+            // whitespace stay free: direct childhood is the whole contract.
+            $this->assertMatchesRegularExpression(
+                '/<div class="cta__text"[^>]*>(?:(?!<[a-zA-Z])[\s\S])*?<span class="cta__eyebrow"/',
+                $html,
+                "cta__eyebrow must be a direct child of cta__text (layout: {$layout})"
+            );
+        }
+    }
+
     public function testHeroSchemaDeclaresEyebrowSlots(): void
     {
         $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/hero/schema.json'), true);

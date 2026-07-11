@@ -25,6 +25,57 @@ function stripComments(css) {
     return css.replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
+// Declarations that can restore an eyebrow band even with the alignment intact: an
+// explicit width/min-width, a flex shorthand that sets a basis, or place-self/align-self
+// overriding the cross-axis. Guarding the alignment alone is not enough — `width: 100%`
+// in a media block reintroduces the band with every alignment pin still green.
+//
+// Shared by the #225 (hero, flex) and #255 (cta, grid) guards: the ways a pill can be
+// re-stretched do not depend on which layout mode promoted it.
+const BAND_RESTORING = /(?:^|[;{\s])(?:min-)?width\s*:|(?:^|[;\s])flex\s*:|place-self\s*:|align-self\s*:/;
+
+// Every rule targeting `needle` as a whole class, in source order, each tagged with
+// the @media condition wrapping it (null at top level). Media context is part of the
+// identity of a rule: `.hero__eyebrow` inside `@media (max-width: 767px)` is a
+// DIFFERENT rule from the base one, and a stretch declared there would restore the
+// band at mobile while a media-blind scan reported green. components.css already
+// redeclares `.hero__content` inside a max-width block, so this is a live pattern.
+//
+// Shared by the #225 (hero) and #255 (cta) eyebrow guards below — both need to reason
+// about "every rule touching this class, in every media context", and a second copy of
+// this parser would be a place for the two to silently drift apart.
+function rulesMatching(needle) {
+    const css = stripComments(COMPONENTS_CSS);
+    // Class-boundary match, so `.hero__eyebrow` never swallows `.hero__eyebrow--lg`.
+    const boundary = new RegExp(
+        needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\w-])'
+    );
+    const rules = [];
+    // A stack, not a depth counter: components.css already nests at-rules (@keyframes
+    // at :909), and any nested block — @supports, @keyframes, an inner @media — emits
+    // a closing brace of its own. A counter mistakes that brace for the media block's
+    // and reports every following rule as top-level, which is exactly how a
+    // mobile-scoped regression would hide from a media-aware-looking scan.
+    const pattern = /@([\w-]+)([^{;]*)\{|([^{}]+)\{([^{}]*)\}|\}|;/g;
+    const stack = [];
+    let match;
+    while ((match = pattern.exec(css)) !== null) {
+        if (match[1] !== undefined) {
+            stack.push(match[1] === 'media' ? match[2].trim() : null);
+        } else if (match[3] !== undefined) {
+            const selectors = match[3].split(',').map(s => s.trim().replace(/\s+/g, ' '));
+            if (selectors.some(s => boundary.test(s))) {
+                // Nearest enclosing @media, looking outward past non-media at-rules.
+                const media = [...stack].reverse().find(m => m !== null) ?? null;
+                rules.push({ selectors, body: match[4], media });
+            }
+        } else if (match[0] === '}') {
+            stack.pop();
+        }
+    }
+    return rules;
+}
+
 describe('CSS lint: positional selectors', () => {
     test('components.css has no nth-of-type selectors', () => {
         const matches = stripComments(COMPONENTS_CSS).match(/nth-of-type/g);
@@ -429,50 +480,6 @@ describe('CSS lint: grid desktop columns by item count', () => {
  * and the pin below is what keeps it that way.
  */
 describe('CSS lint: hero eyebrow is a pill, not a full-width band', () => {
-    // Every rule targeting `needle` as a whole class, in source order, each tagged with
-    // the @media condition wrapping it (null at top level). Media context is part of the
-    // identity of a rule: `.hero__eyebrow` inside `@media (max-width: 767px)` is a
-    // DIFFERENT rule from the base one, and a stretch declared there would restore the
-    // band at mobile while a media-blind scan reported green. components.css already
-    // redeclares `.hero__content` inside a max-width block, so this is a live pattern.
-    function rulesMatching(needle) {
-        const css = stripComments(COMPONENTS_CSS);
-        // Class-boundary match, so `.hero__eyebrow` never swallows `.hero__eyebrow--lg`.
-        const boundary = new RegExp(
-            needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\w-])'
-        );
-        const rules = [];
-        // A stack, not a depth counter: components.css already nests at-rules (@keyframes
-        // at :909), and any nested block — @supports, @keyframes, an inner @media — emits
-        // a closing brace of its own. A counter mistakes that brace for the media block's
-        // and reports every following rule as top-level, which is exactly how a
-        // mobile-scoped regression would hide from a media-aware-looking scan.
-        const pattern = /@([\w-]+)([^{;]*)\{|([^{}]+)\{([^{}]*)\}|\}|;/g;
-        const stack = [];
-        let match;
-        while ((match = pattern.exec(css)) !== null) {
-            if (match[1] !== undefined) {
-                stack.push(match[1] === 'media' ? match[2].trim() : null);
-            } else if (match[3] !== undefined) {
-                const selectors = match[3].split(',').map(s => s.trim().replace(/\s+/g, ' '));
-                if (selectors.some(s => boundary.test(s))) {
-                    // Nearest enclosing @media, looking outward past non-media at-rules.
-                    const media = [...stack].reverse().find(m => m !== null) ?? null;
-                    rules.push({ selectors, body: match[4], media });
-                }
-            } else if (match[0] === '}') {
-                stack.pop();
-            }
-        }
-        return rules;
-    }
-
-    // Declarations that can restore the band even with align-self intact: an explicit
-    // width/min-width, a flex shorthand that sets a basis, or place-self overriding the
-    // cross-axis alignment. Guarding align-self alone is not enough — `width: 100%` in a
-    // mobile media block reintroduces #225 with every alignment pin still green.
-    const BAND_RESTORING = /(?:^|[;{\s])(?:min-)?width\s*:|(?:^|[;\s])flex\s*:|place-self\s*:|align-self\s*:/;
-
     // The cascade winner among equal-specificity rules is the LAST one, not the first.
     // Taking the first match would let a duplicate appended later silently shadow the
     // pin while it stayed green.
@@ -552,6 +559,160 @@ describe('CSS lint: hero eyebrow is a pill, not a full-width band', () => {
                 expect(r.body).not.toMatch(/display\s*:(?!\s*flex\s*;)/);
                 expect(r.body).not.toMatch(/flex-direction\s*:(?!\s*column\s*;)/);
             });
+    });
+});
+
+/**
+ * CTA eyebrow stays a pill, above the title (#255).
+ *
+ * Same visual failure as #225, different mechanism. `#home-cta .cta__text` is
+ * `display: contents` at >=768px, which dissolves its box and promotes the eyebrow
+ * into `#home-cta.cta--inline .cta__inner` — a GRID. Grid blockifies the eyebrow's
+ * inline-block, and with no placement of its own it auto-flows past every
+ * explicitly-placed sibling (title col1/rows1-2, body col2/row1, button col2/row2)
+ * into the first free cell — row 3, column 1 — and stretches it there: a band the
+ * full width of the title column, rendered BELOW the button.
+ *
+ * So the fix has two halves, and both need pinning: `justify-self: start` sizes the
+ * pill to its text, and `grid-row: 1` puts it back above the title. A pin on the
+ * width alone would stay green while the eyebrow rendered under the button.
+ */
+describe('CSS lint: cta eyebrow is a pill above the title (#255)', () => {
+    const DESKTOP = '(min-width: 768px)';
+    const BASE = '.cta__eyebrow';
+    const PLACED = '#home-cta.cta--inline .cta__eyebrow';
+
+    // The cascade winner among equal-specificity rules is the LAST declaration, not the
+    // first — and these selectors really are declared more than once: `.cta__inner` is
+    // styled by the shared four-CTA block AND by a #home-cta-specific override further
+    // down, both at >=768px. Taking the first match reads the wrong rule, and a
+    // duplicate appended later would shadow a pin while it stayed green.
+    function declFor(needle, selector, prop, media) {
+        const decls = rulesMatching(needle)
+            .filter(r => r.media === media && r.selectors.includes(selector))
+            .map(r => new RegExp(prop + '\\s*:\\s*([^;}]+)').exec(r.body))
+            .filter(Boolean);
+        return decls.length ? decls[decls.length - 1][1].trim() : null;
+    }
+
+    // The pill is padding + background, not `display` — pinning `inline-block` would be
+    // vacuous, since the grid parent blockifies it regardless. That is the whole bug.
+    test('the base rule keeps its pill styling', () => {
+        const rule = rulesMatching(BASE).find(r => r.selectors.includes(BASE) && !r.media);
+        expect(rule.body).toMatch(/padding\s*:/);
+        expect(rule.body).toMatch(/background\s*:/);
+    });
+
+    // A width on the base rule would defeat justify-self without touching it.
+    test('the base rule sizes the pill by its content, not a width', () => {
+        const rule = rulesMatching(BASE).find(r => r.selectors.includes(BASE) && !r.media);
+        expect(rule.body).not.toMatch(/(?:^|[;\s])(?:min-)?width\s*:/);
+    });
+
+    // Half one of the fix: the pill is sized to its text instead of stretching across
+    // the 36-40rem title column.
+    test('the promoted eyebrow opts out of the grid stretch', () => {
+        expect(declFor(BASE, PLACED, 'justify-self', DESKTOP)).toBe('start');
+    });
+
+    // Half two: without an explicit row it auto-places into row 3, i.e. below the
+    // button. This is the pin that a width-only guard would miss.
+    test('the promoted eyebrow is placed in row 1 of the title column', () => {
+        expect(declFor(BASE, PLACED, 'grid-column', DESKTOP)).toBe('1');
+        expect(declFor(BASE, PLACED, 'grid-row', DESKTOP)).toBe('1');
+    });
+
+    // Row 1 belongs to the eyebrow. If the title ever reclaims it, the two collide in
+    // the same cell and the eyebrow renders on top of the headline.
+    test('the title starts at row 2, leaving row 1 to the eyebrow', () => {
+        expect(declFor('.cta__title', '#home-cta .cta__title', 'grid-row', DESKTOP))
+            .toBe('2 / span 2');
+    });
+
+    /*
+     * Scope guard — the reason the placement rule carries `.cta--inline`.
+     *
+     * `layout` accepts 'full-width' (the DEFAULT) and 'inline'. The grid only exists
+     * for `.cta--inline`; in the full-width layout `.cta__inner` stays a flex COLUMN,
+     * where the cross axis is horizontal and `align-self: end` pushes the pill to the
+     * right edge (measured: x=1110 vs 611 in a 1280px viewport). Grid placement only
+     * means "grid", so a bare `#home-cta .cta__eyebrow` selector would fix the inline
+     * layout by breaking the default one.
+     */
+    test('the placement rule is scoped to the inline layout, never bare #home-cta', () => {
+        const placement = /grid-(?:row|column)\s*:|justify-self\s*:|align-self\s*:/;
+        rulesMatching(BASE)
+            .filter(r => placement.test(r.body))
+            .forEach(r =>
+                r.selectors
+                    .filter(s => s.includes('.cta__eyebrow'))
+                    .forEach(s => expect(s).toContain('.cta--inline'))
+            );
+    });
+
+    // The placement rules are dead code unless the parent is still a grid and
+    // .cta__text still dissolves into it. If either stops being true, the eyebrow is no
+    // longer a grid item and every pin above silently stops describing the render.
+    const INNER = '#home-cta.cta--inline .cta__inner';
+
+    test('the eyebrow is only a grid item because .cta__text dissolves into a grid', () => {
+        expect(declFor('.cta__inner', INNER, 'display', DESKTOP)).toBe('grid');
+        // Two tracks, not merely "some template". `grid-column: 1` on the eyebrow and
+        // `grid-column: 2` on the body/button only mean anything against a two-column
+        // track; a collapse to one column would leave every placement pin green while
+        // describing a layout that no longer exists.
+        expect(declFor('.cta__inner', INNER, 'grid-template-columns', DESKTOP))
+            .toMatch(/minmax\(.+\)\s+minmax\(.+\)/);
+        expect(declFor('.cta__text', '#home-cta .cta__text', 'display', DESKTOP))
+            .toBe('contents');
+    });
+
+    /*
+     * The empty row 1 collapses only while the row gap is 0 — and EVERY shipped page is
+     * in that state, because none of them sets an eyebrow. This is the highest-blast-
+     * radius way the fix can regress: a gap above the title on every live CTA.
+     *
+     * Reading the last `row-gap` declaration is not enough. `.cta__inner`'s base rule
+     * declares the `gap` SHORTHAND (`gap: var(--cta-inner-gap, ...)`), and a shorthand
+     * re-declared inside the desktop block would reset row-gap back to a non-zero value
+     * while a `row-gap`-only scan still reported 0. So pin both: row-gap is 0, and no
+     * shorthand reintroduces one. (`column-gap` is fine — the hyphen means the
+     * word-boundary below never matches it.)
+     */
+    test('row-gap stays 0 so the empty row collapses when no eyebrow is set', () => {
+        expect(declFor('.cta__inner', INNER, 'row-gap', DESKTOP)).toBe('0');
+    });
+
+    test('no gap shorthand in the desktop block can reset that row-gap', () => {
+        rulesMatching('.cta__inner')
+            .filter(r => r.media === DESKTOP && r.selectors.includes(INNER))
+            .forEach(r => expect(r.body).not.toMatch(/(?:^|[;{\s])gap\s*:/));
+    });
+
+    /*
+     * Half (a) of the bug — the stretch — can return without touching the placement at
+     * all. Two distinct guards, because the two declaration families have different
+     * legitimacy:
+     *
+     * Sizing (width / min-width / flex basis / place-self) is NEVER legitimate on the
+     * pill, in ANY rule, including the two owners. `width: 100%` added to the placement
+     * rule itself restores the band, and a guard that skipped the owners would sail
+     * straight past it.
+     */
+    const SIZE_RESTORING = /(?:^|[;{\s])(?:min-)?width\s*:|(?:^|[;\s])flex\s*:|place-self\s*:/;
+
+    test('no eyebrow rule anywhere gives the pill a width', () => {
+        rulesMatching(BASE).forEach(r => expect(r.body).not.toMatch(SIZE_RESTORING));
+    });
+
+    // Alignment IS legitimate — but only on the two owner rules. Anywhere else (a
+    // media-scoped override, a duplicate appended later, a new ID-specificity block) it
+    // can re-stretch the pill or drag it out of column 1 while every pin above stays green.
+    test('only the two owner rules may align the pill', () => {
+        const owners = [BASE, PLACED];
+        rulesMatching(BASE)
+            .filter(r => !r.selectors.every(s => owners.includes(s)))
+            .forEach(r => expect(r.body).not.toMatch(BAND_RESTORING));
     });
 });
 

@@ -18,6 +18,11 @@ import { execSync } from 'child_process';
  *          `inline-block` and stretched it across the full content width. The CSS-text
  *          pins in tests/js/css-lint.test.js can only prove the declaration is present;
  *          only a rendered box can prove the pill is not a band.
+ *   #255 — the cta eyebrow must render as a pill ABOVE the title. `display: contents` on
+ *          `#home-cta .cta__text` promotes it into a grid, which blockified it AND
+ *          auto-placed it into row 3, column 1 — a band the full width of the title
+ *          column, below the button. Position, not just width, is what a rendered box
+ *          proves here.
  */
 
 // ── Helpers (mirrors validation.spec.ts) ────────────────────────────────────
@@ -215,4 +220,151 @@ test.describe('Safe-surface rendered proof', () => {
       });
     }
   }
+
+  // #255: the same visual failure as #225 on the CTA, but reached through the grid.
+  // `#home-cta .cta__text` is `display: contents` at >=768px, so the eyebrow is promoted
+  // into the `.cta__inner` GRID, blockified, and — with no placement of its own —
+  // auto-flowed past every explicitly-placed sibling into a stretched row-3 cell. The
+  // rendered bug was a band the full width of the title column, BELOW the button, so
+  // width alone does not prove the fix: these assert the box is a pill AND sits above
+  // the title.
+  //
+  // 768px is covered to prove the placement rules take effect the moment the media
+  // query matches, not to prove the section fits there — it does not. The #home-cta
+  // track (minmax(36rem, 40rem) + minmax(18rem, 1fr) + a >=3rem gap) needs ~57rem, so
+  // the grid overflows the viewport between 768px and ~912px. That overflow predates
+  // this fix and is tracked separately; asserting against it here would pin a bug.
+  const ctaEyebrowViewports = [
+    { label: 'desktop', width: 1280, height: 900 },
+    { label: 'breakpoint', width: 768, height: 900 },
+    { label: 'mobile', width: 375, height: 800 },
+  ];
+
+  for (const viewport of ctaEyebrowViewports) {
+    // One @smoke case, so the post-merge main run (which executes only the @smoke
+    // subset) still watches the pill.
+    const smoke = viewport.label === 'desktop' ? ' @smoke' : '';
+
+    test(`#255 cta eyebrow renders as a pill above the title (${viewport.label})${smoke}`, async ({
+      page,
+    }) => {
+      pageId = createPage(`E2E CTA Eyebrow Pill ${viewport.label}`);
+      setComposition(pageId, [
+        {
+          component: 'cta',
+          props: {
+            // The bug is ID-scoped: only #home-cta gets `display: contents`.
+            id: 'home-cta',
+            layout: 'inline',
+            title: 'A deliberately long closing headline that widens the title column',
+            text: 'Supporting copy that occupies the right-hand column of the grid.',
+            eyebrow: 'BETA',
+            button_text: 'Get started',
+            button_url: '/start',
+          },
+        },
+      ]);
+
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto(`/?page_id=${pageId}`);
+
+      const eyebrow = page.locator('.cta__eyebrow');
+      await expect(eyebrow).toBeVisible({ timeout: 10000 });
+
+      const eyebrowBox = (await eyebrow.boundingBox())!;
+      const titleBox = (await page.locator('.cta__title').boundingBox())!;
+
+      // The band spanned the whole title column. "BETA" in a padded pill is nowhere near
+      // half of it, so this fails loudly on any return of the stretch.
+      expect(eyebrowBox.width).toBeLessThan(titleBox.width * 0.5);
+
+      // The half a width-only assertion would miss: auto-placement put the pill in row 3,
+      // under the button. An eyebrow that renders below its own headline is not an eyebrow.
+      expect(eyebrowBox.y + eyebrowBox.height).toBeLessThanOrEqual(titleBox.y + 1);
+
+      // Same column as the title, flush to its leading edge.
+      expect(Math.abs(eyebrowBox.x - titleBox.x)).toBeLessThan(2);
+    });
+  }
+
+  // The state every shipped page is actually in: #home-cta with NO eyebrow. The fix moved
+  // the title off row 1, so an empty row now sits above it on every live CTA. That row
+  // collapses only while the row gap is 0 — a `gap` shorthand added to the desktop block
+  // would silently open a band of dead space above every homepage headline. The CSS-text
+  // pins guard the declarations; only a rendered box proves the row actually collapsed.
+  test('#255 a cta with no eyebrow keeps its title flush to the top (empty row collapses) @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E CTA No Eyebrow Row Collapse');
+    setComposition(pageId, [
+      {
+        component: 'cta',
+        props: {
+          id: 'home-cta',
+          layout: 'inline',
+          title: 'A deliberately long closing headline that widens the title column',
+          text: 'Supporting copy that occupies the right-hand column of the grid.',
+          button_text: 'Get started',
+          button_url: '/start',
+        },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const title = page.locator('.cta__title');
+    await expect(title).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.cta__eyebrow')).toHaveCount(0);
+
+    const titleBox = (await title.boundingBox())!;
+    const innerBox = (await page.locator('.cta__inner').boundingBox())!;
+
+    // The title's inset from the top of .cta__inner is what a phantom row 1 inflates.
+    // Measured in chromium at 1280px: 71px with the row collapsed (correct), 107px once
+    // a `gap: 1.5rem` shorthand resets row-gap and the empty row takes up space. 90px
+    // sits clear of both, so this fails on the regression without pinning exact metrics.
+    expect(titleBox.y - innerBox.y).toBeLessThan(90);
+  });
+
+  // The placement rules are deliberately scoped to `.cta--inline`, because `.cta__inner`
+  // is a flex COLUMN in the default full-width layout — where the cross axis is
+  // horizontal and `align-self: end` would push the pill to the right edge instead of
+  // leaving it centered. An unscoped `#home-cta .cta__eyebrow` selector would fix the
+  // inline layout by breaking the default one, and no inline-only test would notice.
+  test('#255 the full-width cta keeps its centered pill (fix stays scoped) @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E CTA Eyebrow Full Width');
+    setComposition(pageId, [
+      {
+        component: 'cta',
+        props: {
+          id: 'home-cta',
+          layout: 'full-width',
+          title: 'A deliberately long closing headline for the full width layout',
+          eyebrow: 'BETA',
+          button_text: 'Get started',
+          button_url: '/start',
+        },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const eyebrow = page.locator('.cta__eyebrow');
+    await expect(eyebrow).toBeVisible({ timeout: 10000 });
+
+    const eyebrowBox = (await eyebrow.boundingBox())!;
+    const innerBox = (await page.locator('.cta__inner').boundingBox())!;
+
+    expect(eyebrowBox.width).toBeLessThan(innerBox.width * 0.5);
+
+    // Centered, not flushed to either edge. The regression this guards renders the pill
+    // hard against the right edge of .cta__inner.
+    const eyebrowCenter = eyebrowBox.x + eyebrowBox.width / 2;
+    const innerCenter = innerBox.x + innerBox.width / 2;
+    expect(Math.abs(eyebrowCenter - innerCenter)).toBeLessThan(2);
+  });
 });
