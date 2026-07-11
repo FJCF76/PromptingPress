@@ -2196,9 +2196,36 @@
     max-width: none;
   }
 
+  /* display:contents above dissolves .cta__text, so the eyebrow becomes a grid item
+     of .cta__inner. Grid blockifies its inline-block and, with no placement of its
+     own, auto-flows it past every explicitly-placed sibling into the first free cell
+     — row 3, column 1 — and stretches it there: a band the full width of the TITLE
+     COLUMN, rendered below the button. Placing it in row 1 of the title column
+     restores the pill above the title. Row 1 collapses when no eyebrow is set
+     (row-gap is 0), so a CTA without one renders exactly as it did before.
+
+     Only .cta--inline carries this placement, because align-self is the one
+     declaration here that is NOT inert outside the grid: grid-column, grid-row and
+     justify-self are all ignored on a flex item, but .cta__inner stays a flex COLUMN
+     in the full-width layout, where the cross axis is horizontal and align-self:end
+     would shove the pill to the right edge. align-self:end is itself inert today —
+     row 1 is exactly the eyebrow's height, so there is no free space to align within
+     — and is kept to state the intent for a row that ever grows taller.
+
+     Do NOT "tidy" this selector to match the bare #home-cta siblings below. They are
+     bare only because grid-row is safely inert in the full-width flex column; their
+     own align-self declarations DO leak into it, which is a separate pre-existing
+     bug, not a pattern to copy. */
+  #home-cta.cta--inline .cta__eyebrow {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
+    align-self: end;
+  }
+
   #home-cta .cta__title {
     grid-column: 1;
-    grid-row: 1 / span 2;
+    grid-row: 2 / span 2;
     max-width: 40rem;
     margin: 0;
     font-size: clamp(2.35rem, 3.05vw, 2.65rem);
@@ -2207,7 +2234,7 @@
 
   #home-cta .cta__body {
     grid-column: 2;
-    grid-row: 1;
+    grid-row: 2;
     max-width: 22rem;
     margin: 0 0 1.15rem;
     align-self: end;
@@ -2215,7 +2242,7 @@
 
   #home-cta .cta__button {
     grid-column: 2;
-    grid-row: 2;
+    grid-row: 3;
     justify-self: start;
     align-self: start;
   }
