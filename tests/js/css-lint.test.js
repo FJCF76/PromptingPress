@@ -812,6 +812,68 @@ describe('CSS lint: the inline cta grid can shrink to its breakpoint (#258)', ()
 });
 
 /*
+ * #265: the SHARED four-CTA inline grid rule can shrink to its breakpoint.
+ *
+ * #258 fixed only #home-cta, whose tracks are re-set by a #home-cta-specific override.
+ * #how-cta / #agencies-cta / #implementers-cta never reach that override — they are sized
+ * by the shared four-CTA rule, which had the same fixed floors (32.5rem + 14rem + gap) and
+ * scrolled the page sideways at 768..912px. The rendered proof lives in the E2E suite
+ * (scrollWidth <= viewport, now parametrized over all four ids); these pins guard the two
+ * structural properties that proof silently depends on for the shared-rule ids.
+ */
+describe('CSS lint: the shared inline cta grid can shrink to its breakpoint (#265)', () => {
+    const DESKTOP = '(min-width: 768px)';
+    // Every id NOT carrying a later same-selector override — i.e. the three sized only by
+    // the shared rule. #home-cta is excluded: its own override is the cascade winner and is
+    // already pinned by the #258 block above.
+    const SHARED_IDS = ['how-cta', 'agencies-cta', 'implementers-cta'];
+
+    function columnsFor(selector, media) {
+        const decls = rulesMatching('.cta__inner')
+            .filter(r => r.media === media && r.selectors.includes(selector))
+            .map(r => /grid-template-columns\s*:\s*([^;}]+)/.exec(r.body))
+            .filter(Boolean);
+        return decls.length ? decls[decls.length - 1][1].trim() : null;
+    }
+
+    for (const id of SHARED_IDS) {
+        const INNER = `#${id}.cta--inline .cta__inner`;
+        const columns = () => columnsFor(INNER, DESKTOP);
+
+        /*
+         * The whole fix: a fixed track minimum cannot shrink below itself, which is exactly
+         * how the bug worked. Column 1 must floor at 0 so the grid can shrink below its
+         * content at the 768px breakpoint.
+         */
+        test(`#${id} column 1 floors at 0 so the grid can shrink below its content`, () => {
+            expect(columns()).toMatch(/^minmax\(\s*0\s*,/);
+        });
+
+        /*
+         * Column 2's floor is not arbitrary — it is .cta__button's min-width. The button is
+         * the one item in that column that refuses to get narrower, so if the floor drops
+         * below the button min-width the button overflows its own track and the page scrolls
+         * sideways again. Derive both from the stylesheet and compare, so moving either one
+         * without the other fails here instead of in someone's browser.
+         */
+        test(`#${id} column 2 floors at exactly the cta button min-width`, () => {
+            const buttonMinWidth = rulesMatching('.cta__button')
+                .filter(r => (r.media === null || r.media === DESKTOP)
+                    && r.selectors.includes(`#${id} .cta__button`))
+                .map(r => /min-width\s*:\s*([^;}]+)/.exec(r.body))
+                .filter(Boolean)
+                .pop();
+
+            expect(buttonMinWidth).toBeTruthy();
+
+            const floor = /minmax\(\s*([^,]+),[^)]*\)\s*$/.exec(columns());
+            expect(floor).toBeTruthy();
+            expect(floor[1].trim()).toBe(buttonMinWidth[1].trim());
+        });
+    }
+});
+
+/*
  * #257: the full-width cta centers its body and button.
  *
  * `#home-cta .cta__text` is `display: contents` at >=768px, but the grid it feeds is

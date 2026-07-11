@@ -435,47 +435,57 @@ test.describe('Safe-surface rendered proof', () => {
    */
   const ctaOverflowViewports = [768, 800, 860, 912, 1024];
 
-  for (const width of ctaOverflowViewports) {
-    // One @smoke case at the worst-overflowing width, so the post-merge main run (which
-    // executes only the @smoke subset) still watches for the sideways scroll.
-    const smoke = width === 768 ? ' @smoke' : '';
+  // All four inline CTA ids share the same overflow class. #home-cta is sized by its own
+  // override (#258); #how-cta / #agencies-cta / #implementers-cta are sized by the shared
+  // four-CTA rule, which had the same fixed floors and scrolled the page sideways at
+  // tablet widths (#265). Parametrize over every id so the shared rule is proven too, not
+  // just the home override.
+  const ctaOverflowIds = ['home-cta', 'how-cta', 'agencies-cta', 'implementers-cta'];
 
-    test(`#258 the inline cta does not scroll the page sideways at ${width}px${smoke}`, async ({
-      page,
-    }) => {
-      pageId = createPage(`E2E CTA Overflow ${width}`);
-      setComposition(pageId, [
-        {
-          component: 'cta',
-          props: {
-            // The overflowing track override is scoped to #home-cta.
-            id: 'home-cta',
-            layout: 'inline',
-            title: 'A deliberately long closing headline that widens the title column',
-            text: 'Supporting copy that occupies the right-hand column of the grid.',
-            eyebrow: 'BETA',
-            button_text: 'Get started',
-            button_url: '/start',
+  for (const id of ctaOverflowIds) {
+    for (const width of ctaOverflowViewports) {
+      // One @smoke case per id at the worst-overflowing width, so the post-merge main run
+      // (which executes only the @smoke subset) still watches for the sideways scroll on
+      // every inline CTA, not only #home-cta.
+      const smoke = width === 768 ? ' @smoke' : '';
+
+      test(`#265 the #${id} inline cta does not scroll the page sideways at ${width}px${smoke}`, async ({
+        page,
+      }) => {
+        pageId = createPage(`E2E CTA Overflow ${id} ${width}`);
+        setComposition(pageId, [
+          {
+            component: 'cta',
+            props: {
+              // The overflowing track override / shared rule is scoped to these ids.
+              id,
+              layout: 'inline',
+              title: 'A deliberately long closing headline that widens the title column',
+              text: 'Supporting copy that occupies the right-hand column of the grid.',
+              eyebrow: 'BETA',
+              button_text: 'Get started',
+              button_url: '/start',
+            },
           },
-        },
-      ]);
+        ]);
 
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('.cta__inner')).toBeVisible({ timeout: 10000 });
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`/?page_id=${pageId}`);
+        await expect(page.locator('.cta__inner')).toBeVisible({ timeout: 10000 });
 
-      // "No overflow" is also true of a page where the rule under test never applied at
-      // all — if the component stopped emitting id="home-cta", or the media query moved,
-      // the grid would quietly fall back to the flex column and every assertion below
-      // would still pass while guarding nothing. Prove the two-column grid is live first.
-      const tracks = await page.evaluate(
-        () => getComputedStyle(document.querySelector('.cta__inner')!).gridTemplateColumns,
-      );
-      expect(tracks.split(/\s+/).filter(Boolean)).toHaveLength(2);
+        // "No overflow" is also true of a page where the rule under test never applied at
+        // all — if the component stopped emitting the id, or the media query moved, the
+        // grid would quietly fall back to the flex column and every assertion below would
+        // still pass while guarding nothing. Prove the two-column grid is live first.
+        const tracks = await page.evaluate(
+          () => getComputedStyle(document.querySelector('.cta__inner')!).gridTemplateColumns,
+        );
+        expect(tracks.split(/\s+/).filter(Boolean)).toHaveLength(2);
 
-      const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
-      expect(scrollWidth).toBeLessThanOrEqual(width + 1);
-    });
+        const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+        expect(scrollWidth).toBeLessThanOrEqual(width + 1);
+      });
+    }
   }
 
   /*
