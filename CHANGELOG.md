@@ -4,6 +4,25 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.71] — 2026-07-11 — three feature cards, three columns, no orphan (#224)
+
+**A `grid` with `layout: "cards"` and three items rendered two cards on the first row and stranded the third, alone and stretched to half width, on a second row. It did this at every desktop width. The three-across feature row is the most common layout on a marketing page, and PromptingPress could not express it: there is no `columns` prop, and switching to `layout: "steps"` to buy the third column forces number badges and drops images, which changes what the section means. A 3-item cards grid now renders three across at 1024px and up, spanning the container exactly as `steps` already did.**
+
+The markup was never the problem. `grid.php` has been emitting `data-pp-count` on the card list for months, and the desktop cascade already used it to special-case two-item and four-item grids. Three was simply skipped, so three-item grids fell through to the generic two-column rule. The docs had already promised the correct behavior — `components/grid/README.md` claimed three columns at desktop and the site-validation checklist told agents to verify a "3-column layout" — which means the code was the thing that was wrong, and the fix makes two existing documents true instead of asking anyone to accept a new rule. Counts other than three keep the layout they had; the responsive table in the component README now spells out what each count actually does, rather than promising one number for all of them.
+
+### Fixed
+- `grid` `layout: "cards"` with exactly 3 items now renders 3 columns at 1024px and up, instead of 2 columns plus an orphaned third card (`assets/css/components.css`). The row spans the container like `grid--steps`; the 2-item and 4-item layouts are unchanged.
+
+### Docs
+- `components/grid/README.md`: the responsive table now describes desktop layout per item count (2 → 2 up, 3 → 3 across, 4 → 2 x 2, other → 2) instead of claiming 3 columns for every count, and notes that a 4-item `steps` grid lays out 2 x 2.
+- `ai-instructions/validate-site.md`: the desktop checklist item now states the per-count layout an agent should expect.
+
+### Tests
+- `tests/js/css-lint.test.js`: pins that the 3-item rule declares 3 columns inside the desktop media block, carries no narrowing `max-width`, and is declared exactly once, plus scope guards holding the 2-item, 4-item, and `steps` layouts unchanged.
+- `tests/ComponentPropsTest.php`: pins that `grid` emits `data-pp-count`, the attribute the desktop cascade selects on.
+
+---
+
 ## [v0.16.70] — 2026-07-11 — the docs stop counting tests, because the count was always going to be wrong (#250)
 
 **`README.md` advertised "34 E2E specs," "1230 PHP tests," and "350 JS tests." The real numbers were 48, 1479, and 409. `AI_RULES.md`, which an AI agent reads as instructions, carried the same wrong E2E figure. The README also told readers that a broken-media validation check was "currently quarantined (issue #83)" — that issue closed on 2026-07-07 and the test has been running ever since. Every hardcoded count is now gone from the live docs, replaced by the coverage areas they were supposed to be summarizing, and a lint guard keeps them from coming back.**
