@@ -1,0 +1,106 @@
+/**
+ * Docs Lint Regression Guards (#250)
+ *
+ * The live doc prose (README.md, AI_RULES.md) must not assert a hardcoded test
+ * count. Any exact number baked into prose re-drifts the moment a test is added:
+ * the "34 E2E specs" claim was accurate when written, then drifted to 47, then
+ * to 48 while #250 sat in the queue. Describe the coverage areas, not the count.
+ *
+ * The shields.io "Tests-N+_passing" badge is deliberately EXEMPT. It is a floor
+ * claim ("at least N"), so adding tests keeps it true; only removing tests below
+ * the floor makes it wrong. Badge lines are stripped before scanning.
+ *
+ * Historical records are deliberately NOT linted. CHANGELOG.md and readme.txt's
+ * "== Changelog ==" entries state what shipped in a given release; their counts
+ * were true at that tag and rewriting them would falsify release history.
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+const read = (f) => fs.readFileSync(path.resolve(__dirname, '../..', f), 'utf-8');
+
+// Strip shields.io badge lines: the Tests badge is an exempt floor claim.
+const stripBadges = (md) => md.replace(/^.*img\.shields\.io.*$/gm, '');
+
+const README = stripBadges(read('README.md'));
+const AI_RULES = stripBadges(read('AI_RULES.md'));
+
+const LIVE_DOCS = [
+    ['README.md', README],
+    ['AI_RULES.md', AI_RULES],
+];
+
+// A count-shaped claim: a number, then up to three words, then a test noun.
+// Catches "1230 PHP tests", "409 JS unit tests", "48 Playwright E2E specs",
+// "34 specs:", "1479 tests, 5496 assertions". Deliberately does NOT match
+// legitimate prose like "20 typed actions" or "WordPress 7.0" (no test noun).
+// Horizontal whitespace only: \s would span newlines and pair an unrelated
+// number with a test noun on the next line (e.g. port "8889" + "npm run test").
+const COUNT_CLAIM = /\d[\d,]*[ \t]+(?:[A-Za-z0-9.+/-]+[ \t]+){0,3}(?:tests?|specs?|assertions)\b/i;
+
+describe('docs lint: no hardcoded test counts in live docs', () => {
+    test.each(LIVE_DOCS)('%s asserts no hardcoded test count', (name, content) => {
+        const hits = content.match(new RegExp(COUNT_CLAIM, 'gi')) || [];
+        expect(hits).toEqual([]);
+    });
+});
+
+describe('docs lint: no stale #83 quarantine claim', () => {
+    // #83 was resolved 2026-07-07 and the broken-media E2E is de-quarantined.
+    // Scoped to a quarantine claim naming an issue, so a future legitimate
+    // quarantine rule in prose does not trip the guard.
+    test.each(LIVE_DOCS)('%s claims no quarantined test against a closed issue', (name, content) => {
+        const hits = content.match(/quarantin\w*[^.\n]*#\d+/gi) || [];
+        expect(hits).toEqual([]);
+    });
+});
+
+describe('docs lint: coverage areas survive count removal', () => {
+    // Guards against satisfying the count lint by gutting the testing docs:
+    // pin representative coverage areas, not just the headings.
+    test('README.md still documents each suite and its coverage areas', () => {
+        expect(README).toMatch(/PHP unit tests/);
+        expect(README).toMatch(/batch atomicity\/rollback/);
+        expect(README).toMatch(/JS unit tests/);
+        expect(README).toMatch(/serialization invariant/);
+        expect(README).toMatch(/E2E specs/);
+        expect(README).toMatch(/MySQL advisory lock/);
+    });
+
+    test('AI_RULES.md still documents the E2E suite and its coverage areas', () => {
+        expect(AI_RULES).toMatch(/## E2E tests/);
+        expect(AI_RULES).toMatch(/npm run test:e2e/);
+        expect(AI_RULES).toMatch(/serialization gate/);
+        expect(AI_RULES).toMatch(/token concurrency/);
+    });
+});
+
+describe('docs lint: the guard itself is not decoration', () => {
+    // If these ever stop matching, the regex has been loosened into a no-op.
+    const MUST_CATCH = [
+        '1230 PHP tests',           // the original README claim
+        '350 JS tests',             // the original README claim
+        '34 E2E specs',             // the original README claim
+        '34 specs: editor round-trip', // the original AI_RULES claim
+        '1479 tests, 5496 assertions',
+        '1479 PHP unit tests',      // the phrasing this change standardized on
+        '409 JS unit tests',
+        '48 Playwright E2E specs',
+        '48 E2E tests',
+    ];
+    const MUST_NOT_CATCH = [
+        'schema validation, 20 typed actions, apply layer',
+        'against a live **WordPress 7.0** instance (requires Docker)',
+        'boot wp-env container (WordPress 7.0)',
+        '47 CSS custom properties control the entire visual system',
+    ];
+
+    test.each(MUST_CATCH)('catches a hardcoded count: %s', (s) => {
+        expect(COUNT_CLAIM.test(s)).toBe(true);
+    });
+
+    test.each(MUST_NOT_CATCH)('does not false-positive on: %s', (s) => {
+        expect(COUNT_CLAIM.test(s)).toBe(false);
+    });
+});

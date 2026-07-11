@@ -4,6 +4,29 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.70] — 2026-07-11 — the docs stop counting tests, because the count was always going to be wrong (#250)
+
+**`README.md` advertised "34 E2E specs," "1230 PHP tests," and "350 JS tests." The real numbers were 48, 1479, and 409. `AI_RULES.md`, which an AI agent reads as instructions, carried the same wrong E2E figure. The README also told readers that a broken-media validation check was "currently quarantined (issue #83)" — that issue closed on 2026-07-07 and the test has been running ever since. Every hardcoded count is now gone from the live docs, replaced by the coverage areas they were supposed to be summarizing, and a lint guard keeps them from coming back.**
+
+The counts were not wrong because someone was careless. They were accurate the day they were written and went stale the next time anyone added a test, which is the only thing a hardcoded count can do. The proof arrived mid-fix: while this issue sat in the queue the E2E figure drifted again, from 47 to 48, because the token-concurrency repair landed a new test. Refreshing the numbers would have bought a few days and recreated the same defect, so the docs now describe *what* is covered — the serialization gate, the action-layer CLI, post-apply validation, AI chat streaming, concurrent token writes behind a real MySQL advisory lock — and leave the arithmetic to the test runner, which is the only thing that can count correctly.
+
+The stale quarantine claim was the more dangerous half. It is an instruction, not a statistic: an agent reading `README.md` and hitting a genuine broken-media failure had written permission to dismiss it as a known, expected quarantine. That sentence is deleted.
+
+The `Tests` badge is the deliberate exception. It reads "1936+ passing" — a floor claim, not an exact count, so it stays true as tests are added and only needs attention if the suite shrinks. The new lint strips shields.io badge lines before scanning, so the exemption is explicit rather than accidental.
+
+### Fixed
+- **`README.md` no longer misstates test coverage.** The three suite ledes describe coverage areas and assert no count; the `Tests` badge is refreshed to a `1936+` floor claim.
+- **`README.md` no longer claims a quarantined broken-media check.** #83 closed 2026-07-07 and the test is live (`tests/e2e/validation.spec.ts`).
+- **`AI_RULES.md` no longer feeds a wrong E2E count to agents.** The `npm run test:e2e` comment keeps its coverage-area list and drops the number.
+
+### Docs
+- The E2E coverage list now names AI chat streaming/apply, which the suite has covered for some time without saying so.
+
+### Tests
+- **New: `tests/js/docs-lint.test.js`** — a regression guard, in the same shape as the existing CSS lint. It bans count-shaped claims in `README.md` and `AI_RULES.md`, bans a quarantine claim that names an issue number, and pins that the coverage areas survive, so the count lint cannot be satisfied by gutting the testing docs.
+- **The guard proves it can fail.** It self-tests that its own pattern fires on every historical stale string ("1230 PHP tests", "34 E2E specs", "34 specs:") *and* on the phrasings this change introduces ("1479 PHP unit tests"), while staying silent on legitimate numbers like "20 typed actions" and the real "WordPress 7.0" pin. A lint that cannot fail is decoration.
+- Historical records are deliberately not linted. The `readme.txt` changelog and `CHANGELOG.md` entries state what shipped at a given tag; their counts were true then, and rewriting them would falsify the record.
+
 ## [v0.16.69] — 2026-07-11 — the token-concurrency release gate is green again: a permanently-red E2E test now asserts what it was written to assert (#240)
 
 **The nightly E2E suite carried a deterministically red test — "a writer fails closed while another connection holds the lock" — and it had nothing to do with the behavior under test. The contender died in *setup*, several steps before the contended write it exists to exercise. A release gate that always fails teaches everyone to ignore it, so the signal it was supposed to provide for concurrent token writes was worth nothing. The test now reaches the contended `execute`, and a second test pins the fail-closed preflight behavior that the old test was tripping over by accident.**

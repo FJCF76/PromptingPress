@@ -105,7 +105,7 @@ Playwright tests in `tests/e2e/` run against a live WordPress instance via wp-en
 
 ```
 npm run env:start   # boot Docker WordPress on port 8889
-npm run test:e2e    # 34 specs: editor round-trip, serialization gate, CLI actions, post-apply validation, AI chat streaming/apply, token concurrency
+npm run test:e2e    # editor round-trip, serialization gate, CLI actions, post-apply validation, AI chat streaming/apply, token concurrency
 npm run env:stop    # tear down
 ```
 

@@ -12,8 +12,8 @@
 [![PHP 8.0+](https://img.shields.io/badge/PHP-8.0+-777BB4?style=flat-square&logo=php&logoColor=white)](https://php.net)
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
-[![Tests](https://img.shields.io/badge/Tests-1550+_passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-0.16.69-6366F1?style=flat-square)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/Tests-1936+_passing-22C55E?style=flat-square)](tests/)
+[![Version](https://img.shields.io/badge/version-0.16.70-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -391,19 +391,19 @@ Enforced by `AI_RULES.md` and verified by automated tests:
 
 ## ✅ Tests
 
-**1230 PHP tests, 4556 assertions** — component loader, WP abstraction, schema validation, 20 typed actions, apply layer, batch atomicity/rollback, token family derivation, AI context, proposal parsing, capability model, style slots, cross-component hints, surface classification, font management, media import, SEO metadata, navigation menus, integrity, upgrade-safety guardrails, operating loop, server-driven destructive-action warnings:
+**PHP unit tests** — component loader, WP abstraction, schema validation, 20 typed actions, apply layer, batch atomicity/rollback, token family derivation, AI context, proposal parsing, capability model, style slots, cross-component hints, surface classification, font management, media import, SEO metadata, navigation menus, integrity, upgrade-safety guardrails, operating loop, server-driven destructive-action warnings:
 
 ```bash
 composer install && composer test
 ```
 
-**350 JS tests** — JSON context, composition validator, accordion data, insert position, data-loss guard, DOM selector alignment, serialization invariant (deep diff + round-trip gate), CSS lint, packaging, proposal card, guided error card, page targeting, post-apply validation, shared PHP/JS validation contract, server-driven warning lookup:
+**JS unit tests** — JSON context, composition validator, accordion data, insert position, data-loss guard, DOM selector alignment, serialization invariant (deep diff + round-trip gate), CSS lint, docs lint, packaging, proposal card, guided error card, page targeting, post-apply validation, shared PHP/JS validation contract, server-driven warning lookup:
 
 ```bash
 npm install && npm test
 ```
 
-**34 E2E specs** — composition editor round-trip (including the serialization gate), post-apply validation, the action-layer CLI, and concurrent token-override writes serialized behind a real MySQL advisory lock, run with Playwright against a live **WordPress 7.0** instance (requires Docker). One broken-media validation check is currently quarantined (issue #83):
+**E2E specs** — composition editor round-trip (including the serialization gate), post-apply validation, the action-layer CLI, AI chat streaming/apply, and concurrent token-override writes serialized behind a real MySQL advisory lock, run with Playwright against a live **WordPress 7.0** instance (requires Docker):
 
 ```bash
 npm run env:start   # boot wp-env container (WordPress 7.0)
