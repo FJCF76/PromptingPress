@@ -87,7 +87,7 @@ Check that `current` values reflect your changes and the `active_recipe` shows c
 | `position` | `center`, `top left`, `20% 80%` | `_pp_validate_position()` |
 | `ratio` | `auto`, `1`, `16/9` | `_pp_validate_ratio()` |
 
-The `color` type (#230) accepts hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`, the CSS-wide
+The `color` type (#230) accepts hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`, the CSS color
 keywords `transparent` and `currentColor` (case-insensitive), or a **single bare
 reference to a registered color-typed design token** — `var(--color-accent)` exactly.
 No fallback (`var(--x, #fff)`), no nesting, no whitespace inside the parentheses, and

@@ -225,7 +225,7 @@ function _pp_parse_token_reference(string $value): ?string {
 
 /**
  * Validates a CSS color value.
- * Accepts: 3/4/6/8-digit hex, rgb(), rgba(), hsl(), hsla(), the CSS-wide
+ * Accepts: 3/4/6/8-digit hex, rgb(), rgba(), hsl(), hsla(), the CSS color
  * keywords `transparent` and `currentColor` (case-insensitive), and a single
  * bare design-token reference `var(--token)` whose token is registered in
  * pp_design_tokens() AND is itself color-typed (#230).
@@ -249,7 +249,7 @@ function _pp_validate_color(string $value): bool {
     if (preg_match('/^hsla?\(\s*[\d.]+\s*,\s*[\d.]+%\s*,\s*[\d.]+%\s*(,\s*[\d.]+)?\s*\)$/', $value)) {
         return true;
     }
-    // CSS-wide color keywords: injection-free, and commonly needed
+    // CSS color keywords: injection-free, and commonly needed
     // (transparent backgrounds, borders that follow the text color) (#230).
     if (in_array(strtolower($value), ['transparent', 'currentcolor'], true)) {
         return true;
