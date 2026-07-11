@@ -369,6 +369,90 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
 });
 
 /**
+ * Featured grid card honors the --grid-card-border style slot (#226).
+ *
+ * The first card of a `layout: cards` grid gets an unconditional "featured"
+ * treatment. Its sibling slot --grid-card-bg is routed through
+ * `var(--grid-card-bg, <default>)` so an author's declared value wins, but the
+ * border was hardcoded to an accent token — so a declared --grid-card-border
+ * silently no-opped on card 1 while `style_component` reported success.
+ *
+ * TWO rules set border-color on the featured first card and BOTH must route
+ * through the slot: the later one wins the cascade (equal specificity), and the
+ * earlier one is the base featured rule. If either keeps a bare token, the slot
+ * is ignored on that path. The keystone StyleSlotContractTest only proves the
+ * slot is consumed *somewhere* in the grid block (the base `.grid__item` rule
+ * satisfies it), so it cannot catch this first-child-specific gap — hence this
+ * targeted pin.
+ */
+describe('CSS lint: featured grid card honors --grid-card-border (#226)', () => {
+    const SELECTOR = 'main > .grid:not(.grid--steps) .grid__item:first-child';
+
+    // Brace-matched extraction of every rule whose selector is EXACTLY this
+    // (whitespace-normalized). `::before` / descendant rules share the prefix
+    // but have more text before `{`, so `\s*\{` never matches them.
+    function bodiesForExactSelector(selector) {
+        const css = stripComments(COMPONENTS_CSS).replace(/\s+/g, ' ');
+        const re = new RegExp(
+            selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{',
+            'g'
+        );
+        const bodies = [];
+        let match;
+        while ((match = re.exec(css)) !== null) {
+            let i = re.lastIndex;
+            let depth = 1;
+            const start = i;
+            while (i < css.length && depth > 0) {
+                if (css[i] === '{') depth++;
+                else if (css[i] === '}') depth--;
+                i++;
+            }
+            bodies.push(css.slice(start, i - 1));
+        }
+        return bodies;
+    }
+
+    const bodies = bodiesForExactSelector(SELECTOR);
+    const borderBodies = bodies.filter(b => /border-color\s*:/.test(b));
+
+    // Guard against the selector silently drifting: a zero-match scan would make
+    // every assertion below vacuously pass.
+    test('finds the featured first-card rules that set border-color', () => {
+        expect(borderBodies.length).toBeGreaterThanOrEqual(2);
+    });
+
+    test('every border-color on the featured first card routes through --grid-card-border', () => {
+        const offenders = [];
+        borderBodies.forEach(body => {
+            const decls = body.match(/border-color\s*:[^;}]+/g) || [];
+            decls.forEach(d => {
+                if (!/border-color\s*:\s*var\(\s*--grid-card-border\b/.test(d)) {
+                    offenders.push(d.trim());
+                }
+            });
+        });
+        expect(offenders).toEqual([]);
+    });
+
+    // Fallback integrity: the slot must fall back to an accent token, never to a
+    // neutral border, or unset compositions would lose the featured look. Both
+    // accent tokens the two rules historically used are acceptable fallbacks.
+    test('--grid-card-border falls back to an accent token, preserving the default look', () => {
+        const bad = [];
+        borderBodies.forEach(body => {
+            const decls = body.match(/border-color\s*:[^;}]+/g) || [];
+            decls.forEach(d => {
+                if (!/var\(\s*--grid-card-border\s*,\s*var\(\s*--color-(?:border-accent|accent-strong)\s*\)\s*\)/.test(d)) {
+                    bad.push(d.trim());
+                }
+            });
+        });
+        expect(bad).toEqual([]);
+    });
+});
+
+/**
  * Grid desktop column layout (#224).
  *
  * The desktop column count is driven by the `data-pp-count` attribute that
