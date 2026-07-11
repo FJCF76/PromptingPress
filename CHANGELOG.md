@@ -4,6 +4,26 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.82] — 2026-07-12 — two components can no longer share the same id (#238)
+
+**A composition could carry two components with the same `id` and still save without complaint, and every id-based action (`update_component`, `remove_component`, `style_component`) then silently targeted whichever one sorted first, reporting success while it changed or deleted the wrong component. Duplicate component ids are now rejected at write time, so the ambiguous state is never persisted. If a duplicate ever reaches a page through a raw write, targeting it fails closed with a clear error instead of guessing.**
+
+Nothing checked id uniqueness before a composition was saved, so `create_page` and `update_composition` accepted two components sharing a non-empty `id` — and duplicate ids also produce invalid duplicate `id` attributes in the rendered HTML, breaking anchor links. Write-time validation now rejects the collision with a `duplicate_component_id` error, distinct from the generic `invalid_composition` code so a caller can tell "that id is duplicated" from "that component is malformed." A page whose stored composition already carries a collision (written before this rule, or through a non-action path) is not silently accepted: `wp pp check page` and `wp pp validate site` report a `duplicate_component_id` smell. As a backstop, the component resolver no longer returns the first match when several components share the requested id — it fails closed with a `component_ambiguous` error listing the colliding indexes, so `update_component` / `remove_component` / `style_component` refuse to mutate rather than guess. Both surfaces share one duplicate-id detector, mirroring the dual error-plus-smell treatment template-owned chrome already gets.
+
+### Fixed
+
+- Composing two components with the same non-empty `id` is now rejected at write time (`create_page`, `update_composition`, `add_component`, `update_component`, and the dashboard editor save) with a `duplicate_component_id` error, so id-based targeting can never resolve to the wrong component on saved state (#238).
+- `wp pp check page` and `wp pp validate site` now report duplicate authored ids as a `duplicate_component_id` composition smell for state that predates the write-time rule (#238).
+- `pp_resolve_component_target()` fails closed with a `component_ambiguous` error (listing the colliding indexes) when more than one component matches the requested `component_id`, instead of silently returning the first match (#238).
+
+### Docs
+
+- `ai-instructions/website-building.md`, `ai-instructions/validate-site.md`, and `docs/reference-apply-cli.md` now document that component ids must be unique within a composition, the `duplicate_component_id` write-time rejection and smell, and the `component_ambiguous` resolver backstop (#238).
+
+### Tests
+
+- Write-time rejection is pinned for two- and three-way collisions (one error naming every colliding index), and for the cases that must NOT flag: distinct ids, missing/empty ids, and non-scalar ids. `"0"` is verified to count as a real id (the guard is `=== ''`, not `empty()`), and a numeric `1` and string `"1"` are verified to collide since both render as the same DOM `id`. Resolver ambiguity, the shared detector, and the advisory smell surface each get direct tests (#238).
+
 ## [v0.16.81] — 2026-07-12 — the browser-rendered @smoke E2E check now runs on every pull request (#82)
 
 **The `@smoke` end-to-end subset used to run only after a change landed on `main`, so a pull request could be merged without ever seeing the rendered-browser signal that catches CSS cascade regressions unit tests miss. `@smoke` now runs on every pull request against `main` and reports its own check, so the browser evidence is available before merge instead of after. It still runs on push to `main` as a post-merge watcher and as the full suite nightly and on manual dispatch.**
