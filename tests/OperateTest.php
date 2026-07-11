@@ -1148,6 +1148,34 @@ class OperateTest extends TestCase
         $this->assertSame('no_target', $result->get_error_code());
     }
 
+    public function testResolveComponentTargetByIdAmbiguousFailsClosed(): void
+    {
+        // Defense-in-depth (issue 238): duplicate-id state written through a raw,
+        // non-validating path must not resolve silently to the first match.
+        $composition = [
+            ['component' => 'hero', 'props' => ['id' => 'dup', 'title' => 'First']],
+            ['component' => 'section', 'props' => ['id' => 'dup', 'title' => 'Second']],
+        ];
+        $result = pp_resolve_component_target($composition, ['component_id' => 'dup']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('component_ambiguous', $result->get_error_code());
+        // The matched indexes travel with the error so callers/UI can surface them.
+        $this->assertSame([0, 1], $result->get_error_data()['indexes']);
+    }
+
+    public function testResolveComponentTargetByUniqueIdStillResolvesAfterDuplicateGuard(): void
+    {
+        // A single match is unaffected by the multi-match guard.
+        $composition = [
+            ['component' => 'hero', 'props' => ['id' => 'alpha', 'title' => 'A']],
+            ['component' => 'section', 'props' => ['id' => 'beta', 'title' => 'B']],
+        ];
+        $result = pp_resolve_component_target($composition, ['component_id' => 'beta']);
+        $this->assertIsArray($result);
+        $this->assertSame(1, $result['index']);
+        $this->assertSame('section', $result['component']['component']);
+    }
+
     // ── Selector Parser Tests ────────────────────────────────────────────────
 
     public function testParseCompositionSelectorSimple(): void

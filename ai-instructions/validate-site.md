@@ -20,7 +20,7 @@ wp pp validate site
 
 This checks:
 1. **Custom CSS conflicts** — selectors in WordPress Custom CSS that target PP component classes (also surfaced via admin notice on composition edit screens)
-2. **Composition styling** — duplicate component types without authored IDs (ambiguous targeting; auto-generated `pp-<hex8>` ids do not count as stable)
+2. **Composition styling** — duplicate component types without authored IDs (ambiguous targeting; auto-generated `pp-<hex8>` ids do not count as stable), and duplicate authored IDs (two components sharing the same `id` — rejected at write time, reported here as a `duplicate_component_id` smell for state that predates the rule)
 3. **Composition data integrity** — a page whose stored composition is corrupt (undecodable JSON) or not a valid composition list is flagged as a data-integrity error and fails validation, instead of being silently treated as a blank page (issue 144). `wp pp check page` reports the same corruption distinctly from "no composition".
 
 Individual checks:

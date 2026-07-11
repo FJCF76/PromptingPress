@@ -134,6 +134,12 @@ Your own run's sequential composition mutations are fine — the baseline refres
 
 The code is distinct from `invalid_composition` so a caller can tell "that name is chrome" apart from "that name doesn't exist." A page whose stored composition already contains chrome (written before this rule, or through a non-action path) is not silently accepted: `wp pp check page` and `wp pp validate site` report a `template_owned_component` composition smell, and `wp pp validate page` fails with a `template_owned_component` error. Remove the offending items with `remove_component` — each removal shifts later indices down, so remove the highest index first.
 
+**Duplicate component IDs (#238).** A component's `props.id` is how `component_id` targeting picks one component out of a composition. Two components sharing the same non-empty `id` would make that targeting ambiguous, so `pp_validate_composition()` rejects the collision at write time — `create_page`, `update_composition`, `add_component`, `update_component`, and the dashboard editor's save all fail with:
+
+> `Duplicate component id "pricing" on items 0, 2. Component ids must be unique within a composition so update/remove/style can target one component. [duplicate_component_id]`
+
+A page whose stored composition already carries a collision (written before this rule, or through a non-action path) is not silently accepted: `wp pp check page` and `wp pp validate site` report a `duplicate_component_id` composition smell. And the resolver is defensive as a backstop — if a duplicate ever reaches a targeting action, `update_component` / `remove_component` / `style_component` fail closed with a `component_ambiguous` error (listing the colliding indexes) rather than silently mutating the first match. Give each component a unique authored `id`.
+
 **Output** — the preflight result:
 
 ```json

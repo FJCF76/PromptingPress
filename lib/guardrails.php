@@ -413,6 +413,51 @@ function _pp_component_is_empty(string $component, array $props): bool {
  * @param  array $composition  Composition array (component + props).
  * @return array[]             Each entry: ['type' => string, 'message' => string, 'index' => int]
  */
+/**
+ * Returns non-empty component ids shared by more than one component (issue 238).
+ *
+ * Single source of truth for "what counts as a duplicate id", used by both
+ * write-time validation (pp_validate_composition_errors() -> hard error that
+ * rejects the write) and the advisory surfaces (pp_validate_composition_smells()
+ * -> warning on `check page` / `validate site` / restore findings). Mirrors the
+ * dual error+smell treatment template-owned chrome already gets, so the two
+ * surfaces cannot diverge.
+ *
+ * Only scalar, non-empty ids can collide: pp_resolve_component_target() compares
+ * the requested component_id with `===`, so an array/object id is unreachable by a
+ * string target and an empty id is never a target. `"0"` is a valid, targetable
+ * id, so the empty check is `=== ''`, not empty().
+ *
+ * @param  array $composition
+ * @return array[]  Each: ['id' => string, 'indices' => int[]] for ids seen 2+ times,
+ *                  first-seen order, indices ascending.
+ */
+function pp_find_duplicate_component_ids(array $composition): array {
+    $by_id = [];
+    foreach ($composition as $i => $item) {
+        if (!is_array($item) || !isset($item['props']['id'])) {
+            continue;
+        }
+        $raw = $item['props']['id'];
+        if (!is_scalar($raw)) {
+            continue;
+        }
+        $id = (string) $raw;
+        if ($id === '') {
+            continue;
+        }
+        $by_id[$id][] = $i;
+    }
+
+    $dupes = [];
+    foreach ($by_id as $id => $indices) {
+        if (count($indices) > 1) {
+            $dupes[] = ['id' => (string) $id, 'indices' => $indices];
+        }
+    }
+    return $dupes;
+}
+
 function pp_validate_composition_smells(array $composition): array {
     $warnings = [];
 
@@ -534,6 +579,23 @@ function pp_validate_composition_smells(array $composition): array {
             }
             $warnings[] = $warning;
         }
+    }
+
+    // Duplicate authored component ids (issue 238). Write-time validation rejects
+    // these before persist, so a row reaches here only from a raw or legacy write;
+    // surface it as a targeting warning on `check page` / `validate site` and in
+    // restore findings, mirroring the write-time error (same pattern as
+    // template_owned_component). Shared detector keeps both surfaces in step.
+    foreach (pp_find_duplicate_component_ids($composition) as $dupe) {
+        $warnings[] = [
+            'type'    => 'duplicate_component_id',
+            'message' => sprintf(
+                'Duplicate component id "%s" on indices %s — id-based targeting can no longer pick one component (update/remove/style fail closed). Give each component a unique id.',
+                $dupe['id'],
+                implode(', ', $dupe['indices'])
+            ),
+            'index'   => $dupe['indices'][1],
+        ];
     }
 
     return $warnings;

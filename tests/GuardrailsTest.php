@@ -1491,4 +1491,48 @@ class GuardrailsTest extends TestCase
         $this->assertContains('template_owned_component', $types);
         $this->assertSame(2, $warnings[0]['index'], 'the surviving warning points at the nav item');
     }
+
+    // ── Duplicate component ids: shared detector + advisory surface (issue 238) ──
+
+    public function testFindDuplicateComponentIdsGroupsAllIndices(): void
+    {
+        $dupes = pp_find_duplicate_component_ids([
+            ['component' => 'hero', 'props' => ['id' => 'x', 'title' => 'A']],
+            ['component' => 'section', 'props' => ['id' => 'y', 'title' => 'B']],
+            ['component' => 'section', 'props' => ['id' => 'x', 'title' => 'C']],
+            ['component' => 'section', 'props' => ['id' => 'x', 'title' => 'D']],
+        ]);
+
+        $this->assertCount(1, $dupes, 'only the collided id is reported');
+        $this->assertSame('x', $dupes[0]['id']);
+        $this->assertSame([0, 2, 3], $dupes[0]['indices']);
+    }
+
+    public function testFindDuplicateComponentIdsIgnoresEmptyNonScalarAndUnique(): void
+    {
+        $dupes = pp_find_duplicate_component_ids([
+            ['component' => 'hero', 'props' => ['id' => '', 'title' => 'A']],
+            ['component' => 'section', 'props' => ['title' => 'B']],                 // no id
+            ['component' => 'section', 'props' => ['id' => ['x'], 'title' => 'C']],  // non-scalar
+            ['component' => 'section', 'props' => ['id' => 'solo', 'title' => 'D']], // unique
+        ]);
+
+        $this->assertSame([], $dupes);
+    }
+
+    public function testDuplicateIdsSurfaceAsASmellForCheckPageAndValidateSite(): void
+    {
+        // `check page` / `validate site` read pp_validate_composition_smells(); a
+        // duplicate that reached persisted state (raw/legacy write) must show there,
+        // mirroring the write-time error (same dual surfacing as template chrome).
+        $warnings = pp_validate_composition_smells([
+            ['component' => 'hero', 'props' => ['id' => 'dup', 'title' => 'A']],
+            ['component' => 'section', 'props' => ['id' => 'dup', 'title' => 'B']],
+        ]);
+
+        $types = array_column($warnings, 'type');
+        $this->assertContains('duplicate_component_id', $types);
+        $dupe = $warnings[array_search('duplicate_component_id', $types, true)];
+        $this->assertStringContainsString('dup', $dupe['message']);
+    }
 }

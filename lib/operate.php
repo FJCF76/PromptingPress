@@ -1228,10 +1228,30 @@ function pp_resolve_component_target(array $composition, array $target) {
     // component_id takes precedence
     if ($has_id) {
         $id = $target['component_id'];
+        // Collect every match rather than returning the first (issue 238). Write-time
+        // validation now rejects duplicate ids, but state written through raw,
+        // non-validating paths can still carry a collision — resolving it silently
+        // to the first match is the wrong-targeting bug. Fail closed instead.
+        $matches = [];
         foreach ($composition as $index => $item) {
             if (isset($item['props']['id']) && $item['props']['id'] === $id) {
-                return ['index' => $index, 'component' => $item];
+                $matches[] = $index;
             }
+        }
+        if (count($matches) > 1) {
+            return new WP_Error(
+                'component_ambiguous',
+                sprintf(
+                    'Ambiguous target: %d components share id "%s" (indexes %s). Ids must be unique to target one.',
+                    count($matches),
+                    $id,
+                    implode(', ', $matches)
+                ),
+                ['indexes' => $matches]
+            );
+        }
+        if (count($matches) === 1) {
+            return ['index' => $matches[0], 'component' => $composition[$matches[0]]];
         }
         return new WP_Error(
             'component_not_found',
