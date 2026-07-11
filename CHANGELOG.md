@@ -4,6 +4,27 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.72] — 2026-07-11 — the hero eyebrow is a pill again, not a colored band (#225)
+
+**`hero.eyebrow` is documented as a pill: a short kicker sized to its own text, sitting above the headline. It rendered as a full-width colored band spanning the entire hero content column. The CSS said `display: inline-block` and meant it, but `.hero__eyebrow` is a direct child of `.hero__content`, which is a flex column, and a flex container blockifies its children — `inline-block` computes to `block`, then the default `stretch` alignment pulls the box across the full width. The eyebrow now shrinks to its text in all four hero layouts, flush with the leading edge on `left` and `split`, centered on `centered` and `cover`.**
+
+Nothing about the fix is new to this codebase. `.hero__cta-group` sits in the same flex column and hit the same wall, and the file already solved it: `align-self: flex-start` on the base rule, `align-self: center` in the two center-aligned layout blocks. The eyebrow now gets the identical treatment a few lines away. `grid.eyebrow` was never affected, because its parent is a plain block container — which is why the same prop rendered as a pill in one component and a band in another.
+
+It stayed invisible for a long time because it is invisible by default. `--hero-eyebrow-bg` falls back to a pale surface tint on a light hero, so the band blends into the page; set a saturated brand color, or use a dark hero, and it is the first thing you see. No page on the shipped site sets `hero.eyebrow`, so nothing ever rendered it. That is the gap this release closes twice: once in the CSS, and once in the tests, which now measure the rendered box in a real browser instead of trusting that a declaration in a stylesheet is what the cascade actually produces.
+
+### Fixed
+- **`hero.eyebrow` renders as a pill, not a full-width band** (`assets/css/components.css`). `align-self: flex-start` on `.hero__eyebrow` opts the pill out of the flex stretch that was blockifying it; `.hero--centered` and `.hero--cover` re-center it, matching the alignment their CTA groups already carry. `left` and `split` inherit the leading-edge default.
+
+### Docs
+- `README.md` and `AI_RULES.md`: the E2E coverage lists now name rendered-layout proof — geometry and style slots measured in the browser — alongside the editor round-trip, CLI actions, post-apply validation, chat streaming, and token concurrency.
+
+### Tests
+- `tests/e2e/style-render.spec.ts`: rendered-box proof for the eyebrow across all four layouts at desktop and mobile. Each asserts the pill is under half the content width and lands on the edge or the center that its layout calls for. A static check on CSS text cannot prove what the cascade renders; these fail with the eyebrow measured at the full content width when the fix is reverted.
+- `tests/js/css-lint.test.js`: pins the three alignment declarations and, more usefully, guards the ways the band could come back without touching them — a width on the pill, a duplicate rule later in the cascade, a media-scoped override, or a parent that stops being a flex column. The rule scanner tracks enclosing at-rules, so a rule nested inside `@supports` inside `@media` is still read as media-scoped.
+- `tests/ComponentPropsTest.php`: pins the eyebrow as a direct child of `.hero__content` in every layout. The alignment fix depends on that parent-child relationship, so a wrapper element of any kind would quietly kill the pill while every CSS pin stayed green.
+
+---
+
 ## [v0.16.71] — 2026-07-11 — three feature cards, three columns, no orphan (#224)
 
 **A `grid` with `layout: "cards"` and three items rendered two cards on the first row and stranded the third, alone and stretched to half width, on a second row. It did this at every desktop width. The three-across feature row is the most common layout on a marketing page, and PromptingPress could not express it: there is no `columns` prop, and switching to `layout: "steps"` to buy the third column forces number badges and drops images, which changes what the section means. A 3-item cards grid now renders three across at 1024px and up, spanning the container exactly as `steps` already did.**
