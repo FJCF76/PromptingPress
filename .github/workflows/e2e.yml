@@ -1,19 +1,26 @@
 name: E2E (WordPress 7.0)
 
-# Scoped Option 4 (D2b): E2E runs in two modes, both NON-blocking.
-#   - push to main  -> @smoke subset (fast, high-signal): action-layer round-trip,
-#                      editor load, publish -> front-end render. A red check here is
-#                      a SIGNAL on the commit, not a merge gate (this repo ships
-#                      direct to main; there is no branch protection to gate on).
-#   - nightly cron  -> full suite.
-#   - manual        -> full suite via workflow_dispatch.
+# E2E runs the @smoke subset (fast, high-signal: action-layer round-trip, editor
+# load, publish -> front-end render) on every pull request and on push to main,
+# and the full suite nightly / on manual dispatch.
+#   - pull_request -> @smoke subset. Reports a check on EVERY PR so it can be a
+#                     required status check (issue 82). Intentionally NO
+#                     paths-ignore here: a required check that is skipped on a
+#                     docs-only PR leaves the PR blocked on a check that never
+#                     reports, so @smoke must always run and report on a PR.
+#   - push to main -> @smoke subset. Post-merge standing watcher on the mainline
+#                     commit (paths-ignore keeps docs-only pushes from re-running).
+#   - nightly cron -> full suite.
+#   - manual       -> full suite via workflow_dispatch.
 #
-# Promotion bar (tracked as a follow-up issue): once the @smoke run holds green on
-# main for 2 weeks with zero flakes, promote it to a required check. That only
-# becomes meaningful if a PR + branch-protection model is adopted; under the
-# current direct-to-main flow, push-smoke + nightly-full is the standing watcher.
+# Making @smoke a REQUIRED check is a manual repo-admin step (branch protection on
+# main requiring "E2E (WordPress 7.0) / e2e" + "ai-ready-check"); the fine-grained
+# PAT cannot set branch protection. See issue 82. Promotion bar: once @smoke holds
+# green for 2 weeks with zero flakes.
 
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
     paths-ignore:
@@ -50,12 +57,12 @@ jobs:
       - name: Ensure DB matches core
         run: npx wp-env run cli wp core update-db
 
-      - name: Run E2E (@smoke on push, full suite nightly/manual)
+      - name: Run E2E (@smoke on pull_request/push, full suite nightly/manual)
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            npm run test:e2e -- --grep @smoke
-          else
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             npm run test:e2e
+          else
+            npm run test:e2e -- --grep @smoke
           fi
 
       - name: Upload Playwright artifacts on failure
