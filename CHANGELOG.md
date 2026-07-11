@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.66] — 2026-07-11 — preflight stops claiming "no filesystem writes" for `import_media` — it checks the uploads directory instead (#229)
+
+**`wp pp apply preflight --apply=import_media` reported `theme_writable: pass` with "Skipped: planned applies are database-backed (no filesystem writes)" — about the one apply in the set that writes to the filesystem. `import_media` sideloads into `wp-content/uploads/YYYY/MM/`, and on a host where uploads isn't writable by the CLI user the apply then failed at execute with a raw WordPress error. Preflight exists to tell an operator "it is safe to proceed"; here it made a specific, false claim. Media-target applies now get a real `uploads_writable` check, error-grade, fail-closed.**
+
+The check mirrors execute-time `wp_mkdir_p()` semantics instead of naively testing one directory: it walks from the dated `YYYY/MM` path to the deepest existing ancestor and requires a writable directory there. That makes it right in all four states that a single `is_writable(basedir)` gets wrong: a fresh site whose `uploads/` doesn't exist yet passes (WordPress creates the tree), an existing dated dir is checked directly, an unwritable intermediate (`uploads/2026` rsync'd `0555` under a writable `uploads/`) fails, and a regular file squatting on a path segment fails instead of green-lighting a doomed apply off the writable grandparent. The `theme_writable` skip message no longer asserts "no filesystem writes" when a media apply is planned — it points at `uploads_writable`.
+
+### Fixed
+- **Preflight asserted "no filesystem writes" for a filesystem-writing apply (#229).** `pp_preflight()` (`lib/operate.php`) resolves the planned apply's target type once; `media`-target applies route to the new `uploads_writable` check (deepest-existing-ancestor walk, non-directory path-segment detection, `wp_upload_dir()` error propagation, empty-path fail-closed) while `file`-target routing is unchanged.
+- **Stale `preflight` command docblock** (`lib/cli.php`) still listed the removed backup-directory check and omitted the surface check; the check list is now accurate and names both writability checks.
+
+### Docs
+- `docs/reference-apply-cli.md`: `uploads_writable` row in the preflight checks table, updated `--apply` option description, and a new "Uploads writability (#229)" section documenting the ancestor-walk semantics.
+
+### Tests
+- 10 new PHPUnit tests (`tests/OperateTest.php`): writable/unwritable basedir, dated-path precedence (writable and unwritable), unwritable intermediate ancestor, fresh-site missing uploads tree, blocking regular file on a path segment, `wp_upload_dir()` error propagation, unresolved empty path, absence of the check for option-backed/no-apply preflights, and the corrected `theme_writable` message — every failure arm also pins `ok: false` (error-grade).
+
+---
+
 ## [v0.16.65] — 2026-07-11 — `apply preflight` stops printing `{"ok": true}` for a preflight that never recorded itself (#227)
 
 **The preflight gate's JSON — the machine-readable contract an AI operator branches on — could report success for a preflight that did not happen. Pass an unminted run token and the command printed `{"ok": true, "checks": [...]}` to stdout, then died with `Error: Could not record PREFLIGHT state`; a consumer parsing the JSON concluded the gate was open and hit a contradictory refusal on the very next command. The success payload is now emitted only after every recording step has succeeded, so `ok: true` means the gate is genuinely unlocked.**
