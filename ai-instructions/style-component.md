@@ -77,15 +77,28 @@ Check that `current` values reflect your changes and the `active_recipe` shows c
 
 | Type | Examples | Validator |
 |------|----------|-----------|
-| `color` | `#1a1a2e`, `rgb(26, 26, 46)`, `var(--color-bg)` | `_pp_validate_color()` |
+| `color` | `#1a1a2e`, `rgb(26, 26, 46)`, `transparent`, `currentColor`, `var(--color-accent)` | `_pp_validate_color()` |
 | `length` | `8rem`, `50%`, `clamp(3rem, 6vw, 5rem)`, `calc(100% - 2rem)`, `0` | `_pp_validate_length()` |
 | `number` | `700`, `1.5` | `_pp_validate_number()` |
 | `duration` | `250ms`, `0.3s` | `_pp_validate_duration()` |
 | `font-family` | `"Inter", sans-serif` | `_pp_validate_font_family()` |
 | `shadow` | `var(--shadow-sm)`, `var(--shadow-md)`, `var(--shadow-lg)`, `none`, `0 4px 12px rgba(0,0,0,0.1)` | `_pp_validate_shadow()` |
-| `gradient` | `#1a1a2e`, `linear-gradient(135deg, #fff, #000)` | `_pp_validate_color()` or `_pp_validate_gradient()` |
+| `gradient` | `#1a1a2e`, `transparent`, `var(--color-accent)`, `linear-gradient(135deg, #fff, #000)` | `_pp_validate_color()` or `_pp_validate_gradient()` |
 | `position` | `center`, `top left`, `20% 80%` | `_pp_validate_position()` |
 | `ratio` | `auto`, `1`, `16/9` | `_pp_validate_ratio()` |
+
+The `color` type (#230) accepts hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`, the CSS color
+keywords `transparent` and `currentColor` (case-insensitive), or a **single bare
+reference to a registered color-typed design token** — `var(--color-accent)` exactly.
+No fallback (`var(--x, #fff)`), no nesting, no whitespace inside the parentheses, and
+the referenced token must exist in the design-token registry and itself be color-typed.
+Named colors (`red`) are rejected. Use a `var()` reference when a slot should FOLLOW a
+token ("this button follows the brand accent") instead of duplicating literal hex.
+For `update_design_token`, a reference chain that loops back to the token being set
+(directly or through other tokens) is rejected as a cycle — the browser would resolve
+every token in the loop to invalid. Inside `linear-gradient()`/`radial-gradient()`
+functions, `var()` is still rejected; the `gradient` type accepts the new color forms
+only as its plain-color half.
 
 The `shadow` type is bounded: a preset (`var(--shadow-none\|sm\|md\|lg)` or `none`)
 or a single-layer `box-shadow` (2-4 px/rem lengths plus an rgb/rgba/hsl/hsla color).

@@ -206,9 +206,35 @@ function pp_get_target(): array {
 // ── Token Validation ────────────────────────────────────────────────────────
 
 /**
+ * Parses a single bare design-token reference: var(--token) with NOTHING
+ * else inside — no fallback, no nesting, no whitespace, no trailing newline
+ * (\z, not $, so "var(--x)\n" does not slip through). This strict shape IS
+ * the security boundary for token references (#230): a var(--x, url(evil))
+ * fallback-smuggling value cannot match. Shared by the color validator and
+ * the reference-cycle walk so the acceptance grammar and the chain-following
+ * grammar can never drift apart.
+ *
+ * @return string|null  The referenced token name (e.g. "--color-accent"), or null.
+ */
+function _pp_parse_token_reference(string $value): ?string {
+    if (preg_match('/^var\((--[a-z0-9-]+)\)\z/', $value, $m)) {
+        return $m[1];
+    }
+    return null;
+}
+
+/**
  * Validates a CSS color value.
- * Accepts: 3/4/6/8-digit hex, rgb(), rgba(), hsl(), hsla().
- * Rejects: named colors.
+ * Accepts: 3/4/6/8-digit hex, rgb(), rgba(), hsl(), hsla(), the CSS color
+ * keywords `transparent` and `currentColor` (case-insensitive), and a single
+ * bare design-token reference `var(--token)` whose token is registered in
+ * pp_design_tokens() AND is itself color-typed (#230).
+ * Rejects: named colors, any var() carrying more than the bare reference
+ * (fallback, nesting, url() — see _pp_parse_token_reference()), references
+ * to unregistered tokens (no dangling references), and references to
+ * non-color tokens — a color slot resolving to "0.25rem" is guaranteed-
+ * invalid CSS the browser silently drops, the same class #129 rejects for
+ * lengths.
  */
 function _pp_validate_color(string $value): bool {
     // Hex: #fff, #ffff, #ffffff, #ffffffff
@@ -223,7 +249,70 @@ function _pp_validate_color(string $value): bool {
     if (preg_match('/^hsla?\(\s*[\d.]+\s*,\s*[\d.]+%\s*,\s*[\d.]+%\s*(,\s*[\d.]+)?\s*\)$/', $value)) {
         return true;
     }
+    // CSS color keywords: injection-free, and commonly needed
+    // (transparent backgrounds, borders that follow the text color) (#230).
+    if (in_array(strtolower($value), ['transparent', 'currentcolor'], true)) {
+        return true;
+    }
+    // Single bare design-token reference. The referenced token must exist
+    // in the design-token registry (never dangles) and be color-typed
+    // (never resolves to a length/font/duration). Lets a slot/token follow
+    // another token ("this follows the brand accent") instead of
+    // duplicating literal hex everywhere (#230).
+    $ref = _pp_parse_token_reference($value);
+    if ($ref !== null) {
+        $registry = pp_design_tokens();
+        return isset($registry[$ref]) && ($registry[$ref]['type'] ?? null) === 'color';
+    }
     return false;
+}
+
+/**
+ * Rejects a design-token write whose var() reference chain leads back to
+ * the token being written (#230). A cycle — direct var(--itself), or
+ * indirect via defaults/overrides that are themselves var() references —
+ * is guaranteed-invalid CSS: the browser resolves every token in the cycle
+ * to invalid at computed-value time. Same "don't persist broken CSS"
+ * discipline as the bare-unit rejection in _pp_validate_length() (#129).
+ *
+ * Walks EFFECTIVE values (pp_design_tokens() merges DB overrides, so the
+ * walk sees real stored state), bounded by registry size. If the walk
+ * exhausts the registry without terminating at a concrete value, the
+ * stored state already contains a foreign cycle (reachable via a scoped
+ * revert or a hand-edited option row) — pointing another token into it
+ * would resolve invalid too, so that fails closed as well.
+ *
+ * @param string $token  The token being written (post-write owner of $value).
+ * @param string $value  The value about to be written.
+ * @return true|WP_Error
+ */
+function _pp_check_token_reference_cycle(string $token, string $value) {
+    $next = _pp_parse_token_reference($value);
+    if ($next === null) {
+        return true; // not a reference — nothing to walk
+    }
+    $tokens = pp_design_tokens();
+    $steps  = count($tokens);
+    while ($steps-- > 0) {
+        if ($next === $token) {
+            return new WP_Error('token_reference_cycle', sprintf(
+                'Value creates a design-token reference cycle back to "%s". Reference a token that does not resolve through "%s".',
+                $token, $token
+            ));
+        }
+        if (!isset($tokens[$next])) {
+            return true; // dangling — the type validator already rejects this
+        }
+        $follow = _pp_parse_token_reference(trim($tokens[$next]['value']));
+        if ($follow === null) {
+            return true; // chain terminates at a concrete value
+        }
+        $next = $follow;
+    }
+    return new WP_Error('token_reference_cycle', sprintf(
+        'Value resolves through an existing design-token reference cycle. Repair the cycle before referencing "%s".',
+        _pp_parse_token_reference($value)
+    ));
 }
 
 /**
@@ -388,7 +477,9 @@ function _pp_validate_number(string $value): bool {
  *  - A single-layer box-shadow: 2-4 length values (offset-x offset-y [blur]
  *    [spread]) followed by a color. Offsets may be negative; blur and spread
  *    must be non-negative. Lengths are unitless 0 or px/rem. The color must
- *    pass _pp_validate_color() (hex / rgb(a) / hsl(a) — same rule as color slots).
+ *    match hex / rgb(a) / hsl(a) form (the anchored regex below) AND pass
+ *    _pp_validate_color() — the keywords/var() forms #230 added to the color
+ *    validator never reach here because the regex pre-filters them out.
  *
  * Rejects: `inset`, multi-layer shadows (comma-separated layers), url(), and any
  * var() outside the preset allowlist. The {};<> injection guard runs upstream in
@@ -462,12 +553,13 @@ function _pp_split_top_level_commas(string $value): array {
 }
 
 /**
- * Validates a single gradient color-stop: a color — or the literal
- * "transparent" keyword, which _pp_validate_color() doesn't cover but which
- * is a common, safe, injection-free part of overlay/scrim gradients — with
- * an optional single length/percentage stop-position. Two-position
- * "hard stop" pairs are not supported; one position per stop keeps the
- * grammar simple and covers the common case.
+ * Validates a single gradient color-stop: a color per _pp_validate_color()
+ * (which since #230 covers the `transparent`/`currentColor` keywords, so
+ * the former transparent special case here is gone) with an optional single
+ * length/percentage stop-position. var() never reaches this check — the
+ * whole gradient value rejects any var() upstream in _pp_validate_gradient().
+ * Two-position "hard stop" pairs are not supported; one position per stop
+ * keeps the grammar simple and covers the common case.
  */
 function _pp_validate_gradient_color_stop(string $stop): bool {
     $stop = trim($stop);
@@ -480,13 +572,13 @@ function _pp_validate_gradient_color_stop(string $stop): bool {
         $color    = $m[1];
         $position = trim($m[2]);
     } else {
-        // Hex color or the `transparent` keyword — split at the first space.
+        // Keyword (transparent/currentColor) or hex color — split at the first space.
         $parts    = preg_split('/\s+/', $stop, 2);
         $color    = $parts[0];
         $position = isset($parts[1]) ? trim($parts[1]) : '';
     }
 
-    if (strtolower($color) !== 'transparent' && !_pp_validate_color($color)) {
+    if (!_pp_validate_color($color)) {
         return false;
     }
 
@@ -663,7 +755,7 @@ function _pp_validate_token_value(string $value, ?string $type) {
     switch ($type) {
         case 'color':
             if (!_pp_validate_color($value)) {
-                return new WP_Error('invalid_color', 'Value must be a valid CSS color (hex, rgb(), rgba(), hsl(), hsla()). Named colors are not accepted.');
+                return new WP_Error('invalid_color', 'Value must be a valid CSS color (hex, rgb(), rgba(), hsl(), hsla()), the keyword "transparent" or "currentColor", or a single reference to a registered color token, e.g. var(--color-accent) — no fallback or nesting. Named colors are not accepted.');
             }
             break;
         case 'length':
@@ -693,7 +785,7 @@ function _pp_validate_token_value(string $value, ?string $type) {
             break;
         case 'gradient':
             if (!_pp_validate_color($value) && !_pp_validate_gradient($value)) {
-                return new WP_Error('invalid_gradient', 'Value must be a valid CSS color (hex, rgb(), rgba(), hsl(), hsla()) or a bounded linear-gradient()/radial-gradient() with 2+ color stops (var()/url()/env() and conic/repeating gradients are not accepted).');
+                return new WP_Error('invalid_gradient', 'Value must be a valid CSS color (hex, rgb(), rgba(), hsl(), hsla(), "transparent"/"currentColor", or a single var(--token) reference to a registered color token) or a bounded linear-gradient()/radial-gradient() with 2+ color stops (var()/url()/env() inside a gradient and conic/repeating gradients are not accepted).');
             }
             break;
         case 'position':
@@ -764,7 +856,13 @@ pp_register_apply('update_design_token', [
 
         // Type-specific validation
         $type = $tokens[$token]['type'];
-        return _pp_validate_token_value($value, $type);
+        $valid = _pp_validate_token_value($value, $type);
+        if ($valid !== true) {
+            return $valid;
+        }
+
+        // A color value may reference another token (#230) — reject cycles.
+        return _pp_check_token_reference_cycle($token, $value);
     },
 
     'preview' => function (array $params) {
@@ -864,6 +962,20 @@ pp_register_apply('reset_design_token', [
         if (!array_key_exists($token, $tokens)) {
             $available = implode(', ', array_keys($tokens));
             return new WP_Error('unknown_token', sprintf('Token "%s" is not a registered design token. Available: %s', $token, $available));
+        }
+
+        // #230: resetting restores the base.css default, which may itself be
+        // a var() reference (e.g. --text-meta-color: var(--color-muted)).
+        // If current overrides make that chain lead back to this token, the
+        // reset would persist the exact guaranteed-invalid cycle
+        // update_design_token rejects — reject it here too, symmetrically.
+        $file_tokens   = _pp_read_tokens_from_file(get_template_directory() . '/assets/css/base.css');
+        $default_value = $file_tokens[$token] ?? null;
+        if (is_string($default_value)) {
+            $cycle = _pp_check_token_reference_cycle($token, trim($default_value));
+            if (is_wp_error($cycle)) {
+                return $cycle;
+            }
         }
         return true;
     },

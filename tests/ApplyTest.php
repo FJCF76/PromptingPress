@@ -226,6 +226,209 @@ class ApplyTest extends TestCase
         $this->assertEquals('invalid_color', $result->get_error_code());
     }
 
+    // ── #230: transparent / currentColor keywords ───────────────────────────
+
+    public function testColorAcceptsTransparentKeyword(): void
+    {
+        $this->assertTrue(pp_validate_apply('update_design_token', ['token' => '--color-bg', 'value' => 'transparent']));
+        $this->assertTrue(pp_validate_apply('update_design_token', ['token' => '--color-bg', 'value' => 'Transparent']));
+        $this->assertTrue(pp_validate_apply('update_design_token', ['token' => '--color-bg', 'value' => 'TRANSPARENT']));
+    }
+
+    public function testColorAcceptsCurrentColorKeyword(): void
+    {
+        $this->assertTrue(pp_validate_apply('update_design_token', ['token' => '--color-bg', 'value' => 'currentColor']));
+        $this->assertTrue(pp_validate_apply('update_design_token', ['token' => '--color-bg', 'value' => 'currentcolor']));
+        $this->assertTrue(pp_validate_apply('update_design_token', ['token' => '--color-bg', 'value' => 'CURRENTCOLOR']));
+    }
+
+    public function testColorRejectsWhitespacePaddedKeyword(): void
+    {
+        // Anchored like every other accepted form — '#fff ' fails, so does this.
+        $result = pp_validate_apply('update_design_token', ['token' => '--color-bg', 'value' => ' transparent']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $result = pp_validate_apply('update_design_token', ['token' => '--color-bg', 'value' => 'transparent ']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+    }
+
+    // ── #230: single bare var(--token) references ────────────────────────────
+
+    public function testColorAcceptsVarReferenceToRegisteredToken(): void
+    {
+        // The issue's acceptance example: product defaults that SHIP as var()
+        // (--text-meta-color: var(--color-muted)) become settable/re-settable.
+        $this->assertTrue(pp_validate_apply('update_design_token', ['token' => '--text-meta-color', 'value' => 'var(--color-muted)']));
+        $this->assertTrue(pp_validate_apply('update_design_token', ['token' => '--text-kicker-color', 'value' => 'var(--color-accent)']));
+    }
+
+    public function testColorRejectsVarReferenceToUnknownToken(): void
+    {
+        $result = pp_validate_apply('update_design_token', ['token' => '--color-bg', 'value' => 'var(--nonexistent-token)']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_color', $result->get_error_code());
+    }
+
+    public function testColorRejectsVarWithFallback(): void
+    {
+        // The fallback-smuggling vector the strict pattern exists to block.
+        foreach (['var(--color-accent, #fff)', 'var(--color-accent, url(evil))'] as $value) {
+            $result = pp_validate_apply('update_design_token', ['token' => '--color-bg', 'value' => $value]);
+            $this->assertInstanceOf(WP_Error::class, $result, $value);
+            $this->assertEquals('invalid_color', $result->get_error_code(), $value);
+        }
+    }
+
+    public function testColorRejectsMultipleOrNestedVar(): void
+    {
+        foreach (['var(--color-accent) var(--color-muted)', 'var(var(--color-accent))'] as $value) {
+            $result = pp_validate_apply('update_design_token', ['token' => '--color-bg', 'value' => $value]);
+            $this->assertInstanceOf(WP_Error::class, $result, $value);
+            $this->assertEquals('invalid_color', $result->get_error_code(), $value);
+        }
+    }
+
+    public function testColorVarPatternIsCaseStrict(): void
+    {
+        // Lowercase only, matching the registry's token-name charset
+        // (base.css tokens are all lowercase-kebab).
+        foreach (['Var(--color-accent)', 'var(--COLOR-ACCENT)', 'var( --color-accent )'] as $value) {
+            $result = pp_validate_apply('update_design_token', ['token' => '--color-bg', 'value' => $value]);
+            $this->assertInstanceOf(WP_Error::class, $result, $value);
+        }
+    }
+
+    public function testColorRejectsVarWithTrailingNewline(): void
+    {
+        // \z anchoring: PCRE's $ matches before a trailing newline; the
+        // reference pattern must not.
+        $result = pp_validate_apply('update_design_token', ['token' => '--color-bg', 'value' => "var(--color-accent)\n"]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+    }
+
+    public function testColorRejectsVarReferenceToNonColorToken(): void
+    {
+        // Existence is not enough: a color token resolving to "0.25rem" is
+        // guaranteed-invalid CSS. The referenced token must be color-typed.
+        $result = pp_validate_apply('update_design_token', ['token' => '--color-accent', 'value' => 'var(--space-xs)']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_color', $result->get_error_code());
+    }
+
+    public function testColorVarInjectionGuardStillFiresFirst(): void
+    {
+        // The {};<> guard runs before the type switch in _pp_validate_token_value.
+        $result = pp_validate_apply('update_design_token', ['token' => '--color-bg', 'value' => 'var(--x); evil']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('injection', $result->get_error_code());
+    }
+
+    // ── #230: reference-cycle rejection (update_design_token only) ──────────
+
+    public function testTokenSelfReferenceCycleRejected(): void
+    {
+        $result = pp_validate_apply('update_design_token', ['token' => '--color-accent', 'value' => 'var(--color-accent)']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('token_reference_cycle', $result->get_error_code());
+    }
+
+    public function testTokenIndirectReferenceCycleRejected(): void
+    {
+        // Shipped default: --text-meta-color: var(--color-muted). Pointing
+        // --color-muted back at it closes a cycle through a DEFAULT value.
+        $result = pp_validate_apply('update_design_token', ['token' => '--color-muted', 'value' => 'var(--text-meta-color)']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('token_reference_cycle', $result->get_error_code());
+    }
+
+    public function testTokenVarChainWithoutCycleAccepted(): void
+    {
+        // --text-meta-color -> var(--color-muted) -> #hex: terminates, no cycle.
+        $this->assertTrue(pp_validate_apply('update_design_token', ['token' => '--color-accent', 'value' => 'var(--text-meta-color)']));
+    }
+
+    public function testTokenCycleThroughStoredOverrideRejected(): void
+    {
+        // The walk reads EFFECTIVE values (defaults merged with DB overrides),
+        // not just shipped defaults.
+        update_option('pp_token_overrides', ['--color-muted' => 'var(--color-accent)'], true);
+        pp_invalidate_design_tokens_cache();
+
+        $result = pp_validate_apply('update_design_token', ['token' => '--color-accent', 'value' => 'var(--color-muted)']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('token_reference_cycle', $result->get_error_code());
+    }
+
+    public function testVarReferenceIntoPreExistingForeignCycleRejected(): void
+    {
+        // Stored state can already be cyclic (scoped revert, hand-edited
+        // option row). Pointing a THIRD token into that cycle would resolve
+        // invalid too — the walk fails closed instead of looping to true.
+        update_option('pp_token_overrides', [
+            '--color-muted'  => 'var(--color-accent)',
+            '--color-accent' => 'var(--color-muted)',
+        ], true);
+        pp_invalidate_design_tokens_cache();
+
+        $result = pp_validate_apply('update_design_token', ['token' => '--color-bg', 'value' => 'var(--color-accent)']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('token_reference_cycle', $result->get_error_code());
+    }
+
+    public function testResetRejectedWhenDefaultWouldReintroduceCycle(): void
+    {
+        // reset_design_token restores the base.css default, which for
+        // --text-meta-color is var(--color-muted). If --color-muted currently
+        // points back at --text-meta-color, the reset would persist the exact
+        // cycle update_design_token rejects — the guard is symmetric.
+        $r1 = pp_execute_apply('update_design_token', ['token' => '--text-meta-color', 'value' => '#111111']);
+        $this->assertTrue($r1['ok']);
+        // Accepted: the chain terminates at the concrete #111111 override.
+        $r2 = pp_execute_apply('update_design_token', ['token' => '--color-muted', 'value' => 'var(--text-meta-color)']);
+        $this->assertTrue($r2['ok']);
+
+        $result = pp_validate_apply('reset_design_token', ['token' => '--text-meta-color']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('token_reference_cycle', $result->get_error_code());
+    }
+
+    public function testBaseCssVarDefaultsAreBareSameTypeReferences(): void
+    {
+        // Invariant pin: the cycle walk treats any value that is not a bare
+        // var(--token) reference as chain-terminating. That is only sound
+        // while every var() default shipped in base.css IS a bare reference
+        // to a registered token of the SAME type (color→color, length→length).
+        // A future default written as var(--x, #888) or var( --x ) would
+        // silently disable cycle detection through that token — this test
+        // freezes the invariant. Values are read RAW from base.css (not the
+        // merged registry) so a stray override can never mask a bad shipped
+        // default; the registry supplies only type metadata.
+        $defaults = _pp_read_tokens_from_file($this->baseCssPath);
+        $registry = pp_design_tokens();
+        $checked  = 0;
+        foreach ($defaults as $name => $value) {
+            if (strpos($value, 'var(') === false) {
+                continue;
+            }
+            $ref = _pp_parse_token_reference(trim($value));
+            $this->assertNotNull($ref, "base.css default for {$name} is a non-bare var() form: {$value}");
+            $this->assertArrayHasKey($ref, $defaults, "base.css default for {$name} references unregistered {$ref}");
+            $this->assertSame($registry[$name]['type'], $registry[$ref]['type'], "base.css default for {$name} references a token of a different type");
+
+            // The pure-defaults reference graph must also be acyclic:
+            // reset_all_design_tokens restores it unconditionally, so a
+            // mutually-referencing default pair would persist a cycle no
+            // user action created. Chains must reach a concrete value.
+            $next  = $ref;
+            $steps = count($defaults);
+            while ($next !== null && $steps-- > 0) {
+                $next = isset($defaults[$next]) ? _pp_parse_token_reference(trim($defaults[$next])) : null;
+            }
+            $this->assertNull($next, "base.css default for {$name} starts a reference chain that never terminates");
+            $checked++;
+        }
+        $this->assertGreaterThan(0, $checked, 'expected at least one var() default in base.css');
+    }
+
     // ── Type-specific validation: length ────────────────────────────────────
 
     public function testLengthValidRem(): void
@@ -1147,6 +1350,22 @@ class ApplyTest extends TestCase
         $this->assertFalse(_pp_validate_gradient('linear-gradient(135deg, red, #000)')); // named colors rejected, same as _pp_validate_color()
     }
 
+    public function testValidateGradientStopAcceptsCurrentColor(): void
+    {
+        // #230: the color validator now covers currentColor; stops inherit it.
+        $this->assertTrue(_pp_validate_gradient('linear-gradient(180deg, currentColor, #ffffff)'));
+        $this->assertTrue(_pp_validate_gradient('linear-gradient(to bottom, transparent, currentColor 60%)'));
+    }
+
+    public function testValidateGradientStillRejectsVarStopAfter230(): void
+    {
+        // #230 accepts a BARE var(--token) as a color value, but inside a
+        // gradient var() stays rejected by the upstream guard — a registered
+        // token reference is no exception.
+        $this->assertFalse(_pp_validate_gradient('linear-gradient(var(--color-accent), #fff)'));
+        $this->assertFalse(_pp_validate_gradient('linear-gradient(135deg, var(--color-accent) 40%, #000)'));
+    }
+
     public function testValidateGradientRejectsEmptyOrMalformed(): void
     {
         $this->assertFalse(_pp_validate_gradient(''));
@@ -1180,6 +1399,21 @@ class ApplyTest extends TestCase
         // A gradient-typed slot accepts a plain color too (not gradients-only).
         $this->assertTrue(_pp_validate_token_value('#1a1a2e', 'gradient'));
         $this->assertTrue(_pp_validate_token_value('linear-gradient(135deg, #1a1a2e, #16121f)', 'gradient'));
+    }
+
+    public function testValidateGradientTypeUnionInheritsColorForms230(): void
+    {
+        // #230: the color half of the gradient union accepts the new forms —
+        // a hero bg can be transparent or follow the brand accent — while the
+        // gradient grammar itself still rejects var() (pinned above).
+        $this->assertTrue(_pp_validate_token_value('transparent', 'gradient'));
+        $this->assertTrue(_pp_validate_token_value('var(--color-accent)', 'gradient'));
+
+        foreach (['var(--nonexistent-token)', 'var(--space-md)'] as $value) {
+            $result = _pp_validate_token_value($value, 'gradient');
+            $this->assertInstanceOf(WP_Error::class, $result, $value);
+            $this->assertSame('invalid_gradient', $result->get_error_code(), $value);
+        }
     }
 
     public function testValidateTokenValueFailsForInvalidGradient(): void

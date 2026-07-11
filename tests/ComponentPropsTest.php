@@ -168,6 +168,18 @@ class ComponentPropsTest extends TestCase
         $this->assertStringNotContainsString('--hero-display', $result);
     }
 
+    public function testRenderStyleVarsEmitsKeywordAndVarReferenceUnchanged(): void
+    {
+        // #230: an accepted value must SURVIVE to CSS output — esc_attr touches
+        // none of ( ) - so the reference reaches the browser intact.
+        $result = pp_render_style_vars(
+            ['--hero-cta2-bg' => 'transparent', '--hero-accent' => 'var(--color-accent)'],
+            'hero'
+        );
+        $this->assertStringContainsString('--hero-cta2-bg: transparent', $result);
+        $this->assertStringContainsString('--hero-accent: var(--color-accent)', $result);
+    }
+
     public function testRenderStyleVarsSkipsRecipeKey(): void
     {
         $result = pp_render_style_vars(

@@ -709,6 +709,27 @@ class SchemaValidationTest extends TestCase
         }
     }
 
+    public function testStyleSlotNamesAreDisjointFromDesignTokenNames(): void
+    {
+        // Component-library invariant (#230): style slot names must never
+        // collide with a registered design-token name. Since #230 a color
+        // slot may hold var(--token) for any registered color token; if a
+        // slot NAME ever equalled a token name, pp_render_style_vars() could
+        // emit the same-element self-reference `--x: var(--x)` — the one CSS
+        // shape guaranteed-invalid at computed-value time — while every
+        // validator passes. Empty intersection makes that unrepresentable.
+        $tokens = \pp_design_tokens();
+        foreach (pp_get_registered_components() as $name => $def) {
+            foreach (array_keys($def['styling']['style_slots'] ?? []) as $slot) {
+                $this->assertArrayNotHasKey(
+                    $slot,
+                    $tokens,
+                    "Component '{$name}' style slot '{$slot}' collides with a registered design token."
+                );
+            }
+        }
+    }
+
     public function testComposableComponentsExcludeChromeButKeepContent(): void
     {
         $composable = pp_composable_components();
