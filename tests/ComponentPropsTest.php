@@ -1103,6 +1103,32 @@ class ComponentPropsTest extends TestCase
     }
 
     /**
+     * Regression pin for #225: the pill only holds because the eyebrow is a direct
+     * flex item of .hero__content and the CSS gives it align-self. Wrapping it in
+     * any intermediate element would leave the CSS pins green while the eyebrow
+     * silently went back to stretching across the full hero content width.
+     */
+    public function testHeroEyebrowIsDirectChildOfHeroContent(): void
+    {
+        foreach (['left', 'centered', 'split', 'cover'] as $layout) {
+            $html = $this->render('hero', [
+                'title'   => 'T',
+                'eyebrow' => 'NEW',
+                'layout'  => $layout,
+            ]);
+            // No element of ANY kind may open between the two tags — a <span> or <p>
+            // wrapper destroys the flex-item relationship just as surely as a <div>,
+            // and would leave every CSS pin green. Position within hero__content, and
+            // any attributes it grows, stay free: direct childhood is the whole contract.
+            $this->assertMatchesRegularExpression(
+                '/<div class="hero__content"[^>]*>(?:(?!<[a-zA-Z])[\s\S])*?<span class="hero__eyebrow"/',
+                $html,
+                "hero__eyebrow must be a direct child of hero__content (layout: {$layout})"
+            );
+        }
+    }
+
+    /**
      * Regression pin for #224: the desktop column count is selected in CSS off
      * data-pp-count, so the attribute is a contract, not a detail. Without this
      * pin, dropping or renaming it would leave the CSS pins green while 3-item

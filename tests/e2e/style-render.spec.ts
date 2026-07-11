@@ -13,6 +13,11 @@ import { execSync } from 'child_process';
  *         rule used to clobber it (mobile always passed).
  *   #24 — a per-instance `--hero-surface-*` slot must reach the rendered `.hero__surface`
  *         shell (previously hardcoded, uncontrollable through safe surfaces).
+ *   #225 — the hero eyebrow must render as a pill sized to its text. It is a direct flex
+ *          item of the flex-column `.hero__content`, which blockifies its declared
+ *          `inline-block` and stretched it across the full content width. The CSS-text
+ *          pins in tests/js/css-lint.test.js can only prove the declaration is present;
+ *          only a rendered box can prove the pill is not a band.
  */
 
 // ── Helpers (mirrors validation.spec.ts) ────────────────────────────────────
@@ -144,4 +149,70 @@ test.describe('Safe-surface rendered proof', () => {
     const borderWidth = await surface.evaluate((el) => getComputedStyle(el).borderTopWidth);
     expect(borderWidth).toBe('7px');
   });
+
+  // #225: the eyebrow is a pill, not a band. Each layout is its own test so a failure
+  // names the layout that regressed. `left`/`split` flush the pill to the content's
+  // leading edge; `centered`/`cover` center it, matching how those layouts already
+  // treat the CTA group.
+  //
+  // Both viewports matter. A band restored by a `max-width: 767px` rule is invisible at
+  // desktop, and #86's docblock above records that "mobile always passed" is exactly how
+  // the last cascade bug in this file hid.
+  const eyebrowLayouts: { layout: string; align: 'start' | 'center' }[] = [
+    { layout: 'left', align: 'start' },
+    { layout: 'split', align: 'start' },
+    { layout: 'centered', align: 'center' },
+    { layout: 'cover', align: 'center' },
+  ];
+  const eyebrowViewports = [
+    { label: 'desktop', width: 1280, height: 900 },
+    { label: 'mobile', width: 375, height: 800 },
+  ];
+
+  for (const { layout, align } of eyebrowLayouts) {
+    for (const viewport of eyebrowViewports) {
+      // One @smoke case, so the post-merge main run (which executes only the @smoke
+      // subset) still watches the pill. The rest run nightly.
+      const smoke = layout === 'left' && viewport.label === 'desktop' ? ' @smoke' : '';
+
+      test(`#225 hero eyebrow renders as a pill, not a full-width band (${layout}, ${viewport.label})${smoke}`, async ({
+        page,
+      }) => {
+        pageId = createPage(`E2E Hero Eyebrow Pill ${layout} ${viewport.label}`);
+        setComposition(pageId, [
+          {
+            component: 'hero',
+            props: {
+              id: 'pp-hero01',
+              layout,
+              // A long title widens .hero__content, so a stretched eyebrow is unmistakable.
+              title: 'A deliberately long hero headline that widens the content column',
+              eyebrow: 'BETA',
+            },
+          },
+        ]);
+
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        await page.goto(`/?page_id=${pageId}`);
+
+        const eyebrow = page.locator('.hero__eyebrow');
+        await expect(eyebrow).toBeVisible({ timeout: 10000 });
+
+        const eyebrowBox = (await eyebrow.boundingBox())!;
+        const contentBox = (await page.locator('.hero__content').boundingBox())!;
+
+        // The bug: the eyebrow spanned the full content width. "BETA" in a padded pill is
+        // nowhere near half the column, so this fails loudly on any return of the band.
+        expect(eyebrowBox.width).toBeLessThan(contentBox.width * 0.5);
+
+        if (align === 'start') {
+          expect(Math.abs(eyebrowBox.x - contentBox.x)).toBeLessThan(2);
+        } else {
+          const eyebrowCenter = eyebrowBox.x + eyebrowBox.width / 2;
+          const contentCenter = contentBox.x + contentBox.width / 2;
+          expect(Math.abs(eyebrowCenter - contentCenter)).toBeLessThan(2);
+        }
+      });
+    }
+  }
 });

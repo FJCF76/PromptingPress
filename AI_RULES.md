@@ -105,11 +105,11 @@ Playwright tests in `tests/e2e/` run against a live WordPress instance via wp-en
 
 ```
 npm run env:start   # boot Docker WordPress on port 8889
-npm run test:e2e    # editor round-trip, serialization gate, CLI actions, post-apply validation, AI chat streaming/apply, token concurrency
+npm run test:e2e    # editor round-trip, serialization gate, CLI actions, post-apply validation, AI chat streaming/apply, token concurrency, rendered-layout proof
 npm run env:stop    # tear down
 ```
 
-Requires Docker. Tests cover workspace init, preview updates, save rejection, autosave skip, front-end rendering, accordion round-trip, and the serialization gate (blocked state, save/publish restore, copy-as-issue).
+Requires Docker. Tests cover workspace init, preview updates, save rejection, autosave skip, front-end rendering, accordion round-trip, the serialization gate (blocked state, save/publish restore, copy-as-issue), and rendered-layout proof — geometry and style slots measured in the browser, because a static check on the CSS text cannot prove what the cascade actually renders.
 
 ## File responsibilities
 
