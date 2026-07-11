@@ -18,15 +18,18 @@ if (!defined('PP_VERSION')) {
 }
 
 // ── WP_Error stub ───────────────────────────────────────────────────────────
-// Minimal stub for action layer tests. Supports get_error_message/code.
+// Minimal stub for action layer tests. Supports get_error_message/code/data
+// (data mirrors core WP_Error's optional third constructor arg).
 if (!class_exists('WP_Error')) {
     class WP_Error {
         protected string $code;
         protected string $message;
+        protected $data;
 
-        public function __construct(string $code = '', string $message = '') {
+        public function __construct(string $code = '', string $message = '', $data = '') {
             $this->code    = $code;
             $this->message = $message;
+            $this->data    = $data;
         }
 
         public function get_error_code(): string {
@@ -35,6 +38,10 @@ if (!class_exists('WP_Error')) {
 
         public function get_error_message(): string {
             return $this->message;
+        }
+
+        public function get_error_data(string $code = '') {
+            return $this->data;
         }
     }
 }

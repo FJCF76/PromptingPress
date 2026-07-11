@@ -530,6 +530,124 @@ class SchemaValidationTest extends TestCase
         $this->assertSame($errors[0]->get_error_message(), $first->get_error_message());
     }
 
+    // ── Duplicate authored component ids (issue 238) ────────────────────────────
+    // Two components sharing a non-empty props.id are rejected at write time so
+    // wrong-targetable state is never persisted (create_page / update_composition).
+
+    private function duplicateIdComposition(string $id = 'pricing'): array
+    {
+        // Both items are schema-valid (hero requires only `title`); the sole
+        // violation is the shared id, so error counts isolate the duplicate check.
+        return [
+            ['component' => 'hero', 'props' => ['id' => $id, 'title' => 'First']],
+            ['component' => 'hero', 'props' => ['id' => $id, 'title' => 'Second']],
+        ];
+    }
+
+    public function testDuplicateComponentIdIsRejected(): void
+    {
+        $errors = pp_validate_composition_errors($this->duplicateIdComposition());
+
+        $this->assertCount(1, $errors);
+        $this->assertSame('duplicate_component_id', $errors[0]->get_error_code());
+        $this->assertStringContainsString('pricing', $errors[0]->get_error_message());
+        $this->assertStringContainsString('0', $errors[0]->get_error_message());
+        $this->assertStringContainsString('1', $errors[0]->get_error_message());
+    }
+
+    public function testDuplicateComponentIdAlsoFailsSingleErrorValidate(): void
+    {
+        $result = pp_validate_composition($this->duplicateIdComposition());
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('duplicate_component_id', $result->get_error_code());
+    }
+
+    public function testTripledComponentIdReportsOneErrorNamingEveryIndex(): void
+    {
+        // Three components with the same id -> exactly one error listing all three
+        // indices (deterministic diagnostics, not N-1 pairwise errors).
+        $errors = pp_validate_composition_errors([
+            ['component' => 'hero', 'props' => ['id' => 'dup', 'title' => 'A']],
+            ['component' => 'hero', 'props' => ['id' => 'dup', 'title' => 'B']],
+            ['component' => 'hero', 'props' => ['id' => 'dup', 'title' => 'C']],
+        ]);
+
+        $this->assertCount(1, $errors);
+        $this->assertSame('duplicate_component_id', $errors[0]->get_error_code());
+        $message = $errors[0]->get_error_message();
+        $this->assertStringContainsString('0', $message);
+        $this->assertStringContainsString('1', $message);
+        $this->assertStringContainsString('2', $message);
+    }
+
+    public function testDistinctIdsAreNotFlaggedAsDuplicate(): void
+    {
+        $errors = pp_validate_composition_errors([
+            ['component' => 'hero', 'props' => ['id' => 'alpha', 'title' => 'A']],
+            ['component' => 'hero', 'props' => ['id' => 'beta', 'title' => 'B']],
+        ]);
+
+        $this->assertSame([], $errors);
+    }
+
+    public function testMultipleComponentsWithoutIdsAreNotDuplicates(): void
+    {
+        // Missing id props never collide — id-based targeting isn't possible, and the
+        // empty-string guard means two absent ids are not "the same id".
+        $errors = pp_validate_composition_errors([
+            ['component' => 'hero', 'props' => ['title' => 'A']],
+            ['component' => 'hero', 'props' => ['title' => 'B']],
+            ['component' => 'hero', 'props' => ['id' => '', 'title' => 'C']],
+        ]);
+
+        $this->assertSame([], $errors);
+    }
+
+    public function testZeroStringIdCountsAsARealIdForDuplicateDetection(): void
+    {
+        // "0" is a valid, targetable id — the guard is === '' not empty(), so a
+        // duplicated "0" must still be rejected.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'hero', 'props' => ['id' => '0', 'title' => 'A']],
+            ['component' => 'hero', 'props' => ['id' => '0', 'title' => 'B']],
+        ]);
+
+        $this->assertCount(1, $errors);
+        $this->assertSame('duplicate_component_id', $errors[0]->get_error_code());
+    }
+
+    public function testMixedScalarIdsThatRenderIdenticallyAreTreatedAsDuplicates(): void
+    {
+        // Intentional: a numeric 1 and string "1" both render as the same DOM
+        // id="1" (invalid duplicate HTML id, broken anchors) and PHP array-key
+        // coercion collides them anyway, so the write-time guard rejects the pair
+        // rather than letting a DOM collision persist.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'hero', 'props' => ['id' => 1, 'title' => 'A']],
+            ['component' => 'hero', 'props' => ['id' => '1', 'title' => 'B']],
+        ]);
+
+        $this->assertCount(1, $errors);
+        $this->assertSame('duplicate_component_id', $errors[0]->get_error_code());
+    }
+
+    public function testDuplicateIdErrorTrailsPerItemErrorsInDocumentOrder(): void
+    {
+        // A per-item error on an earlier item still wins pp_validate_composition()'s
+        // first-error contract; the duplicate-id error is appended after the loop.
+        $composition = [
+            ['component' => 'ghost', 'props' => ['id' => 'dup']],   // unknown component (item error)
+            ['component' => 'hero', 'props' => ['id' => 'dup', 'title' => 'A']],
+            ['component' => 'hero', 'props' => ['id' => 'dup', 'title' => 'B']],
+        ];
+        $errors = pp_validate_composition_errors($composition);
+
+        $this->assertSame('invalid_composition', $errors[0]->get_error_code());
+        $this->assertSame('duplicate_component_id', $errors[count($errors) - 1]->get_error_code());
+        $this->assertSame('invalid_composition', pp_validate_composition($composition)->get_error_code());
+    }
+
     public function testValidateCompositionErrorsReportsAtMostOneErrorPerItem(): void
     {
         // A single item that trips several checks must not cascade. `ghost` is unknown, so

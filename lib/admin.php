@@ -364,6 +364,28 @@ function pp_validate_composition_errors(array $items): array {
         }
     }
 
+    // Duplicate authored component ids (issue 238). Two components sharing a
+    // non-empty props.id make id-based targeting (update_component /
+    // remove_component / style_component) silently resolve to the first match in
+    // pp_resolve_component_target(). Reject at write time so wrong-targetable state
+    // is never persisted; the resolver stays defensive for state written through
+    // raw, non-validating paths. Cross-item, so it runs as a pass after the
+    // per-item loop above — appending here keeps pp_validate_composition()'s
+    // first-error-wins document order (a per-item error on an earlier item still
+    // wins). The shared detector also backs the advisory smell, so
+    // _pp_composition_findings() (check page / validate site / restore) reports the
+    // same collision.
+    foreach (pp_find_duplicate_component_ids($items) as $dupe) {
+        $errors[] = new WP_Error(
+            'duplicate_component_id',
+            sprintf(
+                'Duplicate component id "%s" on items %s. Component ids must be unique within a composition so update/remove/style can target one component.',
+                $dupe['id'],
+                implode(', ', $dupe['indices'])
+            )
+        );
+    }
+
     return $errors;
 }
 
