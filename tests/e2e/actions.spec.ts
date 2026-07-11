@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
+import { randomUUID } from 'crypto';
 
 /**
  * Action layer CLI round-trip: create a page and add a component via
@@ -227,6 +228,97 @@ test.describe('Preflight-before-mutation gate (#96)', () => {
     const raw = wpCli(`wp pp action preview update_page_title --params='${json}'`);
     const result = parseCliJson(raw, 'action preview');
     expect(result.ok).toBe(true);
+  });
+});
+
+test.describe('Preflight fail-closed JSON result (#227)', () => {
+  /**
+   * stdout is the machine-readable channel: an AI operator branches on the
+   * parsed `ok`. A preflight that cannot record its state must never emit
+   * {"ok": true} — the recording failure has to be visible in the JSON
+   * itself, not only in the exit code and stderr.
+   */
+  test('preflight with an unminted run token exits 1 with ok:false JSON on stdout', () => {
+    // Syntactically valid UUID v4 that was never minted by `wp pp operate inspect`.
+    const unminted = randomUUID();
+    let stdout = '';
+    let stderr = '';
+    let failed = false;
+    try {
+      execSync(`npx wp-env run cli wp pp apply preflight --run-id=${unminted}`, {
+        cwd: process.cwd(), encoding: 'utf-8', stdio: 'pipe',
+      });
+    } catch (e: any) {
+      failed = true;
+      stdout = e.stdout ?? '';
+      stderr = e.stderr ?? '';
+    }
+    expect(failed).toBe(true);
+
+    // The JSON on stdout must report the failure — parsed, not substring-matched.
+    const json = parseCliJson(stdout, 'preflight (unminted token)');
+    expect(json.ok).toBe(false);
+    expect(typeof json.error).toBe('string');
+    expect(json.error as string).toContain('Could not record PREFLIGHT state');
+    // The failure payload still carries the computed checks for diagnosis.
+    expect(Array.isArray(json.checks)).toBe(true);
+
+    // Never a success payload anywhere on stdout.
+    expect(stdout).not.toContain('"ok": true');
+
+    // Human-readable detail and the recovery hint go to stderr.
+    expect(stderr).toContain('Could not record PREFLIGHT state');
+    expect(stderr).toContain('wp pp operate inspect');
+  });
+
+  test('preflight with a minted run token still emits ok:true JSON on stdout', () => {
+    const runId = ppOperateInspect();
+    const raw = wpCli(`wp pp apply preflight --run-id=${runId}`);
+    const json = parseCliJson(raw, 'preflight (minted token)');
+    expect(json.ok).toBe(true);
+    expect(Array.isArray(json.checks)).toBe(true);
+
+    // ok:true must mean the PREFLIGHT state was actually recorded — prove it
+    // by clearing the gate it unlocks (a site-scoped mutation succeeds).
+    let pageId = 0;
+    try {
+      const created = ppAction('create_page', {
+        title: 'Preflight Recorded Proof',
+        composition: [{ component: 'hero', props: { title: 'Seed' } }],
+      }, runId);
+      expect(created.ok).toBe(true);
+      pageId = (created.target as any).post_id;
+    } finally {
+      if (pageId) deletePage(pageId);
+    }
+  });
+
+  test('preflight fails closed with ok:false JSON when the token baseline is unreadable (#207 corrupt row)', () => {
+    const runId = ppOperateInspect();
+    // Corrupt pp_token_overrides into a non-array so pp_snapshot_token_overrides()
+    // returns null — the deterministic trigger for the snapshot-null failure exit.
+    wpCli(`wp option update pp_token_overrides corrupted-scalar-value`);
+    try {
+      let stdout = '';
+      let failed = false;
+      try {
+        execSync(`npx wp-env run cli wp pp apply preflight --run-id=${runId}`, {
+          cwd: process.cwd(), encoding: 'utf-8', stdio: 'pipe',
+        });
+      } catch (e: any) {
+        failed = true;
+        stdout = e.stdout ?? '';
+      }
+      expect(failed).toBe(true);
+      const json = parseCliJson(stdout, 'preflight (corrupt overrides row)');
+      expect(json.ok).toBe(false);
+      expect(json.error as string).toContain('atomic pre-apply token baseline');
+      expect(stdout).not.toContain('"ok": true');
+    } finally {
+      // Remove the corrupt row so later runs see a genuinely absent option
+      // (a valid empty baseline), leaving no test residue behind.
+      wpCli(`wp option delete pp_token_overrides`);
+    }
   });
 });
 

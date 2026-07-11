@@ -4,6 +4,14 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.65] — 2026-07-11 — `apply preflight` stops printing `{"ok": true}` for a preflight that never recorded itself (#227)
+
+**The preflight gate's JSON — the machine-readable contract an AI operator branches on — could report success for a preflight that did not happen. Pass an unminted run token and the command printed `{"ok": true, "checks": [...]}` to stdout, then died with `Error: Could not record PREFLIGHT state`; a consumer parsing the JSON concluded the gate was open and hit a contradictory refusal on the very next command. The success payload is now emitted only after every recording step has succeeded, so `ok: true` means the gate is genuinely unlocked.**
+
+All three post-check failure exits (contended/corrupt token baseline, unrecordable PREFLIGHT state, failed pre-run composition snapshot) now route through one emit path that puts `{"ok": false, "error": "...", "checks": [...]}` on stdout and the human-readable detail on stderr, exit 1. `docs/reference-apply-cli.md` documents stdout as the machine channel; `docs/howto-apply-and-rollback.md` now says what `ok: true` guarantees. Three new E2E tests pin the contract: an unminted UUID and a corrupted `pp_token_overrides` row must both produce parsed `ok: false` JSON and never a success payload; the minted-token test proves `ok: true` by clearing the gate it claims to unlock.
+
+---
+
 ## [v0.16.64] — 2026-07-10 — `check page` stops calling auto-generated component ids "stable" — because they aren't (#232)
 
 **Components written without an `id` prop get an auto-generated `pp-<hex8>` id, and a full `update_composition` re-apply from source JSON mints a fresh one every time. A `component_id` you recorded stops resolving, the section-scoped actions' documented targeting key silently rots — and `wp pp check page` reported "all components have stable IDs" anyway. The declarative re-apply workflow is the one `composition.md` advertises as the AI-native path, so this was the validator certifying exactly the state it exists to catch. `check page` now tells the truth: it warns per component whose id is auto-generated, names the fix (author an explicit `id`), and reserves its success line for pages where every component actually has one.**
