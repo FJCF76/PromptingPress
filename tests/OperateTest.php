@@ -71,6 +71,7 @@ class OperateTest extends TestCase
         }
         unset($GLOBALS['_pp_test_template_dir']);
         unset($GLOBALS['_pp_test_store']['options']['siteurl']);
+        unset($GLOBALS['_pp_test_store']['upload_dir']);
         pp_invalidate_design_tokens_cache();
         parent::tearDown();
     }
@@ -480,6 +481,230 @@ class OperateTest extends TestCase
 
         $this->assertNotNull($check);
         $this->assertTrue($check['pass'], 'No planned files means no filesystem requirement');
+    }
+
+    // ── Uploads writable (#229) ────────────────────────────────────────────
+
+    private function findCheck(array $result, string $name): ?array
+    {
+        foreach ($result['checks'] as $c) {
+            if ($c['check'] === $name) {
+                return $c;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Seeds the wp_get_upload_dir() stub. Pass 'path' for a dated subdir;
+     * override with empty strings to test unresolved shapes.
+     */
+    private function setUploadDir(array $overrides = []): void
+    {
+        $GLOBALS['_pp_test_store']['upload_dir'] = array_merge([
+            'baseurl' => 'https://example.com/wp-content/uploads',
+            'basedir' => $this->tempDir . '/uploads',
+        ], $overrides);
+    }
+
+    public function testPreflightUploadsWritablePassesForMediaApplyWhenWritable(): void
+    {
+        $uploads = $this->tempDir . '/uploads';
+        mkdir($uploads, 0755, true);
+        $this->setUploadDir();
+
+        $result = pp_preflight(['apply_name' => 'import_media']);
+        $check  = $this->findCheck($result, 'uploads_writable');
+
+        $this->assertNotNull($check, 'Media apply must emit an uploads_writable check');
+        $this->assertTrue($check['pass']);
+        $this->assertStringContainsString($uploads, $check['message']);
+    }
+
+    public function testPreflightUploadsWritableFailsForMediaApplyWhenNotWritable(): void
+    {
+        $uploads = $this->tempDir . '/uploads';
+        mkdir($uploads, 0555, true);
+        $this->setUploadDir();
+
+        $result = pp_preflight(['apply_name' => 'import_media']);
+        $check  = $this->findCheck($result, 'uploads_writable');
+
+        // Restore permissions before assertions (so tearDown cleanup works)
+        chmod($uploads, 0755);
+
+        $this->assertNotNull($check);
+        $this->assertFalse($check['pass'], 'Unwritable uploads dir must fail preflight for import_media');
+        $this->assertFalse($result['ok'], 'uploads_writable is error-grade: preflight ok must be false');
+    }
+
+    public function testPreflightUploadsWritableFailsWhenDatedPathExistsUnwritable(): void
+    {
+        $uploads = $this->tempDir . '/uploads';
+        $dated   = $uploads . '/2026/07';
+        mkdir($dated, 0755, true);
+        chmod($dated, 0555);
+        $this->setUploadDir(['path' => $dated]);
+
+        $result = pp_preflight(['apply_name' => 'import_media']);
+        $check  = $this->findCheck($result, 'uploads_writable');
+
+        chmod($dated, 0755);
+
+        $this->assertNotNull($check);
+        $this->assertFalse($check['pass'], 'Existing but unwritable dated subdir must fail even when basedir is writable');
+        $this->assertFalse($result['ok']);
+    }
+
+    public function testPreflightUploadsWritablePassesWhenDatedPathExistsWritable(): void
+    {
+        $uploads = $this->tempDir . '/uploads';
+        $dated   = $uploads . '/2026/07';
+        mkdir($dated, 0755, true);
+        $this->setUploadDir(['path' => $dated]);
+
+        $result = pp_preflight(['apply_name' => 'import_media']);
+        $check  = $this->findCheck($result, 'uploads_writable');
+
+        $this->assertNotNull($check);
+        $this->assertTrue($check['pass']);
+        $this->assertStringContainsString($dated, $check['message'], 'Dated path takes precedence over basedir as the checked target');
+    }
+
+    public function testPreflightUploadsWritableFailsWhenIntermediateAncestorUnwritable(): void
+    {
+        // uploads/ is writable but uploads/2026 is 0555 (e.g. rsync'd with the
+        // wrong perms): execute's wp_mkdir_p cannot create 2026/07, so preflight
+        // must fail on the deepest existing ancestor, not pass on basedir.
+        $uploads = $this->tempDir . '/uploads';
+        $year    = $uploads . '/2026';
+        mkdir($year, 0755, true);
+        chmod($year, 0555);
+        $this->setUploadDir(['path' => $year . '/07']);
+
+        $result = pp_preflight(['apply_name' => 'import_media']);
+        $check  = $this->findCheck($result, 'uploads_writable');
+
+        chmod($year, 0755);
+
+        $this->assertNotNull($check);
+        $this->assertFalse($check['pass'], 'Unwritable intermediate ancestor must fail even when basedir is writable');
+        $this->assertStringContainsString($year, $check['message']);
+        $this->assertFalse($result['ok']);
+    }
+
+    public function testPreflightUploadsWritablePassesWhenDatedPathMissingButBasedirWritable(): void
+    {
+        // WordPress creates the dated YYYY/MM subdir when the parent is
+        // writable, so a missing dated path must not fail the check.
+        $uploads = $this->tempDir . '/uploads';
+        mkdir($uploads, 0755, true);
+        $this->setUploadDir(['path' => $uploads . '/2026/07']);
+
+        $result = pp_preflight(['apply_name' => 'import_media']);
+        $check  = $this->findCheck($result, 'uploads_writable');
+
+        $this->assertNotNull($check);
+        $this->assertTrue($check['pass']);
+    }
+
+    public function testPreflightUploadsWritablePassesOnFreshSiteWithNoUploadsDir(): void
+    {
+        // Fresh install: wp-content/uploads does not exist yet, but its parent
+        // is writable — wp_mkdir_p at execute time creates the whole tree, so
+        // preflight must not block the first-ever media import.
+        $this->setUploadDir(); // basedir = tempDir/uploads, never created
+
+        $result = pp_preflight(['apply_name' => 'import_media']);
+        $check  = $this->findCheck($result, 'uploads_writable');
+
+        $this->assertNotNull($check);
+        $this->assertTrue($check['pass'], 'Missing uploads dir with a writable parent must pass (WP creates it)');
+        $this->assertStringContainsString($this->tempDir, $check['message']);
+    }
+
+    public function testPreflightUploadsWritableFailsOnUploadDirError(): void
+    {
+        $this->setUploadDir([
+            'baseurl' => '',
+            'basedir' => '',
+            'error'   => 'Unable to create directory. Is its parent directory writable by the server?',
+        ]);
+
+        $result = pp_preflight(['apply_name' => 'import_media']);
+        $check  = $this->findCheck($result, 'uploads_writable');
+
+        $this->assertNotNull($check);
+        $this->assertFalse($check['pass']);
+        $this->assertStringContainsString('Unable to create directory', $check['message']);
+        $this->assertFalse($result['ok']);
+    }
+
+    public function testPreflightUploadsWritableFailsWhenFileBlocksPathSegment(): void
+    {
+        // A regular FILE at uploads/2026 makes wp_mkdir_p unable to create
+        // 2026/07 even though uploads/ itself is writable — the walk must
+        // fail on the blocking file, not pass on the writable ancestor.
+        $uploads = $this->tempDir . '/uploads';
+        mkdir($uploads, 0755, true);
+        file_put_contents($uploads . '/2026', 'not a directory');
+        $this->setUploadDir(['path' => $uploads . '/2026/07']);
+
+        $result = pp_preflight(['apply_name' => 'import_media']);
+        $check  = $this->findCheck($result, 'uploads_writable');
+
+        $this->assertNotNull($check);
+        $this->assertFalse($check['pass'], 'A file occupying an intermediate path segment must fail closed');
+        $this->assertStringContainsString($uploads . '/2026', $check['message']);
+        $this->assertFalse($result['ok']);
+    }
+
+    public function testPreflightUploadsWritableFailsWhenPathUnresolved(): void
+    {
+        $this->setUploadDir(['baseurl' => '', 'basedir' => '']);
+
+        $result = pp_preflight(['apply_name' => 'import_media']);
+        $check  = $this->findCheck($result, 'uploads_writable');
+
+        $this->assertNotNull($check);
+        $this->assertFalse($check['pass'], 'Empty basedir with no error key must fail closed');
+        $this->assertFalse($result['ok']);
+    }
+
+    public function testPreflightNoUploadsCheckForOptionBackedApply(): void
+    {
+        $result = pp_preflight(['apply_name' => 'update_design_token']);
+        $this->assertNull(
+            $this->findCheck($result, 'uploads_writable'),
+            'Option-backed applies must not emit an uploads_writable check'
+        );
+    }
+
+    public function testPreflightNoUploadsCheckWithNoApplyName(): void
+    {
+        $result = pp_preflight();
+        $this->assertNull(
+            $this->findCheck($result, 'uploads_writable'),
+            'Preflight without a planned apply must not emit an uploads_writable check'
+        );
+    }
+
+    public function testPreflightThemeWritableMessageDoesNotClaimNoFilesystemWritesForMediaApply(): void
+    {
+        $uploads = $this->tempDir . '/uploads';
+        mkdir($uploads, 0755, true);
+        $GLOBALS['_pp_test_store']['upload_dir'] = [
+            'baseurl' => 'https://example.com/wp-content/uploads',
+            'basedir' => $uploads,
+        ];
+
+        $result = pp_preflight(['apply_name' => 'import_media']);
+        $check  = $this->findCheck($result, 'theme_writable');
+
+        $this->assertNotNull($check);
+        $this->assertTrue($check['pass'], 'import_media does not touch the theme dir; theme check stays skipped-pass');
+        $this->assertStringNotContainsString('no filesystem writes', $check['message']);
+        $this->assertStringContainsString('uploads_writable', $check['message']);
     }
 
     public function testPreflightTargetPagePassesForValidPost(): void

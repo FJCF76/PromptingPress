@@ -219,16 +219,16 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
         $drift = pp_check_drift();
     }
 
-    // Auto-populate planned_files from apply definition if apply_name given
+    // Resolve the planned apply's target type once — it routes the
+    // planned_files auto-population and the filesystem checks below.
+    $apply_def         = !empty($context['apply_name']) ? pp_get_apply($context['apply_name']) : null;
+    $apply_target_type = $apply_def !== null && isset($apply_def['target']['type']) ? $apply_def['target']['type'] : null;
+
+    // Auto-populate planned_files from apply definition if apply_name given.
+    // Option-based targets don't produce planned_files (no file drift concern).
     $planned_files = $context['planned_files'] ?? [];
-    if (empty($planned_files) && !empty($context['apply_name'])) {
-        $apply_def = pp_get_apply($context['apply_name']);
-        if ($apply_def !== null && isset($apply_def['target']['type'])) {
-            if ($apply_def['target']['type'] === 'file' && isset($apply_def['target']['path'])) {
-                $planned_files = [$apply_def['target']['path']];
-            }
-            // Option-based targets don't produce planned_files (no file drift concern)
-        }
+    if (empty($planned_files) && $apply_target_type === 'file' && isset($apply_def['target']['path'])) {
+        $planned_files = [$apply_def['target']['path']];
     }
 
     if (!$drift['has_drift']) {
@@ -255,21 +255,77 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
     }
 
     // Check 5: Theme writable (only required when planned applies target files)
-    $needs_filesystem = !empty($planned_files);
-    if (!$needs_filesystem && !empty($context['apply_name'])) {
-        $apply_def = pp_get_apply($context['apply_name']);
-        $needs_filesystem = $apply_def !== null && isset($apply_def['target']['type']) && $apply_def['target']['type'] === 'file';
-    }
+    // Media-target applies (import_media) write to wp-content/uploads, not the
+    // theme dir — they are routed to the uploads_writable check below (#229)
+    // instead of being lumped in with database-backed applies.
+    $needs_filesystem = !empty($planned_files) || $apply_target_type === 'file';
+    $needs_uploads    = $apply_target_type === 'media';
 
     $theme_path = $target['theme_path'];
     if (!$needs_filesystem) {
-        $checks[] = ['check' => 'theme_writable', 'pass' => true, 'message' => 'Skipped: planned applies are database-backed (no filesystem writes).'];
+        $checks[] = [
+            'check'   => 'theme_writable',
+            'pass'    => true,
+            'message' => $needs_uploads
+                ? 'Skipped: planned applies do not write to the theme directory (uploads writes covered by uploads_writable).'
+                : 'Skipped: planned applies are database-backed (no filesystem writes).',
+        ];
     } elseif ($theme_path !== null && is_dir($theme_path) && is_writable($theme_path)) {
         $checks[] = ['check' => 'theme_writable', 'pass' => true, 'message' => 'Theme directory is writable.'];
     } elseif ($theme_path === null) {
         $checks[] = ['check' => 'theme_writable', 'pass' => false, 'message' => 'Cannot resolve theme path.'];
     } else {
         $checks[] = ['check' => 'theme_writable', 'pass' => false, 'message' => 'Theme directory is not writable: ' . $theme_path];
+    }
+
+    // Check 5b: Uploads writable (only when a media-target apply is planned, #229).
+    // import_media sideloads into wp-content/uploads; preflight must verify that
+    // write can succeed instead of asserting "no filesystem writes" and letting
+    // execute fail with a raw WP error. Execute-time wp_mkdir_p() creates any
+    // missing segments of the dated YYYY/MM path, so the write succeeds exactly
+    // when the DEEPEST EXISTING ancestor of the target path is writable — a
+    // writable basedir is neither necessary (fresh site: uploads/ itself doesn't
+    // exist yet but wp-content is writable) nor sufficient (uploads/2026 rsync'd
+    // 0555 blocks creation of 2026/07 while uploads/ stays writable).
+    if ($needs_uploads) {
+        $uploads       = wp_get_upload_dir();
+        $uploads_error = is_array($uploads) ? ($uploads['error'] ?? false) : false;
+        $dated_path    = is_array($uploads) ? (string) ($uploads['path'] ?? '') : '';
+        $basedir       = is_array($uploads) ? (string) ($uploads['basedir'] ?? '') : '';
+        $target_dir    = $dated_path !== '' ? $dated_path : $basedir;
+
+        if (!empty($uploads_error)) {
+            $checks[] = ['check' => 'uploads_writable', 'pass' => false, 'message' => 'Uploads directory cannot be resolved: ' . $uploads_error];
+        } elseif ($target_dir === '') {
+            $checks[] = ['check' => 'uploads_writable', 'pass' => false, 'message' => 'Uploads directory cannot be resolved: (empty path)'];
+        } else {
+            $probe    = $target_dir;
+            $blocking = null; // an existing NON-directory occupying a path segment
+            while (!is_dir($probe)) {
+                if (file_exists($probe)) {
+                    // e.g. a regular file at uploads/2026 — wp_mkdir_p() can
+                    // never create children under it, and a writable ancestor
+                    // above it would be a deterministic false pass.
+                    $blocking = $probe;
+                    break;
+                }
+                $parent = dirname($probe);
+                if ($parent === $probe) {
+                    break; // filesystem root
+                }
+                $probe = $parent;
+            }
+
+            if ($blocking !== null) {
+                $checks[] = ['check' => 'uploads_writable', 'pass' => false, 'message' => 'Uploads path is blocked by a non-directory: ' . $blocking];
+            } elseif (!is_dir($probe) || !is_writable($probe)) {
+                $checks[] = ['check' => 'uploads_writable', 'pass' => false, 'message' => 'Uploads directory is not writable: ' . $probe . ($probe !== $target_dir ? ' (deepest existing ancestor of ' . $target_dir . ')' : '')];
+            } elseif ($probe === $target_dir) {
+                $checks[] = ['check' => 'uploads_writable', 'pass' => true, 'message' => 'Uploads directory is writable: ' . $target_dir];
+            } else {
+                $checks[] = ['check' => 'uploads_writable', 'pass' => true, 'message' => 'Uploads directory ' . $target_dir . ' does not exist yet; its deepest existing ancestor is writable: ' . $probe . ' (WordPress creates the rest).'];
+            }
+        }
     }
 
     // Check 6: Target page (only for page operations)
