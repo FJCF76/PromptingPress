@@ -32,11 +32,14 @@ import * as path from 'path';
  *      deterministic via a marker-file handshake rather than a timing guess:
  *      the holder verifies its OWN GET_LOCK actually succeeded before
  *      signaling "acquired" (an unchecked/failed acquisition would let the
- *      contender through cleanly and invalidate the test), then waits for the
- *      contender to signal "about to call execute" before holding for the
- *      install's real `_pp_token_lock_timeout()` (read at runtime, not
- *      assumed) plus a small margin — anchored to the contender's actual
- *      readiness rather than a guessed multi-step wall-clock budget.
+ *      contender through cleanly and invalidate the test), then holds until
+ *      the contender's execute has actually RESOLVED (see the `done` marker in
+ *      that test) rather than for a guessed number of seconds.
+ *   4. `wp pp apply preflight` under a held token lock: it must fail closed and
+ *      record no PREFLIGHT (#200/#207/#212), rather than recording a baseline
+ *      it could not read atomically. Scenario 3 used to exercise this path by
+ *      accident — it preflighted mid-contention and died there (#240) — so it
+ *      is pinned explicitly here now that scenario 3 preflights up front.
  *
  * `--color-bg` and `--space-md` are used because neither has a derived token
  * family (see `pp_token_families()` in lib/wp.php) — an unrelated token's
@@ -268,7 +271,10 @@ test.describe('Token override concurrency (real WP+MySQL, #98)', () => {
   });
 
   test('a writer fails closed (not silently lost) while another connection holds the lock', async () => {
-    test.setTimeout(60000);
+    // Must strictly exceed the holder's worst case (READY_WAIT_MAX +
+    // HOLD_WAIT_MAX) so the safety-net path still reaches `await holderPromise`
+    // and reaps the holder rather than orphaning it on the lock.
+    test.setTimeout(120000);
 
     fs.mkdirSync(path.join(process.cwd(), 'test-results'), { recursive: true });
     const themeDir = containerThemeDir();
@@ -286,33 +292,56 @@ test.describe('Token override concurrency (real WP+MySQL, #98)', () => {
     const acquired = `test-results/.pp-lock-acquired-${id}`;
     const failed = `test-results/.pp-lock-failed-${id}`;
     const ready = `test-results/.pp-lock-ready-${id}`;
+    const done = `test-results/.pp-lock-done-${id}`;
     const hostPath = (rel: string) => path.join(process.cwd(), rel);
     const containerPath = (rel: string) => `${themeDir}/${rel}`;
 
+    // ORDERING IS LOAD-BEARING (#240). The contender's `operate inspect` +
+    // `apply preflight` run BEFORE the holder takes the lock. Since #200,
+    // `apply preflight` reads the pre-apply token baseline through
+    // pp_snapshot_token_overrides(), which takes the SAME advisory lock and
+    // fails closed on contention (lib/cli.php:830) — so preflighting while the
+    // holder owns the lock kills the contender in SETUP and the contended
+    // `execute` under test is never reached. Preflight coverage does not expire
+    // when the lock is later taken (run TTL is 2h, PP_OPERATE_RUN_TTL), and the
+    // holder never mutates tokens, so the baseline captured here is still the
+    // right one at execute time. Do not move these two calls back inside the
+    // contention window.
+    const before = readTokenOverrides();
+    const runC = newRunId();
+    preflightForTokenApply(runC);
+
     // Holder: acquires the SAME named advisory lock `_pp_with_token_lock()`
-    // uses. Two-marker handshake instead of a guessed fixed sleep:
+    // uses. Marker-file handshake instead of any fixed sleep:
     //   1. Verify GET_LOCK actually returned '1' before claiming "acquired" —
     //      signaling success on an unchecked/failed acquisition would let the
     //      contender acquire the real lock cleanly and the test would assert
     //      the wrong thing (false pass OR spurious failure).
     //   2. Wait for the CONTENDER to signal "about to call execute" (bounded
-    //      poll, 20s cap) instead of guessing how long its setup takes.
-    //   3. THEN hold for effectiveTimeout+3s — long enough that the contender's
-    //      own GET_LOCK(name, effectiveTimeout) call (which starts shortly after
-    //      its ready-signal, once its fresh wp-env container finishes bootstrap)
-    //      is guaranteed to still be waiting, so it genuinely times out rather
-    //      than racing the release.
-    // This anchors the hold to the contender's REAL readiness signal rather
-    // than a multi-step wall-clock estimate of its setup time — the earlier
-    // version's HOLD_SECS=25 (measured from marker-time, before this fix)
-    // let the contender acquire the lock 5ms after release in one run, because
-    // its budget was a guess, not a signal.
+    //      poll) instead of guessing how long its setup takes.
+    //   3. THEN hold until the contender's execute has actually RESOLVED (the
+    //      `done` marker), not for a guessed number of seconds. The contended
+    //      execute completes on its OWN GET_LOCK(name, effectiveTimeout)
+    //      TIMEOUT, not on this lock being released, so waiting for it cannot
+    //      deadlock. A duration-based hold would have to out-wait the
+    //      contender's container bootstrap PLUS its full lock wait; when that
+    //      guess ran short (the old effectiveTimeout+3s), the holder released
+    //      early, the contender acquired the lock cleanly, and the test failed
+    //      for a reason that had nothing to do with the behavior under test.
+    //      HOLD_WAIT_MAX only bounds a hung contender so the holder can't leak
+    //      the lock forever; it is a safety net, never the normal path.
     // Written with double-quoted PHP string literals and wrapped in shell
     // SINGLE quotes (not escaped double quotes) so `$wpdb` reaches PHP
     // literally instead of being shell-expanded to empty before `wp eval` ever
     // sees it.
     const READY_WAIT_MAX = 20;
-    const holdAfterReady = effectiveTimeout + 3;
+    // Derived from the install's REAL lock wait, not hardcoded: the safety net
+    // must always outlast the contender's own GET_LOCK(effectiveTimeout) wait
+    // plus its container bootstrap, or it would fire first and release the lock
+    // early — reintroducing the false failure this test was fixed to avoid. A
+    // literal 40 would silently drift the moment PP_TOKEN_LOCK_TIMEOUT is
+    // raised above ~5s.
+    const HOLD_WAIT_MAX = effectiveTimeout + 35;
     const holderPhp =
       'global $wpdb; ' +
       '$got = $wpdb->get_var("SELECT GET_LOCK(" . $wpdb->prepare("%s", _pp_token_lock_name()) . ", 10)"); ' +
@@ -323,7 +352,8 @@ test.describe('Token override concurrency (real WP+MySQL, #98)', () => {
       `file_put_contents("${containerPath(acquired)}", "1"); ` +
       `$deadline = time() + ${READY_WAIT_MAX}; ` +
       `while (!file_exists("${containerPath(ready)}") && time() < $deadline) { usleep(100000); } ` +
-      `sleep(${holdAfterReady}); ` +
+      `$deadline = time() + ${HOLD_WAIT_MAX}; ` +
+      `while (!file_exists("${containerPath(done)}") && time() < $deadline) { usleep(100000); } ` +
       '$wpdb->query("SELECT RELEASE_LOCK(" . $wpdb->prepare("%s", _pp_token_lock_name()) . ")");';
     const holderPromise = wpCliAsync(`wp eval '${holderPhp}'`);
 
@@ -343,28 +373,151 @@ test.describe('Token override concurrency (real WP+MySQL, #98)', () => {
         throw new Error(`Lock holder failed to acquire its own GET_LOCK (returned ${got}) — cannot run this test.`);
       }
 
-      const before = readTokenOverrides();
-
-      const runC = newRunId();
-      preflightForTokenApply(runC);
-
-      // Signal readiness immediately before the contended call itself, so the
-      // holder's remaining hold time is anchored to this real moment rather
-      // than a guess about how long setup takes.
-      fs.writeFileSync(hostPath(ready), '1');
-      const contender = await executeTokenApplyAsync(runC, TOKEN_A, '#ffffff');
+      let contender: { ok: boolean; raw: string };
+      try {
+        // Signal readiness immediately before the contended call itself, so the
+        // holder starts waiting on `done` at this real moment.
+        fs.writeFileSync(hostPath(ready), '1');
+        contender = await executeTokenApplyAsync(runC, TOKEN_A, '#ffffff');
+      } finally {
+        // Release the holder even if the execute threw — otherwise it sits on
+        // the lock until HOLD_WAIT_MAX and the real error is buried under a
+        // timeout.
+        fs.writeFileSync(hostPath(done), '1');
+      }
 
       expect(
         contender.ok,
         `contender must fail closed while the lock is held, not silently write:\n${contender.raw}`,
       ).toBe(false);
+      // Assert WHY it failed. `ok:false` alone would also be satisfied by an
+      // unrelated failure (a missing preflight, a bad param), which is exactly
+      // the false-signal class this test exists to rule out. Assert the failure
+      // the ACTION returns on stdout (lib/apply.php:906) rather than the
+      // `lock busy` line, which _pp_with_token_lock only writes via error_log()
+      // (lib/wp.php:1339) — that reaches stderr today only because PHP-CLI
+      // defaults there, and would vanish the moment WP_DEBUG_LOG redirects it.
+      expect(
+        contender.raw,
+        `contender must fail on the token WRITE specifically, not for some other reason:\n${contender.raw}`,
+      ).toContain('Failed to write token override');
 
       const after = readTokenOverrides();
       expect(after[TOKEN_A], 'contender must not have written its value').not.toBe('#ffffff');
       expect(after[TOKEN_A]).toBe(before[TOKEN_A]);
     } finally {
+      // Idempotent re-signal: the inner finally already writes `done` on the
+      // normal path, but a throw BEFORE it (the acquisition wait, or a marker
+      // write) would otherwise leave the holder squatting the install-wide lock
+      // for the full HOLD_WAIT_MAX and cascade into the next test.
+      fs.writeFileSync(hostPath(done), '1');
       await holderPromise;
-      for (const rel of [acquired, failed, ready]) {
+      for (const rel of [acquired, failed, ready, done]) {
+        fs.rmSync(hostPath(rel), { force: true });
+      }
+    }
+  });
+
+  test('apply preflight fails closed (records no PREFLIGHT) while another connection holds the lock', async () => {
+    // Must strictly exceed the holder's worst case (HOLD_WAIT_MAX) so the
+    // safety-net path still reaches `await holderPromise` and reaps the holder
+    // instead of orphaning it on the lock.
+    test.setTimeout(120000);
+
+    fs.mkdirSync(path.join(process.cwd(), 'test-results'), { recursive: true });
+    const themeDir = containerThemeDir();
+    const effectiveTimeout = readEffectiveLockTimeout();
+
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const acquired = `test-results/.pp-pf-acquired-${id}`;
+    const failed = `test-results/.pp-pf-failed-${id}`;
+    const done = `test-results/.pp-pf-done-${id}`;
+    const hostPath = (rel: string) => path.join(process.cwd(), rel);
+    const containerPath = (rel: string) => `${themeDir}/${rel}`;
+
+    // Same holder handshake as the contended-execute test: acquire for real,
+    // then hold until the contender's preflight has resolved. The preflight's
+    // own snapshot read waits GET_LOCK(effectiveTimeout) before failing closed,
+    // so the safety net is derived from that wait, never hardcoded.
+    const HOLD_WAIT_MAX = effectiveTimeout + 35;
+    const holderPhp =
+      'global $wpdb; ' +
+      '$got = $wpdb->get_var("SELECT GET_LOCK(" . $wpdb->prepare("%s", _pp_token_lock_name()) . ", 10)"); ' +
+      'if ($got !== "1") { ' +
+      `file_put_contents("${containerPath(failed)}", (string) $got); ` +
+      'exit(1); ' +
+      '} ' +
+      `file_put_contents("${containerPath(acquired)}", "1"); ` +
+      `$deadline = time() + ${HOLD_WAIT_MAX}; ` +
+      `while (!file_exists("${containerPath(done)}") && time() < $deadline) { usleep(100000); } ` +
+      '$wpdb->query("SELECT RELEASE_LOCK(" . $wpdb->prepare("%s", _pp_token_lock_name()) . ")");';
+    const holderPromise = wpCliAsync(`wp eval '${holderPhp}'`);
+
+    try {
+      const deadline = Date.now() + 15000;
+      while (!fs.existsSync(hostPath(acquired)) && !fs.existsSync(hostPath(failed))) {
+        if (Date.now() > deadline) {
+          throw new Error('Timed out waiting for the lock-holder to signal acquisition.');
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      if (fs.existsSync(hostPath(failed))) {
+        const got = fs.readFileSync(hostPath(failed), 'utf-8');
+        throw new Error(`Lock holder failed to acquire its own GET_LOCK (returned ${got}) — cannot run this test.`);
+      }
+
+      // The run itself is created BEFORE the lock is contended (`operate
+      // inspect` does not take the token lock); only the preflight runs under
+      // contention. wpCliAsync (not wpCli) because it captures stderr — the
+      // fail-closed diagnostic we assert on is written there, and execSync does
+      // not reliably surface it on throw.
+      const before = readTokenOverrides();
+      const runId = newRunId();
+
+      let preflight: { code: number; output: string };
+      try {
+        preflight = await wpCliAsync(
+          `wp pp apply preflight --run-id=${runId} --apply=update_design_token`,
+        );
+      } finally {
+        fs.writeFileSync(hostPath(done), '1');
+      }
+
+      expect(
+        preflight.code,
+        `preflight must fail closed while the lock is held:\n${preflight.output}`,
+      ).not.toBe(0);
+      expect(
+        preflight.output,
+        `preflight must fail on the token baseline read specifically:\n${preflight.output}`,
+      ).toContain('atomic pre-apply token baseline');
+
+      // Fail-closed means the PREFLIGHT step was NOT recorded. A run that
+      // reported failure but recorded the step anyway would let a later
+      // `execute` through on a baseline nobody could read atomically — the
+      // destructive-rollback-baseline class of #200/#207/#212.
+      const execAfter = await executeTokenApplyAsync(runId, TOKEN_A, '#ffffff');
+      expect(
+        execAfter.ok,
+        `execute must be refused after a fail-closed preflight:\n${execAfter.raw}`,
+      ).toBe(false);
+      // The exact refusal from the coverage gate (lib/cli.php:60). A loose
+      // /PREFLIGHT/i would also match the "re-run preflight" hint in unrelated
+      // errors and pass for the wrong reason.
+      expect(execAfter.raw).toContain('has no completed PREFLIGHT');
+      // Pin to the captured baseline, not just "!== the value we tried to
+      // write": the latter would also hold if the token had been clobbered to
+      // some OTHER value along the way.
+      const after = readTokenOverrides();
+      expect(after[TOKEN_A], 'a refused execute must not have written its value').not.toBe('#ffffff');
+      expect(after[TOKEN_A]).toBe(before[TOKEN_A]);
+    } finally {
+      // Idempotent: guarantees release even if a throw skipped the inner
+      // finally (e.g. newRunId() or the acquisition wait), so a failing test
+      // can't leave the holder squatting the lock and cascade into the next.
+      fs.writeFileSync(hostPath(done), '1');
+      await holderPromise;
+      for (const rel of [acquired, failed, done]) {
         fs.rmSync(hostPath(rel), { force: true });
       }
     }
