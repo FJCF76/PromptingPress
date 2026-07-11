@@ -1,6 +1,6 @@
 {
   "name": "promptingpress",
-  "version": "0.16.82",
+  "version": "0.16.83",
   "private": true,
   "description": "PromptingPress WordPress theme — JS tests and E2E infrastructure",
   "scripts": {

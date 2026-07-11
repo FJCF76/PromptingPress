@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.83] — 2026-07-12 — a failed run-state write can no longer report success (#243)
+
+**Every recorder behind the operating loop's run token — PREFLIGHT, step completion, token and composition snapshots — persists through one locked write to a JSON state file. That write truncated the file first and then wrote, never checking that the encode or the write actually succeeded, so a full disk or an unencodable payload could leave the state file empty or torn while the recorder still reported success. The write is now fail-closed: it encodes before touching the file, refuses to write if the file cannot be truncated, verifies the whole payload landed, restores the prior bytes if it did not, and returns failure so the caller surfaces the error instead of trusting a destroyed baseline.**
+
+`pp_operate_mutate_state()` did `ftruncate` then `fwrite( wp_json_encode(...) )` and returned `true` unconditionally. `wp_json_encode()` can return `false` (for example on malformed UTF-8), and `fwrite` can short-write on `ENOSPC` — either way the prior state (the INSPECT baseline and any recorded snapshots) was already discarded, yet callers like `wp pp apply preflight` printed `{"ok":true}` for a run whose state file was now empty or partial. The persist now encodes the new state first and aborts untouched on an encode failure; it checks the `ftruncate` result and aborts without writing rather than leaving stale trailing bytes from a longer prior state behind a shorter new one; and after writing it verifies the byte count and flush, restoring the captured prior bytes on a best-effort basis and returning `false` on any seek, write, or flush failure. A failed persistence can no longer truncate the state file yet report a confirmed write.
+
+### Fixed
+
+- `pp_operate_mutate_state()` now fails closed: it encodes the new run state before truncating the file, verifies the full payload was written and flushed, checks the truncate result, restores the prior bytes on a short or failed write, and returns `false` on any encode/truncate/seek/write/flush failure — so a failed write can no longer destroy the run-state baseline while reporting success (#243).
+
+### Tests
+
+- New `OperateTest` cases pin the fail-closed behavior: an encode failure (malformed UTF-8 payload) returns `false` and leaves the prior state file byte-for-byte intact; a shorter payload written after a longer one leaves no stale trailing bytes; and a valid multibyte payload persists in full (guarding the byte-count check against a `strlen`/`mb_strlen` mixup) (#243).
+
 ## [v0.16.82] — 2026-07-12 — two components can no longer share the same id (#238)
 
 **A composition could carry two components with the same `id` and still save without complaint, and every id-based action (`update_component`, `remove_component`, `style_component`) then silently targeted whichever one sorted first, reporting success while it changed or deleted the wrong component. Duplicate component ids are now rejected at write time, so the ambiguous state is never persisted. If a duplicate ever reaches a page through a raw write, targeting it fails closed with a clear error instead of guessing.**
