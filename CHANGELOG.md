@@ -4,6 +4,29 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.75] — 2026-07-11 — the packaging gate now reads the archive's payload, not just its table of contents (#261)
+
+**A release ZIP whose compressed data was damaged used to pass validation and ship. Every check `scripts/package.sh` ran — the style.css membership test, the top-level-directory test, the size test — read only the archive's central directory, which is its table of contents. Corrupt the payload and leave the index intact and the build validated clean, uploaded itself as a release asset, and failed for the first time in someone's WordPress install. `scripts/validate-zip.sh` now inflates and CRC-checks the payload before a build is allowed out.**
+
+Listing a ZIP is not reading it. `unzip -l` and `unzip -Z1` walk the central directory and report what the archive *claims* to contain; neither one touches a single compressed byte. `unzip -t` is the only check that actually decompresses each entry and verifies it against its stored CRC, so it is the only one that can tell a good build from a byte-damaged one. That is the check that was missing, and the class of failure it catches is the one where CI is green, the release asset is published, and the theme is broken on arrival.
+
+The gate fails closed on any nonzero exit, not just on a hard error. `unzip` reports a *skipped* entry — one whose compression method it does not recognize, for instance — as exit 1, a mere "warning". A skipped entry is never inflated and never CRC-checked: flip one byte of style.css's compression-method field and the archive still lists correctly, still passes the membership test, still reports only a warning, and extracts the stylesheet as **zero bytes**. A theme whose style.css is empty is a dead theme. Treating "I could not verify this" as "this is fine" would have left the headline bug alive in a gate written to catch it, so any nonzero result now rejects the build. The membership check moved ahead of the integrity check to make that possible: an empty archive also exits 1, and letting the style.css test reject it first means the integrity gate never has to tell those two apart and needs no exceptions carved into it.
+
+`scripts/` is excluded from the distributed ZIP, so none of this ships to sites. `package.sh` keeps the same usage, arguments, and output on success.
+
+### Fixed
+
+- `scripts/validate-zip.sh` now verifies the ZIP payload with `unzip -tq` and rejects any archive that does not verify, with a distinct message and the failing entry named. Previously an archive with a damaged payload and an intact central directory passed as a good build and was uploaded by `release.yml` (#261).
+- The integrity gate fails closed on any nonzero `unzip -t` exit, so an entry that unzip skips without verifying (and would extract as zero bytes) is rejected rather than waved through as a warning.
+- The style.css membership check now runs before the integrity check, so an empty archive is still reported as a missing style.css rather than as corruption.
+
+### Tests
+
+- Five tests in `tests/js/package.test.js` pin the new gate: a corrupt payload behind an intact index; the failing entry is named in the report; style.css intact but a sibling entry damaged; an entry unzip cannot verify (asserting it extracts as zero bytes *and* is rejected); and a missing style.css reported ahead of corruption, which pins the check order.
+- Two fixture builders construct the bad archives: one corrupts a named entry's payload in place using its own compressed-size field, the other flips that entry's compression method. Both assert the archive is genuinely bad and that its central directory still reads clean, so neither test can pass against a fixture that quietly stopped being corrupt.
+
+---
+
 ## [v0.16.74] — 2026-07-11 — the packaging gate says which failure it hit, and shows you the archive (#260)
 
 **A release build that fails on a bad ZIP now tells you which kind of bad. `scripts/package.sh` reported "style.css not found in ZIP" for three different failures — an archive it could not read, an archive genuinely missing the file, and any other hiccup in the check — and printed nothing about what the archive did contain. An unreadable archive and a missing file are now separate messages, and the missing-file case dumps the archive's entry list.**
