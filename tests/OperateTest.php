@@ -2086,6 +2086,75 @@ class OperateTest extends TestCase
         pp_operate_cleanup_run($run_id);
     }
 
+    // ── Atomic preflight unlock + restore baseline (#241) ──────────────────
+
+    public function testRecordPreflightCommitsCoverageAndContentSnapshotTogether(): void
+    {
+        // #241: the PREFLIGHT coverage (which unlocks mutating gates) and the
+        // composition content snapshot (the run-scoped restore baseline) are written
+        // in ONE mutate_state call, so the gate never unlocks without its baseline.
+        $run_id  = pp_operate_create_run();
+        $content = [['component' => 'hero', 'props' => ['title' => 'pre-run']]];
+        $marker  = ['version' => 2, 'hash' => 'h241'];
+
+        $this->assertTrue(pp_operate_record_preflight($run_id, 42, ['--color-accent' => '#111'], $marker, $content));
+
+        // Both facets landed in the same state: coverage unlocks, baseline exists.
+        $this->assertTrue(pp_operate_preflight_covers($run_id, 42), 'coverage recorded');
+        $this->assertSame($content, pp_operate_get_composition_content_snapshot($run_id, 42), 'restore baseline recorded');
+        $this->assertSame($marker, pp_operate_get_composition_snapshot($run_id, 42), 'freshness marker recorded');
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRecordPreflightContentSnapshotIsFirstWriteWins(): void
+    {
+        // #241: a preflight re-run in the same run must not overwrite the true pre-run
+        // content baseline with a (possibly post-mutation) one — first-write-wins,
+        // unlike the LAST-write-wins freshness marker recorded in the same call.
+        $run_id = pp_operate_create_run();
+        $first  = [['component' => 'hero', 'props' => ['title' => 'pre-run']]];
+        $second = [['component' => 'hero', 'props' => ['title' => 'after-mutation']]];
+
+        pp_operate_record_preflight($run_id, 4, [], ['version' => 1, 'hash' => 'first'], $first);
+        pp_operate_record_preflight($run_id, 4, [], ['version' => 2, 'hash' => 'second'], $second);
+
+        $this->assertSame($first, pp_operate_get_composition_content_snapshot($run_id, 4), 'content baseline is first-write-wins');
+        $this->assertSame(['version' => 2, 'hash' => 'second'], pp_operate_get_composition_snapshot($run_id, 4), 'marker is last-write-wins');
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRecordPreflightEmptyContentSnapshotIsRecorded(): void
+    {
+        // An intentionally empty page freezes [] as its baseline (load-bearing: a
+        // run-scoped restore reverts to the empty page, distinct from "no snapshot").
+        $run_id = pp_operate_create_run();
+        pp_operate_record_preflight($run_id, 7, [], ['version' => 1, 'hash' => 'h'], []);
+        $this->assertSame([], pp_operate_get_composition_content_snapshot($run_id, 7));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRecordPreflightNoContentSnapshotWhenNull(): void
+    {
+        // Back-compat + fail-closed caller contract: a null content arg (site grain,
+        // or a corrupt composition the caller already failed the preflight on) records
+        // no content snapshot at all.
+        $run_id = pp_operate_create_run();
+        pp_operate_record_preflight($run_id, 8, [], ['version' => 1, 'hash' => 'h'], null);
+        $this->assertNull(pp_operate_get_composition_content_snapshot($run_id, 8));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRecordPreflightSiteGrainRecordsNoContentSnapshot(): void
+    {
+        // A no-post (site-grain) preflight has no composition target: even if a content
+        // array is somehow passed, no per-post content snapshot is written.
+        $run_id = pp_operate_create_run();
+        pp_operate_record_preflight($run_id, null, [], null, [['component' => 'hero']]);
+        $data = json_decode(file_get_contents(pp_operate_run_path($run_id)), true);
+        $this->assertArrayNotHasKey('composition_content_snapshot', $data);
+        pp_operate_cleanup_run($run_id);
+    }
+
     public function testRunScopedRestoreRevertsTouchedPostsAndLeavesOthersUntouched(): void
     {
         // Acceptance criterion #3: preflight → two composition mutations → restore-by-run

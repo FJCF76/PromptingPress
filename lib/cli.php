@@ -808,12 +808,17 @@ class PP_Apply_Command extends WP_CLI_Command {
 
         // Record PREFLIGHT only on success, in ONE atomic write: the PREFLIGHT
         // step, the target this preflight covered (post_id for page/section work,
-        // or the site grain when no post is given), and the pre-apply token
-        // snapshot that `apply restore` rolls back to. Committing them together is
-        // load-bearing: mutating gates (action execute / operate patch) unlock on
-        // the recorded coverage alone, so a partial write must never leave the run
-        // unlocked. First-write-wins inside the recorder keeps the rollback
-        // baseline stable across re-runs.
+        // or the site grain when no post is given), the pre-apply token snapshot
+        // that `apply restore` rolls back to, AND — for a page/section preflight —
+        // the pre-apply composition content snapshot that `apply restore-composition`
+        // reverts to. Committing them together is load-bearing: mutating gates
+        // (action execute / operate patch) unlock on the recorded coverage alone,
+        // so a partial write must never leave the run unlocked. Folding the
+        // composition snapshot into this single write (issue 241) closes the prior
+        // two-write gap where a snapshot-write failure left the run unlocked with no
+        // restore baseline (and a re-run could freeze a post-mutation baseline).
+        // First-write-wins inside the recorder keeps both rollback baselines stable
+        // across re-runs.
         //
         // The snapshot is read under the token lock for an atomic baseline. It returns
         // null on any of three fail-closed conditions rather than a baseline that a
@@ -831,29 +836,35 @@ class PP_Apply_Command extends WP_CLI_Command {
         if ($token_snapshot === null) {
             _pp_cli_preflight_record_failed($result, 'Could not read an atomic pre-apply token baseline for run token "' . $run_id . '": the token lock is contended, or the pp_token_overrides row is corrupt/unreadable. PREFLIGHT was not recorded. Re-run `wp pp apply preflight` once the contention clears; if it persists, inspect and repair the pp_token_overrides option.');
         }
-        // Freshness baseline (#113): for a page-scoped preflight, record the target's
-        // composition marker so a later `action execute` / `operate patch` can reject a
-        // composition changed since this preflight. Null for a site-grain preflight.
-        $composition_marker = isset($context['post_id'])
-            ? pp_get_composition_marker((int) $context['post_id'])
-            : null;
-        if (!pp_operate_record_preflight($run_id, $context['post_id'] ?? null, $token_snapshot, $composition_marker)) {
-            _pp_cli_preflight_record_failed($result, 'Could not record PREFLIGHT state for run token "' . $run_id . '". State file may be missing or expired. Re-run `wp pp operate inspect`.');
-        }
-        // Composition content snapshot (#133): for a page-scoped preflight, freeze the
-        // pre-apply composition so a run-scoped restore (`wp pp apply restore-composition`)
-        // can revert this post to its pre-run state. First-write-wins inside the recorder
-        // keeps the baseline stable across preflight re-runs in the same run.
+        // Freshness baseline (#113) + run-scoped restore baseline (#133): for a
+        // page-scoped preflight, capture the target's composition marker (so a later
+        // `action execute` / `operate patch` can reject a composition changed since
+        // this preflight) and its pre-apply composition CONTENT (so a run-scoped
+        // restore can revert this post to its pre-run state). Both are null for a
+        // site-grain preflight.
+        $composition_marker  = null;
+        $composition_content = null;
         if (isset($context['post_id'])) {
             $pid = (int) $context['post_id'];
-            if (!pp_operate_record_composition_content_snapshot($run_id, $pid, pp_get_composition($pid))) {
-                // PREFLIGHT itself is already recorded at this point (that write is
-                // the atomic unlock and stays first-write-wins), so the run is
-                // unlocked while the command reports failure. That is the safe
-                // direction: the operator re-runs preflight (idempotent — baselines
-                // are first-write-wins) instead of proceeding on a false success.
-                _pp_cli_preflight_record_failed($result, 'Could not record the pre-apply composition snapshot for run token "' . $run_id . '" (post ' . $pid . '). State file may be missing or expired. Re-run `wp pp operate inspect`.');
+            $composition_marker = pp_get_composition_marker($pid);
+            // Read the restore baseline via the result-returning decoder so a corrupt
+            // or undecodable _pp_composition row FAILS the preflight closed (issue 241)
+            // instead of freezing [] as the baseline — which a later run-scoped restore
+            // would replay to BLANK the page. Mirrors the token snapshot's fail-closed
+            // treatment of a corrupt pp_token_overrides row (#207). pp_get_composition()
+            // coerces corruption to [] and must not be used here.
+            $composition_result = pp_get_composition_result($pid);
+            if (!$composition_result['ok']) {
+                _pp_cli_preflight_record_failed($result, 'Could not read a valid pre-apply composition baseline for run token "' . $run_id . '" (post ' . $pid . '): the stored composition is ' . $composition_result['error'] . '. PREFLIGHT was not recorded, so both the action gate and the restore baseline stay fail-closed. Repair the post\'s composition before re-running `wp pp apply preflight`.');
             }
+            $composition_content = $composition_result['composition'];
+        }
+        // Single atomic write: PREFLIGHT step + coverage + token snapshot + (for a
+        // page-scoped preflight) the composition marker and content baseline. Recording
+        // them together means the run can never be left unlocked without its restore
+        // baseline; any recording failure records nothing and reports {"ok": false}.
+        if (!pp_operate_record_preflight($run_id, $context['post_id'] ?? null, $token_snapshot, $composition_marker, $composition_content)) {
+            _pp_cli_preflight_record_failed($result, 'Could not record PREFLIGHT state for run token "' . $run_id . '". State file may be missing or expired. Re-run `wp pp operate inspect`.');
         }
 
         WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
