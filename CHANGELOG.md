@@ -4,6 +4,23 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.77] — 2026-07-11 — the full-width closing CTA now centers its copy and button instead of splitting them to opposite edges (#257)
+
+**A `cta` with the id `home-cta` in its default `full-width` layout rendered broken on desktop: the body copy was jammed against the right edge and the button against the left, while the eyebrow and headline stayed centered above them. The block read as misassembled rather than composed. It now centers all of its content, as a full-width call-to-action should.**
+
+The cause was a set of alignment rules that were only ever meant for the other CTA layout. At 768px and up, `home-cta` in `inline` layout becomes a two-column grid, and its body and button carry `align-self` values that place them within that grid. Those declarations were written without the `inline` scope, so they also reached the default `full-width` layout, where the same block is a centered vertical stack, not a grid. In a vertical stack `align-self` controls the horizontal axis, so "place at the grid's end" became "shove to the right edge" and "place at the grid's start" became "shove to the left edge". The fix scopes those two declarations to the inline layout. In `full-width` the body and button now fall back to the stack's own centering, matching the eyebrow and title.
+
+Every shipped page uses the inline layout, where these rules were always correct, so no live page changed. The bug only appeared for an author who set `id: home-cta` with the default layout, which is now what the release gate guards against.
+
+### Fixed
+
+- A `full-width` `cta` with `id: home-cta` now centers its body copy and button at 768px and up, instead of flushing the body to the right edge and the button to the left. The `align-self` declarations that position those elements in the `inline` grid are now scoped to the inline layout and no longer leak into the default full-width stack (#257).
+
+### Tests
+
+- A rendered end-to-end case pins the full-width `home-cta` body and button centered within the block at 1280px; reverting the CSS pushes them back to opposite edges and turns it red.
+- Stylesheet checks assert the leaking `align-self` values (`start`/`end`, and the `flex-end` synonym) never sit on a bare `#home-cta` selector, that the inline layout keeps its intended placement, and that the two-column grid the inline rules describe is still present.
+
 ## [v0.16.76] — 2026-07-11 — the homepage closing CTA no longer scrolls the page sideways on a tablet (#258)
 
 **A `cta` with `layout: "inline"` and the id `home-cta` pushed the page horizontally off screen on every viewport from 768px to about 912px. The two-column grid switches on at 768px, but the columns it asked for could not fit in the space that breakpoint actually leaves: 36rem for the headline, 18rem for the action copy and a gap of at least 3rem, against a content box of roughly 40rem. Those were floors, not preferences, so the grid could not shrink and the page scrolled instead. The columns are now allowed to shrink, and the shipped homepage fits at every width.**
