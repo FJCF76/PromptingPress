@@ -137,8 +137,10 @@ Every `image_url` field on hero, section, and logos items has a companion `image
 Get an attachment id (and its canonical local URL) via the `import_media` apply — sideloads an external image URL into the media library:
 
 ```bash
-# Like every mutating apply, needs a run token + site-scoped preflight first
-# (wp pp operate inspect → wp pp apply preflight --run-id=<uuid>):
+# Like every mutating apply, needs a run token + site-scoped preflight first.
+# Pass --apply=import_media so preflight verifies the uploads directory is
+# writable (#229) instead of assuming a database-only apply:
+# (wp pp operate inspect → wp pp apply preflight --run-id=<uuid> --apply=import_media):
 wp pp apply execute import_media --run-id=<uuid> --params='{"url":"https://example.com/logo.png","alt":"Client logo"}'
 # => {"attachment_id": 123, "url": "https://yoursite.com/wp-content/uploads/2026/07/logo.png"}
 ```

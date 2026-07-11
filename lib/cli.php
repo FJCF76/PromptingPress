@@ -739,8 +739,9 @@ class PP_Apply_Command extends WP_CLI_Command {
     /**
      * Validates the execution surface before any mutation.
      *
-     * Checks: target resolved, capability OK, backup directory writable,
-     * drift state, theme writability, and target page (if applicable).
+     * Checks: target resolved, capability OK, drift state, theme writability
+     * (file-targeting applies), uploads writability (media-target applies),
+     * target page (if applicable), and surface classification.
      * Records PREFLIGHT step in the run state file.
      *
      * ## OPTIONS
@@ -757,6 +758,7 @@ class PP_Apply_Command extends WP_CLI_Command {
      *
      * [--apply=<name>]
      * : Named apply definition. Auto-populates planned_files from the apply's target (file-based applies only).
+     *   Media-target applies (import_media) enable the uploads_writable check.
      *
      * ## EXAMPLES
      *
