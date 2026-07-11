@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.73] — 2026-07-11 — the cta eyebrow is a pill above the title, not a band below the button (#255)
+
+**Same defect as v0.16.72, same prop, a different mechanism — and this one moved the eyebrow as well as stretching it. On `#home-cta` at 768px and up, `cta.eyebrow` rendered as a colored band the full width of the title column, sitting underneath the call-to-action button. It now renders where the schema has always said it does: a compact pill, sized to its own text, directly above the headline.**
+
+The hero's band came from a flex column blockifying an `inline-block`. The CTA's came from a grid. At the desktop breakpoint `#home-cta .cta__text` is `display: contents`, which dissolves that wrapper and promotes the eyebrow, title and body into `.cta__inner` — which is a two-column grid. Grid blockifies its items exactly as flex does, so the pill stretched. But the eyebrow was also the only child with no placement of its own, and its three siblings are all explicitly placed: title in column 1 across both rows, body and button stacked in column 2. Auto-placement therefore walked past every occupied cell and dropped the eyebrow into the first free one — row 3, column 1 — which is why a label whose entire job is to sit above the headline was rendering below the button. Sizing it correctly without placing it would have produced a tidy pill in the wrong place, so the fix does both: the eyebrow takes row 1 of the title column, and title, body and button each shift down one row.
+
+Nothing about the authoring surface changes. `cta.eyebrow` already existed, and `components/cta/schema.json` already described it as "a short kicker/label rendered as a pill above the title" — the render simply did not match the contract. This was invisible on the live site for the same reason #225 was: no shipped page sets `cta.eyebrow`, so nothing ever drew the band. The new empty row costs those pages nothing, because the row gap is zero and an empty grid row collapses to nothing — a claim the tests now measure in a browser rather than assume.
+
+### Fixed
+- **`cta.eyebrow` renders as a pill above the title on `#home-cta`, not a band below the button** (`assets/css/components.css`). The eyebrow takes `grid-column: 1` / `grid-row: 1` with `justify-self: start`; title, body and button shift to rows 2, 2 and 3. The rule is scoped to `#home-cta.cta--inline` on purpose: `.cta__inner` is a flex column in the default `full-width` layout, where `align-self` controls the horizontal axis and an unscoped rule would flush the pill against the right edge instead.
+
+### Tests
+- `tests/e2e/style-render.spec.ts`: rendered-box proof that the pill sits above the title at 1280px, at the 768px breakpoint, and at mobile — position, not just width, because a width-only assertion passes happily while the eyebrow renders under the button. One case pins the state every shipped page is actually in (no eyebrow set) and proves the empty row still collapses; another renders the `full-width` layout and proves the fix stayed scoped to `inline`.
+- `tests/js/css-lint.test.js`: pins both halves of the bug — the pill is sized to its content, and it is placed in row 1 — plus the ways either could return while the other pins stayed green: a `gap` shorthand quietly resetting the zero row gap, a width added to any eyebrow rule, an alignment declared outside the two rules allowed to carry one, or the title reclaiming row 1. The rule scanner and the band-restoring guard are now shared with the hero pins rather than duplicated.
+- `tests/ComponentPropsTest.php`: pins the eyebrow as a direct child of `.cta__text`. `display: contents` dissolves exactly one box, so wrapping the eyebrow in anything would leave it inside a box that still exists, silently stop it being a grid item, and take the placement rules out of the cascade with every CSS pin still passing.
+
+---
+
 ## [v0.16.72] — 2026-07-11 — the hero eyebrow is a pill again, not a colored band (#225)
 
 **`hero.eyebrow` is documented as a pill: a short kicker sized to its own text, sitting above the headline. It rendered as a full-width colored band spanning the entire hero content column. The CSS said `display: inline-block` and meant it, but `.hero__eyebrow` is a direct child of `.hero__content`, which is a flex column, and a flex container blockifies its children — `inline-block` computes to `block`, then the default `stretch` alignment pulls the box across the full width. The eyebrow now shrinks to its text in all four hero layouts, flush with the leading edge on `left` and `split`, centered on `centered` and `cover`.**
