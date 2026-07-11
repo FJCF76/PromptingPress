@@ -38,7 +38,7 @@ Each item in `items`:
 | Tablet (md 768px+) | 2  |
 | Desktop (lg 1024px+) | depends on item count — see below |
 
-At desktop, a composed grid lays out by item count:
+At desktop, a composed `cards` grid lays out by item count:
 
 | Items | Desktop columns |
 |-------|-----------------|
