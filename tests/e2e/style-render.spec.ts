@@ -565,4 +565,39 @@ test.describe('Safe-surface rendered proof', () => {
     const innerBox = (await page.locator('.cta__inner').boundingBox())!;
     expect(buttonBox.x + buttonBox.width).toBeLessThanOrEqual(innerBox.x + innerBox.width + 1);
   });
+
+  test('#266 an unbreakable button label wraps instead of scrolling the page', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E CTA Overflow Unbreakable Button');
+    setComposition(pageId, [
+      {
+        component: 'cta',
+        props: {
+          id: 'home-cta',
+          layout: 'inline',
+          title: 'A deliberately long closing headline that widens the title column',
+          text: 'Supporting copy that occupies the right-hand column of the grid.',
+          // No spaces: the label cannot wrap at a word boundary, so without a
+          // last-resort break it grows past its grid track and scrolls the page.
+          button_text: 'StartYourFreeThirtyDayTrialNowNoCardRequiredToday',
+          button_url: '/start',
+        },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 768, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const button = page.locator('.cta__button');
+    await expect(button).toBeVisible({ timeout: 10000 });
+
+    const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+    expect(scrollWidth).toBeLessThanOrEqual(769);
+
+    // The button wrapped inside .cta__inner's content box rather than widening past it.
+    const buttonBox = (await button.boundingBox())!;
+    const innerBox = (await page.locator('.cta__inner').boundingBox())!;
+    expect(buttonBox.x + buttonBox.width).toBeLessThanOrEqual(innerBox.x + innerBox.width + 1);
+  });
 });

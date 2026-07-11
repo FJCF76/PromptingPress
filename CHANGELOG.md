@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.79] — 2026-07-11 — a CTA button label with no spaces can no longer scroll the page sideways (#266)
+
+**A `cta` button whose label had no place to break, a long unbroken string like a run-together phrase or a URL slug, grew wider than its column and pushed the page horizontally off screen at 768px. Normal labels, including long ones with spaces, wrap inside the button and were always fine; only a label with zero break opportunities could force the overflow. Any label now wraps inside the button instead of widening its column, so no author-supplied button text can scroll the page.**
+
+The button on the four inline CTAs (`home-cta`, `how-cta`, `agencies-cta`, `implementers-cta`) sizes itself to its content with a min-width floor and a 20rem cap. A label with spaces wraps at a space and stays inside the button; a label with no spaces cannot wrap, so the button grew toward its 20rem cap, past the grid track it sits in, and the page scrolled. The fix gives the button a last-resort break with `overflow-wrap: anywhere`. Unlike the `break-word` behavior already applied site-wide, `anywhere` lets the browser count a mid-word break as a width the button can shrink to, so the button collapses back to its min-width and the label wraps onto a second line inside it. Short and spaced labels are unchanged: they still size the button to its min-width floor and never trigger the break.
+
+### Fixed
+
+- A `cta` button label with no break opportunities (an unbroken string with no spaces) no longer widens the action column past its grid track and scrolls the page sideways at 768px. The four inline CTA buttons now carry `overflow-wrap: anywhere`, so any label wraps inside the button instead of growing it; short and spaced-label rendering is unchanged (#266).
+
+### Tests
+
+- A rendered end-to-end case sets an unbreakable ~48-character button label on `home-cta` at 768px and asserts the page does not scroll sideways and the button stays inside its container; reverting the CSS turns it red.
+
 ## [v0.16.78] — 2026-07-11 — the other three inline CTAs no longer scroll the page sideways on a tablet (#265)
 
 **A `cta` with `layout: "inline"` and the id `how-cta`, `agencies-cta`, or `implementers-cta` pushed the page horizontally off screen from 768px to about 912px, exactly as `home-cta` did before v0.16.76. The two-column grid switches on at 768px, but the columns it asked for (32.5rem for the headline, 14rem for the action copy, and a gap of at least 3rem) could not fit in the roughly 40rem the breakpoint actually leaves. Those were floors, not preferences, so the grid could not shrink and the page scrolled. The columns are now allowed to shrink, and pages using any of the three inline CTA ids fit at every width.**
