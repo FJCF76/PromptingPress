@@ -3060,6 +3060,13 @@ main .btn--ghost {
   max-width: 20rem;
   padding-right: 1.35rem;
   padding-left: 1.35rem;
+  /* Last-resort break for an unbreakable author-supplied button_text label
+     (issue 266): `anywhere` (unlike the global `break-word`) feeds soft-wrap
+     opportunities into the intrinsic min-content size, so `fit-content`
+     collapses to the available track and the label wraps inside the button
+     instead of widening the column past its grid track and scrolling the
+     page. Short and spaced labels are unaffected (they still hit min-width). */
+  overflow-wrap: anywhere;
 }
 
 #home-cta .cta__button::before,
