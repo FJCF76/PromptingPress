@@ -2879,7 +2879,10 @@ main > .grid:not(.grid--steps) .grid__item::before {
 }
 
 main > .grid:not(.grid--steps) .grid__item:first-child {
-  border-color: var(--color-border-accent);
+  /* Featured-card accent border is the DEFAULT; a per-instance --grid-card-border
+     overrides it, mirroring --grid-card-bg below, so a declared style slot never
+     silently no-ops on the first card (issue 226). */
+  border-color: var(--grid-card-border, var(--color-border-accent));
   /* Featured-card accent fill is the DEFAULT; a per-instance --grid-card-bg
      overrides it so the first card stays uniform with the rest when an author
      sets an explicit card color (e.g. uniform dark cards on a dark band). */
@@ -3279,7 +3282,10 @@ main > .grid .grid__item {
 }
 
 main > .grid:not(.grid--steps) .grid__item:first-child {
-  border-color: var(--color-accent-strong);
+  /* Later-cascade winner: this is the border-color that actually applies. Route it
+     through --grid-card-border too (matching the earlier rule) or the slot stays
+     ignored on the first card (issue 226). */
+  border-color: var(--grid-card-border, var(--color-accent-strong));
 }
 
 main .btn,
