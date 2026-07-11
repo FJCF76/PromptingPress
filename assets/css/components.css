@@ -2184,8 +2184,32 @@
 
 /* Homepage closing CTA headline fix: title-left, action copy-right on desktop. */
 @media (min-width: 768px) {
+  /* Both tracks must be able to SHRINK, because this grid turns on at 768px but the
+     content box it gets there is far narrower than the viewport: the container eats
+     2 * var(--space-lg) (its padding switches to --space-lg at this same 768px
+     breakpoint, utilities.css), and .cta__inner itself eats 2 * clamp(2rem, 4vw, 2.6rem)
+     of padding plus its 1px border (see the .cta__inner rule further down). At 768px that
+     leaves roughly 40rem, so the old fixed floors (36rem + 18rem + a 3rem gap = 57rem)
+     could not fit and the section scrolled the page sideways from 768px through ~912px
+     (issue 258). The E2E cases pin the rendered page width across that band.
+
+     Column 2's floor is the button's own min-width (14.75rem — the four-CTA button rule
+     below re-declares it and wins over the earlier 15.5rem), so the button can never
+     overflow its track. Keep the two in step. Column 1 is 0-floored and fractional, so it
+     absorbs whatever is left. The desktop composition is unchanged in practice because
+     .cta__title and .cta__body already cap themselves (max-width 40rem / 22rem) long
+     before the tracks stop growing.
+
+     Two separate mechanisms, easy to conflate: the `0` min sizing function is what lets
+     the TRACK size below the title's min-content (a `minmax(0, ...)` track's minimum is a
+     fixed 0, so a grid item's `min-width: auto` cannot hold it open). That alone would
+     still leave a long unbreakable headline word PAINTING outside the narrowed column and
+     scrolling the page. What keeps the word inside the column is base.css's
+     `overflow-wrap: break-word` on `p, h1..h6`, which lets it wrap mid-word. Both are
+     load-bearing: at 768px, forcing `overflow-wrap: normal` on the title puts ~97px back
+     outside the viewport. The E2E long-word case guards that cross-file dependency. */
   #home-cta.cta--inline .cta__inner {
-    grid-template-columns: minmax(36rem, 40rem) minmax(18rem, 1fr);
+    grid-template-columns: minmax(0, 2fr) minmax(14.75rem, 1fr);
     column-gap: clamp(3rem, 6vw, 5.5rem);
     row-gap: 0;
     align-items: center;

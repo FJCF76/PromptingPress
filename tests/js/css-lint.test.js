@@ -716,6 +716,101 @@ describe('CSS lint: cta eyebrow is a pill above the title (#255)', () => {
     });
 });
 
+/*
+ * #258: the inline CTA grid activates at 768px, but the content box it gets there is
+ * only ~40rem — the container's padding plus .cta__inner's own clamp(2rem, 4vw, 2.6rem)
+ * padding and border come out of the viewport first. The old floors demanded
+ * 36rem + 18rem + a >=3rem gap = ~57rem, so the grid could not shrink and scrolled the
+ * page sideways from 768px to ~1030px.
+ *
+ * The rendered proof lives in the E2E suite (scrollWidth <= viewport). These pins guard
+ * the two structural properties that proof silently depends on, and that a later edit
+ * could break while the CSS still looked reasonable.
+ */
+describe('CSS lint: the inline cta grid can shrink to its breakpoint (#258)', () => {
+    const DESKTOP = '(min-width: 768px)';
+    const INNER = '#home-cta.cta--inline .cta__inner';
+
+    function columnsFor(selector, media) {
+        const decls = rulesMatching('.cta__inner')
+            .filter(r => r.media === media && r.selectors.includes(selector))
+            .map(r => /grid-template-columns\s*:\s*([^;}]+)/.exec(r.body))
+            .filter(Boolean);
+        return decls.length ? decls[decls.length - 1][1].trim() : null;
+    }
+
+    // Read the LAST declaration, i.e. the cascade winner: .cta__inner's tracks are set by
+    // the shared four-CTA block AND re-set by the #home-cta override after it. A pin that
+    // matched the first hit would keep passing while a later rule reintroduced fixed floors.
+    const columns = () => columnsFor(INNER, DESKTOP);
+
+    /*
+     * The whole fix. A track whose MIN is a fixed length cannot shrink below it, which is
+     * precisely how the bug worked. Column 1 must therefore floor at 0, and column 2 may
+     * only floor at the button's min-width (below).
+     */
+    test('column 1 floors at 0 so the grid can shrink below its content', () => {
+        expect(columns()).toMatch(/^minmax\(\s*0\s*,/);
+    });
+
+    /*
+     * Column 2's floor is not an arbitrary number — it is .cta__button's min-width. The
+     * button is the one item in that column that refuses to get narrower, so if the floor
+     * ever drops below the button's min-width the button overflows its own track and the
+     * page scrolls sideways again. Derive both from the stylesheet and compare, so moving
+     * either one without the other fails here instead of in someone's browser.
+     */
+    test('column 2 floors at exactly the cta button min-width', () => {
+        // The cascade winner AT THE BREAKPOINT, which is not simply the last unscoped
+        // rule: #home-cta .cta__button is declared min-width twice outside any media
+        // query, and a `@media (min-width: 768px)` rule for these buttons already exists.
+        // A min-width added to that media rule would beat both base declarations exactly
+        // where this grid is live, so consider unscoped and desktop rules together and
+        // take the last. Reading only the unscoped rules would compare the track floor
+        // against a value the browser no longer uses, and pass while the button overflows.
+        const buttonMinWidth = rulesMatching('.cta__button')
+            .filter(r => (r.media === null || r.media === DESKTOP)
+                && r.selectors.includes('#home-cta .cta__button'))
+            .map(r => /min-width\s*:\s*([^;}]+)/.exec(r.body))
+            .filter(Boolean)
+            .pop();
+
+        expect(buttonMinWidth).toBeTruthy();
+
+        const floor = /minmax\(\s*([^,]+),[^)]*\)\s*$/.exec(columns());
+        expect(floor).toBeTruthy();
+        expect(floor[1].trim()).toBe(buttonMinWidth[1].trim());
+    });
+
+    /*
+     * The 0 floor shrinks the TRACK, but it does not make the title's text fit inside it:
+     * a long unbreakable word would simply paint outside the narrowed column and scroll
+     * the page anyway. base.css's `overflow-wrap: break-word` on `p, h1..h6` is what lets
+     * the word wrap mid-word instead (measured: forcing `overflow-wrap: normal` on the
+     * title at 768px puts ~97px back outside the viewport). Nothing in components.css says
+     * so, so a base.css edit could reopen #258 from a distance. The E2E long-word case
+     * proves the render; this pin names the cross-file dependency.
+     */
+    test('the title can still break a long word (base.css keeps the 0 floor effective)', () => {
+        // Scoped, not a file-wide substring search: `overflow-wrap: break-word` narrowed
+        // to some unrelated selector would leave a bare /break-word/ match green while the
+        // CTA title regained a min-content floor — the exact edit that reopens #258. The
+        // title renders as an <h2> and the body as a <p>, so assert the rule that actually
+        // covers them still carries the declaration.
+        const wrapping = stripComments(BASE_CSS)
+            .split('}')
+            .map(chunk => chunk.split('{'))
+            .filter(([, body]) => body && /overflow-wrap\s*:\s*break-word/.test(body))
+            .map(([selectors]) => selectors.split(',').map(s => s.trim()));
+
+        expect(wrapping.length).toBeGreaterThan(0);
+
+        const covered = wrapping.flat();
+        expect(covered).toContain('h2');
+        expect(covered).toContain('p');
+    });
+});
+
 describe('CSS lint: no raw hex in components.css', () => {
     test('components.css has no raw hex color values', () => {
         const stripped = stripComments(COMPONENTS_CSS);

@@ -230,10 +230,10 @@ test.describe('Safe-surface rendered proof', () => {
   // the title.
   //
   // 768px is covered to prove the placement rules take effect the moment the media
-  // query matches, not to prove the section fits there — it does not. The #home-cta
-  // track (minmax(36rem, 40rem) + minmax(18rem, 1fr) + a >=3rem gap) needs ~57rem, so
-  // the grid overflows the viewport between 768px and ~912px. That overflow predates
-  // this fix and is tracked separately; asserting against it here would pin a bug.
+  // query matches. It now also FITS there: #258 replaced the old fixed track floors
+  // (minmax(36rem, 40rem) + minmax(18rem, 1fr), which needed ~57rem the 768px
+  // breakpoint never had) with shrinkable ones. The overflow those floors caused is
+  // asserted against directly by the #258 block below.
   const ctaEyebrowViewports = [
     { label: 'desktop', width: 1280, height: 900 },
     { label: 'breakpoint', width: 768, height: 900 },
@@ -366,5 +366,144 @@ test.describe('Safe-surface rendered proof', () => {
     const eyebrowCenter = eyebrowBox.x + eyebrowBox.width / 2;
     const innerCenter = innerBox.x + innerBox.width / 2;
     expect(Math.abs(eyebrowCenter - innerCenter)).toBeLessThan(2);
+  });
+
+  /*
+   * #258: the inline CTA grid turns on at 768px, but the old track floors
+   * (minmax(36rem, 40rem) + minmax(18rem, 1fr) + a >=3rem gap = ~57rem) could not fit
+   * in the content box that breakpoint actually provides — the container's padding and
+   * .cta__inner's own clamp(2rem, 4vw, 2.6rem) padding + border leave roughly 40rem at
+   * 768px. The grid could not shrink, so it pushed the page sideways.
+   *
+   * Measured on THIS page with the fix reverted (documentElement.scrollWidth): 768px ->
+   * 977, 800px -> 977, 860px -> 983, 912px -> 983, 1024px -> fits. So 768..912 are the
+   * cases that actually catch the regression; 1024 is carried as the clean upper edge, to
+   * fail if a future change ever widens the band into it rather than to prove today's bug.
+   *
+   * A page that scrolls sideways is the whole bug, so assert exactly that, at the widths
+   * that used to fail. scrollWidth is rounded up to an integer, so allow 1px of slack
+   * rather than pinning a fractional layout.
+   */
+  const ctaOverflowViewports = [768, 800, 860, 912, 1024];
+
+  for (const width of ctaOverflowViewports) {
+    // One @smoke case at the worst-overflowing width, so the post-merge main run (which
+    // executes only the @smoke subset) still watches for the sideways scroll.
+    const smoke = width === 768 ? ' @smoke' : '';
+
+    test(`#258 the inline cta does not scroll the page sideways at ${width}px${smoke}`, async ({
+      page,
+    }) => {
+      pageId = createPage(`E2E CTA Overflow ${width}`);
+      setComposition(pageId, [
+        {
+          component: 'cta',
+          props: {
+            // The overflowing track override is scoped to #home-cta.
+            id: 'home-cta',
+            layout: 'inline',
+            title: 'A deliberately long closing headline that widens the title column',
+            text: 'Supporting copy that occupies the right-hand column of the grid.',
+            eyebrow: 'BETA',
+            button_text: 'Get started',
+            button_url: '/start',
+          },
+        },
+      ]);
+
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('.cta__inner')).toBeVisible({ timeout: 10000 });
+
+      // "No overflow" is also true of a page where the rule under test never applied at
+      // all — if the component stopped emitting id="home-cta", or the media query moved,
+      // the grid would quietly fall back to the flex column and every assertion below
+      // would still pass while guarding nothing. Prove the two-column grid is live first.
+      const tracks = await page.evaluate(
+        () => getComputedStyle(document.querySelector('.cta__inner')!).gridTemplateColumns,
+      );
+      expect(tracks.split(/\s+/).filter(Boolean)).toHaveLength(2);
+
+      const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+      expect(scrollWidth).toBeLessThanOrEqual(width + 1);
+    });
+  }
+
+  /*
+   * The fix floors column 1 at 0 (`minmax(0, 2fr)`), which only lets the track shrink
+   * because base.css declares `overflow-wrap: break-word` — that collapses the title's
+   * min-content size. A grid item's `min-width: auto` otherwise resolves to min-content
+   * and holds the track open regardless of the 0 floor, which would bring the sideways
+   * scroll straight back for any headline containing a long unbreakable word.
+   *
+   * That dependency is invisible in the CTA's own rules, so pin the behavior rather than
+   * the declaration: a headline that cannot wrap at a space must still not scroll the
+   * page. Guards a future edit to base.css, not just to this component.
+   */
+  test('#258 a long unbreakable headline word still does not scroll the page sideways', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E CTA Overflow Long Word');
+    setComposition(pageId, [
+      {
+        component: 'cta',
+        props: {
+          id: 'home-cta',
+          layout: 'inline',
+          title: 'Internationalisierungszusammenarbeitsvereinbarung',
+          text: 'Supporting copy that occupies the right-hand column of the grid.',
+          button_text: 'Get started',
+          button_url: '/start',
+        },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 768, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('.cta__inner')).toBeVisible({ timeout: 10000 });
+
+    const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+    expect(scrollWidth).toBeLessThanOrEqual(769);
+  });
+
+  /*
+   * Column 2's floor IS the button's min-width, which is the only reason the button can
+   * never overflow its own track. (The exact value is derived from the stylesheet by the
+   * css-lint pin rather than restated here, so the two cannot drift apart.) That holds
+   * because the button wraps its label (`white-space: normal`) instead of growing past
+   * the floor. A `white-space: nowrap` added to .cta__button would make a long label
+   * widen the track and reopen the overflow, with every other pin here still green.
+   */
+  test('#258 a long button label wraps instead of widening the action column', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E CTA Overflow Long Button');
+    setComposition(pageId, [
+      {
+        component: 'cta',
+        props: {
+          id: 'home-cta',
+          layout: 'inline',
+          title: 'A deliberately long closing headline that widens the title column',
+          text: 'Supporting copy that occupies the right-hand column of the grid.',
+          button_text: 'Start your free 30-day trial now, no card required',
+          button_url: '/start',
+        },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 768, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const button = page.locator('.cta__button');
+    await expect(button).toBeVisible({ timeout: 10000 });
+
+    const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+    expect(scrollWidth).toBeLessThanOrEqual(769);
+
+    // The button stayed inside .cta__inner's content box rather than pushing through it.
+    const buttonBox = (await button.boundingBox())!;
+    const innerBox = (await page.locator('.cta__inner').boundingBox())!;
+    expect(buttonBox.x + buttonBox.width).toBeLessThanOrEqual(innerBox.x + innerBox.width + 1);
   });
 });
