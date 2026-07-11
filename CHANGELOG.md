@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.78] — 2026-07-11 — the other three inline CTAs no longer scroll the page sideways on a tablet (#265)
+
+**A `cta` with `layout: "inline"` and the id `how-cta`, `agencies-cta`, or `implementers-cta` pushed the page horizontally off screen from 768px to about 912px, exactly as `home-cta` did before v0.16.76. The two-column grid switches on at 768px, but the columns it asked for (32.5rem for the headline, 14rem for the action copy, and a gap of at least 3rem) could not fit in the roughly 40rem the breakpoint actually leaves. Those were floors, not preferences, so the grid could not shrink and the page scrolled. The columns are now allowed to shrink, and pages using any of the three inline CTA ids fit at every width.**
+
+`home-cta` was fixed in v0.16.76 (#258), but its fix lives in an id-specific override that the other three CTAs never reach. They are sized by the shared four-CTA rule, which still carried the same fixed track floors. The fix floors the headline column at zero (fractional, so it absorbs the slack) and floors the action column at the button's own min-width (14.75rem), the one thing in that column that refuses to get narrower, so the button can never overflow its track. `home-cta` re-sets these same tracks in its own override and is unaffected. On desktop nothing moves: the headline and body already cap themselves well before the tracks stop growing, so the two-column composition renders as before.
+
+### Fixed
+
+- A `cta` with `layout: "inline"` and the id `how-cta`, `agencies-cta`, or `implementers-cta` no longer scrolls the page sideways between 768px and ~912px. The shared four-CTA inline grid rule now uses shrinkable track floors (`minmax(0, 2fr) minmax(14.75rem, 1fr)`), mirroring the `home-cta` fix from #258 (#265).
+
+### Tests
+
+- The rendered end-to-end overflow check is now parametrized over all four inline CTA ids (`home-cta`, `how-cta`, `agencies-cta`, `implementers-cta`) across 768–1024px, with one `@smoke` case per id at the worst-overflowing width; reverting the CSS turns the three new ids red.
+- Stylesheet checks assert that the three shared-rule CTAs floor their first column at 0 and their second column at exactly the CTA button's min-width, so the two values cannot silently drift apart.
+
 ## [v0.16.77] — 2026-07-11 — the full-width closing CTA now centers its copy and button instead of splitting them to opposite edges (#257)
 
 **A `cta` with the id `home-cta` in its default `full-width` layout rendered broken on desktop: the body copy was jammed against the right edge and the button against the left, while the eyebrow and headline stayed centered above them. The block read as misassembled rather than composed. It now centers all of its content, as a full-width call-to-action should.**
