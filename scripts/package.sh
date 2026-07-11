@@ -117,11 +117,9 @@ echo "Integrity manifest: $(grep -c '": "' "$MANIFEST") files hashed"
 (cd "$STAGING" && zip -qr "$THEME_DIR/$ZIP_NAME" promptingpress/)
 
 # ── 5. Validate ──────────────────────────────────────────────────────────
-# style.css must be in the ZIP
-if ! unzip -l "$ZIP_NAME" | grep -q 'promptingpress/style.css'; then
-    echo "ERROR: style.css not found in ZIP" >&2
-    exit 1
-fi
+# style.css must be in the ZIP. Delegated so the archive-read failure and the
+# missing-file failure report distinctly, and so both are testable (#260).
+bash "$THEME_DIR/scripts/validate-zip.sh" "$ZIP_NAME"
 
 # Must have a single top-level directory
 TOP_DIRS=$(unzip -l "$ZIP_NAME" | awk '/\/$/ && NF>=4 {print $4}' | grep -c '^[^/]*/$' || true)
