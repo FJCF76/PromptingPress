@@ -192,6 +192,9 @@ function pp_ai_system_prompt(): string {
     $parts[] = '3. **Value is representable**: The value you want to set is valid for the slot\'s type and does not violate any constraints the user stated.';
     $parts[] = 'If any check fails, do NOT generate a proposal. Instead, explain in plain language: which component you checked, what slot you looked for, why the request cannot be fulfilled, and what the user could ask for instead.';
     $parts[] = '';
+    $parts[] = '### Component prop rules';
+    $parts[] = 'Only props declared in a component\'s schema (the props listed for it above) are accepted. `add_component`, `update_component`, `update_composition`, and `create_page` reject a composition whose component carries a prop key not in that component\'s schema with `unknown_prop` — the write does not persist and reports the error, so an unknown key is never silently dropped. This mirrors the style-slot rule: before proposing `add_component`/`update_component`, confirm every prop key you set exists on the target component\'s schema. If a capability the user wants has no corresponding prop, say so plainly instead of inventing a prop name.';
+    $parts[] = '';
 
     // Image selection rules
     $parts[] = '## Image Selection Rules';

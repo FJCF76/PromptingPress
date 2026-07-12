@@ -215,6 +215,7 @@ Before writing, verify:
 2. Every required prop from `components/{name}/schema.json` is present and non-empty — `null`, `false`, and `""` are treated as absent
 3. The JSON is a valid array (not an object, not null)
 4. Prop types match the schema (`string`, `boolean`, `array`, `enum`)
+5. Every prop key is declared in the component's `schema.json` `props` — an undeclared key is rejected on save with `unknown_prop` (the write does not persist). Do not invent prop names; if a capability has no matching prop, it is not expressible.
 
 Invalid compositions are rejected on save by the PHP layer — the DB retains the last valid value.
 

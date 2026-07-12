@@ -140,6 +140,12 @@ The code is distinct from `invalid_composition` so a caller can tell "that name 
 
 A page whose stored composition already carries a collision (written before this rule, or through a non-action path) is not silently accepted: `wp pp check page` and `wp pp validate site` report a `duplicate_component_id` composition smell. And the resolver is defensive as a backstop — if a duplicate ever reaches a targeting action, `update_component` / `remove_component` / `style_component` fail closed with a `component_ambiguous` error (listing the colliding indexes) rather than silently mutating the first match. Give each component a unique authored `id`.
 
+**Unknown component props (#147).** Each component declares its full prop contract in `components/<name>/schema.json` under `props`. A composition whose component carries a prop key not in that contract is rejected at write time by `pp_validate_composition()`, so `create_page`, `update_composition`, `add_component`, `update_component`, and the dashboard editor's save all fail with:
+
+> `Component "cta" has no prop "not_a_real_prop". Available props: id, title, title_accent, eyebrow, text, button_text, button_url, layout, theme, background_image, button_variant [unknown_prop]`
+
+The source of truth is the component's schema `props`, not the curated CLI-patch editability map (`pp_get_component_fields()`), so real props like `cta.theme` and `cta.background_image` are accepted while a misspelled or invented key is not — closing the "phantom field" hole where an unknown key would persist behind an `ok:true` while the renderer silently ignored it. Unlike template-owned chrome and duplicate ids, this rule has no composition-smell counterpart: a stored composition that already carries an unknown prop (from a legacy write or a raw non-action path) is surfaced by `restore_composition`, which never blocks undo and instead reports the `unknown_prop` finding (#233), rather than by `wp pp check page`.
+
 **Output** — the preflight result:
 
 ```json
