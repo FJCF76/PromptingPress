@@ -307,8 +307,18 @@ class StyleSlotContractTest extends TestCase
      * KNOWN-DEAD WAIVERS: the audit this guard performed on landing found 27
      * slot/surface pairs (56 declaration instances; chained var() fallbacks make
      * some physical declarations kill several slots at once, accounted per slot)
-     * that were ALREADY dead — filed as issue 309 with per-pair evidence. They are
-     * waived below with exact declaration counts. The ledger is SHRINK-ONLY:
+     * that were ALREADY dead — filed as issue 309 with per-pair evidence. Issue
+     * 309 burned that ledger down: 21 pairs (49 declarations across hero, section,
+     * grid, and cta) were routed through var(--slot, <literal>) (the #226/#302
+     * idiom, unset output byte-identical), so their entries are GONE from this map.
+     *
+     * The 6 entries below are the two decision-flagged pair GROUPS the issue 309
+     * ✅ decision (2026-07-12) singled out: routing them would change intended
+     * interaction/variant semantics, so they are PERMANENT, documented waivers —
+     * the only entries allowed to survive here. Each is explained inline. No other
+     * pair may ever be waived: a new dead slot is fixed or gets its own issue.
+     *
+     * The ledger is SHRINK-ONLY:
      *   - a waived pair that stops offending fails (remove its entry with the fix);
      *   - a count drop fails (partial fix — shrink the count in the same change);
      *   - a count rise or a new pair fails (a NEW dead slot; fix it or file an issue
@@ -317,36 +327,24 @@ class StyleSlotContractTest extends TestCase
      *     can never slip in through a merge unnoticed.
      */
     private const KNOWN_DEAD_SLOT_WAIVERS = [
-        // issue 309 — hero
-        '--hero-content-width|.hero__content|max-width'                  => 2,
-        '--hero-padding-bottom|.hero|padding-bottom'                     => 1,
-        '--hero-padding-top|.hero|padding-top'                           => 1,
-        '--hero-surface-padding|.hero__surface|padding'                  => 1,
-        '--hero-title-size|.hero__title|font-size'                       => 1,
-        // issue 309 — section
-        '--section-body-width|.section__body|max-width'                  => 1,
-        '--section-body-width|.section__content|max-width'               => 2,
-        '--section-title-size|.section__title|font-size'                 => 1,
-        // issue 309 — grid
-        '--grid-card-padding|.grid__item-body|padding'                   => 3,
-        '--grid-card-radius|.grid__item|border-radius'                   => 1,
-        '--grid-card-shadow|.grid__item|box-shadow'                      => 4,
-        '--grid-gap|.grid__list|gap'                                     => 3,
-        '--grid-item-title-size|.grid__item-title|font-size'             => 5,
+        // issue 309 PERMANENT WAIVER — grid link hover (decision-flagged group 1).
+        // Base .grid__item-link { color: var(--grid-link-color, ...) } is the resting
+        // color; .grid__item-link:hover { color: var(--color-accent-hover) } is the
+        // hover state, which MUST visually override the slotted resting value.
+        // Routing the hover through the slot would make hover render identical to
+        // rest whenever an author sets --grid-link-color, destroying the hover
+        // feedback — the exact "hover state that must override the slot" case the
+        // decision names as a permanent exception.
         '--grid-link-color|.grid__item-link|color'                       => 1,
-        // issue 309 — cta
-        // The three elevation-correction literals on .cta__button kill EVERY
-        // border slot the chained var() fallbacks consume there — one physical
-        // declaration pair, four dead slots, accounted per slot.
-        '--cta-accent-hover|.cta__button|border-color'                   => 2,
-        '--cta-accent|.cta__button|border-color'                         => 2,
-        '--cta-body-size|.cta__body|font-size'                           => 3,
-        '--cta-button-border|.cta__button|border-color'                  => 2,
-        '--cta-button-hover-border|.cta__button|border-color'            => 2,
-        '--cta-content-width|.cta__title|max-width'                      => 6,
-        '--cta-inner-gap|.cta__inner|gap'                                => 3,
-        '--cta-title-size|.cta__title|font-size'                         => 3,
-        // issue 309 — testimonials
+        // issue 309 PERMANENT WAIVER — testimonials --stack variant resets
+        // (decision-flagged group 2). The .testimonials--stack variant is a
+        // card-LESS presentation by design (components.css: "single centered column,
+        // no card chrome"); its .testimonials__item resets (padding:0, transparent
+        // bg, border:none, box-shadow:none) exist specifically to neutralize the card
+        // slots. Routing them through the card slots would let a set card slot leak
+        // card chrome back into the stack variant, changing what "stack" renders —
+        // the "variant reset that exists to neutralize a slot by design" case the
+        // decision names as a permanent exception.
         '--testimonials-card-bg|.testimonials__item|background'          => 2,
         '--testimonials-card-border-width|.testimonials__item|border'    => 1,
         '--testimonials-card-border|.testimonials__item|border'          => 1,
@@ -411,9 +409,9 @@ class StyleSlotContractTest extends TestCase
      */
     public function testWaiverLedgerOnlyShrinks(): void
     {
-        $this->assertSame(27, count(self::KNOWN_DEAD_SLOT_WAIVERS),
-            'The issue 309 waiver ledger changed size. Fixes shrink it (update this pin in the same change); new dead slots are fixed or get their own issue — never silently waived.');
-        $this->assertSame(56, array_sum(self::KNOWN_DEAD_SLOT_WAIVERS),
+        $this->assertSame(6, count(self::KNOWN_DEAD_SLOT_WAIVERS),
+            'The issue 309 waiver ledger changed size. Fixes shrink it (update this pin in the same change); new dead slots are fixed or get their own issue — never silently waived. The 6 surviving entries are the two decision-flagged permanent-waiver groups (grid-link hover + testimonials --stack resets).');
+        $this->assertSame(7, array_sum(self::KNOWN_DEAD_SLOT_WAIVERS),
             'Total waived bypass declarations changed. Update this pin in the same change as the ledger edit it reflects.');
     }
 
