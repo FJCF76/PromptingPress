@@ -480,6 +480,158 @@ class SchemaValidationTest extends TestCase
         $this->assertSame('template_owned_component', $result->get_error_code());
     }
 
+    // ── Unknown prop keys are rejected (issue 147) ──────────────────────────
+    //
+    // update_component / add_component / update_composition shallow-merge caller
+    // props and write. Before this rule, an unknown prop key persisted, the action
+    // reported ok:true, and the renderer silently ignored it. pp_validate_composition()
+    // now rejects an undeclared prop key against the component's schema.json props.
+
+    public function testCompositionRejectsUnknownPropKey(): void
+    {
+        $result = pp_validate_composition([
+            ['component' => 'hero', 'props' => ['title' => 'Hi', 'not_a_real_prop' => 'x']],
+        ]);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame(
+            'unknown_prop',
+            $result->get_error_code(),
+            'A distinct code so callers can tell "that prop does not exist" apart from '
+            . 'a missing-required or unknown-component error.'
+        );
+    }
+
+    public function testUnknownPropErrorNamesComponentAndProp(): void
+    {
+        $result = pp_validate_composition([
+            ['component' => 'cta', 'props' => [
+                'title' => 'T', 'text' => 'x', 'button_text' => 'Go', 'button_url' => '#',
+                'phantom_field' => 'oops',
+            ]],
+        ]);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertStringContainsString('cta', $result->get_error_message());
+        $this->assertStringContainsString('phantom_field', $result->get_error_message());
+    }
+
+    /**
+     * Precedence: a missing required prop wins first-error document order over an
+     * unknown prop key on the same item — the unknown-prop check runs after the
+     * required-props loop. Locks the ordering Codex flagged during plan review.
+     */
+    public function testMissingRequiredPropWinsOverUnknownPropKey(): void
+    {
+        // hero requires `title`; here it is absent AND a bogus key is present.
+        $result = pp_validate_composition([
+            ['component' => 'hero', 'props' => ['not_a_real_prop' => 'x']],
+        ]);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_composition', $result->get_error_code());
+        $this->assertStringContainsString('title', $result->get_error_message());
+    }
+
+    /**
+     * The unknown-prop check runs before the style-slot check in document order, so on
+     * an item that carries both an unknown prop key and an invalid style slot the
+     * unknown_prop error wins first-error order. Locks the relative ordering against a
+     * future reorder of the two checks.
+     */
+    public function testUnknownPropWinsOverInvalidStyleSlot(): void
+    {
+        $result = pp_validate_composition([
+            [
+                'component' => 'hero',
+                'props'     => ['title' => 'Hi', 'not_a_real_prop' => 'x'],
+                'style'     => ['--not-a-real-slot' => '#fff'],
+            ],
+        ]);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('unknown_prop', $result->get_error_code());
+    }
+
+    /**
+     * Every composable component still validates when its item carries exactly its
+     * declared schema props — the rule must not false-reject any real prop. This is
+     * the acceptance criterion "all components' declared schema props still validate".
+     */
+    public function testEveryComposableComponentAcceptsItsDeclaredSchemaProps(): void
+    {
+        foreach (pp_composable_components() as $name => $schema) {
+            $declared = array_keys($schema['props'] ?? []);
+            $props     = [];
+            foreach ($declared as $prop_name) {
+                $props[$prop_name] = 'x'; // prop VALUES are not type-checked here.
+            }
+
+            $result = pp_validate_composition([['component' => $name, 'props' => $props]]);
+            $this->assertTrue(
+                $result === true,
+                sprintf(
+                    'Component "%s" must validate with all its declared schema props set; got: %s',
+                    $name,
+                    $result === true ? 'true' : $result->get_error_message()
+                )
+            );
+        }
+    }
+
+    /**
+     * pp_update_composition() injects a generated props['id'] into every component on
+     * save (lib/wp.php). If a composable component's schema omits `id`, that persisted
+     * id becomes an unknown prop key and the next validated write (update_component /
+     * update_composition / create_page) would reject a composition that saved cleanly.
+     * Guard the invariant so a future component added without `id` fails here, not in
+     * production. (table was the one gap this issue closed.)
+     */
+    public function testEveryComposableComponentDeclaresIdSoInjectedIdNeverFalseRejects(): void
+    {
+        foreach (pp_composable_components() as $name => $schema) {
+            $this->assertArrayHasKey(
+                'id',
+                $schema['props'] ?? [],
+                sprintf(
+                    'Composable component "%s" must declare an "id" prop — pp_update_composition() '
+                    . 'injects props[id] on every save, which the unknown-prop rule would otherwise reject.',
+                    $name
+                )
+            );
+        }
+    }
+
+    public function testDefaultHomepageSeedPassesUnknownPropCheck(): void
+    {
+        // The trusted seed must survive strict prop-key validation unchanged.
+        $result = pp_validate_composition(pp_default_homepage_composition());
+        $this->assertTrue($result === true, $result === true ? '' : $result->get_error_message());
+    }
+
+    public function testTableAcceptsIdProp(): void
+    {
+        // table.php renders props['id'] as an anchor id and pp_update_composition()
+        // injects id into every component; the schema must declare it (issue 147).
+        $result = pp_validate_composition([
+            ['component' => 'table', 'props' => [
+                'id' => 'compare', 'headers' => ['A', 'B'], 'rows' => [['1', '2']],
+            ]],
+        ]);
+        $this->assertTrue($result === true, $result === true ? '' : $result->get_error_message());
+    }
+
+    public function testTableStillRejectsUnknownProp(): void
+    {
+        $result = pp_validate_composition([
+            ['component' => 'table', 'props' => [
+                'headers' => ['A'], 'rows' => [['1']], 'bogus' => 'x',
+            ]],
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('unknown_prop', $result->get_error_code());
+    }
+
     // ── First-error contract vs the collect-all engine (#233) ──────────────
     //
     // pp_validate_composition() delegates to pp_validate_composition_errors() and returns

@@ -2,6 +2,12 @@
   "component": "table",
   "description": "Data or comparison table. Wraps in a horizontal-scroll container on mobile. Headers become <th scope='col'> elements.",
   "props": {
+    "id": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional HTML id attribute for anchor linking (e.g. navigation anchors)."
+    },
     "title": {
       "type": "string",
       "required": false,
