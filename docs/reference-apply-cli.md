@@ -389,6 +389,8 @@ When the restore is incomplete (non-empty `skipped`):
 
 - `Error: Restore INCOMPLETE: reverted N of M touched post(s); K could not be reverted (missing snapshot or write failure). See the report above for which posts were restored vs skipped.` (exit 1)
 
+**Each reverted post carries a `findings` array (#236).** Like the `restore_composition` action, the run-scoped restore never blocks a rollback just because a rule that landed *after* the snapshot would reject it — but it must not report a clean success when a restored composition violates current rules. Every entry under `reverted` therefore includes `findings` (`[]` when the restored composition is clean under current rules; otherwise the shared `pp_validate_composition_*` errors and smells). When any reverted post reports findings, the command prints a `Warning:` naming how many, alongside the JSON report. The findings are advisory: the revert still succeeds and the exit code is unaffected (a partial restore still exits 1 per the completeness rule above; findings alone never change the exit code). Skipped posts were never rewritten and carry no `findings` key.
+
 ### `wp pp operate composition-history <page>` (read-only)
 
 Lists a page's history ring so you know which `steps_back` / `history_index` to restore. Needs no run token.

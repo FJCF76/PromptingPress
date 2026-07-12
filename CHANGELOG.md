@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.88] — 2026-07-12 — run-scoped `restore-composition` reports current-rule findings instead of a bare success (#236)
+
+**`wp pp apply restore-composition --run-id=<uuid>` reverts every page a run touched back to its PREFLIGHT-frozen composition through `pp_update_composition()`, the deliberately non-validating writer. A snapshot that violates a validation rule which landed after it was frozen (site chrome in the composition, a dangling `var(--token)`, any future rule) was restored verbatim and the command reported an unqualified success with no indication the restored page would not pass current validation. That is the same false-pass class as the per-page `restore_composition` action (#233) and the chrome validators (#223), on the run-scoped CLI surface. The rollback stays permissive — an undo must never be refused by a rule that landed after the snapshot — but each reverted post now carries a `findings` array, and the command warns when any restored composition violates current rules. A clean restore reports `findings: []` and prints no warning; exit codes are unchanged (a partial restore still fails per #242).**
+
+The findings reuse the shared engine `restore_composition` already uses (`_pp_composition_findings()`, which runs `pp_validate_composition_errors()` + `pp_validate_composition_smells()`); no third validator is introduced. `pp_operate_restore_run_compositions()` (`lib/operate.php`) attaches `findings` to each `reverted` entry, computed from the composition re-read via `pp_get_composition()` — the read-path migration shim makes that the canonical shape the validators expect, so the report matches the stored page. A pure predicate `pp_operate_restore_run_finding_count()` counts reverted posts (not total findings, and never skipped posts) so the CLI branch is unit-testable; `PP_Apply_Command::restore_composition()` (`lib/cli.php`) emits a `WP_CLI::warning` naming that count before the #242 completeness gate, to STDERR so the STDOUT JSON stays machine-clean. The revert is never blocked and the exit code never changes because of findings.
+
+### Fixed
+
+- `wp pp apply restore-composition` now attaches a `findings` array to every reverted post and warns (`WP_CLI::warning`) when any restored composition violates current validation rules, instead of reporting a bare `Success:` for a rollback that reintroduces rule-violating state. The rollback is still never blocked by rules that landed after the snapshot, and the exit code is unaffected by findings (a partial restore still fails per #242). Reuses the `restore_composition` action's findings helper; no second validator (#236).
+
+### Docs
+
+- `docs/reference-apply-cli.md` documents the run-scoped `restore-composition` `findings` contract: each reverted post carries `findings` (`[]` when clean), a `Warning:` names how many reverted posts have findings, and findings are advisory (they never change the exit code); skipped posts carry no `findings` key (#236).
+
+### Tests
+
+- New `OperateTest` cases pin the run-scoped findings: a rule-violating snapshot (chrome) is restored verbatim and its reverted entry reports a `template_owned_component` finding; a clean snapshot reports `findings: []`; a mixed run (clean + dirty + a skipped post with no snapshot) reports findings per reverted post, no `findings` key on the skipped post, and a `pp_operate_restore_run_finding_count()` of 1. Unit cases pin the predicate directly: it counts posts not total findings, ignores skipped entries, and returns 0 for a fail-closed report with no `reverted` key (#236).
+
 ## [v0.16.87] — 2026-07-12 — `apply preflight` fails closed on an unknown `--apply` name instead of passing clean (#245)
 
 **`wp pp apply preflight --apply=<name>` never validated `<name>` against the apply registry. A typo (`--apply=import_medai`) resolved `pp_get_apply()` to `null` and was treated exactly like "no apply planned": the apply-routed filesystem checks were skipped, preflight passed clean, and a `PREFLIGHT` state was recorded — a green gate asserting a precondition ("no filesystem writes") the operator never earned. That is the same false-pass class as the fail-closed preflight cluster (#200/#207/#212/#227/#229), one level up: a gate must not certify a claim it did not verify. Preflight now emits an error-grade `apply_known` check for any provided-but-unregistered name, so `ok` is `false`, the CLI reports the checks and exits non-zero, and no `PREFLIGHT` is recorded. `wp pp apply execute` already rejected unknown action names; preflight now matches that posture for apply names.**

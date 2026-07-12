@@ -663,6 +663,17 @@ class PP_Apply_Command extends WP_CLI_Command {
             WP_CLI::warning($skipped . ' post(s) skipped (missing snapshot or write failure); see the report above.');
         }
 
+        // issue 236: a run-scoped restore is never blocked by validation rules that
+        // landed after the snapshot, so it must not report a bare success when a
+        // restored composition violates current rules. Warn (never fail) so the operator
+        // sees the gap; the per-post `findings` in the JSON report above name the detail.
+        // Emitted before the completeness gate below (which can exit) so it always shows,
+        // and to STDERR (WP_CLI::warning) so the STDOUT JSON stays machine-clean.
+        $with_findings = pp_operate_restore_run_finding_count($report);
+        if ($with_findings > 0) {
+            WP_CLI::warning($with_findings . ' reverted post(s) have composition findings under current validation rules (see "findings" in the report above). The rollback was applied as-is; a restore is never blocked by rules that landed after the snapshot.');
+        }
+
         $reverted = count($report['reverted']);
         $changed  = count(array_filter($report['reverted'], static function ($r) { return !empty($r['changed']); }));
 
