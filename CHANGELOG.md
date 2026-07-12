@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [v0.16.97] — 2026-07-12 — CI now proves every declared style slot actually affects rendered output (#305)
+## [v0.16.97] — 2026-07-12 — Slot-contract enforcement in CI: dead style slots now fail the build instead of shipping (#305)
 
 **A schema-declared style slot that silently did nothing shipped three separate times (#226, #292, #302): validation accepted the value, `style_component` reported Success, the inline `style` attribute carried the custom property — and a later literal CSS re-declaration won the cascade anyway. Nothing enforced the slot contract, so every layer stayed individually green while the promise "declared surface → accepted input → reported success → real effect" broke invisibly. This release adds the enforcement: a generalized, auto-derived slot-contract guard in the PHPUnit suite and rendered computed-style proof in the E2E suite. The guard is fail-closed — a new schema slot with no CSS consumer, a literal re-declaration that defeats a consumed slot (including shorthand resets like `padding:` killing a `padding-top` slot), or a stylesheet rule that re-declares a slot custom property now fails CI instead of shipping a fourth incident.**
 

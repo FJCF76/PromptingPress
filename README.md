@@ -419,11 +419,11 @@ npm run env:stop
 
 PromptingPress is in active development by a single developer. It is not yet packaged for broad distribution. The current focus is making the AI-agent workflow reliable and the composition model complete.
 
-See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 through v0.16.48.
+See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 through v0.16.97.
 
-**What exists today (v0.16.48):**
+**What exists today (v0.16.97):**
 - 12 components with schema contracts and 142 per-instance style slots, plus named recipes
-- A contract-test suite that enforces every declared style slot is consumed by the CSS and not defeated by literal re-declarations, backed by rendered computed-style checks — remaining known gaps are tracked as a shrink-only ledger in issue [#309](https://github.com/FJCF76/PromptingPress/issues/309)
+- A contract-test suite that enforces the style-slot contract: every declared slot must be consumed by the CSS, and literal re-declarations that would defeat a slot fail the build — known exceptions live in a shrink-only ledger (issue [#309](https://github.com/FJCF76/PromptingPress/issues/309)), backed by rendered computed-style checks
 - Typed action/apply layer with validation, preview, and rollback
 - Bounded presentation controls — button variants, typography roles, shadow/border/radius slots
 - Token family derivation — changing one color updates related tokens automatically
