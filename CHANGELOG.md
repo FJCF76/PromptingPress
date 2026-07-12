@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.93] — 2026-07-12 — The README no longer asserts stale hardcoded counts for design tokens and AI workflow files (#252)
+
+**The README described the theme with two baked-in numbers that had quietly gone wrong. It claimed "47 CSS custom properties" / "47 design tokens" when `assets/css/base.css` now defines 51, and "13 files" of AI workflow guides when `ai-instructions/` now holds 14. A number baked into prose goes stale the moment a token or a file is added, and the token count is load-bearing for the product pitch ("an AI agent can retheme an entire site by updating tokens"), so being four off read as a credibility problem, not a typo. The README now describes both qualitatively instead of counting: "design tokens in one CSS file", "CSS custom properties", "Task-specific AI workflow guides". The claims stay true as the theme grows.**
+
+This follows the resolution issue #250 took for stale test counts: stop asserting a hardcoded number in prose rather than refreshing it, which would just reset the drift clock. All six "47" occurrences in `README.md` and the one "13 files" count were reworded or dropped. The `docs/`-lint guard's `MUST_NOT_CATCH` list pinned the exact phrase "47 CSS custom properties control the entire visual system" as a known-legitimate non-test number; that phrase no longer exists in the README, so the now-fictional pin was removed. The identical stale "47 design tokens" claim in the runtime AI docs (`AI_CONTEXT.md`, `AI_RULES.md`, `ai-instructions/retheme.md`) was left for a separate issue rather than silently widening this change.
+
+### Docs
+
+- `README.md` no longer hardcodes the design-token / CSS-custom-property count or the `ai-instructions/` file count. Six "47 tokens / 47 CSS custom properties" claims and one "13 files" claim were replaced with qualitative descriptions or dropped, so the counts can no longer drift as tokens and guides are added (#252).
+
+### Tests
+
+- `tests/js/docs-lint.test.js` drops the `MUST_NOT_CATCH` pin for "47 CSS custom properties control the entire visual system"; that phrase was removed from the README, so pinning it as a live known-legitimate string was misleading. The guard's remaining entries still assert the test-count regex does not false-positive on legitimate non-test numbers (#252).
+
 ## [v0.16.92] — 2026-07-12 — The operating-loop playbooks now tell the agent where the `--run-id` run token comes from (#228)
 
 **An AI following `playbook-create-page.md` literally could not get past step 3. The playbook's mandatory 8-step loop declares `wp pp apply preflight --run-id=<uuid>` at PREFLIGHT but never said where `<uuid>` comes from. Read as written, `<uuid>` means "any UUID", so an agent generates a fresh UUID v4 — it passes format validation, then PREFLIGHT cannot record run state and the next EDIT step fails. The run token is not a self-generated UUID: it is the `run_id` that `wp pp operate inspect` appends to its JSON. The three loop playbooks (`create-page`, `inspect-fix`, `revise-section`) now say so at INSPECT (capture the `run_id`) and at PREFLIGHT (`<uuid>` is that captured token), note the 2-hour install-scoped TTL, and link `docs/reference-apply-cli.md`. The documented happy path for AI-maintained pages is now executable from the playbook alone.**
