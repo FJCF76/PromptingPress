@@ -2012,18 +2012,33 @@ function pp_set_font_urls(array $urls): bool {
  * key to its value type, used for server-side validation on write.
  *
  * Types: 'string' (free text) | 'attachment_id' (a positive int that resolves
- * to a Media Library attachment — never a raw URL).
+ * to a Media Library attachment — never a raw URL) | 'bool' (a canonical
+ * on/off flag: accepts 1/0/true/false, stored as '1' or '0'). '0' (not '')
+ * is the canonical OFF form so a stored value always re-validates — the
+ * snapshot/rollback path re-applies it through the validating writer.
  *
  * @return array<string,string>  key => type
  */
 function pp_allowed_site_options(): array {
     return [
-        'blogname'        => 'string',
-        'blogdescription' => 'string',
-        'pp_logo_id'      => 'attachment_id',
-        'pp_logo_alt'     => 'string',
+        'blogname'            => 'string',
+        'blogdescription'     => 'string',
+        'pp_logo_id'          => 'attachment_id',
+        'pp_logo_alt'         => 'string',
+        // Site-option surface for the footer logo. The footer is template-owned
+        // chrome (issue 223), so it cannot be composed to pass show_logo; this
+        // option is the only supported way to turn the footer logo on (issue 234).
+        'pp_footer_show_logo' => 'bool',
     ];
 }
+
+/**
+ * Canonical string forms accepted for a 'bool' site option, lower-cased.
+ * A strict allowlist (not "any non-empty string is true") so a typo like
+ * "flase" is rejected instead of silently coercing to on.
+ */
+const PP_BOOL_OPTION_TRUE  = ['1', 'true'];
+const PP_BOOL_OPTION_FALSE = ['0', 'false'];
 
 /**
  * Single source of truth for "is $id a Media Library image attachment?".
@@ -2061,7 +2076,29 @@ function pp_validate_site_option_value(string $key, string $value) {
             ));
         }
     }
+    if ($type === 'bool') {
+        $norm = strtolower(trim($value));
+        if (!in_array($norm, PP_BOOL_OPTION_TRUE, true) && !in_array($norm, PP_BOOL_OPTION_FALSE, true)) {
+            return new WP_Error('invalid_option_value', sprintf(
+                'Option "%s" requires a boolean (1/0/true/false), got "%s".',
+                $key, $value
+            ));
+        }
+    }
     return true;
+}
+
+/**
+ * Normalizes a validated 'bool' site-option value to its canonical stored form:
+ * '1' (on) or '0' (off). Caller must have validated the value first. Both forms
+ * are themselves valid bool inputs, so a stored value survives a round-trip
+ * through pp_update_site_option (as the snapshot/rollback path requires).
+ *
+ * @param string $value  A value already accepted by pp_validate_site_option_value.
+ * @return string        '1' or '0'.
+ */
+function pp_normalize_bool_option(string $value): string {
+    return in_array(strtolower(trim($value)), PP_BOOL_OPTION_TRUE, true) ? '1' : '0';
 }
 
 /**
@@ -2531,9 +2568,12 @@ function pp_update_site_option(string $key, string $value) {
     if (is_wp_error($valid)) {
         return $valid;
     }
-    // Normalize attachment IDs to a canonical integer string on store.
-    if ((pp_allowed_site_options()[$key] ?? null) === 'attachment_id') {
+    // Normalize to each type's canonical stored form.
+    $type = pp_allowed_site_options()[$key] ?? null;
+    if ($type === 'attachment_id') {
         $value = (string) (int) $value;
+    } elseif ($type === 'bool') {
+        $value = pp_normalize_bool_option($value);
     }
     update_option($key, $value);
     return true;

@@ -46,7 +46,12 @@ if (!function_exists('pp_base_template')) {
 <!-- PP WARNING: Custom CSS conflicts detected: <?php echo esc_html(implode(', ', $pp_conflict_selectors)); ?> -->
 <?php endif; endif; ?>
 
-<?php pp_get_component('footer', ['location' => 'footer']); ?>
+<?php pp_get_component('footer', [
+    'location'  => 'footer',
+    // Footer logo is site chrome, set via the pp_footer_show_logo site option
+    // (issue 234) — the footer can no longer be composed to pass show_logo (issue 223).
+    'show_logo' => get_option('pp_footer_show_logo', '') === '1',
+]); ?>
 
 <?php wp_footer(); ?>
 </body>
