@@ -1296,7 +1296,18 @@ function pp_operate_restore_run_compositions( string $run_id ): array {
             continue;
         }
         $after      = pp_get_composition( $post_id );
-        $reverted[] = [ 'post_id' => $post_id, 'changed' => ( $before !== $after ) ];
+        // issue 236: report current-rule findings on the restored composition without
+        // ever blocking the rollback (parity with the restore_composition action, issue
+        // 233 — a rollback must never be refused by a rule that landed after the
+        // snapshot). Reuses the shared findings helper (pp_validate_composition_errors +
+        // _smells); no second validator. pp_get_composition() runs the read-path
+        // migration shim, so $after is already the canonical shape the validators expect
+        // — the same findings the action reports for the equivalent normalized snapshot.
+        $reverted[] = [
+            'post_id'  => $post_id,
+            'changed'  => ( $before !== $after ),
+            'findings' => _pp_composition_findings( $after ),
+        ];
     }
 
     return [ 'ok' => true, 'error' => null, 'reverted' => $reverted, 'skipped' => $skipped ];
@@ -1315,6 +1326,29 @@ function pp_operate_restore_run_compositions( string $run_id ): array {
  */
 function pp_operate_restore_run_complete( array $report ): bool {
     return ! empty( $report['ok'] ) && empty( $report['skipped'] );
+}
+
+/**
+ * Number of reverted posts whose restored composition carries current-rule
+ * findings (issue 236). The run-scoped restore never blocks on newer validation
+ * rules, so the CLI uses this to WARN (not fail) when a restored composition
+ * would not pass current validation. Counts POSTS with a non-empty findings
+ * array, not total findings, and only over `reverted` entries — `skipped` posts
+ * were never rewritten and carry no findings key. The decision seam the CLI
+ * branches on, mirroring pp_operate_restore_run_complete().
+ *
+ * @param array $report  A pp_operate_restore_run_compositions() result.
+ * @return int  Count of reverted posts reporting at least one finding.
+ */
+function pp_operate_restore_run_finding_count( array $report ): int {
+    $reverted = isset( $report['reverted'] ) && is_array( $report['reverted'] ) ? $report['reverted'] : [];
+    $count = 0;
+    foreach ( $reverted as $entry ) {
+        if ( ! empty( $entry['findings'] ) ) {
+            $count++;
+        }
+    }
+    return $count;
 }
 
 /**

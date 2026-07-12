@@ -2298,6 +2298,137 @@ class OperateTest extends TestCase
         pp_operate_cleanup_run($run_id);
     }
 
+    // ── run-scoped restore reports current-rule findings (#236) ─────────────
+    // Parity with the restore_composition action (#233): the run-scoped CLI restore
+    // never blocks a rollback on a rule that landed after the snapshot, but each
+    // reverted post must carry current-rule findings so the CLI can warn instead of
+    // reporting a bare success. Snapshots are seeded through pp_update_composition (the
+    // non-validating writer) — the only way a rule-violating composition reaches a
+    // preflight snapshot, exactly as a legacy row would have.
+
+    public function testRunScopedRestoreReportsFindingsForRuleViolatingSnapshot(): void
+    {
+        $GLOBALS['_pp_test_store']['post_meta'] = [];
+        // Chrome in the composition is legal before #223; freeze it as the pre-run baseline.
+        pp_update_composition(831, [
+            ['component' => 'nav', 'props' => []],
+            ['component' => 'hero', 'props' => ['title' => 'H0']],
+        ]);
+        $run_id = pp_operate_create_run();
+        pp_operate_record_composition_content_snapshot($run_id, 831, pp_get_composition(831));
+        // The run mutates it to a clean, chrome-free composition.
+        pp_update_composition(831, [['component' => 'hero', 'props' => ['title' => 'H1']]]);
+        pp_operate_record_touched_post_id($run_id, 831);
+
+        $report = pp_operate_restore_run_compositions($run_id);
+        $this->assertTrue($report['ok']);
+        $this->assertCount(1, $report['reverted']);
+        // The chrome snapshot is restored verbatim (never stripped)...
+        $this->assertSame('nav', pp_get_composition(831)[0]['component'], 'chrome survives the revert');
+        // ...and the reverted entry carries the current-rule finding rather than a bare ok.
+        $this->assertArrayHasKey('findings', $report['reverted'][0]);
+        $this->assertContains('template_owned_component', array_column($report['reverted'][0]['findings'], 'type'));
+        // The decision seam the CLI warns on counts this post.
+        $this->assertSame(1, pp_operate_restore_run_finding_count($report));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRunScopedRestoreReportsEmptyFindingsForCleanSnapshot(): void
+    {
+        $GLOBALS['_pp_test_store']['post_meta'] = [];
+        pp_update_composition(832, [['component' => 'hero', 'props' => ['title' => 'C0']]]);
+        $run_id = pp_operate_create_run();
+        pp_operate_record_composition_content_snapshot($run_id, 832, pp_get_composition(832));
+        pp_update_composition(832, [['component' => 'hero', 'props' => ['title' => 'C1']]]);
+        pp_operate_record_touched_post_id($run_id, 832);
+
+        $report = pp_operate_restore_run_compositions($run_id);
+        $this->assertTrue($report['ok']);
+        $this->assertCount(1, $report['reverted']);
+        $this->assertArrayHasKey('findings', $report['reverted'][0]);
+        $this->assertSame([], $report['reverted'][0]['findings'], 'a clean snapshot reports no findings');
+        $this->assertSame(0, pp_operate_restore_run_finding_count($report), 'clean restore → CLI does not warn');
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRunScopedRestoreFindingsMixedCleanDirtyAndSkipped(): void
+    {
+        // One dirty (chrome) snapshot, one clean snapshot, one touched post with no
+        // snapshot (skipped). Verifies findings are per-post, skipped posts carry no
+        // findings key, and the CLI count ignores skipped entries.
+        $GLOBALS['_pp_test_store']['post_meta'] = [];
+        pp_update_composition(841, [
+            ['component' => 'footer', 'props' => []],
+            ['component' => 'hero', 'props' => ['title' => 'D0']],
+        ]);
+        pp_update_composition(842, [['component' => 'hero', 'props' => ['title' => 'E0']]]);
+        $run_id = pp_operate_create_run();
+        pp_operate_record_composition_content_snapshot($run_id, 841, pp_get_composition(841));
+        pp_operate_record_composition_content_snapshot($run_id, 842, pp_get_composition(842));
+        // Mutate + touch all three; 843 has no snapshot so it will be skipped.
+        pp_update_composition(841, [['component' => 'hero', 'props' => ['title' => 'D1']]]);
+        pp_operate_record_touched_post_id($run_id, 841);
+        pp_update_composition(842, [['component' => 'hero', 'props' => ['title' => 'E1']]]);
+        pp_operate_record_touched_post_id($run_id, 842);
+        pp_update_composition(843, [['component' => 'hero', 'props' => ['title' => 'F1']]]);
+        pp_operate_record_touched_post_id($run_id, 843);
+
+        $report = pp_operate_restore_run_compositions($run_id);
+        $this->assertCount(2, $report['reverted']);
+        $this->assertCount(1, $report['skipped']);
+        $this->assertSame(843, $report['skipped'][0]['post_id']);
+        $this->assertArrayNotHasKey('findings', $report['skipped'][0], 'skipped posts carry no findings');
+
+        $byPost = [];
+        foreach ($report['reverted'] as $entry) {
+            $byPost[$entry['post_id']] = $entry;
+        }
+        $this->assertContains('template_owned_component', array_column($byPost[841]['findings'], 'type'));
+        $this->assertSame([], $byPost[842]['findings'], 'clean post reports no findings');
+        // Only the dirty reverted post is counted — clean and skipped are excluded.
+        $this->assertSame(1, pp_operate_restore_run_finding_count($report));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    // ── pp_operate_restore_run_finding_count() unit seam (#236) ─────────────
+    // The CLI warns iff this count > 0. Pure over the report shape so the warn
+    // decision is testable without a WP-CLI harness (mirrors _restore_run_complete).
+
+    public function testFindingCountZeroWhenNoRevertedPostHasFindings(): void
+    {
+        $report = ['ok' => true, 'error' => null, 'skipped' => [], 'reverted' => [
+            ['post_id' => 1, 'changed' => true, 'findings' => []],
+            ['post_id' => 2, 'changed' => false, 'findings' => []],
+        ]];
+        $this->assertSame(0, pp_operate_restore_run_finding_count($report));
+    }
+
+    public function testFindingCountCountsPostsNotTotalFindings(): void
+    {
+        // Two posts with findings (one carries two findings) → count is 2 POSTS, not 3.
+        $report = ['ok' => true, 'error' => null, 'skipped' => [], 'reverted' => [
+            ['post_id' => 1, 'changed' => true, 'findings' => [
+                ['type' => 'template_owned_component', 'severity' => 'warning'],
+                ['type' => 'invalid_style_value', 'severity' => 'error'],
+            ]],
+            ['post_id' => 2, 'changed' => true, 'findings' => []],
+            ['post_id' => 3, 'changed' => true, 'findings' => [
+                ['type' => 'template_owned_component', 'severity' => 'warning'],
+            ]],
+        ]];
+        $this->assertSame(2, pp_operate_restore_run_finding_count($report));
+    }
+
+    public function testFindingCountIgnoresSkippedAndMissingRevertedKey(): void
+    {
+        // A report with no reverted key (fail-closed shape) counts zero, and skipped
+        // entries are never inspected for findings.
+        $this->assertSame(0, pp_operate_restore_run_finding_count(
+            ['ok' => false, 'error' => 'no_touched_post_ids', 'reverted' => [], 'skipped' => []]
+        ));
+        $this->assertSame(0, pp_operate_restore_run_finding_count(['ok' => true]));
+    }
+
     // ── restore-composition completeness verdict (#242) ─────────────────────
     // The CLI fails closed on an incomplete restore (non-zero exit) so a machine
     // consumer never reads a partial restore as a full one. The verdict is the
