@@ -896,7 +896,34 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
     }
 
     foreach ($snapshot['site_options'] as $key => $value) {
-        pp_update_site_option($key, (string) $value);
+        // Only whitelisted options are ours to touch. The batch snapshotter records
+        // every update_site_option step's key up front (before execute rejects an
+        // unauthorized one), so a non-whitelisted key can appear here captured as ''
+        // (pp_site_option returns WP_Error for it). Restoring raw would delete_option()
+        // an unrelated core WP option — pp_update_site_option used to block that via its
+        // whitelist check, so the guard has to stay. Only VALUE validation is bypassed.
+        if (!isset(pp_allowed_site_options()[$key])) {
+            continue;
+        }
+        // Restore the captured baseline faithfully, bypassing pp_update_site_option's
+        // create-time validator. That validator can reject a legitimate captured
+        // baseline and silently drop the write (issue 281): an unset/empty baseline is
+        // captured as '' (pp_site_option => (string) get_option($key, '')), and ''
+        // fails the attachment_id/bool rules; likewise a once-valid value a newer rule
+        // now rejects (e.g. a pp_logo_id whose attachment was later deleted) would fail
+        // re-validation. Either case would leave the applied value in place instead of
+        // rolling back. This is the same class as restore_composition (issue 233):
+        // a restore is never blocked by current validation rules. A captured baseline
+        // is trusted pre-run state (its keys are already whitelisted — only
+        // update_site_option steps populate this map), so it restores verbatim without
+        // re-validation: an empty capture means "was unset/empty" and is restored by
+        // deleting the option (observably identical to '' via pp_site_option); every
+        // other value is written raw.
+        if ((string) $value === '') {
+            delete_option($key);
+        } else {
+            update_option($key, (string) $value);
+        }
     }
 
     if ($snapshot['custom_css'] !== null) {

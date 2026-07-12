@@ -3292,6 +3292,134 @@ class ActionsTest extends TestCase
         $this->assertSame('Original Name', $GLOBALS['_pp_test_store']['options']['blogname']);
     }
 
+    // ── issue 281: rollback restores an unset/empty typed site-option baseline ──
+    // The pre-run baseline of a never-set typed option (attachment_id / bool) is
+    // captured as '' (pp_site_option => (string) get_option($key, '')). Replaying
+    // '' through the validating writer pp_update_site_option was silently rejected
+    // (attachment_id needs a real image; bool needs 1/0/true/false), leaving the
+    // applied value in place. Rollback must restore the option to "unset".
+
+    public function testBatchRestoresUnsetAttachmentIdOptionOnLaterFailure(): void
+    {
+        // pp_logo_id starts unset. Seed a valid image so the apply step succeeds.
+        $GLOBALS['_pp_test_store']['posts'][51] = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][51] = true;
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'update_site_option', 'params' => ['key' => 'pp_logo_id', 'value' => '51']],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+        // Rolled back to unset — not left at the applied '51'.
+        $this->assertArrayNotHasKey('pp_logo_id', $GLOBALS['_pp_test_store']['options']);
+        $this->assertSame('', get_option('pp_logo_id', ''));
+    }
+
+    public function testBatchRestoresUnsetBoolOptionOnLaterFailure(): void
+    {
+        // pp_footer_show_logo starts unset.
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'update_site_option', 'params' => ['key' => 'pp_footer_show_logo', 'value' => '1']],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+        $this->assertArrayNotHasKey('pp_footer_show_logo', $GLOBALS['_pp_test_store']['options']);
+        $this->assertSame('', get_option('pp_footer_show_logo', ''));
+    }
+
+    public function testBatchRestoresEmptyStringBaselineOnLaterFailure(): void
+    {
+        // A string-typed option (blogdescription) whose baseline is empty. Capture
+        // cannot tell "unset" from "explicitly ''" (both read as '' via
+        // get_option($key, '')), so rollback restores the observable empty state.
+        // Pins the user-observable contract: the applied value does not survive.
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'update_site_option', 'params' => ['key' => 'blogdescription', 'value' => 'New tagline']],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+        $this->assertSame('', get_option('blogdescription', ''));
+    }
+
+    public function testBatchRestoresExplicitlySetTypedOptionOnLaterFailure(): void
+    {
+        // pp_logo_id explicitly set to a valid image at baseline; the apply step
+        // switches it to a different valid image. Rollback must restore the exact
+        // pre-run value (the non-empty path writes it raw).
+        $GLOBALS['_pp_test_store']['posts'][51] = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][51] = true;
+        $GLOBALS['_pp_test_store']['posts'][52] = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][52] = true;
+        $GLOBALS['_pp_test_store']['options']['pp_logo_id'] = '51';
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'update_site_option', 'params' => ['key' => 'pp_logo_id', 'value' => '52']],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+        $this->assertSame('51', $GLOBALS['_pp_test_store']['options']['pp_logo_id']);
+    }
+
+    public function testRestoreBatchSnapshotReappliesBaselineCurrentRulesReject(): void
+    {
+        // issue 233-class case on the site-option channel: a non-empty baseline that was
+        // valid when captured but current validation now rejects (e.g. pp_logo_id
+        // whose attachment was deleted mid-run — no seeded image for id 51, so
+        // pp_update_site_option would reject '51'). The restore path must reapply
+        // the captured baseline verbatim, never blocked by current validation.
+        $GLOBALS['_pp_test_store']['options']['pp_logo_id'] = '99'; // stray applied value
+
+        $snapshot = [
+            'created_posts'   => [],
+            'posts'           => [],
+            'site_options'    => ['pp_logo_id' => '51'],
+            'custom_css'      => null,
+            'token_overrides' => null,
+            'font_urls'       => null,
+            'menus'           => null,
+        ];
+
+        $errors = _pp_restore_batch_snapshot($snapshot);
+
+        $this->assertSame([], $errors);
+        // Restored verbatim despite '51' failing the current attachment_id rule.
+        $this->assertSame('51', get_option('pp_logo_id', ''));
+    }
+
+    public function testRestoreBatchSnapshotLeavesNonWhitelistedOptionsUntouched(): void
+    {
+        // The batch snapshotter captures every update_site_option step's key before
+        // execute rejects a non-whitelisted one, storing '' for it (pp_site_option
+        // returns WP_Error). The restore path must NOT delete_option() an arbitrary
+        // core option just because it appears in the snapshot with an empty baseline —
+        // the whitelist boundary stays enforced.
+        $GLOBALS['_pp_test_store']['options']['active_plugins'] = 'a:1:{i:0;s:5:"x/x.php";}';
+
+        $snapshot = [
+            'created_posts'   => [],
+            'posts'           => [],
+            'site_options'    => ['active_plugins' => ''],
+            'custom_css'      => null,
+            'token_overrides' => null,
+            'font_urls'       => null,
+            'menus'           => null,
+        ];
+
+        $errors = _pp_restore_batch_snapshot($snapshot);
+
+        $this->assertSame([], $errors);
+        // The non-whitelisted option is left exactly as it was — not deleted.
+        $this->assertSame('a:1:{i:0;s:5:"x/x.php";}', get_option('active_plugins', ''));
+    }
+
     public function testBatchRollsBackCustomCssOnLaterFailure(): void
     {
         $GLOBALS['_pp_test_store']['custom_css'] = '.hero { color: red; }';

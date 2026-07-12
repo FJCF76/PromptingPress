@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.90] — 2026-07-12 — AI-batch rollback restores an unset/empty site-option baseline instead of silently keeping the applied value (#281)
+
+**When an AI batch (`pp_ai_execute_batch`) changed a typed site option and a later step failed, the rollback re-applied every captured baseline through the validating writer `pp_update_site_option()`. An option that was unset before the run is captured as an empty string, and an empty string fails the `attachment_id` and `bool` value rules, so the writer rejected it and left the applied value in place — a rollback that silently did not roll back. Turn on a logo (`pp_logo_id`) or the footer logo (`pp_footer_show_logo`) as part of a batch that later fails, and the option stayed set. The rollback now restores the exact pre-run state: it deletes the option when the captured baseline was unset/empty, and writes any other captured value back verbatim, bypassing only the value validator. This is the same principle already documented for composition restore (issue 233): a restore is never blocked by current validation rules.**
+
+The fix lives in the action layer (`_pp_restore_batch_snapshot()`), not the writer — `pp_update_site_option()` keeps its create-time validation for normal writes. The whitelist boundary stays enforced: the batch snapshotter records every `update_site_option` step's key up front, before execute rejects an unauthorized one, so a non-whitelisted key can appear in the snapshot captured as empty; the restore skips any key that is not in `pp_allowed_site_options()` so it can never delete an unrelated core WordPress option. Only whitelisted options are touched, and only their value validation is bypassed on the restore path.
+
+### Fixed
+
+- AI-batch rollback (`_pp_restore_batch_snapshot()`) now restores an unset/empty typed site-option baseline (e.g. a never-set `pp_logo_id` or `pp_footer_show_logo`) by deleting the option, and re-applies any other captured baseline verbatim, instead of routing it back through the validating writer that rejected the empty value and silently kept the applied change. The site-option whitelist is still enforced on the restore path — a non-whitelisted key captured in the snapshot is never written or deleted (#281).
+
+### Tests
+
+- New `ActionsTest` cases pin the rollback: an unset `attachment_id` (`pp_logo_id`) and an unset `bool` (`pp_footer_show_logo`) baseline both roll back to unset; an explicitly-set typed value round-trips through rollback; an empty-string (`string`-typed) baseline rolls back to the observable empty state; a captured baseline that current validation would reject (issue 233-class) is still restored verbatim; and a non-whitelisted option present in the snapshot is left untouched (never deleted) (#281).
+
 ## [v0.16.89] — 2026-07-12 — `pp_footer_show_logo` site option makes the footer logo reachable again (#234)
 
 **#223 made `nav`/`footer` template-owned chrome, so composing a `footer` to pass `show_logo: true` is now rejected — which left the footer logo with no supported surface to turn it on (`footer.show_logo` defaults off, and nothing else set it). This adds `pp_footer_show_logo`, a boolean site option on the same safe `update_site_option` surface as `pp_logo_id`. `templates/base.php` reads it and passes `show_logo` into the footer; when on, the footer resolves the same logo as the header (`pp_logo_id` → `custom_logo` theme-mod → text wordmark). The header logo (`pp_logo_id`) is unchanged and independent.**
