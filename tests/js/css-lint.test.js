@@ -1121,6 +1121,163 @@ describe('CSS lint: the full-width cta centers its body and button (#257)', () =
     });
 });
 
+/**
+ * Premium layer honors padding / heading-size / body-width style slots (#302).
+ *
+ * Same dead-slot class as #226/#292 but on the padding + typography axis: the
+ * "premium" cascade re-declared padding, heading font-size, and section body
+ * width with bare literals at [0,1,0]-or-higher specificity / later source
+ * order, outranking the base rules that DO route through the slot. So a declared
+ * --section-padding-*, --grid-padding-*, --cta-padding-*, --section-title-size,
+ * --grid-heading-size, or --section-body-width validated, reported success, and
+ * changed nothing. The fix routes every premium re-declaration through
+ * var(--slot, <literal>) with the literal as the fallback (unset output
+ * unchanged), and restores the base two-tier adjacent-sibling rhythm that the
+ * premium layer had flattened to a uniform clamp().
+ *
+ * These pins mirror the #226/#292 guards: assert every declaration of the
+ * property on the target selector routes through the slot, plus a presence guard
+ * so a selector rename can't make the assertions vacuously pass. faq keeps its
+ * literals (no padding/heading-size slot yet, issue 304) and is intentionally
+ * NOT asserted here.
+ */
+describe('CSS lint: premium layer honors padding/type/width slots (#302)', () => {
+    // Brace-matched extraction of every rule whose selector is EXACTLY this
+    // (whitespace-normalized), across all media contexts. Trailing `\s*\{` blocks
+    // longer selectors (`.section__body` never matches `.section`); the leading
+    // selector-list boundary (`{`, `}`, `;`, or `,`) blocks the reverse — a short
+    // selector must not suffix-match a descendant rule (`.section__body` must not
+    // match `.section--centered .section__body`).
+    function bodiesForExactSelector(selector) {
+        const css = stripComments(COMPONENTS_CSS).replace(/\s+/g, ' ');
+        const re = new RegExp(
+            '[{};,]\\s*' + selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{',
+            'g'
+        );
+        const bodies = [];
+        let match;
+        while ((match = re.exec(css)) !== null) {
+            let i = re.lastIndex;
+            let depth = 1;
+            const start = i;
+            while (i < css.length && depth > 0) {
+                if (css[i] === '{') depth++;
+                else if (css[i] === '}') depth--;
+                i++;
+            }
+            bodies.push(css.slice(start, i - 1));
+        }
+        return bodies;
+    }
+
+    // Assert every `prop:` declaration inside `selector`'s rules routes through
+    // `var(--slot, ...)`. `presence` is the minimum rule count expected so a
+    // selector drift can't vacuously pass.
+    function assertPropRoutesThroughSlot(selector, prop, slot, presence) {
+        const bodies = bodiesForExactSelector(selector);
+        const propBodies = bodies.filter(b => new RegExp(prop + '\\s*:').test(b));
+        expect(propBodies.length).toBeGreaterThanOrEqual(presence);
+        const offenders = [];
+        propBodies.forEach(body => {
+            const decls = body.match(new RegExp(prop + '\\s*:[^;}]+', 'g')) || [];
+            decls.forEach(d => {
+                if (!new RegExp(prop + '\\s*:\\s*var\\(\\s*' + slot + '\\b').test(d)) {
+                    offenders.push(d.trim());
+                }
+            });
+        });
+        expect(offenders).toEqual([]);
+    }
+
+    // ---- Heading font-size slots (title-size / heading-size) ----
+    test('section title premium rule routes font-size through --section-title-size', () => {
+        assertPropRoutesThroughSlot('main > .section .section__title', 'font-size', '--section-title-size', 1);
+    });
+
+    test('grid heading premium rule routes font-size through --grid-heading-size', () => {
+        assertPropRoutesThroughSlot('main > .grid .grid__heading', 'font-size', '--grid-heading-size', 1);
+    });
+
+    // ---- Section body width slot ----
+    test('.section__body caps max-width through --section-body-width (fallback 40rem)', () => {
+        const bodies = bodiesForExactSelector('.section__body');
+        const widthBodies = bodies.filter(b => /max-width\s*:/.test(b));
+        expect(widthBodies.length).toBeGreaterThanOrEqual(1);
+        widthBodies.forEach(body => {
+            (body.match(/max-width\s*:[^;}]+/g) || []).forEach(d => {
+                expect(d).toMatch(/max-width\s*:\s*var\(\s*--section-body-width\s*,\s*40rem\s*\)/);
+            });
+        });
+    });
+
+    // ---- Own section/grid/cta padding (desktop + mobile) ----
+    test('every .section padding declaration routes through --section-padding-*', () => {
+        assertPropRoutesThroughSlot('.section', 'padding-top', '--section-padding-top', 2);
+        assertPropRoutesThroughSlot('.section', 'padding-bottom', '--section-padding-bottom', 2);
+    });
+
+    test('every .grid padding declaration routes through --grid-padding-*', () => {
+        assertPropRoutesThroughSlot('.grid', 'padding-top', '--grid-padding-top', 2);
+        assertPropRoutesThroughSlot('.grid', 'padding-bottom', '--grid-padding-bottom', 2);
+    });
+
+    test('every .cta padding declaration routes through --cta-padding-*', () => {
+        assertPropRoutesThroughSlot('.cta', 'padding-top', '--cta-padding-top', 2);
+        assertPropRoutesThroughSlot('.cta', 'padding-bottom', '--cta-padding-bottom', 2);
+    });
+
+    // ---- Page-specific CTA ids (#home-cta ...) ----
+    // The benchmark closers carry ID-specificity ([1,0,0]) padding rules that
+    // outrank the generic .cta slot rule, so they must ALSO route through the
+    // slot or --cta-padding-* stays dead on exactly the pages that ship a CTA.
+    test('every #*-cta padding declaration routes through --cta-padding-*', () => {
+        const SEL = '#home-cta, #how-cta, #agencies-cta, #implementers-cta';
+        const bodies = bodiesForExactSelector(SEL);
+        const topDecls = bodies.flatMap(b => b.match(/padding-top\s*:[^;}]+/g) || []);
+        const botDecls = bodies.flatMap(b => b.match(/padding-bottom\s*:[^;}]+/g) || []);
+        // Desktop + both mobile blocks each declare top and bottom.
+        expect(topDecls.length).toBeGreaterThanOrEqual(2);
+        expect(botDecls.length).toBeGreaterThanOrEqual(2);
+        topDecls.forEach(d => expect(d).toMatch(/padding-top\s*:\s*var\(\s*--cta-padding-top\b/));
+        botDecls.forEach(d => expect(d).toMatch(/padding-bottom\s*:\s*var\(\s*--cta-padding-bottom\b/));
+    });
+
+    // ---- Two-tier adjacent-sibling rhythm restored ----
+    // The flat premium override was DELETED; the remaining rules for this exact
+    // selector are the base (var(--space-lg), desktop) and the uniform mobile
+    // literal. Neither may re-introduce the flattening clamp().
+    test('adjacent-sibling rhythm no longer flattened by a bare clamp()', () => {
+        const bodies = bodiesForExactSelector('main > [data-pp-component] + [data-pp-component]');
+        expect(bodies.length).toBeGreaterThanOrEqual(2);
+        bodies.forEach(body => {
+            expect(body).not.toMatch(/clamp\(\s*4\.25rem/);
+        });
+    });
+
+    // Each slot-bearing component's adjacent rule exists at BOTH breakpoints:
+    // desktop restores the two-tier rhythm (var(--space-lg) fallback), mobile
+    // keeps the uniform default (3.35rem fallback). Every declaration routes
+    // through the slot; the two fallbacks must both be present so neither
+    // breakpoint silently drops the slot.
+    test.each([
+        ['main > [data-pp-component] + .section', '--section-padding-top'],
+        ['main > [data-pp-component] + .grid', '--grid-padding-top'],
+        ['main > [data-pp-component] + .cta', '--cta-padding-top'],
+    ])('adjacent %s routes top-padding through the slot at both breakpoints', (selector, slot) => {
+        const bodies = bodiesForExactSelector(selector);
+        const decls = bodies.flatMap(b => b.match(/padding-top\s*:[^;}]+/g) || []);
+        // Desktop (two-tier) + mobile (uniform) = two declarations minimum.
+        expect(decls.length).toBeGreaterThanOrEqual(2);
+        decls.forEach(d => {
+            expect(d).toMatch(new RegExp('padding-top\\s*:\\s*var\\(\\s*' + slot + '\\b'));
+        });
+        // Desktop two-tier restore: at least one falls back to var(--space-lg).
+        expect(decls.some(d => new RegExp('var\\(\\s*' + slot + '\\s*,\\s*var\\(\\s*--space-lg\\s*\\)').test(d))).toBe(true);
+        // Mobile uniform default: at least one falls back to the 3.35rem literal.
+        expect(decls.some(d => new RegExp('var\\(\\s*' + slot + '\\s*,\\s*3\\.35rem\\s*\\)').test(d))).toBe(true);
+    });
+});
+
 describe('CSS lint: no raw hex in components.css', () => {
     test('components.css has no raw hex color values', () => {
         const stripped = stripComments(COMPONENTS_CSS);
