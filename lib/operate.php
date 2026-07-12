@@ -220,9 +220,34 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
     }
 
     // Resolve the planned apply's target type once — it routes the
-    // planned_files auto-population and the filesystem checks below.
-    $apply_def         = !empty($context['apply_name']) ? pp_get_apply($context['apply_name']) : null;
+    // planned_files auto-population and the filesystem checks below. Normalize the
+    // supplied name to a string and treat "provided" as any non-empty string, NOT
+    // empty() — PHP's empty('0') is true, so an !empty() gate would silently let the
+    // literal apply name "0" (and a bare --apply that WP-CLI coerces to bool true)
+    // slip past the apply_known guard below as "no apply planned." No registered
+    // apply is named "0", so any provided value that fails the registry lookup must
+    // fail closed (issue 245).
+    $apply_name        = isset($context['apply_name']) ? (string) $context['apply_name'] : '';
+    $apply_def         = $apply_name !== '' ? pp_get_apply($apply_name) : null;
     $apply_target_type = $apply_def !== null && isset($apply_def['target']['type']) ? $apply_def['target']['type'] : null;
+
+    // Apply name known (issue 245): a provided --apply that names no registered
+    // apply must FAIL preflight closed. Left unguarded, an unknown/typo'd name
+    // (e.g. import_medai) resolves $apply_def to null and is treated exactly like
+    // "no apply planned": the apply-routed filesystem checks are skipped, preflight
+    // passes, and PREFLIGHT is recorded — a green gate asserting a precondition
+    // ("no filesystem writes") the operator never earned. This is the same
+    // false-pass class as the fail-closed preflight trilogy (#200/#207/#212) and
+    // #227/#229, one level up. Error-grade (no 'severity') so ok=false and the CLI
+    // reports the checks and halts without recording PREFLIGHT. Mirrors action
+    // execute's unknown-name rejection in lib/cli.php.
+    if ($apply_name !== '' && $apply_def === null) {
+        $checks[] = [
+            'check'   => 'apply_known',
+            'pass'    => false,
+            'message' => 'Unknown apply: ' . $apply_name . '. Preflight cannot verify preconditions for an unregistered apply; check the name against the apply registry.',
+        ];
+    }
 
     // Auto-populate planned_files from apply definition if apply_name given.
     // Option-based targets don't produce planned_files (no file drift concern).

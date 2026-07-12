@@ -112,7 +112,7 @@ wp pp apply preflight --run-id=<uuid> --post_id=42
 - `--run-id=<uuid>` — **required.** Run token from `wp pp operate inspect`.
 - `--planned-files=<json>` — JSON array of file paths the agent intends to modify. Enables drift-overlap detection. Without it, drift is a warning only.
 - `--post_id=<id>` — target page post ID. Adds the `target_page` check and scopes coverage to that post.
-- `--apply=<name>` — named apply. Auto-populates `planned_files` from a file-based apply's target; a media-target apply (`import_media`) enables the `uploads_writable` check (#229).
+- `--apply=<name>` — named apply. Auto-populates `planned_files` from a file-based apply's target; a media-target apply (`import_media`) enables the `uploads_writable` check (#229). A name that matches no registered apply **fails preflight closed** via the `apply_known` check (issue 245) — a typo is never treated as "no apply planned."
 
 **Coverage grain.** A preflight with `--post_id=N` covers mutations on post N; a preflight with no post covers **site-grain** changes. They don't substitute for each other — a page mutation needs a page preflight, a site mutation needs a site preflight. This is what `execute`/`action execute`/`operate patch` check.
 
@@ -161,6 +161,7 @@ The checks that can run (`pp_preflight`, `lib/operate.php`):
 |---|---|---|
 | `target` | always | yes |
 | `capability` | always | yes |
+| `apply_known` | `--apply=<name>` given and unregistered | yes |
 | `drift` | always | only if drifted files overlap `planned_files` |
 | `theme_writable` | file-targeting applies only | yes (skipped for DB-backed token applies and for media applies, whose writes are covered by `uploads_writable`) |
 | `uploads_writable` | media-target applies only (`--apply=import_media`, #229) | yes |
@@ -172,6 +173,12 @@ The checks that can run (`pp_preflight`, `lib/operate.php`):
 `ok` is `true` only when no **error-grade** check failed. Rows with `severity: warning` (nav readiness, screenshot readiness, non-overlapping drift) surface a problem without blocking.
 
 **Uploads writability (#229).** `import_media` sideloads a file into `wp-content/uploads/YYYY/MM/`, so a preflight with `--apply=import_media` runs `uploads_writable` instead of asserting "no filesystem writes." The check mirrors execute-time `wp_mkdir_p()` semantics: it walks from the dated path to the **deepest existing ancestor** and requires it to be a writable directory — so a fresh site whose `uploads/` doesn't exist yet passes (WordPress creates it), while an unwritable intermediate directory (`uploads/2026` rsync'd `0555`) or a regular file occupying a path segment fails closed even when `uploads/` itself is writable. The `theme_writable` row still passes for media applies (the theme directory is untouched) with a message pointing at `uploads_writable`.
+
+**Unknown apply name (issue 245).** The `--apply` flag exists so preflight can verify the named apply's preconditions, so a name that matches no registered apply is a hard error, not a no-op. Without the guard, `--apply=import_medai` (a typo) would resolve to "no apply planned," skip the apply-routed filesystem checks, pass clean, and record a `PREFLIGHT` state asserting "no filesystem writes" the operator never earned — the same false-pass class as #227/#229, one level up. Any **provided** non-empty apply value is validated (including the falsy literal `--apply=0`, which is never a registered name); an empty `--apply=` is treated as "no apply planned," same as omitting the flag. The `apply_known` check is error-grade, so an unknown name makes `ok` false and no `PREFLIGHT` is recorded:
+
+```json
+{ "check": "apply_known", "pass": false, "message": "Unknown apply: import_medai. Preflight cannot verify preconditions for an unregistered apply; check the name against the apply registry." }
+```
 
 **Exit codes and errors**
 
