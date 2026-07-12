@@ -45,7 +45,7 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 |---------|-----------------------------------------|---------------------------------------------------------|
 | hero    | title                                   | title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, layout, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof |
 | section | body                                    | title, title_accent, eyebrow, subheading, heading_align, layout, theme, image_url, image_id, image_alt, background_image |
-| faq     | items[] {question, answer}              | title, title_accent                                     |
+| faq     | items[] {question, answer}              | title, title_accent, eyebrow, theme, id                 |
 | grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, heading_align, layout, theme |
 | table   | headers[], rows[][]                     | title, caption                                          |
 | cta     | title, button_text, button_url          | title_accent, eyebrow, text, layout, theme, background_image, button_variant |

@@ -1016,6 +1016,73 @@ class ComponentPropsTest extends TestCase
         $this->assertStringNotContainsString('url(evil)', $html);
     }
 
+    // ── faq id / eyebrow / theme (#231) — parity with heading components ──
+
+    public function testFaqRendersIdForAnchorLinking(): void
+    {
+        // #231: faq is a heading component and must be anchor-linkable, like every
+        // other one. The id lands on the section element so `#faq` has a target.
+        $html = $this->render('faq', $this->faqProps(['id' => 'faq']));
+        $this->assertStringContainsString('<section id="faq"', $html);
+    }
+
+    public function testFaqOmitsIdAttributeWhenUnset(): void
+    {
+        $html = $this->render('faq', $this->faqProps());
+        $this->assertStringNotContainsString('<section id=', $html);
+    }
+
+    public function testFaqEyebrowRendersAsPill(): void
+    {
+        $html = $this->render('faq', $this->faqProps(['eyebrow' => 'KICKER']));
+        $this->assertStringContainsString('class="faq__eyebrow">KICKER<', $html);
+    }
+
+    public function testFaqEyebrowOmittedWhenUnset(): void
+    {
+        $html = $this->render('faq', $this->faqProps());
+        $this->assertStringNotContainsString('faq__eyebrow', $html);
+    }
+
+    public function testFaqEyebrowColorSlotsRender(): void
+    {
+        $html = $this->render('faq', $this->faqProps([
+            'eyebrow' => 'KICKER',
+            '__pp_style' => ['--faq-eyebrow-color' => '#ffffff', '--faq-eyebrow-bg' => '#111111'],
+        ]));
+        $this->assertStringContainsString('--faq-eyebrow-color: #ffffff', $html);
+        $this->assertStringContainsString('--faq-eyebrow-bg: #111111', $html);
+    }
+
+    public function testFaqDarkThemeAddsClass(): void
+    {
+        $html = $this->render('faq', $this->faqProps(['theme' => 'dark']));
+        $this->assertStringContainsString('class="faq faq--dark"', $html);
+    }
+
+    public function testFaqInvertedThemeAddsClass(): void
+    {
+        $html = $this->render('faq', $this->faqProps(['theme' => 'inverted']));
+        $this->assertStringContainsString('class="faq faq--inverted"', $html);
+    }
+
+    public function testFaqDefaultThemeAddsNoModifierClass(): void
+    {
+        $html = $this->render('faq', $this->faqProps());
+        $this->assertStringContainsString('class="faq"', $html);
+        $this->assertStringNotContainsString('faq--', $html);
+    }
+
+    public function testFaqUnknownThemeClampsToDefault(): void
+    {
+        // Composition validation does not check enum values (that is #147, deferred),
+        // so the render is the actual contract: an unknown theme must not emit an
+        // unstyled faq--<garbage> class (mirrors section/grid clamping).
+        $html = $this->render('faq', $this->faqProps(['theme' => 'neon']));
+        $this->assertStringNotContainsString('faq--neon', $html);
+        $this->assertStringContainsString('class="faq"', $html);
+    }
+
     public function testStatsRendersAllFourSlots(): void
     {
         $overrides = [
