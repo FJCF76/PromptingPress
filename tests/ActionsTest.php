@@ -486,13 +486,12 @@ class ActionsTest extends TestCase
             'props'           => ['not_a_real_prop' => 'x'],
         ]);
 
-        // Rejected (issue 147 acceptance). The envelope carries the message; the
-        // pre-execute validate branch drops the WP_Error code (a pre-existing gap
-        // affecting every validate-stage rejection, filed separately), so assert on
-        // the observable contract callers actually see.
+        // Rejected (issue 147 acceptance). The envelope carries both the message and,
+        // since #312, the machine-readable error_code from the validate-stage WP_Error.
         $this->assertFalse($result['ok'], 'an unknown prop key must not persist behind ok:true');
         $this->assertStringContainsString('not_a_real_prop', $result['error']);
         $this->assertStringContainsString('no prop', $result['error']);
+        $this->assertSame('unknown_prop', $result['error_code'], 'validate-stage rejection must carry its code (#312)');
         // The pre-existing composition is untouched — no phantom key written.
         $this->assertArrayNotHasKey('not_a_real_prop', pp_get_composition($id)[0]['props']);
     }
@@ -511,6 +510,7 @@ class ActionsTest extends TestCase
         $this->assertFalse($result['ok']);
         $this->assertStringContainsString('phantom_field', $result['error']);
         $this->assertStringContainsString('no prop', $result['error']);
+        $this->assertSame('unknown_prop', $result['error_code'], 'validate-stage rejection must carry its code (#312)');
         $this->assertCount(1, pp_get_composition($id), 'the rejected component was not appended');
     }
 
@@ -539,6 +539,73 @@ class ActionsTest extends TestCase
 
         $this->assertFalse($result['ok']);
         $this->assertStringContainsString('bogus', $result['error']);
+        $this->assertSame('unknown_prop', $result['error_code'], 'validate-stage rejection must carry its code (#312)');
+    }
+
+    // ── Validate-stage rejections carry the WP_Error code in the envelope (#312) ──
+    //
+    // pp_execute_action() runs pp_validate_action() first; that early-return envelope
+    // used to omit error_code entirely, so a whole class of rejections reached callers
+    // (the AJAX save handler at lib/admin.php:581) with an empty code — they could only
+    // string-match the human message. #312 propagates $validation->get_error_code() so
+    // validate-stage rejections match execute-stage rejections built by _pp_action_error().
+    // One assertion per rejection class the issue enumerates.
+
+    public function testValidateStageErrorCodeTemplateOwnedComponent(): void
+    {
+        // Composing a template-owned component (nav) is rejected with its own code (#223).
+        $result = pp_execute_action('create_page', [
+            'title'       => 'Chrome in body',
+            'composition' => [['component' => 'nav', 'props' => []]],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('template_owned_component', $result['error_code']);
+    }
+
+    public function testValidateStageErrorCodeDuplicateComponentId(): void
+    {
+        // Two components sharing a non-empty props.id is rejected at write time (#238).
+        $result = pp_execute_action('create_page', [
+            'title'       => 'Duplicate ids',
+            'composition' => [
+                ['component' => 'hero', 'props' => ['title' => 'A', 'id' => 'dup']],
+                ['component' => 'section', 'props' => ['body' => 'B', 'id' => 'dup']],
+            ],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('duplicate_component_id', $result['error_code']);
+    }
+
+    public function testValidateStageErrorCodeMissingRequiredProp(): void
+    {
+        // A component missing a required prop (hero without "title") rejects as
+        // invalid_composition — the generic validation code, still non-empty.
+        $result = pp_execute_action('create_page', [
+            'title'       => 'Missing required prop',
+            'composition' => [['component' => 'hero', 'props' => []]],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('invalid_composition', $result['error_code']);
+    }
+
+    public function testValidateStageErrorCodeUnknownProp(): void
+    {
+        // The #147 rule: an undeclared prop key rejects with unknown_prop, now carried
+        // in the envelope for update_component's validate-stage path too.
+        $id = pp_create_page('Unknown prop code', 'draft');
+        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'Hi']]]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['ghost_prop' => 'x'],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('unknown_prop', $result['error_code']);
     }
 
     // ── restore/preview surface the unknown_prop finding without blocking (#233) ──

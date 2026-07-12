@@ -538,12 +538,18 @@ function pp_execute_action(string $name, array $params): array {
     if (is_wp_error($validation)) {
         $action = pp_get_action($name);
         return [
-            'ok'      => false,
-            'action'  => $name,
-            'scope'   => $action['scope'] ?? 'unknown',
-            'target'  => [],
-            'changes' => [],
-            'error'   => $validation->get_error_message(),
+            'ok'         => false,
+            'action'     => $name,
+            'scope'      => $action['scope'] ?? 'unknown',
+            'target'     => [],
+            'changes'    => [],
+            'error'      => $validation->get_error_message(),
+            // Propagate the WP_Error code so validate-stage rejections carry the same
+            // machine-readable error_code as execute-stage rejections built by
+            // _pp_action_error() (#13 uniform shape). Without this, clients can only
+            // string-match the message for template_owned_component / duplicate_component_id
+            // / invalid_composition (missing-required) / unknown_prop (#312).
+            'error_code' => $validation->get_error_code(),
         ];
     }
 
