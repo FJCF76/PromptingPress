@@ -881,19 +881,26 @@ function pp_operate_get_token_snapshot( string $run_id ): ?array {
  * Records a successful PREFLIGHT and everything that must be committed with it,
  * in a SINGLE atomic mutation: the PREFLIGHT step, the target the preflight
  * covered (a specific post_id for page/section work, or the site grain when no
- * post is given), and the pre-apply token snapshot.
+ * post is given), the pre-apply token snapshot, and — for a page/section
+ * preflight — the pre-apply composition content snapshot (the run-scoped
+ * restore baseline, issue 133).
  *
  * Atomicity is load-bearing. `wp pp action execute` / `operate patch` unlock on
  * the recorded coverage alone (pp_operate_preflight_covers), unlike `apply
  * execute` which also checks the rollback snapshot. If coverage were written in a
  * separate call from the snapshot and the snapshot write failed, a later mutating
  * action could pass its gate even though the preflight command errored. Writing
- * step + coverage + snapshot inside one pp_operate_mutate_state critical section
- * means the run gains the complete post-preflight state or none of it, so any
- * failure leaves BOTH the action gate and the apply gate fail-closed.
+ * step + coverage + token snapshot + composition content snapshot inside one
+ * pp_operate_mutate_state critical section means the run gains the complete
+ * post-preflight state or none of it, so any failure leaves BOTH the action gate
+ * and the apply gate fail-closed WITH a rollback baseline — never unlocked
+ * without one (issue 241: the composition content snapshot used to be a second,
+ * separate write, so a snapshot-write failure left the run unlocked with no
+ * restore baseline, and a re-run could freeze a post-mutation baseline).
  *
- * Idempotent: the step and each covered post_id de-dupe; the token snapshot is
- * first-write-wins, so re-running preflight never moves the rollback baseline.
+ * Idempotent: the step and each covered post_id de-dupe; the token snapshot and
+ * the composition content snapshot are both first-write-wins, so re-running
+ * preflight never moves either rollback baseline.
  *
  * @param string     $run_id              The run token UUID.
  * @param int|null   $post_id             Target post for page/section preflight, or null for site grain.
@@ -902,11 +909,17 @@ function pp_operate_get_token_snapshot( string $run_id ): ?array {
  *                                        for a page/section preflight. Recorded so `action
  *                                        execute` can reject a composition changed since this
  *                                        preflight. Null (or a null $post_id) records no marker.
+ * @param array|null $composition_content The target's pre-apply composition items (issue 133),
+ *                                        for a page/section preflight. Recorded first-write-wins
+ *                                        as the run-scoped restore baseline. The caller reads it
+ *                                        via pp_get_composition_result() and fails the preflight
+ *                                        closed on a corrupt row rather than passing []; null (or
+ *                                        a null $post_id) records no content snapshot.
  * @return bool    True on a confirmed write; false if the run state is
  *                 missing/expired/corrupt or identity-mismatched.
  */
-function pp_operate_record_preflight( string $run_id, ?int $post_id, array $token_overrides, ?array $composition_marker = null ): bool {
-    return pp_operate_mutate_state( $run_id, static function ( array $data ) use ( $post_id, $token_overrides, $composition_marker ) {
+function pp_operate_record_preflight( string $run_id, ?int $post_id, array $token_overrides, ?array $composition_marker = null, ?array $composition_content = null ): bool {
+    return pp_operate_mutate_state( $run_id, static function ( array $data ) use ( $post_id, $token_overrides, $composition_marker, $composition_content ) {
         // PREFLIGHT step (idempotent) — keeps apply execute's check_step gate working.
         if ( ! in_array( 'PREFLIGHT', $data['steps_completed'], true ) ) {
             $data['steps_completed'][] = 'PREFLIGHT';
@@ -932,6 +945,24 @@ function pp_operate_record_preflight( string $run_id, ?int $post_id, array $toke
                     $data['composition_snapshot'] = [];
                 }
                 $data['composition_snapshot'][ (string) $post_id ] = $composition_marker;
+            }
+
+            // Run-scoped restore baseline (#133): freeze the pre-apply composition
+            // content so `apply restore-composition` can revert this post to its
+            // pre-run state. FIRST-write-wins (keyed per post), so a preflight re-run
+            // in the same run never overwrites the true pre-run baseline with a
+            // post-mutation one. Committed here, inside the SAME critical section as
+            // the PREFLIGHT step/coverage, so the gate never unlocks without its
+            // rollback baseline (issue 241). A null value (site grain, or a corrupt
+            // composition the caller already failed the preflight on) records nothing.
+            if ( $composition_content !== null ) {
+                if ( ! isset( $data['composition_content_snapshot'] ) || ! is_array( $data['composition_content_snapshot'] ) ) {
+                    $data['composition_content_snapshot'] = [];
+                }
+                $content_key = (string) $post_id;
+                if ( ! array_key_exists( $content_key, $data['composition_content_snapshot'] ) ) {
+                    $data['composition_content_snapshot'][ $content_key ] = $composition_content;
+                }
             }
         } else {
             $data['preflight_site'] = true;
@@ -1122,11 +1153,22 @@ function pp_operate_get_touched_post_ids( string $run_id ): ?array {
 /**
  * Freezes the pre-apply composition CONTENT for a post in a run, first-write-wins (#133).
  *
- * The composition analogue of the token_snapshot: captured at PREFLIGHT, this is the
- * full composition array a run-scoped restore reverts each touched post to. Distinct
- * from #113's composition_snapshot, which stores only the freshness MARKER (version +
- * hash) for the TOCTOU gate — the marker can't rebuild content. First-write-wins per
- * post so re-running preflight in the same run keeps the true pre-run baseline stable.
+ * The composition analogue of the token_snapshot: the full composition array a
+ * run-scoped restore reverts each touched post to. Distinct from #113's
+ * composition_snapshot, which stores only the freshness MARKER (version + hash) for the
+ * TOCTOU gate — the marker can't rebuild content. First-write-wins per post so
+ * re-running preflight in the same run keeps the true pre-run baseline stable.
+ *
+ * NOTE: as of issue 241 this standalone recorder has NO production caller. The
+ * `apply preflight` command used to call it as a second write after
+ * pp_operate_record_preflight(); that two-write gap could leave the run unlocked with
+ * no restore baseline, so the content snapshot is now folded into
+ * pp_operate_record_preflight()'s single critical section (which inlines the same
+ * first-write-wins-by-post logic — it runs inside an already-held mutate_state lock and
+ * cannot re-enter this function). This recorder is retained only as the unit-tested
+ * reference for that first-write-wins shape; if the inlined copy and this one ever need
+ * to change, change both. Any future caller that must record a content snapshot as its
+ * own standalone write (not inside a preflight commit) can use it.
  *
  * @param string $run_id       The run token UUID.
  * @param int    $post_id      The post being snapshotted.

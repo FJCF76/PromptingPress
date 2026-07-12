@@ -4,6 +4,25 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.84] — 2026-07-12 — the preflight gate can no longer unlock without its composition restore baseline (#241)
+
+**A page-scoped `wp pp apply preflight` used to record its unlock (PREFLIGHT coverage, freshness marker, token snapshot) in one state write and the pre-run composition content snapshot — the baseline `restore-composition` reverts to — in a separate second write. If that second write failed, the run was left fully unlocked with no restore baseline: a parallel agent or an operator reading `operate inspect` could execute a page mutation through the open gate, and the change could never be rolled back. The composition snapshot is now folded into the same locked state write as the PREFLIGHT step, so coverage and its restore baseline are all-or-nothing. A corrupt stored composition now fails the preflight closed instead of freezing an empty baseline that a later restore would replay to blank the page.**
+
+`PP_Apply_Command::preflight()` committed `pp_operate_record_preflight()` first (the atomic unlock) and then called `pp_operate_record_composition_content_snapshot()` as a follow-up write. `pp_operate_preflight_covers()` and `pp_operate_run_rollbackable()` both passed once the first write landed, so a failure of the second left the gate open with no baseline — and because the content snapshot is first-write-wins, an operator who followed the error's advice and re-ran preflight *after* mutating the page would freeze the post-mutation composition as the "pre-run" baseline, making the true baseline unrecoverable. The snapshot now travels into `pp_operate_record_preflight()` as a new parameter and is recorded inside the same `pp_operate_mutate_state()` critical section as the PREFLIGHT step (first-write-wins for the content, last-write-wins for the freshness marker, matching #113). The CLI reads the pre-apply composition through `pp_get_composition_result()` (the fail-closed decoder) rather than `pp_get_composition()` (which coerces a corrupt row to `[]`): a corrupt or undecodable `_pp_composition` row now records nothing and errors, mirroring the token snapshot's fail-closed handling of a corrupt `pp_token_overrides` row (#207). This completes the fail-closed gate principle of #96/#113/#200/#207/#212/#243 for the composition restore path.
+
+### Fixed
+
+- `wp pp apply preflight --post_id=N` now records the PREFLIGHT coverage and the pre-run composition content snapshot in a single locked state write (`pp_operate_record_preflight()` gained a `composition_content` parameter), so the run can never be left unlocked without its restore baseline, and a preflight re-run can never freeze a post-mutation composition as the pre-run baseline (#241).
+- A corrupt or undecodable stored page composition now fails the preflight closed (read via `pp_get_composition_result()`), instead of freezing an empty `[]` baseline that a later `restore-composition` would replay to blank the page (#241).
+
+### Docs
+
+- `docs/reference-apply-cli.md` replaces the stale "page-scoped edge case" note (which described the removed two-write gap) with the atomic-unlock guarantee and documents the new corrupt-composition fail-closed preflight error (#241).
+
+### Tests
+
+- New `OperateTest` cases pin the #241 behavior: PREFLIGHT coverage and the content snapshot commit together in one state, the content baseline is first-write-wins across preflight re-runs while the freshness marker is last-write-wins, an empty page records a valid `[]` baseline, and a null content arg (site grain, or a caller that already failed closed on a corrupt row) records no content snapshot (#241).
+
 ## [v0.16.83] — 2026-07-12 — a failed run-state write can no longer report success (#243)
 
 **Every recorder behind the operating loop's run token — PREFLIGHT, step completion, token and composition snapshots — persists through one locked write to a JSON state file. That write truncated the file first and then wrote, never checking that the encode or the write actually succeeded, so a full disk or an unencodable payload could leave the state file empty or torn while the recorder still reported success. The write is now fail-closed: it encodes before touching the file, refuses to write if the file cannot be truncated, verifies the whole payload landed, restores the prior bytes if it did not, and returns failure so the caller surfaces the error instead of trusting a destroyed baseline.**
