@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.86] — 2026-07-12 — `restore-composition` fails closed on a partial restore instead of reporting success (#242)
+
+**`wp pp apply restore-composition` printed the run-scoped restore report, warned about any `skipped` posts (a missing pre-run snapshot or a write failure), and then unconditionally ended with `WP_CLI::success` and exit 0. A machine consumer — the documented AI-operator contract — that branches on the exit code therefore read a partial restore as a complete one: if a touched post could not be reverted, the run still reported overall success. The command now fails closed. When any touched post lands in `skipped`, it still prints the JSON report (so you can see which posts were restored versus skipped), but it exits 1 with an explicit `Error: Restore INCOMPLETE` message. Exit 0 now means, and only means, that every touched post was reverted.**
+
+The fix lives entirely in the CLI presentation layer; the report producer `pp_operate_restore_run_compositions()` already reported `reverted` and `skipped` correctly. A new pure verdict helper `pp_operate_restore_run_complete()` in `lib/operate.php` classifies a report as complete only when it has a usable touched-post record (`ok === true`) and an empty `skipped` list. `PP_Apply_Command::restore_composition()` records the APPLY step (the partial revert did run and mutate state), preserves the human-facing skip warning, then branches on the verdict: an incomplete restore errors with a non-zero exit; a complete restore keeps the prior `Success:` messages unchanged. This is the same false-success class already closed for `preflight` (#227) and the token-recording paths (#243/#241): a gate must not report a success it did not achieve.
+
+### Fixed
+
+- `wp pp apply restore-composition` now exits non-zero (`WP_CLI::error`) when the run-scoped restore is incomplete — any touched post skipped for a missing snapshot or a write failure — instead of always exiting 0 with `Success:`. The JSON report (restored vs skipped) and the human skip warning are preserved; exit 0 now guarantees a full restore, so a machine consumer can no longer mistake a partial restore for a complete one (#242).
+
+### Docs
+
+- `docs/reference-apply-cli.md` documents the `restore-composition` exit-code contract: exit 0 only on a full restore, exit 1 with `Error: Restore INCOMPLETE` when any post is skipped, JSON report printed on both paths (#242).
+
+### Tests
+
+- New `OperateTest` cases pin `pp_operate_restore_run_complete()`: a fully-reverted report is complete, a report with any `skipped` entry is incomplete, and an `ok:false` (no usable record) report is incomplete; two end-to-end cases drive the real report producer through a missing-snapshot skip (incomplete) and a clean revert (complete) (#242).
+
 ## [v0.16.85] — 2026-07-12 — run-state readers now take a shared lock so they never observe a half-written file (#274)
 
 **The operating loop's writer (`pp_operate_mutate_state()`) takes an exclusive `flock` for its whole read-modify-write, but `flock` is advisory: a reader that does not itself take a shared lock bypasses it entirely. `pp_operate_read_state()` read the run-state file with a bare `file_get_contents()` and no lock, so while the writer was mid-write (a non-atomic `ftruncate(0)` then `fwrite()`) a concurrent reader — `operate inspect`, a step-completion check, a preflight-coverage query, any snapshot getter — could observe an empty or partially written file, fail to decode it, and treat the run as missing. On the same install this surfaced as a spurious "run not found" or a preflight/step gate transiently reading as unsatisfied while another CLI process recorded state. The read now takes a shared lock (`flock LOCK_SH`) and blocks until the writer releases, so it always sees a complete file.**
