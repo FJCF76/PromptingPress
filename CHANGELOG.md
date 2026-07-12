@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.100] — 2026-07-13 — A rejected write now carries its machine-readable error code on every path, not just some: validate-stage rejections match execute-stage rejections (#312)
+
+**Every action envelope documents an `error_code` alongside the human `error` message so a client can key on the code (`composition_conflict` → reload prompt, `unknown_prop` → point at the field) instead of parsing prose. Execute-stage rejections carried it; the validate-stage early-return in `pp_execute_action()` did not. It hand-built its envelope and omitted `error_code` entirely, so a whole class of rejections — a template-owned component in the body (`template_owned_component`), duplicate component ids (`duplicate_component_id`), a missing required prop (`invalid_composition`), and the new unknown prop key (`unknown_prop`) — reached the dashboard save handler and the AI chat with an empty code. Callers could only string-match the message. This release propagates the validating `WP_Error`'s code into that envelope, so validate-stage rejections now carry the same machine-readable `error_code` as execute-stage rejections, matching the uniform `{ok, error, error_code}` shape the action model already documents.**
+
+Low severity — the human message was always present and clear — but it defeated the machine-readable-code contract for every rejection surfaced by an action's `validate` callback, and the action envelope is a public AI-facing surface worth fixing before v1.0.0 freezes it. The fix is one line: the early-return envelope adds `'error_code' => $validation->get_error_code()`, mirroring the `_pp_action_error()` helper that every other rejection path already routes through. No accepted grammar, action behavior, rendered output, or documented shape changed; the code now matches the canonical shape `AI_CONTEXT.md` already describes.
+
+### Fixed
+
+- `pp_execute_action()`'s pre-execute validation rejection now includes `error_code` in its result envelope, propagated from the validating `WP_Error`, so validate-stage rejections (`template_owned_component`, `duplicate_component_id`, `invalid_composition` for a missing required prop, and `unknown_prop`) carry a machine-readable code to the dashboard save handler and AI chat instead of an empty one — consistent with execute-stage rejections built by `_pp_action_error()` (#312).
+
+### Tests
+
+- `tests/ActionsTest.php`: dedicated coverage asserts `error_code` is populated for each validate-stage rejection class — `template_owned_component`, `duplicate_component_id`, `invalid_composition` (missing-required), and `unknown_prop`; the existing `update_component` / `add_component` / `update_composition` unknown-prop tests were strengthened from asserting the message only to also asserting the code (#312).
+
 ## [v0.16.99] — 2026-07-13 — An unknown component prop no longer saves clean and does nothing: the composition validator rejects prop keys not in the component's schema (#147)
 
 **Set a prop that a component does not have — a typo like `titel`, or a field the component never defined — and until now the write reported `ok: true`, the key persisted in `_pp_composition`, and the renderer silently ignored it. The change looked applied and wasn't. That is the same "reported success without real effect" failure the v1.0.0 gate exists to eliminate (issue 302 on the style axis), reachable here on the props axis through every write path. Issue 120 had already closed it for the `wp pp patch <selector>` CLI entry point, but only there. This release closes it at the choke point: `pp_validate_composition()` now rejects any composition whose component carries a prop key not declared in that component's `schema.json` `props`, with a distinct `unknown_prop` error, so `create_page`, `update_composition`, `add_component`, `update_component`, and the dashboard editor's save all fail loudly instead of persisting a dead key.**
