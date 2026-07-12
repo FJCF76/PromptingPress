@@ -838,9 +838,22 @@
   background: var(--faq-bg, var(--color-surface));
 }
 
+.faq__eyebrow {
+  display: inline-block;
+  padding: 0.35rem 0.85rem;
+  margin-bottom: var(--space-sm);
+  border-radius: 3px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faq-eyebrow-color, var(--color-text));
+  background: var(--faq-eyebrow-bg, var(--color-surface-accent));
+}
+
 .faq__heading {
   margin-bottom: var(--space-lg);
-  color: var(--faq-heading-color, var(--color-text));
+  color: var(--faq-heading-color, var(--faq-heading-theme-color, var(--color-text)));
 }
 
 .faq__heading-accent {
@@ -923,6 +936,30 @@
 
 .faq__empty {
   padding: var(--space-md) 0;
+}
+
+/* FAQ background variants. .faq already carries a --color-surface band by
+   default, so --dark only adds the framing borders (mirrors .grid--dark /
+   .pp-section--dark). --inverted swaps the band for the inverted surface and
+   supplies the theme-color DEFAULT the desktop typography rule resolves at
+   use-time — the desktop `main > .faq .faq__heading` rule outranks any theme
+   selector, so the theme cannot win by specificity and instead feeds the
+   heading's own fallback chain (slot > theme > token), the issue 222 pattern.
+   .faq__item keeps its light background, so question/answer text stays dark —
+   no theming needed there (mirrors .grid--inverted keeping cards light). */
+.faq--dark {
+  background: var(--faq-bg, var(--color-surface));
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.faq--inverted {
+  background: var(--faq-bg, var(--color-bg-inverted));
+  --faq-heading-theme-color: var(--color-bg);
+}
+
+.faq--inverted .faq__heading {
+  color: var(--faq-heading-color, var(--color-bg));
 }
 
 /* ==========================================================================
@@ -2735,7 +2772,7 @@
   }
 
   main > .faq .faq__heading {
-    color: var(--faq-heading-color, var(--color-text));
+    color: var(--faq-heading-color, var(--faq-heading-theme-color, var(--color-text)));
   }
 
   main > .section .section__content,

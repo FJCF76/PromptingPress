@@ -1666,6 +1666,7 @@ pp_register_component_fields('grid', [
 ]);
 
 pp_register_component_fields('faq', [
+    ['name' => 'eyebrow',          'type' => 'string'],
     ['name' => 'items[].question', 'type' => 'string'],
     ['name' => 'items[].answer',   'type' => 'html'],
 ]);

@@ -208,7 +208,7 @@ class SchemaValidationTest extends TestCase
     public function testStructuralAndToneComponentsUseCanonicalKeys(): void
     {
         $expectLayout = ['hero', 'section', 'grid', 'cta', 'testimonials'];
-        $expectTheme  = ['section', 'stats', 'logos', 'embed', 'grid', 'cta', 'testimonials'];
+        $expectTheme  = ['section', 'stats', 'logos', 'embed', 'grid', 'cta', 'testimonials', 'faq'];
 
         foreach ($expectLayout as $component) {
             $schema = json_decode(file_get_contents($this->themeRoot . "/components/{$component}/schema.json"), true);

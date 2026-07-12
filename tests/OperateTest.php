@@ -1435,9 +1435,10 @@ class OperateTest extends TestCase
         $this->assertSame('items[].link_text', $grid[5]['name']);
 
         $faq = pp_get_component_fields('faq');
-        $this->assertCount(2, $faq);
-        $this->assertSame('items[].question', $faq[0]['name']);
-        $this->assertSame('items[].answer', $faq[1]['name']);
+        $this->assertCount(3, $faq);
+        $this->assertSame('eyebrow', $faq[0]['name']);
+        $this->assertSame('items[].question', $faq[1]['name']);
+        $this->assertSame('items[].answer', $faq[2]['name']);
 
         $cta = pp_get_component_fields('cta');
         $this->assertCount(5, $cta);
