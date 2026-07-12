@@ -270,8 +270,8 @@
 
 @media (min-width: 768px) {
   .hero {
-    padding-top: var(--space-2xl);
-    padding-bottom: var(--space-2xl);
+    padding-top: var(--hero-padding-top, var(--space-2xl));
+    padding-bottom: var(--hero-padding-bottom, var(--space-2xl));
   }
 }
 
@@ -324,7 +324,7 @@
 
 @media (min-width: 768px) {
   .hero__title {
-    font-size: clamp(3rem, 4.5vw, 4.5rem);
+    font-size: var(--hero-title-size, clamp(3rem, 4.5vw, 4.5rem));
   }
 }
 
@@ -394,7 +394,7 @@
   }
 
   .hero--split .hero__content {
-    max-width: 40rem;
+    max-width: var(--hero-content-width, 40rem);
   }
 }
 
@@ -631,11 +631,11 @@
 
 @media (max-width: 767px) {
   .hero__content {
-    max-width: none;
+    max-width: var(--hero-content-width, none);
   }
 
   .hero__surface {
-    padding: var(--space-md);
+    padding: var(--hero-surface-padding, var(--space-md));
   }
 }
 
@@ -698,7 +698,7 @@
 .embed__heading,
 .cta__title,
 .stats__heading {
-  max-width: 40rem;
+  max-width: var(--cta-content-width, 40rem);
 }
 
 .section__header--center {
@@ -1086,7 +1086,7 @@
 
 @media (min-width: 768px) {
   .grid__item-body {
-    padding: var(--space-lg);
+    padding: var(--grid-card-padding, var(--space-lg));
   }
 }
 
@@ -1529,7 +1529,7 @@
   max-width: 68rem;
   margin-right: auto;
   margin-left: auto;
-  gap: 1.75rem;
+  gap: var(--cta-inner-gap, 1.75rem);
   align-items: flex-start;
   text-align: left;
 }
@@ -1545,7 +1545,7 @@
 #how-cta .cta__title,
 #agencies-cta .cta__title,
 #implementers-cta .cta__title {
-  max-width: 14em;
+  max-width: var(--cta-content-width, 14em);
   margin-right: 0;
   margin-left: 0;
 }
@@ -1618,14 +1618,14 @@
   #agencies-cta.cta--inline .cta__inner,
   #implementers-cta.cta--inline .cta__inner {
     max-width: 100%;
-    gap: 1.35rem;
+    gap: var(--cta-inner-gap, 1.35rem);
   }
 
   #home-cta .cta__title,
   #how-cta .cta__title,
   #agencies-cta .cta__title,
   #implementers-cta .cta__title {
-    max-width: 12.5em;
+    max-width: var(--cta-content-width, 12.5em);
   }
 
   #home-cta .cta__button,
@@ -2143,11 +2143,11 @@
    ========================================================================== */
 
 .section--text-only .section__title {
-  font-size: 2.25rem;
+  font-size: var(--section-title-size, 2.25rem);
 }
 
 .section--text-only .section__content {
-  max-width: var(--measure-centered);
+  max-width: var(--section-body-width, var(--measure-centered));
 }
 
 /* ==========================================================================
@@ -2194,7 +2194,7 @@
   text-align: center;
   margin-left: auto;
   margin-right: auto;
-  max-width: var(--measure-centered);
+  max-width: var(--section-body-width, var(--measure-centered));
 }
 
 .section--centered .section__title {
@@ -2317,9 +2317,9 @@
   #home-cta .cta__title {
     grid-column: 1;
     grid-row: 2 / span 2;
-    max-width: 40rem;
+    max-width: var(--cta-content-width, 40rem);
     margin: 0;
-    font-size: clamp(2.35rem, 3.05vw, 2.65rem);
+    font-size: var(--cta-title-size, clamp(2.35rem, 3.05vw, 2.65rem));
     line-height: 1.1;
   }
 
@@ -2363,10 +2363,10 @@
   }
 
   #home-cta .cta__title {
-    max-width: 21rem;
+    max-width: var(--cta-content-width, 21rem);
     margin-right: auto;
     margin-left: auto;
-    font-size: clamp(1.55rem, 6.5vw, 1.75rem);
+    font-size: var(--cta-title-size, clamp(1.55rem, 6.5vw, 1.75rem));
     line-height: 1.12;
   }
 
@@ -2809,7 +2809,7 @@
   }
 
   main > .section--text-only .section__content {
-    max-width: 49rem;
+    max-width: var(--section-body-width, 49rem);
   }
 
   main > .section .section__content p + p {
@@ -2818,13 +2818,13 @@
 
   main > .grid .grid__item-title {
     color: var(--grid-item-title-color, var(--color-text));
-    font-size: 1.13rem;
+    font-size: var(--grid-item-title-size, 1.13rem);
     font-weight: 670;
     line-height: 1.28;
   }
 
   main > .grid:not(.grid--steps) .grid__item-title {
-    font-size: 1.14rem;
+    font-size: var(--grid-item-title-size, 1.14rem);
   }
 
   main > .grid .grid__item-text {
@@ -2836,12 +2836,12 @@
 
   main > .grid .grid__item-body,
   main > .grid .grid__item-body:first-child {
-    padding: 2rem;
+    padding: var(--grid-card-padding, 2rem);
   }
 
   main > .grid--steps .grid__item-title {
     max-width: 17rem;
-    font-size: 1.04rem;
+    font-size: var(--grid-item-title-size, 1.04rem);
     font-weight: 680;
   }
 
@@ -2866,7 +2866,7 @@
 
   main > .cta .cta__body {
     color: var(--cta-body-color, var(--cta-body-theme-color, var(--color-text-secondary)));
-    font-size: 1.04rem;
+    font-size: var(--cta-body-size, 1.04rem);
     font-weight: 430;
     line-height: 1.66;
   }
@@ -2886,20 +2886,20 @@
   main > .grid .grid__item-text,
   main > .faq .faq__answer,
   main > .cta .cta__body {
-    font-size: 1rem;
+    font-size: var(--cta-body-size, 1rem);
     font-weight: 430;
     line-height: 1.65;
   }
 
   main > .grid .grid__item-title {
-    font-size: 1.06rem;
+    font-size: var(--grid-item-title-size, 1.06rem);
     font-weight: 660;
     line-height: 1.28;
   }
 
   main > .grid .grid__item-body,
   main > .grid .grid__item-body:first-child {
-    padding: 1.55rem;
+    padding: var(--grid-card-padding, 1.55rem);
   }
 
   main > .faq .faq__question {
@@ -2911,7 +2911,7 @@
 
 /* True final cascade: composed card-grid hierarchy. */
 main > .grid .grid__list {
-  gap: 1rem;
+  gap: var(--grid-gap, 1rem);
 }
 
 main > .grid .grid__item {
@@ -2921,7 +2921,7 @@ main > .grid .grid__item {
      first card (issue 292 — regression of issue 226). Unset keeps the
      neutral --color-border default. */
   border-color: var(--grid-card-border, var(--color-border));
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.045);
+  box-shadow: var(--grid-card-shadow, 0 12px 28px rgba(15, 23, 42, 0.045));
 }
 
 main > .grid:not(.grid--steps) .grid__item {
@@ -2955,9 +2955,9 @@ main > .grid:not(.grid--steps) .grid__item:first-child {
   background:
     linear-gradient(90deg, rgba(37, 99, 235, 0.055) 1px, transparent 1px) 0 0 / 2.75rem 100%,
     var(--grid-card-bg, linear-gradient(180deg, var(--color-surface-accent) 0%, var(--color-surface) 100%));
-  box-shadow:
+  box-shadow: var(--grid-card-shadow,
     inset 0 0 0 1px rgba(37, 99, 235, 0.055),
-    0 18px 42px rgba(37, 99, 235, 0.10);
+    0 18px 42px rgba(37, 99, 235, 0.10));
 }
 
 main > .grid:not(.grid--steps) .grid__item:first-child::before {
@@ -2984,7 +2984,7 @@ main > .grid .grid__item-link::after {
 
 @media (min-width: 1024px) {
   main > .grid .grid__list {
-    gap: 1.05rem;
+    gap: var(--grid-gap, 1.05rem);
   }
 
   main > .grid:not(.grid--steps) .grid__list[data-pp-count="4"] {
@@ -3020,7 +3020,7 @@ main > .grid .grid__item-link::after {
   }
 
   main > .grid:not(.grid--steps) .grid__item:first-child .grid__item-title {
-    font-size: 1.22rem;
+    font-size: var(--grid-item-title-size, 1.22rem);
     line-height: 1.22;
   }
 
@@ -3035,11 +3035,11 @@ main > .grid .grid__item-link::after {
 
 @media (max-width: 767px) {
   main > .grid .grid__list {
-    gap: 0.85rem;
+    gap: var(--grid-gap, 0.85rem);
   }
 
   main > .grid:not(.grid--steps) .grid__item:first-child {
-    box-shadow: 0 14px 32px rgba(37, 99, 235, 0.09);
+    box-shadow: var(--grid-card-shadow, 0 14px 32px rgba(37, 99, 235, 0.09));
   }
 }
 
@@ -3237,7 +3237,7 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary),
 #how-cta .cta__button,
 #agencies-cta .cta__button,
 #implementers-cta .cta__button {
-  border-color: var(--color-accent-strong);
+  border-color: var(--cta-button-border, var(--cta-accent, var(--color-accent-strong)));
   background:
     linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%);
   box-shadow:
@@ -3254,7 +3254,7 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover,
 #how-cta .cta__button:hover,
 #agencies-cta .cta__button:hover,
 #implementers-cta .cta__button:hover {
-  border-color: var(--color-accent);
+  border-color: var(--cta-button-hover-border, var(--cta-accent-hover, var(--color-accent)));
   background:
     linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%);
   box-shadow:
@@ -3365,7 +3365,7 @@ main > .faq .faq__item,
 #how-cta.cta--inline .cta__inner,
 #agencies-cta.cta--inline .cta__inner,
 #implementers-cta.cta--inline .cta__inner {
-  border-radius: 4px;
+  border-radius: var(--grid-card-radius, 4px);
 }
 
 .hero .pp-workflow-surface,
@@ -3384,7 +3384,7 @@ main > .grid .grid__item {
      too (matching the earlier all-cards rule and the :first-child rule below)
      or the slot stays ignored on every non-featured card (issue 292). */
   border-color: var(--grid-card-border, var(--color-border));
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.055);
+  box-shadow: var(--grid-card-shadow, 0 10px 24px rgba(15, 23, 42, 0.055));
 }
 
 main > .grid:not(.grid--steps) .grid__item:first-child {
@@ -3489,7 +3489,7 @@ main .btn,
   #how-cta.cta--inline .cta__inner,
   #agencies-cta.cta--inline .cta__inner,
   #implementers-cta.cta--inline .cta__inner {
-    gap: 1rem;
+    gap: var(--cta-inner-gap, 1rem);
     padding: 1.45rem 1.2rem 1.25rem;
     text-align: left;
   }
@@ -3505,9 +3505,9 @@ main .btn,
   #how-cta .cta__title,
   #agencies-cta .cta__title,
   #implementers-cta .cta__title {
-    max-width: none;
+    max-width: var(--cta-content-width, none);
     margin-bottom: 0.75rem;
-    font-size: clamp(1.48rem, 6.45vw, 1.72rem);
+    font-size: var(--cta-title-size, clamp(1.48rem, 6.45vw, 1.72rem));
     font-weight: 620;
     line-height: 1.08;
   }
@@ -3518,7 +3518,7 @@ main .btn,
   #implementers-cta .cta__body {
     max-width: 19.75rem;
     color: var(--cta-body-color, var(--color-text-secondary));
-    font-size: 1.015rem;
+    font-size: var(--cta-body-size, 1.015rem);
     font-weight: 450;
     line-height: 1.52;
   }

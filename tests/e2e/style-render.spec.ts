@@ -741,11 +741,11 @@ test.describe('Safe-surface rendered proof', () => {
 
     // The wrapper must carry the slot value, and the rendered box must actually
     // exceed the old 640px wrapper default — the rendered proof, not just the
-    // computed property. The INNER .section__content is deliberately NOT pinned
-    // to 700px yet: the text-only 49rem literal still caps it (a waived issue 309
-    // pair — this very test measured it dead at 784px in a real browser). When
-    // issue 309 routes that literal through the slot, add:
-    //   expect(widths.content).toBe('700px');
+    // computed property. The INNER .section__content now honors the slot too:
+    // issue 309 routed the text-only 49rem literal (main > .section--text-only
+    // .section__content) through var(--section-body-width, 49rem), so the inner
+    // content box that used to cap dead at 784px now follows the slot to 700px.
+    expect(widths.content).toBe('700px');
     expect(widths.wrapper).toBe('700px');
     expect(widths.rendered).toBeGreaterThan(640);
   });
