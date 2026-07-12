@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.85] — 2026-07-12 — run-state readers now take a shared lock so they never observe a half-written file (#274)
+
+**The operating loop's writer (`pp_operate_mutate_state()`) takes an exclusive `flock` for its whole read-modify-write, but `flock` is advisory: a reader that does not itself take a shared lock bypasses it entirely. `pp_operate_read_state()` read the run-state file with a bare `file_get_contents()` and no lock, so while the writer was mid-write (a non-atomic `ftruncate(0)` then `fwrite()`) a concurrent reader — `operate inspect`, a step-completion check, a preflight-coverage query, any snapshot getter — could observe an empty or partially written file, fail to decode it, and treat the run as missing. On the same install this surfaced as a spurious "run not found" or a preflight/step gate transiently reading as unsatisfied while another CLI process recorded state. The read now takes a shared lock (`flock LOCK_SH`) and blocks until the writer releases, so it always sees a complete file.**
+
+`pp_operate_read_state()` is the single choke point every run-state getter routes through, so hardening it fixes all readers at once. It now opens the file with `fopen('r')`, acquires `LOCK_SH`, reads the full contents, releases the lock, and closes the handle before decoding — coordinating with the writer's `LOCK_EX` on the same file. A missing file (`fopen 'r'` fails) returns `null`, matching the prior `file_exists()` guard; a transient lock-acquire failure returns `null` in the fail-closed direction (a valid run momentarily reads as unusable, never the reverse), matching the writer's own lock-failure handling. Replacing the `file_exists()` + `file_get_contents()` two-step with a single opened handle also removes a time-of-check/time-of-use window against the TTL `@unlink` path. This is the reader-side counterpart of the fail-closed writer hardening in the #200/#207/#212/#241/#243 concurrency cluster: the writer was already correct, but readers did not participate in the lock.
+
+### Fixed
+
+- `pp_operate_read_state()` now reads the run-state file under a shared lock (`flock LOCK_SH`), so a reader can no longer observe an empty or half-written file while `pp_operate_mutate_state()` holds the exclusive lock during its non-atomic truncate-then-write — eliminating the spurious "run not found" / transiently-unsatisfied-gate class for every getter built on it (`operate inspect`, step checks, preflight-coverage, snapshot getters) (#274).
+
+### Tests
+
+- New `OperateTest` cases pin the #274 behavior: a valid state file still reads correctly under the shared lock, a missing file returns `null` via the `fopen` guard, a corrupt payload returns `null` without truncating or recreating the file, and the shared lock is released after the read so a subsequent `mutate_state` proceeds (no lock leak) (#274).
+
 ## [v0.16.84] — 2026-07-12 — the preflight gate can no longer unlock without its composition restore baseline (#241)
 
 **A page-scoped `wp pp apply preflight` used to record its unlock (PREFLIGHT coverage, freshness marker, token snapshot) in one state write and the pre-run composition content snapshot — the baseline `restore-composition` reverts to — in a separate second write. If that second write failed, the run was left fully unlocked with no restore baseline: a parallel agent or an operator reading `operate inspect` could execute a page mutation through the open gate, and the change could never be rolled back. The composition snapshot is now folded into the same locked state write as the PREFLIGHT step, so coverage and its restore baseline are all-or-nothing. A corrupt stored composition now fails the preflight closed instead of freezing an empty baseline that a later restore would replay to blank the page.**

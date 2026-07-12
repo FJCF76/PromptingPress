@@ -2604,4 +2604,58 @@ class OperateTest extends TestCase
 
         pp_operate_cleanup_run($run_id);
     }
+
+    // ── Shared-lock reads (issue 274) ─────────────────────────────────────
+
+    public function testReadStateReturnsStateForValidFileUnderSharedLock(): void
+    {
+        // A complete, valid state file still reads correctly now that the read
+        // path takes flock(LOCK_SH).
+        $run_id = pp_operate_create_run();
+        pp_operate_record_step($run_id, 'PREFLIGHT');
+
+        $data = pp_operate_read_state($run_id);
+        $this->assertIsArray($data);
+        $this->assertContains('INSPECT', $data['steps_completed']);
+        $this->assertContains('PREFLIGHT', $data['steps_completed']);
+
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testReadStateReturnsNullForMissingFile(): void
+    {
+        // fopen('r') on a non-existent file fails → null, matching the prior
+        // file_exists() guard. Valid UUID, no file written.
+        $this->assertNull(pp_operate_read_state('00000000-0000-4000-8000-000000000274'));
+    }
+
+    public function testReadStateReturnsNullForCorruptJson(): void
+    {
+        // A torn/corrupt payload decodes to null under the shared lock without
+        // truncating or recreating the file.
+        $fake_id = wp_generate_uuid4();
+        $path    = pp_operate_run_path($fake_id);
+        file_put_contents($path, 'NOT VALID JSON {{{', LOCK_EX);
+
+        $this->assertNull(pp_operate_read_state($fake_id));
+        // File is untouched by the failed read.
+        $this->assertSame('NOT VALID JSON {{{', file_get_contents($path));
+        @unlink($path);
+    }
+
+    public function testReadStateReleasesSharedLockSoWriterCanProceed(): void
+    {
+        // The shared lock must be released (LOCK_UN + fclose) after the read, or
+        // a subsequent mutate would deadlock/fail. Proving read → mutate → read
+        // round-trips confirms no lock leak.
+        $run_id = pp_operate_create_run();
+
+        $this->assertIsArray(pp_operate_read_state($run_id));
+        $this->assertTrue(pp_operate_record_step($run_id, 'PREFLIGHT'));
+        $after = pp_operate_read_state($run_id);
+        $this->assertIsArray($after);
+        $this->assertContains('PREFLIGHT', $after['steps_completed']);
+
+        pp_operate_cleanup_run($run_id);
+    }
 }

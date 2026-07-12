@@ -652,6 +652,10 @@ function pp_operate_site_id(): string {
  * an older build (no site_id) is treated as a mismatch — fail-closed, drains within
  * the TTL. Corrupt JSON returns null WITHOUT truncating or recreating the file.
  *
+ * The read is taken under a shared lock (flock LOCK_SH) so it cannot observe a file
+ * mid-write while pp_operate_mutate_state() holds LOCK_EX for its non-atomic
+ * truncate+write; readers block until the writer releases and always see a complete file.
+ *
  * @param string $run_id  The run token UUID.
  * @return array|null  The decoded state array, or null if the run is unusable.
  */
@@ -661,11 +665,29 @@ function pp_operate_read_state( string $run_id ): ?array {
     }
 
     $path = pp_operate_run_path( $run_id );
-    if ( ! file_exists( $path ) ) {
+
+    // Shared-lock the read. flock() is advisory: pp_operate_mutate_state() holds
+    // LOCK_EX for its non-atomic ftruncate()+fwrite() read-modify-write, so a
+    // reader that does not take LOCK_SH can observe an empty or half-written file
+    // mid-mutation. json_decode() would then fail and the run would read as
+    // missing / step-not-completed (a spurious "run not found" or a transiently
+    // unsatisfied gate). Taking LOCK_SH blocks until the writer releases, so the
+    // read always sees a complete file. A missing file → fopen 'r' fails → null,
+    // matching the prior file_exists() guard. Reader-side counterpart of the
+    // #200/#207/#212/#241/#243 writer fail-closed hardening.
+    $fh = @fopen( $path, 'r' );
+    if ( ! $fh ) {
         return null;
     }
+    if ( ! flock( $fh, LOCK_SH ) ) {
+        fclose( $fh );
+        return null;
+    }
+    $raw = stream_get_contents( $fh );
+    flock( $fh, LOCK_UN );
+    fclose( $fh );
 
-    $data = json_decode( (string) file_get_contents( $path ), true );
+    $data = json_decode( (string) $raw, true );
     if ( ! is_array( $data ) || ! isset( $data['steps_completed'] ) || ! isset( $data['created_at'] ) ) {
         return null;
     }
