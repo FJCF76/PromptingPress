@@ -658,14 +658,25 @@ class PP_Apply_Command extends WP_CLI_Command {
 
         WP_CLI::line(json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
-        if (!empty($report['skipped'])) {
-            WP_CLI::warning(count($report['skipped']) . ' post(s) skipped (missing snapshot or write failure); see the report above.');
+        $skipped  = count($report['skipped']);
+        if ($skipped > 0) {
+            WP_CLI::warning($skipped . ' post(s) skipped (missing snapshot or write failure); see the report above.');
         }
 
         $reverted = count($report['reverted']);
         $changed  = count(array_filter($report['reverted'], static function ($r) { return !empty($r['changed']); }));
 
         pp_operate_record_step($run_id, 'APPLY');
+
+        // issue 242: a partial restore (any skipped touched post) is INCOMPLETE, not
+        // successful. Fail closed with a non-zero exit so a machine consumer branching
+        // on the exit code never reads a partial restore as a full one; the JSON report
+        // above already lists reverted vs skipped explicitly.
+        if (!pp_operate_restore_run_complete($report)) {
+            WP_CLI::error("Restore INCOMPLETE: reverted $reverted of " . ($reverted + $skipped)
+                . " touched post(s); $skipped could not be reverted (missing snapshot or write failure). See the report above for which posts were restored vs skipped.");
+        }
+
         WP_CLI::success($changed > 0
             ? "Reverted $changed composition(s) to the pre-run state (of $reverted touched)."
             : 'Touched compositions already matched the pre-run state; nothing to revert.');
