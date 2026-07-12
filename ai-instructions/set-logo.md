@@ -80,11 +80,15 @@ So if you never set `pp_logo_id`, a logo set through the WordPress Customizer st
 
 ## Footer logo
 
-The footer does **not** show the logo, and there is currently **no supported surface to turn it on**.
+The footer logo is **off by default**. Turn it on with the `pp_footer_show_logo` site option (`update_site_option`), the same safe surface used for `pp_logo_id`:
 
-`footer.show_logo` gates it, and the only way to pass that prop was to put a `footer` component into a page composition. Since #223 that is rejected: `nav` and `footer` are site chrome rendered by the base template, and composing one renders the chrome twice. `templates/base.php` invokes the footer with `location` only.
+```bash
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_show_logo","value":"true"}'
+```
 
-`pp_logo_id` therefore sets the **header** logo. The footer keeps its copyright line. Tracked in #234. Do not work around this by composing a `footer` component — the write is rejected with `template_owned_component`, and every validator flags the page.
+The value is a boolean — `1`, `0`, `true`, or `false`. When on, the footer resolves the same logo as the header (`pp_logo_id` → `custom_logo` theme-mod → text wordmark). When off, the footer shows only its copyright line.
+
+`footer.show_logo` is a prop of the template-owned `footer` component; since #223 you cannot pass it by composing a `footer` (the write is rejected with `template_owned_component`, and every validator flags the page). The site option is the only supported surface. `pp_logo_id` still sets the **header** logo independently.
 
 ---
 
@@ -94,6 +98,7 @@ The footer does **not** show the logo, and there is currently **no supported sur
 |-----|-------|-------|
 | `pp_logo_id` | Media Library attachment ID (integer) | Must be an image. Never a URL. |
 | `pp_logo_alt` | string | Optional. Defaults to the attachment's alt metadata, then the site title. |
+| `pp_footer_show_logo` | boolean (`1`/`0`/`true`/`false`) | Optional, default off. Turns the footer logo on/off. Uses the same resolved logo as the header. |
 
 ---
 
@@ -102,4 +107,4 @@ The footer does **not** show the logo, and there is currently **no supported sur
 - **"requires a Media Library image attachment ID"** — the value isn't an image attachment. Confirm the ID with Step 1; a PDF/video attachment or a plain number that isn't an attachment is rejected. Never pass a URL.
 - **Logo shows as text, not an image** — no source resolved to an image. Check that `pp_logo_id` is set (or a `custom_logo` theme-mod exists) and that the attachment still exists.
 - **Action refused with a preflight error** — you skipped the run token flow. Run `wp pp operate inspect` for a `run_id`, then `wp pp apply preflight --run-id=<uuid>` before executing.
-- **Footer logo not appearing** — that's expected; the footer logo is opt-in via `show_logo`.
+- **Footer logo not appearing** — it is off by default. Turn it on by setting the `pp_footer_show_logo` site option to `true` via `update_site_option`, and make sure a logo resolves (a `pp_logo_id` image or a `custom_logo` theme-mod). Do not compose a `footer` component to set `show_logo`; that write is rejected (#223).

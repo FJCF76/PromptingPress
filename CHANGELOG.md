@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.89] — 2026-07-12 — `pp_footer_show_logo` site option makes the footer logo reachable again (#234)
+
+**#223 made `nav`/`footer` template-owned chrome, so composing a `footer` to pass `show_logo: true` is now rejected — which left the footer logo with no supported surface to turn it on (`footer.show_logo` defaults off, and nothing else set it). This adds `pp_footer_show_logo`, a boolean site option on the same safe `update_site_option` surface as `pp_logo_id`. `templates/base.php` reads it and passes `show_logo` into the footer; when on, the footer resolves the same logo as the header (`pp_logo_id` → `custom_logo` theme-mod → text wordmark). The header logo (`pp_logo_id`) is unchanged and independent.**
+
+The site-option whitelist (`pp_allowed_site_options()`) gains a third value type, `bool`, alongside `string` and `attachment_id`. `pp_validate_site_option_value()` accepts `1`/`0`/`true`/`false` (case-insensitive) and rejects anything else with a clear error — a typo like `flase` fails closed rather than silently coercing to on. The canonical stored form is `'1'` (on) / `'0'` (off), not `''`: both are themselves valid bool inputs, so a stored value survives the round-trip through the validating writer that the snapshot/rollback path (`_pp_restore_snapshot()`) uses to re-apply captured site options. Validation stays in the shared engine — no surface-specific second validator — and every AI-facing doc that described the footer logo as unreachable is corrected in the same change.
+
+### Added
+
+- `pp_footer_show_logo` boolean site option (whitelisted for `update_site_option`) turns the footer logo on/off; `templates/base.php` passes it into the footer component. New `bool` type in `pp_allowed_site_options()` with validation (`1`/`0`/`true`/`false`, case-insensitive) and canonical `'1'`/`'0'` storage via `pp_normalize_bool_option()` (#234).
+
+### Docs
+
+- `ai-instructions/set-logo.md`, `ai-instructions/website-building.md`, `components/footer/README.md`, `AI_CONTEXT.md`, and the `update_site_option` action description now document `pp_footer_show_logo` as the supported footer-logo surface, replacing the "footer logo is currently unreachable / no supported surface" notes left by #223 (#234).
+
+### Tests
+
+- New `LogoTest` cases pin the `bool` site option: the whitelist entry and its type; `pp_validate_site_option_value()` accepts `1`/`0`/`true`/`false` (incl. case + surrounding whitespace) and rejects non-bool values (`maybe`, `flase`, `2`, `''`, `yes`, `on`); `pp_update_site_option()` normalizes true-forms to `'1'` and false-forms to `'0'` and refuses to write a non-bool; the `update_site_option` action path accepts a valid bool and rejects an invalid one; the footer renders the logo when `show_logo` is true and a logo resolves, and omits it when false; and a round-trip guard confirms both stored forms (`'1'`/`'0'`) re-validate through the writer (regression guard for the rejected `''` OFF form) (#234).
+
 ## [v0.16.88] — 2026-07-12 — run-scoped `restore-composition` reports current-rule findings instead of a bare success (#236)
 
 **`wp pp apply restore-composition --run-id=<uuid>` reverts every page a run touched back to its PREFLIGHT-frozen composition through `pp_update_composition()`, the deliberately non-validating writer. A snapshot that violates a validation rule which landed after it was frozen (site chrome in the composition, a dangling `var(--token)`, any future rule) was restored verbatim and the command reported an unqualified success with no indication the restored page would not pass current validation. That is the same false-pass class as the per-page `restore_composition` action (#233) and the chrome validators (#223), on the run-scoped CLI surface. The rollback stays permissive — an undo must never be refused by a rule that landed after the snapshot — but each reverted post now carries a `findings` array, and the command warns when any restored composition violates current rules. A clean restore reports `findings: []` and prints no warning; exit codes are unchanged (a partial restore still fails per #242).**

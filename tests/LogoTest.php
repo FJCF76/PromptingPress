@@ -142,6 +142,110 @@ class LogoTest extends TestCase
         $this->assertSame('88', get_option('pp_logo_id'));
     }
 
+    // ── Footer show-logo site option (issue 234) ────────────────────────────
+
+    public function testAllowedSiteOptionsIncludesFooterShowLogoAsBool(): void
+    {
+        $allowed = pp_allowed_site_options();
+        $this->assertArrayHasKey('pp_footer_show_logo', $allowed);
+        $this->assertSame('bool', $allowed['pp_footer_show_logo']);
+    }
+
+    public function testValidateBoolAcceptsCanonicalForms(): void
+    {
+        foreach (['1', '0', 'true', 'false', 'TRUE', 'False', ' true '] as $val) {
+            $this->assertTrue(
+                pp_validate_site_option_value('pp_footer_show_logo', $val),
+                "Expected '{$val}' to be accepted as a boolean"
+            );
+        }
+    }
+
+    public function testValidateBoolRejectsNonBool(): void
+    {
+        foreach (['maybe', 'flase', '2', '', 'yes', 'on'] as $val) {
+            $result = pp_validate_site_option_value('pp_footer_show_logo', $val);
+            $this->assertInstanceOf(\WP_Error::class, $result, "Expected '{$val}' to be rejected");
+            $this->assertStringContainsString('boolean', $result->get_error_message());
+        }
+    }
+
+    public function testUpdateBoolNormalizesTrueFormsToCanonicalOne(): void
+    {
+        foreach (['1', 'true', 'TRUE', ' true '] as $val) {
+            $this->assertTrue(pp_update_site_option('pp_footer_show_logo', $val));
+            $this->assertSame('1', get_option('pp_footer_show_logo'), "'{$val}' should store as '1'");
+        }
+    }
+
+    public function testUpdateBoolNormalizesFalseFormsToCanonicalZero(): void
+    {
+        foreach (['0', 'false', 'False'] as $val) {
+            $this->assertTrue(pp_update_site_option('pp_footer_show_logo', $val));
+            $this->assertSame('0', get_option('pp_footer_show_logo'), "'{$val}' should store as '0'");
+        }
+    }
+
+    public function testStoredBoolValuesRoundTripThroughValidatingWriter(): void
+    {
+        // The snapshot/rollback path (lib/actions.php) re-applies the stored
+        // value through pp_update_site_option — the canonical stored form must
+        // itself pass validation. Regression guard for the '' OFF form (which
+        // the validator rejects) that an earlier draft of issue 234 shipped.
+        foreach (['1', '0'] as $stored) {
+            $this->assertTrue(pp_validate_site_option_value('pp_footer_show_logo', $stored));
+            $this->assertTrue(pp_update_site_option('pp_footer_show_logo', $stored));
+            $this->assertSame($stored, get_option('pp_footer_show_logo'));
+        }
+    }
+
+    public function testUpdateBoolRejectsNonBoolAndDoesNotWrite(): void
+    {
+        $result = pp_update_site_option('pp_footer_show_logo', 'maybe');
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertArrayNotHasKey('pp_footer_show_logo', $GLOBALS['_pp_test_store']['options']);
+    }
+
+    public function testActionSetsFooterShowLogo(): void
+    {
+        $result = pp_execute_action('update_site_option', ['key' => 'pp_footer_show_logo', 'value' => 'true']);
+        $this->assertTrue($result['ok']);
+        $this->assertSame('1', get_option('pp_footer_show_logo'));
+    }
+
+    public function testActionRejectsNonBoolFooterShowLogoWithClearMessage(): void
+    {
+        $result = pp_execute_action('update_site_option', ['key' => 'pp_footer_show_logo', 'value' => 'nope']);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('boolean', $result['error']);
+    }
+
+    // ── Footer render honors show_logo prop (base.php passes the option) ─────
+
+    private function renderFooter(array $props): string
+    {
+        ob_start();
+        pp_get_component('footer', $props);
+        return ob_get_clean();
+    }
+
+    public function testFooterRendersLogoWhenShowLogoTrueAndLogoResolves(): void
+    {
+        $this->seedAttachment(70, 'https://example.com/footer-logo.png', 'Brand');
+        update_option('pp_logo_id', '70');
+        $html = $this->renderFooter(['location' => 'footer', 'show_logo' => true]);
+        $this->assertStringContainsString('site-footer__logo', $html);
+        $this->assertStringContainsString('https://example.com/footer-logo.png', $html);
+    }
+
+    public function testFooterOmitsLogoWhenShowLogoFalse(): void
+    {
+        $this->seedAttachment(71, 'https://example.com/footer-logo.png', 'Brand');
+        update_option('pp_logo_id', '71');
+        $html = $this->renderFooter(['location' => 'footer', 'show_logo' => false]);
+        $this->assertStringNotContainsString('site-footer__logo', $html);
+    }
+
     // ── pp_resolve_logo ─────────────────────────────────────────────────────
 
     public function testResolveLogoFromPropId(): void
