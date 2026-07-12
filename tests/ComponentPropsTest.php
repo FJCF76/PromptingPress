@@ -1214,6 +1214,12 @@ class ComponentPropsTest extends TestCase
 
         $html = $this->render('grid', ['items' => array_slice($items, 0, 2)]);
         $this->assertStringContainsString('data-pp-count="2"', $html);
+
+        // #297: a single-item grid must emit count="1" so the CSS count-1 rule
+        // (full-width track) can match it, instead of falling through to the
+        // two-column base and stranding the lone card in the left column.
+        $html = $this->render('grid', ['items' => array_slice($items, 0, 1)]);
+        $this->assertStringContainsString('data-pp-count="1"', $html);
     }
 
     public function testGridEyebrowSubheadingAndCenterAlignRender(): void
