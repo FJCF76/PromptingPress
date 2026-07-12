@@ -683,7 +683,15 @@
   box-shadow: var(--section-shadow, none);
 }
 
-.section__body,
+/* .section__body is the OUTER wrapper of .section__content (section.php). The inner
+   .section__content already routes max-width through --section-body-width, but this
+   outer 40rem literal capped it, so the slot silently no-opped (issue 302). Route the
+   outer cap through the same slot with 40rem as the fallback (unset stays 40rem, the
+   narrower of the two, so output is unchanged). The remaining headings keep 40rem. */
+.section__body {
+  max-width: var(--section-body-width, 40rem);
+}
+
 .table-section__heading,
 .faq__heading,
 .logos__heading,
@@ -1494,12 +1502,16 @@
 }
 
 /* Closing CTA correction: wide premium close, not a narrow centered poem. */
+/* Page-specific desktop CTA padding for the benchmark closers. These IDs
+   [1,0,0] outrank the generic .cta slot rule [0,1,0], so a bare literal here
+   defeats --cta-padding-* on exactly the pages that ship a CTA (issue 302).
+   Route through the slot with 5.75rem as the fallback (unset unchanged). */
 #home-cta,
 #how-cta,
 #agencies-cta,
 #implementers-cta {
-  padding-top: 5.75rem;
-  padding-bottom: 5.75rem;
+  padding-top: var(--cta-padding-top, 5.75rem);
+  padding-bottom: var(--cta-padding-bottom, 5.75rem);
 }
 
 #home-cta .container,
@@ -1589,12 +1601,16 @@
 }
 
 @media (max-width: 767px) {
+  /* Route through --cta-padding-* too (issue 302). This earlier mobile CTA rule
+     is currently shadowed by the later mobile #*-cta rule, but keeping a bare
+     literal on a slot-controlled property here would re-introduce the dead slot
+     if the later rule ever moves. Fallback stays 4.25rem, so nothing changes. */
   #home-cta,
   #how-cta,
   #agencies-cta,
   #implementers-cta {
-    padding-top: 4.25rem;
-    padding-bottom: 4.25rem;
+    padding-top: var(--cta-padding-top, 4.25rem);
+    padding-bottom: var(--cta-padding-bottom, 4.25rem);
   }
 
   #home-cta.cta--inline .cta__inner,
@@ -2752,7 +2768,6 @@
   main > .grid .grid__heading,
   main > .faq .faq__heading {
     margin-bottom: 1.65rem;
-    font-size: clamp(2.25rem, 3vw, 2.62rem);
     font-weight: 560;
     line-height: 1.12;
   }
@@ -2762,17 +2777,27 @@
      hardcoded var(--color-text). The theme-color var sits between the slot and the
      global token so a theme variant (e.g. .grid--inverted) still supplies the right
      default here — this rule outranks every theme selector, so without it the theme
-     lost and inverted text rendered dark-on-dark above 768px (issue 222). */
+     lost and inverted text rendered dark-on-dark above 768px (issue 222).
+
+     font-size joins the same per-selector split (issue 302): the premium scale used
+     to live in the shared rule above as a bare clamp(), outranking the base
+     .section__title / .grid__heading rules ([0,1,0]) and silently ignoring a
+     declared --section-title-size / --grid-heading-size. Route each through its
+     size slot with the clamp() as the fallback so unset output is unchanged. faq
+     has no heading-size slot yet (issue 304), so it keeps the literal. */
   main > .grid .grid__heading {
     color: var(--grid-heading-color, var(--grid-heading-theme-color, var(--color-text)));
+    font-size: var(--grid-heading-size, clamp(2.25rem, 3vw, 2.62rem));
   }
 
   main > .section .section__title {
     color: var(--section-title-color, var(--section-title-theme-color, var(--color-text)));
+    font-size: var(--section-title-size, clamp(2.25rem, 3vw, 2.62rem));
   }
 
   main > .faq .faq__heading {
     color: var(--faq-heading-color, var(--faq-heading-theme-color, var(--color-text)));
+    font-size: clamp(2.25rem, 3vw, 2.62rem);
   }
 
   main > .section .section__content,
@@ -3264,14 +3289,51 @@ main .btn:focus-visible,
 }
 
 /* True final cascade: technical workflow brand and compact mobile closers. */
-main > [data-pp-component] + [data-pp-component] {
-  padding-top: clamp(4.25rem, 6vw, 5rem);
+
+/* Adjacent-sibling rhythm, restored (issue 302). This premium rule used to flatten
+   the vertical rhythm to a uniform clamp() at ALL widths, outranking the base
+   two-tier rule (SHARED: Adjacent-Sibling Rhythm, ~line 2124: 32px = var(--space-lg)
+   between stacked components on desktop) AND defeating every --*-padding-top slot on
+   an adjacent component. Drop the flat override; the base rule restores the 32px
+   two-tier default for component types with no padding slot (hero/stats/faq/...).
+   For the slot-bearing components, route the adjacent top-padding through the slot
+   with var(--space-lg) as the fallback so the slot controls adjacent spacing too.
+   Desktop-scoped and placed last so it wins over the base rule; mobile keeps the
+   uniform rhythm below (mobile spacing is intentionally uniform). */
+@media (min-width: 768px) {
+  main > [data-pp-component] + .section {
+    padding-top: var(--section-padding-top, var(--space-lg));
+  }
+  main > [data-pp-component] + .grid {
+    padding-top: var(--grid-padding-top, var(--space-lg));
+  }
+  main > [data-pp-component] + .cta {
+    padding-top: var(--cta-padding-top, var(--space-lg));
+  }
 }
 
-.section,
-.grid,
-.faq,
+/* Own section padding, routed through each component's padding slots (issue 302).
+   This premium rule re-declared padding-top/bottom as bare clamp() literals,
+   outranking the base .section/.grid/.cta rules ([0,1,0]) and silently ignoring a
+   declared --*-padding-top/bottom. Split per component and route through the slot
+   with the clamp() as the fallback (unset output unchanged). faq has no padding
+   slot yet (issue 304), so it keeps the literal. */
+.section {
+  padding-top: var(--section-padding-top, clamp(4.25rem, 6vw, 5rem));
+  padding-bottom: var(--section-padding-bottom, clamp(4.25rem, 6vw, 5rem));
+}
+
+.grid {
+  padding-top: var(--grid-padding-top, clamp(4.25rem, 6vw, 5rem));
+  padding-bottom: var(--grid-padding-bottom, clamp(4.25rem, 6vw, 5rem));
+}
+
 .cta {
+  padding-top: var(--cta-padding-top, clamp(4.25rem, 6vw, 5rem));
+  padding-bottom: var(--cta-padding-bottom, clamp(4.25rem, 6vw, 5rem));
+}
+
+.faq {
   padding-top: clamp(4.25rem, 6vw, 5rem);
   padding-bottom: clamp(4.25rem, 6vw, 5rem);
 }
@@ -3377,12 +3439,39 @@ main .btn,
 }
 
 @media (max-width: 767px) {
+  /* Mobile rhythm defaults to a uniform 3.35rem (SHARED: Adjacent-Sibling Rhythm
+     is desktop-only, so there is no two-tier default here). This generic rule
+     [0,2,1] beats the per-component .section/.grid/.cta rules below [0,1,0], so
+     without the per-component adjacent rules a declared --*-padding-top would
+     silently no-op on an adjacent mobile component's TOP edge (same dead-slot
+     class as issue 302). Route the slot per component with 3.35rem as the
+     fallback; unset output stays a uniform 3.35rem. */
   main > [data-pp-component] + [data-pp-component] {
     padding-top: 3.35rem;
   }
+  main > [data-pp-component] + .section {
+    padding-top: var(--section-padding-top, 3.35rem);
+  }
+  main > [data-pp-component] + .grid {
+    padding-top: var(--grid-padding-top, 3.35rem);
+  }
+  main > [data-pp-component] + .cta {
+    padding-top: var(--cta-padding-top, 3.35rem);
+  }
 
-  .section,
-  .grid,
+  /* Own mobile padding, routed through the padding slots so a declared
+     --*-padding-top/bottom takes effect at mobile too (issue 302). faq keeps the
+     literal (no slot yet, issue 304). Fallbacks equal the prior literals. */
+  .section {
+    padding-top: var(--section-padding-top, 3.35rem);
+    padding-bottom: var(--section-padding-bottom, 3.35rem);
+  }
+
+  .grid {
+    padding-top: var(--grid-padding-top, 3.35rem);
+    padding-bottom: var(--grid-padding-bottom, 3.35rem);
+  }
+
   .faq {
     padding-top: 3.35rem;
     padding-bottom: 3.35rem;
@@ -3392,8 +3481,8 @@ main .btn,
   #how-cta,
   #agencies-cta,
   #implementers-cta {
-    padding-top: 2.85rem;
-    padding-bottom: 2.85rem;
+    padding-top: var(--cta-padding-top, 2.85rem);
+    padding-bottom: var(--cta-padding-bottom, 2.85rem);
   }
 
   #home-cta.cta--inline .cta__inner,
