@@ -3009,10 +3009,14 @@ main > .grid .grid__item-link::after {
   }
 
   main > .grid:not(.grid--steps) .grid__list[data-pp-count="2"] {
+    /* Two-across rows span the container like the 3-card rule, instead of being
+       capped at 52rem and centered. The centered cap left the pair on a narrower
+       rail than the intro copy above it (measured at desktop: pair left-edge 304px
+       vs section rail 176px), so "intro text + two feature cards" could never read
+       as one aligned section. Removing the max-width + auto margins aligns the pair
+       with the section rail, mirroring the count-3 treatment (issue 303, sibling of
+       issue 224). */
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    max-width: 52rem;
-    margin-right: auto;
-    margin-left: auto;
   }
 
   main > .grid:not(.grid--steps) .grid__item:first-child .grid__item-body {
