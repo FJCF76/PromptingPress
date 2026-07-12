@@ -423,7 +423,7 @@ See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 thro
 
 **What exists today (v0.16.48):**
 - 12 components with schema contracts and 142 per-instance style slots, plus named recipes
-- A contract test that guarantees every style slot a component declares actually reaches the page, honored at every breakpoint
+- A contract-test suite that enforces every declared style slot is consumed by the CSS and not defeated by literal re-declarations, backed by rendered computed-style checks — remaining known gaps are tracked as a shrink-only ledger in issue [#309](https://github.com/FJCF76/PromptingPress/issues/309)
 - Typed action/apply layer with validation, preview, and rollback
 - Bounded presentation controls — button variants, typography roles, shadow/border/radius slots
 - Token family derivation — changing one color updates related tokens automatically
