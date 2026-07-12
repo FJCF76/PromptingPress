@@ -369,10 +369,18 @@ The composition counterpart of `wp pp apply restore`. Reverts **every page the r
 wp pp apply restore-composition --run-id=<uuid>
 ```
 
-Fail-closed: if the run's touched-post record is missing / expired / corrupt / from another install, nothing is changed. Per-post snapshot-missing or write failures are reported under `skipped` in the JSON output while the rest proceed. On success:
+Fail-closed: if the run's touched-post record is missing / expired / corrupt / from another install, nothing is changed and it errors (exit **1**). Per-post snapshot-missing or write failures are reported under `skipped` in the JSON output while the reverts that can proceed still proceed.
+
+**Exit codes** — `0` only when **every** touched post was reverted (a full restore). When any post lands in `skipped`, the JSON report is still printed (so you can see which posts were restored vs skipped) but the command **errors and exits 1**: a partial restore is incomplete, not successful, so a machine consumer branching on the exit code never reads it as a full one.
+
+When the restore is complete (empty `skipped`):
 
 - `Success: Reverted N composition(s) to the pre-run state (of M touched).`
 - `Success: Touched compositions already matched the pre-run state; nothing to revert.`
+
+When the restore is incomplete (non-empty `skipped`):
+
+- `Error: Restore INCOMPLETE: reverted N of M touched post(s); K could not be reverted (missing snapshot or write failure). See the report above for which posts were restored vs skipped.` (exit 1)
 
 ### `wp pp operate composition-history <page>` (read-only)
 

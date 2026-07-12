@@ -1278,6 +1278,21 @@ function pp_operate_restore_run_compositions( string $run_id ): array {
 }
 
 /**
+ * Whether a run-scoped composition restore fully reverted every touched post
+ * (issue 242). A restore is INCOMPLETE when the run had no usable touched-post
+ * record (`ok === false`) OR one or more touched posts could not be reverted
+ * (non-empty `skipped` — missing snapshot or write failure). The CLI uses this
+ * to fail closed: a machine consumer branching on the exit code must never read
+ * a partial restore as a full one.
+ *
+ * @param array $report  A pp_operate_restore_run_compositions() result.
+ * @return bool  True iff the restore reverted all touched posts and none was skipped.
+ */
+function pp_operate_restore_run_complete( array $report ): bool {
+    return ! empty( $report['ok'] ) && empty( $report['skipped'] );
+}
+
+/**
  * True iff the run is currently usable as a rollback source: the state is valid for
  * this install AND a frozen pre-apply snapshot exists. Used as execute()'s pre-mutation
  * gate so a change that could not be rolled back is never applied in the first place.

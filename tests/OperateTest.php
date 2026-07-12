@@ -2222,6 +2222,67 @@ class OperateTest extends TestCase
         pp_operate_cleanup_run($run_id);
     }
 
+    // ── restore-composition completeness verdict (#242) ─────────────────────
+    // The CLI fails closed on an incomplete restore (non-zero exit) so a machine
+    // consumer never reads a partial restore as a full one. The verdict is the
+    // decision seam pp_operate_restore_run_complete() the CLI branches on.
+
+    public function testRestoreRunCompleteTrueWhenAllTouchedPostsReverted(): void
+    {
+        $report = ['ok' => true, 'error' => null,
+            'reverted' => [['post_id' => 1, 'changed' => true]], 'skipped' => []];
+        $this->assertTrue(pp_operate_restore_run_complete($report));
+    }
+
+    public function testRestoreRunCompleteFalseWhenAnyPostSkipped(): void
+    {
+        // A missing snapshot / write failure leaves a touched post in `skipped`:
+        // the restore is INCOMPLETE even though some posts reverted.
+        $report = ['ok' => true, 'error' => null,
+            'reverted' => [['post_id' => 1, 'changed' => true]],
+            'skipped'  => [['post_id' => 2, 'reason' => 'no_snapshot']]];
+        $this->assertFalse(pp_operate_restore_run_complete($report));
+    }
+
+    public function testRestoreRunCompleteFalseWhenNoUsableRecord(): void
+    {
+        // ok:false (no usable touched-post record) is also incomplete.
+        $report = ['ok' => false, 'error' => 'no_touched_post_ids',
+            'reverted' => [], 'skipped' => []];
+        $this->assertFalse(pp_operate_restore_run_complete($report));
+    }
+
+    public function testRestoreRunCompleteVerdictMatchesRealSkipReport(): void
+    {
+        // End-to-end over the real report producer: a touched post with no snapshot
+        // is skipped, so the run-scoped restore is judged incomplete.
+        $GLOBALS['_pp_test_store']['post_meta'] = [];
+        pp_update_composition(821, [['component' => 'hero', 'props' => ['title' => 'Y0']]]);
+        $run_id = pp_operate_create_run();
+        pp_update_composition(821, [['component' => 'hero', 'props' => ['title' => 'Y1']]]);
+        pp_operate_record_touched_post_id($run_id, 821);
+
+        $report = pp_operate_restore_run_compositions($run_id);
+        $this->assertFalse(pp_operate_restore_run_complete($report), 'skipped post → incomplete');
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRestoreRunCompleteVerdictMatchesRealCleanReport(): void
+    {
+        // A run that snapshots its touched post reverts cleanly → complete.
+        $GLOBALS['_pp_test_store']['post_meta'] = [];
+        pp_update_composition(822, [['component' => 'hero', 'props' => ['title' => 'Z0']]]);
+        $run_id = pp_operate_create_run();
+        pp_operate_record_composition_content_snapshot($run_id, 822, pp_get_composition(822));
+        pp_update_composition(822, [['component' => 'hero', 'props' => ['title' => 'Z1']]]);
+        pp_operate_record_touched_post_id($run_id, 822);
+
+        $report = pp_operate_restore_run_compositions($run_id);
+        $this->assertTrue(pp_operate_restore_run_complete($report), 'all reverted → complete');
+        $this->assertSame('Z0', pp_get_composition(822)[0]['props']['title']);
+        pp_operate_cleanup_run($run_id);
+    }
+
     // ── apply reset rollback trail (#122) ──────────────────────────────────
 
     public function testApplyResetRecordsTouchedTokensRestorableViaRevert(): void
