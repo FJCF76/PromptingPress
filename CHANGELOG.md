@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.92] — 2026-07-12 — The operating-loop playbooks now tell the agent where the `--run-id` run token comes from (#228)
+
+**An AI following `playbook-create-page.md` literally could not get past step 3. The playbook's mandatory 8-step loop declares `wp pp apply preflight --run-id=<uuid>` at PREFLIGHT but never said where `<uuid>` comes from. Read as written, `<uuid>` means "any UUID", so an agent generates a fresh UUID v4 — it passes format validation, then PREFLIGHT cannot record run state and the next EDIT step fails. The run token is not a self-generated UUID: it is the `run_id` that `wp pp operate inspect` appends to its JSON. The three loop playbooks (`create-page`, `inspect-fix`, `revise-section`) now say so at INSPECT (capture the `run_id`) and at PREFLIGHT (`<uuid>` is that captured token), note the 2-hour install-scoped TTL, and link `docs/reference-apply-cli.md`. The documented happy path for AI-maintained pages is now executable from the playbook alone.**
+
+The sourcing knowledge already lived in `docs/reference-apply-cli.md` and `AI_CONTEXT.md`; the playbooks just never restated or linked it, so an agent given only the playbook was stuck. `operating-loop.md` already documented the run token (Rule 1 plus the CLI reference table) and needed no change. A grep-based invariant test now pins the rule: it auto-discovers every `ai-instructions/*.md` file, and any doc that instructs `apply preflight --run-id` must also state that the run token comes from `wp pp operate inspect`, so a future playbook cannot reintroduce the same gap.
+
+### Docs
+
+- `ai-instructions/playbook-create-page.md`, `playbook-inspect-fix.md`, and `playbook-revise-section.md` now source the run token: INSPECT captures the `run_id` that `wp pp operate inspect` appends, PREFLIGHT states `<uuid>` is that captured token (not a freshly generated UUID), and both note the 2-hour install-scoped TTL and link `docs/reference-apply-cli.md` (#228).
+
+### Tests
+
+- New `InvariantTest::testLoopPlaybookSourcesRunIdFromInspect` auto-discovers every `ai-instructions/*.md` and asserts that any doc instructing `apply preflight --run-id` also documents that the run token comes from `wp pp operate inspect`, pinning the doc fix against regression (#228).
+
 ## [v0.16.91] — 2026-07-12 — The FAQ section can now carry an anchor id, an eyebrow pill, and a dark or inverted theme (#231)
 
 **`faq` was the only heading-bearing component that could not be anchor-linked or given a background tone. Every other section component (`hero`, `section`, `grid`, `cta`, `stats`, `testimonials`, `logos`, `embed`) already accepted an `id`, and the marketing ones an `eyebrow` and a `theme` — `faq` accepted none of them in its schema, so a nav item pointing at `#faq` had no target and the FAQ heading could not sit on a dark band. `faq` now accepts `id` (anchor plus stable component id), `eyebrow` (a kicker pill above the heading), and `theme` (`default` / `dark` / `inverted`), matching the rest of the set. A page with an FAQ section and a nav link to it is finally expressible.**
