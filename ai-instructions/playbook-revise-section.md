@@ -15,6 +15,7 @@ Run `wp pp operate inspect --post_id=<page_id>`. Review:
 - Current composition (identify the target section by index)
 - Composition smells (may reveal existing issues)
 - Design tokens (ensure revision is consistent)
+- **The `run_id`.** `wp pp operate inspect` appends a `run_id` field (a UUID v4) to its JSON output. Capture it — this is your **run token**, passed via `--run-id` to every mutating command below (PREFLIGHT, EDIT, APPLY). A self-generated UUID passes format validation but then fails PREFLIGHT/EDIT because only the token minted by `inspect` records run state. It is install-scoped and expires 2 hours after `inspect`; re-run `inspect` if it expires. Full contract: `docs/reference-apply-cli.md`.
 
 Capture a **before-screenshot**: `wp pp screenshot capture --post_id=<page_id> --playbook=revise-section`
 
@@ -25,7 +26,7 @@ Capture a **before-screenshot**: `wp pp screenshot capture --post_id=<page_id> -
 - If file mutations are needed, list planned_files
 
 ### 3. PREFLIGHT
-Run `wp pp apply preflight --run-id=<uuid> --post_id=<page_id>` (add planned_files if file mutations are needed). This records a PREFLIGHT covering the page and unlocks the typed mutation in EDIT. Without it, the edit refuses to run.
+Run `wp pp apply preflight --run-id=<uuid> --post_id=<page_id>` (add planned_files if file mutations are needed). `<uuid>` is the `run_id` you captured from INSPECT, not a freshly generated UUID. This records a PREFLIGHT covering the page and unlocks the typed mutation in EDIT. Without it, the edit refuses to run.
 
 ### 4. EDIT
 Use `update_component` (patch semantics — only the props you pass change) targeted by `component_id` (prefer an authored `id` prop — auto-generated `pp-<hex8>` ids are stable across this in-place path but not across a full `update_composition` re-apply) or `component_index`, or `wp pp operate patch` with a semantic selector for a single field. Do not rewrite the entire composition via `update_composition` — modify only the target section. Both paths are gated: they require the page-covering PREFLIGHT from step 3 and a `--run-id`.

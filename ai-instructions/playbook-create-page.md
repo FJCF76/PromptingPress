@@ -16,6 +16,7 @@ Run `wp pp operate inspect`. Review:
 - Existing composition pages (avoid duplicate slugs)
 - CSS conflicts (note any that might affect new components)
 - Drift state (note for PREFLIGHT)
+- **The `run_id`.** `wp pp operate inspect` appends a `run_id` field (a UUID v4) to its JSON output. Capture it — this is your **run token**, and you pass it via `--run-id` to every mutating command in the steps below (PREFLIGHT, EDIT, APPLY). Generating your own UUID does **not** work: only the token minted by `inspect` can record run state, so a self-generated one passes format validation but then fails PREFLIGHT/EDIT. The token is install-scoped and expires 2 hours after `inspect`; re-run `inspect` if it expires. Full contract: `docs/reference-apply-cli.md`.
 
 ### 2. PLAN
 Map the brief to PromptingPress components:
@@ -25,7 +26,7 @@ Map the brief to PromptingPress components:
 - Note any design token changes needed (stored in database, not file-based)
 
 ### 3. PREFLIGHT
-Run a site-scoped `wp pp apply preflight --run-id=<uuid>` (no `--post_id` — the page does not exist yet). This covers the site-scoped page creation in EDIT. Creating a page through `create_page` with its composition inline is a single site-scoped mutation, so the site preflight is sufficient.
+Run a site-scoped `wp pp apply preflight --run-id=<uuid>` (no `--post_id` — the page does not exist yet). `<uuid>` is the `run_id` you captured from INSPECT, not a freshly generated UUID. This covers the site-scoped page creation in EDIT. Creating a page through `create_page` with its composition inline is a single site-scoped mutation, so the site preflight is sufficient.
 
 ### 4. EDIT
 Execute actions in order:
