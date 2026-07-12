@@ -470,6 +470,122 @@ class ActionsTest extends TestCase
         $this->assertSame([], $result['findings'], 'a clean snapshot reports nothing');
     }
 
+    // ── Unknown prop keys are rejected at the action layer (issue 147) ──────
+    //
+    // The write paths that shallow-merge caller props (update_component, add_component)
+    // must reject an undeclared prop key before it persists behind an ok:true.
+
+    public function testUpdateComponentRejectsUnknownPropKey(): void
+    {
+        $id = pp_create_page('Unknown prop update', 'draft');
+        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'Hi']]]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['not_a_real_prop' => 'x'],
+        ]);
+
+        // Rejected (issue 147 acceptance). The envelope carries the message; the
+        // pre-execute validate branch drops the WP_Error code (a pre-existing gap
+        // affecting every validate-stage rejection, filed separately), so assert on
+        // the observable contract callers actually see.
+        $this->assertFalse($result['ok'], 'an unknown prop key must not persist behind ok:true');
+        $this->assertStringContainsString('not_a_real_prop', $result['error']);
+        $this->assertStringContainsString('no prop', $result['error']);
+        // The pre-existing composition is untouched — no phantom key written.
+        $this->assertArrayNotHasKey('not_a_real_prop', pp_get_composition($id)[0]['props']);
+    }
+
+    public function testAddComponentRejectsUnknownPropKey(): void
+    {
+        $id = pp_create_page('Unknown prop add', 'draft');
+        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'Hi']]]);
+
+        $result = pp_execute_action('add_component', [
+            'post_id'   => $id,
+            'component' => 'section',
+            'props'     => ['body' => 'x', 'phantom_field' => 'oops'],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('phantom_field', $result['error']);
+        $this->assertStringContainsString('no prop', $result['error']);
+        $this->assertCount(1, pp_get_composition($id), 'the rejected component was not appended');
+    }
+
+    public function testUpdateCompositionRejectsUnknownPropKey(): void
+    {
+        $id = pp_create_page('Unknown prop replace', 'draft');
+        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'Original']]]);
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => $id,
+            'composition' => [['component' => 'hero', 'props' => ['title' => 'New', 'bogus' => 'x']]],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('bogus', $result['error']);
+        // The prior composition is intact — the rejected replacement never landed.
+        $this->assertSame('Original', pp_get_composition($id)[0]['props']['title']);
+    }
+
+    public function testCreatePageRejectsUnknownPropKey(): void
+    {
+        $result = pp_execute_action('create_page', [
+            'title'       => 'Unknown prop new page',
+            'composition' => [['component' => 'hero', 'props' => ['title' => 'Hi', 'bogus' => 'x']]],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('bogus', $result['error']);
+    }
+
+    // ── restore/preview surface the unknown_prop finding without blocking (#233) ──
+    //
+    // issue 147 is a validation rule landing after #233's restore policy, so it must
+    // prove the shared engine reports it on restore and preview WITHOUT blocking undo —
+    // no restore-specific rule path. Snapshot seeded via the non-validating writer, the
+    // only way a rule-violating composition enters a history ring (as legacy rows did).
+
+    public function testRestoreReportsUnknownPropWithoutBlocking(): void
+    {
+        $post_id = pp_create_page('Unknown prop snapshot');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['title' => 'A', 'not_a_real_prop' => 'legacy']],
+        ]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+
+        // Undo is never vetoed by a rule that postdates the snapshot.
+        $this->assertTrue($result['ok'], $result['error'] ?? 'restore failed');
+        // The snapshot is restored verbatim — the unknown key is preserved, not stripped.
+        $this->assertSame('legacy', pp_get_composition($post_id)[0]['props']['not_a_real_prop']);
+
+        // ...and the rule is reported through the shared findings engine as an error.
+        $errors = array_values(array_filter(
+            $result['findings'],
+            static function ($f) { return $f['severity'] === 'error'; }
+        ));
+        $this->assertContains('unknown_prop', array_column($errors, 'type'));
+    }
+
+    public function testRestorePreviewSurfacesUnknownPropFinding(): void
+    {
+        $post_id = pp_create_page('Unknown prop preview');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['title' => 'A', 'not_a_real_prop' => 'legacy']],
+        ]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+
+        $preview = pp_preview_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+
+        // Preview is read-only: nothing written, but the finding is surfaced ahead of undo.
+        $this->assertSame('B', pp_get_composition($post_id)[0]['props']['title'], 'preview did not write');
+        $this->assertContains('unknown_prop', array_column($preview['findings'], 'type'));
+    }
+
     public function testRestoreFindingsReportEveryValidationError(): void
     {
         // Three DISTINCT violations. A first-error-wins report would surface only the nav.

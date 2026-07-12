@@ -2227,6 +2227,12 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
     // create_page from a source JSON without ids) regenerates it (#232). Only an
     // explicit authored `id` is durable across declarative re-apply; validators
     // detect the generated shape via pp_is_generated_component_id().
+    //
+    // COUPLING (issue 147): because this injects props['id'] into EVERY component,
+    // every composable component's schema.json MUST declare an `id` prop — otherwise
+    // the injected id would be rejected as an unknown prop key on the next validated
+    // write. The invariant is guarded by
+    // SchemaValidationTest::testEveryComposableComponentDeclaresIdSoInjectedIdNeverFalseRejects.
     foreach ($composition as &$item) {
         $props = $item['props'] ?? [];
         if (empty($props['id'])) {

@@ -13,7 +13,7 @@
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
 [![Tests](https://img.shields.io/badge/Tests-1936+_passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-0.16.98-6366F1?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.16.99-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -419,9 +419,9 @@ npm run env:stop
 
 PromptingPress is in active development by a single developer. It is not yet packaged for broad distribution. The current focus is making the AI-agent workflow reliable and the composition model complete.
 
-See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 through v0.16.98.
+See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 through v0.16.99.
 
-**What exists today (v0.16.98):**
+**What exists today (v0.16.99):**
 - 12 components with schema contracts and 142 per-instance style slots, plus named recipes
 - A contract-test suite that enforces the style-slot contract: every declared slot must be consumed by the CSS, and literal re-declarations that would defeat a slot fail the build — known exceptions live in a shrink-only ledger (issue [#309](https://github.com/FJCF76/PromptingPress/issues/309)), backed by rendered computed-style checks
 - Typed action/apply layer with validation, preview, and rollback

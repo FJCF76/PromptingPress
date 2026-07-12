@@ -4,6 +4,26 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.99] — 2026-07-13 — An unknown component prop no longer saves clean and does nothing: the composition validator rejects prop keys not in the component's schema (#147)
+
+**Set a prop that a component does not have — a typo like `titel`, or a field the component never defined — and until now the write reported `ok: true`, the key persisted in `_pp_composition`, and the renderer silently ignored it. The change looked applied and wasn't. That is the same "reported success without real effect" failure the v1.0.0 gate exists to eliminate (issue 302 on the style axis), reachable here on the props axis through every write path. Issue 120 had already closed it for the `wp pp patch <selector>` CLI entry point, but only there. This release closes it at the choke point: `pp_validate_composition()` now rejects any composition whose component carries a prop key not declared in that component's `schema.json` `props`, with a distinct `unknown_prop` error, so `create_page`, `update_composition`, `add_component`, `update_component`, and the dashboard editor's save all fail loudly instead of persisting a dead key.**
+
+The source of truth is each component's full `schema.json` `props` contract, not the curated `pp_get_component_fields()` CLI-patch editability subset, so real props the subset omits (`cta.theme`, `cta.background_image`, `cta.button_variant`, and the like) are still accepted while a misspelled or invented key is not. The rule lives in the shared validation engine, so it flows automatically into `restore_composition` and preview findings (issue 233): a legacy composition that already carries an unknown key still restores byte-for-byte and reports `unknown_prop` as a finding rather than blocking undo. The `table` component's `schema.json` gained the `id` prop it already renders as an anchor and that the composition writer injects into every component on save — without it, a saved table would have false-rejected on its next validated write; a new invariant test pins that every composable component declares `id` so a future component cannot reintroduce that trap. Every shipped fixture and the default homepage seed pass the new check unchanged; no accepted prop, action behavior, or rendered output changed.
+
+### Fixed
+
+- `pp_validate_composition()` rejects a component prop key not declared in that component's `schema.json` `props`, with the `unknown_prop` error code, across every write path (`create_page`, `update_composition`, `add_component`, `update_component`, dashboard save). An unknown key can no longer persist behind an `ok: true` while the renderer ignores it (#147).
+- `components/table/schema.json` declares the `id` prop the `table` component already renders as an anchor id and that `pp_update_composition()` injects on every save, so a saved table no longer false-rejects on its next validated write (#147).
+
+### Docs
+
+- `AI_CONTEXT.md`, `lib/ai-context.php` (runtime AI context), `ai-instructions/composition.md`, and `docs/reference-apply-cli.md` document the prop-key contract: only schema-declared props are accepted, unknown keys are rejected with `unknown_prop`, and restore reports rather than blocks (#147).
+
+### Tests
+
+- `tests/SchemaValidationTest.php`: unknown prop key rejected with `unknown_prop`; every composable component validates with all its declared props; missing-required-prop wins first-error order over unknown-prop; unknown-prop wins over invalid-style-slot; the default homepage seed passes; `table` accepts `id` and still rejects unknown keys; and every composable component declares `id` so the injected id never false-rejects (#147).
+- `tests/ActionsTest.php`: `update_component`, `add_component`, `update_composition`, and `create_page` reject an unknown prop key without persisting; `restore_composition` and its preview surface the `unknown_prop` finding without blocking undo (issue 233 rider) (#147).
+
 ## [v0.16.98] — 2026-07-13 — The 21 remaining dead style-slot pairs take effect; the issue 309 ledger burns down to 6 documented permanent waivers (#309)
 
 **The audit that shipped with v0.16.97's slot-contract guard found 27 slot/surface pairs (56 literal declarations) across hero, section, grid, cta, and testimonials still dead by the issue 302 mechanism: the slot validated, `style_component` reported Success, and a later or higher-specificity literal re-declaration in `assets/css/components.css` won the cascade anyway — on exactly the rhythm and scale surfaces (card padding, title sizes, grid gap, hero padding, CTA width) the v0.16.94 RC dogfood could not control. This release routes 21 of those pairs (49 declaration instances) through `var(--slot, <literal>)` with the former literal as the fallback, so a declared slot now takes effect while unset output renders byte-identical to before. The other 6 pairs are the two decision-flagged groups the issue 309 decision names as permanent, documented waivers: the grid link `:hover` state (which must visually override the slotted resting color) and the testimonials `--stack` variant resets (a by-design card-less presentation whose padding/background/border/shadow resets exist to neutralize the card slots).**

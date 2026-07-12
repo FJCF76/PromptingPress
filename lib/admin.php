@@ -324,6 +324,44 @@ function pp_validate_composition_errors(array $items): array {
             }
         }
 
+        // Reject unknown prop keys (issue 147). The action layer shallow-merges
+        // caller-supplied props and writes: update_component / add_component /
+        // update_composition / create_page all validate through here, so a single
+        // gate at this choke point closes the "phantom field" hole for every write
+        // path (issue 120 only fixed the pp patch <selector> CLI entry point).
+        // Without this, an unknown key persists, the action reports ok:true, and the
+        // renderer silently ignores it — the reported-success-without-effect class.
+        //
+        // Source of truth is the component's schema.json `props` (the full prop
+        // contract), NOT pp_get_component_fields() (the curated CLI-patch editability
+        // subset), which omits real props like cta.theme / cta.background_image and
+        // would false-reject them.
+        //
+        // Runs after the required-props loop so a missing required prop still wins
+        // first-error document order. restore_composition (issue 233) reports this
+        // through _pp_composition_findings() but never blocks on it — same as every
+        // other rule here.
+        if (isset($item['props']) && is_array($item['props'])) {
+            $declared = isset($schema['props']) && is_array($schema['props'])
+                ? $schema['props']
+                : [];
+            foreach ($item['props'] as $prop_name => $prop_value) {
+                if (!array_key_exists($prop_name, $declared)) {
+                    $available = implode(', ', array_keys($declared));
+                    $errors[]  = new WP_Error(
+                        'unknown_prop',
+                        sprintf(
+                            'Component "%s" has no prop "%s". Available props: %s',
+                            $name,
+                            $prop_name,
+                            $available ?: '(none)'
+                        )
+                    );
+                    continue 2;
+                }
+            }
+        }
+
         // Validate optional style key against schema-declared style slots.
         if (isset($item['style']) && is_array($item['style']) && !empty($item['style'])) {
             $available_slots = $schema['styling']['style_slots'] ?? [];
