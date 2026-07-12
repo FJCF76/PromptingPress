@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.87] — 2026-07-12 — `apply preflight` fails closed on an unknown `--apply` name instead of passing clean (#245)
+
+**`wp pp apply preflight --apply=<name>` never validated `<name>` against the apply registry. A typo (`--apply=import_medai`) resolved `pp_get_apply()` to `null` and was treated exactly like "no apply planned": the apply-routed filesystem checks were skipped, preflight passed clean, and a `PREFLIGHT` state was recorded — a green gate asserting a precondition ("no filesystem writes") the operator never earned. That is the same false-pass class as the fail-closed preflight cluster (#200/#207/#212/#227/#229), one level up: a gate must not certify a claim it did not verify. Preflight now emits an error-grade `apply_known` check for any provided-but-unregistered name, so `ok` is `false`, the CLI reports the checks and exits non-zero, and no `PREFLIGHT` is recorded. `wp pp apply execute` already rejected unknown action names; preflight now matches that posture for apply names.**
+
+The guard lives at the single apply-name resolution point in `pp_preflight()` (`lib/operate.php`): when a supplied apply name resolves to no registered definition, an error-grade `apply_known` check is appended (`pass:false`, `Unknown apply: <name>`), which drives the existing `ok = no error-grade failure` logic to `false` and the existing CLI path to report-and-halt without recording state. Presence is tested as a non-empty string (`!== ''`), not `empty()`: PHP's `empty('0')` is `true`, so an `!empty()` gate would let the literal apply name `0` (and a bare `--apply` that WP-CLI coerces to boolean) slip through as "no apply planned" — no registered apply is named `0`, so any provided value that fails the registry lookup fails closed. The CLI boundary in `PP_Apply_Command::preflight()` (`lib/cli.php`) matches: it now routes any non-empty `--apply` value into the preflight context (previously `!empty()` dropped `--apply=0` before it could be validated). An empty `--apply=` remains "no apply planned," identical to omitting the flag.
+
+### Fixed
+
+- `wp pp apply preflight --apply=<name>` now fails closed with an error-grade `apply_known` check when `<name>` is not a registered apply, instead of silently treating an unknown/typo'd name as "no apply planned," skipping the apply-routed filesystem checks, and recording a successful `PREFLIGHT`. Presence is tested as a non-empty string so the falsy literal `--apply=0` is validated (and rejected) rather than dropped by `empty()` (#245).
+
+### Docs
+
+- `docs/reference-apply-cli.md` documents the `apply_known` check (checks table + `--apply` option + a worked "Unknown apply name" note): a provided non-empty apply name that matches no registered apply fails preflight closed; an empty `--apply=` is "no apply planned" (#245).
+
+### Tests
+
+- New `OperateTest` cases pin `pp_preflight()` apply-name validation: an unknown name emits a failing `apply_known` check and makes `ok` false; an unknown name still skips the apply-routed `uploads_writable` check while the overall preflight fails; a registered name and an absent flag emit no `apply_known` check; and the falsy literal `0` is validated and rejected while an empty string is treated as no-apply (#245).
+
 ## [v0.16.86] — 2026-07-12 — `restore-composition` fails closed on a partial restore instead of reporting success (#242)
 
 **`wp pp apply restore-composition` printed the run-scoped restore report, warned about any `skipped` posts (a missing pre-run snapshot or a write failure), and then unconditionally ended with `WP_CLI::success` and exit 0. A machine consumer — the documented AI-operator contract — that branches on the exit code therefore read a partial restore as a complete one: if a touched post could not be reverted, the run still reported overall success. The command now fails closed. When any touched post lands in `skipped`, it still prints the JSON report (so you can see which posts were restored versus skipped), but it exits 1 with an explicit `Error: Restore INCOMPLETE` message. Exit 0 now means, and only means, that every touched post was reverted.**
