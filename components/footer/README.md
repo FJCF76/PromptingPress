@@ -16,17 +16,19 @@ so in practice only `location` is ever set.
 | Prop        | Type   | Required | Default    | Description |
 |-------------|--------|----------|------------|-------------|
 | `location`  | string | No       | `'footer'` | WP theme location slug |
-| `show_logo` | bool   | No       | `false`    | Whether to render the site logo in the footer. **No supported surface sets this today** — see below |
+| `show_logo` | bool   | No       | `false`    | Whether to render the site logo in the footer. Not set by composing a `footer` (rejected since #223) — set the `pp_footer_show_logo` site option instead; the base template passes it in |
 | `logo_text` | string | No       | —          | Logo text (falls back to site title). Not reachable from a page |
 | `logo_id`   | int    | No       | —          | Media Library attachment ID for an image logo (takes priority over `logo_text`). Must be an image attachment. Not reachable from a page; use the `pp_logo_id` option |
 | `logo_alt`  | string | No       | —          | Alt text for the image logo. Not reachable from a page |
 
-### The footer logo is currently unreachable
+### Turning the footer logo on
 
-`show_logo` defaults to `false`, and the only way to pass `true` was to compose a `footer`
-component — which is now rejected. So the footer logo cannot be turned on through any
-supported surface. `pp_logo_id` sets the **header** logo; the footer keeps its copyright
-line. Tracked in #234. Do not work around it by composing a `footer`.
+`show_logo` defaults to `false`. Composing a `footer` to pass `true` is rejected since #223
+(the base template already renders the footer as site chrome). The supported surface is the
+`pp_footer_show_logo` site option (a boolean, set via `update_site_option`); `templates/base.php`
+reads it and passes `show_logo` into the footer. When on, the footer resolves the same logo as
+the header (`pp_logo_id` → `custom_logo` theme-mod → text wordmark). `pp_logo_id` still sets the
+**header** logo independently.
 
 ## Usage
 
@@ -41,6 +43,7 @@ pp_get_component('footer', ['location' => 'footer']);
 |------|---------|
 | Build the footer menu | The menu actions: `create_menu` / `set_menu` / `add_menu_item` |
 | Attach a menu to the footer | `assign_menu_location` with location `footer` |
+| Show/hide the footer logo | `update_site_option` with key `pp_footer_show_logo` (boolean) |
 
 `wp pp apply preflight` reports a `nav_readiness` warning when the `footer` location has no
 menu assigned, or its menu is empty.

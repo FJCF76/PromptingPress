@@ -158,7 +158,7 @@ If adding background-image support to another component, follow this exact patte
 
 **Hero:** `layout` = `left`, `centered`, `split` (inline image), `cover` (fullscreen background-image with overlay). Supports dual CTA buttons (`cta_text` + `cta2_text`), each with an independent `cta_variant`/`cta2_variant` (`primary`/`secondary`/`outline`/`ghost`; secondary defaults to `outline` — these are button-style props, unrelated to the layout `layout`). Composition props: `spacing` (compact/default/spacious), `width` (narrow/default/full), `split_ratio` (50-50/60-40/40-60, split layout only), `vertical_align` (top/center/bottom, cover and split only), `proof` (HTML string for trust signals like logos/ratings, rendered after CTA group). Hero content uses `--measure-centered` (56rem) as default max-width.
 
-**Nav/Footer:** Supports image logos via `logo_id` (Media Library attachment ID, not a URL) + `logo_alt`. Both the `logo_id` component prop and the `pp_logo_id` site option must be an **image** attachment; a non-image or non-existent ID is rejected when the action is validated (`update_component`/`add_component`/`update_composition` for the prop, `update_site_option` for the option). Resolution: `logo_id` prop → `pp_logo_id` site option → WP `custom_logo` theme-mod → `logo_text` (text) wordmark. Footer logo is opt-in via `show_logo` (default off). Set the site-wide logo through the `update_site_option` action with key `pp_logo_id`.
+**Nav/Footer:** Supports image logos via `logo_id` (Media Library attachment ID, not a URL) + `logo_alt`. Both the `logo_id` component prop and the `pp_logo_id` site option must be an **image** attachment; a non-image or non-existent ID is rejected when the action is validated (`update_component`/`add_component`/`update_composition` for the prop, `update_site_option` for the option). Resolution: `logo_id` prop → `pp_logo_id` site option → WP `custom_logo` theme-mod → `logo_text` (text) wordmark. Footer logo is off by default; turn it on with the `pp_footer_show_logo` site option (a boolean `1`/`0`/`true`/`false`) via `update_site_option` — composing a `footer` to pass `show_logo` is rejected (#223). Set the site-wide logo through the `update_site_option` action with key `pp_logo_id`.
 
 **Grid:** `layout` = `cards` (card grid), `steps` (numbered process cards — filled circular number badge, subtle connector line between badges at desktop). `theme` controls background color independently of `layout`. Card items accept `bullets` — a checklist of plain-text lines rendered below `text`, each prefixed with a check mark.
 
@@ -259,7 +259,7 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_set_token_override($token, $value)` | Writes a single token override to the database. |
 | `pp_clear_token_override($token)` | Removes a single token override (reverts to default). |
 | `pp_clear_all_token_overrides()` | Removes all overrides (reverts site to shipped defaults). |
-| `pp_site_option($key)`         | Whitelisted option value (blogname, blogdescription, pp_logo_id, pp_logo_alt) or WP_Error |
+| `pp_site_option($key)`         | Whitelisted option value (blogname, blogdescription, pp_logo_id, pp_logo_alt, pp_footer_show_logo) or WP_Error |
 | `pp_update_composition($post_id, $composition, $expected_version = null)` | Writes composition array to post meta (handles JSON serialization) and bumps the freshness marker under a per-post lock. Optional `$expected_version` (#13) does a write-time compare-and-swap: if the current version differs it returns a `composition_conflict` WP_Error and writes nothing. Null skips the CAS. Returns true\|WP_Error |
 | `pp_update_page_title($post_id, $title)` | Updates page title. Returns true\|WP_Error |
 | `pp_update_page_slug($post_id, $slug)` | Updates page slug/permalink (#134). Sanitizes via sanitize_title(); WordPress de-duplicates on collision. Returns the actual resulting slug\|WP_Error |
@@ -494,7 +494,7 @@ These are the keys every action returns, not the complete set for every action. 
 | Action | Scope | Params | Semantics |
 |---|---|---|---|
 | `create_page` | site | title (req), composition, status, slug | Create. Defaults to draft with empty composition. Optional `slug` sets the canonical route up front — omit to let WordPress derive one from the title |
-| `update_site_option` | site | key (req), value (req) | Replace. Whitelisted: blogname, blogdescription, pp_logo_id (attachment ID), pp_logo_alt |
+| `update_site_option` | site | key (req), value (req) | Replace. Whitelisted: blogname, blogdescription, pp_logo_id (attachment ID), pp_logo_alt, pp_footer_show_logo (bool) |
 | `update_page_title` | page | post_id (req), title (req) | Replace |
 | `update_page_slug` | page | post_id (req), slug (req) | Replace. Sanitized via `sanitize_title()`; WordPress de-duplicates on collision (suffixing `-2`, `-3`, ...) — `changes` always reports the actual resulting slug and permalink, which may differ from what was requested |
 | `update_seo_meta` | page | post_id (req), meta (req) | **Patch.** `meta` is a map of `meta_description`/`seo_title`/`canonical_url` → value, shallow-merged into existing SEO metadata. `seo_title` overrides the rendered `<title>` tag; `canonical_url` overrides the `<link rel="canonical">` tag. Set a key to `""` to clear it |
