@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.91] — 2026-07-12 — The FAQ section can now carry an anchor id, an eyebrow pill, and a dark or inverted theme (#231)
+
+**`faq` was the only heading-bearing component that could not be anchor-linked or given a background tone. Every other section component (`hero`, `section`, `grid`, `cta`, `stats`, `testimonials`, `logos`, `embed`) already accepted an `id`, and the marketing ones an `eyebrow` and a `theme` — `faq` accepted none of them in its schema, so a nav item pointing at `#faq` had no target and the FAQ heading could not sit on a dark band. `faq` now accepts `id` (anchor plus stable component id), `eyebrow` (a kicker pill above the heading), and `theme` (`default` / `dark` / `inverted`), matching the rest of the set. A page with an FAQ section and a nav link to it is finally expressible.**
+
+The theme variant reuses the proven readability pattern from issue 222: the FAQ heading routes through a `--faq-heading-theme-color` fallback so the inverted color survives the high-specificity desktop typography rule instead of rendering dark-on-dark above 768px. Accordion cards keep their light background, so question and answer text stays dark and legible on an inverted band. The eyebrow gains two per-instance style slots (`--faq-eyebrow-color`, `--faq-eyebrow-bg`) so its pill can be recolored like every other component's eyebrow. Unknown `theme` values clamp to `default` at render time, matching `section`/`grid` (composition validation does not check enum values, so the render is the contract). AI-facing docs and the runtime AI context are updated in the same change so the chat and CLI know these props are now accepted.
+
+### Added
+
+- `faq` component now accepts `id`, `eyebrow`, and `theme` (`default` / `dark` / `inverted`) props, matching the other heading-bearing components. `id` anchors the section and becomes its stable component id; `eyebrow` renders as a pill above the heading; `theme` sets the background tone. Two new style slots (`--faq-eyebrow-color`, `--faq-eyebrow-bg`) recolor the eyebrow pill, bringing the FAQ slot count to 10 (#231).
+
+### Docs
+
+- Updated `AI_CONTEXT.md` (faq prop row, the `theme`-supporting component list, and the style-slot totals 140 → 142 / faq 8 → 10), `README.md` (slot totals), `ai-instructions/composition.md`, and `components/faq/README.md` to describe the new `id`/`eyebrow`/`theme` surface. The runtime AI context derives faq's props from its schema, so it picks up the new props automatically (#231).
+
+### Tests
+
+- New `ComponentPropsTest` render pins cover the FAQ `id` anchor, the eyebrow pill (present and absent), the eyebrow color slots, the `dark` and `inverted` theme classes, the default (no-modifier) case, and unknown-theme clamping. `SchemaValidationTest` now asserts `faq` declares a `theme` prop, and `OperateTest` pins `eyebrow` as an editable FAQ field (#231).
+
 ## [v0.16.90] — 2026-07-12 — AI-batch rollback restores an unset/empty site-option baseline instead of silently keeping the applied value (#281)
 
 **When an AI batch (`pp_ai_execute_batch`) changed a typed site option and a later step failed, the rollback re-applied every captured baseline through the validating writer `pp_update_site_option()`. An option that was unset before the run is captured as an empty string, and an empty string fails the `attachment_id` and `bool` value rules, so the writer rejected it and left the applied value in place — a rollback that silently did not roll back. Turn on a logo (`pp_logo_id`) or the footer logo (`pp_footer_show_logo`) as part of a batch that later fails, and the option stayed set. The rollback now restores the exact pre-run state: it deletes the option when the captured baseline was unset/empty, and writes any other captured value back verbatim, bypassing only the value validator. This is the same principle already documented for composition restore (issue 233): a restore is never blocked by current validation rules.**
