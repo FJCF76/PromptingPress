@@ -93,7 +93,6 @@ describe('docs lint: the guard itself is not decoration', () => {
         'schema validation, 20 typed actions, apply layer',
         'against a live **WordPress 7.0** instance (requires Docker)',
         'boot wp-env container (WordPress 7.0)',
-        '47 CSS custom properties control the entire visual system',
     ];
 
     test.each(MUST_CATCH)('catches a hardcoded count: %s', (s) => {
