@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.94] — 2026-07-12 — The runtime AI docs no longer hardcode a stale "47 design tokens" count (#286)
+
+**The chat AI reads `AI_CONTEXT.md`, `AI_RULES.md`, and `ai-instructions/retheme.md` while it operates a site, and all three told it "47 design tokens" (or "47 CSS custom properties") control the visual system. `assets/css/base.css` now defines 51, so the count was four low everywhere the AI actually looks when driving a retheme. This is higher-stakes than the README copy issue #252 fixed: a wrong number in the runtime retheme instructions is a correctness problem in the product's core "an AI agent can retheme by updating tokens" capability, not just marketing prose. All seven occurrences now describe the token layer qualitatively ("A single layer of design tokens controls the entire visual system") instead of counting, so the claim stays true as tokens are added.**
+
+This applies the same resolution as issues #250 and #252: stop asserting a hardcoded number in prose rather than refreshing 47 → 51, which would just reset the drift clock. `lib/ai-context.php` was already count-free (it generates the token inventory dynamically from live values), and the legitimate "8 base color tokens" subset in `retheme.md` Step 1 — which is self-verifying against the eight seed colors listed right below it — was deliberately left intact. A new `docs/`-lint guard pins the rule so the stale count cannot creep back into any of the three runtime docs.
+
+### Docs
+
+- `AI_RULES.md`, `AI_CONTEXT.md`, and `ai-instructions/retheme.md` no longer hardcode the design-token / CSS-custom-property count. All seven "47 design tokens" / "47 CSS custom properties" / "47 tokens" claims were replaced with qualitative descriptions, so the count can no longer drift as tokens are added to `base.css` (#286).
+
+### Tests
+
+- `tests/js/docs-lint.test.js` adds a design-token-count guard over the three runtime AI docs (`AI_RULES.md`, `AI_CONTEXT.md`, `ai-instructions/retheme.md`). Its `TOKEN_COUNT_CLAIM` regex catches total-count claims like "47 design tokens", "51 total design tokens", and "47 CSS custom properties", with `MUST_CATCH` / `MUST_NOT_CATCH` self-checks that keep it from decaying into a no-op and keep the legitimate "8 base color tokens" subset exempt (#286).
+
 ## [v0.16.93] — 2026-07-12 — The README no longer asserts stale hardcoded counts for design tokens and AI workflow files (#252)
 
 **The README described the theme with two baked-in numbers that had quietly gone wrong. It claimed "47 CSS custom properties" / "47 design tokens" when `assets/css/base.css` now defines 51, and "13 files" of AI workflow guides when `ai-instructions/` now holds 14. A number baked into prose goes stale the moment a token or a file is added, and the token count is load-bearing for the product pitch ("an AI agent can retheme an entire site by updating tokens"), so being four off read as a credibility problem, not a typo. The README now describes both qualitatively instead of counting: "design tokens in one CSS file", "CSS custom properties", "Task-specific AI workflow guides". The claims stay true as the theme grows.**

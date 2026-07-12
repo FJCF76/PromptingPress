@@ -31,6 +31,20 @@ const LIVE_DOCS = [
     ['AI_RULES.md', AI_RULES],
 ];
 
+// Runtime AI-facing docs: the chat AI reads these while operating a site (the
+// retheme flow especially). A hardcoded design-token count here is a
+// correctness problem, not just stale marketing copy — see issue 286. The
+// count drifted 47 -> 51 as tokens were added to base.css; the fix is to stop
+// asserting a number, not to refresh it. base.css is the source of truth.
+const AI_CONTEXT = stripBadges(read('AI_CONTEXT.md'));
+const RETHEME = stripBadges(read('ai-instructions/retheme.md'));
+
+const RUNTIME_AI_DOCS = [
+    ['AI_RULES.md', AI_RULES],
+    ['AI_CONTEXT.md', AI_CONTEXT],
+    ['ai-instructions/retheme.md', RETHEME],
+];
+
 // A count-shaped claim: a number, then up to three words, then a test noun.
 // Catches "1230 PHP tests", "409 JS unit tests", "48 Playwright E2E specs",
 // "34 specs:", "1479 tests, 5496 assertions". Deliberately does NOT match
@@ -43,6 +57,65 @@ describe('docs lint: no hardcoded test counts in live docs', () => {
     test.each(LIVE_DOCS)('%s asserts no hardcoded test count', (name, content) => {
         const hits = content.match(new RegExp(COUNT_CLAIM, 'gi')) || [];
         expect(hits).toEqual([]);
+    });
+});
+
+// A design-token total-count claim: "47 design tokens", "51 total design
+// tokens", "47 CSS custom properties", or a bare "47 tokens". Three arms:
+//   1. number + up to 3 qualifier words + "design tokens"  (catches rephrases
+//      like "51 total design tokens" / "51 available design tokens")
+//   2. number + up to 3 qualifier words + "CSS custom properties"
+//   3. number DIRECTLY before "tokens" (0 words between)
+// Arm 3 stays at zero intervening words on purpose: it flags a bare count like
+// "47 tokens" while leaving the one legitimate subset phrase in these docs,
+// "8 base color tokens" (retheme.md Step 1, self-verifying against the 8 seed
+// colors listed right below it), untouched — "base color" between the number
+// and "tokens" keeps it out of arm 3, and it has no "design"/"CSS custom" to
+// trip arms 1-2. The fix for a real regression is to drop the number, not
+// refresh 47 -> 51 (issue 286).
+const TOKEN_COUNT_CLAIM = new RegExp(
+    [
+        '\\d[\\d,]*[ \\t]+(?:[A-Za-z-]+[ \\t]+){0,3}design[ \\t]+tokens?\\b',
+        '\\d[\\d,]*[ \\t]+(?:[A-Za-z-]+[ \\t]+){0,3}CSS[ \\t]+custom[ \\t]+propert(?:y|ies)\\b',
+        '\\d[\\d,]*[ \\t]+tokens?\\b',
+    ].join('|'),
+    'i',
+);
+
+describe('docs lint: no hardcoded design-token count in runtime AI docs', () => {
+    test.each(RUNTIME_AI_DOCS)('%s asserts no hardcoded design-token count', (name, content) => {
+        const hits = content.match(new RegExp(TOKEN_COUNT_CLAIM, 'gi')) || [];
+        expect(hits).toEqual([]);
+    });
+});
+
+describe('docs lint: the token-count guard is not decoration', () => {
+    // If these ever stop matching, the regex has been loosened into a no-op.
+    const MUST_CATCH = [
+        '47 design tokens control the entire visual system', // AI_RULES original
+        'Update the 47 design tokens via update_design_token', // AI_CONTEXT original
+        'Design token defaults (47 design tokens)',            // AI_CONTEXT table original
+        '47 CSS custom properties control the entire visual system', // AI_CONTEXT original
+        'Design token inventory (47 tokens with current effective values)', // inventory original
+        'through 47 design tokens.',                           // retheme original
+        '51 design tokens',                                    // the refresh we reject
+        '51 tokens',
+        '51 total design tokens',                              // rephrase with a qualifier word
+        '51 available design tokens',                          // rephrase with a qualifier word
+    ];
+    const MUST_NOT_CATCH = [
+        'The 8 base color tokens in assets/css/base.css',      // qualified subset, self-verifying
+        'changing --color-accent auto-derives the four accent variants',
+        'automatic backup (keeps last 5)',
+        'against a live WordPress 7.0 instance',
+    ];
+
+    test.each(MUST_CATCH)('catches a hardcoded token count: %s', (s) => {
+        expect(TOKEN_COUNT_CLAIM.test(s)).toBe(true);
+    });
+
+    test.each(MUST_NOT_CATCH)('does not false-positive on: %s', (s) => {
+        expect(TOKEN_COUNT_CLAIM.test(s)).toBe(false);
     });
 });
 

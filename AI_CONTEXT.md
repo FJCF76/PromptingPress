@@ -33,7 +33,7 @@ documented in `schema.json` in the same folder. CSS is in `/assets/css/component
 **To add a component:** Follow the steps in `ai-instructions/add-component.md`. The
 auto-loader picks up any component at `/components/{name}/{name}.php` — no registration needed.
 
-**To retheme:** Read `ai-instructions/retheme.md`. Update the 47 design tokens via `update_design_token` apply (overrides stored in database, defaults in `assets/css/base.css`).
+**To retheme:** Read `ai-instructions/retheme.md`. Update design tokens via `update_design_token` apply (overrides stored in database, defaults in `assets/css/base.css`).
 
 **To style a specific component instance:** Read `ai-instructions/style-component.md`. Use the `style_component` action to set per-instance CSS custom properties (style slots) without editing CSS files.
 
@@ -74,7 +74,7 @@ site-customization permission.
 |--------------------------|---------------------------------|----------------------------------|
 | /templates/              | Page layouts                    | Release-level only — inspect for site work |
 | /components/             | Reusable sections               | Release-level only — inspect for site work |
-| /assets/css/base.css     | Design token defaults (47 design tokens) | Release-level only — site tokens via update_design_token |
+| /assets/css/base.css     | Design token defaults | Release-level only — site tokens via update_design_token |
 | /assets/css/components.css | Component styles              | Release-level only — inspect for site work |
 | /assets/css/utilities.css | Spacing / text utilities       | Release-level only — inspect for site work |
 | /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Release-level only — run npm test after |
@@ -341,7 +341,7 @@ not ACF fields. `pp_field()` returns null when ACF is not installed.
 
 ## Design tokens
 
-47 CSS custom properties control the entire visual system. Product defaults live in `assets/css/base.css`. Site-specific overrides are stored in the `pp_token_overrides` database option and output as inline CSS after the base stylesheet (CSS cascade resolves precedence automatically).
+A single layer of CSS custom properties controls the entire visual system. Product defaults live in `assets/css/base.css`. Site-specific overrides are stored in the `pp_token_overrides` database option and output as inline CSS after the base stylesheet (CSS cascade resolves precedence automatically).
 
 To change a token: use `pp_execute_apply('update_design_token', ['token' => '...', 'value' => '...'])`. To revert: use `reset_design_token` or `reset_all_design_tokens`.
 
@@ -623,7 +623,7 @@ Assembled by `pp_ai_system_prompt()`:
 - Component catalog (names + prop schemas with enum values, style slots, and recipes)
 - Action signatures (names, scopes, param types)
 - Apply signatures (names, domains, param types)
-- Design token inventory (47 tokens with current effective values and types)
+- Design token inventory (current effective values and types for every token)
 - Style slot value rules (type-specific guidance for the LLM)
 - Pre-proposal verification checklist (target correct component, confirm slot exists, confirm value is representable)
 - Response format instructions (conversational vs structured proposal)

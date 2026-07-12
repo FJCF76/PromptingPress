@@ -55,7 +55,7 @@ for site work those paths remain inspect-only.
 ## Design system
 
 To restyle the site, read `ai-instructions/retheme.md`.
-47 design tokens control the entire visual system. Product defaults live in `assets/css/base.css`; site-specific overrides are stored in the `pp_token_overrides` database option and output as inline CSS. Overrides survive theme updates.
+A single layer of design tokens controls the entire visual system. Product defaults live in `assets/css/base.css`; site-specific overrides are stored in the `pp_token_overrides` database option and output as inline CSS. Overrides survive theme updates.
 Each token has a type annotation in its comment (color, length, font-family, number, duration, raw, shadow).
 To change a token programmatically, use `pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309'])`.
 To revert a token to its default, use `pp_execute_apply('reset_design_token', ['token' => '--color-accent'])`.
