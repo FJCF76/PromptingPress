@@ -2891,7 +2891,11 @@ main > .grid .grid__list {
 
 main > .grid .grid__item {
   position: relative;
-  border-color: var(--color-border);
+  /* Route the all-cards border through the slot so a per-instance
+     --grid-card-border is honored on cards 2..N, not just the featured
+     first card (issue 292 — regression of issue 226). Unset keeps the
+     neutral --color-border default. */
+  border-color: var(--grid-card-border, var(--color-border));
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.045);
 }
 
@@ -3314,7 +3318,10 @@ main > .faq .faq__item,
 }
 
 main > .grid .grid__item {
-  border-color: var(--color-border);
+  /* Later-cascade winner for cards 2..N: route it through --grid-card-border
+     too (matching the earlier all-cards rule and the :first-child rule below)
+     or the slot stays ignored on every non-featured card (issue 292). */
+  border-color: var(--grid-card-border, var(--color-border));
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.055);
 }
 

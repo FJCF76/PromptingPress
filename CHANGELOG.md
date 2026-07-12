@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.95] — 2026-07-12 — The `--grid-card-border` style slot is honored on every grid card again, not just the featured one (#292)
+
+**Setting a per-instance `--grid-card-border` on a `layout: cards` grid changed only the featured first card and was silently ignored on cards 2..N, the exact inverse of the bug issue 226 fixed. Two late "premium" cascade rules (`main > .grid .grid__item`, specificity [0,2,1]) re-declared `border-color: var(--color-border)` with no slot in the chain, so they outranked the base `.grid__item` rule and clobbered the author's declared value on non-featured cards. `style_component` reported success and `validate page` / `check page` / `validate site` all passed, so an AI operator got a green result with no visible effect. Both all-cards rules now route through `var(--grid-card-border, var(--color-border))`, matching the `:first-child` rule the issue 226 fix already corrected. Every card in a grid now honors a declared card-border color; an unset slot renders byte-identical to before.**
+
+The fix is the same idiom the original issue 226 change established: route the literal re-declaration through the style slot with the neutral `--color-border` as the fallback (the featured `:first-child` rules keep their accent-token fallbacks at higher specificity, so the featured look is unchanged). The `--grid-card-border` slot was already declared in `components/grid/schema.json` with default `var(--color-border)`; this restores the rendered behavior to match that contract. No accepted grammar or public surface changed. A CSS-lint regression pin mirrors the issue 226 guard on the all-cards selector so a future premium-cascade rule cannot re-open the same slot-defeating gap.
+
+### Fixed
+
+- Grid `cards` now honor a per-instance `--grid-card-border` on every card, not only the featured first card. The two `main > .grid .grid__item` cascade rules in `assets/css/components.css` route their `border-color` through `var(--grid-card-border, var(--color-border))` instead of a bare `var(--color-border)`, so a declared card-border color no longer silently no-ops on cards 2..N while the action reports success (#292).
+
+### Tests
+
+- `tests/js/css-lint.test.js` adds a regression pin for the all-cards selector `main > .grid .grid__item`: it asserts every `border-color` on that rule routes through `--grid-card-border` with the neutral `--color-border` fallback, and guards against selector drift by requiring at least two matching rules. Mirrors the existing issue 226 featured-card pin, which it could not cover (#292).
+
 ## [v0.16.94] — 2026-07-12 — The runtime AI docs no longer hardcode a stale "47 design tokens" count (#286)
 
 **The chat AI reads `AI_CONTEXT.md`, `AI_RULES.md`, and `ai-instructions/retheme.md` while it operates a site, and all three told it "47 design tokens" (or "47 CSS custom properties") control the visual system. `assets/css/base.css` now defines 51, so the count was four low everywhere the AI actually looks when driving a retheme. This is higher-stakes than the README copy issue #252 fixed: a wrong number in the runtime retheme instructions is a correctness problem in the product's core "an AI agent can retheme by updating tokens" capability, not just marketing prose. All seven occurrences now describe the token layer qualitatively ("A single layer of design tokens controls the entire visual system") instead of counting, so the claim stays true as tokens are added.**
