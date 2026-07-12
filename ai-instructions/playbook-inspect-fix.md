@@ -17,6 +17,7 @@ Run `wp pp operate inspect --post_id=<page_id>`. Review:
 - Composition smells (may identify the root cause)
 - Design tokens (token issues cause visual bugs)
 - CSS conflicts (custom CSS may be overriding components)
+- **The `run_id`.** `wp pp operate inspect` appends a `run_id` field (a UUID v4) to its JSON output. Capture it — this is your **run token**, passed via `--run-id` to every mutating command below (PREFLIGHT, EDIT, APPLY). A self-generated UUID passes format validation but then fails PREFLIGHT/EDIT because only the token minted by `inspect` records run state. It is install-scoped and expires 2 hours after `inspect`; re-run `inspect` if it expires. Full contract: `docs/reference-apply-cli.md`.
 
 Capture a **broken-state screenshot**: `wp pp screenshot capture --post_id=<page_id> --playbook=inspect-fix`
 
@@ -35,7 +36,7 @@ Declare the fix:
 - What the fixed state should look like
 
 ### 3. PREFLIGHT
-Run `wp pp apply preflight --run-id=<uuid>`, adding `--post_id=<page_id>` when the fix mutates a page's composition (and planned_files for file mutations). This records the PREFLIGHT covering the target and unlocks the fix in EDIT.
+Run `wp pp apply preflight --run-id=<uuid>`, adding `--post_id=<page_id>` when the fix mutates a page's composition (and planned_files for file mutations). `<uuid>` is the `run_id` you captured from INSPECT, not a freshly generated UUID. This records the PREFLIGHT covering the target and unlocks the fix in EDIT.
 
 ### 4. EDIT
 Execute the minimal fix. Do not refactor adjacent code. Do not "improve" unrelated sections. A composition fix is gated: it requires the page-covering PREFLIGHT from step 3.

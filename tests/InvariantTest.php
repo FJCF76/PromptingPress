@@ -199,6 +199,83 @@ class InvariantTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
+    // ── Operating-loop playbooks must source the run token ────────────────
+
+    /**
+     * Every operating-loop doc that instructs the agent to run
+     * `wp pp apply preflight --run-id=<uuid>` must also tell the agent WHERE
+     * that run token comes from: `wp pp operate inspect`. Without this, an
+     * agent reads `<uuid>` as "any UUID", generates one, and it fails at
+     * PREFLIGHT/EDIT because a self-minted token records no run state
+     * (issue 228). This pins the doc fix so the sourcing sentence cannot be
+     * dropped again.
+     *
+     * The provider auto-discovers every `ai-instructions/*.md` file rather
+     * than a hard-coded allowlist, so a NEW playbook that adds the
+     * `--run-id` instruction without the sourcing note is caught
+     * automatically — the invariant covers "every operating-loop doc", not
+     * just the four that existed when it was written.
+     *
+     * @dataProvider aiInstructionDocProvider
+     */
+    public function testLoopPlaybookSourcesRunIdFromInspect(string $relPath): void
+    {
+        $path = $this->themeRoot . '/' . $relPath;
+        $this->assertFileExists($path, "Missing ai-instructions doc: {$relPath}");
+
+        $content = file_get_contents($path);
+        $this->assertNotFalse($content);
+
+        // Only docs that actually instruct a `--run-id` preflight need the
+        // sourcing statement. If a doc never pairs `apply preflight` with
+        // `--run-id`, it is not in the failure class — skip it.
+        if (!preg_match('/apply preflight[^\n]*--run-id/i', $content)) {
+            $this->addToAssertionCount(1);
+            return;
+        }
+
+        // The run-token source (`wp pp operate inspect`) must be named in the
+        // same sentence as a run-id / run-token mention — not merely present
+        // somewhere unrelated in the file. `[^.]` keeps the match inside one
+        // sentence; the `s` flag lets a sentence span wrapped lines. Tolerant
+        // of `run_id`, `run-id`, `run id`, and "run token", and of the inline
+        // `operate inspect -> apply preflight --run-id` sequence form.
+        $sourced = preg_match(
+            '/(run[-_ ]?id|run token)[^.]{0,220}operate inspect'
+            . '|operate inspect[^.]{0,220}(run[-_ ]?id|run token)/is',
+            $content
+        );
+
+        $this->assertSame(
+            1,
+            $sourced,
+            "{$relPath} instructs `apply preflight --run-id` but never states that "
+            . 'the run token comes from `wp pp operate inspect`. An agent will read '
+            . '`<uuid>` as "any UUID" and fail at PREFLIGHT (issue 228). Add a '
+            . 'sourcing sentence tying `run_id` to `wp pp operate inspect`.'
+        );
+    }
+
+    public static function aiInstructionDocProvider(): array
+    {
+        $dir   = dirname(__DIR__) . '/ai-instructions';
+        $files = glob($dir . '/*.md') ?: [];
+        sort($files);
+
+        $cases = [];
+        foreach ($files as $file) {
+            $cases[basename($file)] = ['ai-instructions/' . basename($file)];
+        }
+
+        // Fail loudly if discovery finds nothing — an empty data provider
+        // would make this invariant silently vacuous.
+        if ($cases === []) {
+            $cases['__none_found__'] = ['ai-instructions/__none_found__'];
+        }
+
+        return $cases;
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
 
     private function phpFilesIn(string $dir): array
