@@ -689,6 +689,82 @@ class OperateTest extends TestCase
         );
     }
 
+    // ── Apply name known (issue 245) ───────────────────────────────────────
+
+    public function testPreflightFailsForUnknownApplyName(): void
+    {
+        // A typo'd / unregistered --apply name must fail preflight closed
+        // instead of being treated as "no apply planned".
+        $result = pp_preflight(['apply_name' => 'import_medai']);
+        $check  = $this->findCheck($result, 'apply_known');
+
+        $this->assertNotNull($check, 'Unknown apply must emit an apply_known check');
+        $this->assertFalse($check['pass'], 'Unknown apply name must fail the apply_known check');
+        $this->assertStringContainsString('Unknown apply: import_medai', $check['message']);
+        $this->assertFalse($result['ok'], 'apply_known is error-grade: an unknown apply makes preflight ok false');
+    }
+
+    public function testPreflightUnknownApplySkipsApplyRoutedFilesystemChecks(): void
+    {
+        // Guards the false-pass path: with an unknown name, $apply_target_type is
+        // null, so the theme/uploads checks fall to the "no filesystem writes"
+        // skip. apply_known is what keeps the overall preflight failing.
+        $result = pp_preflight(['apply_name' => 'import_medai']);
+
+        $this->assertNull(
+            $this->findCheck($result, 'uploads_writable'),
+            'Unknown apply resolves no target type, so no uploads_writable check is emitted'
+        );
+        $this->assertFalse($result['ok'], 'Overall preflight must still fail via apply_known');
+    }
+
+    public function testPreflightFailsForFalsyStringApplyName(): void
+    {
+        // Regression guard: the presence test must be `!== ''`, not empty().
+        // PHP's empty('0') is true, so an !empty() gate would let the literal
+        // apply name "0" slip through as "no apply planned" — a provided-but-
+        // unregistered value must still fail closed (Codex adversarial finding
+        // on issue 245). No registered apply is named "0".
+        $result = pp_preflight(['apply_name' => '0']);
+        $check  = $this->findCheck($result, 'apply_known');
+
+        $this->assertNotNull($check, 'A provided falsy-string apply name must still be validated');
+        $this->assertFalse($check['pass'], 'apply name "0" is unregistered and must fail the apply_known check');
+        $this->assertStringContainsString('Unknown apply: 0', $check['message']);
+        $this->assertFalse($result['ok'], 'Overall preflight must fail for the unregistered name "0"');
+    }
+
+    public function testPreflightNoApplyKnownCheckForEmptyStringApplyName(): void
+    {
+        // An empty-string apply name is "no apply planned" (equivalent to omitting
+        // the flag), NOT an unknown apply — it must not emit an apply_known failure.
+        $result = pp_preflight(['apply_name' => '']);
+        $this->assertNull(
+            $this->findCheck($result, 'apply_known'),
+            'An empty apply name is no-apply-planned, not an unknown apply'
+        );
+    }
+
+    public function testPreflightNoApplyKnownCheckForRegisteredApply(): void
+    {
+        // A known apply name must NOT emit a failing apply_known check.
+        $result = pp_preflight(['apply_name' => 'update_design_token']);
+        $this->assertNull(
+            $this->findCheck($result, 'apply_known'),
+            'A registered apply must not emit an apply_known check'
+        );
+    }
+
+    public function testPreflightNoApplyKnownCheckWithNoApplyName(): void
+    {
+        // No --apply at all is "no apply planned", not an unknown apply.
+        $result = pp_preflight();
+        $this->assertNull(
+            $this->findCheck($result, 'apply_known'),
+            'Preflight without a planned apply must not emit an apply_known check'
+        );
+    }
+
     public function testPreflightThemeWritableMessageDoesNotClaimNoFilesystemWritesForMediaApply(): void
     {
         $uploads = $this->tempDir . '/uploads';

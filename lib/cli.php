@@ -795,7 +795,12 @@ class PP_Apply_Command extends WP_CLI_Command {
             $context['post_id'] = (int) $assoc_args['post_id'];
         }
 
-        if (!empty($assoc_args['apply'])) {
+        // Route any provided --apply value (non-empty string) into the context so an
+        // unregistered name fails the apply_known preflight check (issue 245). Guard
+        // on `!== ''` rather than !empty(): PHP's empty('0') is true, so an !empty()
+        // gate would drop the literal apply name "0" here and let pp_preflight() treat
+        // it as "no apply planned" — the exact false-pass the apply_known check closes.
+        if (isset($assoc_args['apply']) && $assoc_args['apply'] !== '') {
             $context['apply_name'] = $assoc_args['apply'];
         }
 
