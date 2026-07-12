@@ -617,9 +617,10 @@ describe('CSS lint: grid desktop columns by item count', () => {
             .toHaveLength(1);
     });
 
-    // Scope guards (#224 changed the 3-item case only). If a future change
-    // generalizes the desktop grid, these are the pins that should be revisited
-    // deliberately rather than broken silently.
+    // Scope guard (#224 changed the 3-item case only; #303 aligned the 2-item
+    // case). The 4-item case is deliberately still narrowed — if a future change
+    // generalizes it, this pin should be revisited deliberately, not broken
+    // silently.
     test('a 4-item cards grid still lays out 2 x 2', () => {
         expect(columnsFor('main > .grid:not(.grid--steps) .grid__list[data-pp-count="4"]'))
             .toBe('repeat(2, minmax(0, 1fr))');
@@ -628,6 +629,27 @@ describe('CSS lint: grid desktop columns by item count', () => {
     test('a 2-item cards grid still lays out 2 across', () => {
         expect(columnsFor('main > .grid:not(.grid--steps) .grid__list[data-pp-count="2"]'))
             .toBe('repeat(2, minmax(0, 1fr))');
+    });
+
+    // #303: the 2-item row must span the container so it aligns with the section
+    // rail (heading x=176), not sit on a narrower centered rail (x=304). The cap
+    // came from a `max-width` + auto inline margins, so assert neither survives —
+    // and guard the adjacent width/inline-size levers so a future re-narrowing
+    // through any of them fails this pin (not just a literal `max-width`).
+    test('a 2-item cards grid spans the container (no narrowing, no auto-centering)', () => {
+        const bodies = rulesFor('main > .grid:not(.grid--steps) .grid__list[data-pp-count="2"]');
+        expect(bodies.length).toBeGreaterThan(0);
+        bodies.forEach(body => {
+            expect(body).not.toMatch(/max-width\s*:/);
+            expect(body).not.toMatch(/max-inline-size\s*:/);
+            expect(body).not.toMatch(/\bwidth\s*:/);
+            expect(body).not.toMatch(/margin(-left|-right|-inline[a-z-]*)?\s*:\s*[^;]*\bauto\b/);
+        });
+    });
+
+    test('the 2-item rule is declared exactly once (no later re-override)', () => {
+        expect(rulesFor('main > .grid:not(.grid--steps) .grid__list[data-pp-count="2"]'))
+            .toHaveLength(1);
     });
 
     test('the steps layout keeps its own 3-column rule', () => {

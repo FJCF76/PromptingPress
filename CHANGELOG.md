@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.101] — 2026-07-13 — A two-card grid now lines up with the section above it instead of floating in a narrower centered block (#303)
+
+**A `grid` with two cards no longer renders on its own narrower, centered rail. Until now a two-item card row was capped at 832px and centered with automatic side margins, so an intro paragraph on the section rail and its paired two feature cards visibly belonged to two different alignment systems — the cards started well to the right of the heading above them. The three-card row already spanned the full section container (fixed in #224); this release gives the two-card row the same treatment, so "intro text plus two feature cards" reads as one aligned section.**
+
+The two-card desktop rule in `assets/css/components.css` dropped its `max-width: 52rem` cap and its `auto` left/right margins, so the row now fills the section container and its left edge sits on the same rail as the section heading and intro copy. The two-column layout itself is unchanged: two cards still lay out side by side, and the mobile and tablet breakpoints (single column below 768px, two columns from 768px) are untouched — only the desktop centering-and-narrowing was removed. This mirrors the recorded direction on the issue and the shipped #224 three-card fix: a CSS-only change with no new style slot, prop, token, or schema surface, so no composition, action, or AI-facing behavior changed.
+
+### Fixed
+
+- A two-item `grid` card row spans the section container and aligns with the section rail at desktop widths, instead of being capped at 832px and centered — so an intro section and its paired two-card grid read as one aligned block. Mirrors the three-card treatment from #224; CSS-only, no new slot (#303).
+
+### Tests
+
+- `tests/js/css-lint.test.js`: new pins assert the two-item desktop rule spans the container (no `max-width` / `max-inline-size` / `width` narrowing and no reintroduced `auto` inline margins) and is declared exactly once; the existing two-across column pin is retained (#303).
+
 ## [v0.16.100] — 2026-07-13 — A rejected write now carries its machine-readable error code on every path, not just some: validate-stage rejections match execute-stage rejections (#312)
 
 **Every action envelope documents an `error_code` alongside the human `error` message so a client can key on the code (`composition_conflict` → reload prompt, `unknown_prop` → point at the field) instead of parsing prose. Execute-stage rejections carried it; the validate-stage early-return in `pp_execute_action()` did not. It hand-built its envelope and omitted `error_code` entirely, so a whole class of rejections — a template-owned component in the body (`template_owned_component`), duplicate component ids (`duplicate_component_id`), a missing required prop (`invalid_composition`), and the new unknown prop key (`unknown_prop`) — reached the dashboard save handler and the AI chat with an empty code. Callers could only string-match the message. This release propagates the validating `WP_Error`'s code into that envelope, so validate-stage rejections now carry the same machine-readable `error_code` as execute-stage rejections, matching the uniform `{ok, error, error_code}` shape the action model already documents.**
