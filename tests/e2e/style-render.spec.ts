@@ -566,6 +566,190 @@ test.describe('Safe-surface rendered proof', () => {
     expect(buttonBox.x + buttonBox.width).toBeLessThanOrEqual(innerBox.x + innerBox.width + 1);
   });
 
+  /*
+   * #305 — slot-contract rendered proof, one pin per dead-slot axis that shipped.
+   *
+   * The static guard (StyleSlotContractTest) proves every consumed slot survives the
+   * stylesheet TEXT; only getComputedStyle after the REAL style_component action proves
+   * the browser renders the value once specificity, media queries, and parent
+   * constraints all apply. Each pin below targets the exact surface of a shipped
+   * incident, at the 1280px desktop breakpoint where the premium rules that killed
+   * them live. Pre-#302/#292 each of these assertions fails with the action still
+   * reporting success — the trust breach #305 exists to make impossible.
+   */
+
+  // Padding axis (#302): the premium clamp() re-declaration used to beat the slot.
+  test('#305 section honors --section-padding-top at 1280px desktop @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Section Padding Slot');
+    setComposition(pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec01',
+          title: 'Slot contract',
+          body: '<p>Padding must be controllable per instance.</p>',
+        },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // A pixel value no token resolves to, so a premium clamp() clobber is unmistakable.
+    const res = await styleComponent(page, pageId, { '--section-padding-top': '77px' });
+    expect(res.success).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const section = page.locator('main > .section');
+    await expect(section).toBeVisible({ timeout: 10000 });
+
+    const paddingTop = await section.evaluate((el) => getComputedStyle(el).paddingTop);
+    expect(paddingTop).toBe('77px');
+  });
+
+  // Type-scale axis (#302): the shared premium heading rule used to beat the slot.
+  test('#305 grid heading honors --grid-heading-size at 1280px desktop @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Grid Heading Size Slot');
+    setComposition(pageId, [
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-grid01',
+          title: 'Scale is controllable',
+          items: [{ title: 'One', text: 'First' }],
+        },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    const res = await styleComponent(page, pageId, { '--grid-heading-size': '41px' });
+    expect(res.success).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const heading = page.locator('.grid__heading');
+    await expect(heading).toBeVisible({ timeout: 10000 });
+
+    const fontSize = await heading.evaluate((el) => getComputedStyle(el).fontSize);
+    expect(fontSize).toBe('41px');
+  });
+
+  // Card-border axis (#226/#292): the featured first card (#226) AND cards 2..N (#292)
+  // each had their own bypass, fixed separately — so assert BOTH boxes render the slot.
+  test('#305 grid cards honor --grid-card-border on featured AND non-featured cards @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Grid Card Border Slot');
+    setComposition(pageId, [
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-grid01',
+          title: 'Cards are controllable',
+          items: [
+            { title: 'One', text: 'Featured card, the #226 surface' },
+            { title: 'Two', text: 'Non-featured card, the #292 surface' },
+          ],
+        },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // A vivid color no token uses; both accent and neutral fallbacks differ from it.
+    const res = await styleComponent(page, pageId, { '--grid-card-border': '#ff0080' });
+    expect(res.success).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const cards = page.locator('.grid__item');
+    await expect(cards).toHaveCount(2, { timeout: 10000 });
+
+    // Color alone is not proof: getComputedStyle reports borderTopColor even when
+    // width is 0 / style is none, so a future border-style/width clobber would
+    // render no border while a color-only assertion stayed green. Pin all three.
+    const featured = await cards.nth(0).evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { color: s.borderTopColor, width: s.borderTopWidth, style: s.borderTopStyle };
+    });
+    const plain = await cards.nth(1).evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { color: s.borderTopColor, width: s.borderTopWidth, style: s.borderTopStyle };
+    });
+
+    expect(featured.color).toBe('rgb(255, 0, 128)'); // #226 surface
+    expect(plain.color).toBe('rgb(255, 0, 128)'); // #292 surface
+    expect(featured.width).not.toBe('0px');
+    expect(plain.width).not.toBe('0px');
+    expect(featured.style).not.toBe('none');
+    expect(plain.style).not.toBe('none');
+  });
+
+  // Parent-constrains-child axis (#302's --section-body-width): the pre-fix bug
+  // was a literal max-width on the OUTER .section__body capping the slotted inner
+  // .section__content — a shape the static guard's own docblock says no
+  // same-subject textual scan can prove. This rendered pin is the layer that owns
+  // it: if any ancestor cap returns, the inner box cannot reach the slot value.
+  test('#305 section body honors --section-body-width past its wrapper at 1280px @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Section Body Width Slot');
+    setComposition(pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec01',
+          title: 'Width is controllable',
+          body: '<p>The body width slot must reach the rendered content box.</p>',
+        },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // Wider than the 40rem (640px) wrapper default, so a re-introduced ancestor
+    // cap fails this loudly instead of hiding inside the old limit.
+    const res = await styleComponent(page, pageId, { '--section-body-width': '700px' });
+    expect(res.success).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const content = page.locator('.section__content');
+    await expect(content).toBeVisible({ timeout: 10000 });
+
+    const widths = await content.evaluate((el) => {
+      const wrapper = el.closest('.section__body') as Element;
+      return {
+        content: getComputedStyle(el).maxWidth,
+        wrapper: wrapper ? getComputedStyle(wrapper).maxWidth : null,
+        rendered: el.getBoundingClientRect().width,
+      };
+    });
+
+    // The wrapper must carry the slot value, and the rendered box must actually
+    // exceed the old 640px wrapper default — the rendered proof, not just the
+    // computed property. The INNER .section__content is deliberately NOT pinned
+    // to 700px yet: the text-only 49rem literal still caps it (a waived issue 309
+    // pair — this very test measured it dead at 784px in a real browser). When
+    // issue 309 routes that literal through the slot, add:
+    //   expect(widths.content).toBe('700px');
+    expect(widths.wrapper).toBe('700px');
+    expect(widths.rendered).toBeGreaterThan(640);
+  });
+
   test('#266 an unbreakable button label wraps instead of scrolling the page', async ({
     page,
   }) => {
