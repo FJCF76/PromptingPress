@@ -453,6 +453,93 @@ describe('CSS lint: featured grid card honors --grid-card-border (#226)', () => 
 });
 
 /**
+ * Non-featured grid cards honor the --grid-card-border style slot (#292).
+ *
+ * Regression of #226, inverted: the #226 fix routed the featured FIRST card's
+ * border-color through --grid-card-border, but the "premium" cascade rules that
+ * re-declare border-color for ALL cards (`main > .grid .grid__item`, specificity
+ * [0,2,1], which beats the base `.grid__item` rule [0,1,0]) kept a bare
+ * `var(--color-border)`. So a declared --grid-card-border silently no-opped on
+ * cards 2..N while `style_component` reported success.
+ *
+ * TWO all-cards rules set border-color and BOTH must route through the slot: the
+ * later one wins the cascade (equal specificity), the earlier one is the base
+ * all-cards rule. If either keeps a bare token, the slot is ignored on that path.
+ * Unlike the featured card, the fallback here is the NEUTRAL --color-border (the
+ * default card border), never an accent token — cards 2..N are not featured.
+ * The keystone StyleSlotContractTest only proves the slot is consumed *somewhere*
+ * in the grid block (the base `.grid__item` rule satisfies it), so it cannot catch
+ * this all-cards-specific gap — hence this targeted pin.
+ */
+describe('CSS lint: non-featured grid cards honor --grid-card-border (#292)', () => {
+    const SELECTOR = 'main > .grid .grid__item';
+
+    // Brace-matched extraction of every rule whose selector is EXACTLY this
+    // (whitespace-normalized). `:not(.grid--steps)` / `:first-child` / `::before`
+    // and comma-group rules share the prefix but have more text before `{`, so
+    // `\s*\{` never matches them.
+    function bodiesForExactSelector(selector) {
+        const css = stripComments(COMPONENTS_CSS).replace(/\s+/g, ' ');
+        const re = new RegExp(
+            selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{',
+            'g'
+        );
+        const bodies = [];
+        let match;
+        while ((match = re.exec(css)) !== null) {
+            let i = re.lastIndex;
+            let depth = 1;
+            const start = i;
+            while (i < css.length && depth > 0) {
+                if (css[i] === '{') depth++;
+                else if (css[i] === '}') depth--;
+                i++;
+            }
+            bodies.push(css.slice(start, i - 1));
+        }
+        return bodies;
+    }
+
+    const bodies = bodiesForExactSelector(SELECTOR);
+    const borderBodies = bodies.filter(b => /border-color\s*:/.test(b));
+
+    // Guard against the selector silently drifting: a zero-match scan would make
+    // every assertion below vacuously pass.
+    test('finds the all-cards grid rules that set border-color', () => {
+        expect(borderBodies.length).toBeGreaterThanOrEqual(2);
+    });
+
+    test('every border-color on the all-cards rule routes through --grid-card-border', () => {
+        const offenders = [];
+        borderBodies.forEach(body => {
+            const decls = body.match(/border-color\s*:[^;}]+/g) || [];
+            decls.forEach(d => {
+                if (!/border-color\s*:\s*var\(\s*--grid-card-border\b/.test(d)) {
+                    offenders.push(d.trim());
+                }
+            });
+        });
+        expect(offenders).toEqual([]);
+    });
+
+    // Fallback integrity: the non-featured card border falls back to the NEUTRAL
+    // --color-border, never an accent token — cards 2..N must not adopt the
+    // featured accent look when --grid-card-border is unset.
+    test('--grid-card-border falls back to the neutral --color-border on all cards', () => {
+        const bad = [];
+        borderBodies.forEach(body => {
+            const decls = body.match(/border-color\s*:[^;}]+/g) || [];
+            decls.forEach(d => {
+                if (!/var\(\s*--grid-card-border\s*,\s*var\(\s*--color-border\s*\)\s*\)/.test(d)) {
+                    bad.push(d.trim());
+                }
+            });
+        });
+        expect(bad).toEqual([]);
+    });
+});
+
+/**
  * Grid desktop column layout (#224).
  *
  * The desktop column count is driven by the `data-pp-count` attribute that
