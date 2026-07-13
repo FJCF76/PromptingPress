@@ -48,7 +48,10 @@
     "variant_classes": ["stats--dark", "stats--inverted"],
     "tokens": ["--space-xl", "--space-2xl", "--space-3xl", "--color-bg", "--color-bg-inverted", "--overlay-bg"],
     "style_slots": {
+      "--stats-padding-top": { "type": "length", "default": "var(--space-xl)", "description": "Top padding of the stats section" },
+      "--stats-padding-bottom": { "type": "length", "default": "var(--space-xl)", "description": "Bottom padding of the stats section" },
       "--stats-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
+      "--stats-title-size": { "type": "length", "default": "1.875rem", "description": "Section heading (title) font size" },
       "--stats-title-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading text color" },
       "--stats-title-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading, if set" },
       "--stats-number-color": { "type": "color", "default": "var(--color-accent)", "description": "Stat number (large metric value) text color" },
