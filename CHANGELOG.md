@@ -4,6 +4,31 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.118] — 2026-07-13 — the eyebrow pill, the stats number, and the sub-heading's rhythm are all authorable now (#336)
+
+**Three things the site-building AI could not express through any documented surface. The eyebrow pill had colour and background slots but no radius slot on any of the six components that render one, so it could not be rounded. The stats number had a colour slot and no size slot at all, so the headline figure of the whole component could not be scaled. And the sub-heading on section, grid and testimonials rendered with no bottom spacing at all, colliding with the content beneath it. Ten new style slots close the first two. The third was a cascade bug, and it is fixed. Existing pages will reflow, deliberately: sub-headings now render the spacing they always declared.**
+
+The sub-heading defect is the interesting one, because nothing was missing from the component. `.grid__subheading` declared `margin-bottom: var(--space-lg)`, and `--space-lg` resolved correctly to `2rem`. The declaration simply never reached the page. `assets/css/base.css` carries a global prose reset, `p:last-child { margin-bottom: 0 }`, whose specificity (0,1,1) outranks a bare component class (0,1,0) — and the sub-heading is always the last child of its header block, on every component, in every layout. So the reset won every time, on every page, while the stylesheet read as correct and every unit test stayed green. This was never a grid-only problem: section, grid and testimonials all render their sub-heading as a trailing `<p>`, and all three measured `0px`. The fix owns the spacing at header scope (`.X__header > .X__subheading`, (0,2,0)) so it wins the cascade on merit, routed through a new slot so the operator keeps control. The global reset is deliberately left intact — it correctly serves prose blocks like `.section__content` and `.cta__body`, and weakening it to fix three headers would have traded one silent bug for another. The defaults do not move: the eyebrow still falls back to `3px` and the stats number to `2.5rem`, because a pill radius and a display-scale number are style choices, and style choices belong in the token values the site-building AI picks, not baked into component CSS. The bug was never the default. The bug was that the AI could not express anything else.
+
+### Fixed
+
+- Sub-headings on `section`, `grid` and `testimonials` render their declared bottom rhythm instead of `0px` (#336), so they no longer collide with the content below. **This changes existing pages:** a sub-heading that previously rendered flush against the next block now carries its spacing (16px on section, 32px on grid and testimonials). That spacing is what the components always asked for; it was being silently discarded by a base stylesheet reset that outranked them.
+- The `#home-hero`, `#how-hero`, `#agencies-hero` and `#implementers-hero` eyebrow rule re-declared `border-radius` at ID specificity and would have silently bypassed the new radius slot on exactly the four pages that use it. It is routed through the slot, so setting the slot works on those pages too. Same class as #292 and #302: a higher-specificity literal quietly defeating a slot while everything else looks correct.
+
+### Added
+
+- `--hero-eyebrow-radius`, `--section-eyebrow-radius`, `--faq-eyebrow-radius`, `--grid-eyebrow-radius`, `--cta-eyebrow-radius`, `--testimonials-eyebrow-radius` — the eyebrow pill's corner radius, on all six components that render one. Set a large value (`999px`) for a fully rounded pill. Fallback stays `3px`, so unset output is byte-identical.
+- `--stats-number-size` — the stat number's font size. Only a colour slot existed before, which meant the largest, most load-bearing text in the component was the one thing that could not be resized. Fallback stays `2.5rem`.
+- `--section-subheading-margin-bottom`, `--grid-subheading-margin-bottom`, `--testimonials-subheading-margin-bottom` — the space between a sub-heading and the content below it. Fallbacks are the rhythm each component already declared.
+- Style slots: 159 → 169. No slot-contract waivers were added.
+
+### Tests
+
+- `tests/e2e/style-render.spec.ts` pins all three strands with computed style in a real browser, twice each: unset renders the documented default, and setting the slot drives the element. A declaration-level assertion would not have caught this bug — the sub-heading's `margin-bottom` was *declared* the whole time and still computed to `0px` — so the pins measure what the cascade actually produced. Each sub-heading pin also asserts the element really is its header's last child, so the regression stays pinned only while the markup that triggers it still exists. The eyebrow radius is pinned on a hero whose id matches the ID-scoped rule, because a hero with any other id never matches that block and would leave the highest-risk edit unproven.
+- The schema, slot-count and CSS-lint pins move with the new slots (169 total), and the grid card-scope pin keeps both new grid slots correctly classified as header-scoped rather than per-card.
+
+---
+
 ## [v0.16.117] — 2026-07-13 — the hero proof line now follows the hero's alignment (#338)
 
 **In a centered hero, the proof line under the buttons rendered flush LEFT while the eyebrow, title, subtitle and buttons above it were all centered. The operator had already said the hero was centered, and no style slot existed to correct the proof line, so the layout simply could not be fixed through any documented surface. The proof line now follows the hero's alignment: centered in the centered and cover layouts, left-packed in the left and split layouts. Nothing to set, and no change to compositions that already exist.**
