@@ -83,6 +83,58 @@
 }
 
 /* ==========================================================================
+   SHARED: border-trigger cascade immunity (issue 332)
+
+   WordPress core's global stylesheet ships attribute-SUBSTRING selectors:
+
+     html :where([style*="border-width"]) { border-style: solid }
+     html :where([style*="border-color"]) { border-style: solid }
+
+   Core's intent is the block editor's `style="border-width:2px"` shorthand. But
+   our style slots render as inline CUSTOM PROPERTIES on the component root
+   (style="--grid-card-border-width:0px"), and the substring lives in the property
+   NAME — so the selector matches the root even when the value is 0 and the border
+   the slot controls actually lives on a DESCENDANT (the card). A root that
+   declared no border of its own then computed core's injected `solid` at the
+   initial `medium` width: a visible 3px border nobody asked for. The 1.0-H dogfood
+   hit exactly this and had to abandon two documented slots.
+
+   The fix is immunity, not renaming: the slot names are public AI-facing surface.
+   Specificity, precisely: `:where()` contributes zero, but the leading `html` type
+   selector still counts, so core's rule weighs (0,0,1) — low, NOT zero. A class or
+   attribute selector weighs (0,1,0) and outranks it outright. So declaring the border
+   baseline on every element that can carry inline slot custom properties (the 12
+   component roots + the per-card .grid__item of issue 306) makes core's rule a no-op
+   for us — and it stays a no-op for slots that do not exist yet. (Note the corollary:
+   a BARE ELEMENT selector of ours would only tie core at (0,0,1) and could lose on
+   source order. The baseline must keep a class/attribute selector to hold its rank.)
+
+   Both longhands are declared on purpose: `border-style: none` alone would defeat
+   today's core rule, and `border-width: 0` keeps it defeated if core ever injects a
+   width instead. The declared values ARE the CSS initial rendering (a style of
+   `none` computes to a 0 width), so an unset component renders byte-identically.
+
+   Placement is load-bearing: an attribute selector and a class selector both weigh
+   (0,1,0), so this must stay ABOVE the component blocks — every component rule that
+   really wants a border ( .hero, .cta, .section, .grid__item, .grid--dark, … ) then
+   wins on source order. Do not move it below them. Nor inside an @media/@layer block:
+   a breakpoint-scoped baseline leaves every other breakpoint exposed.
+
+   Known consequence: at (0,1,0) this also outranks a BARE ELEMENT rule a site owner or
+   plugin might put on a component root (e.g. `section { border-top: 1px solid }` in
+   Customizer → Additional CSS, which loads after this file but weighs only (0,0,1)).
+   That is the same specificity lever the fix uses against core, pointed outward. Site
+   CSS that targets a class/attribute (`.section`, `[data-pp-component]`) still wins
+   normally; only bare-element borders on the roots are suppressed.
+   ========================================================================== */
+
+[data-pp-component],
+.grid__item {
+  border-style: none;
+  border-width: 0;
+}
+
+/* ==========================================================================
    COMPONENT: nav
    Site header, logo, nav links, hamburger toggle.
    ========================================================================== */
