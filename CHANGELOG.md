@@ -18,7 +18,7 @@ The one design choice worth naming is what triggers the bottom bar. The referenc
 
 ### Docs
 
-- `AI_CONTEXT.md`, `ai-instructions/set-logo.md`, `ai-instructions/website-building.md`, the `footer` component schema and README, and the `update_site_option` action description all document the four new options. The site-building AI is now told it can label the footer columns, delimit the bottom bar, and give the footer its own light logo.
+- `AI_CONTEXT.md`, `ai-instructions/set-logo.md`, `ai-instructions/website-building.md`, the `footer` component schema and README, the `update_site_option` action description, and `README.md` all document the four new options. The site-building AI is now told it can label the footer columns, delimit the bottom bar, and give the footer its own light logo.
 
 ### Tests
 
