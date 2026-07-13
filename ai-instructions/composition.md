@@ -186,9 +186,9 @@ All seven heading-bearing components accept `title_accent`: an exact, case-sensi
 { "component": "hero", "props": { "title": "Fast and Safe WordPress", "title_accent": "Fast" } }
 ```
 
-### eyebrow / subheading / heading_align (hero, section, grid, cta, testimonials)
+### eyebrow / subheading / heading_align (hero, section, faq, grid, cta, testimonials)
 
-`eyebrow` renders a short kicker label as a pill above the title (e.g. `"NEW"`) on all five. `subheading` renders a supporting line below the title on section, grid, and testimonials only — hero uses `subtitle` and cta uses `text` for the same concept, so neither has a `subheading` prop. `heading_align` (`start` default, or `center`; section, grid, testimonials only) centers the eyebrow/title/subheading header block — independent of the component's overall layout.
+`eyebrow` renders a short kicker label as a pill above the title (e.g. `"NEW"`) on all six. `subheading` renders a supporting line below the title on section, grid, and testimonials only — hero uses `subtitle` and cta uses `text` for the same concept, so neither has a `subheading` prop. `heading_align` (`start` default, or `center`; section, grid, testimonials only) centers the eyebrow/title/subheading header block — independent of the component's overall layout.
 
 ### image_id (hero, section, logos items) — responsive images (#107)
 
