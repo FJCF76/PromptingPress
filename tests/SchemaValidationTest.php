@@ -230,7 +230,7 @@ class SchemaValidationTest extends TestCase
         $expected = [
             'hero'    => 36,
             'section' => 21,
-            'grid'    => 24,
+            'grid'    => 28,
             'cta'     => 26,
         ];
 
@@ -440,6 +440,99 @@ class SchemaValidationTest extends TestCase
         ];
         $result = pp_validate_composition($composition);
         $this->assertTrue($result);
+    }
+
+    // ── Featured first-card remnant slots (issue 293) ────────────────────
+    //
+    // The three featured-card remnants (accent top bar, texture stripe, glow)
+    // gained slot control so a uniform card row is reachable through the shared
+    // validation engine. Accepted shapes: the documented neutralizers plus
+    // ordinary typed values. Rejected shapes: cross-type values, so a slot that
+    // LOOKS plausible but cannot render never reports success.
+
+    private function gridCompositionWithStyle(array $style): array
+    {
+        return [
+            [
+                'component' => 'grid',
+                'props'     => ['items' => [['title' => 'One'], ['title' => 'Two'], ['title' => 'Three']]],
+                'style'     => $style,
+            ],
+        ];
+    }
+
+    public function testGridFeaturedRemnantSlotsAcceptNeutralizers(): void
+    {
+        $result = pp_validate_composition($this->gridCompositionWithStyle([
+            '--grid-card-bar-height'        => '0',
+            '--grid-featured-texture-color' => 'transparent',
+            '--grid-featured-shadow'        => 'none',
+        ]));
+        $this->assertTrue($result, 'The documented uniform-row neutralizers must validate.');
+    }
+
+    public function testGridFeaturedRemnantSlotsAcceptTypedValues(): void
+    {
+        $result = pp_validate_composition($this->gridCompositionWithStyle([
+            '--grid-card-bar-height'        => '4px',
+            '--grid-card-bar-color'         => 'linear-gradient(90deg, #ea3900, #b32b00)',
+            '--grid-featured-texture-color' => 'rgba(37, 99, 235, 0.028)',
+            '--grid-featured-shadow'        => '0 10px 24px rgba(15, 23, 42, 0.055)',
+        ]));
+        $this->assertTrue($result, 'Ordinary typed values for the issue 293 slots must validate.');
+    }
+
+    public function testGridCardBarColorAcceptsPlainColor(): void
+    {
+        // gradient-typed slots accept plain colors too (the --grid-card-bg precedent).
+        $result = pp_validate_composition($this->gridCompositionWithStyle([
+            '--grid-card-bar-color' => '#e6e8eb',
+        ]));
+        $this->assertTrue($result);
+    }
+
+    /**
+     * @dataProvider featuredRemnantCrossTypeProvider
+     */
+    public function testGridFeaturedRemnantSlotsRejectCrossTypeValues(string $slot, string $value): void
+    {
+        $result = pp_validate_composition($this->gridCompositionWithStyle([$slot => $value]));
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_style_value', $result->get_error_code());
+    }
+
+    public static function featuredRemnantCrossTypeProvider(): array
+    {
+        return [
+            'color into bar-height'     => ['--grid-card-bar-height', '#ff0000'],
+            'length into texture-color' => ['--grid-featured-texture-color', '2rem'],
+            'keyword into shadow'       => ['--grid-featured-shadow', 'blue-glow'],
+            'shadow into bar-color'     => ['--grid-card-bar-color', '0 10px 24px rgba(0, 0, 0, 0.1)'],
+        ];
+    }
+
+    public function testGridDeclaresUniformCardsRecipe(): void
+    {
+        $schema  = json_decode(file_get_contents($this->themeRoot . '/components/grid/schema.json'), true);
+        $recipes = $schema['styling']['recipes'] ?? [];
+
+        $this->assertArrayHasKey('uniform-cards', $recipes, 'issue 293 acceptance: the uniform row must be a documented recipe.');
+        $slots = $recipes['uniform-cards']['slots'] ?? [];
+        $this->assertSame('0', $slots['--grid-card-bar-height'] ?? null);
+        $this->assertSame('transparent', $slots['--grid-featured-texture-color'] ?? null);
+        $this->assertArrayHasKey('--grid-card-shadow', $slots, 'Uniformity needs one shared shadow on all cards, not a missing featured glow.');
+
+        // Every recipe value must be valid for its slot's declared type — a recipe
+        // that expands into rejected values would fail at apply time.
+        $declared = $schema['styling']['style_slots'];
+        foreach ($slots as $name => $value) {
+            $this->assertArrayHasKey($name, $declared, "Recipe slot {$name} must be a declared style slot.");
+            $this->assertTrue(
+                _pp_validate_token_value((string) $value, $declared[$name]['type'] ?? null),
+                "uniform-cards recipe value for {$name} must validate against its declared type."
+            );
+        }
     }
 
     // ── Template-owned chrome rejection (#223) ───────────────────────────

@@ -91,6 +91,10 @@
       "--grid-card-border-width": { "type": "length", "default": "1px", "description": "Card border width" },
       "--grid-card-radius": { "type": "length", "default": "var(--radius)", "description": "Card border radius" },
       "--grid-card-shadow": { "type": "shadow", "default": "none", "description": "Card box shadow / glow (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" },
+      "--grid-card-bar-color": { "type": "gradient", "default": "var(--color-border)", "description": "Card top-bar color or gradient (cards layout only; no bar exists on steps). The featured first card defaults to an accent gradient; setting this slot pins one bar color on every card" },
+      "--grid-card-bar-height": { "type": "length", "default": "2px", "description": "Card top-bar height (cards layout only; the featured first card defaults to 4px). 0 removes the bar on every card" },
+      "--grid-featured-texture-color": { "type": "color", "default": "rgba(37, 99, 235, 0.055)", "description": "Texture-stripe line color painted on the featured first card only (cards layout on composed pages). transparent removes the stripe" },
+      "--grid-featured-shadow": { "type": "shadow", "default": "var(--grid-card-shadow)", "description": "Box shadow of the featured first card only (cards layout on composed pages); overrides the shared --grid-card-shadow there. When both are unset a built-in blue glow renders. Set none (or set --grid-card-shadow for all cards) to remove the featured glow" },
       "--grid-card-padding": { "type": "length", "default": "var(--space-md)", "description": "Card body padding" },
       "--grid-card-gap": { "type": "length", "default": "var(--space-sm)", "description": "Gap between card body elements" },
       "--grid-item-title-size": { "type": "length", "default": "1.25rem", "description": "Card title font size" },
@@ -117,6 +121,17 @@
           "--grid-gap": "1rem",
           "--grid-card-padding": "1rem",
           "--grid-card-gap": "0.5rem"
+        }
+      },
+      "uniform-cards": {
+        "description": "Neutralize the featured first-card treatment for a uniform row: removes the top bars, the featured texture stripe, and the featured glow, and pins one shared border, background, shadow, and title size on every card. Residual differences that stay: the faint texture on cards 2+, a 0.25rem body padding-top difference on card 1 at desktop, and the dark-theme lift",
+        "slots": {
+          "--grid-card-bar-height": "0",
+          "--grid-featured-texture-color": "transparent",
+          "--grid-card-shadow": "0 10px 24px rgba(15, 23, 42, 0.055)",
+          "--grid-card-border": "var(--color-border)",
+          "--grid-card-bg": "var(--color-surface)",
+          "--grid-item-title-size": "1.25rem"
         }
       }
     }

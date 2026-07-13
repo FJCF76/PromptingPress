@@ -49,9 +49,14 @@ function deletePage(id: number): void {
 }
 
 /** Dispatch a style_component action via the admin AJAX endpoint (picks up the nonce). */
-async function styleComponent(page: any, postId: number, style: Record<string, unknown>) {
+async function styleComponent(
+  page: any,
+  postId: number,
+  style: Record<string, unknown>,
+  recipe?: string,
+) {
   return page.evaluate(
-    async (args: { pid: number; style: Record<string, unknown> }) => {
+    async (args: { pid: number; style: Record<string, unknown>; recipe?: string }) => {
       const config = (window as any).ppAiChat;
       const data = new FormData();
       data.append('action', 'pp_ai_execute');
@@ -60,7 +65,12 @@ async function styleComponent(page: any, postId: number, style: Record<string, u
       data.append('name', 'style_component');
       data.append('params[post_id]', String(args.pid));
       data.append('params[component_index]', '0');
-      data.append('params[style]', JSON.stringify(args.style));
+      if (Object.keys(args.style).length > 0) {
+        data.append('params[style]', JSON.stringify(args.style));
+      }
+      if (args.recipe) {
+        data.append('params[recipe]', args.recipe);
+      }
       const resp = await fetch(config.ajaxUrl, {
         method: 'POST',
         credentials: 'same-origin',
@@ -68,8 +78,22 @@ async function styleComponent(page: any, postId: number, style: Record<string, u
       });
       return resp.json();
     },
-    { pid: postId, style },
+    { pid: postId, style, recipe },
   );
+}
+
+/** Computed featured-treatment surfaces of one grid card (issue 293). */
+function grabCardStyles(el: Element) {
+  const before = getComputedStyle(el, '::before');
+  const s = getComputedStyle(el);
+  return {
+    barHeight: before.height,
+    barImage: before.backgroundImage,
+    barColor: before.backgroundColor,
+    shadow: s.boxShadow,
+    bg: s.backgroundImage,
+    border: s.borderTopColor,
+  };
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -694,6 +718,196 @@ test.describe('Safe-surface rendered proof', () => {
     expect(plain.width).not.toBe('0px');
     expect(featured.style).not.toBe('none');
     expect(plain.style).not.toBe('none');
+  });
+
+  // Featured remnants (#293), half 1: the rule move into the COMPONENT: grid block
+  // must not change UNSET rendering. Pin the featured defaults at the computed level:
+  // 4px accent bar + inset glow on card 1, 2px hairline + no inset glow on card 2.
+  test('#293 unset grid keeps the featured first-card defaults after the rule move', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Grid Featured Defaults');
+    setComposition(pageId, [
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-grid01',
+          title: 'Featured defaults survive',
+          items: [
+            { title: 'One', text: 'Featured card' },
+            { title: 'Two', text: 'Plain card' },
+          ],
+        },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const cards = page.locator('.grid__item');
+    await expect(cards).toHaveCount(2, { timeout: 10000 });
+
+    const featured = await cards.nth(0).evaluate(grabCardStyles);
+    const plain = await cards.nth(1).evaluate(grabCardStyles);
+
+    expect(featured.barHeight).toBe('4px');
+    expect(featured.barImage).toContain('linear-gradient'); // accent gradient bar
+    expect(plain.barHeight).toBe('2px');
+    expect(plain.barImage).toBe('none'); // hairline is a background-color, not an image
+    expect(featured.shadow).toContain('inset'); // the blue glow's inset ring
+    expect(plain.shadow).not.toContain('inset');
+    expect(featured.bg).toContain('37, 99, 235'); // texture stripe literal
+  });
+
+  // Featured remnants (#293), half 2: the acceptance path, through the documented
+  // uniform-cards RECIPE (so the recipe expansion is exercised end-to-end, not a
+  // re-typed copy of its values) — including at a mobile width, where a separate
+  // featured-glow rule re-declares the shadow chain (the featured-shadow slot would
+  // otherwise silently no-op below 768px).
+  test('#293 uniform-cards recipe neutralizes the featured treatment @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Grid Uniform Row');
+    setComposition(pageId, [
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-grid01',
+          title: 'Uniform card row',
+          items: [
+            { title: 'One', text: 'First' },
+            { title: 'Two', text: 'Second' },
+            { title: 'Three', text: 'Third' },
+          ],
+        },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    const res = await styleComponent(page, pageId, {}, 'uniform-cards');
+    expect(res.success).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const cards = page.locator('.grid__item');
+    await expect(cards).toHaveCount(3, { timeout: 10000 });
+
+    const featured = await cards.nth(0).evaluate(grabCardStyles);
+    const plain = await cards.nth(1).evaluate(grabCardStyles);
+
+    expect(featured.barHeight).toBe('0px'); // bar removed
+    expect(plain.barHeight).toBe('0px');
+    expect(featured.shadow).toBe(plain.shadow); // one shared shadow, no glow
+    expect(featured.shadow).not.toContain('inset');
+    expect(featured.border).toBe(plain.border); // accent-strong border neutralized
+    expect(featured.bg).not.toContain('37, 99, 235'); // texture stripe neutralized
+
+    // Mobile: the max-width 767px featured rule must route the same chain.
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(cards).toHaveCount(3, { timeout: 10000 });
+
+    const featuredMobile = await cards.nth(0).evaluate(grabCardStyles);
+    const plainMobile = await cards.nth(1).evaluate(grabCardStyles);
+    expect(featuredMobile.shadow).toBe(plainMobile.shadow);
+    expect(featuredMobile.shadow).not.toContain('inset');
+  });
+
+  // #293: --grid-featured-shadow must have discriminating rendered power of its own.
+  // The uniform-row test neutralizes via --grid-card-shadow, which the PRE-#293 CSS
+  // already routed — it would pass with the featured-shadow chain reverted. This
+  // test sets the featured slot to a distinctive value and proves it renders on the
+  // featured card only, at desktop AND mobile (the two chain sites), and that it
+  // outranks a simultaneously-set --grid-card-shadow.
+  test('#293 --grid-featured-shadow renders on the featured card at both breakpoints', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Grid Featured Shadow Slot');
+    setComposition(pageId, [
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-grid01',
+          title: 'Featured shadow slot',
+          items: [
+            { title: 'One', text: 'Featured card' },
+            { title: 'Two', text: 'Plain card' },
+          ],
+        },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    const res = await styleComponent(page, pageId, {
+      '--grid-featured-shadow': '0 2px 4px rgba(1, 2, 3, 0.5)',
+      '--grid-card-shadow': '0 6px 12px rgba(7, 8, 9, 0.4)',
+    });
+    expect(res.success).toBe(true);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      const cards = page.locator('.grid__item');
+      await expect(cards).toHaveCount(2, { timeout: 10000 });
+
+      const featured = await cards.nth(0).evaluate(grabCardStyles);
+      const plain = await cards.nth(1).evaluate(grabCardStyles);
+      expect(featured.shadow).toContain('1, 2, 3'); // featured slot wins on card 1
+      expect(plain.shadow).toContain('7, 8, 9'); // shared slot on cards 2..N
+      expect(plain.shadow).not.toContain('1, 2, 3');
+    }
+  });
+
+  // #293: the shared bar slots must pin ONE identical bar on the featured and
+  // plain cards simultaneously — the featured accent-gradient default has to be
+  // overridden, not layered under.
+  test('#293 bar slots pin an identical top bar on featured and plain cards', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Grid Pinned Bar');
+    setComposition(pageId, [
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-grid01',
+          title: 'Pinned bar',
+          items: [
+            { title: 'One', text: 'Featured card' },
+            { title: 'Two', text: 'Plain card' },
+          ],
+        },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    const res = await styleComponent(page, pageId, {
+      '--grid-card-bar-color': 'rgb(9, 8, 7)',
+      '--grid-card-bar-height': '3px',
+    });
+    expect(res.success).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const cards = page.locator('.grid__item');
+    await expect(cards).toHaveCount(2, { timeout: 10000 });
+
+    const featured = await cards.nth(0).evaluate(grabCardStyles);
+    const plain = await cards.nth(1).evaluate(grabCardStyles);
+
+    expect(featured.barHeight).toBe('3px');
+    expect(plain.barHeight).toBe('3px');
+    expect(featured.barColor).toBe('rgb(9, 8, 7)');
+    expect(plain.barColor).toBe('rgb(9, 8, 7)');
+    expect(featured.barImage).toBe('none'); // gradient default overridden, not layered
+    expect(plain.barImage).toBe('none');
   });
 
   // Parent-constrains-child axis (#302's --section-body-width): the pre-fix bug
