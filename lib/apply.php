@@ -1326,7 +1326,7 @@ pp_register_apply('reset_fonts', [
 pp_register_apply('import_media', [
     'domain'      => 'media',
     'target'      => ['type' => 'media'],
-    'description' => 'Sideloads an external image URL into the media library. Returns the new attachment id and local URL.',
+    'description' => 'Sideloads an external image URL into the media library, or reuses the existing attachment if that source URL was already imported. Returns the attachment id and local URL, with action "import" (new) or "reused" (deduped).',
     'params'      => [
         'url' => ['type' => 'string', 'required' => true],
         'alt' => ['type' => 'string', 'required' => false],
@@ -1371,6 +1371,44 @@ pp_register_apply('import_media', [
     'apply' => function (array $params) {
         $url = $params['url'];
         $alt = $params['alt'] ?? '';
+
+        // Source-URL dedupe (#298). import_media is the sanctioned way an AI
+        // operator brings an external image onto the site, and that loop retries
+        // and re-runs — so importing the SAME remote URL must not silently
+        // accrete a duplicate attachment on every call. If a prior import of
+        // this exact source URL is still on the site, reuse it. The lookup is
+        // read-only (never mutates state) and the reuse path writes NOTHING —
+        // not the file, not the attachment, not alt (a differing alt on a repeat
+        // call is deliberately ignored; dedupe reuses the existing asset as-is).
+        // This runs after the framework's validate gate (pp_execute_apply), so
+        // $url is already a valid HTTPS image URL here. Matching is on the exact
+        // source URL recorded below; it only covers imports made by this
+        // mechanism (a pre-#298 duplicate carries no marker and imports once
+        // more, after which its marker makes it dedupe-eligible).
+        $existing_id = _pp_find_attachment_by_source_url($url);
+        if ($existing_id !== null) {
+            $existing_url = wp_get_attachment_url($existing_id);
+            // Only reuse an attachment that still resolves to a URL. If it no
+            // longer does (deleted attachment, or a missing _wp_attached_file so
+            // wp_get_attachment_url() returns false/empty), fall through and
+            // re-import rather than hand the operator a broken URL. This does not
+            // stat the physical file — a record that still resolves but whose
+            // bytes were removed from disk/object storage is reused as-is. The
+            // lookup returns the NEWEST match, so a fresh re-import becomes the
+            // next reuse target instead of re-importing on every call.
+            if (is_string($existing_url) && $existing_url !== '') {
+                return _pp_apply_result(
+                    'import_media', 'media',
+                    ['type' => 'media'],
+                    [[
+                        'action'        => 'reused',
+                        'attachment_id' => $existing_id,
+                        'url'           => $existing_url,
+                        'source_url'    => $url,
+                    ]]
+                );
+            }
+        }
 
         // Guarded like WP core's own admin-context checks: these files aren't
         // autoloaded outside wp-admin (CLI, AJAX, cron). media_handle_sideload()
@@ -1421,6 +1459,10 @@ pp_register_apply('import_media', [
             update_post_meta($attachment_id, '_wp_attachment_image_alt', $alt);
         }
 
+        // Record the source URL so a later import of the same remote file
+        // dedupes to this attachment instead of creating a duplicate (#298).
+        update_post_meta($attachment_id, '_pp_import_source_url', $url);
+
         return _pp_apply_result(
             'import_media', 'media',
             ['type' => 'media'],
@@ -1444,6 +1486,32 @@ function _pp_url_has_allowed_image_extension(string $url): bool {
     $path = (string) parse_url($url, PHP_URL_PATH);
     $ext  = strtolower(pathinfo($path, PATHINFO_EXTENSION));
     return in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true);
+}
+
+/**
+ * Finds an existing attachment previously imported from the given source URL,
+ * for import_media's source-URL dedupe (#298).
+ *
+ * Matches on the _pp_import_source_url post-meta that import_media records at
+ * import time, scoped to real 'inherit'-status attachments (excludes trashed
+ * and private records). Returns the NEWEST matching attachment id (most recent
+ * import — the copy most likely to still have its file on disk), or null when
+ * nothing matches. Read-only: never mutates state.
+ */
+function _pp_find_attachment_by_source_url(string $url): ?int {
+    $matches = get_posts([
+        'post_type'   => 'attachment',
+        'post_status' => ['inherit'],
+        'meta_key'    => '_pp_import_source_url',
+        'meta_value'  => $url,
+        'orderby'     => 'ID',
+        'order'       => 'DESC',
+        'numberposts' => 1,
+    ]);
+    if (empty($matches)) {
+        return null;
+    }
+    return (int) $matches[0]->ID;
 }
 
 // ── Deployment Manifest (Sync Safeguard) ───────────────────────────────────

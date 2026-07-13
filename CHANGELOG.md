@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.114] — 2026-07-13 — re-importing the same image URL now reuses the existing attachment instead of creating a duplicate (#298)
+
+**`import_media` is how an AI operator pulls an external image (a brand logo, say) onto the site as a locally-owned asset, and that loop retries and re-runs. Every call used to sideload a fresh copy and mint a new attachment, so importing the same URL three times left three identical files with `-1`/`-2` suffixes and no signal to reuse. This release dedupes by source URL: the first import records where the file came from, and any later import of that exact URL returns the existing attachment instead of downloading it again.**
+
+Each successful import now records its source URL on the attachment. On the next `import_media` for the same URL, the apply returns the existing attachment (result `action: "reused"`) without downloading or creating anything — so retries and multi-run workflows stop accreting duplicate media. A fresh import still returns `action: "import"`. If the previously-imported attachment no longer resolves to a URL (deleted record), the import falls through and brings in a fresh copy rather than handing back a broken link. Dedupe matches the exact source URL and only covers imports made after this release records the marker; it is best-effort under concurrent identical imports (two simultaneous first-time imports of the same URL can still both create a copy).
+
+### Fixed
+
+- `import_media` now reuses an already-imported attachment for a repeat source URL instead of sideloading a duplicate every call (#298). Each import records the source URL as `_pp_import_source_url` attachment meta; a later import of the same URL returns that attachment with change `action: "reused"` (no download, no new attachment). A new source URL still imports fresh (`action: "import"`), and a cached attachment that no longer resolves to a URL is re-imported rather than returned broken.
+
+### Docs
+
+- The runtime AI system prompt (`lib/ai-context.php`), `ai-instructions/composition.md`, `ai-instructions/website-building.md`, and `AI_CONTEXT.md` now document that `import_media` dedupes by source URL and returns `action` `"import"` or `"reused"`, so operators know retrying an import is safe (#298).
+
+### Tests
+
+- `ApplyTest` pins the new behavior: a repeat import of the same URL returns `action: "reused"` with the original attachment id and makes no `download_url`/`media_handle_sideload` call; a fresh import records the `_pp_import_source_url` marker and returns `action: "import"`; a different URL is not deduped; and a cached attachment whose file no longer resolves is re-imported. The test harness stub now registers sideloaded attachments as posts so the `get_posts` dedupe lookup is exercised (#298).
+
 ## [v0.16.113] — 2026-07-13 — off-center radial gradients now validate: `radial-gradient(circle at top left, ...)` and other `at <position>` spotlights are accepted for gradient slots (#301)
 
 **Radial gradients are the way to paint an off-center spotlight or corner glow behind a section, but the gradient validator rejected the one piece of syntax that makes that possible: any `at <position>` clause. `radial-gradient(circle, ...)` passed while the identical `radial-gradient(circle at top left, ...)` failed, and the error text claimed radial-gradient was supported, so the failure read as a bug. This release accepts the standard `at <position>` clause so brand backgrounds can place the gradient center where the design wants it.**
