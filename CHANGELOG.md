@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.109] — 2026-07-13 — per-card grid `style` now rejects the section-scoped slots that silently did nothing on a card, so an override either renders or fails loudly (#323)
+
+**Per-card style (`props.items[].style`, shipped in v0.16.108) accepted every grid style slot, but only the slots consumed on the card itself actually render there. Setting a container or heading slot on one card — `--grid-gap`, `--grid-bg`, `--grid-heading-color`, `--grid-padding-*` — validated, persisted, reported success, and changed nothing, because those slots are read on the section, list, and header, not the card. That is the reported-success-without-effect trap the product works to eliminate. This release restricts `items[].style` to the card-scoped slots and rejects the rest with the existing `invalid_style_slot` error, which now names the card and points you at the grid-level `style` where those slots belong.**
+
+The card-scoped set is declared once in the grid schema (an `item_eligible` flag per slot) and enforced by the same shared validator that already checks per-card style (`_pp_validate_style_slot_map` via `pp_validate_composition`) — no second validator and no new slot grammar, just one membership check on the per-item path. Grid-level `style` is unchanged: the section is where container and heading slots render, so they stay valid there. The card-scoped set covers the card background, border, radius, shadow, padding, gaps, the card/featured bar and texture slots, the item title and text colors, and the bullet, link, and step-badge colors. The AI-facing docs and the runtime AI catalog derive their card-scoped list from the same schema flag, so an operator is told exactly which slots work per card before writing one.
+
+### Fixed
+
+- `items[].style` on a grid card now rejects section-scoped and heading-scoped slots (`--grid-gap`, `--grid-bg`, `--grid-heading-*`, `--grid-eyebrow-*`, `--grid-subheading-color`, `--grid-padding-*`) with `invalid_style_slot`, naming the card and directing you to set them on the grid-level `style`. Only the card-scoped slots — the ones that actually render on a single card — are accepted, so a per-card override can no longer report success while changing nothing (#323).
+
+### Docs
+
+- `components/grid/schema.json` marks each card-scoped slot with `item_eligible` and its `items[].style` description lists exactly the accepted set; `ai-instructions/composition.md` and `ai-instructions/style-component.md` now say container/heading slots are rejected per card rather than merely ineffective; the runtime AI catalog (`lib/ai-context.php`) derives the accepted per-card slot list from the schema flag so its guidance cannot drift (#323).
+
+### Tests
+
+- `SchemaValidationTest` pins that every card-scoped slot is accepted and every container/heading slot is rejected on `items[].style` (both sets derived from the schema), that the rejection names the card and points at grid-level style, that grid-level `style` still accepts container slots, that index 0 (the featured first card) is enforced (strict null-check regression), that an un-annotated component falls back to the pre-323 behavior, and that the schema description stays in sync with the `item_eligible` flags (#323).
+
 ## [v0.16.108] — 2026-07-13 — one card in a grid row can finally look different from its siblings: per-card `style` overrides make a dark CTA panel or a green terminal card natively expressible (#306)
 
 **Grid style slots were grid-scoped: `--grid-card-bg`, `--grid-card-border`, the card text colors, and mono styling all applied to every card in the row. There was no way to style one card differently, so a standard marketing pattern — a dark CTA panel beside light checklist cards, or a green-on-dark terminal/code card next to normal content — could not be matched, and operators were pushed toward the workarounds the product forbids. This release adds an optional per-card `style` object on grid items (`props.items[].style`): it accepts the same grid style slots, is validated by the same shared engine, and renders as inline CSS custom properties on that one card so it overrides the grid-level value by cascade proximity.**
