@@ -588,6 +588,111 @@ class SchemaValidationTest extends TestCase
         }
     }
 
+    // ── Per-item grid card style overrides (issue 306) ──────────────────
+    //
+    // A single card can carry its own `style` map (props.items[].style) that
+    // accepts the SAME grid style_slots as grid-level style and runs through the
+    // SAME shared validation engine — no second validator. Unknown item-level slot
+    // names and invalid values are rejected exactly like grid-level ones, so a
+    // per-card slot that LOOKS plausible but cannot render never reports success.
+
+    private function gridCompositionWithItemStyle(array $itemStyle, array $gridStyle = []): array
+    {
+        $comp = [
+            'component' => 'grid',
+            'props'     => ['items' => [
+                ['title' => 'Plain'],
+                ['title' => 'Styled', 'style' => $itemStyle],
+            ]],
+        ];
+        if ($gridStyle !== []) {
+            $comp['style'] = $gridStyle;
+        }
+        return [$comp];
+    }
+
+    public function testGridItemStyleAcceptsKnownSlots(): void
+    {
+        // The two page-136 cases: a dark panel card and a green terminal card,
+        // both expressed purely through per-item slots.
+        $darkPanel = $this->gridCompositionWithItemStyle([
+            '--grid-card-bg'          => '#0f172a',
+            '--grid-card-border'      => '#0f172a',
+            '--grid-item-title-color' => '#f8fafc',
+            '--grid-item-text-color'  => '#cbd5e1',
+        ]);
+        $this->assertTrue(pp_validate_composition($darkPanel), 'A dark panel card must validate through the shared engine.');
+
+        $terminal = $this->gridCompositionWithItemStyle([
+            '--grid-card-bg'         => '#0b0f0a',
+            '--grid-item-text-color' => '#22c55e',
+        ]);
+        $this->assertTrue(pp_validate_composition($terminal), 'A green terminal card must validate through the shared engine.');
+    }
+
+    public function testGridItemStyleAcceptsTokenAndGradientValues(): void
+    {
+        // Item slots accept the full grammar their type allows, same as grid-level:
+        // registered var(--token) colors and gradients.
+        $result = pp_validate_composition($this->gridCompositionWithItemStyle([
+            '--grid-card-bg'          => 'linear-gradient(180deg, #0f172a 0%, #1e293b 100%)',
+            '--grid-item-title-color' => 'var(--color-text)',
+        ]));
+        $this->assertTrue($result);
+    }
+
+    public function testGridItemStyleRejectsUnknownSlot(): void
+    {
+        $result = pp_validate_composition($this->gridCompositionWithItemStyle([
+            '--grid-card-not-a-slot' => '#000000',
+        ]));
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_style_slot', $result->get_error_code());
+        $this->assertStringContainsString('item 1', $result->get_error_message(), 'The error must name the offending card index.');
+    }
+
+    public function testGridItemStyleRejectsInvalidValue(): void
+    {
+        // A length value into a color slot — cross-type rejection at item level.
+        $result = pp_validate_composition($this->gridCompositionWithItemStyle([
+            '--grid-item-text-color' => '2rem',
+        ]));
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_style_value', $result->get_error_code());
+    }
+
+    public function testGridItemStyleRejectsInjection(): void
+    {
+        // The injection guard ({ } ; < >) applies to item-level values too, since
+        // the value reaches an inline style attribute at render.
+        $result = pp_validate_composition($this->gridCompositionWithItemStyle([
+            '--grid-card-bg' => '#000; } body { display:none',
+        ]));
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_style_value', $result->get_error_code());
+    }
+
+    public function testGridItemStyleAndGridLevelStyleCoexist(): void
+    {
+        // Grid-level style stays valid while an item overrides one slot.
+        $result = pp_validate_composition($this->gridCompositionWithItemStyle(
+            ['--grid-card-bg' => '#0f172a'],
+            ['--grid-card-bg' => 'var(--color-surface)', '--grid-gap' => '2rem']
+        ));
+        $this->assertTrue($result);
+    }
+
+    public function testGridSchemaDeclaresItemStyleField(): void
+    {
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/grid/schema.json'), true);
+        $this->assertArrayHasKey(
+            'style',
+            $schema['props']['items']['items'] ?? [],
+            'issue 306: the grid items sub-schema must declare a `style` field so the validator activates per-item styling.'
+        );
+        $this->assertSame('object', $schema['props']['items']['items']['style']['type'] ?? null);
+    }
+
     // ── Template-owned chrome rejection (#223) ───────────────────────────
 
     /**

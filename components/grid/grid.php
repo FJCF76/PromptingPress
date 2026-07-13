@@ -75,8 +75,17 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                     $text_role   = $item['text_role'] ?? '';
                     $allowed_text_roles = ['mono', 'meta', 'label', 'kicker'];
                     $text_role_class = in_array($text_role, $allowed_text_roles, true) ? ' text-' . $text_role : '';
+
+                    // Per-item style overrides (issue 306): render this card's `style`
+                    // map as inline custom properties on the .grid__item element,
+                    // validated against the SAME grid style slots as grid-level style.
+                    // The consuming CSS reads var(--slot, fallback), so a per-item slot
+                    // set here overrides the grid-level value by cascade proximity.
+                    $item_style      = is_array($item['style'] ?? null) ? $item['style'] : [];
+                    $item_style_vars = pp_render_style_vars($item_style, 'grid');
+                    $item_style_attr = $item_style_vars ? ' style="' . $item_style_vars . ';"' : '';
                 ?>
-                    <li class="grid__item">
+                    <li class="grid__item"<?php echo $item_style_attr; ?>>
                         <?php if ($is_steps) : ?>
                             <span class="pp-step-number"><?php echo esc_html($item_number); ?></span>
                         <?php endif; ?>

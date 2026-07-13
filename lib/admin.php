@@ -250,6 +250,65 @@ function pp_migrate_legacy_variant_keys(array $items): array {
  * @param  array      $items  Decoded composition array.
  * @return WP_Error[]         Empty when the composition is valid.
  */
+
+/**
+ * Validates a style-slot override map against a component's declared style slots.
+ *
+ * The single shared gate for BOTH grid-level component style (`item['style']`) and
+ * per-item card style (issue 306, `props.items[].style`). Both surfaces accept the
+ * SAME slot set and run the SAME injection guard + typed validators
+ * (_pp_validate_token_value) — there is deliberately no second validator. Skips the
+ * `__recipe` tracking key (not a CSS property). Returns the first violation so
+ * callers keep first-error-wins document order.
+ *
+ * @param  array    $style           Slot => value overrides to validate.
+ * @param  array    $available_slots  The component's declared style_slots.
+ * @param  string   $component_name   Component name, for the error message.
+ * @param  int|null $item_index       Card index when validating a per-item override,
+ *                                     or null for grid-level component style.
+ * @return WP_Error|null              A WP_Error on the first bad slot/value, else null.
+ */
+function _pp_validate_style_slot_map(array $style, array $available_slots, string $component_name, ?int $item_index = null): ?WP_Error {
+    $where = $item_index === null
+        ? sprintf('Component "%s"', $component_name)
+        : sprintf('Component "%s" item %d', $component_name, $item_index);
+
+    foreach ($style as $slot_name => $slot_value) {
+        // Skip __recipe tracking key — not a CSS property.
+        if ($slot_name === '__recipe') {
+            continue;
+        }
+        if (!isset($available_slots[$slot_name])) {
+            $available = implode(', ', array_keys($available_slots));
+            return new WP_Error(
+                'invalid_style_slot',
+                sprintf(
+                    '%s has no style slot "%s". Available slots: %s',
+                    $where,
+                    $slot_name,
+                    $available ?: '(none)'
+                )
+            );
+        }
+        // Validate value using same injection guard + type validators as tokens.
+        $slot_type  = $available_slots[$slot_name]['type'] ?? null;
+        $validation = _pp_validate_token_value((string) $slot_value, $slot_type);
+        if (is_wp_error($validation)) {
+            return new WP_Error(
+                'invalid_style_value',
+                sprintf(
+                    '%s style slot "%s": %s',
+                    $where,
+                    $slot_name,
+                    $validation->get_error_message()
+                )
+            );
+        }
+    }
+
+    return null;
+}
+
 function pp_validate_composition_errors(array $items): array {
     $registered = pp_get_registered_components();
     $errors     = [];
@@ -363,40 +422,52 @@ function pp_validate_composition_errors(array $items): array {
         }
 
         // Validate optional style key against schema-declared style slots.
+        $available_slots = $schema['styling']['style_slots'] ?? [];
         if (isset($item['style']) && is_array($item['style']) && !empty($item['style'])) {
-            $available_slots = $schema['styling']['style_slots'] ?? [];
-            foreach ($item['style'] as $slot_name => $slot_value) {
-                // Skip __recipe tracking key.
-                if ($slot_name === '__recipe') {
+            $style_error = _pp_validate_style_slot_map($item['style'], $available_slots, $name, null);
+            if (is_wp_error($style_error)) {
+                $errors[] = $style_error;
+                continue;
+            }
+        }
+
+        // Validate optional PER-ITEM style overrides (issue 306). A prop declared
+        // as type:array whose item sub-schema declares a `style` field (today: the
+        // grid's `items`) may carry a per-element `style` map. Each element's style
+        // is validated against the SAME component style_slots through the SAME shared
+        // engine as grid-level styles — no second validator, no new slot grammar.
+        // Unknown item-level slot names and invalid values are rejected exactly like
+        // grid-level ones. restore_composition (issue 233) reports this via
+        // _pp_composition_findings() but never blocks on it, same as every rule here.
+        if (isset($item['props']) && is_array($item['props']) && !empty($schema['props'])) {
+            foreach ($schema['props'] as $prop_name => $prop_def) {
+                $accepts_item_style = ($prop_def['type'] ?? null) === 'array'
+                    && isset($prop_def['items']['style']);
+                if (!$accepts_item_style) {
                     continue;
                 }
-                if (!isset($available_slots[$slot_name])) {
-                    $available = implode(', ', array_keys($available_slots));
-                    $errors[]  = new WP_Error(
-                        'invalid_style_slot',
-                        sprintf(
-                            'Component "%s" has no style slot "%s". Available slots: %s',
-                            $name,
-                            $slot_name,
-                            $available ?: '(none)'
-                        )
-                    );
-                    continue 2;
+                $prop_value = $item['props'][$prop_name] ?? null;
+                if (!is_array($prop_value)) {
+                    continue;
                 }
-                // Validate value using same injection guard + type validators as tokens.
-                $slot_type  = $available_slots[$slot_name]['type'] ?? null;
-                $validation = _pp_validate_token_value((string) $slot_value, $slot_type);
-                if (is_wp_error($validation)) {
-                    $errors[] = new WP_Error(
-                        'invalid_style_value',
-                        sprintf(
-                            'Component "%s" style slot "%s": %s',
-                            $name,
-                            $slot_name,
-                            $validation->get_error_message()
-                        )
+                foreach ($prop_value as $elem_index => $element) {
+                    if (!is_array($element)
+                        || !isset($element['style'])
+                        || !is_array($element['style'])
+                        || empty($element['style'])
+                    ) {
+                        continue;
+                    }
+                    $style_error = _pp_validate_style_slot_map(
+                        $element['style'],
+                        $available_slots,
+                        $name,
+                        (int) $elem_index
                     );
-                    continue 2;
+                    if (is_wp_error($style_error)) {
+                        $errors[] = $style_error;
+                        continue 3;
+                    }
                 }
             }
         }

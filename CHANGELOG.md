@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.108] — 2026-07-13 — one card in a grid row can finally look different from its siblings: per-card `style` overrides make a dark CTA panel or a green terminal card natively expressible (#306)
+
+**Grid style slots were grid-scoped: `--grid-card-bg`, `--grid-card-border`, the card text colors, and mono styling all applied to every card in the row. There was no way to style one card differently, so a standard marketing pattern — a dark CTA panel beside light checklist cards, or a green-on-dark terminal/code card next to normal content — could not be matched, and operators were pushed toward the workarounds the product forbids. This release adds an optional per-card `style` object on grid items (`props.items[].style`): it accepts the same grid style slots, is validated by the same shared engine, and renders as inline CSS custom properties on that one card so it overrides the grid-level value by cascade proximity.**
+
+Per-card style goes through the one shared validation path (`_pp_validate_token_value` via `pp_validate_composition`) exactly like grid-level slots — unknown slot names and invalid values are rejected the same way, with no second validator and no new slot grammar. A new shared helper (`_pp_validate_style_slot_map`) backs both grid-level and per-item validation, and the detection is schema-driven: a prop declared as an array whose item sub-schema declares a `style` field (today, the grid's `items`) gets per-item validation, so nothing else silently gains the surface. The card renders the map through the existing `pp_render_style_vars` escaping. Use the card-scoped slots (`--grid-card-*`, `--grid-item-*`, bullet/link/step colors); container and heading slots belong on the grid-level `style` because they are read on the section, not the card. Set per-card style through the composition (`update_component` / `update_composition` / `create_page`), not `style_component`, which targets a whole component instance.
+
+### Added
+
+- Grid items accept an optional per-card `style` object (`props.items[].style`) that overrides grid-level style slots for that one card. Accepts the same grid style slots, validated by the same shared engine (unknown slots and invalid values rejected identically), rendered as inline custom properties on the card's `.grid__item`. Makes the dark-panel card and the green terminal card natively expressible in a mixed grid row (#306).
+
+### Docs
+
+- `components/grid/schema.json`, `ai-instructions/composition.md`, and `ai-instructions/style-component.md` document per-card `style`, which slots are card-scoped, and that it is set through the composition rather than `style_component`; `AI_CONTEXT.md` lists `style` in the grid item fields and the runtime AI catalog (`lib/ai-context.php`) surfaces a per-item style note (#306).
+
+### Tests
+
+- `SchemaValidationTest` pins that per-card style accepts known grid slots (including the dark-panel and terminal cases), rejects unknown item slot names (`invalid_style_slot`, naming the card index), rejects invalid and injection values (`invalid_style_value`), and coexists with grid-level style; `GridItemStyleTest` pins that the override renders inline on the correct card only, wins over a grid-level slot, and that unknown/injection values are dropped at render (#306).
+
 ## [v0.16.107] — 2026-07-13 — a call-to-action can finally be just a button: `cta.title` is now optional, so a heading-less standalone button is one component away (#294)
 
 **There was no sanctioned way to render a standalone button — a button not attached to a heading. `cta.title` was required, and links written into `section.body` render as plain text with no button treatment, so a common marketing pattern (a centered "closing" button after a steps or feature section) could not be matched. This release makes `cta.title` optional: omit it (and `text`) and the CTA renders just its button row, with no empty heading element in the DOM. `button_text` and `button_url` stay required, and `id`/anchors, `layout`, `theme`, and every style slot keep working unchanged.**
