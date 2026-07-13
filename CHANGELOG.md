@@ -4,6 +4,32 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.119] — 2026-07-13 — the header can finally carry a colour, and either chrome band can carry a gradient (#333)
+
+**The site header was the one piece of above-the-fold chrome with no styling surface at all. Its background was hard-bound to the global page colour, its logo and links took the global text colour, and there were no header site options — so a dark or gradient marketing header could not be expressed without inverting the entire site's tokens. Three new site options fix that: `pp_header_bg`, `pp_header_text`, and `pp_header_link_color`, the exact mirror of the footer surface shipped in #300. In the same change, `pp_header_bg` and `pp_footer_bg` now accept a CSS gradient as well as a solid colour, so a real gradient band is expressible on either. Unset, the header and footer render exactly as before — this adds a capability, it does not change any default.**
+
+The gradient support is the part worth explaining, because the obvious way to build it was wrong. A gradient is a CSS `<image>`, not a colour, so assigning one to the `background-color` property is invalid and the browser silently drops the whole declaration — the option would have validated on write, survived a snapshot round-trip, and then painted nothing on screen, with every declaration-level test still green. The header and footer bands now route through the `background` shorthand instead, which accepts both a colour and a gradient; the shorthand's reset of the other background longhands is a genuine no-op because those selectors set no other background property. Validation stays in the shared engines only: `pp_header_bg` and `pp_footer_bg` are typed against the same `gradient` grammar every gradient-typed style slot already uses (a bounded `linear-gradient()`/`radial-gradient()` with two or more colour stops, no `var()`/`url()`/`env()` inside, no conic or repeating gradients), and the four text and link options take a plain colour only. Both chrome bands emit their inline custom properties through a single shared helper that reads each value's declared type straight from the site-option whitelist, so the render-time type can never drift from the write-time type — the specific gap that made the footer's own gradient support inexpressible until now.
+
+### Added
+
+- `pp_header_bg`, `pp_header_text`, `pp_header_link_color` site options — the header's colour surface, set through the `update_site_option` action exactly like the footer's. `pp_header_bg` sets the background (a colour or a gradient), `pp_header_text` colours the logo wordmark and the mobile menu toggle, and `pp_header_link_color` colours the nav links. The header is template-owned, so these options are its only styling surface; unset, the header renders byte-identically to before. Hover and current-page links keep the global accent token.
+- `pp_header_bg` and `pp_footer_bg` now accept a bounded CSS gradient (`linear-gradient()`/`radial-gradient()`, 2+ colour stops) in addition to every colour they accepted before. This is how a dark or gradient marketing header or footer is built. The four text/link chrome options remain colour-only.
+
+### Fixed
+
+- `pp_footer_bg` could not express a gradient even though the footer chrome was meant for dark marketing bands (#300): it was typed as a plain colour, and the footer's background was painted through `background-color`, which cannot render a gradient. Both are corrected — the option accepts the gradient grammar, and the band paints through the `background` shorthand. A footer that only ever set a solid colour is unaffected.
+
+### Docs
+
+- `AI_CONTEXT.md`, `ai-instructions/set-logo.md`, `ai-instructions/website-building.md`, the `nav` and `footer` component schemas and READMEs, the `update_site_option` action description, and `README.md` all document the header colour surface and the gradient-capable backgrounds. The site-building AI is now told the header is stylable through these options and instructed not to fake a dark header by inverting the site's global tokens.
+
+### Tests
+
+- `tests/e2e/style-render.spec.ts` proves the gradient actually paints, in a real browser, with `getComputedStyle`: a gradient set on `pp_header_bg`/`pp_footer_bg` produces a non-`none` background image, a solid colour still works on the same option, and an unstyled header carries no inline style and no background image. A declaration-level assertion could not catch the underlying bug — the property would be present in the HTML while the browser dropped it — so the pins measure what the cascade actually rendered. The negative control was confirmed by hand: reverting the CSS to `background-color` makes the computed background image `none` and the pin fails.
+- `tests/HeaderChromeTest.php` and `tests/FooterChromeTest.php` pin the whitelist types, the shared-engine delegation (gradient accepted on the background options, rejected on the text/link options), the render-boundary drop of an out-of-band or wrong-type value, the fail-closed behaviour of the shared chrome-style helper on an unknown or non-style option key, the `background`-not-`background-color` CSS routing, and byte-identical unset output.
+
+---
+
 ## [v0.16.118] — 2026-07-13 — the eyebrow pill, the stats number, and the sub-heading's rhythm are all authorable now (#336)
 
 **Three things the site-building AI could not express through any documented surface. The eyebrow pill had colour and background slots but no radius slot on any of the six components that render one, so it could not be rounded. The stats number had a colour slot and no size slot at all, so the headline figure of the whole component could not be scaled. And the sub-heading on section, grid and testimonials rendered with no bottom spacing at all, colliding with the content beneath it. Ten new style slots close the first two. The third was a cascade bug, and it is fixed. Existing pages will reflow, deliberately: sub-headings now render the spacing they always declared.**

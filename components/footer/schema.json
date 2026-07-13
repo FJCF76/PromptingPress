@@ -36,7 +36,7 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Footer background color (issue 300). Set via the pp_footer_bg site option; emitted as the --footer-bg custom property. A CSS color validated by the shared color engine (hex, rgb()/hsl(), transparent, currentColor, or a known color-token reference). Empty = the default light surface. This is the primary dark-marketing-footer control."
+      "description": "Footer background (issue 300; widened to accept gradients in issue 333). Set via the pp_footer_bg site option; emitted as the --footer-bg custom property. Accepts a CSS color (hex, rgb()/hsl(), transparent, currentColor, or a known color-token reference) OR a bounded linear-gradient()/radial-gradient() with 2+ color stops — the shared `gradient` slot type. Empty = the default light surface. This is the primary dark-marketing-footer control."
     },
     "text": {
       "type": "string",

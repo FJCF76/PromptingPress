@@ -20,7 +20,7 @@ so in practice only `location` is ever set.
 | `logo_text` | string | No       | —          | Logo text (falls back to site title). Not reachable from a page |
 | `logo_id`   | int    | No       | —          | Media Library attachment ID for an image logo (takes priority over `logo_text`). Must be an image attachment. Not reachable from a page; use the `pp_logo_id` option |
 | `logo_alt`  | string | No       | —          | Alt text for the image logo. Not reachable from a page |
-| `bg`         | string | No | — | Footer background color. Set via the `pp_footer_bg` site option → `--footer-bg`. CSS color validated by the shared color engine |
+| `bg`         | string | No | — | Footer background. Set via the `pp_footer_bg` site option → `--footer-bg`. A CSS color **or** a bounded `linear-gradient()`/`radial-gradient()` (the shared `gradient` slot type, #333) |
 | `text`       | string | No | — | Footer text color (blurb/contact/copyright). Set via `pp_footer_text` → `--footer-text` |
 | `link_color` | string | No | — | Footer nav-link color. Set via `pp_footer_link_color` → `--footer-link-color` |
 | `blurb`      | string | No | — | Brand/description line under the logo. Set via `pp_footer_blurb` |
@@ -50,7 +50,7 @@ pp_get_component('footer', ['location' => 'footer']);
 | Build the footer menu | The menu actions: `create_menu` / `set_menu` / `add_menu_item` |
 | Attach a menu to the footer | `assign_menu_location` with location `footer` |
 | Show/hide the footer logo | `update_site_option` with key `pp_footer_show_logo` (boolean) |
-| Dark marketing footer (background) | `update_site_option` with key `pp_footer_bg` (CSS color) |
+| Dark marketing footer (background) | `update_site_option` with key `pp_footer_bg` (a CSS color **or** a bounded gradient) |
 | Footer text / link colors | `update_site_option` with keys `pp_footer_text` / `pp_footer_link_color` (CSS colors) |
 | Brand blurb under the logo | `update_site_option` with key `pp_footer_blurb` (text) |
 | Contact block (address/email) | `update_site_option` with key `pp_footer_contact` (text) |

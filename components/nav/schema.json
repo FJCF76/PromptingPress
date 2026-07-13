@@ -1,6 +1,6 @@
 {
   "component": "nav",
-  "description": "Site header with logo, primary navigation menu, and hamburger toggle on mobile. Reads a registered WP nav menu by theme location.",
+  "description": "Site header with logo, primary navigation menu, and hamburger toggle on mobile. Reads a registered WP nav menu by theme location. Template-owned chrome (issue 223): it is rendered once by the theme, never composed. Its colors are set through whitelisted site options (update_site_option), NOT by composing a nav or passing props directly. The style props below document the template contract; base.php maps the pp_header_* site options onto them.",
   "props": {
     "location": {
       "type": "string",
@@ -25,12 +25,30 @@
       "required": false,
       "default": "",
       "description": "Alt text for the logo image. Defaults to the attachment's own alt metadata, then logo_text/site title."
+    },
+    "bg": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Header background (issue 333). Set via the pp_header_bg site option; emitted as the --header-bg custom property. Accepts a CSS color (hex, rgb()/hsl(), transparent, currentColor, or a known color-token reference) OR a bounded linear-gradient()/radial-gradient() with 2+ color stops — the shared `gradient` slot type. Empty = the default page background. This is the primary dark/gradient marketing-header control."
+    },
+    "text": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Header text color (issue 333). Set via the pp_header_text site option; emitted as --header-text. Applies to the logo wordmark and the mobile hamburger toggle. A CSS color (no gradient). Empty = the default text color."
+    },
+    "link_color": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Header nav-link color (issue 333). Set via the pp_header_link_color site option; emitted as --header-link-color. A CSS color (no gradient). Empty = the default text color. Hover and current-page links keep --color-accent, which is a global design token."
     }
   },
   "styling": {
     "root_class": "site-header",
     "variant_classes": [],
-    "tokens": ["--color-bg", "--color-text", "--color-accent"]
+    "tokens": ["--color-bg", "--color-text", "--color-accent", "--header-bg", "--header-text", "--header-link-color"]
   },
   "safe_to_edit": ["nav.php", "../../assets/css/components.css (COMPONENT: nav section)"],
   "do_not_touch": ["schema.json without updating AI_CONTEXT.md"]
