@@ -1,0 +1,170 @@
+<?php
+/**
+ * tests/GridItemStyleTest.php
+ *
+ * Per-item grid card style overrides (issue 306): a single card can carry its
+ * own `style` map (props.items[].style) rendered as inline CSS custom properties
+ * on THAT card's .grid__item element. Because every consuming rule reads
+ * var(--slot, fallback) (grid.php + the .grid__item rules in components.css) and
+ * NO rule sets the custom property via a selector, an inline custom property on
+ * one .grid__item wins over the grid-level value by cascade proximity.
+ *
+ * These are rendered-output pins:
+ *   - the styled card carries its per-item custom properties inline;
+ *   - sibling cards do not;
+ *   - a grid-level slot on the section and a per-item override on one card
+ *     coexist, with the item value on the item element (the override-wins pin
+ *     the acceptance criteria call for);
+ *   - values are escaped and the injection guard drops dangerous values.
+ *
+ * The CSS var(--slot, fallback) consumption itself is pinned by
+ * StyleSlotContractTest (issue 305). Together they prove item-level overrides
+ * both reach the element and are honored by the renderer's CSS.
+ */
+
+use PHPUnit\Framework\TestCase;
+
+class GridItemStyleTest extends TestCase
+{
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $GLOBALS['_pp_test_store'] = [
+            'post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100, 'custom_css' => '',
+        ];
+    }
+
+    private function render(string $component, array $props): string
+    {
+        ob_start();
+        pp_get_component($component, $props);
+        return ob_get_clean();
+    }
+
+    /**
+     * Splits rendered grid HTML into one string per <li class="grid__item"...>,
+     * so a test can assert what landed on a specific card vs its siblings.
+     *
+     * @return string[]  One entry per card, in document order.
+     */
+    private function cards(string $html): array
+    {
+        $parts = preg_split('/(?=<li class="grid__item)/', $html);
+        return array_values(array_filter($parts, static fn ($p) => str_contains($p, 'grid__item"') || str_contains($p, 'grid__item "')));
+    }
+
+    public function testItemStyleRendersInlineOnThatCardOnly(): void
+    {
+        $html = $this->render('grid', [
+            'items' => [
+                ['title' => 'Plain'],
+                ['title' => 'Dark', 'style' => ['--grid-card-bg' => '#0f172a']],
+            ],
+        ]);
+
+        $cards = $this->cards($html);
+        $this->assertCount(2, $cards, 'Expected exactly two rendered cards.');
+
+        // The styled card carries its inline custom property.
+        $this->assertStringContainsString('style="--grid-card-bg: #0f172a;"', $cards[1]);
+
+        // The sibling card has no inline style at all.
+        $this->assertStringNotContainsString('style=', $cards[0], 'Only the styled card should carry inline custom properties.');
+    }
+
+    public function testItemStyleWinsOverGridLevelStyle(): void
+    {
+        // Grid-level --grid-card-bg is set on the <section>; one card overrides it.
+        // Both must be present, each on its own element — the item value on the
+        // .grid__item (nearer in the cascade) is what wins for that card.
+        $html = $this->render('grid', [
+            '__pp_style' => ['--grid-card-bg' => 'var(--color-surface)'],
+            'items'      => [
+                ['title' => 'Default card'],
+                ['title' => 'Panel', 'style' => ['--grid-card-bg' => '#0f172a']],
+            ],
+        ]);
+
+        // Grid-level value lives on the section wrapper.
+        $this->assertMatchesRegularExpression(
+            '/<section[^>]*style="[^"]*--grid-card-bg: var\(--color-surface\);?"/',
+            $html,
+            'Grid-level slot must render on the section element.'
+        );
+
+        // Item-level override lives on the panel card's <li>.
+        $cards = $this->cards($html);
+        $this->assertStringContainsString('style="--grid-card-bg: #0f172a;"', $cards[1]);
+        // The default card does NOT re-declare the slot inline, so it inherits the
+        // grid-level value — proving the override is per-card, not global.
+        $this->assertStringNotContainsString('--grid-card-bg', $cards[0]);
+    }
+
+    public function testDarkPanelCardExpressible(): void
+    {
+        // Page-136 case 1: a dark CTA panel beside light checklist cards.
+        $html = $this->render('grid', [
+            'items' => [
+                ['title' => 'Para equipos', 'bullets' => ['Rápido', 'Honesto']],
+                ['title' => '¿Para quién es?', 'text' => 'Empezá hoy', 'style' => [
+                    '--grid-card-bg'          => '#0f172a',
+                    '--grid-item-title-color' => '#f8fafc',
+                    '--grid-item-text-color'  => '#cbd5e1',
+                ]],
+            ],
+        ]);
+
+        $panel = $this->cards($html)[1];
+        $this->assertStringContainsString('--grid-card-bg: #0f172a', $panel);
+        $this->assertStringContainsString('--grid-item-title-color: #f8fafc', $panel);
+        $this->assertStringContainsString('--grid-item-text-color: #cbd5e1', $panel);
+    }
+
+    public function testGreenTerminalCardExpressible(): void
+    {
+        // Page-136 case 2: a green-on-dark mono terminal card. text_role=mono adds
+        // .text-mono (font only); the green comes from the per-item text color slot.
+        $html = $this->render('grid', [
+            'items' => [
+                ['title' => 'Feature'],
+                ['text' => '$ deploy --now', 'text_role' => 'mono', 'style' => [
+                    '--grid-card-bg'         => '#0b0f0a',
+                    '--grid-item-text-color' => '#22c55e',
+                ]],
+            ],
+        ]);
+
+        $terminal = $this->cards($html)[1];
+        $this->assertStringContainsString('--grid-card-bg: #0b0f0a', $terminal);
+        $this->assertStringContainsString('--grid-item-text-color: #22c55e', $terminal);
+        $this->assertStringContainsString('class="grid__item-text text-mono"', $terminal);
+    }
+
+    public function testUnknownItemSlotIsNotRenderedInline(): void
+    {
+        // Defense in depth: even if an unknown slot bypassed the action-layer
+        // validator (e.g. raw meta write), pp_render_style_vars drops it because
+        // it is not a declared grid slot.
+        $html = $this->render('grid', [
+            'items' => [
+                ['title' => 'Card', 'style' => ['--grid-card-not-a-slot' => '#000000']],
+            ],
+        ]);
+
+        $this->assertStringNotContainsString('--grid-card-not-a-slot', $html);
+        $this->assertStringNotContainsString('style=', $this->cards($html)[0], 'An all-unknown item style map must render no inline style attribute.');
+    }
+
+    public function testInjectionValueIsDroppedAtRender(): void
+    {
+        // The render-time injection guard rejects values with { } ; < >.
+        $html = $this->render('grid', [
+            'items' => [
+                ['title' => 'Card', 'style' => ['--grid-card-bg' => '#000; } body { display:none']],
+            ],
+        ]);
+
+        $this->assertStringNotContainsString('display:none', $html);
+        $this->assertStringNotContainsString('<li class="grid__item" style=', $html, 'A guarded value must not reach the inline style attribute.');
+    }
+}

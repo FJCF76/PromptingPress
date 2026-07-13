@@ -66,7 +66,8 @@
         "image_url": { "type": "string", "required": false },
         "image_alt": { "type": "string", "required": false, "default": "", "description": "Alt text for the card image. Leave empty only if the image is purely decorative." },
         "link_url":  { "type": "string", "required": false },
-        "link_text": { "type": "string", "required": false, "default": "Read more" }
+        "link_text": { "type": "string", "required": false, "default": "Read more" },
+        "style":     { "type": "object", "required": false, "description": "Optional per-card style overrides for THIS card only (issue 306). Accepts the SAME grid style_slots as the grid-level style — no arbitrary CSS — validated by the shared style engine exactly like grid-level slots (unknown slot names and invalid values are rejected). Rendered as inline custom properties on this card's .grid__item, so a per-card slot overrides the grid-level value by cascade proximity. Use the CARD-SCOPED slots here — the ones consumed on the card and its contents: --grid-card-bg, --grid-card-border, --grid-card-border-width, --grid-card-radius, --grid-card-shadow, --grid-card-padding, --grid-card-gap, --grid-item-title-size, --grid-item-title-color, --grid-item-text-color, --grid-bullet-color, --grid-link-color. Container/heading slots (e.g. --grid-bg, --grid-gap, --grid-heading-color, --grid-padding-*) are read on the section/list/header, not the card, so setting them per-card has no visible effect — set those on the grid-level style instead. Use per-card style for one distinct card in a row: a dark CTA panel beside light checklist cards, or a green-on-dark terminal card. Set via the composition (update_component / update_composition / create_page), not style_component (which is component-scoped)." }
       }
     }
   },
