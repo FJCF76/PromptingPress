@@ -194,7 +194,7 @@ All seven heading-bearing components accept `title_accent`: an exact, case-sensi
 
 Every `image_url` field on hero, section, and logos items has a companion `image_id` — a Media Library attachment ID, not a URL. When `image_id` resolves to a real attachment, the image renders responsively via `wp_get_attachment_image()` (real `srcset`/`sizes`, WordPress-generated). When `image_id` is unset or doesn't resolve, the plain `image_url` renders exactly as before — always set `image_url` too, even when you have an `image_id`, as the fallback.
 
-Get an attachment id (and its canonical local URL) via the `import_media` apply — sideloads an external image URL into the media library:
+Get an attachment id (and its canonical local URL) via the `import_media` apply — sideloads an external image URL into the media library. Re-importing a source URL that was already imported reuses the existing attachment (result `action: "reused"`) instead of creating a duplicate, so retries and re-runs are safe:
 
 ```bash
 # Like every mutating apply, needs a run token + site-scoped preflight first.
@@ -202,7 +202,8 @@ Get an attachment id (and its canonical local URL) via the `import_media` apply 
 # writable (#229) instead of assuming a database-only apply:
 # (wp pp operate inspect → wp pp apply preflight --run-id=<uuid> --apply=import_media):
 wp pp apply execute import_media --run-id=<uuid> --params='{"url":"https://example.com/logo.png","alt":"Client logo"}'
-# => {"attachment_id": 123, "url": "https://yoursite.com/wp-content/uploads/2026/07/logo.png"}
+# => {"attachment_id": 123, "url": "https://yoursite.com/wp-content/uploads/2026/07/logo.png", "action": "import"}
+# A second call with the same url returns the same attachment with "action": "reused".
 ```
 
 Then set both fields on the component:

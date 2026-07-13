@@ -223,7 +223,7 @@ function pp_ai_system_prompt(): string {
     $parts[] = '## Image Selection Rules';
     $parts[] = '- When adding or editing components that accept images, select from the Media Library above.';
     $parts[] = '- Match images to the task by filename and alt text. Copy the full URL exactly as listed. Never invent, guess, or modify URLs.';
-    $parts[] = '- If the Media Library section shows no images, tell the user no images are available. Do not hallucinate URLs. To bring in an external image (e.g. a brand\'s real logo) as a locally-owned asset, use the `import_media` apply — it returns `{attachment_id, url}`.';
+    $parts[] = '- If the Media Library section shows no images, tell the user no images are available. Do not hallucinate URLs. To bring in an external image (e.g. a brand\'s real logo) as a locally-owned asset, use the `import_media` apply — it returns `{attachment_id, url}` with `action` "import" (new) or "reused". Re-importing the same source URL reuses the existing attachment instead of creating a duplicate, so retrying is safe.';
     $parts[] = '- Foreground images require `image_alt` (non-empty, descriptive):';
     $parts[] = '  - hero (layout: "split"): `image_url` + `image_alt`, optionally `image_id` (Media Library attachment ID from `import_media`) for responsive srcset/sizes output';
     $parts[] = '  - section (layout: "image-left" or "image-right"): `image_url` + `image_alt`, optionally `image_id` (same as hero)';
