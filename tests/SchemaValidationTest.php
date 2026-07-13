@@ -693,6 +693,241 @@ class SchemaValidationTest extends TestCase
         $this->assertSame('object', $schema['props']['items']['items']['style']['type'] ?? null);
     }
 
+    // ── Card-scoped per-item slot enforcement (issue 323) ───────────────────
+    //
+    // #306 accepted ALL 28 grid style slots in items[].style, but only the slots
+    // consumed on the .grid__item subtree render when set on one card. Container/
+    // heading-scoped slots (--grid-gap, --grid-heading-color, --grid-padding-*, ...)
+    // are read on the section/list/header and silently no-op per card — the
+    // reported-success-without-effect class. A slot opts into per-item use via the
+    // item_eligible flag in the grid schema (single source of truth); the shared
+    // validator enforces it on the per-item path only, with the same
+    // invalid_style_slot code. Grid-level style is unaffected.
+
+    /** @return array{eligible: array<string,string>, ineligible: string[]} */
+    private static function gridSlotScopes(): array
+    {
+        $schema = json_decode(
+            file_get_contents(dirname(__DIR__) . '/components/grid/schema.json'),
+            true
+        );
+        $slots      = $schema['styling']['style_slots'];
+        $eligible   = [];
+        $ineligible = [];
+        foreach ($slots as $name => $def) {
+            if (!empty($def['item_eligible'])) {
+                $eligible[$name] = $def['type'];
+            } else {
+                $ineligible[] = $name;
+            }
+        }
+        return ['eligible' => $eligible, 'ineligible' => $ineligible];
+    }
+
+    /** A value that passes _pp_validate_token_value for the given slot type. */
+    private static function validValueForType(string $type): string
+    {
+        return match ($type) {
+            'length'  => '2rem',
+            'shadow'  => 'none',
+            default   => '#123456', // color + gradient both accept a hex color
+        };
+    }
+
+    public static function gridCardScopedSlotProvider(): array
+    {
+        $cases = [];
+        foreach (self::gridSlotScopes()['eligible'] as $slot => $type) {
+            $cases[$slot] = [$slot, $type];
+        }
+        return $cases;
+    }
+
+    public static function gridContainerScopedSlotProvider(): array
+    {
+        $cases = [];
+        foreach (self::gridSlotScopes()['ineligible'] as $slot) {
+            $cases[$slot] = [$slot];
+        }
+        return $cases;
+    }
+
+    private function gridCompositionWithItemStyleMap(array $itemStyle, array $gridStyle = []): array
+    {
+        $comp = [
+            'component' => 'grid',
+            'props'     => ['items' => [
+                ['title' => 'Plain'],
+                ['title' => 'Styled', 'style' => $itemStyle],
+            ]],
+        ];
+        if ($gridStyle !== []) {
+            $comp['style'] = $gridStyle;
+        }
+        return [$comp];
+    }
+
+    /**
+     * @dataProvider gridCardScopedSlotProvider
+     */
+    public function testGridItemStyleAcceptsEveryCardScopedSlot(string $slot, string $type): void
+    {
+        $result = pp_validate_composition($this->gridCompositionWithItemStyleMap([
+            $slot => self::validValueForType($type),
+        ]));
+        $this->assertTrue(
+            $result,
+            sprintf('Card-scoped slot %s (type %s) must be accepted on a per-item style.', $slot, $type)
+        );
+    }
+
+    /**
+     * @dataProvider gridContainerScopedSlotProvider
+     */
+    public function testGridItemStyleRejectsEveryContainerScopedSlot(string $slot): void
+    {
+        $result = pp_validate_composition($this->gridCompositionWithItemStyleMap([
+            $slot => '#123456',
+        ]));
+        $this->assertInstanceOf(
+            \WP_Error::class,
+            $result,
+            sprintf('Container/heading slot %s must be rejected on a per-item style.', $slot)
+        );
+        $this->assertSame('invalid_style_slot', $result->get_error_code());
+        $this->assertStringContainsString('item 1', $result->get_error_message(), 'The error must name the offending card index.');
+        $this->assertStringContainsString('grid-level', $result->get_error_message(), 'The error must point the operator at grid-level style.');
+        // The suggested "Card-scoped slots" list must NOT advertise the rejected
+        // container slot as available.
+        $this->assertStringNotContainsString($slot . ',', $result->get_error_message());
+    }
+
+    public function testGridItemStyleAcceptsNewlyEnabledFeaturedAndStepSlots(): void
+    {
+        // #293's featured/bar slots and the steps badge color are card-scoped: they
+        // are consumed within the .grid__item subtree (bar/texture ::before pseudos,
+        // .pp-step-number child), so they must be usable per card (issue 323 AC).
+        $result = pp_validate_composition($this->gridCompositionWithItemStyleMap([
+            '--grid-card-bar-color'         => '#123456',
+            '--grid-card-bar-height'        => '4px',
+            '--grid-featured-texture-color' => '#123456',
+            '--grid-featured-shadow'        => 'none',
+            '--grid-step-color'             => '#123456',
+        ]));
+        $this->assertTrue($result, 'The #293 featured/bar slots and --grid-step-color must be accepted per card.');
+    }
+
+    public function testGridLevelStyleStillAcceptsContainerScopedSlot(): void
+    {
+        // REGRESSION pin: the tighter scope applies to the per-item path ONLY. A
+        // container/heading slot on the grid-level `style` (item_index === null)
+        // stays valid — the section IS where those render.
+        $result = pp_validate_composition([[
+            'component' => 'grid',
+            'props'     => ['items' => [['title' => 'A']]],
+            'style'     => ['--grid-gap' => '2rem', '--grid-heading-color' => '#123456', '--grid-bg' => '#0f172a'],
+        ]]);
+        $this->assertTrue($result, 'Grid-level style must still accept container/heading slots.');
+    }
+
+    public function testGridItemStyleEnforcesScopeOnFirstCardIndexZero(): void
+    {
+        // Truthiness regression pin: index 0 (the featured first card) is a falsy
+        // int. The gate must use a strict !== null check, so a container slot on
+        // items[0] is still rejected and named "item 0" — not skipped.
+        $result = pp_validate_composition([[
+            'component' => 'grid',
+            'props'     => ['items' => [
+                ['title' => 'First', 'style' => ['--grid-gap' => '2rem']],
+                ['title' => 'Second'],
+            ]],
+        ]]);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_style_slot', $result->get_error_code());
+        $this->assertStringContainsString('item 0', $result->get_error_message());
+    }
+
+    public function testGridItemStyleStillRejectsUnknownSlotWithEligibleList(): void
+    {
+        // A truly unknown slot at item level still fails as invalid_style_slot, and
+        // the "Available slots" list is the card-scoped set (not all 28).
+        $result = pp_validate_composition($this->gridCompositionWithItemStyleMap([
+            '--grid-not-a-real-slot' => '#123456',
+        ]));
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_style_slot', $result->get_error_code());
+        $this->assertStringContainsString('--grid-card-bg', $result->get_error_message());
+        $this->assertStringNotContainsString('--grid-gap', $result->get_error_message());
+    }
+
+    public function testPerItemValidationFallsBackToFullSetWhenNoSlotFlagged(): void
+    {
+        // Opt-in by presence (issue 323): a component whose style_slots carry NO
+        // item_eligible flag has declared no card-scoped set, so the per-item path
+        // must keep the pre-323 behavior — accept any DECLARED slot rather than
+        // reject everything. This guards the shared validator from over-rejecting a
+        // future component that gains items[].style before being annotated. Calls
+        // the shared engine directly with item_index 0 (the strict-null enforce path).
+        $slots = [
+            '--x-bg'  => ['type' => 'color'],
+            '--x-gap' => ['type' => 'length'],
+        ];
+        $err = _pp_validate_style_slot_map(['--x-gap' => '2rem'], $slots, 'x', 0);
+        $this->assertNull(
+            $err,
+            'With no item_eligible slots declared, per-item validation must accept any declared slot (pre-323 fallback).'
+        );
+        // An unknown slot is still rejected in the fallback, same as before.
+        $err2 = _pp_validate_style_slot_map(['--x-nope' => '#123456'], $slots, 'x', 0);
+        $this->assertInstanceOf(\WP_Error::class, $err2);
+        $this->assertSame('invalid_style_slot', $err2->get_error_code());
+    }
+
+    public function testSchemaItemStyleDescriptionListsEveryCardScopedSlot(): void
+    {
+        // Keep the human-facing prop guidance coupled to the item_eligible flag set:
+        // every card-scoped slot the validator accepts must be named in the
+        // items[].style description so the docs never advertise a stale set (issue 323).
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/grid/schema.json'), true);
+        $desc   = $schema['props']['items']['items']['style']['description'] ?? '';
+        foreach (array_keys(self::gridSlotScopes()['eligible']) as $slot) {
+            $this->assertStringContainsString(
+                $slot,
+                $desc,
+                sprintf('items[].style description must list card-scoped slot %s (keep docs in sync with item_eligible).', $slot)
+            );
+        }
+    }
+
+    public function testGridSchemaFlagsExactlyTheCardScopedSlots(): void
+    {
+        // The eligible set is the single source of truth. Pin it so a future slot
+        // addition is forced to declare its scope deliberately (issue 323).
+        $scopes = self::gridSlotScopes();
+        $this->assertSame(
+            [
+                '--grid-card-bg', '--grid-card-border', '--grid-card-border-width',
+                '--grid-card-radius', '--grid-card-shadow', '--grid-card-bar-color',
+                '--grid-card-bar-height', '--grid-featured-texture-color',
+                '--grid-featured-shadow', '--grid-card-padding', '--grid-card-gap',
+                '--grid-item-title-size', '--grid-item-title-color', '--grid-item-text-color',
+                '--grid-bullet-color', '--grid-link-color', '--grid-step-color',
+            ],
+            array_keys($scopes['eligible']),
+            'The item_eligible card-scoped set drifted from issue 323.'
+        );
+        $this->assertSame(
+            [
+                '--grid-padding-top', '--grid-padding-bottom', '--grid-bg',
+                '--grid-heading-color', '--grid-heading-accent-color', '--grid-eyebrow-color',
+                '--grid-eyebrow-bg', '--grid-subheading-color', '--grid-heading-size',
+                '--grid-heading-max-width', '--grid-gap',
+            ],
+            $scopes['ineligible'],
+            'The container/heading-scoped set drifted from issue 323.'
+        );
+    }
+
     // ── Template-owned chrome rejection (#223) ───────────────────────────
 
     /**
