@@ -117,10 +117,12 @@ one step, apply the `uniform-cards` recipe instead of setting the slots by hand.
 
 To style **one card differently from its siblings** (a dark CTA panel beside light
 checklist cards, or a green-on-dark terminal card), set a per-card `style` object on
-that grid item — `props.items[].style` — with the same grid slots (e.g.
+that grid item — `props.items[].style` — with the **card-scoped** grid slots (e.g.
 `--grid-card-bg`, `--grid-card-border`, `--grid-item-title-color`,
 `--grid-item-text-color`). It is validated by the same shared engine and overrides
-the grid-level value for that card only. Set it through the composition
+the grid-level value for that card only. Container/heading slots (`--grid-bg`,
+`--grid-gap`, `--grid-heading-*`, `--grid-padding-*`) render on the section, not a
+card, so they are rejected here — set those on the grid-level style. Set it through the composition
 (`update_component` / `update_composition` / `create_page`), NOT `style_component` —
 `style_component` targets a whole component instance, not a single item. See
 `ai-instructions/composition.md` → "grid items[].style".

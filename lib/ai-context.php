@@ -86,11 +86,24 @@ function pp_ai_system_prompt(): string {
 
                 // Per-item style overrides (issue 306): a prop declared as an array
                 // whose item sub-schema declares a `style` field (today: grid items)
-                // accepts the SAME style slots per element, set in the composition
-                // (not style_component) and overriding grid-level by cascade proximity.
+                // accepts per-element style slots, set in the composition (not
+                // style_component) and overriding grid-level by cascade proximity.
+                // Only the CARD-SCOPED slots apply per element (issue 323): those
+                // flagged item_eligible in style_slots. Container/heading slots render
+                // nothing on a single card and are rejected. Derive the eligible list
+                // from the same slot metadata so this guidance never drifts.
+                $item_eligible = [];
+                foreach ($slots as $slot_name => $slot_def) {
+                    if (!empty($slot_def['item_eligible'])) {
+                        $item_eligible[] = $slot_name;
+                    }
+                }
                 foreach (($schema['props'] ?? []) as $prop_name => $prop_def) {
                     if (($prop_def['type'] ?? null) === 'array' && isset($prop_def['items']['style'])) {
-                        $parts[] = "  Per-item style: {$prop_name}[].style accepts the same style slots per card (e.g. one dark panel or terminal card in a row); set via the composition (update_component), not style_component.";
+                        $eligible_list = $item_eligible
+                            ? implode(', ', $item_eligible)
+                            : 'the same style slots';
+                        $parts[] = "  Per-item style: {$prop_name}[].style accepts only the card-scoped slots per card (e.g. one dark panel or terminal card in a row): {$eligible_list}. Container/heading slots are rejected — set those on the grid-level style. Set via the composition (update_component), not style_component.";
                     }
                 }
             }
