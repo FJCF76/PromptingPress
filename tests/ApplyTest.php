@@ -1846,6 +1846,15 @@ class ApplyTest extends TestCase
         $GLOBALS['_pp_test_store']['download_url_calls']       = [];
         $GLOBALS['_pp_test_store']['media_sideload_calls']     = [];
         $GLOBALS['_pp_test_store']['safe_remote_head_calls']   = [];
+        // The shared in-memory store is not reset between tests, so isolate the
+        // media/attachment state these tests read and write (source-URL dedupe,
+        // #298, does a get_posts() lookup — a cached attachment leaking in from
+        // a prior test would otherwise short-circuit a fresh-import assertion).
+        $GLOBALS['_pp_test_store']['posts']                  = [];
+        $GLOBALS['_pp_test_store']['post_meta']              = [];
+        $GLOBALS['_pp_test_store']['attachment_urls']        = [];
+        $GLOBALS['_pp_test_store']['attachment_url_missing'] = [];
+        $GLOBALS['_pp_test_store']['next_id']                = 100;
     }
 
     public function testImportMediaValidUrl(): void
@@ -1894,12 +1903,83 @@ class ApplyTest extends TestCase
         $this->assertTrue($result['ok']);
         $this->assertSame('media', $result['domain']);
         $change = $result['changes'][0];
+        $this->assertSame('import', $change['action']);
         $this->assertArrayHasKey('attachment_id', $change);
         $this->assertArrayHasKey('url', $change);
         $this->assertSame('https://example.com/logo.jpg', $change['source_url']);
         // alt text was persisted against the new attachment.
         $meta = $GLOBALS['_pp_test_store']['post_meta'][$change['attachment_id']]['_wp_attachment_image_alt'] ?? null;
         $this->assertSame('Logo', $meta);
+        // The source URL was recorded so a later import can dedupe to it (#298).
+        $sourceMeta = $GLOBALS['_pp_test_store']['post_meta'][$change['attachment_id']]['_pp_import_source_url'] ?? null;
+        $this->assertSame('https://example.com/logo.jpg', $sourceMeta);
+    }
+
+    public function testImportMediaReusesExistingSourceUrl(): void
+    {
+        // #298: a second import of the SAME source URL must reuse the existing
+        // attachment instead of downloading and creating a duplicate.
+        $this->resetImportMediaTestStore();
+        $url = 'https://example.com/dedupe-me.jpg';
+
+        $first = pp_execute_apply('import_media', ['url' => $url, 'alt' => 'Logo']);
+        $this->assertTrue($first['ok']);
+        $this->assertSame('import', $first['changes'][0]['action']);
+        $firstId = $first['changes'][0]['attachment_id'];
+
+        // Clear the call logs so we can prove the second call did NO work.
+        $GLOBALS['_pp_test_store']['download_url_calls']   = [];
+        $GLOBALS['_pp_test_store']['media_sideload_calls'] = [];
+
+        $second = pp_execute_apply('import_media', ['url' => $url]);
+        $this->assertTrue($second['ok']);
+        $change = $second['changes'][0];
+        $this->assertSame('reused', $change['action']);
+        $this->assertSame($firstId, $change['attachment_id']);
+        $this->assertSame($url, $change['source_url']);
+        $this->assertNotEmpty($change['url']);
+        // No second download, no second sideload — genuinely no duplicate.
+        $this->assertEmpty($GLOBALS['_pp_test_store']['download_url_calls']);
+        $this->assertEmpty($GLOBALS['_pp_test_store']['media_sideload_calls']);
+    }
+
+    public function testImportMediaDoesNotDedupeDifferentSourceUrl(): void
+    {
+        // A different source URL is a genuinely new asset — must import fresh,
+        // not reuse a prior import.
+        $this->resetImportMediaTestStore();
+        $first = pp_execute_apply('import_media', ['url' => 'https://example.com/one.jpg']);
+        $firstId = $first['changes'][0]['attachment_id'];
+
+        $GLOBALS['_pp_test_store']['media_sideload_calls'] = [];
+        $second = pp_execute_apply('import_media', ['url' => 'https://example.com/two.jpg']);
+        $this->assertSame('import', $second['changes'][0]['action']);
+        $this->assertNotSame($firstId, $second['changes'][0]['attachment_id']);
+        $this->assertNotEmpty($GLOBALS['_pp_test_store']['media_sideload_calls']);
+    }
+
+    public function testImportMediaReimportsWhenCachedFileIsMissing(): void
+    {
+        // #298 fall-through: if the previously-imported attachment's file is
+        // gone (wp_get_attachment_url() returns false), reuse would hand back a
+        // broken URL — so re-import a fresh copy instead.
+        $this->resetImportMediaTestStore();
+        $url = 'https://example.com/broken.jpg';
+
+        $first = pp_execute_apply('import_media', ['url' => $url]);
+        $firstId = $first['changes'][0]['attachment_id'];
+        // Simulate the cached file having been deleted from disk.
+        $GLOBALS['_pp_test_store']['attachment_url_missing'][$firstId] = true;
+
+        $GLOBALS['_pp_test_store']['download_url_calls']   = [];
+        $GLOBALS['_pp_test_store']['media_sideload_calls'] = [];
+        $second = pp_execute_apply('import_media', ['url' => $url]);
+        $this->assertTrue($second['ok']);
+        $this->assertSame('import', $second['changes'][0]['action']);
+        $this->assertNotSame($firstId, $second['changes'][0]['attachment_id']);
+        // It actually re-downloaded and re-sideloaded rather than reusing.
+        $this->assertNotEmpty($GLOBALS['_pp_test_store']['download_url_calls']);
+        $this->assertNotEmpty($GLOBALS['_pp_test_store']['media_sideload_calls']);
     }
 
     public function testImportMediaExecuteRejectsSsrfUnsafeDestination(): void

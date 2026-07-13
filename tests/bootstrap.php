@@ -984,7 +984,13 @@ if (!function_exists('get_attached_file')) {
 }
 
 if (!function_exists('wp_get_attachment_url')) {
-    function wp_get_attachment_url(int $attachment_id): string {
+    function wp_get_attachment_url(int $attachment_id) {
+        // Tests can simulate a missing/deleted file (WordPress returns false)
+        // by listing the id in ['attachment_url_missing'] — exercises the
+        // import_media dedupe fall-through when a cached asset is unusable.
+        if (!empty($GLOBALS['_pp_test_store']['attachment_url_missing'][$attachment_id])) {
+            return false;
+        }
         return 'https://example.com/wp-content/uploads/image-' . $attachment_id . '.jpg';
     }
 }
@@ -1040,6 +1046,13 @@ if (!function_exists('media_handle_sideload')) {
         $id = $GLOBALS['_pp_test_store']['next_id']++;
         $GLOBALS['_pp_test_store']['attachment_urls'][$id] =
             'https://example.com/wp-content/uploads/' . basename($file_array['name']);
+        // Register the sideloaded attachment as a real post so get_posts()-based
+        // lookups (e.g. import_media source-URL dedupe, #298) can find it.
+        $GLOBALS['_pp_test_store']['posts'][$id] = [
+            'post_type'   => 'attachment',
+            'post_status' => 'inherit',
+            'post_title'  => basename($file_array['name']),
+        ];
         return $id;
     }
 }
