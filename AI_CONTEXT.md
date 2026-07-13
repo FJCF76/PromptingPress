@@ -111,7 +111,7 @@ site-customization permission.
 | Component | File                           | Description                                      | Key props                                          |
 |-----------|--------------------------------|--------------------------------------------------|----------------------------------------------------|
 | hero      | components/hero/hero.php       | Full-width headline + optional CTA and image     | title (req), title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, layout, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof, id |
-| section   | components/section/section.php | Text + optional image. 4 structural layouts      | body (req), title, title_accent, eyebrow, subheading, heading_align, image_url, image_id, image_alt, layout, theme, background_image, id |
+| section   | components/section/section.php | Text + optional image or content panel. 5 structural layouts | body (req), title, title_accent, eyebrow, subheading, heading_align, image_url, image_id, image_alt, layout, theme, background_image, panel_heading, panel_body, panel_items, panel_cta_text, panel_cta_url, panel_cta_variant, id |
 | faq       | components/faq/faq.php         | Native details/summary accordion. Zero JS. Auto-emits FAQPage JSON-LD. | items[] (req) {question, answer}, title, title_accent, eyebrow, theme, id |
 | grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {number, title, text, text_role, bullets[], image_url, image_alt, link_url, link_text, style (per-card style overrides — card-scoped grid slots, set in composition not style_component)}, title, title_accent, eyebrow, subheading, heading_align, layout, theme, id |
 | table     | components/table/table.php     | Data/comparison table, horizontal scroll mobile  | headers[] (req), rows[][] (req), title, caption    |
@@ -136,7 +136,7 @@ renders the header or footer twice, and the write is rejected with the error cod
 
 **Two consistent axes — `layout` (structure) and `theme` (color/tone).** There is no `variant` prop anywhere; the name is retired. Structure is always `layout`, color/tone is always `theme`, and they never overload one key:
 
-- **`layout`** (structural, changes DOM/rendering) is used by the components that have more than one structure: `hero` (`left`, `centered`, `split`, `cover`), `section` (`text-only`, `image-left`, `image-right`, `centered`), `grid` (`cards`, `steps`), `cta` (`full-width`, `inline`), `testimonials` (`grid`, `stack`).
+- **`layout`** (structural, changes DOM/rendering) is used by the components that have more than one structure: `hero` (`left`, `centered`, `split`, `cover`), `section` (`text-only`, `image-left`, `image-right`, `centered`, `text-panel`), `grid` (`cards`, `steps`), `cta` (`full-width`, `inline`), `testimonials` (`grid`, `stack`).
 - **`theme`** (color/tone preset, `default` | `dark` | `inverted`) is used by the section-level components that carry a background tone: `section`, `stats`, `logos`, `embed`, `grid`, `cta`, `testimonials`, `faq`.
 - `hero` has no `theme` prop — its color comes entirely from style slots (`--hero-bg`, etc.).
 - Components with a single structure (`stats`, `logos`, `embed`) expose only `theme`, not `layout`.
@@ -376,7 +376,7 @@ Token overrides survive theme updates — `base.css` is overwritten on update, b
 
 Style slots allow per-instance visual customization of components without CSS edits. Each component declares allowed CSS custom properties in its `schema.json` under `styling.style_slots`. Only declared slots are accepted — arbitrary CSS is rejected.
 
-**153 style slots** across 7 components: hero (37), grid (28), cta (26), section (21), testimonials (19), faq (13), stats (9).
+**159 style slots** across 7 components: hero (37), grid (28), section (27), cta (26), testimonials (19), faq (13), stats (9).
 
 **How it works:**
 1. Composition entries gain an optional `style` key alongside `props`

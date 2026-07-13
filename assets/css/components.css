@@ -796,6 +796,62 @@
   border-radius: var(--section-image-radius, var(--radius));
 }
 
+/* text-panel layout: text column + styleable content panel (issue 104).
+   Reuses .section__grid (two columns at >=768px, stacked text-then-panel on
+   mobile) but top-aligns the columns instead of centering like the image
+   variants. The panel box and text route through --section-panel-* slots. The
+   panel deliberately uses its own classes (not .section__content/.section__title)
+   so the desktop premium-typography cascade cannot clobber the panel text on a
+   dark panel — --section-panel-text stays the authority. */
+@media (min-width: 768px) {
+  .section--text-panel .section__grid {
+    align-items: start;
+  }
+}
+
+.section__panel {
+  padding: var(--section-panel-padding, var(--space-lg));
+  background: var(--section-panel-bg, var(--color-surface));
+  color: var(--section-panel-text, var(--color-text));
+  border: var(--section-panel-border-width, 0) solid var(--section-panel-border-color, transparent);
+  border-radius: var(--section-panel-radius, var(--radius));
+}
+
+.section__panel-heading {
+  color: var(--section-panel-text, var(--color-text));
+  margin-bottom: var(--space-md);
+}
+
+.section__panel-body {
+  margin-top: 0;
+  margin-bottom: var(--space-md);
+}
+
+/* Restore list markers + indent stripped by the base reset (base.css
+   ul,ol{list-style:none} + *{padding:0}), same approach as .section__content
+   (issue 295). No style slot governs list-style/padding here. issue 104 */
+.section__panel-list {
+  list-style: disc;
+  padding-left: var(--space-lg);
+  margin: 0 0 var(--space-md);
+}
+
+.section__panel-list li {
+  margin-bottom: var(--space-xs);
+}
+
+.section__panel-list li:last-child {
+  margin-bottom: 0;
+}
+
+/* Panel CTA spacing. Color/variant come from the shared .btn primitive and the
+   panel_cta_variant prop (primary/secondary/outline/ghost); the panel does not
+   introduce its own button-color slots, so the premium main .btn cascade stays
+   the single source of primary-button color. issue 104 */
+.section__panel-cta {
+  margin-top: var(--space-sm);
+}
+
 /* Section background variants */
 .pp-section--dark {
   background-color: var(--color-surface);

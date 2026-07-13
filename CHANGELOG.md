@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.110] — 2026-07-13 — a `section` can now put text beside a styleable content panel with its own heading, list, and CTA, so the asymmetric "text + supporting card" marketing layout is native (#104)
+
+**`section` could only do two columns as text + image (`layout: image-left`/`image-right`). The high-conversion pattern where a text column sits beside a contained panel — a card with its own sub-heading, checklist, and call-to-action button — had no native form, so multi-element sections collapsed into one stacked centered block, a visible drop in polish. This release adds `layout: "text-panel"`: the left column is the normal section (eyebrow/title/body), the right column is a server-validated content panel built entirely from props — no nested components, so the "components never nest components" rule holds.**
+
+The panel is described with flat props (`panel_heading`, `panel_body`, `panel_items[]`, `panel_cta_text`/`panel_cta_url`, `panel_cta_variant`), validated by the same shared engine as every other component (unknown keys rejected by the prop-key gate, the CTA URL escaped through `esc_url`, list items escaped and non-string entries dropped). The panel renders only when it has real content (a heading, a body, list items, or a complete CTA); otherwise the section degrades to `text-only` so authored content is never silently lost. Six new `--section-panel-*` style slots (background, border color, border width, radius, padding, text color) make the panel styleable per instance — set a dark background and light text for the dark-panel-beside-light-text pattern. The columns sit side by side at 768px and up and stack text-then-panel on mobile. The panel uses its own CSS classes so the desktop premium-typography cascade cannot override its text on a dark panel. The panel CTA reuses the shared button primitive and its `panel_cta_variant` (primary/secondary/outline/ghost); it deliberately does not add its own button-color slots, so the site's primary-button color stays the single source of truth.
+
+### Added
+
+- `section` gains `layout: "text-panel"` — a two-column layout with a styleable content panel on the right, built from props (`panel_heading`, `panel_body`, `panel_items[]`, `panel_cta_text`, `panel_cta_url`, `panel_cta_variant`) with no nested components. Six `--section-panel-*` style slots (bg, border-color, border-width, radius, padding, text) style the panel per instance; the panel falls back to `text-only` when it has no content, stacks text-then-panel on mobile, and keeps its text controllable on a dark panel (#104).
+
+### Docs
+
+- `AI_CONTEXT.md` (section now lists five structural layouts and the panel props; the style-slot total tracks the six new slots), `README.md`, and `ai-instructions/composition.md` (new `text-panel` section with the panel-props table and a worked example) document the layout, its props, and the panel style slots (#104).
+
+### Tests
+
+- `SectionTextPanelTest` pins the render of both columns, the panel list (with non-string/empty entries skipped), the CTA rendering only when both label and URL are set, variant class selection and invalid-variant fallback, URL escaping, heading/body/item escaping, the fallback to `text-only` for heading-only / items-only / CTA-only / body-only / empty panels, non-array `panel_items` coercion, the six panel style slots validating through the shared engine, an unknown panel prop still being rejected, and the CSS contract (every panel slot consumed with a fallback, list markers restored, columns top-aligned at desktop); `SchemaValidationTest` and the CSS-lint slot counts track the new slots (#104).
+
 ## [v0.16.109] — 2026-07-13 — per-card grid `style` now rejects the section-scoped slots that silently did nothing on a card, so an override either renders or fails loudly (#323)
 
 **Per-card style (`props.items[].style`, shipped in v0.16.108) accepted every grid style slot, but only the slots consumed on the card itself actually render there. Setting a container or heading slot on one card — `--grid-gap`, `--grid-bg`, `--grid-heading-color`, `--grid-padding-*` — validated, persisted, reported success, and changed nothing, because those slots are read on the section, list, and header, not the card. That is the reported-success-without-effect trap the product works to eliminate. This release restricts `items[].style` to the card-scoped slots and rejects the rest with the existing `invalid_style_slot` error, which now names the card and points you at the grid-level `style` where those slots belong.**

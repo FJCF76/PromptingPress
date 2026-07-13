@@ -86,8 +86,42 @@ Example — alternating section rhythm:
 | `centered`    | Short-form text (taglines, intros) with center-aligned text. |
 | `image-left`  | Narrative + supporting image, image on the left.             |
 | `image-right` | Narrative + supporting image, image on the right.            |
+| `text-panel`  | Text column beside a styleable content panel (heading + list + CTA) on the right. |
 
 `text-only` fills the container width — titles and headings match adjacent components (grid, table, CTA). Prose text is constrained for readable line length. `centered` constrains the body block to a narrower column with center-aligned text — use for short intros and taglines, not for multi-paragraph marketing content.
+
+#### section.layout: "text-panel"
+
+An asymmetric two-column layout: the left column is the normal section (eyebrow/title/subheading + `body`), the right column is a self-contained, styleable **content panel** built from props (no nested components). Use it for "text + supporting card/CTA" marketing sections, e.g. a checklist beside a dark panel with its own heading, bullet list, and call-to-action button. Columns sit side by side at ≥768px and stack text-then-panel on mobile.
+
+Panel props (all optional; ignored by other layouts):
+
+| Prop | Renders |
+|------|---------|
+| `panel_heading` | Panel heading (`<h3>`). |
+| `panel_body` | Optional plain-text intro paragraph above the list (text only, no HTML). |
+| `panel_items` | Array of plain-text strings rendered as a bulleted list. |
+| `panel_cta_text` + `panel_cta_url` | The panel's CTA button. Both are required for the button to render. |
+| `panel_cta_variant` | Button style: `primary` (default) / `secondary` / `outline` / `ghost`. |
+
+The panel falls back to a plain `text-only` section when it has no content (no heading, no body, no list items, and no complete CTA). Style the panel per-instance with the `--section-panel-*` slots (`-bg`, `-border-color`, `-border-width`, `-radius`, `-padding`, `-text`) via `style_component` — set `--section-panel-bg` to a dark color and `--section-panel-text` to a light color for a dark panel. The panel CTA color follows the standard button (site accent); pick `panel_cta_variant` to change its style.
+
+```json
+{
+  "component": "section",
+  "props": {
+    "eyebrow": "Honest tool",
+    "title": "No fine print",
+    "body": "<ul><li>Transparent pricing</li><li>Cancel anytime</li></ul>",
+    "layout": "text-panel",
+    "panel_heading": "Who is it for?",
+    "panel_items": ["Freelancers", "Small agencies", "In-house teams"],
+    "panel_cta_text": "Get started",
+    "panel_cta_url": "/signup"
+  },
+  "style": { "--section-panel-bg": "#0f172a", "--section-panel-text": "#f8fafc" }
+}
+```
 
 ### grid.layout: "steps"
 
