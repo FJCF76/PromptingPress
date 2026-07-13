@@ -320,6 +320,30 @@ class HeaderChromeTest extends TestCase
         ]));
     }
 
+    public function testChromeStyleAttrFailsClosedOnAKnownNonStyleOptionKey(): void
+    {
+        // Sharper than the unknown-key case: a KNOWN option whose type is not a CSS
+        // color (blogname => 'string', pp_footer_show_logo => 'bool') must ALSO be
+        // dropped. _pp_validate_token_value() has no 'string'/'bool' case and falls
+        // through permissively, so validating a value under those types would leave only
+        // the layer-1 injection filter. Only 'color'/'gradient' may reach the boundary.
+        $this->assertSame('', pp_chrome_style_attr([
+            '--x' => ['value' => 'Acme Corp', 'option' => 'blogname'],        // type 'string'
+        ]));
+        $this->assertSame('', pp_chrome_style_attr([
+            '--x' => ['value' => '1', 'option' => 'pp_footer_show_logo'],       // type 'bool'
+        ]));
+    }
+
+    public function testChromeStyleAttrRejectsAMalformedCustomPropertyName(): void
+    {
+        // The property name is developer-supplied, but the shared primitive must stay
+        // structurally safe: only `--name` shapes are emitted.
+        $this->assertSame('', pp_chrome_style_attr([
+            'color: red; x' => ['value' => '#1a1a2e', 'option' => 'pp_header_bg'],
+        ]));
+    }
+
     // ── Render: unset (byte-identical to the pre-333 header) ────────────────
 
     public function testUnsetHeaderHasNoStyleAttribute(): void

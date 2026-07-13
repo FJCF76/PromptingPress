@@ -1925,3 +1925,140 @@ test.describe('Safe-surface rendered proof', () => {
     expect(sized).toBe('73px');
   });
 });
+
+/**
+ * #333 — header/footer chrome, rendered proof.
+ *
+ * The header and footer are template-owned chrome, so their styling surface is the
+ * pp_header_* / pp_footer_* SITE OPTIONS rather than composition style slots. That puts
+ * them outside the issue-305 schema guard entirely, and StyleSlotContractTest only scans
+ * for slot names it can discover from a schema — so nothing static can prove these
+ * options reach the browser.
+ *
+ * They need a rendered pin more than any slot does, because of the specific bug this
+ * issue found: `--header-bg` and `--footer-bg` accept a GRADIENT, and a gradient is a
+ * CSS <image>. Routed through `background-color` it is invalid, so the browser silently
+ * drops the declaration and the chrome paints nothing — the option validates on write,
+ * round-trips through restore, passes every unit test that asserts the custom property
+ * is present in the HTML, and still never appears on screen. Only getComputedStyle can
+ * tell "the gradient painted" from "the declaration was dropped".
+ *
+ * Gradient serialization (color format, angle, whitespace, stop syntax) is
+ * browser-normalized, so these assert LOOSELY: the layer is a gradient and is not `none`.
+ */
+function setSiteOption(key: string, value: string): void {
+  const safe = value.replace(/'/g, "'\\''");
+  execSync(`npx wp-env run cli wp option update ${key} '${safe}'`, {
+    cwd: process.cwd(),
+    encoding: 'utf-8',
+  });
+}
+
+function deleteSiteOption(key: string): void {
+  try {
+    execSync(`npx wp-env run cli wp option delete ${key}`, { cwd: process.cwd() });
+  } catch {
+    /* not set — nothing to clean */
+  }
+}
+
+test.describe('#333 chrome site options render', () => {
+  let pageId: number;
+  const CHROME_OPTIONS = ['pp_header_bg', 'pp_header_text', 'pp_header_link_color', 'pp_footer_bg'];
+
+  test.afterEach(async () => {
+    // No residue: these are SITE options, so a leak would style every later test's page.
+    for (const key of CHROME_OPTIONS) {
+      deleteSiteOption(key);
+    }
+    if (pageId) {
+      try {
+        deletePage(pageId);
+      } catch {
+        /* already cleaned */
+      }
+      pageId = 0;
+    }
+  });
+
+  test('#333 pp_header_bg paints a real gradient on the header @smoke', async ({ page }) => {
+    pageId = createPage('E2E Header Gradient');
+    setComposition(pageId, [{ component: 'hero', props: { id: 'pp-hero01', title: 'Hero' } }]);
+
+    setSiteOption('pp_header_bg', 'linear-gradient(135deg, #1a1a2e, #16121f)');
+    setSiteOption('pp_header_text', '#e8e8f0');
+    setSiteOption('pp_header_link_color', '#c8c8e0');
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const header = page.locator('.site-header');
+    await expect(header).toBeVisible({ timeout: 10000 });
+
+    // THE assertion. Under `background-color` this comes back 'none' — the declaration
+    // is invalid CSS and the browser drops it, so the gradient never paints.
+    const bgImage = await header.evaluate((el) => getComputedStyle(el).backgroundImage);
+    expect(bgImage).not.toBe('none');
+    expect(bgImage).toContain('gradient');
+
+    // The logo wordmark follows --header-text; the nav links follow --header-link-color.
+    const logoColor = await page.locator('.nav__logo').evaluate((el) => getComputedStyle(el).color);
+    expect(logoColor).toBe('rgb(232, 232, 240)');
+  });
+
+  test('#333 pp_footer_bg paints a real gradient on the footer', async ({ page }) => {
+    pageId = createPage('E2E Footer Gradient');
+    setComposition(pageId, [{ component: 'hero', props: { id: 'pp-hero01', title: 'Hero' } }]);
+
+    // Widened from color-only to the color-OR-gradient union in #333.
+    setSiteOption('pp_footer_bg', 'linear-gradient(135deg, #1a1a2e, #16121f)');
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const footer = page.locator('.site-footer');
+    await expect(footer).toBeAttached({ timeout: 10000 });
+
+    const bgImage = await footer.evaluate((el) => getComputedStyle(el).backgroundImage);
+    expect(bgImage).not.toBe('none');
+    expect(bgImage).toContain('gradient');
+  });
+
+  test('#333 a plain color still works on the gradient-typed background option', async ({
+    page,
+  }) => {
+    // `gradient` is a color-OR-gradient UNION, so widening the type must not break the
+    // plain-color case that #300 shipped.
+    pageId = createPage('E2E Header Solid Color');
+    setComposition(pageId, [{ component: 'hero', props: { id: 'pp-hero01', title: 'Hero' } }]);
+
+    setSiteOption('pp_header_bg', '#1a1a2e');
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const header = page.locator('.site-header');
+    await expect(header).toBeVisible({ timeout: 10000 });
+
+    const bgColor = await header.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(bgColor).toBe('rgb(26, 26, 46)');
+  });
+
+  test('#333 an unstyled header is unchanged (no gradient, no inline style)', async ({ page }) => {
+    // Defaults stay neutral: this issue adds a capability, never a color opinion.
+    pageId = createPage('E2E Header Default');
+    setComposition(pageId, [{ component: 'hero', props: { id: 'pp-hero01', title: 'Hero' } }]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const header = page.locator('.site-header');
+    await expect(header).toBeVisible({ timeout: 10000 });
+
+    const bgImage = await header.evaluate((el) => getComputedStyle(el).backgroundImage);
+    expect(bgImage).toBe('none');
+
+    const inlineStyle = await header.evaluate((el) => el.getAttribute('style'));
+    expect(inlineStyle).toBeNull();
+  });
+});

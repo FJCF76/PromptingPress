@@ -67,12 +67,84 @@ class FooterChromeTest extends TestCase
     public function testAllowedSiteOptionsIncludesFooterChromeKeys(): void
     {
         $allowed = pp_allowed_site_options();
-        $this->assertSame('color',  $allowed['pp_footer_bg']);
+        // pp_footer_bg is 'gradient' (the color-OR-gradient union), not 'color' — issue
+        // 333. Issue 300 typed it 'color' believing that engine already took gradients;
+        // it does not, so a gradient footer was silently inexpressible.
+        $this->assertSame('gradient', $allowed['pp_footer_bg']);
         $this->assertSame('color',  $allowed['pp_footer_text']);
         $this->assertSame('color',  $allowed['pp_footer_link_color']);
         $this->assertSame('string', $allowed['pp_footer_blurb']);
         $this->assertSame('string', $allowed['pp_footer_contact']);
         $this->assertSame('string', $allowed['pp_footer_copyright']);
+    }
+
+    // ── Gradient background (issue 333) ─────────────────────────────────────
+
+    public function testFooterBgAcceptsGradients(): void
+    {
+        foreach ([
+            'linear-gradient(135deg, #1a1a2e, #16121f)',
+            'radial-gradient(circle at top left, #2a2a4e, #16121f)',
+        ] as $val) {
+            $this->assertTrue(
+                pp_validate_site_option_value('pp_footer_bg', $val),
+                "pp_footer_bg should accept the gradient '{$val}'."
+            );
+        }
+    }
+
+    public function testFooterBgGradientIsNotAcceptedOnTextOrLinkOptions(): void
+    {
+        // The union widening is scoped to the BACKGROUND option only; text/link stay
+        // plain colors (a gradient is meaningless on `color:`).
+        foreach (['pp_footer_text', 'pp_footer_link_color'] as $key) {
+            $this->assertInstanceOf(
+                \WP_Error::class,
+                pp_validate_site_option_value($key, 'linear-gradient(135deg, #1a1a2e, #16121f)'),
+                "{$key} must reject a gradient."
+            );
+        }
+    }
+
+    public function testFooterBgGradientDelegatesToTheSharedEngine(): void
+    {
+        // No second validator (repo invariant): whatever the shared 'gradient' engine
+        // accepts, the option accepts, and vice versa.
+        foreach ([
+            'linear-gradient(135deg, #1a1a2e, #16121f)',
+            'conic-gradient(#111, #222)',                       // excluded gradient fn
+            'linear-gradient(90deg, var(--color-accent), #111)', // var() inside a gradient
+            '#1a1a2e',
+            'garbage',
+        ] as $val) {
+            $engine = _pp_validate_token_value($val, 'gradient') === true;
+            $option = pp_validate_site_option_value('pp_footer_bg', $val) === true;
+            $this->assertSame($engine, $option, "Divergence from the shared gradient engine on '{$val}'.");
+        }
+    }
+
+    public function testStoredGradientSurvivesTheRenderBoundary(): void
+    {
+        // Regression guard for the bug this issue found in footer.php: the render
+        // boundary used to hardcode type 'color', which DROPPED every stored gradient
+        // — it passed write-time validation and then silently never painted.
+        $grad = 'linear-gradient(135deg, #1a1a2e, #16121f)';
+        $this->assertTrue(pp_update_site_option('pp_footer_bg', $grad));
+        $html = $this->renderFooter(['location' => 'footer', 'bg' => $grad]);
+        $this->assertStringContainsString('--footer-bg: ' . $grad, $html);
+    }
+
+    public function testRenderBoundaryDropsAGradientOnAColorTypedFooterSlot(): void
+    {
+        // The footer emitter carried the original hardcoded-'color' bug, so its own
+        // per-option type resolution deserves a drop-case guard: a gradient is valid
+        // for --footer-bg but NOT for the color-typed --footer-text, so it must be
+        // dropped there even though the gradient engine would accept the string.
+        $html = $this->renderFooter([
+            'location' => 'footer',
+            'text'     => 'linear-gradient(135deg, #1a1a2e, #16121f)',
+        ]);
+        $this->assertStringNotContainsString('--footer-text', $html);
     }
 
     // ── Color type delegates to the shared engine ───────────────────────────
@@ -221,9 +293,19 @@ class FooterChromeTest extends TestCase
     {
         $block = $this->cssRuleBlock('.site-footer');
         $this->assertNotNull($block);
+        // MUST be the `background` shorthand, never `background-color` (issue 333):
+        // --footer-bg is gradient-typed, and a gradient is a CSS <image>. Assigning one
+        // to background-color is invalid, so the browser drops the declaration and the
+        // footer paints nothing. This assertion is the static half of that guard; the
+        // computed-style E2E pin is the rendered half.
         $this->assertMatchesRegularExpression(
-            '/background-color:\s*var\(--footer-bg,\s*var\(--color-surface\)\)/',
+            '/(?<!-)background:\s*var\(--footer-bg,\s*var\(--color-surface\)\)/',
             $block
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/background-color:\s*var\(--footer-bg/',
+            $block,
+            'background-color cannot paint a gradient — use the background shorthand.'
         );
         $this->assertMatchesRegularExpression('/color:\s*var\(--footer-text,\s*inherit\)/', $block);
     }

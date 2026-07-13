@@ -63,7 +63,13 @@ class NavReadinessTest extends TestCase
         $template = file_get_contents(__DIR__ . '/../templates/base.php');
         $this->assertNotFalse($template, 'templates/base.php must be readable.');
 
-        return preg_replace('~//.*$|/\*.*?\*/~ms', '', $template);
+        // A `//` line comment ends at its NEWLINE: match [^\n]*, not `.*$` under /s.
+        // With the /s flag, `.` also matches newlines, so `//.*$` was greedily eating
+        // from the FIRST line comment to the end of the file — which silently deleted
+        // every pp_get_component() call below it. The guard only passed because the
+        // first `//` happened to sit after the last call it needed to see; adding a
+        // comment higher up in base.php made this guard start reporting phantom drift.
+        return preg_replace('~//[^\n]*|/\*.*?\*/~s', '', $template);
     }
 
     /**
