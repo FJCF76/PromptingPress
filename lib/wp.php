@@ -671,11 +671,59 @@ function pp_get_style_recipes(string $component_name): array {
 }
 
 /**
+ * Render-time validation gate for a stored style value (issue #330).
+ *
+ * The write-time engines strictly validate style values, but two paths can put
+ * a value into storage that never passed (current) validation: snapshot restore
+ * — which is intentionally never blocked by current rules (#233) — and
+ * out-of-band DB writes (direct SQL, import tooling, another plugin). This gate
+ * is the defense-in-depth check at the render boundary, immediately before a
+ * value is emitted into an inline `style=""` attribute. It changes nothing about
+ * write-time or restore semantics: a rejected value is simply dropped from the
+ * rendered output; the page still renders and the restore still succeeds.
+ *
+ * Two layers, no second grammar:
+ *   1. A conservative reject set applied to every value regardless of type —
+ *      the existing `{ } ; < >` injection guard, plus `url(` / `expression(` /
+ *      `@import` (CSS network-request, dynamic-eval, and import primitives),
+ *      backslash escapes, and control characters. This is the sole line of
+ *      defense for a (hypothetical) slot with no declared type.
+ *   2. Where the slot type is known, delegation to the SAME shared engine used
+ *      at write time (`_pp_validate_token_value`). Only its documented success
+ *      shape (`=== true`) passes; any WP_Error drops the declaration.
+ *
+ * @param string      $value  The stored style value, cast to string.
+ * @param string|null $type   The slot's declared type (color/length/gradient/…),
+ *                            or null when no type context is available.
+ * @return bool  True if the value is safe to emit; false to drop the declaration.
+ */
+function pp_render_style_value_allowed(string $value, ?string $type): bool {
+    // Layer 1 — conservative reject set (defense-in-depth), every value.
+    // Char class: { } ; < >, a literal backslash, and control chars 0x00-0x1F/0x7F.
+    if (preg_match('/[{};<>\\\\\x00-\x1f\x7f]/', $value)) {
+        return false;
+    }
+    // Function/at-rule primitives: url(...), expression(...), @import.
+    if (preg_match('/url\s*\(|expression\s*\(|@import/i', $value)) {
+        return false;
+    }
+
+    // Layer 2 — delegate to the shared write-time engine when type is known.
+    if ($type !== null && _pp_validate_token_value($value, $type) !== true) {
+        return false;
+    }
+
+    return true;
+}
+
+/**
  * Renders style slot overrides as a CSS custom property string.
  *
  * Validates each property against the component's declared style slots.
  * Unknown properties and the __recipe tracking key are silently skipped.
- * Values containing injection characters ({, }, ;, <, >) are skipped.
+ * Each value is re-validated at the render boundary via
+ * pp_render_style_value_allowed() (issue #330); a rejected value is dropped
+ * from the output while its sibling declarations still render.
  *
  * @param array  $style           Style overrides, e.g. ['--hero-bg' => '#1a1a2e'].
  * @param string $component_name  Component name, e.g. 'hero'.
@@ -699,8 +747,12 @@ function pp_render_style_vars(array $style, string $component_name): string {
             continue;
         }
         $value = (string) $value;
-        // Injection guard: reject { } ; < > (same guard as _pp_validate_token_value).
-        if (preg_match('/[{};<>]/', $value)) {
+        // Render boundary (#330): re-validate the stored value against the slot's
+        // declared type through the shared engine (plus the conservative reject
+        // set). Drop only this declaration on rejection — the page and any
+        // in-progress restore are never blocked (#233).
+        $type = $slots[$name]['type'] ?? null;
+        if (!pp_render_style_value_allowed($value, $type)) {
             continue;
         }
         $properties[] = esc_attr($name) . ': ' . esc_attr($value);

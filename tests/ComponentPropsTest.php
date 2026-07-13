@@ -204,8 +204,9 @@ class ComponentPropsTest extends TestCase
 
     public function testRenderStyleVarsGradientSurvivesUnmangledForHero(): void
     {
-        // pp_render_style_vars() only applies the {};<> injection guard — it
-        // does not re-validate type, so a gradient value round-trips exactly
+        // A validated gradient round-trips unmangled through the render
+        // boundary: pp_render_style_vars() re-validates via the shared engine
+        // (issue #330), and a valid gradient passes, reaching CSS output exactly
         // like a flat color already does (testRenderStyleVarsBasic above).
         $result = pp_render_style_vars(
             ['--hero-bg' => 'linear-gradient(135deg, #1a1a2e, #16121f)'],

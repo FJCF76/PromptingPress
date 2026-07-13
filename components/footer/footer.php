@@ -32,9 +32,17 @@ $style_vars = [
 ];
 $style_decls = [];
 foreach ($style_vars as $var => $val) {
-    if ($val !== '') {
-        $style_decls[] = $var . ': ' . $val;
+    if ($val === '') {
+        continue;
     }
+    // Render boundary (#330): re-validate the stored color value before emitting
+    // it inline. These are color-typed site options, so delegate to the shared
+    // engine; a value that never passed write-time validation (out-of-band write)
+    // is dropped from output without blocking the rest of the footer.
+    if (!pp_render_style_value_allowed($val, 'color')) {
+        continue;
+    }
+    $style_decls[] = $var . ': ' . $val;
 }
 $style_attr = $style_decls ? ' style="' . esc_attr(implode('; ', $style_decls)) . '"' : '';
 ?>
