@@ -255,11 +255,23 @@ function pp_migrate_legacy_variant_keys(array $items): array {
  * Validates a style-slot override map against a component's declared style slots.
  *
  * The single shared gate for BOTH grid-level component style (`item['style']`) and
- * per-item card style (issue 306, `props.items[].style`). Both surfaces accept the
- * SAME slot set and run the SAME injection guard + typed validators
- * (_pp_validate_token_value) — there is deliberately no second validator. Skips the
- * `__recipe` tracking key (not a CSS property). Returns the first violation so
- * callers keep first-error-wins document order.
+ * per-item card style (issue 306, `props.items[].style`). Both surfaces run the
+ * SAME injection guard + typed validators (_pp_validate_token_value) — there is
+ * deliberately no second validator. Skips the `__recipe` tracking key (not a CSS
+ * property). Returns the first violation so callers keep first-error-wins order.
+ *
+ * Per-item overrides carry a tighter slot scope (issue 323). Only slots consumed
+ * on the .grid__item subtree render when set on one card; container/heading-scoped
+ * slots (--grid-gap, --grid-heading-color, --grid-padding-*, ...) are read on the
+ * section/list/header and silently no-op on a card — the reported-success-without-
+ * effect class the new #306 surface would otherwise inherit. A slot opts into
+ * per-item use by carrying `item_eligible` in its style_slots definition. When the
+ * per-item path ($item_index !== null) validates a component that declares at least
+ * one item_eligible slot, a real-but-ineligible slot is rejected with the same
+ * `invalid_style_slot` code, naming the card and pointing at grid-level style. The
+ * gate is opt-in by presence: a component whose slots carry no item_eligible flag
+ * keeps the pre-323 behavior (any declared slot accepted), so this shared engine
+ * never over-rejects an un-annotated component.
  *
  * @param  array    $style           Slot => value overrides to validate.
  * @param  array    $available_slots  The component's declared style_slots.
@@ -273,17 +285,51 @@ function _pp_validate_style_slot_map(array $style, array $available_slots, strin
         ? sprintf('Component "%s"', $component_name)
         : sprintf('Component "%s" item %d', $component_name, $item_index);
 
+    // Card-scoped subset for per-item validation (issue 323). A slot opts into
+    // per-item use via item_eligible in its style_slots definition. Enforce the
+    // tighter scope only on the per-item path AND only when the component actually
+    // declares a card-scoped set — otherwise fall back to the full slot set
+    // (pre-323 behavior) so a component that gains a per-item style without being
+    // annotated is not wholesale rejected by this shared validator. Strict
+    // !== null so item index 0 (a falsy int, the featured first card) still enforces.
+    $item_eligible_slots = array_filter(
+        $available_slots,
+        static fn ($def) => !empty($def['item_eligible'])
+    );
+    $enforce_item_scope = $item_index !== null && !empty($item_eligible_slots);
+    // At item level the operator may only draw from the card-scoped set, so the
+    // "available" list in both the unknown-slot and section-scoped errors names the
+    // eligible slots, not every declared slot.
+    $effective_slots = $enforce_item_scope ? $item_eligible_slots : $available_slots;
+
     foreach ($style as $slot_name => $slot_value) {
-        // Skip __recipe tracking key — not a CSS property.
+        // Skip __recipe tracking key — not a CSS property. Intentionally allowed on
+        // every surface (grid-level and per-item), same as issue 306.
         if ($slot_name === '__recipe') {
             continue;
         }
         if (!isset($available_slots[$slot_name])) {
-            $available = implode(', ', array_keys($available_slots));
+            $available = implode(', ', array_keys($effective_slots));
             return new WP_Error(
                 'invalid_style_slot',
                 sprintf(
                     '%s has no style slot "%s". Available slots: %s',
+                    $where,
+                    $slot_name,
+                    $available ?: '(none)'
+                )
+            );
+        }
+        // Card-scope check (issue 323): the slot exists but is section/heading-scoped,
+        // so it renders nothing on a single card. Runs after the slot-exists check and
+        // BEFORE value validation, so a wrong-scope slot reports the real problem
+        // (scope) instead of masking it as invalid_style_value.
+        if ($enforce_item_scope && !isset($item_eligible_slots[$slot_name])) {
+            $available = implode(', ', array_keys($item_eligible_slots));
+            return new WP_Error(
+                'invalid_style_slot',
+                sprintf(
+                    '%s style slot "%s" is section-scoped and has no effect on a single card; set it on the grid-level "style" instead. Card-scoped slots: %s',
                     $where,
                     $slot_name,
                     $available ?: '(none)'
