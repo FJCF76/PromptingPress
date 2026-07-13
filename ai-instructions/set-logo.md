@@ -110,6 +110,26 @@ wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_foo
 
 ---
 
+## Footer structure (column headings, bottom bar, logo override)
+
+The dark footer above is a run of blurb → menu → contact → copyright. To organise it — labelled columns and a delimited bottom bar — set these optional structure options (#335), still on the same `update_site_option` surface, still not a footer builder. All optional; every one empty leaves the footer exactly as the dark-footer section produces it.
+
+```bash
+# Label the menu and contact columns
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_menu_label","value":"Legal"}'
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_contact_label","value":"Contact"}'
+# Move the copyright into a delimited bottom bar with a secondary note opposite it
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_note","value":"Made with care."}'
+# Use a light logo variant on the dark footer (header logo stays pp_logo_id)
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_logo_id","value":"57"}'
+```
+
+- `pp_footer_menu_label` / `pp_footer_contact_label` render a heading above the footer nav menu and the contact block. Empty = no heading (the unlabelled columns of #300). The contact heading only shows when `pp_footer_contact` is also set.
+- `pp_footer_note` is the bottom-bar trigger: when NON-EMPTY, the copyright moves out of the main flow into its own delimited band (a top border) and the note renders opposite it. Empty leaves the copyright inline exactly as #300 did. Newlines become line breaks.
+- `pp_footer_logo_id` overrides the footer logo only (an image attachment ID, never a URL — same rule as `pp_logo_id`). Because `pp_logo_id` feeds both the light header and the dark footer, a dark brand mark is invisible on a dark footer; set a light variant here while `pp_logo_id` stays the header logo. Unset falls back to `pp_logo_id`. Requires `pp_footer_show_logo` on to appear.
+
+---
+
 ## Dark / gradient header (background, text, link color)
 
 The header is template-owned (#223) exactly like the footer, so it has no composition style slots either — and before #333 it had no styling surface at all. Its background, text, and link colors are now set through the same `update_site_option` surface. All are optional; unset, the header looks exactly as before.
@@ -149,6 +169,10 @@ wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_hea
 | `pp_footer_blurb` | string | Optional. Brand/description line under the footer logo. |
 | `pp_footer_contact` | string | Optional. Contact/secondary text block (newlines become line breaks). |
 | `pp_footer_copyright` | string | Optional. Replaces the default copyright line; empty keeps the default. |
+| `pp_footer_menu_label` | string | Optional (#335). Heading above the footer nav menu. Empty = unlabelled. |
+| `pp_footer_contact_label` | string | Optional (#335). Heading above the contact block (only when `pp_footer_contact` is set). |
+| `pp_footer_note` | string | Optional (#335). Secondary line; when set, moves the copyright into a delimited bottom bar and renders opposite it. |
+| `pp_footer_logo_id` | Media Library attachment ID (integer) | Optional (#335). Must be an image. Never a URL. Footer logo override; unset falls back to `pp_logo_id`. |
 
 ---
 
