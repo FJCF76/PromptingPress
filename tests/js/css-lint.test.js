@@ -658,6 +658,114 @@ describe('CSS lint: grid desktop columns by item count', () => {
 });
 
 /**
+ * Grid single-item column layout (#297).
+ *
+ * A one-item grid falls through to the generic `@media (min-width: 768px)` rule
+ * that sets `repeat(2, 1fr)`, so the lone card sits in the left column with dead
+ * space on the right from 768px up. The fix is a `data-pp-count="1"` rule that
+ * takes effect from the SAME 768px breakpoint (not 1024px like the count-2/3/4
+ * family), because the stranding starts at the first two-column breakpoint. So
+ * these pins extract the `min-width: 768px` blocks, not the 1024px ones, and
+ * also assert the rule is declared exactly once across the whole file (a later
+ * 1024px re-override would silently reintroduce the bug at desktop).
+ */
+describe('CSS lint: single-item grid column (#297)', () => {
+    // Extract the bodies of every `@media (min-width: 768px)` block by brace matching.
+    function tabletBlocks(css) {
+        const blocks = [];
+        const opener = /@media\s*\(min-width:\s*768px\)\s*\{/g;
+        let match;
+        while ((match = opener.exec(css)) !== null) {
+            let depth = 1;
+            let i = opener.lastIndex;
+            while (i < css.length && depth > 0) {
+                if (css[i] === '{') depth++;
+                else if (css[i] === '}') depth--;
+                i++;
+            }
+            blocks.push(css.slice(opener.lastIndex, i - 1));
+        }
+        return blocks;
+    }
+
+    const COUNT1 = 'main > .grid:not(.grid--steps) .grid__list[data-pp-count="1"]';
+
+    // Return the bodies of every rule matching COUNT1 in the given CSS scope,
+    // anchored to a rule start so it cannot bind to a longer selector ending
+    // with the same text.
+    function count1Rules(scope) {
+        const escaped = COUNT1.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // Anchor on start-of-scope OR either brace: a rule that is the first in a
+        // `@media { ... }` block is preceded by `{`, while back-to-back rules are
+        // preceded by `}`. Both must count so the whole-file "declared once" scan
+        // sees the media-nested rule. The anchor still prevents binding to a
+        // longer selector that merely ends with the same text.
+        const pattern = new RegExp(`(?:^|[}{])\\s*${escaped}\\s*\\{([^}]*)\\}`, 'g');
+        const bodies = [];
+        let match;
+        while ((match = pattern.exec(scope)) !== null) {
+            bodies.push(match[1]);
+            pattern.lastIndex -= 1;
+        }
+        return bodies;
+    }
+
+    const stripped = stripComments(COMPONENTS_CSS);
+    const tablet = tabletBlocks(stripped).join('\n');
+
+    test('a 1-item cards grid gets a single full-width track at tablet/desktop', () => {
+        expect(tablet).not.toEqual('');
+        const bodies = count1Rules(tablet);
+        expect(bodies.length).toBeGreaterThan(0);
+        const columns = bodies
+            .map(body => /grid-template-columns\s*:\s*([^;]+);/.exec(body))
+            .filter(Boolean)
+            .pop();
+        expect(columns && columns[1].trim()).toBe('minmax(0, 1fr)');
+    });
+
+    test('a 1-item cards grid spans the container (no narrowing, no auto-centering)', () => {
+        const bodies = count1Rules(tablet);
+        expect(bodies.length).toBeGreaterThan(0);
+        bodies.forEach(body => {
+            expect(body).not.toMatch(/max-width\s*:/);
+            expect(body).not.toMatch(/max-inline-size\s*:/);
+            expect(body).not.toMatch(/\bwidth\s*:/);
+            expect(body).not.toMatch(/margin(-left|-right|-inline[a-z-]*)?\s*:\s*[^;]*\bauto\b/);
+        });
+    });
+
+    // The rule must be declared exactly once across the WHOLE file, so no later
+    // block (e.g. the 1024px count family) re-overrides count-1 back to two
+    // columns at desktop while the tablet pin above stays green.
+    test('the 1-item rule is declared exactly once (no later re-override)', () => {
+        expect(count1Rules(stripped)).toHaveLength(1);
+    });
+
+    // Selector-agnostic backstop: the "declared exactly once" pin above matches
+    // only the exact count-1 selector string, so a re-override that reintroduces
+    // the bug with a functionally-equivalent but textually-different selector
+    // (e.g. dropping `:not(.grid--steps)`, or a broader
+    // `main > .grid .grid__list[data-pp-count="1"]`) would slip past it. So also
+    // assert that EVERY rule whose selector targets count-1 and sets a column
+    // track resolves to the single full-width track — no multi-column
+    // reintroduction anywhere in the file, whatever the selector prefix.
+    test('no count-1 selector anywhere sets a multi-column track', () => {
+        const rulePattern = /([^{}]*\[data-pp-count="1"\][^{}]*)\{([^}]*)\}/g;
+        let match;
+        let seen = 0;
+        while ((match = rulePattern.exec(stripped)) !== null) {
+            const cols = /grid-template-columns\s*:\s*([^;]+);/.exec(match[2]);
+            if (cols) {
+                seen++;
+                expect(cols[1].trim()).toBe('minmax(0, 1fr)');
+            }
+        }
+        expect(seen).toBeGreaterThan(0);
+    });
+});
+
+/**
  * Hero eyebrow stays a pill (#225).
  *
  * `.hero__eyebrow` declares `display: inline-block`, but it is a direct child of

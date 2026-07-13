@@ -2982,6 +2982,20 @@ main > .grid .grid__item-link::after {
   font-weight: 700;
 }
 
+@media (min-width: 768px) {
+  main > .grid:not(.grid--steps) .grid__list[data-pp-count="1"] {
+    /* A lone card must never sit in a two-column track (issue 297): the base
+       768px rule sets repeat(2, 1fr), stranding a single item in the left
+       column with dead space on the right. One full-width track spans the
+       container so the card's left edge aligns with the section rail, mirroring
+       the count-2/count-3 "span the container" treatment (issues 303/224). This
+       sits at 768px, not 1024px like the other count rules, because the
+       stranding exists from the first two-column breakpoint, and no count-1
+       override in the 1024px block re-declares it, so it holds through desktop. */
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (min-width: 1024px) {
   main > .grid .grid__list {
     gap: var(--grid-gap, 1.05rem);

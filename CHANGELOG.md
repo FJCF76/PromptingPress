@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.102] — 2026-07-13 — A one-card grid now fills the row instead of hugging the left with dead space beside it (#297)
+
+**A `grid` with a single item no longer sits in the left half of a two-column track with empty space on the right. Until now a one-item card fell through to the generic two-column desktop rule, so the lone card rendered at roughly half the container width and stranded a matching gap beside it — the natural "panel" composition (an audience box, a terminal mock, a single highlighted card) always looked half-finished. This release gives the single-item grid its own full-width track, so the card spans the section container and its left edge sits on the same rail as the heading and intro copy above it.**
+
+A new `data-pp-count="1"` rule in `assets/css/components.css` sets one full-width column (`minmax(0, 1fr)`) from the 768px breakpoint up. It takes effect from the first two-column breakpoint rather than only at desktop, because the stranding appears the moment the base rule switches to two columns; nothing above 768px re-declares it, so the full-width track holds through tablet and desktop. This completes the per-count grid family alongside the two-card (#303) and three-card (#224) fixes and follows the same "span the container, align with the section rail" direction. The multi-card layouts are untouched — two cards still lay out two across, three across three, four as a two-by-two — and mobile stays a single stacked column. CSS-only, with no new style slot, prop, token, or schema surface, so no composition, action, or AI-facing behavior changed.
+
+### Fixed
+
+- A single-item `grid` renders one full-width track at tablet and desktop widths instead of a two-column track that stranded the lone card in the left half with dead space on the right, so panel-style single-card grids fill the row and align with the section rail. Completes the per-count grid family alongside #303/#224; CSS-only, no new slot (#297).
+
+### Tests
+
+- `tests/js/css-lint.test.js`: new pins assert the single-item desktop rule resolves to one full-width track (`minmax(0, 1fr)`), spans the container (no `max-width` / `max-inline-size` / `width` narrowing, no `auto` inline margins), is declared exactly once, and — selector-agnostically — that no count-1 rule anywhere reintroduces a multi-column track (#297).
+- `tests/ComponentPropsTest.php`: the grid item-count attribute pin now also asserts a one-item grid emits `data-pp-count="1"`, so the CSS rule's matching contract cannot silently break (#297).
+
 ## [v0.16.101] — 2026-07-13 — A two-card grid now lines up with the section above it instead of floating in a narrower centered block (#303)
 
 **A `grid` with two cards no longer renders on its own narrower, centered rail. Until now a two-item card row was capped at 832px and centered with automatic side margins, so an intro paragraph on the section rail and its paired two feature cards visibly belonged to two different alignment systems — the cards started well to the right of the heading above them. The three-card row already spanned the full section container (fixed in #224); this release gives the two-card row the same treatment, so "intro text plus two feature cards" reads as one aligned section.**
