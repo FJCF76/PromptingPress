@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.106] — 2026-07-13 — a checklist written in a section body finally renders as a list: markers and indent are restored inside `.section__content` (#295)
+
+**Any `<ul>`/`<ol>` an author or the AI wrote into `section.body` rendered as bare, flush-left, unmarked lines — visually indistinguishable from a stack of one-line paragraphs. The global reset (`base.css` `*{padding:0}` plus `ul,ol{list-style:none}`) stripped both the marker and the indent, and no rule inside the section rich-text surface restored them. Every marketing page with a "why us" checklist hit this in the one long-form body surface the product offers. This release restores default list rendering (disc/decimal markers, indent, and item rhythm) scoped to `.section__content`, where the section body HTML actually renders.**
+
+The fix re-declares `list-style`, `padding-left`, and `margin` for `ul`/`ol`/`li` under `.section__content` — the inner wrapper that carries `wp_kses_post($body)` in `section.php`. The `.section__content ul` selector (specificity 0,1,1) outweighs the base `ul,ol` reset (0,0,1), so the markers come back without `!important`. Indent and rhythm route through the existing `--space-*` tokens (`--space-lg` indent, `--space-md` list margin, `--space-xs` item gap), matching the repo's spacing idiom. The rule is scoped to `.section__content`, which renders only the author rich-text body — no PP component nests there — so there is no blast radius to other components. No style slot governs list markers or padding here, so no slot routing and no waiver-ledger change; no new prop, token, grammar, or action surface was added, and the AI-facing docs describe no list-rendering behavior that this changes.
+
+### Fixed
+
+- Lists authored in `section.body` (`<ul>`/`<ol>`) now render with markers and indent inside `.section__content` instead of as bare flush-left lines. `ul` gets `disc`, `ol` gets `decimal`, with token-based indent and item spacing (#295).
+
+### Tests
+
+- `SectionBodyListTest` pins the restore: `.section__content ul`/`ol` marker declarations (`disc`/`decimal`), token-based `padding-left` indent and `li` rhythm, the `base.css` reset that is the cause, and that the section renderer places body HTML inside `.section__content`. The four fix-pinning assertions are red on the pre-fix tree (#295).
+
 ## [v0.16.105] — 2026-07-13 — the hero proof line can finally be lifted off a dark hero: it has its own color slot instead of a hardcoded muted token (#296)
 
 **A hero's proof line — the small trust signals rendered below the CTA — shipped in a hardcoded `var(--color-muted)` with no per-instance color slot. On any dark hero (`--hero-bg` set to a dark color or gradient) that produced a low-contrast, dark-on-dark line that no supported action could fix, while `validate page` and `check page` both passed. This is the same "a literal token defeats per-instance theming" family as #222/#248/#292. This release adds a `--hero-proof-color` style slot so an operator can set the proof color to a light value on a dark hero.**

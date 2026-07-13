@@ -742,6 +742,35 @@
   max-width: var(--section-body-width, 42rem);
 }
 
+/* Restore list markers + indent for lists authored in section.body rich text.
+   The global reset (base.css *{padding:0} + ul,ol{list-style:none}) strips both,
+   so any <ul>/<ol> in section.body rendered as flush-left, unmarked lines,
+   indistinguishable from stacked paragraphs. Re-declare markers, indent, and
+   rhythm scoped to .section__content (where wp_kses_post($body) lands) — the
+   .section__content ul selector (0,1,1) outweighs the base ul,ol reset (0,0,1).
+   No style slot governs list-style/padding here, so no slot routing. issue 295 */
+.section__content ul,
+.section__content ol {
+  padding-left: var(--space-lg);
+  margin: 0 0 var(--space-md);
+}
+
+.section__content ul {
+  list-style: disc;
+}
+
+.section__content ol {
+  list-style: decimal;
+}
+
+.section__content li {
+  margin-bottom: var(--space-xs);
+}
+
+.section__content li:last-child {
+  margin-bottom: 0;
+}
+
 /* Image variants: side-by-side grid at md+ */
 .section__grid {
   display: flex;
