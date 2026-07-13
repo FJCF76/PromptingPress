@@ -851,6 +851,9 @@
 .section__content {
   color: var(--section-text, var(--section-text-theme-color, var(--color-text)));
   max-width: var(--section-body-width, 42rem);
+  /* Body list-marker colour (issue 339): read by the shared marker rules only
+     when the operator opts into a non-disc body_marker; inert otherwise. */
+  --pp-list-marker-color: var(--section-body-marker-color, var(--color-accent));
 }
 
 /* Restore list markers + indent for lists authored in section.body rich text.
@@ -866,6 +869,11 @@
   margin: 0 0 var(--space-md);
 }
 
+/* The disc here is intentionally beaten, on SOURCE ORDER at equal specificity
+   (0,1,1), by the shared issue-339 marker rules (.section__content--marker-* > ul)
+   further down this file. Do NOT raise this rule's specificity or move it below
+   that block, or non-disc body markers stop painting (the tests/e2e/style-render
+   #339 pins guard this). */
 .section__content ul {
   list-style: disc;
 }
@@ -940,11 +948,16 @@
 
 /* Restore list markers + indent stripped by the base reset (base.css
    ul,ol{list-style:none} + *{padding:0}), same approach as .section__content
-   (issue 295). No style slot governs list-style/padding here. issue 104 */
+   (issue 295). No style slot governs list-style/padding here. issue 104.
+   This disc is intentionally beaten on SOURCE ORDER at equal specificity (0,1,0)
+   by the shared issue-339 .pp-marker-list rules below when panel_items_marker opts
+   in — do not raise its specificity or move it below that block. */
 .section__panel-list {
   list-style: disc;
   padding-left: var(--space-lg);
   margin: 0 0 var(--space-md);
+  /* Panel list-marker colour (issue 339): inert until panel_items_marker opts in. */
+  --pp-list-marker-color: var(--section-panel-marker-color, var(--color-accent));
 }
 
 .section__panel-list li {
@@ -1329,19 +1342,81 @@
   font-size: 0.9375rem;
   line-height: 1.5;
   flex: 1;
+  /* Map grid's authorable bullet colour onto the shared marker plumbing var.
+     Unset resolves to --color-accent, byte-identical to the historical grid
+     treatment (issue 339). */
+  --pp-list-marker-color: var(--grid-bullet-color, var(--color-accent));
 }
 
-.grid__item-bullet {
-  padding-left: 1.5rem;
+/* ── Shared list-marker treatment (issue 339) ───────────────────────────────
+   Promotes the check-mark bullet — historically locked inside grid cards — to a
+   reusable marker any list-rendering surface can opt into. A marker is a GLYPH
+   plus a COLOUR, both authorable; nothing here encodes a use-case. `disc` is the
+   untouched default and adds NO class, so a list that does not opt in renders
+   byte-identically. check / dash / arrow are just marker values.
+
+   The base .pp-marker-list is INERT on its own (indent + empty positioned ::before,
+   no glyph); a glyph comes only from the paired --check/--dash/--arrow modifier.
+   section.php always emits the base and a modifier together, so a bare base never
+   ships. A future consumer must pair them too.
+
+   Colour flows in through --pp-list-marker-color (internal plumbing, NOT a schema
+   style_slot): each consuming component maps its own authorable colour slot onto
+   it inside that component's own block (grid: --grid-bullet-color above; section:
+   --section-panel-marker-color / --section-body-marker-color).
+
+   One definition, three consumers:
+   - grid cards        .grid__item-bullet         (always a check, unchanged)
+   - text-panel list   .pp-marker-list on the <ul> the renderer emits
+   - section.body list .section__content--marker-* on the container we control,
+                       scoped to its DIRECT-CHILD <ul> so nested/plugin lists keep
+                       their default disc.
+   These rules sit at grid's historical bullet position — after the COMPONENT:
+   section block — so the section body/panel selectors below beat the issue-295
+   disc rules on source order at equal specificity. --------------------------- */
+.pp-marker-list,
+.section__content--marker-check > ul,
+.section__content--marker-dash > ul,
+.section__content--marker-arrow > ul {
+  list-style: none;
+  padding-left: 0;
+}
+
+.grid__item-bullet,
+.pp-marker-list > li,
+.section__content--marker-check > ul > li,
+.section__content--marker-dash > ul > li,
+.section__content--marker-arrow > ul > li {
   position: relative;
+  padding-left: 1.5rem;
 }
 
-.grid__item-bullet::before {
-  content: "\2713";
+.grid__item-bullet::before,
+.pp-marker-list > li::before,
+.section__content--marker-check > ul > li::before,
+.section__content--marker-dash > ul > li::before,
+.section__content--marker-arrow > ul > li::before {
   position: absolute;
   left: 0;
-  color: var(--grid-bullet-color, var(--color-accent));
   font-weight: 700;
+  color: var(--pp-list-marker-color, var(--color-accent));
+}
+
+/* Glyph per marker value. */
+.grid__item-bullet::before,
+.pp-marker-list--check > li::before,
+.section__content--marker-check > ul > li::before {
+  content: "\2713"; /* check mark */
+}
+
+.pp-marker-list--dash > li::before,
+.section__content--marker-dash > ul > li::before {
+  content: "\2013"; /* en dash */
+}
+
+.pp-marker-list--arrow > li::before,
+.section__content--marker-arrow > ul > li::before {
+  content: "\2192"; /* rightwards arrow */
 }
 
 .grid__item-link {

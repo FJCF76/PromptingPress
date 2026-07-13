@@ -118,6 +118,20 @@
       "required": false,
       "default": "primary",
       "description": "text-panel layout only: style of the panel CTA button (shares the .btn variants). 'primary' = filled accent, 'secondary' = muted surface fill, 'outline' = accent border, 'ghost' = borderless. On a dark panel, 'primary' (accent fill with light label) and 'outline' both read well."
+    },
+    "panel_items_marker": {
+      "type": "enum",
+      "values": ["disc", "check", "dash", "arrow"],
+      "required": false,
+      "default": "disc",
+      "description": "text-panel layout only: list marker for panel_items. 'disc' (default) is the plain bulleted list, unchanged. 'check' renders a check mark, 'dash' an en dash, 'arrow' a rightwards arrow. The marker colour is authorable via the --section-panel-marker-color style slot (defaults to the site accent), so a check-list on a dark panel can be re-coloured. Just a marker choice — not a distinct list type."
+    },
+    "body_marker": {
+      "type": "enum",
+      "values": ["disc", "check", "dash", "arrow"],
+      "required": false,
+      "default": "disc",
+      "description": "List marker for top-level <ul> lists in body. 'disc' (default) leaves body lists exactly as before. 'check' renders a check mark, 'dash' an en dash, 'arrow' a rightwards arrow. Applies only to lists authored as a direct child of the body (nested lists keep their disc). The marker colour is authorable via the --section-body-marker-color style slot (defaults to the site accent). Just a marker choice — not a distinct list type."
     }
   },
   "styling": {
@@ -153,7 +167,9 @@
       "--section-panel-border-width": { "type": "length", "default": "0", "description": "text-panel layout: border width of the content panel" },
       "--section-panel-radius": { "type": "length", "default": "var(--radius)", "description": "text-panel layout: corner radius of the content panel" },
       "--section-panel-padding": { "type": "length", "default": "var(--space-lg)", "description": "text-panel layout: inner padding of the content panel" },
-      "--section-panel-text": { "type": "color", "default": "var(--color-text)", "description": "text-panel layout: text color inside the content panel (heading, body, and list) — set a light value for a dark panel" }
+      "--section-panel-text": { "type": "color", "default": "var(--color-text)", "description": "text-panel layout: text color inside the content panel (heading, body, and list) — set a light value for a dark panel" },
+      "--section-panel-marker-color": { "type": "color", "default": "var(--color-accent)", "description": "text-panel layout: marker (glyph) color of the panel list when panel_items_marker is check/dash/arrow. Mirrors grid's --grid-bullet-color. Set a light value for a check-list on a dark panel. Ignored while panel_items_marker is 'disc'." },
+      "--section-body-marker-color": { "type": "color", "default": "var(--color-accent)", "description": "Marker (glyph) color of body lists when body_marker is check/dash/arrow. Ignored while body_marker is 'disc'." }
     },
     "recipes": {
       "accent-panel": {

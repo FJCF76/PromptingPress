@@ -2061,4 +2061,230 @@ test.describe('#333 chrome site options render', () => {
     const inlineStyle = await header.evaluate((el) => el.getAttribute('style'));
     expect(inlineStyle).toBeNull();
   });
+
+  /**
+   * #339 — the promoted list marker must actually PAINT on the panel and body
+   * lists, over the issue-295 disc rules. StyleSlotContractTest scans only
+   * components.css, so it cannot see that `.section__content ul { list-style: disc }`
+   * (0,1,1) and `.section__panel-list { list-style: disc }` (0,1,0) are beaten by
+   * the shared marker rules on source order — that is exactly the #342 guard gap
+   * (a marker that validates but never paints is the #302 failure mode). Only a
+   * rendered box proves it. Lead with list-style + a slot-driven marker colour
+   * (robust); the ::before content is checked tolerantly (CSSOM quotes `content`
+   * inconsistently across engines).
+   */
+  test('#339 text-panel check marker paints over the disc rule + honors its colour slot @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Panel Check Marker');
+    setComposition(pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec01',
+          layout: 'text-panel',
+          title: 'Honest',
+          body: '<p>Left.</p>',
+          panel_heading: 'Included',
+          panel_items: ['No fine print', 'No lock-in'],
+          panel_items_marker: 'check',
+        },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // A vivid colour no theme token uses, so a failure to reach the marker is obvious.
+    const res = await styleComponent(page, pageId, { '--section-panel-marker-color': '#ff0080' });
+    expect(res.success).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const list = page.locator('.section__panel-list');
+    await expect(list).toBeVisible({ timeout: 10000 });
+
+    // The disc rule is beaten: the <ul> renders no native marker.
+    const listStyle = await list.evaluate((el) => getComputedStyle(el).listStyleType);
+    expect(listStyle).toBe('none');
+
+    // The glyph paints, in the operator's chosen colour.
+    const marker = await page.locator('.section__panel-item').first().evaluate((el) => {
+      const b = getComputedStyle(el, '::before');
+      return { content: b.content, color: b.color };
+    });
+    expect(marker.content).not.toBe('none');
+    expect(marker.content).not.toBe('normal');
+    expect(marker.color).toBe('rgb(255, 0, 128)');
+  });
+
+  test('#339 body check marker paints on the top-level list + honors its colour slot @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Body Check Marker');
+    setComposition(pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec01',
+          title: 'Honest',
+          body: '<ul><li>No fine print</li><li>No lock-in</li></ul>',
+          body_marker: 'check',
+        },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    const res = await styleComponent(page, pageId, { '--section-body-marker-color': '#ff0080' });
+    expect(res.success).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const list = page.locator('.section__content--marker-check > ul');
+    await expect(list).toBeVisible({ timeout: 10000 });
+
+    const listStyle = await list.evaluate((el) => getComputedStyle(el).listStyleType);
+    expect(listStyle).toBe('none');
+
+    const marker = await list.locator('> li').first().evaluate((el) => {
+      const b = getComputedStyle(el, '::before');
+      return { content: b.content, color: b.color };
+    });
+    expect(marker.content).not.toBe('none');
+    expect(marker.content).not.toBe('normal');
+    expect(marker.color).toBe('rgb(255, 0, 128)');
+  });
+
+  test('#339 an unstyled body list is unchanged — still a disc, no marker class @smoke', async ({
+    page,
+  }) => {
+    // Defaults stay neutral and byte-identical: disc adds no class and no ::before.
+    pageId = createPage('E2E Body Marker Default');
+    setComposition(pageId, [
+      {
+        component: 'section',
+        props: { id: 'pp-sec01', title: 'Plain', body: '<ul><li>Still a disc</li></ul>' },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const content = page.locator('.section__content');
+    await expect(content).toBeVisible({ timeout: 10000 });
+
+    const cls = await content.evaluate((el) => el.getAttribute('class'));
+    expect(cls).toBe('section__content');
+
+    const listStyle = await content.locator('ul').evaluate((el) => getComputedStyle(el).listStyleType);
+    expect(listStyle).toBe('disc');
+  });
+
+  test('#339 grid bullets still honor --grid-bullet-color after the shared-treatment refactor @smoke', async ({
+    page,
+  }) => {
+    // Regression proof for the byte-identical grid claim: #339 moved grid's bullet
+    // rules into the shared block and rewired the colour through the internal
+    // --pp-list-marker-color indirection. StyleSlotContractTest only proves
+    // --grid-bullet-color is *consumed*; only a rendered box proves the grid
+    // check mark still paints in the operator's colour after the rewrite.
+    pageId = createPage('E2E Grid Bullet Color Regression');
+    setComposition(pageId, [
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-grid01',
+          items: [{ title: 'Perimeter', text: 'x', bullets: ['HTTP headers', 'SSL/TLS'] }],
+        },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    const res = await styleComponent(page, pageId, { '--grid-bullet-color': '#ff0080' });
+    expect(res.success).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const bullet = page.locator('.grid__item-bullet').first();
+    await expect(bullet).toBeVisible({ timeout: 10000 });
+
+    const marker = await bullet.evaluate((el) => {
+      const b = getComputedStyle(el, '::before');
+      return { content: b.content, color: b.color };
+    });
+    expect(marker.content).not.toBe('none');
+    expect(marker.color).toBe('rgb(255, 0, 128)');
+  });
+
+  test('#339 a nested body list keeps its disc under a check marker (direct-child scoping) @smoke', async ({
+    page,
+  }) => {
+    // The body marker is scoped to the DIRECT-CHILD <ul> on purpose, so nested
+    // lists (and plugin/embed markup) keep their default disc. Pin that scoping.
+    pageId = createPage('E2E Body Marker Nested');
+    setComposition(pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec01',
+          title: 'Nested',
+          body: '<ul><li>Top<ul><li>Nested child</li></ul></li></ul>',
+          body_marker: 'check',
+        },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const top = page.locator('.section__content--marker-check > ul');
+    await expect(top).toBeVisible({ timeout: 10000 });
+    expect(await top.evaluate((el) => getComputedStyle(el).listStyleType)).toBe('none');
+
+    // The nested <ul> is NOT a direct child of the container → keeps disc.
+    const nested = top.locator('ul').first();
+    expect(await nested.evaluate((el) => getComputedStyle(el).listStyleType)).toBe('disc');
+  });
+
+  test('#339 dash and arrow markers also paint, not just check @smoke', async ({ page }) => {
+    // The dash (–) and arrow (→) glyphs must survive the same cross-sheet
+    // cascade as check; otherwise a broken source-order interaction for them would
+    // ship (only check had a rendered pin before). One page exercises both: panel
+    // dash + body arrow.
+    pageId = createPage('E2E Dash And Arrow Markers');
+    setComposition(pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec01',
+          layout: 'text-panel',
+          title: 'Both',
+          body: '<ul><li>Arrowed</li></ul>',
+          body_marker: 'arrow',
+          panel_heading: 'Dashed',
+          panel_items: ['Dashed item'],
+          panel_items_marker: 'dash',
+        },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const panelItem = page.locator('.section__panel-item').first();
+    await expect(panelItem).toBeVisible({ timeout: 10000 });
+    const dash = await panelItem.evaluate((el) => getComputedStyle(el, '::before').content);
+    expect(dash).toContain('–');
+
+    const bodyItem = page.locator('.section__content--marker-arrow > ul > li').first();
+    const arrow = await bodyItem.evaluate((el) => getComputedStyle(el, '::before').content);
+    expect(arrow).toContain('→');
+  });
 });

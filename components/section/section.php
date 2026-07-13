@@ -29,6 +29,8 @@ $panel_items        = is_array($props['panel_items'] ?? null) ? $props['panel_it
 $panel_cta_text     = $props['panel_cta_text']     ?? '';
 $panel_cta_url      = $props['panel_cta_url']      ?? '';
 $panel_cta_variant  = $props['panel_cta_variant']  ?? 'primary';
+$panel_items_marker = $props['panel_items_marker'] ?? 'disc';
+$body_marker        = $props['body_marker']        ?? 'disc';
 
 // Only string, non-empty list entries render (mirrors grid bullets).
 $panel_items = array_values(array_filter(
@@ -42,6 +44,28 @@ if (!in_array($panel_cta_variant, $allowed_panel_cta_variants, true)) {
 }
 // primary is the bare .btn; other variants add a .btn--{variant} modifier.
 $panel_cta_variant_class = $panel_cta_variant !== 'primary' ? ' btn--' . $panel_cta_variant : '';
+
+// List-marker selection (issue 339). A list can carry a marker other than the
+// default disc — check / dash / arrow — with an authorable marker colour (the
+// --section-panel-marker-color / --section-body-marker-color slots). Generic
+// marker values only; nothing encodes a use-case. `disc` is the default and adds
+// NO class, so an un-opted list renders byte-identically to before.
+$allowed_markers = ['disc', 'check', 'dash', 'arrow'];
+if (!in_array($panel_items_marker, $allowed_markers, true)) {
+    $panel_items_marker = 'disc';
+}
+if (!in_array($body_marker, $allowed_markers, true)) {
+    $body_marker = 'disc';
+}
+// text-panel list opts in with the shared .pp-marker-list treatment on its <ul>.
+$panel_list_marker_class = $panel_items_marker !== 'disc'
+    ? ' pp-marker-list pp-marker-list--' . $panel_items_marker
+    : '';
+// section.body opts in with a modifier on the container we control; the shared
+// rules style its direct-child <ul> (nested/plugin lists keep their disc).
+$content_marker_class = $body_marker !== 'disc'
+    ? ' section__content--marker-' . $body_marker
+    : '';
 
 // The panel CTA needs BOTH a label and a URL to render.
 $has_panel_cta = $panel_cta_text !== '' && $panel_cta_url !== '';
@@ -119,7 +143,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                         <?php endif; ?>
                     </div>
                 <?php endif; ?>
-                <div class="section__content">
+                <div class="section__content<?php echo esc_attr($content_marker_class); ?>">
                     <?php echo wp_kses_post($body); ?>
                 </div>
             </div>
@@ -141,7 +165,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                             <?php endif; ?>
                         </div>
                     <?php endif; ?>
-                    <div class="section__content">
+                    <div class="section__content<?php echo esc_attr($content_marker_class); ?>">
                         <?php echo wp_kses_post($body); ?>
                     </div>
                 </div>
@@ -154,7 +178,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                         <p class="section__panel-body"><?php echo esc_html($panel_body); ?></p>
                     <?php endif; ?>
                     <?php if (!empty($panel_items)) : ?>
-                        <ul class="section__panel-list">
+                        <ul class="section__panel-list<?php echo esc_attr($panel_list_marker_class); ?>">
                             <?php foreach ($panel_items as $panel_item) : ?>
                                 <li class="section__panel-item"><?php echo esc_html($panel_item); ?></li>
                             <?php endforeach; ?>
@@ -191,7 +215,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                             <?php endif; ?>
                         </div>
                     <?php endif; ?>
-                    <div class="section__content">
+                    <div class="section__content<?php echo esc_attr($content_marker_class); ?>">
                         <?php echo wp_kses_post($body); ?>
                     </div>
                 </div>
