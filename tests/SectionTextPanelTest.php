@@ -351,4 +351,170 @@ class SectionTextPanelTest extends TestCase
             $this->componentsCss
         );
     }
+
+    // ── 4. List markers (issue 339) ───────────────────────────────────────
+    //
+    // A list can carry a marker other than the default disc — check / dash /
+    // arrow — with an authorable marker colour, on the panel list AND on body
+    // lists. Generic marker capability; `disc` is the untouched default. The
+    // shared paint lives in components.css; StyleSlotContractTest proves the
+    // colour slots are consumed and unbypassed. Here we pin the render-time
+    // class wiring, the clamp, the byte-identical default, and the section
+    // block's colour-slot mapping. The cross-sheet PAINT (that the marker
+    // actually renders over the issue-295 disc rules) is pinned in
+    // tests/e2e/style-render.spec.ts.
+
+    public function testPanelItemsMarkerCheckAddsSharedTreatmentClasses(): void
+    {
+        $html = $this->render($this->fullPanelProps(['panel_items_marker' => 'check']));
+        $this->assertStringContainsString(
+            'class="section__panel-list pp-marker-list pp-marker-list--check"',
+            $html
+        );
+    }
+
+    public function testPanelItemsMarkerDashAndArrowSelectTheirModifier(): void
+    {
+        $dash = $this->render($this->fullPanelProps(['panel_items_marker' => 'dash']));
+        $this->assertStringContainsString('pp-marker-list pp-marker-list--dash', $dash);
+
+        $arrow = $this->render($this->fullPanelProps(['panel_items_marker' => 'arrow']));
+        $this->assertStringContainsString('pp-marker-list pp-marker-list--arrow', $arrow);
+    }
+
+    public function testPanelItemsMarkerDefaultsToDiscWithNoExtraClass(): void
+    {
+        // Byte-identical to the pre-339 markup: a plain section__panel-list.
+        $html = $this->render($this->fullPanelProps());
+        $this->assertStringContainsString('<ul class="section__panel-list">', $html);
+        $this->assertStringNotContainsString('pp-marker-list', $html);
+    }
+
+    public function testPanelItemsMarkerDiscExplicitIsAlsoBare(): void
+    {
+        $html = $this->render($this->fullPanelProps(['panel_items_marker' => 'disc']));
+        $this->assertStringContainsString('<ul class="section__panel-list">', $html);
+        $this->assertStringNotContainsString('pp-marker-list', $html);
+    }
+
+    public function testPanelItemsMarkerInvalidValueClampsToDisc(): void
+    {
+        $html = $this->render($this->fullPanelProps(['panel_items_marker' => 'checklist']));
+        $this->assertStringContainsString('<ul class="section__panel-list">', $html);
+        $this->assertStringNotContainsString('pp-marker-list', $html);
+        $this->assertStringNotContainsString('checklist', $html);
+    }
+
+    public function testBodyMarkerCheckAddsContainerModifier(): void
+    {
+        $html = $this->render([
+            'body'        => '<ul><li>Fast</li><li>Honest</li></ul>',
+            'body_marker' => 'check',
+        ]);
+        $this->assertStringContainsString(
+            'class="section__content section__content--marker-check"',
+            $html
+        );
+    }
+
+    public function testBodyMarkerAppliesInTextPanelLayoutToo(): void
+    {
+        // The body column exists in every layout that renders body; the marker
+        // modifier must reach it in the text-panel layout as well.
+        $html = $this->render($this->fullPanelProps(['body_marker' => 'arrow']));
+        $this->assertStringContainsString('section__content--marker-arrow', $html);
+    }
+
+    public function testBodyMarkerDefaultsToDiscWithNoModifier(): void
+    {
+        $html = $this->render(['body' => '<ul><li>Fast</li></ul>']);
+        $this->assertStringContainsString('<div class="section__content">', $html);
+        $this->assertStringNotContainsString('section__content--marker', $html);
+    }
+
+    public function testBodyMarkerInvalidValueClampsToDisc(): void
+    {
+        $html = $this->render(['body' => '<ul><li>Fast</li></ul>', 'body_marker' => 'feature-list']);
+        $this->assertStringContainsString('<div class="section__content">', $html);
+        $this->assertStringNotContainsString('section__content--marker', $html);
+        $this->assertStringNotContainsString('feature-list', $html);
+    }
+
+    public function testBodyMarkerDashSelectsItsModifier(): void
+    {
+        // Symmetry with the panel matrix: every non-disc value wires a modifier.
+        $html = $this->render(['body' => '<ul><li>Fast</li></ul>', 'body_marker' => 'dash']);
+        $this->assertStringContainsString('class="section__content section__content--marker-dash"', $html);
+    }
+
+    public function testBodyMarkerDiscExplicitIsAlsoBare(): void
+    {
+        $html = $this->render(['body' => '<ul><li>Fast</li></ul>', 'body_marker' => 'disc']);
+        $this->assertStringContainsString('<div class="section__content">', $html);
+        $this->assertStringNotContainsString('section__content--marker', $html);
+    }
+
+    public function testMarkerPropsPassSharedValidation(): void
+    {
+        $composition = [[
+            'component' => 'section',
+            'props'     => $this->fullPanelProps([
+                'panel_items_marker' => 'check',
+                'body_marker'        => 'arrow',
+            ]),
+        ]];
+        $this->assertTrue(
+            pp_validate_composition($composition),
+            'The panel_items_marker and body_marker props must be known to the shared engine.'
+        );
+    }
+
+    public function testMarkerColorSlotsValidateAndMapInSectionBlock(): void
+    {
+        // The two new colour slots pass the shared style-slot engine …
+        $composition = [[
+            'component' => 'section',
+            'props'     => ['body' => '<p>x</p>', 'layout' => 'text-panel', 'panel_heading' => 'H'],
+            'style'     => [
+                '--section-panel-marker-color' => '#ea3900',
+                '--section-body-marker-color'  => '#16a34a',
+            ],
+        ]];
+        $this->assertTrue(
+            pp_validate_composition($composition),
+            'Both marker-colour slots must validate against the shared style-slot engine.'
+        );
+
+        // … and are mapped onto the shared plumbing var INSIDE the section block
+        // (StyleSlotContractTest check 1 requires each slot consumed in its own
+        // block; the mapping is what satisfies it).
+        $block = $this->sectionBlock();
+        $this->assertMatchesRegularExpression(
+            '/--pp-list-marker-color:\s*var\(--section-panel-marker-color,/',
+            $block,
+            '--section-panel-marker-color must map onto --pp-list-marker-color in the section block.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/--pp-list-marker-color:\s*var\(--section-body-marker-color,/',
+            $block,
+            '--section-body-marker-color must map onto --pp-list-marker-color in the section block.'
+        );
+    }
+
+    public function testSharedMarkerGlyphsDefinedOnceInStylesheet(): void
+    {
+        // One definition, shared by grid + panel + body: the check glyph is
+        // defined for the grid bullet, the panel .pp-marker-list--check, and the
+        // body .section__content--marker-check together — not duplicated per
+        // component. Pin that the three consumers share a single content rule.
+        $css = $this->componentsCss;
+        $this->assertMatchesRegularExpression(
+            '/\.grid__item-bullet::before,\s*\.pp-marker-list--check > li::before,\s*\.section__content--marker-check > ul > li::before\s*\{\s*content:\s*"\\\\2713"/s',
+            $css,
+            'The check glyph must be one shared rule across grid, panel, and body consumers.'
+        );
+        // The dash and arrow marker values also exist (generic, not check-only).
+        $this->assertStringContainsString('content: "\2013"', $css);
+        $this->assertStringContainsString('content: "\2192"', $css);
+    }
 }

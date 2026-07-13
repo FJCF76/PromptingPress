@@ -19,6 +19,8 @@ Generic text + optional image section. Use this for "what is this", "how it work
 | `layout`           | enum   | No       | `'text-only'` | Structural layout: `text-only` / `image-left` / `image-right` / `centered` |
 | `theme`            | enum   | No       | `'default'`   | Background color/tone: `default` / `dark` / `inverted` |
 | `background_image` | string | No       | `''`          | Optional background image URL with dark overlay for text readability |
+| `body_marker`        | enum   | No       | `'disc'`      | List marker for top-level `<ul>` lists in `body`: `disc` / `check` / `dash` / `arrow`. Colour via the `--section-body-marker-color` slot |
+| `panel_items_marker` | enum   | No       | `'disc'`      | text-panel layout: list marker for `panel_items`: `disc` / `check` / `dash` / `arrow`. Colour via the `--section-panel-marker-color` slot |
 
 ## Variants
 

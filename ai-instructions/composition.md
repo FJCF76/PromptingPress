@@ -101,10 +101,13 @@ Panel props (all optional; ignored by other layouts):
 | `panel_heading` | Panel heading (`<h3>`). |
 | `panel_body` | Optional plain-text intro paragraph above the list (text only, no HTML). |
 | `panel_items` | Array of plain-text strings rendered as a bulleted list. |
+| `panel_items_marker` | List marker for `panel_items`: `disc` (default) / `check` / `dash` / `arrow`. Not a distinct list type — just the glyph. |
 | `panel_cta_text` + `panel_cta_url` | The panel's CTA button. Both are required for the button to render. |
 | `panel_cta_variant` | Button style: `primary` (default) / `secondary` / `outline` / `ghost`. |
 
 The panel falls back to a plain `text-only` section when it has no content (no heading, no body, no list items, and no complete CTA). Style the panel per-instance with the `--section-panel-*` slots (`-bg`, `-border-color`, `-border-width`, `-radius`, `-padding`, `-text`) via `style_component` — set `--section-panel-bg` to a dark color and `--section-panel-text` to a light color for a dark panel. The panel CTA color follows the standard button (site accent); pick `panel_cta_variant` to change its style.
+
+To turn `panel_items` into a check-list (the common "benefits beside a panel" pattern), set `panel_items_marker: "check"` and recolor the marker with the `--section-panel-marker-color` slot (defaults to the site accent; set a light value on a dark panel). `dash` and `arrow` are the other marker values; `disc` is the plain default. The same marker capability is available on `grid` card bullets (always a check) and on `section` body lists (`body_marker`, below) — one shared treatment, so a check-list is reachable from any list-rendering surface, not just the grid.
 
 ```json
 {
@@ -120,6 +123,21 @@ The panel falls back to a plain `text-only` section when it has no content (no h
     "panel_cta_url": "/signup"
   },
   "style": { "--section-panel-bg": "#0f172a", "--section-panel-text": "#f8fafc" }
+}
+```
+
+#### section body list markers: `body_marker`
+
+`body_marker` (`disc` default / `check` / `dash` / `arrow`) sets the marker on **top-level** `<ul>` lists authored in a section's `body` — the same shared marker treatment the panel and grid use. `disc` leaves body lists exactly as before; `check`/`dash`/`arrow` apply to lists written as a direct child of the body (nested lists keep their disc). Recolor the marker with the `--section-body-marker-color` slot (defaults to the site accent). Use it when a prose section needs a check-list without moving the content into a grid or panel.
+
+```json
+{
+  "component": "section",
+  "props": {
+    "title": "What you get",
+    "body": "<ul><li>Transparent pricing</li><li>Cancel anytime</li></ul>",
+    "body_marker": "check"
+  }
 }
 ```
 
