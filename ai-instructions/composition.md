@@ -126,6 +126,24 @@ Optional typography role for a card's `text`: `mono` (code), `meta` (captions), 
 ]}}
 ```
 
+### grid items[].style — per-card style overrides
+
+Style ONE card differently from its siblings. A grid item may carry an optional `style` object that accepts the **same grid style slots** as the grid-level `style` (e.g. `--grid-card-bg`, `--grid-card-border`, `--grid-item-title-color`, `--grid-item-text-color`) — no arbitrary CSS. It is validated by the same shared engine: unknown slot names and invalid values are rejected exactly like grid-level slots. The card's slots override the grid-level values for that card only (cascade proximity), so the rest of the row is untouched.
+
+Set it in the composition (`create_page` / `update_composition` / `update_component`), NOT via `style_component` — `style_component` targets a whole component instance, not one item. Use it for the standard "one distinct card in a row" patterns: a dark CTA panel beside light checklist cards, or a green-on-dark terminal/code card (pair with `text_role: "mono"`).
+
+Use the **card-scoped** slots here — those consumed on the card itself: `--grid-card-bg`, `--grid-card-border`, `--grid-card-border-width`, `--grid-card-radius`, `--grid-card-shadow`, `--grid-card-padding`, `--grid-card-gap`, `--grid-item-title-size`, `--grid-item-title-color`, `--grid-item-text-color`, `--grid-bullet-color`, `--grid-link-color`. Container/heading slots (`--grid-bg`, `--grid-gap`, `--grid-heading-*`, `--grid-padding-*`) are read on the section/list/header, not the card, so setting them per-card has no visible effect — put those on the grid-level `style`.
+
+```json
+{ "component": "grid", "props": { "items": [
+  { "title": "Checklist", "bullets": ["Fast", "Honest"] },
+  { "title": "Get started", "text": "Empezá hoy",
+    "style": { "--grid-card-bg": "#0f172a", "--grid-item-title-color": "#f8fafc", "--grid-item-text-color": "#cbd5e1" } },
+  { "text": "$ deploy --now", "text_role": "mono",
+    "style": { "--grid-card-bg": "#0b0f0a", "--grid-item-text-color": "#22c55e" } }
+]}}
+```
+
 ### title_accent (hero, section, grid, cta, faq, stats, testimonials)
 
 All seven heading-bearing components accept `title_accent`: an exact, case-sensitive substring of `title` to render in an accent color. It must match `title` literally or it is silently ignored (no accent rendered, `title` still shows in full).

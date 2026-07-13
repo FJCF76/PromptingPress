@@ -83,6 +83,16 @@ function pp_ai_system_prompt(): string {
                     $slot_parts[] = "{$slot_name} ({$slot_def['type']}, default: {$slot_def['default']})";
                 }
                 $parts[] = "  Style slots: " . implode(', ', $slot_parts);
+
+                // Per-item style overrides (issue 306): a prop declared as an array
+                // whose item sub-schema declares a `style` field (today: grid items)
+                // accepts the SAME style slots per element, set in the composition
+                // (not style_component) and overriding grid-level by cascade proximity.
+                foreach (($schema['props'] ?? []) as $prop_name => $prop_def) {
+                    if (($prop_def['type'] ?? null) === 'array' && isset($prop_def['items']['style'])) {
+                        $parts[] = "  Per-item style: {$prop_name}[].style accepts the same style slots per card (e.g. one dark panel or terminal card in a row); set via the composition (update_component), not style_component.";
+                    }
+                }
             }
 
             $recipes = pp_get_style_recipes($name);

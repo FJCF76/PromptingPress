@@ -115,6 +115,16 @@ removes the card-1 texture stripe; `--grid-featured-shadow` overrides the shared
 `--grid-card-shadow` for one identical shadow on all cards). For a uniform row in
 one step, apply the `uniform-cards` recipe instead of setting the slots by hand.
 
+To style **one card differently from its siblings** (a dark CTA panel beside light
+checklist cards, or a green-on-dark terminal card), set a per-card `style` object on
+that grid item — `props.items[].style` — with the same grid slots (e.g.
+`--grid-card-bg`, `--grid-card-border`, `--grid-item-title-color`,
+`--grid-item-text-color`). It is validated by the same shared engine and overrides
+the grid-level value for that card only. Set it through the composition
+(`update_component` / `update_composition` / `create_page`), NOT `style_component` —
+`style_component` targets a whole component instance, not a single item. See
+`ai-instructions/composition.md` → "grid items[].style".
+
 The `position` and `ratio` types (#108) control image focal point and aspect ratio,
 per-instance. `position` accepts 1-2 keyword/length tokens (no functions, no `var()`);
 `ratio` accepts `auto` (natural proportions) or a number/fraction. `--{hero,section}-image-position`
