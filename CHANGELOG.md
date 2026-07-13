@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.115] — 2026-07-13 — stored style values are now re-validated at render time, not only at write time (#330)
+
+**Style-slot and footer color values are strictly validated when they are written, but the render path trusted whatever was already in storage and applied only a narrow character check before emitting it into an inline `style` attribute. A value can reach storage without passing current write-time validation — a restored history snapshot (which is never blocked, by design) or a direct database write — so this release re-validates every stored style value at the render boundary as defense-in-depth. A value that would not pass validation is simply left out of the rendered output; the page still renders and any restore still succeeds.**
+
+`pp_render_style_vars()` (used by every component's style slots and by per-item grid card styles) and the footer's color custom properties now re-check each stored value through the same shared validation engine used at write time, keyed by the slot's declared type. There is no second validation grammar and no change to what values are accepted: legitimate values (colors including `transparent`/`currentColor`, `var(--token)` references, validated gradients, lengths, shadows) render exactly as before. Only a value that never passed validation is dropped, and only from the rendered output — write-time rules and the restore-reports-never-blocks principle (#233) are untouched.
+
+### Fixed
+
+- The inline-style render boundary now re-validates each stored style value before emitting it (#330). `pp_render_style_vars()` (all component style slots plus grid `items[].style`) and the footer `--footer-*` color properties delegate to the shared `_pp_validate_token_value` engine per slot type, with a conservative reject fallback for any untyped value. A value that never passed write-time validation is dropped from the rendered output only; sibling declarations still render, and neither the page nor an in-progress restore is blocked.
+
+### Docs
+
+- `docs/AI_IMPLEMENTATION_RECIPES.md` now states that style-slot values are validated at both write time and render time, so contributors adding components know the render boundary re-validates stored values (#330).
+
+### Tests
+
+- `RenderStyleBoundaryTest` pins the render boundary: values that never passed write-time validation are dropped while sibling declarations still render, across the component style sink, the grid per-item style path, and the footer; the full accepted set (colors including `transparent`/`currentColor`, `var(--token)`, validated gradients including radial `at <position>`, lengths, shadows) renders unchanged; the helper's type-delegation and untyped arms are both covered; and filtering a value from output leaves the stored map untouched so restore round-trips are unaffected.
+
 ## [v0.16.114] — 2026-07-13 — re-importing the same image URL now reuses the existing attachment instead of creating a duplicate (#298)
 
 **`import_media` is how an AI operator pulls an external image (a brand logo, say) onto the site as a locally-owned asset, and that loop retries and re-runs. Every call used to sideload a fresh copy and mint a new attachment, so importing the same URL three times left three identical files with `-1`/`-2` suffixes and no signal to reuse. This release dedupes by source URL: the first import records where the file came from, and any later import of that exact URL returns the existing attachment instead of downloading it again.**
