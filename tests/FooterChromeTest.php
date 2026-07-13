@@ -352,4 +352,222 @@ class FooterChromeTest extends TestCase
             );
         }
     }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  Footer STRUCTURE (issue 335): column headings, delimited bottom bar,
+    //  footer logo override. Additive to issue 300; every new option optional,
+    //  unset output stays the issue-300 footer.
+    // ══════════════════════════════════════════════════════════════════════
+
+    /** Seeds a Media Library image attachment the resolver/validator will accept. */
+    private function seedImage(int $id, string $url): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][$id]['post_type']  = 'attachment';
+        $GLOBALS['_pp_test_store']['attachment_is_image'][$id] = true;
+        $GLOBALS['_pp_test_store']['attachment_urls'][$id]     = $url;
+    }
+
+    // ── Whitelist + types ───────────────────────────────────────────────────
+
+    public function testAllowedSiteOptionsIncludesFooterStructureKeys(): void
+    {
+        $allowed = pp_allowed_site_options();
+        $this->assertSame('string',        $allowed['pp_footer_menu_label']);
+        $this->assertSame('string',        $allowed['pp_footer_contact_label']);
+        $this->assertSame('string',        $allowed['pp_footer_note']);
+        // The footer logo override is an attachment ID, validated like pp_logo_id.
+        $this->assertSame('attachment_id', $allowed['pp_footer_logo_id']);
+    }
+
+    public function testFooterStructureLabelsAndNoteAcceptFreeText(): void
+    {
+        $this->assertTrue(pp_validate_site_option_value('pp_footer_menu_label', 'Legal'));
+        $this->assertTrue(pp_validate_site_option_value('pp_footer_contact_label', 'Contact'));
+        $this->assertTrue(pp_validate_site_option_value('pp_footer_note', "Made with care\nsecond line"));
+    }
+
+    // ── Footer logo override validates exactly like pp_logo_id ───────────────
+
+    public function testFooterLogoIdValidatesAsImageAttachment(): void
+    {
+        $this->seedImage(57, 'http://example.com/footer-light.png');
+        $this->assertTrue(pp_validate_site_option_value('pp_footer_logo_id', '57'));
+
+        // Empty, zero, and non-existent IDs are rejected (same as pp_logo_id).
+        foreach (['', '0', '999'] as $bad) {
+            $this->assertInstanceOf(
+                \WP_Error::class,
+                pp_validate_site_option_value('pp_footer_logo_id', $bad),
+                "pp_footer_logo_id must reject '{$bad}'."
+            );
+        }
+
+        // A non-image attachment is rejected.
+        $GLOBALS['_pp_test_store']['posts'][58]['post_type']  = 'attachment';
+        $GLOBALS['_pp_test_store']['attachment_is_image'][58] = false;
+        $this->assertInstanceOf(
+            \WP_Error::class,
+            pp_validate_site_option_value('pp_footer_logo_id', '58')
+        );
+    }
+
+    public function testFooterLogoIdSharesTheSameRuleAsPpLogoId(): void
+    {
+        // No second, surface-specific rule: pp_footer_logo_id and pp_logo_id must
+        // accept/reject identically (both funnel through pp_is_image_attachment).
+        $this->seedImage(57, 'http://example.com/x.png');
+        foreach (['57', '0', '', '999'] as $val) {
+            $logo   = pp_validate_site_option_value('pp_logo_id', $val) === true;
+            $footer = pp_validate_site_option_value('pp_footer_logo_id', $val) === true;
+            $this->assertSame($logo, $footer, "Divergence from pp_logo_id on '{$val}'.");
+        }
+    }
+
+    // ── Render: column headings ─────────────────────────────────────────────
+
+    public function testMenuHeadingRendersOnlyWhenLabelSet(): void
+    {
+        $with = $this->renderFooter(['location' => 'footer', 'menu_label' => 'Legal']);
+        $this->assertStringContainsString('site-footer__heading', $with);
+        $this->assertStringContainsString('Legal', $with);
+
+        $without = $this->renderFooter(['location' => 'footer']);
+        $this->assertStringNotContainsString('site-footer__heading', $without);
+    }
+
+    public function testContactHeadingRendersOnlyWhenLabelAndContactSet(): void
+    {
+        // Label set but no contact -> no contact block, so no heading either.
+        $noContact = $this->renderFooter(['location' => 'footer', 'contact_label' => 'Contact']);
+        $this->assertStringNotContainsString('site-footer__contact', $noContact);
+        $this->assertStringNotContainsString('site-footer__heading', $noContact);
+
+        // Label + contact -> heading appears inside the contact block.
+        $both = $this->renderFooter([
+            'location'      => 'footer',
+            'contact'       => 'hello@example.com',
+            'contact_label' => 'Contact',
+        ]);
+        $this->assertStringContainsString('site-footer__contact', $both);
+        $this->assertStringContainsString('site-footer__heading', $both);
+        $this->assertStringContainsString('Contact', $both);
+    }
+
+    // ── Render: delimited bottom bar ────────────────────────────────────────
+
+    public function testNoteTriggersDelimitedBottomBarWithSingleCopyright(): void
+    {
+        $html = $this->renderFooter([
+            'location'  => 'footer',
+            'note'      => 'Made with care.',
+            'copyright' => 'Custom 2026.',
+        ]);
+        $this->assertStringContainsString('site-footer__bottom', $html);
+        $this->assertStringContainsString('site-footer__note', $html);
+        $this->assertStringContainsString('Made with care.', $html);
+        // Copyright is MOVED into the bar, not duplicated: exactly one occurrence.
+        $this->assertSame(1, substr_count($html, 'site-footer__copyright'));
+        // ...and it renders inside the bottom bar (after the bar opens).
+        $this->assertGreaterThan(
+            strpos($html, 'site-footer__bottom'),
+            strpos($html, 'site-footer__copyright'),
+            'copyright must render inside the bottom bar when a note is set'
+        );
+    }
+
+    public function testNoBottomBarWhenNoteEmptyCopyrightStaysInline(): void
+    {
+        $html = $this->renderFooter(['location' => 'footer', 'copyright' => 'Custom 2026.']);
+        $this->assertStringNotContainsString('site-footer__bottom', $html);
+        $this->assertStringNotContainsString('site-footer__note', $html);
+        $this->assertStringContainsString('site-footer__copyright', $html);
+        $this->assertStringContainsString('Custom 2026.', $html);
+    }
+
+    // ── Render: footer logo override + fallback ─────────────────────────────
+
+    public function testFooterLogoOverrideUsesTheOverrideAttachment(): void
+    {
+        // base.php passes pp_footer_logo_id as the footer's logo_id prop.
+        $this->seedImage(57, 'http://example.com/footer-light.png');
+        $html = $this->renderFooter(['location' => 'footer', 'show_logo' => true, 'logo_id' => 57]);
+        $this->assertStringContainsString('http://example.com/footer-light.png', $html);
+        $this->assertStringContainsString('site-footer__logo-image', $html);
+    }
+
+    public function testFooterLogoFallsBackToPpLogoIdWhenOverrideUnset(): void
+    {
+        // Empty logo_id prop (what base.php passes when pp_footer_logo_id is unset)
+        // -> pp_resolve_logo falls back to the pp_logo_id site option.
+        $this->seedImage(42, 'http://example.com/brand.png');
+        $GLOBALS['_pp_test_store']['options']['pp_logo_id'] = '42';
+        $html = $this->renderFooter(['location' => 'footer', 'show_logo' => true, 'logo_id' => '']);
+        $this->assertStringContainsString('http://example.com/brand.png', $html);
+    }
+
+    // ── Escaping ────────────────────────────────────────────────────────────
+
+    public function testStructureContentIsEscaped(): void
+    {
+        $html = $this->renderFooter([
+            'location'      => 'footer',
+            'menu_label'    => '<script>alert(1)</script>',
+            'contact'       => 'x',
+            'contact_label' => 'A & B',
+            'note'          => '<b>hi</b>',
+        ]);
+        $this->assertStringNotContainsString('<script>alert(1)</script>', $html);
+        $this->assertStringContainsString('&lt;script&gt;', $html);
+        $this->assertStringContainsString('A &amp; B', $html);
+        $this->assertStringNotContainsString('<b>hi</b>', $html);
+    }
+
+    // ── Unset footer carries no new structure (byte-identical to issue 300) ──
+
+    public function testUnsetFooterHasNoStructureElements(): void
+    {
+        $html = $this->renderFooter(['location' => 'footer']);
+        $this->assertStringNotContainsString('site-footer__heading', $html);
+        $this->assertStringNotContainsString('site-footer__bottom', $html);
+        $this->assertStringNotContainsString('site-footer__note', $html);
+    }
+
+    // ── CSS: neutral, token-routed structure styling ────────────────────────
+
+    public function testFooterHeadingRoutesThroughTextSlot(): void
+    {
+        // Neutral: no baked color — inherits the footer text color via --footer-text.
+        $block = $this->cssRuleBlock('.site-footer__heading');
+        $this->assertNotNull($block);
+        $this->assertMatchesRegularExpression('/color:\s*var\(--footer-text,\s*inherit\)/', $block);
+    }
+
+    public function testFooterBottomBarDividerUsesTheBorderToken(): void
+    {
+        // The "delimited" band reuses --color-border (the footer's own border token),
+        // not a baked color/size opinion.
+        $block = $this->cssRuleBlock('.site-footer__bottom');
+        $this->assertNotNull($block);
+        $this->assertMatchesRegularExpression('/border-top:\s*1px solid var\(--color-border\)/', $block);
+    }
+
+    public function testFooterNoteRoutesThroughTextSlot(): void
+    {
+        $block = $this->cssRuleBlock('.site-footer__note');
+        $this->assertNotNull($block);
+        $this->assertMatchesRegularExpression('/color:\s*var\(--footer-text,\s*var\(--color-muted\)\)/', $block);
+    }
+
+    public function testBaseTemplateMapsEveryFooterStructureOption(): void
+    {
+        $base = file_get_contents($this->themeRoot . '/templates/base.php');
+        foreach (['pp_footer_menu_label', 'pp_footer_contact_label',
+                  'pp_footer_note', 'pp_footer_logo_id'] as $opt) {
+            $this->assertStringContainsString(
+                "get_option('{$opt}'",
+                $base,
+                "templates/base.php must read the {$opt} site option and pass it to the footer."
+            );
+        }
+    }
 }

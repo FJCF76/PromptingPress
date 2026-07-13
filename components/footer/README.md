@@ -18,7 +18,7 @@ so in practice only `location` is ever set.
 | `location`  | string | No       | `'footer'` | WP theme location slug |
 | `show_logo` | bool   | No       | `false`    | Whether to render the site logo in the footer. Not set by composing a `footer` (rejected since #223) — set the `pp_footer_show_logo` site option instead; the base template passes it in |
 | `logo_text` | string | No       | —          | Logo text (falls back to site title). Not reachable from a page |
-| `logo_id`   | int    | No       | —          | Media Library attachment ID for an image logo (takes priority over `logo_text`). Must be an image attachment. Not reachable from a page; use the `pp_logo_id` option |
+| `logo_id`   | int    | No       | —          | Media Library attachment ID for an image logo (takes priority over `logo_text`). Must be an image attachment. Not reachable from a page; use the `pp_footer_logo_id` option (footer override; falls back to `pp_logo_id`) |
 | `logo_alt`  | string | No       | —          | Alt text for the image logo. Not reachable from a page |
 | `bg`         | string | No | — | Footer background. Set via the `pp_footer_bg` site option → `--footer-bg`. A CSS color **or** a bounded `linear-gradient()`/`radial-gradient()` (the shared `gradient` slot type, #333) |
 | `text`       | string | No | — | Footer text color (blurb/contact/copyright). Set via `pp_footer_text` → `--footer-text` |
@@ -26,15 +26,21 @@ so in practice only `location` is ever set.
 | `blurb`      | string | No | — | Brand/description line under the logo. Set via `pp_footer_blurb` |
 | `contact`    | string | No | — | Contact/secondary text block. Set via `pp_footer_contact` |
 | `copyright`  | string | No | — | Copyright line. Set via `pp_footer_copyright`; empty = the default `© <year> <site title>. All rights reserved.` |
+| `menu_label`    | string | No | — | Optional heading above the footer nav menu (#335). Set via `pp_footer_menu_label`; empty = unlabelled |
+| `contact_label` | string | No | — | Optional heading above the contact block (#335). Set via `pp_footer_contact_label`; only rendered when `contact` is set |
+| `note`          | string | No | — | Optional secondary line (#335). Set via `pp_footer_note`; when set, the copyright moves into a delimited bottom bar and this note renders opposite it |
 
 ### Turning the footer logo on
 
 `show_logo` defaults to `false`. Composing a `footer` to pass `true` is rejected since #223
 (the base template already renders the footer as site chrome). The supported surface is the
 `pp_footer_show_logo` site option (a boolean, set via `update_site_option`); `templates/base.php`
-reads it and passes `show_logo` into the footer. When on, the footer resolves the same logo as
-the header (`pp_logo_id` → `custom_logo` theme-mod → text wordmark). `pp_logo_id` still sets the
-**header** logo independently.
+reads it and passes `show_logo` into the footer. When on, the footer resolves its logo as
+`pp_footer_logo_id` → `pp_logo_id` → `custom_logo` theme-mod → text wordmark. The
+`pp_footer_logo_id` override (#335) exists because `pp_logo_id` feeds both the light header and the
+dark footer, so a dark brand mark is invisible on a dark footer; set a light variant with
+`pp_footer_logo_id` (an image attachment ID, never a URL) while `pp_logo_id` stays the **header**
+logo. Unset, the footer falls back to `pp_logo_id`.
 
 ## Usage
 
@@ -50,11 +56,14 @@ pp_get_component('footer', ['location' => 'footer']);
 | Build the footer menu | The menu actions: `create_menu` / `set_menu` / `add_menu_item` |
 | Attach a menu to the footer | `assign_menu_location` with location `footer` |
 | Show/hide the footer logo | `update_site_option` with key `pp_footer_show_logo` (boolean) |
+| Footer logo override (light variant for a dark footer) | `update_site_option` with key `pp_footer_logo_id` (image attachment ID; unset falls back to `pp_logo_id`) |
 | Dark marketing footer (background) | `update_site_option` with key `pp_footer_bg` (a CSS color **or** a bounded gradient) |
 | Footer text / link colors | `update_site_option` with keys `pp_footer_text` / `pp_footer_link_color` (CSS colors) |
 | Brand blurb under the logo | `update_site_option` with key `pp_footer_blurb` (text) |
 | Contact block (address/email) | `update_site_option` with key `pp_footer_contact` (text) |
 | Custom copyright line | `update_site_option` with key `pp_footer_copyright` (text; empty = default line) |
+| Column headings (menu / contact) | `update_site_option` with keys `pp_footer_menu_label` / `pp_footer_contact_label` (text; empty = unlabelled) |
+| Delimited bottom bar with a secondary note | `update_site_option` with key `pp_footer_note` (text; when set, moves the copyright into its own band with the note opposite it) |
 
 The color options accept the same values as any style-slot color (hex, `rgb()`/`hsl()`,
 `transparent`, `currentColor`, or a known color-token reference like `var(--color-accent)`);

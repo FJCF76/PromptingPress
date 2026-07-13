@@ -68,6 +68,14 @@ if (!function_exists('pp_base_template')) {
     'blurb'      => (string) get_option('pp_footer_blurb', ''),
     'contact'    => (string) get_option('pp_footer_contact', ''),
     'copyright'  => (string) get_option('pp_footer_copyright', ''),
+    // Footer STRUCTURE (issue 335): optional column headings, the bottom-bar
+    // secondary note, and the footer logo override. logo_id is passed as the
+    // footer's logo_id prop; pp_resolve_logo already falls back to the pp_logo_id
+    // site option when it is empty, so an unset override keeps today's behavior.
+    'menu_label'    => (string) get_option('pp_footer_menu_label', ''),
+    'contact_label' => (string) get_option('pp_footer_contact_label', ''),
+    'note'          => (string) get_option('pp_footer_note', ''),
+    'logo_id'       => (string) get_option('pp_footer_logo_id', ''),
 ]); ?>
 
 <?php wp_footer(); ?>

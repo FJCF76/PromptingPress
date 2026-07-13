@@ -4,6 +4,26 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.120] — 2026-07-13 — the footer can finally be organised: labelled columns, a delimited bottom bar, and a light logo for a dark band (#335)
+
+**Issue #300 gave the footer a dark marketing tone but no structure, so it rendered as an undifferentiated run of blurb, links, contact string, and copyright. Four new site options add the organisation a marketing footer needs, all through the same `update_site_option` surface, still with no footer builder. `pp_footer_menu_label` and `pp_footer_contact_label` put a heading over the menu and the contact columns. `pp_footer_note` moves the copyright into its own delimited bottom bar and renders a secondary line opposite it. `pp_footer_logo_id` gives the footer its own logo, so a light logo variant can sit on a dark footer while `pp_logo_id` stays the header logo. Every one is optional; unset, the footer renders as it did before — this adds structure, it does not change any default.**
+
+The one design choice worth naming is what triggers the bottom bar. The reference footer keeps its copyright in a delimited band with a secondary note on the opposite side, but a footer that never sets a note should keep rendering its copyright inline exactly as #300 did. So the presence of `pp_footer_note` is the trigger: set it, and the copyright moves out of the main flow into a bordered band with the note beside it; leave it empty, and nothing moves. The copyright string is built once and rendered in exactly one place, whichever place applies, so it can never duplicate or drift. The bottom bar's divider reuses the same `--color-border` token the footer's own top border already uses, and the column headings inherit the footer text colour through `--footer-text` — no colour or size opinion is baked into the component, because a footer's palette is a token choice the site-building AI makes, not something a structural change should decide. The logo override is not a new resolver: the footer already resolved its logo through `logo_id` → `pp_logo_id` → theme-mod → wordmark, and `pp_footer_logo_id` simply feeds the first step, so an unset override falls back to `pp_logo_id` with no new code path. It validates as an image attachment ID under the exact same rule as `pp_logo_id`.
+
+### Added
+
+- `pp_footer_menu_label` and `pp_footer_contact_label` site options — optional headings above the footer navigation menu and the contact block. Empty leaves both columns unlabelled, as before.
+- `pp_footer_note` site option — an optional secondary line. When set, the copyright moves into a delimited bottom bar (a top border) and the note renders opposite it; empty keeps the copyright inline exactly as #300 rendered it.
+- `pp_footer_logo_id` site option — an optional footer logo override (a Media Library image attachment ID, never a URL, same validation as `pp_logo_id`). It lets a light logo variant serve a dark footer while `pp_logo_id` stays the header logo. Unset, the footer falls back to `pp_logo_id`.
+
+### Docs
+
+- `AI_CONTEXT.md`, `ai-instructions/set-logo.md`, `ai-instructions/website-building.md`, the `footer` component schema and README, the `update_site_option` action description, and `README.md` all document the four new options. The site-building AI is now told it can label the footer columns, delimit the bottom bar, and give the footer its own light logo.
+
+### Tests
+
+- `tests/FooterChromeTest.php` pins the four new options end to end: the whitelist types, the `pp_footer_logo_id` attachment validation and its parity with `pp_logo_id`, the headings rendering only when their label is set, the bottom bar appearing only when a note is set with the copyright moved into it and never duplicated, the logo override resolving and falling back to `pp_logo_id`, escaping of every new string, unset output carrying no new structure, the neutral token-routed CSS, and `templates/base.php` mapping each option onto a footer prop.
+
 ## [v0.16.119] — 2026-07-13 — the header can finally carry a colour, and either chrome band can carry a gradient (#333)
 
 **The site header was the one piece of above-the-fold chrome with no styling surface at all. Its background was hard-bound to the global page colour, its logo and links took the global text colour, and there were no header site options — so a dark or gradient marketing header could not be expressed without inverting the entire site's tokens. Three new site options fix that: `pp_header_bg`, `pp_header_text`, and `pp_header_link_color`, the exact mirror of the footer surface shipped in #300. In the same change, `pp_header_bg` and `pp_footer_bg` now accept a CSS gradient as well as a solid colour, so a real gradient band is expressible on either. Unset, the header and footer render exactly as before — this adds a capability, it does not change any default.**
