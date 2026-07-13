@@ -603,8 +603,9 @@ function _pp_validate_gradient_color_stop(string $stop): bool {
  * functions, matching real CSS (`linear-gradient(red, blue)` is valid and
  * common) — disambiguated from the first color-stop by strict grammar: a
  * direction/shape argument never looks like a color (it's a bare
- * angle+unit, a "to ..." phrase, or one of a small keyword allowlist for
- * radial), so if the first top-level-comma-separated segment doesn't match
+ * angle+unit, a "to ..." phrase, or a radial shape/`at <position>` clause
+ * built from keyword/percentage tokens), so if the first
+ * top-level-comma-separated segment doesn't match
  * one of those forms exactly, it's treated as the first color-stop instead
  * — never ambiguous (cross-model review: an earlier draft required the
  * direction argument specifically to avoid this, which turned out to be
@@ -656,8 +657,19 @@ function _pp_validate_gradient(string $value): bool {
             $first
         );
     } else {
-        $allowed_positions = ['circle', 'ellipse', 'circle at center', 'ellipse at center'];
-        $is_direction = in_array(strtolower($first), $allowed_positions, true);
+        // Radial shape-position: an optional shape keyword (circle|ellipse)
+        // and/or an optional `at <position>` clause, at least one present.
+        // <position> is 1-2 tokens, each a placement keyword or a
+        // non-negative percentage (#301). Lengths (`at 10px`), radial size
+        // keywords (`closest-side`), and any function/var()/injection token
+        // are deliberately excluded — narrower than full CSS, matching the
+        // bounded-grammar posture of the rest of this validator. Anchored,
+        // no nested quantifiers (no catastrophic-backtracking surface).
+        $pos = '(?:center|top|bottom|left|right|\d+(?:\.\d+)?%)';
+        $is_direction = (bool) preg_match(
+            '/^(?:(?:circle|ellipse)(?:\s+at\s+' . $pos . '(?:\s+' . $pos . ')?)?|at\s+' . $pos . '(?:\s+' . $pos . ')?)$/i',
+            $first
+        );
     }
 
     $stops = $is_direction ? array_slice($args, 1) : $args;
