@@ -864,6 +864,99 @@ describe('CSS lint: hero eyebrow is a pill, not a full-width band', () => {
 });
 
 /**
+ * Hero flex rows declare their packing (#338).
+ *
+ * `.hero__proof` was a flex container with NO justify-content, so its items packed at the
+ * initial `flex-start` — left-aligned, inside a hero the operator asked to be centered.
+ * `text-align: center` is inherited onto the row and has no say in where a flex container
+ * places its items, so nothing in the computed styles looked wrong.
+ *
+ * These are DECLARATION pins and they are deliberately not the proof. The bug was
+ * invisible at the declaration level, which is exactly how it shipped; the rendered proof
+ * lives in tests/e2e/style-render.spec.ts (#338), which measures where the glyphs actually
+ * land. What these add is cheap coverage of the cascade risk the rendered pins cannot see
+ * on a fixture page: the four benchmark IDs carry `#home-hero .hero__proof` rules whose
+ * (1,1,0) specificity outranks every class rule below, so a justify-content declared there
+ * would beat the fix on real pages while every E2E fixture stayed green.
+ */
+describe('CSS lint: hero flex rows declare their justification', () => {
+    // Last match wins among equal-specificity rules, same as the #225 guard above.
+    function justifyFor(needle, selector, media = null) {
+        const decls = rulesMatching(needle)
+            .filter(r => r.media === media && r.selectors.includes(selector))
+            .map(r => /justify-content\s*:\s*([^;}]+)/.exec(r.body))
+            .filter(Boolean);
+        return decls.length ? decls[decls.length - 1][1].trim() : null;
+    }
+
+    // Both hero rows that pack items along the inline axis. The proof row is the one that
+    // shipped the bug; the cta group hid the identical hole behind `align-self`, which
+    // shrink-wraps its box until the buttons wrap.
+    const ROWS = ['.hero__proof', '.hero__cta-group'];
+
+    test.each(ROWS)('%s declares its base packing instead of inheriting flex-start', row => {
+        expect(justifyFor(row, row)).toBe('flex-start');
+    });
+
+    // The two center-aligned layouts pack their rows to match, driven by the layout
+    // variant class — not by a new style slot the operator would have to set after
+    // already having said the hero is centered.
+    test.each(ROWS)('the centered layout centers %s', row => {
+        expect(justifyFor(row, `.hero--centered ${row}`)).toBe('center');
+    });
+
+    test.each(ROWS)('the cover layout centers %s', row => {
+        expect(justifyFor(row, `.hero--cover ${row}`)).toBe('center');
+    });
+
+    // Scope guard: left and split are left-aligned layouts and must inherit the base
+    // flex-start. An override here would silently center a proof line that should hug the
+    // leading edge — the mirror-image regression of the bug being fixed.
+    test.each(ROWS)('the left and split layouts inherit the base flex-start for %s', row => {
+        expect(justifyFor(row, `.hero--left ${row}`)).toBeNull();
+        expect(justifyFor(row, `.hero--split ${row}`)).toBeNull();
+    });
+
+    // The cascade risk that would defeat the fix with every pin above still green: an
+    // ID-specificity rule (the benchmark pages already own `#home-hero .hero__proof` for
+    // margin/width) or a media-scoped rule re-declaring the packing. Only the three known
+    // class rules may justify these rows.
+    test.each(ROWS)('no other rule anywhere re-justifies %s', row => {
+        const owners = [row, `.hero--centered ${row}`, `.hero--cover ${row}`];
+        rulesMatching(row)
+            .filter(r => r.media || !r.selectors.every(s => owners.includes(s)))
+            .forEach(r => expect(r.body).not.toMatch(/justify-content\s*:/));
+    });
+
+    // ...and "anywhere" has to mean anywhere, not just components.css. A justify-content on
+    // these rows from ANY other enqueued stylesheet would beat the fix on real pages with
+    // every pin above green — the cascade does not care which file a rule was authored in.
+    // These rows are components.css's to own, so no other sheet may name them at all.
+    test.each(ROWS)('no other stylesheet declares %s', row => {
+        const dir = path.resolve(__dirname, '../../assets/css');
+        for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.css'))) {
+            if (file === 'components.css') continue;
+            const css = stripComments(fs.readFileSync(path.join(dir, file), 'utf-8'));
+            expect(css).not.toMatch(new RegExp(row.replace('.', '\\.') + '(?![\\w-])'));
+        }
+    });
+
+    // The rows only pack along the inline axis while they are flex ROWS. If any rule made
+    // one a column, justify-content would silently start controlling the BLOCK axis and
+    // every pin above would become dead code — the same "the mechanism moved out from
+    // under the pin" failure the #225 parent-is-a-flex-column guard exists for.
+    test.each(ROWS)('%s is a flex row in every media context', row => {
+        const rules = rulesMatching(row);
+        const base = rules.find(r => r.selectors.includes(row) && !r.media);
+        // Without this, a renamed or media-scoped base rule fails as a TypeError on
+        // `base.body` instead of naming the regression.
+        expect(base).toBeDefined();
+        expect(base.body).toMatch(/display\s*:\s*flex\s*;/);
+        rules.forEach(r => expect(r.body).not.toMatch(/flex-direction\s*:\s*column/));
+    });
+});
+
+/**
  * CTA eyebrow stays a pill, above the title (#255).
  *
  * Same visual failure as #225, different mechanism. `#home-cta .cta__text` is
