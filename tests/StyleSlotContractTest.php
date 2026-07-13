@@ -535,6 +535,29 @@ class StyleSlotContractTest extends TestCase
         );
     }
 
+    /**
+     * Hero proof-line color slot (issue 296): byte-identical-unset fallback pin.
+     *
+     * The base .hero__proof rule hardcoded `color: var(--color-muted)` with no
+     * per-instance slot, so every dark hero shipped a dark-on-dark proof line
+     * (same literal-token-defeats-theming family as #222/#248/#292). Routing it
+     * through --hero-proof-color lets a dark hero lift the proof color. The generic
+     * checks above already prove the slot is consumed and unbypassed; this pins the
+     * exact fallback literal so unset output stays byte-identical to the old value.
+     * The proof line has a single color declaration (no premium/inverted re-declare),
+     * so this one rule is the whole surface.
+     */
+    public function testIssue296HeroProofColorSlotFallback(): void
+    {
+        $block = $this->stripComments($this->componentBlock('hero'));
+        $this->assertStringContainsString(
+            'color: var(--hero-proof-color, var(--color-muted))',
+            $block,
+            'The .hero__proof base rule must route color through --hero-proof-color '
+            . 'with --color-muted as the fallback (issue 296, byte-identical unset).'
+        );
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
