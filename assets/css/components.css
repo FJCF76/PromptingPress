@@ -348,7 +348,7 @@
   align-self: flex-start;
   padding: 0.35rem 0.85rem;
   margin-bottom: var(--space-sm);
-  border-radius: 3px;
+  border-radius: var(--hero-eyebrow-radius, 3px);
   font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -797,7 +797,7 @@
   display: inline-block;
   padding: 0.35rem 0.85rem;
   margin-bottom: var(--space-sm);
-  border-radius: 3px;
+  border-radius: var(--section-eyebrow-radius, 3px);
   font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -819,8 +819,16 @@
 .section__subheading {
   color: var(--section-subheading-color, var(--color-muted));
   margin-top: 0;
-  margin-bottom: var(--space-md);
 }
+/* base.css `p:last-child { margin-bottom: 0 }` (0,1,1) outranks a bare
+   `.section__subheading` (0,1,0), and the subheading is always the header's last
+   child, so the component's declared bottom rhythm never reached the page (issue 336).
+   Own the spacing at header scope (0,2,0): it wins the cascade without weakening
+   the global prose reset, and does not depend on the subheading staying last. */
+.section__header > .section__subheading {
+  margin-bottom: var(--section-subheading-margin-bottom, var(--space-md));
+}
+
 
 .section__content {
   color: var(--section-text, var(--section-text-theme-color, var(--color-text)));
@@ -1023,7 +1031,7 @@
   display: inline-block;
   padding: 0.35rem 0.85rem;
   margin-bottom: var(--space-sm);
-  border-radius: 3px;
+  border-radius: var(--faq-eyebrow-radius, 3px);
   font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -1170,7 +1178,7 @@
   display: inline-block;
   padding: 0.35rem 0.85rem;
   margin-bottom: var(--space-sm);
-  border-radius: 3px;
+  border-radius: var(--grid-eyebrow-radius, 3px);
   font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -1199,9 +1207,17 @@
 .grid__subheading {
   color: var(--grid-subheading-color, var(--grid-subheading-theme-color, var(--color-muted)));
   margin-top: 0;
-  margin-bottom: var(--space-lg);
   max-width: 40rem;
 }
+/* base.css `p:last-child { margin-bottom: 0 }` (0,1,1) outranks a bare
+   `.grid__subheading` (0,1,0), and the subheading is always the header's last
+   child, so the component's declared bottom rhythm never reached the page (issue 336).
+   Own the spacing at header scope (0,2,0): it wins the cascade without weakening
+   the global prose reset, and does not depend on the subheading staying last. */
+.grid__header > .grid__subheading {
+  margin-bottom: var(--grid-subheading-margin-bottom, var(--space-lg));
+}
+
 
 .grid__header--center .grid__subheading {
   margin-left: auto;
@@ -1558,7 +1574,7 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
   display: inline-block;
   padding: 0.35rem 0.85rem;
   margin-bottom: var(--space-sm);
-  border-radius: 3px;
+  border-radius: var(--cta-eyebrow-radius, 3px);
   font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -2008,7 +2024,7 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
 }
 
 .stats__number {
-  font-size: 2.5rem;
+  font-size: var(--stats-number-size, 2.5rem);
   font-weight: 700;
   color: var(--stats-number-color, var(--color-accent));
   line-height: 1;
@@ -2214,7 +2230,7 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
   display: inline-block;
   padding: 0.35rem 0.85rem;
   margin-bottom: var(--space-sm);
-  border-radius: 3px;
+  border-radius: var(--testimonials-eyebrow-radius, 3px);
   font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -2241,9 +2257,17 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
 .testimonials__subheading {
   color: var(--testimonials-subheading-color, var(--color-muted));
   margin-top: 0;
-  margin-bottom: var(--space-lg);
   max-width: 40rem;
 }
+/* base.css `p:last-child { margin-bottom: 0 }` (0,1,1) outranks a bare
+   `.testimonials__subheading` (0,1,0), and the subheading is always the header's last
+   child, so the component's declared bottom rhythm never reached the page (issue 336).
+   Own the spacing at header scope (0,2,0): it wins the cascade without weakening
+   the global prose reset, and does not depend on the subheading staying last. */
+.testimonials__header > .testimonials__subheading {
+  margin-bottom: var(--testimonials-subheading-margin-bottom, var(--space-lg));
+}
+
 
 .testimonials__header--center .testimonials__subheading {
   margin-left: auto;
@@ -3624,7 +3648,7 @@ main .btn:focus-visible,
 #how-hero .hero__eyebrow,
 #agencies-hero .hero__eyebrow,
 #implementers-hero .hero__eyebrow {
-  border-radius: 3px;
+  border-radius: var(--hero-eyebrow-radius, 3px);
   border-color: var(--color-border);
   background:
     linear-gradient(90deg, rgba(37, 99, 235, 0.06) 1px, transparent 1px) 0 0 / 1.4rem 100%,

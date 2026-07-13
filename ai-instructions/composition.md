@@ -166,7 +166,7 @@ Style ONE card differently from its siblings. A grid item may carry an optional 
 
 Set it in the composition (`create_page` / `update_composition` / `update_component`), NOT via `style_component` — `style_component` targets a whole component instance, not one item. Use it for the standard "one distinct card in a row" patterns: a dark CTA panel beside light checklist cards, or a green-on-dark terminal/code card (pair with `text_role: "mono"`).
 
-The **card-scoped** slots accepted here: `--grid-card-bg`, `--grid-card-border`, `--grid-card-border-width`, `--grid-card-radius`, `--grid-card-shadow`, `--grid-card-bar-color`, `--grid-card-bar-height`, `--grid-featured-texture-color`, `--grid-featured-shadow`, `--grid-card-padding`, `--grid-card-gap`, `--grid-item-title-size`, `--grid-item-title-color`, `--grid-item-text-color`, `--grid-bullet-color`, `--grid-link-color`, `--grid-step-color`. Container/heading slots (`--grid-bg`, `--grid-gap`, `--grid-heading-*`, `--grid-eyebrow-*`, `--grid-subheading-color`, `--grid-padding-*`) are read on the section/list/header, not the card, so a per-card override would render nothing — they are **rejected** here with `invalid_style_slot` naming the card. Put those on the grid-level `style` instead.
+The **card-scoped** slots accepted here: `--grid-card-bg`, `--grid-card-border`, `--grid-card-border-width`, `--grid-card-radius`, `--grid-card-shadow`, `--grid-card-bar-color`, `--grid-card-bar-height`, `--grid-featured-texture-color`, `--grid-featured-shadow`, `--grid-card-padding`, `--grid-card-gap`, `--grid-item-title-size`, `--grid-item-title-color`, `--grid-item-text-color`, `--grid-bullet-color`, `--grid-link-color`, `--grid-step-color`. Container/heading slots (`--grid-bg`, `--grid-gap`, `--grid-heading-*`, `--grid-eyebrow-*`, `--grid-subheading-*`, `--grid-padding-*`) are read on the section/list/header, not the card, so a per-card override would render nothing — they are **rejected** here with `invalid_style_slot` naming the card. Put those on the grid-level `style` instead.
 
 ```json
 { "component": "grid", "props": { "items": [
@@ -186,9 +186,9 @@ All seven heading-bearing components accept `title_accent`: an exact, case-sensi
 { "component": "hero", "props": { "title": "Fast and Safe WordPress", "title_accent": "Fast" } }
 ```
 
-### eyebrow / subheading / heading_align (hero, section, grid, cta, testimonials)
+### eyebrow / subheading / heading_align (hero, section, faq, grid, cta, testimonials)
 
-`eyebrow` renders a short kicker label as a pill above the title (e.g. `"NEW"`) on all five. `subheading` renders a supporting line below the title on section, grid, and testimonials only — hero uses `subtitle` and cta uses `text` for the same concept, so neither has a `subheading` prop. `heading_align` (`start` default, or `center`; section, grid, testimonials only) centers the eyebrow/title/subheading header block — independent of the component's overall layout.
+`eyebrow` renders a short kicker label as a pill above the title (e.g. `"NEW"`) on all six. `subheading` renders a supporting line below the title on section, grid, and testimonials only — hero uses `subtitle` and cta uses `text` for the same concept, so neither has a `subheading` prop. `heading_align` (`start` default, or `center`; section, grid, testimonials only) centers the eyebrow/title/subheading header block — independent of the component's overall layout.
 
 ### image_id (hero, section, logos items) — responsive images (#107)
 

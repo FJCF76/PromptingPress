@@ -54,6 +54,7 @@
       "--faq-item-bg": { "type": "gradient", "default": "var(--color-bg)", "description": "Individual accordion item background color or gradient" },
       "--faq-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color" },
       "--faq-eyebrow-bg": { "type": "color", "default": "var(--color-surface-accent)", "description": "Eyebrow pill background color" },
+      "--faq-eyebrow-radius": { "type": "length", "default": "3px", "description": "Eyebrow pill corner radius. Set a large value (e.g. 999px) for a fully rounded pill." },
       "--faq-heading-size": { "type": "length", "default": "1.875rem", "description": "Section heading font size" },
       "--faq-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading text color" },
       "--faq-heading-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading, if set" },

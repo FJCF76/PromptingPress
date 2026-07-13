@@ -1769,4 +1769,159 @@ test.describe('Safe-surface rendered proof', () => {
       }
     });
   }
+
+  // ── #336: weak defaults / missing slots ──────────────────────────────────
+  //
+  // Declaration-level assertions are not enough here. Every one of these three
+  // properties WAS declared in components.css and still failed to reach the
+  // element (the subheading rhythm lost the cascade to base.css's
+  // `p:last-child { margin-bottom: 0 }`). Only computed style proves a slot
+  // actually lands, so each strand is pinned twice: unset -> documented default,
+  // and set -> the operator's value wins.
+
+  // Strand 3 regression. `p:last-child` (0,1,1) outranked `.grid__subheading`
+  // (0,1,0), and the subheading is always the header's last child — so the
+  // declared `margin-bottom: var(--space-lg)` computed to 0px on every page.
+  // All three subheading-bearing components shared the bug.
+  for (const { component, slot, expected } of [
+    { component: 'section', slot: '--section-subheading-margin-bottom', expected: '16px' },
+    { component: 'grid', slot: '--grid-subheading-margin-bottom', expected: '32px' },
+    { component: 'testimonials', slot: '--testimonials-subheading-margin-bottom', expected: '32px' },
+  ]) {
+    test(`#336 ${component} subheading keeps its bottom rhythm as the header's last child @smoke`, async ({
+      page,
+    }) => {
+      pageId = createPage(`E2E ${component} Subheading Rhythm`);
+      setComposition(pageId, [
+        {
+          component,
+          props: {
+            id: 'pp-sub01',
+            title: 'Rhythm',
+            eyebrow: 'Kicker',
+            subheading: 'The sub-heading must not collide with the content below it.',
+            // Each component's own required props (section: body, grid/testimonials: items).
+            ...(component === 'section' ? { body: '<p>Body copy.</p>' } : {}),
+            ...(component === 'grid' ? { items: [{ title: 'One', text: 'Card' }] } : {}),
+            ...(component === 'testimonials'
+              ? { items: [{ quote: 'Great.', author: 'A. Person' }] }
+              : {}),
+          },
+        },
+      ]);
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      const sub = page.locator(`.${component}__subheading`);
+      await expect(sub).toBeVisible({ timeout: 10000 });
+
+      // Unset: the component's own declared rhythm survives the global prose reset.
+      // Before #336 this was '0px' — the reset won and the subheading collided.
+      const unset = await sub.evaluate((el) => getComputedStyle(el).marginBottom);
+      expect(unset).toBe(expected);
+
+      // The element really is the last child, so the reset genuinely applies to it.
+      // If this ever fails, the markup changed and the regression above is no longer pinned.
+      const isLastChild = await sub.evaluate((el) => el === el.parentElement?.lastElementChild);
+      expect(isLastChild).toBe(true);
+
+      // Rendered proof that THIS component's eyebrow radius slot reaches the element.
+      // All six eyebrow blocks are identical, but a declared slot that no rule consumes
+      // is exactly the failure the unit guards cannot see at computed-style level.
+      const radius = await page
+        .locator(`.${component}__eyebrow`)
+        .evaluate((el) => getComputedStyle(el).borderRadius);
+      expect(radius).toBe('3px');
+
+      // Set: the new slot drives it. A value no token resolves to.
+      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+      const res = await styleComponent(page, pageId, { [slot]: '61px' });
+      expect(res.success).toBe(true);
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      const set = await page.locator(`.${component}__subheading`).evaluate(
+        (el) => getComputedStyle(el).marginBottom
+      );
+      expect(set).toBe('61px');
+    });
+  }
+
+  // Strand 1. The eyebrow had color/bg slots but no radius slot, so the pill
+  // shape was unreachable.
+  //
+  // The `home-hero` case is the load-bearing one. `#home-hero, #how-hero,
+  // #agencies-hero, #implementers-hero .hero__eyebrow` re-declares border-radius
+  // at ID specificity (1,1,0) and would silently bypass the slot if left unrouted
+  // — the #292/#302 class of bug. A hero with any other id never matches that
+  // block, so it cannot pin the routing: revert that one literal and a
+  // non-matching id still goes green. Both ids are exercised.
+  for (const heroId of ['pp-hero01', 'home-hero']) {
+    test(`#336 hero eyebrow radius is slot-driven and defaults to the documented 3px (#${heroId}) @smoke`, async ({
+      page,
+    }) => {
+      pageId = createPage(`E2E Hero Eyebrow Radius Slot ${heroId}`);
+      setComposition(pageId, [
+        { component: 'hero', props: { id: heroId, eyebrow: 'Kicker', title: 'Radius' } },
+      ]);
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      const eyebrow = page.locator('.hero__eyebrow');
+      await expect(eyebrow).toBeVisible({ timeout: 10000 });
+
+      // Unset output stays byte-identical to pre-#336: the slot adds capability, not opinion.
+      expect(await eyebrow.evaluate((el) => getComputedStyle(el).borderRadius)).toBe('3px');
+
+      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+      const res = await styleComponent(page, pageId, { '--hero-eyebrow-radius': '999px' });
+      expect(res.success).toBe(true);
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      const rounded = await page
+        .locator('.hero__eyebrow')
+        .evaluate((el) => getComputedStyle(el).borderRadius);
+      expect(rounded).toBe('999px');
+    });
+  }
+
+  // Strand 2. .stats__number had a color slot but no size slot at all, so the
+  // headline figure's scale was simply not authorable.
+  test('#336 stats number size is slot-driven and defaults to the documented 2.5rem @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Stats Number Size Slot');
+    setComposition(pageId, [
+      {
+        component: 'stats',
+        props: { id: 'pp-stats01', items: [{ number: '98%', label: 'Uptime' }] },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const number = page.locator('.stats__number');
+    await expect(number).toBeVisible({ timeout: 10000 });
+
+    // 2.5rem at the 16px root = 40px. Unchanged by #336 (slot added, default kept).
+    expect(await number.evaluate((el) => getComputedStyle(el).fontSize)).toBe('40px');
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await styleComponent(page, pageId, { '--stats-number-size': '73px' });
+    expect(res.success).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    const sized = await page
+      .locator('.stats__number')
+      .evaluate((el) => getComputedStyle(el).fontSize);
+    expect(sized).toBe('73px');
+  });
 });
