@@ -48,11 +48,19 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 | faq     | items[] {question, answer}              | title, title_accent, eyebrow, theme, id                 |
 | grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, heading_align, layout, theme |
 | table   | headers[], rows[][]                     | title, caption                                          |
-| cta     | title, button_text, button_url          | title_accent, eyebrow, text, layout, theme, background_image, button_variant |
+| cta     | button_text, button_url                 | title, title_accent, eyebrow, text, layout, theme, background_image, button_variant |
 | stats   | items[] {number, label}                 | title, title_accent, theme, background_image            |
 | logos   | items[] {image_url, image_alt, image_id?, label?} | title, theme                                  |
 | embed   | content                                 | title, theme                                            |
 | testimonials | items[] {quote}                    | title, title_accent, eyebrow, subheading, heading_align, layout, theme |
+
+### cta: standalone button (heading-less)
+
+`cta.title` is optional. Omit `title` (and `text`) to render just the button row with no heading element — the sanctioned way to place a standalone button, e.g. a centered "closing" button after a steps or feature section. `button_text` and `button_url` are still required, and `id`, `layout`, `theme`, and all style slots keep working.
+
+```json
+{ "component": "cta", "props": { "button_text": "Get started free →", "button_url": "/signup" } }
+```
 
 ### section.theme
 

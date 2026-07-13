@@ -115,7 +115,7 @@ site-customization permission.
 | faq       | components/faq/faq.php         | Native details/summary accordion. Zero JS. Auto-emits FAQPage JSON-LD. | items[] (req) {question, answer}, title, title_accent, eyebrow, theme, id |
 | grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {number, title, text, text_role, bullets[], image_url, image_alt, link_url, link_text}, title, title_accent, eyebrow, subheading, heading_align, layout, theme, id |
 | table     | components/table/table.php     | Data/comparison table, horizontal scroll mobile  | headers[] (req), rows[][] (req), title, caption    |
-| cta       | components/cta/cta.php         | Call-to-action block. Layout + color + bg-image  | title (req), title_accent, eyebrow, button_text (req), button_url (req), button_variant, text, layout, theme, background_image, id |
+| cta       | components/cta/cta.php         | Call-to-action block. Layout + color + bg-image  | title, title_accent, eyebrow, button_text (req), button_url (req), button_variant, text, layout, theme, background_image, id |
 | stats     | components/stats/stats.php     | Horizontal row of large-number metrics + labels  | items[] (req) {number, label}, title, title_accent, theme, background_image, id |
 | logos     | components/logos/logos.php     | Flex-wrap image grid — logo strips or icon tiles | items[] (req) {image_url, image_alt, image_id?, label?}, title, theme, id |
 | embed     | components/embed/embed.php     | WP shortcode / plugin content wrapper            | content (req), title, theme, id                    |

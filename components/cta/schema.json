@@ -1,6 +1,6 @@
 {
   "component": "cta",
-  "description": "Call-to-action block with title, optional supporting text, and a button. Two layouts: full-width (centered, bg surface) and inline (flex row).",
+  "description": "Call-to-action block with an optional title, optional supporting text, and a button. Two layouts: full-width (centered, bg surface) and inline (flex row). Omit title (and text) to render a standalone button row with no heading — the sanctioned heading-less button pattern.",
   "props": {
     "id": {
       "type": "string",
@@ -10,8 +10,9 @@
     },
     "title": {
       "type": "string",
-      "required": true,
-      "description": "CTA headline."
+      "required": false,
+      "default": "",
+      "description": "Optional CTA headline. Omit (along with text) to render a standalone button row with no heading element — the sanctioned heading-less button pattern (issue 294). id/anchor and all style slots still apply."
     },
     "title_accent": {
       "type": "string",

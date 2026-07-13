@@ -501,13 +501,14 @@ function formatDiffsForIssue(diffs, pageTitle, postId) {
  * row, e.g. `grid — Our WordPress Services`.
  *
  * Prefers a field literally named `title` when it has a value, regardless of
- * whether the component's schema marks it required — most components (grid,
- * faq, section, stats, table, logos, embed) declare `title` as optional
+ * whether the component's schema marks it required — most components (cta,
+ * grid, faq, section, stats, table, logos, embed) declare `title` as optional
  * ("omit if context makes it clear"), but it's still the best available
- * label whenever it's actually set (#76). Only `cta` and `hero` mark `title`
- * required, which is why hero already worked before this fix — falling back
- * to the first required string field (e.g. cta's/hero's own required title,
- * or a component with no title field at all) preserves that exact behavior.
+ * label whenever it's actually set (#76). Only `hero` marks `title` required
+ * (cta.title became optional in #294), which is why hero already worked before
+ * this fix — falling back to the first required string field (e.g. hero's own
+ * required title, or a title-less cta's required `button_text`) preserves that
+ * exact behavior.
  *
  * @param {{ fields: Array<{name: string, type: string, required: boolean, value: *}> }} compData
  * @returns {string}  Truncated preview text, or '' if nothing usable.

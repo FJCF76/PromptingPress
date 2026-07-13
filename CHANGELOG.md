@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.107] — 2026-07-13 — a call-to-action can finally be just a button: `cta.title` is now optional, so a heading-less standalone button is one component away (#294)
+
+**There was no sanctioned way to render a standalone button — a button not attached to a heading. `cta.title` was required, and links written into `section.body` render as plain text with no button treatment, so a common marketing pattern (a centered "closing" button after a steps or feature section) could not be matched. This release makes `cta.title` optional: omit it (and `text`) and the CTA renders just its button row, with no empty heading element in the DOM. `button_text` and `button_url` stay required, and `id`/anchors, `layout`, `theme`, and every style slot keep working unchanged.**
+
+The required-title rule was relaxed in the one shared validation engine (`pp_validate_composition`), driven by the component schema's `required` flag rather than a CTA special case, so there is no second validation path. The CTA template now emits the `.cta__text` wrapper only when an eyebrow, title, or body is present, so a title-less CTA produces no bare `<h2>` and no stray flex gap above the button. A CTA that supplies a title renders byte-identically to before. The change reuses the validated CTA surface and shared engines, so no new component or schema was added.
+
+### Added
+
+- `cta.title` is now optional. A CTA with only `button_text` and `button_url` renders a standalone button row (no heading element), the sanctioned heading-less button pattern for closing buttons after a steps or feature section. `id`/anchor and all CTA style slots still apply (#294).
+
+### Docs
+
+- `AI_CONTEXT.md`, `README.md`, and `ai-instructions/composition.md` now describe `cta.title` as optional and document the title-less CTA as the standalone-button pattern; the runtime AI catalog (`lib/ai-context.php`) reflects the change automatically from the schema (#294).
+
+### Tests
+
+- `ComponentPropsTest` pins the title-less render (button present, no `<h2>`, no `.cta__text` wrapper, `id` anchor preserved) and that an eyebrow-only or titled CTA still renders the wrapper; `SchemaValidationTest` pins that a title-less CTA passes `pp_validate_composition` while a CTA missing `button_text` or `button_url` is still rejected (#294).
+
 ## [v0.16.106] — 2026-07-13 — a checklist written in a section body finally renders as a list: markers and indent are restored inside `.section__content` (#295)
 
 **Any `<ul>`/`<ol>` an author or the AI wrote into `section.body` rendered as bare, flush-left, unmarked lines — visually indistinguishable from a stack of one-line paragraphs. The global reset (`base.css` `*{padding:0}` plus `ul,ol{list-style:none}`) stripped both the marker and the indent, and no rule inside the section rich-text surface restored them. Every marketing page with a "why us" checklist hit this in the one long-form body surface the product offers. This release restores default list rendering (disc/decimal markers, indent, and item rhythm) scoped to `.section__content`, where the section body HTML actually renders.**
