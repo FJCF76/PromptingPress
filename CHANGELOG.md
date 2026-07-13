@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.111] — 2026-07-13 — the footer logo is now capped to a sane height, so a real wordmark no longer renders near full size and dominates the footer (#299)
+
+**Setting a real logo image (via `pp_logo_id` + `pp_footer_show_logo`) used to blow up the footer: a 664×150 wordmark rendered at roughly 491×111 px because the footer logo `<img>` had no size cap at all, while the header logo has always been constrained to a sensible height. The footer is template-owned with no style slots, so there was no way to fix it from the outside. This release adds a height cap to the footer logo that matches the header treatment, so any real-world logo aspect ratio renders at a reasonable size.**
+
+The footer logo image is now capped the same way the header logo is (`max-height: 2.5rem`, width auto, aspect preserved). A tall or wide wordmark is scaled down to footer proportions instead of rendering near its intrinsic size. Nothing about how you set the logo changes: `pp_logo_id` still sets the image and `pp_footer_show_logo` still turns the footer logo on. This is a pure styling fix with no new options.
+
+### Fixed
+
+- The footer logo now has a height cap consistent with the header logo, so a real logo image (e.g. a 664×150 wordmark) renders at footer scale instead of near its intrinsic size and dominating the footer (#299).
+
+### Tests
+
+- `LogoTest` pins the footer logo CSS contract: the `.site-footer__logo-image` rule caps height, keeps width auto, and preserves aspect; its cap matches the header logo cap so the two treatments cannot silently drift apart; and the rendered footer `<img>` actually carries the capped class so the rule cannot become dead CSS (#299).
+
 ## [v0.16.110] — 2026-07-13 — a `section` can now put text beside a styleable content panel with its own heading, list, and CTA, so the asymmetric "text + supporting card" marketing layout is native (#104)
 
 **`section` could only do two columns as text + image (`layout: image-left`/`image-right`). The high-conversion pattern where a text column sits beside a contained panel — a card with its own sub-heading, checklist, and call-to-action button — had no native form, so multi-element sections collapsed into one stacked centered block, a visible drop in polish. This release adds `layout: "text-panel"`: the left column is the normal section (eyebrow/title/body), the right column is a server-validated content panel built entirely from props — no nested components, so the "components never nest components" rule holds.**

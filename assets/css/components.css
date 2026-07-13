@@ -1809,6 +1809,17 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
   }
 }
 
+/* Cap the footer logo the same way the nav caps it (.nav__logo-image). The
+   footer is template-owned with zero style slots, so a real-world wordmark
+   (e.g. 664x150) would otherwise render near intrinsic size and dominate the
+   footer. Literal cap, consistent with the nav treatment. issue 299 */
+.site-footer__logo-image {
+  display: block;
+  max-height: 2.5rem;
+  width: auto;
+  object-fit: contain;
+}
+
 .site-footer__nav ul {
   display: flex;
   flex-wrap: wrap;

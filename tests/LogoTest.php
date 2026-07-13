@@ -482,4 +482,59 @@ class LogoTest extends TestCase
         $this->assertInstanceOf(\WP_Error::class, $result);
         $this->assertSame('invalid_logo_id', $result->get_error_code());
     }
+
+    // ── issue 299: footer logo has a height cap, consistent with the nav ─────
+
+    /** Extract a single CSS declaration block by selector from components.css. */
+    private function cssRuleBlock(string $selector): ?string
+    {
+        $css = file_get_contents(dirname(__DIR__) . '/assets/css/components.css');
+        // Match "<selector> { ... }" (selector anchored at a line start to avoid
+        // catching it as part of a grouped/compound selector).
+        $pattern = '/(?:^|\})\s*' . preg_quote($selector, '/') . '\s*\{([^}]*)\}/m';
+        return preg_match($pattern, $css, $m) ? $m[1] : null;
+    }
+
+    public function testFooterLogoImageHasHeightCap(): void
+    {
+        // Regression for issue 299: without a cap a real wordmark (664x150)
+        // rendered near intrinsic size and dominated the footer. The footer is
+        // template-owned with zero style slots, so the fix is a literal cap.
+        $block = $this->cssRuleBlock('.site-footer__logo-image');
+        $this->assertNotNull($block, '.site-footer__logo-image rule missing from components.css');
+        $this->assertMatchesRegularExpression('/max-height:\s*2\.5rem/', $block);
+        $this->assertMatchesRegularExpression('/width:\s*auto/', $block);
+        $this->assertMatchesRegularExpression('/object-fit:\s*contain/', $block);
+        $this->assertMatchesRegularExpression('/display:\s*block/', $block);
+
+        // Bind the capped selector to the template element it sizes: the footer
+        // <img> must actually carry site-footer__logo-image, or the cap is dead
+        // CSS while every source-text assertion above still passes.
+        $this->seedAttachment(72, 'https://example.com/wordmark.png', 'Brand');
+        update_option('pp_logo_id', '72');
+        $html = $this->renderFooter(['location' => 'footer', 'show_logo' => true]);
+        $this->assertStringContainsString('class="site-footer__logo-image"', $html);
+    }
+
+    public function testFooterLogoCapMatchesNavCap(): void
+    {
+        // The recorded direction for issue 299 is "consistent with the nav
+        // treatment": the footer must use the same max-height as the nav so the
+        // two logo treatments cannot silently drift apart.
+        $nav    = $this->cssRuleBlock('.nav__logo-image');
+        $footer = $this->cssRuleBlock('.site-footer__logo-image');
+        $this->assertNotNull($nav, '.nav__logo-image rule missing from components.css');
+        $this->assertNotNull($footer, '.site-footer__logo-image rule missing from components.css');
+        $extractMaxHeight = static function (string $block): ?string {
+            // Do not require a trailing ";" — max-height may be the last
+            // declaration in a block; stop at ";" or the closing "}".
+            return preg_match('/max-height:\s*([^;}]+)/', $block, $m) ? trim($m[1]) : null;
+        };
+        $this->assertNotNull($extractMaxHeight($nav), 'nav logo has no max-height');
+        $this->assertSame(
+            $extractMaxHeight($nav),
+            $extractMaxHeight($footer),
+            'footer logo max-height must match the nav logo cap (issue 299 direction)'
+        );
+    }
 }
