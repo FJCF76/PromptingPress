@@ -103,7 +103,7 @@ function pp_ai_system_prompt(): string {
                         $eligible_list = $item_eligible
                             ? implode(', ', $item_eligible)
                             : 'the same style slots';
-                        $parts[] = "  Per-item style: {$prop_name}[].style accepts only the card-scoped slots per card (e.g. one dark panel or terminal card in a row): {$eligible_list}. Container/heading slots are rejected — set those on the grid-level style. Set via the composition (update_component), not style_component.";
+                        $parts[] = "  Per-item style: {$prop_name}[].style accepts only the item-scoped slots for one entry (a distinct look for a single item in the set): {$eligible_list}. Container/heading slots are rejected — set those on the component-level style. Set via the composition (update_component), not style_component.";
                     }
                 }
             }

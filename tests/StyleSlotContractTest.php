@@ -675,7 +675,7 @@ class StyleSlotContractTest extends TestCase
      * root (all 12 carry data-pp-component) and the per-card .grid__item of issue 306.
      * These are what the immunity baseline must cover.
      */
-    private const BORDER_IMMUNITY_SELECTORS = ['[data-pp-component]', '.grid__item'];
+    private const BORDER_IMMUNITY_SELECTORS = ['[data-pp-component]', '.grid__item', '.section__panel-row'];
 
     /**
      * The baseline must DECLARE these longhands with these VALUES. Asserting the value —
@@ -761,7 +761,8 @@ class StyleSlotContractTest extends TestCase
                 }
                 $emitted++;
                 $covered = str_contains($line, 'data-pp-component=')
-                    || preg_match('/class="[^"]*\bgrid__item\b/', $line) === 1;
+                    || preg_match('/class="[^"]*\bgrid__item\b/', $line) === 1
+                    || preg_match('/class="[^"]*\bsection__panel-row\b/', $line) === 1;
 
                 $this->assertTrue(
                     $covered,
@@ -776,11 +777,12 @@ class StyleSlotContractTest extends TestCase
         }
 
         // Fail-closed: 7 styled components render a root style attr, grid renders a
-        // per-card one too. If the scan finds nothing, the loop above proved nothing.
+        // per-card one, and section renders a per-row one (issue 334). If the scan
+        // finds nothing, the loop above proved nothing.
         $this->assertGreaterThanOrEqual(
-            8,
+            9,
             $emitted,
-            'Found fewer inline slot surfaces than the 8 known today — the template scan is broken.'
+            'Found fewer inline slot surfaces than the 9 known today — the template scan is broken.'
         );
 
         // Every pp_render_style_vars() call must reach an emit site the loop above actually
@@ -835,11 +837,12 @@ class StyleSlotContractTest extends TestCase
             )
         );
 
-        // The real shape passes.
+        // The real shape passes (all three inline-slot surfaces covered: roots,
+        // grid card, and the issue-334 panel row).
         $this->assertSame(
             [],
             $this->immunityGaps(
-                "[data-pp-component],\n.grid__item { border-style: none; border-width: 0; }\n"
+                "[data-pp-component],\n.grid__item,\n.section__panel-row { border-style: none; border-width: 0; }\n"
                 . "/* COMPONENT: nav */\n.nav { color: red; }"
             )
         );
@@ -852,6 +855,7 @@ class StyleSlotContractTest extends TestCase
             $this->immunityGaps(
                 "[data-pp-component] { border-style: none; border-width: 0; }\n"
                 . ".grid__item { border-style: none; border-width: 0; }\n"
+                . ".section__panel-row { border-style: none; border-width: 0; }\n"
                 . "/* COMPONENT: nav */\n.nav { color: red; }"
             )
         );
@@ -890,7 +894,7 @@ class StyleSlotContractTest extends TestCase
             [],
             $this->immunityGaps(
                 "@media (min-width: 768px) { .unrelated { color: red; } }\n"
-                . "[data-pp-component], .grid__item { border-style: none; border-width: 0; }\n"
+                . "[data-pp-component], .grid__item, .section__panel-row { border-style: none; border-width: 0; }\n"
                 . "/* COMPONENT: nav */\n.nav { color: red; }"
             )
         );

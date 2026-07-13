@@ -246,7 +246,7 @@ class SchemaValidationTest extends TestCase
     {
         $expected = [
             'hero'    => 38,
-            'section' => 31,
+            'section' => 32,
             'grid'    => 30,
             'cta'     => 27,
         ];
@@ -331,7 +331,7 @@ class SchemaValidationTest extends TestCase
     public function testStyleSlotStructure(): void
     {
         $components = ['hero', 'section', 'grid', 'cta'];
-        $validTypes = ['color', 'length', 'number', 'shadow', 'gradient', 'position', 'ratio'];
+        $validTypes = ['color', 'length', 'number', 'shadow', 'gradient', 'position', 'ratio', 'font-family'];
 
         foreach ($components as $component) {
             $schemaFile = $this->themeRoot . "/components/{$component}/schema.json";
@@ -796,7 +796,7 @@ class SchemaValidationTest extends TestCase
         );
         $this->assertSame('invalid_style_slot', $result->get_error_code());
         $this->assertStringContainsString('item 1', $result->get_error_message(), 'The error must name the offending card index.');
-        $this->assertStringContainsString('grid-level', $result->get_error_message(), 'The error must point the operator at grid-level style.');
+        $this->assertStringContainsString('component-level', $result->get_error_message(), 'The error must point the operator at component-level style.');
         // The suggested "Card-scoped slots" list must NOT advertise the rejected
         // container slot as available.
         $this->assertStringNotContainsString($slot . ',', $result->get_error_message());

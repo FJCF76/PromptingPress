@@ -104,7 +104,8 @@
    selector still counts, so core's rule weighs (0,0,1) — low, NOT zero. A class or
    attribute selector weighs (0,1,0) and outranks it outright. So declaring the border
    baseline on every element that can carry inline slot custom properties (the 12
-   component roots + the per-card .grid__item of issue 306) makes core's rule a no-op
+   component roots, the per-card .grid__item of issue 306, and the per-row
+   .section__panel-row of issue 334) makes core's rule a no-op
    for us — and it stays a no-op for slots that do not exist yet. (Note the corollary:
    a BARE ELEMENT selector of ours would only tie core at (0,0,1) and could lose on
    source order. The baseline must keep a class/attribute selector to hold its rank.)
@@ -129,7 +130,8 @@
    ========================================================================== */
 
 [data-pp-component],
-.grid__item {
+.grid__item,
+.section__panel-row {
   border-style: none;
   border-width: 0;
 }
@@ -932,6 +934,10 @@
   padding: var(--section-panel-padding, var(--space-lg));
   background: var(--section-panel-bg, var(--color-surface));
   color: var(--section-panel-text, var(--color-text));
+  /* Panel font (issue 334): inherit by default (unchanged), var(--font-mono) for
+     a monospace spec/stat panel. Descendants inherit, so heading/body/list/rows
+     all pick it up unless a nested rule sets its own family. */
+  font-family: var(--section-panel-font, inherit);
   border: var(--section-panel-border-width, 0) solid var(--section-panel-border-color, transparent);
   border-radius: var(--section-panel-radius, var(--radius));
 }
@@ -966,6 +972,33 @@
 
 .section__panel-list li:last-child {
   margin-bottom: 0;
+}
+
+/* Paired rows (issue 334): a { label, value } entry renders as a two-part row
+   inside the same panel list, label left / value right. A row is NOT a bullet,
+   so it carries its own list-style:none and its glyph marker is suppressed below.
+   Row text colour routes through the SAME --section-panel-text slot as the rest
+   of the panel, which is item_eligible so a per-row style map can recolour one
+   row (emphasise/de-emphasise) via cascade proximity on the inline row style. */
+.section__panel-row {
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-md);
+  color: var(--section-panel-text, var(--color-text));
+}
+
+.section__panel-row-value {
+  text-align: right;
+}
+
+/* Suppress the shared issue-339 marker glyph on paired rows only. The marker
+   layer paints via `.pp-marker-list--{marker} > li::before` (specificity 0,1,2);
+   this two-class selector (0,2,1) outranks it so a mixed list keeps markers on
+   its string bullets while rows stay markerless. content:none also neutralizes
+   the base .pp-marker-list `li::before` reserved box. */
+.section__panel-list > .section__panel-row::before {
+  content: none;
 }
 
 /* Panel CTA spacing. Color/variant come from the shared .btn primitive and the

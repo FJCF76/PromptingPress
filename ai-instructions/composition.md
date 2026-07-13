@@ -100,12 +100,14 @@ Panel props (all optional; ignored by other layouts):
 |------|---------|
 | `panel_heading` | Panel heading (`<h3>`). |
 | `panel_body` | Optional plain-text intro paragraph above the list (text only, no HTML). |
-| `panel_items` | Array of plain-text strings rendered as a bulleted list. |
-| `panel_items_marker` | List marker for `panel_items`: `disc` (default) / `check` / `dash` / `arrow`. Not a distinct list type — just the glyph. |
+| `panel_items` | Array of panel entries. Each entry is EITHER a plain-text string (a bullet) OR a paired-row object `{ "label": "...", "value": "..." }` rendered as a two-part row (label left, value right). Mix freely in one array. A paired-row entry may carry an optional `"style"` map (see below). |
+| `panel_items_marker` | List marker for the string entries of `panel_items`: `disc` (default) / `check` / `dash` / `arrow`. Not a distinct list type — just the glyph. Paired rows are never bullets, so they never show a marker. |
 | `panel_cta_text` + `panel_cta_url` | The panel's CTA button. Both are required for the button to render. |
 | `panel_cta_variant` | Button style: `primary` (default) / `secondary` / `outline` / `ghost`. |
 
-The panel falls back to a plain `text-only` section when it has no content (no heading, no body, no list items, and no complete CTA). Style the panel per-instance with the `--section-panel-*` slots (`-bg`, `-border-color`, `-border-width`, `-radius`, `-padding`, `-text`) via `style_component` — set `--section-panel-bg` to a dark color and `--section-panel-text` to a light color for a dark panel. The panel CTA color follows the standard button (site accent); pick `panel_cta_variant` to change its style.
+The panel falls back to a plain `text-only` section when it has no content (no heading, no body, no list items, and no complete CTA). Style the panel per-instance with the `--section-panel-*` slots (`-bg`, `-border-color`, `-border-width`, `-radius`, `-padding`, `-text`, `-font`) via `style_component` — set `--section-panel-bg` to a dark color and `--section-panel-text` to a light color for a dark panel. Set `--section-panel-font` to `var(--font-mono)` for a monospace panel (spec sheets, config or stat readouts). The panel CTA color follows the standard button (site accent); pick `panel_cta_variant` to change its style.
+
+**Paired label/value rows.** When a panel summarises data — a pricing summary, spec sheet, plan comparison, stat readout, or config/contact list — give `panel_items` entries the object form `{ "label": "...", "value": "..." }` instead of strings. Each renders as a two-part row: label on the left, value on the right, both plain text. String and paired-row entries mix in one array (a string is still a bullet). To emphasise or de-emphasise one row against its siblings, add a per-row `"style"` map that sets `--section-panel-text` (the panel's text-colour slot, the only per-row slot) — no new colour grammar, no status vocabulary. A monospace data panel (a spec sheet, config readout, or stat summary) is just a composition of these generic parts (`--section-panel-font: var(--font-mono)` + paired rows + a dark `--section-panel-bg` + a per-row accent), not a named mode. Set per-row `style` through the composition (`update_component` / `update_composition` / `create_page`), not `style_component`.
 
 To turn `panel_items` into a check-list (the common "benefits beside a panel" pattern), set `panel_items_marker: "check"` and recolor the marker with the `--section-panel-marker-color` slot (defaults to the site accent; set a light value on a dark panel). `dash` and `arrow` are the other marker values; `disc` is the plain default. The same marker capability is available on `grid` card bullets (always a check) and on `section` body lists (`body_marker`, below) — one shared treatment, so a check-list is reachable from any list-rendering surface, not just the grid.
 
@@ -123,6 +125,33 @@ To turn `panel_items` into a check-list (the common "benefits beside a panel" pa
     "panel_cta_url": "/signup"
   },
   "style": { "--section-panel-bg": "#0f172a", "--section-panel-text": "#f8fafc" }
+}
+```
+
+A monospace spec panel with paired label/value rows, one row emphasised via a per-row `style`:
+
+```json
+{
+  "component": "section",
+  "props": {
+    "title": "Environment",
+    "body": "<p>Everything this deploy runs on.</p>",
+    "layout": "text-panel",
+    "panel_heading": "Runtime",
+    "panel_items": [
+      { "label": "WordPress", "value": "6.7.1" },
+      { "label": "PHP", "value": "8.3" },
+      { "label": "Uptime", "value": "99.9%", "style": { "--section-panel-text": "#22d3ee" } },
+      "All checks passing"
+    ],
+    "panel_cta_text": "View status",
+    "panel_cta_url": "/status"
+  },
+  "style": {
+    "--section-panel-bg": "#0f172a",
+    "--section-panel-text": "#f8fafc",
+    "--section-panel-font": "var(--font-mono)"
+  }
 }
 ```
 

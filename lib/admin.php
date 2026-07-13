@@ -268,7 +268,7 @@ function pp_migrate_legacy_variant_keys(array $items): array {
  * per-item use by carrying `item_eligible` in its style_slots definition. When the
  * per-item path ($item_index !== null) validates a component that declares at least
  * one item_eligible slot, a real-but-ineligible slot is rejected with the same
- * `invalid_style_slot` code, naming the card and pointing at grid-level style. The
+ * `invalid_style_slot` code, naming the item and pointing at component-level style. The
  * gate is opt-in by presence: a component whose slots carry no item_eligible flag
  * keeps the pre-323 behavior (any declared slot accepted), so this shared engine
  * never over-rejects an un-annotated component.
@@ -329,7 +329,7 @@ function _pp_validate_style_slot_map(array $style, array $available_slots, strin
             return new WP_Error(
                 'invalid_style_slot',
                 sprintf(
-                    '%s style slot "%s" is section-scoped and has no effect on a single card; set it on the grid-level "style" instead. Card-scoped slots: %s',
+                    '%s style slot "%s" is container-scoped and has no effect on a single item; set it on the component-level "style" instead. Item-scoped slots: %s',
                     $where,
                     $slot_name,
                     $available ?: '(none)'

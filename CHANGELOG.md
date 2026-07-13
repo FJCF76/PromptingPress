@@ -4,6 +4,26 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.122] — 2026-07-14 — a text-panel can finally hold paired data: label/value rows, a monospace option, and a per-row accent (#334)
+
+**A `text-panel`'s `panel_items` accepted only plain strings, rendered as bullets, so the one thing a content panel most often holds — paired data — had nowhere to go. A pricing summary, a spec sheet, a plan comparison, a stat readout, a config list: all collapsed into flat prose bullets. Now a `panel_items` entry can be a `{ "label": "...", "value": "..." }` object that renders as a two-part row, label left and value right, alongside the existing string bullets in the same list (mix them freely). A new `--section-panel-font` style slot takes `var(--font-mono)` for a monospace panel, and any single row can be emphasised or de-emphasised with a per-row `style` map that sets the panel's own text-colour slot. Leave `panel_items` as strings and every existing panel renders byte-identically.**
+
+The capability is deliberately generic: paired label/value rows, a font slot, and a per-row colour are the parts a spec sheet, a pricing table, and a status readout all share, so none of them is a first-class product feature — each is a composition of these parts. There is no `terminal` or `diagnostic` panel mode, no `ok`/`warn`/`fail` vocabulary, and no meter primitive; a monospace data panel is just `--section-panel-font: var(--font-mono)` plus paired rows plus a dark `--section-panel-bg`. The per-row accent reuses the existing `--section-panel-text` slot rather than inventing a new colour grammar: that slot is now item-eligible, so a per-row `style` map may recolour one row through the same shared style engine and item-scope gate that grid cards use (issue 306/323), with no second validator. Rows are not bullets, so a paired row carries no marker glyph even when the list's string items show a check or dash. Existing all-string `panel_items` arrays render exactly as before, down to the bytes.
+
+### Added
+
+- `section` `panel_items` entries may now be a `{ label, value }` object rendered as a two-part row (label left, value right), mixable with plain-string bullets in one list. Both label and value are plain text, escaped like the string form.
+- `--section-panel-font` style slot (default `inherit`) — set it to `var(--font-mono)`, or any font stack, for a monospace content panel. Unset, the panel inherits the page font unchanged.
+- Per-row accent: a paired-row entry may carry a `style` map setting the now item-eligible `--section-panel-text` slot, recolouring that one row to emphasise or de-emphasise it. Validated by the shared style engine and item-scope gate — no new colour grammar, no domain vocabulary.
+
+### Docs
+
+- `ai-instructions/composition.md` documents the paired-row grammar with two worked examples (a string panel and a monospace spec panel with a per-row accent); `AI_CONTEXT.md`, `README.md`, and the `section` component README and schema carry the new item shape and font slot. The shared per-item style guidance in `lib/ai-context.php` and the shared validator's scope error message are now component-neutral, since a second component (the panel) now uses that path.
+
+### Tests
+
+- `tests/SectionTextPanelTest.php` pins the paired-row markup, mixed string-and-row lists, the byte-identical string form, per-row style validation (accepted slot, rejected ineligible slot, rejected bad value), the mono-font slot, and the marker suppression on rows. `tests/StyleSlotContractTest.php` extends the issue-332 border-immunity baseline to the per-row surface and pins the new slot's consumer. `tests/e2e/style-render.spec.ts` proves in a real WordPress 7.0 browser that the mono font reaches the panel, a per-row accent recolours only its row, and a paired row shows no marker while a string bullet beside it still does. `tests/SchemaValidationTest.php` and `tests/js/css-lint.test.js` track the new slot.
+
 ## [v0.16.121] — 2026-07-14 — check-mark lists are no longer trapped inside grid cards: any section list can carry a marker (#339)
 
 **The orange check-mark bullet existed in exactly one place — a grid card's `bullets` — and nowhere else. A `section` body list and a `text-panel`'s `panel_items` could only render plain grey discs, so the purpose-built "checklist beside a panel" section could not style the checklist it exists to hold. That is fixed: `section` now takes `panel_items_marker` and `body_marker`, each choosing `disc` (the unchanged default), `check`, `dash`, or `arrow`, and the marker colour is authorable through the `--section-panel-marker-color` and `--section-body-marker-color` style slots. The same check-mark treatment the grid always had is now one shared definition reachable from every list-rendering surface. Leave the props unset and every existing list renders exactly as before.**

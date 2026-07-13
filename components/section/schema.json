@@ -98,7 +98,12 @@
       "type": "array",
       "required": false,
       "default": [],
-      "description": "text-panel layout only: array of plain-text strings rendered as a bulleted list inside the panel. Non-string or empty entries are skipped."
+      "description": "text-panel layout only: array of panel list entries. Each entry is EITHER a plain-text string (rendered as a bulleted list item, unchanged) OR a paired-row object { label, value } (rendered as a two-part row: label on the left, value on the right — for a spec sheet, pricing summary, stat readout, or config list). Both label and value are plain text, escaped like the string form; an entry with neither renders nothing. String and paired-row entries may be mixed in one array. A paired-row entry may carry an optional per-row `style` map (see items.style) to emphasise or de-emphasise that one row. Non-scalar or empty entries are skipped.",
+      "items": {
+        "label": { "type": "string", "required": false, "description": "Paired-row entry: the left-hand label (e.g. 'Plan', 'Uptime'). Plain text, escaped." },
+        "value": { "type": "string", "required": false, "description": "Paired-row entry: the right-hand value (e.g. 'Pro', '99.9%'). Plain text, escaped." },
+        "style": { "type": "object", "required": false, "description": "Optional per-row style overrides for THIS paired row only. Accepts ONLY the row-scoped style slots flagged item_eligible in styling.style_slots (today: --section-panel-text, the panel text colour), letting one row read in a different colour to emphasise or de-emphasise it against its siblings. No new colour grammar and no semantic enum — the same shared style engine validates it exactly like a component-level style (unknown or section-scoped slot names and invalid values are rejected). Rendered as inline custom properties on this row, so a per-row slot overrides the panel-level value by cascade proximity. Set via the composition (update_component / update_composition / create_page), not style_component (which is component-scoped). String entries do not take a style map." }
+      }
     },
     "panel_cta_text": {
       "type": "string",
@@ -124,7 +129,7 @@
       "values": ["disc", "check", "dash", "arrow"],
       "required": false,
       "default": "disc",
-      "description": "text-panel layout only: list marker for panel_items. 'disc' (default) is the plain bulleted list, unchanged. 'check' renders a check mark, 'dash' an en dash, 'arrow' a rightwards arrow. The marker colour is authorable via the --section-panel-marker-color style slot (defaults to the site accent), so a check-list on a dark panel can be re-coloured. Just a marker choice — not a distinct list type."
+      "description": "text-panel layout only: list marker for the string entries of panel_items. 'disc' (default) is the plain bulleted list, unchanged. 'check' renders a check mark, 'dash' an en dash, 'arrow' a rightwards arrow. The marker colour is authorable via the --section-panel-marker-color style slot (defaults to the site accent), so a check-list on a dark panel can be re-coloured. Just a marker choice — not a distinct list type. Paired-row entries ({ label, value }) are not list bullets and never render a marker, regardless of this value."
     },
     "body_marker": {
       "type": "enum",
@@ -167,7 +172,8 @@
       "--section-panel-border-width": { "type": "length", "default": "0", "description": "text-panel layout: border width of the content panel" },
       "--section-panel-radius": { "type": "length", "default": "var(--radius)", "description": "text-panel layout: corner radius of the content panel" },
       "--section-panel-padding": { "type": "length", "default": "var(--space-lg)", "description": "text-panel layout: inner padding of the content panel" },
-      "--section-panel-text": { "type": "color", "default": "var(--color-text)", "description": "text-panel layout: text color inside the content panel (heading, body, and list) — set a light value for a dark panel" },
+      "--section-panel-text": { "item_eligible": true, "type": "color", "default": "var(--color-text)", "description": "text-panel layout: text color inside the content panel (heading, body, list, and paired rows) — set a light value for a dark panel. item_eligible: also settable per paired-row via panel_items[].style, where it recolours that single row to emphasise or de-emphasise it against its siblings." },
+      "--section-panel-font": { "type": "font-family", "default": "inherit", "description": "text-panel layout: font family of the content panel. Defaults to inherit (the panel uses the page font, unchanged). Set to var(--font-mono) for a monospace panel (spec sheets, config/stat readouts), or any comma-separated font stack." },
       "--section-panel-marker-color": { "type": "color", "default": "var(--color-accent)", "description": "text-panel layout: marker (glyph) color of the panel list when panel_items_marker is check/dash/arrow. Mirrors grid's --grid-bullet-color. Set a light value for a check-list on a dark panel. Ignored while panel_items_marker is 'disc'." },
       "--section-body-marker-color": { "type": "color", "default": "var(--color-accent)", "description": "Marker (glyph) color of body lists when body_marker is check/dash/arrow. Ignored while body_marker is 'disc'." }
     },

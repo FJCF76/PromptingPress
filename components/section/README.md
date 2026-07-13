@@ -20,7 +20,11 @@ Generic text + optional image section. Use this for "what is this", "how it work
 | `theme`            | enum   | No       | `'default'`   | Background color/tone: `default` / `dark` / `inverted` |
 | `background_image` | string | No       | `''`          | Optional background image URL with dark overlay for text readability |
 | `body_marker`        | enum   | No       | `'disc'`      | List marker for top-level `<ul>` lists in `body`: `disc` / `check` / `dash` / `arrow`. Colour via the `--section-body-marker-color` slot |
-| `panel_items_marker` | enum   | No       | `'disc'`      | text-panel layout: list marker for `panel_items`: `disc` / `check` / `dash` / `arrow`. Colour via the `--section-panel-marker-color` slot |
+| `panel_items_marker` | enum   | No       | `'disc'`      | text-panel layout: list marker for the string entries of `panel_items`: `disc` / `check` / `dash` / `arrow`. Colour via the `--section-panel-marker-color` slot. Paired rows never show a marker |
+
+### Content panel (`text-panel` layout)
+
+`panel_items` entries are EITHER plain strings (bulleted list items) OR paired-row objects `{ label, value }` rendered as a two-part row (label left, value right) — for a spec sheet, pricing summary, stat readout, or config list. String and paired-row entries mix in one list. A paired row may carry a per-row `style` map setting the item_eligible `--section-panel-text` slot to emphasise/de-emphasise that one row. Set `--section-panel-font` to `var(--font-mono)` for a monospace panel. A monospace data panel (spec sheet, config readout, stat summary) is a composition of these generic parts (mono font + paired rows + dark `--section-panel-bg` + per-row accent), not a named mode. Full grammar and worked examples: `ai-instructions/composition.md`.
 
 ## Variants
 
