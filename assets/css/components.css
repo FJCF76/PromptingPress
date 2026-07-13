@@ -873,7 +873,7 @@
    (0,1,1), by the shared issue-339 marker rules (.section__content--marker-* > ul)
    further down this file. Do NOT raise this rule's specificity or move it below
    that block, or non-disc body markers stop painting (the tests/e2e/style-render
-   #339 pins guard this). */
+   issue-339 pins guard this). */
 .section__content ul {
   list-style: disc;
 }
