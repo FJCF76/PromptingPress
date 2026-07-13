@@ -841,8 +841,8 @@
    ========================================================================== */
 
 .faq {
-  padding-top: var(--space-xl);
-  padding-bottom: var(--space-xl);
+  padding-top: var(--faq-padding-top, var(--space-xl));
+  padding-bottom: var(--faq-padding-bottom, var(--space-xl));
   background: var(--faq-bg, var(--color-surface));
 }
 
@@ -860,6 +860,11 @@
 }
 
 .faq__heading {
+  /* Route the heading size through the slot (issue 304). This base rule governs
+     widths below the desktop premium typography breakpoint, where the heading
+     renders at the h2 base size (base.css); the desktop clamp is routed through
+     the same slot below. Fallback keeps unset output byte-identical. */
+  font-size: var(--faq-heading-size, 1.875rem);
   margin-bottom: var(--space-lg);
   color: var(--faq-heading-color, var(--faq-heading-theme-color, var(--color-text)));
 }
@@ -1694,12 +1699,16 @@
    ========================================================================== */
 
 .stats {
-  padding-top: var(--space-xl);
-  padding-bottom: var(--space-xl);
+  padding-top: var(--stats-padding-top, var(--space-xl));
+  padding-bottom: var(--stats-padding-bottom, var(--space-xl));
   background: var(--stats-bg, transparent);
 }
 
 .stats__heading {
+  /* Route the heading size through the slot (issue 304). stats has no premium
+     typography rule, so the fallback is the h2 base size (base.css) — unset
+     output is byte-identical, and an operator can now tune the scale. */
+  font-size: var(--stats-title-size, 1.875rem);
   margin-bottom: var(--space-lg);
   text-align: center;
   color: var(--stats-title-color, var(--color-text));
@@ -2784,7 +2793,7 @@
      .section__title / .grid__heading rules ([0,1,0]) and silently ignoring a
      declared --section-title-size / --grid-heading-size. Route each through its
      size slot with the clamp() as the fallback so unset output is unchanged. faq
-     has no heading-size slot yet (issue 304), so it keeps the literal. */
+     now routes through --faq-heading-size too (issue 304). */
   main > .grid .grid__heading {
     color: var(--grid-heading-color, var(--grid-heading-theme-color, var(--color-text)));
     font-size: var(--grid-heading-size, clamp(2.25rem, 3vw, 2.62rem));
@@ -2797,7 +2806,7 @@
 
   main > .faq .faq__heading {
     color: var(--faq-heading-color, var(--faq-heading-theme-color, var(--color-text)));
-    font-size: clamp(2.25rem, 3vw, 2.62rem);
+    font-size: var(--faq-heading-size, clamp(2.25rem, 3vw, 2.62rem));
   }
 
   main > .section .section__content,
@@ -3313,7 +3322,7 @@ main .btn:focus-visible,
    two-tier rule (SHARED: Adjacent-Sibling Rhythm, ~line 2124: 32px = var(--space-lg)
    between stacked components on desktop) AND defeating every --*-padding-top slot on
    an adjacent component. Drop the flat override; the base rule restores the 32px
-   two-tier default for component types with no padding slot (hero/stats/faq/...).
+   two-tier default for component types with no padding slot (hero/...).
    For the slot-bearing components, route the adjacent top-padding through the slot
    with var(--space-lg) as the fallback so the slot controls adjacent spacing too.
    Desktop-scoped and placed last so it wins over the base rule; mobile keeps the
@@ -3328,14 +3337,20 @@ main .btn:focus-visible,
   main > [data-pp-component] + .cta {
     padding-top: var(--cta-padding-top, var(--space-lg));
   }
+  main > [data-pp-component] + .stats {
+    padding-top: var(--stats-padding-top, var(--space-lg));
+  }
+  main > [data-pp-component] + .faq {
+    padding-top: var(--faq-padding-top, var(--space-lg));
+  }
 }
 
 /* Own section padding, routed through each component's padding slots (issue 302).
    This premium rule re-declared padding-top/bottom as bare clamp() literals,
    outranking the base .section/.grid/.cta rules ([0,1,0]) and silently ignoring a
    declared --*-padding-top/bottom. Split per component and route through the slot
-   with the clamp() as the fallback (unset output unchanged). faq has no padding
-   slot yet (issue 304), so it keeps the literal. */
+   with the clamp() as the fallback (unset output unchanged). faq now routes
+   through --faq-padding-top/bottom too (issue 304). */
 .section {
   padding-top: var(--section-padding-top, clamp(4.25rem, 6vw, 5rem));
   padding-bottom: var(--section-padding-bottom, clamp(4.25rem, 6vw, 5rem));
@@ -3352,8 +3367,8 @@ main .btn:focus-visible,
 }
 
 .faq {
-  padding-top: clamp(4.25rem, 6vw, 5rem);
-  padding-bottom: clamp(4.25rem, 6vw, 5rem);
+  padding-top: var(--faq-padding-top, clamp(4.25rem, 6vw, 5rem));
+  padding-bottom: var(--faq-padding-bottom, clamp(4.25rem, 6vw, 5rem));
 }
 
 /* Page-specific texture flourish (4 benchmark pages) layered ON TOP of the
@@ -3476,10 +3491,17 @@ main .btn,
   main > [data-pp-component] + .cta {
     padding-top: var(--cta-padding-top, 3.35rem);
   }
+  main > [data-pp-component] + .stats {
+    padding-top: var(--stats-padding-top, 3.35rem);
+  }
+  main > [data-pp-component] + .faq {
+    padding-top: var(--faq-padding-top, 3.35rem);
+  }
 
   /* Own mobile padding, routed through the padding slots so a declared
-     --*-padding-top/bottom takes effect at mobile too (issue 302). faq keeps the
-     literal (no slot yet, issue 304). Fallbacks equal the prior literals. */
+     --*-padding-top/bottom takes effect at mobile too (issue 302). faq now routes
+     through --faq-padding-top/bottom too (issue 304). Fallbacks equal the prior
+     literals. */
   .section {
     padding-top: var(--section-padding-top, 3.35rem);
     padding-bottom: var(--section-padding-bottom, 3.35rem);
@@ -3491,8 +3513,8 @@ main .btn,
   }
 
   .faq {
-    padding-top: 3.35rem;
-    padding-bottom: 3.35rem;
+    padding-top: var(--faq-padding-top, 3.35rem);
+    padding-bottom: var(--faq-padding-bottom, 3.35rem);
   }
 
   #home-cta,

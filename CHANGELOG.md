@@ -4,7 +4,19 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [v0.16.102] — 2026-07-13 — A one-card grid now fills the row instead of hugging the left with dead space beside it (#297)
+## [v0.16.103] — 2026-07-13 — `stats` and `faq` can finally follow page rhythm and type scale: padding and heading-size slots, matching the other section components (#304)
+
+**The `stats` and `faq` components now expose the same box-model and typography style slots the other section-level components already had, so a full page can be tuned to one consistent vertical rhythm and heading scale. Until now `stats` and `faq` declared color and background slots (added in #100) but no padding or heading-size slots, while `hero`, `section`, `grid`, and `cta` declared all of them. That gap meant any attempt to tighten a page's band spacing or dial its title scale left two components stranded at their built-in values. This release adds `--stats-padding-top`, `--stats-padding-bottom`, `--stats-title-size`, `--faq-padding-top`, `--faq-padding-bottom`, and `--faq-heading-size`, closing the schema asymmetry.**
+
+Each new slot routes through the same `var(--slot, <literal>)` idiom the padding and title-size slots on `section`/`grid`/`cta` already use, at every layer the components render through: the base rule, the desktop premium typography and rhythm rules, the mobile rhythm rules, and the adjacent-sibling spacing rules. Unset output is byte-identical to before, so nothing about the shipped pages changes until an operator sets a slot. Because `stats` and `faq` render their headings at the plain `h2` base size (they have no desktop premium type rule of their own, unlike `section`/`grid`), the two heading-size slots fall back to that `1.875rem` base rather than `inherit`, keeping the resting scale exactly as it renders today. The slots are enforced live by the existing style-slot contract test, which auto-discovers every schema slot and fails the build if one is not consumed by the CSS or is bypassed by a literal re-declaration. No new prop, token, recipe, or action surface was added.
+
+### Added
+
+- `stats` gains `--stats-padding-top`, `--stats-padding-bottom`, and `--stats-title-size`; `faq` gains `--faq-padding-top`, `--faq-padding-bottom`, and `--faq-heading-size`. Set them per instance with `style_component` to control each band's vertical rhythm and heading scale, matching the padding and title-size slots already on `hero`/`section`/`grid`/`cta`. Byte-identical when unset (#304).
+
+### Docs
+
+- `AI_CONTEXT.md` and `README.md` slot totals updated from 142 to 148 (`faq` 10 → 13, `stats` 6 → 9) to match the schemas (#304).
 
 **A `grid` with a single item no longer sits in the left half of a two-column track with empty space on the right. Until now a one-item card fell through to the generic two-column desktop rule, so the lone card rendered at roughly half the container width and stranded a matching gap beside it — the natural "panel" composition (an audience box, a terminal mock, a single highlighted card) always looked half-finished. This release gives the single-item grid its own full-width track, so the card spans the section container and its left edge sits on the same rail as the heading and intro copy above it.**
 

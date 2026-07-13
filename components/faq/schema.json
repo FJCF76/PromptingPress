@@ -48,10 +48,13 @@
     "variant_classes": [],
     "tokens": ["--space-xl", "--space-2xl", "--color-border", "--color-surface"],
     "style_slots": {
+      "--faq-padding-top": { "type": "length", "default": "var(--space-xl)", "description": "Top padding of the FAQ section" },
+      "--faq-padding-bottom": { "type": "length", "default": "var(--space-xl)", "description": "Bottom padding of the FAQ section" },
       "--faq-bg": { "type": "gradient", "default": "var(--color-surface)", "description": "Section background color or gradient" },
       "--faq-item-bg": { "type": "gradient", "default": "var(--color-bg)", "description": "Individual accordion item background color or gradient" },
       "--faq-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color" },
       "--faq-eyebrow-bg": { "type": "color", "default": "var(--color-surface-accent)", "description": "Eyebrow pill background color" },
+      "--faq-heading-size": { "type": "length", "default": "1.875rem", "description": "Section heading font size" },
       "--faq-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading text color" },
       "--faq-heading-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading, if set" },
       "--faq-question-color": { "type": "color", "default": "var(--color-text)", "description": "Question (summary) text color" },
