@@ -4,6 +4,27 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.116] — 2026-07-13 — border style slots no longer paint an unwanted 3px border (#332)
+
+**Setting any border-related style slot — even to `0` — could paint a 3px solid border around the whole component that nobody asked for. Thirteen documented slots across six components were affected, on any stock WordPress install. This release makes the component roots immune, so a border slot now produces exactly the border it specifies and nothing else. The slot names are unchanged: existing compositions keep working, and nothing about how you set a border needs to change.**
+
+The cause was outside the theme. WordPress core's global stylesheet ships rules like `html :where([style*="border-width"]) { border-style: solid }`, aimed at the block editor's `style="border-width:2px"`. Style slots render as inline *custom properties*, so the substring core matches on lives in the property NAME — `style="--grid-card-border-width:0px"` matches the rule even though the element sets no border and the border the slot controls belongs to a card inside it. The component root, having declared no border of its own, then inherited core's injected `solid` at its initial `medium` width: a visible 3px border, on a component whose operator had explicitly asked for none. Every element that can carry an inline style slot now declares an explicit border baseline, which outranks core's rule on specificity, so core's injection is a no-op. Components that legitimately draw borders are unaffected, and a component with no slots set renders exactly as before.
+
+### Fixed
+
+- Border style slots no longer trigger an injected 3px solid border on the component root (#332). The 13 affected slots (`--cta-border-color`, `--cta-border-width`, `--faq-border-color`, `--grid-card-border-width`, `--hero-border-color`, `--hero-border-width`, `--hero-surface-border-color`, `--hero-surface-border-width`, `--section-border-color`, `--section-border-width`, `--section-panel-border-color`, `--section-panel-border-width`, `--testimonials-card-border-width`) now produce exactly the border they specify, including when set to `0`. The fix is a border baseline on every element that can carry inline slot properties (the component roots and the per-card grid item), declared above the component rules so the borders components legitimately draw still win. Slot names are unchanged and unset components render byte-identically.
+
+### Docs
+
+- `docs/AI_IMPLEMENTATION_RECIPES.md` (Recipe A) now records that a foreign stylesheet can match a slot on its NAME, and that slot custom properties must only be emitted onto an element the immunity baseline covers (#332).
+
+### Tests
+
+- `tests/e2e/style-render.spec.ts` pins the class in a real browser: for every affected component, setting its border-trigger slots leaves the rendered root with a zero border on all four sides, with a non-vacuity floor that fails if WordPress core ever stops shipping the trigger rule the pin depends on. Coverage of the 13 slots is derived from `schema.json`, so a new border slot that no pin covers fails the build. A per-card pin covers the grid item surface, and positive controls prove a non-zero slot still renders its border and an unstyled grid keeps its default 1px card border.
+- `StyleSlotContractTest` gains a third-party cascade-immunity guard (check 7): it discovers every slot whose name embeds a WordPress-core trigger substring (including the per-side variants), asserts the immunity baseline exists at top level with the right values and above the component rules, and asserts every element the renderer emits inline slot properties onto is covered by it. A negative control proves the guard rejects a baseline that is nested in a media query, scoped under an ancestor, or declares a solid/non-zero border.
+
+---
+
 ## [v0.16.115] — 2026-07-13 — stored style values are now re-validated at render time, not only at write time (#330)
 
 **Style-slot and footer color values are strictly validated when they are written, but the render path trusted whatever was already in storage and applied only a narrow character check before emitting it into an inline `style` attribute. A value can reach storage without passing current write-time validation — a restored history snapshot (which is never blocked, by design) or a direct database write — so this release re-validates every stored style value at the render boundary as defense-in-depth. A value that would not pass validation is simply left out of the rendered output; the page still renders and any restore still succeeds.**
