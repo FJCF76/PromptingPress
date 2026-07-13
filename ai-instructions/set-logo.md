@@ -106,18 +106,44 @@ wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_foo
 wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_copyright","value":"© 2026 Example Inc. Beta."}'
 ```
 
-The three color keys accept the same values as any style-slot color: hex, `rgb()`/`hsl()`, `transparent`, `currentColor`, or a single known color-token reference like `var(--color-accent)`. They are validated by the shared color engine (the same one style slots use) and rendered as inline `--footer-*` custom properties. `pp_footer_text` colors the blurb, contact block, and copyright line. `pp_footer_copyright` replaces the default `© <year> <site title>. All rights reserved.` line verbatim, so include the year yourself; leave it empty to keep the default. This is a tight dark-footer surface, not a general footer builder.
+`pp_footer_text` and `pp_footer_link_color` accept the same values as any style-slot color: hex, `rgb()`/`hsl()`, `transparent`, `currentColor`, or a single known color-token reference like `var(--color-accent)`. `pp_footer_bg` accepts all of those **and** a gradient (see below). They are validated by the shared engines (the same ones style slots use) and rendered as inline `--footer-*` custom properties. `pp_footer_text` colors the blurb, contact block, and copyright line. `pp_footer_copyright` replaces the default `© <year> <site title>. All rights reserved.` line verbatim, so include the year yourself; leave it empty to keep the default. This is a tight dark-footer surface, not a general footer builder.
 
 ---
 
-## Whitelisted logo + footer options
+## Dark / gradient header (background, text, link color)
+
+The header is template-owned (#223) exactly like the footer, so it has no composition style slots either — and before #333 it had no styling surface at all. Its background, text, and link colors are now set through the same `update_site_option` surface. All are optional; unset, the header looks exactly as before.
+
+```bash
+# Dark header with a subtle gradient and light links
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_header_bg","value":"linear-gradient(135deg, #1a1a2e, #16121f)"}'
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_header_text","value":"#e8e8f0"}'
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_header_link_color","value":"#c8c8e0"}'
+```
+
+`pp_header_text` colors the logo wordmark and the mobile hamburger toggle; `pp_header_link_color` colors the nav links. Hover and current-page links keep `--color-accent` — that is a global design token, so change it with `update_design_token` if the accent needs to suit a dark header. Layout, sticky behavior, and menu structure are not configurable here: this is a color surface, not a header builder.
+
+## Gradients on the background options
+
+`pp_header_bg` and `pp_footer_bg` are the only two chrome options that accept a **gradient** as well as a plain color. Both go through the shared `gradient` slot type:
+
+- Accepted: any CSS color (hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`, `transparent`, `currentColor`, a bare `var(--token)` reference to a registered color token), **or** a bounded `linear-gradient()` / `radial-gradient()` with 2 or more color stops — e.g. `linear-gradient(135deg, #1a1a2e, #16121f)`, `radial-gradient(circle at top left, #2a2a4e, #16121f)`.
+- Rejected: `conic-gradient()`, `repeating-linear-gradient()`, `repeating-radial-gradient()`, and any `var()` / `url()` / `env()` **inside** a gradient function.
+- The four text/link options (`pp_header_text`, `pp_header_link_color`, `pp_footer_text`, `pp_footer_link_color`) take a plain color only — a gradient on those is rejected.
+
+---
+
+## Whitelisted logo + header + footer options
 
 | Key | Value | Notes |
 |-----|-------|-------|
 | `pp_logo_id` | Media Library attachment ID (integer) | Must be an image. Never a URL. |
 | `pp_logo_alt` | string | Optional. Defaults to the attachment's alt metadata, then the site title. |
+| `pp_header_bg` | CSS color **or** gradient | Optional. Header background (`--header-bg`). The primary dark/gradient-header control. |
+| `pp_header_text` | CSS color | Optional. Header text color (`--header-text`) — logo wordmark and mobile toggle. |
+| `pp_header_link_color` | CSS color | Optional. Header nav-link color (`--header-link-color`). |
 | `pp_footer_show_logo` | boolean (`1`/`0`/`true`/`false`) | Optional, default off. Turns the footer logo on/off. Uses the same resolved logo as the header. |
-| `pp_footer_bg` | CSS color | Optional. Footer background (`--footer-bg`). The primary dark-footer control. |
+| `pp_footer_bg` | CSS color **or** gradient | Optional. Footer background (`--footer-bg`). The primary dark-footer control. |
 | `pp_footer_text` | CSS color | Optional. Footer text color (`--footer-text`) — blurb, contact, copyright. |
 | `pp_footer_link_color` | CSS color | Optional. Footer nav-link color (`--footer-link-color`). |
 | `pp_footer_blurb` | string | Optional. Brand/description line under the footer logo. |

@@ -11,26 +11,39 @@ Site header with logo, primary navigation menu, and a hamburger toggle for mobil
 
 ## Props (template-supplied)
 
-`templates/base.php` calls this component with `['location' => 'primary']` and nothing
-else, so in practice only `location` is ever set. The logo props exist because
+`templates/base.php` calls this component with `location` plus the `pp_header_*` color
+options, so those are the props ever set in practice. The logo props exist because
 `pp_resolve_logo()` accepts them, but no supported surface passes them — a page cannot,
 because a page cannot compose `nav` at all. Set the logo through the `pp_logo_id` option
 instead.
 
-| Prop        | Type   | Required | Default     | Description |
-|-------------|--------|----------|-------------|-------------|
-| `location`  | string | No       | `'primary'` | WP theme location slug |
-| `logo_text` | string | No       | —           | Logo text (falls back to site title). Not reachable from a page; see below |
-| `logo_id`   | int    | No       | —           | Media Library attachment ID for an image logo (takes priority over `logo_text`). Must be an image attachment. Not reachable from a page; use the `pp_logo_id` option |
-| `logo_alt`  | string | No       | —           | Alt text for the image logo. Not reachable from a page |
+| Prop         | Type   | Required | Default     | Description |
+|--------------|--------|----------|-------------|-------------|
+| `location`   | string | No       | `'primary'` | WP theme location slug |
+| `logo_text`  | string | No       | —           | Logo text (falls back to site title). Not reachable from a page; see below |
+| `logo_id`    | int    | No       | —           | Media Library attachment ID for an image logo (takes priority over `logo_text`). Must be an image attachment. Not reachable from a page; use the `pp_logo_id` option |
+| `logo_alt`   | string | No       | —           | Alt text for the image logo. Not reachable from a page |
+| `bg`         | string | No       | —           | Header background. Set via the `pp_header_bg` site option → `--header-bg`. A CSS color **or** a bounded `linear-gradient()`/`radial-gradient()` (the shared `gradient` slot type, #333) |
+| `text`       | string | No       | —           | Header text color (logo wordmark + mobile toggle). Set via `pp_header_text` → `--header-text`. CSS color only |
+| `link_color` | string | No       | —           | Header nav-link color. Set via `pp_header_link_color` → `--header-link-color`. CSS color only |
 
 ## Configuring the header
+
+The header is template-owned, so these site options are its **only** styling surface —
+there are no composition style slots for it. Unset, the header renders exactly as it
+always has.
 
 | Goal | Surface |
 |------|---------|
 | Set the site logo | `update_site_option` with key `pp_logo_id` (a Media Library **image** attachment ID, not a URL) |
 | Build the header menu | The menu actions: `create_menu` / `set_menu` / `add_menu_item` |
 | Attach a menu to the header | `assign_menu_location` with location `primary` |
+| Dark or gradient header (background) | `update_site_option` with key `pp_header_bg` (a CSS color **or** a bounded gradient) |
+| Header text / link colors | `update_site_option` with keys `pp_header_text` / `pp_header_link_color` (CSS colors) |
+
+Hover and current-page links keep `--color-accent`, a global design token — change it with
+`update_design_token` if the accent needs to suit a dark header. Layout, sticky behavior,
+and menu structure are not configurable: this is a color surface, not a header builder.
 
 `wp pp apply preflight` reports a `nav_readiness` warning when the `primary` location has
 no menu, its menu is empty, or `pp_logo_id` points at something that is not an image.
