@@ -2013,22 +2013,35 @@ function pp_set_font_urls(array $urls): bool {
  *
  * Types: 'string' (free text) | 'attachment_id' (a positive int that resolves
  * to a Media Library attachment — never a raw URL) | 'bool' (a canonical
- * on/off flag: accepts 1/0/true/false, stored as '1' or '0'). '0' (not '')
- * is the canonical OFF form so a stored value always re-validates — the
- * snapshot/rollback path re-applies it through the validating writer.
+ * on/off flag: accepts 1/0/true/false, stored as '1' or '0') | 'color' (a CSS
+ * color accepted by the shared _pp_validate_color() engine — hex/rgb/hsl,
+ * transparent/currentColor, or a single known color-typed design-token
+ * reference). '0' (not '') is the canonical OFF form for bool so a stored
+ * value always re-validates — the snapshot/rollback path re-applies it
+ * through the validating writer.
  *
  * @return array<string,string>  key => type
  */
 function pp_allowed_site_options(): array {
     return [
-        'blogname'            => 'string',
-        'blogdescription'     => 'string',
-        'pp_logo_id'          => 'attachment_id',
-        'pp_logo_alt'         => 'string',
+        'blogname'             => 'string',
+        'blogdescription'      => 'string',
+        'pp_logo_id'           => 'attachment_id',
+        'pp_logo_alt'          => 'string',
         // Site-option surface for the footer logo. The footer is template-owned
         // chrome (issue 223), so it cannot be composed to pass show_logo; this
         // option is the only supported way to turn the footer logo on (issue 234).
-        'pp_footer_show_logo' => 'bool',
+        'pp_footer_show_logo'  => 'bool',
+        // Dark-marketing-footer chrome (issue 300). The footer is template-owned
+        // (issue 223) and not a composition component, so it has no style_slots;
+        // these site options are the supported surface. Colors emit inline
+        // --footer-* custom properties; strings render brand/contact/copyright.
+        'pp_footer_bg'         => 'color',
+        'pp_footer_text'       => 'color',
+        'pp_footer_link_color' => 'color',
+        'pp_footer_blurb'      => 'string',
+        'pp_footer_contact'    => 'string',
+        'pp_footer_copyright'  => 'string',
     ];
 }
 
@@ -2081,6 +2094,19 @@ function pp_validate_site_option_value(string $key, string $value) {
         if (!in_array($norm, PP_BOOL_OPTION_TRUE, true) && !in_array($norm, PP_BOOL_OPTION_FALSE, true)) {
             return new WP_Error('invalid_option_value', sprintf(
                 'Option "%s" requires a boolean (1/0/true/false), got "%s".',
+                $key, $value
+            ));
+        }
+    }
+    if ($type === 'color') {
+        // Delegate to the shared color engine (issue 230) — the SAME validator
+        // every style-slot color goes through. No second, surface-specific color
+        // rule (a repo invariant): a footer color and a component color slot can
+        // never drift apart in what they accept.
+        if (!_pp_validate_color($value)) {
+            return new WP_Error('invalid_option_value', sprintf(
+                'Option "%s" requires a CSS color (hex, rgb()/hsl(), transparent, '
+                . 'currentColor, or a known color token reference), got "%s".',
                 $key, $value
             ));
         }

@@ -1788,8 +1788,17 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
    Site footer with nav and copyright.
    ========================================================================== */
 
+/* Dark-marketing-footer chrome (issue 300). The footer is template-owned
+   (issue 223) with no composition style_slots, so its background/text/link
+   colors come from whitelisted site options (pp_footer_bg / pp_footer_text /
+   pp_footer_link_color) that base.php emits as inline --footer-* custom
+   properties. Each property routes through var(--footer-*, <existing-literal>)
+   so an unset footer renders byte-identical to before. These are NOT schema
+   style_slots (footer declares none), so they are outside the issue 305 slot
+   guard; FooterChromeTest pins the consume-plus-fallback contract instead. */
 .site-footer {
-  background-color: var(--color-surface);
+  background-color: var(--footer-bg, var(--color-surface));
+  color: var(--footer-text, inherit);
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-lg);
   padding-bottom: var(--space-lg);
@@ -1807,6 +1816,26 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
     align-items: center;
     justify-content: space-between;
   }
+}
+
+/* Brand column (logo + optional blurb) and the optional contact block. Minimal,
+   single-axis styling — the footer stays a flat marketing footer, not a builder
+   (issue 300 scope). */
+.site-footer__brand {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.site-footer__blurb {
+  font-size: 0.9rem;
+  max-width: 32ch;
+  margin-bottom: 0;
+}
+
+.site-footer__contact {
+  font-size: 0.9rem;
+  line-height: 1.6;
 }
 
 /* Cap the footer logo the same way the nav caps it (.nav__logo-image). The
@@ -1828,7 +1857,7 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
 }
 
 .site-footer__nav ul li a {
-  color: var(--color-muted);
+  color: var(--footer-link-color, var(--color-muted));
   text-decoration: none;
   font-size: 0.9rem;
   transition: color var(--transition);
@@ -1839,9 +1868,14 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
   text-decoration: underline;
 }
 
+/* Copyright routes color through --footer-text (fallback --color-muted, so an
+   unset footer is unchanged). The old markup carried a .text-muted utility that
+   hardcoded --color-muted and would win over --footer-text on a dark footer;
+   footer.php dropped that class so the copyright follows the footer text color.
+   issue 300 */
 .site-footer__copyright {
   font-size: 0.875rem;
-  color: var(--color-muted);
+  color: var(--footer-text, var(--color-muted));
   margin-bottom: 0;
 }
 

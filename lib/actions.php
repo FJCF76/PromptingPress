@@ -1219,8 +1219,8 @@ pp_register_action('create_page', [
 
 pp_register_action('update_site_option', [
     'scope'       => 'site',
-    'description' => 'Updates a whitelisted WordPress site option (blogname, blogdescription, pp_logo_id, pp_logo_alt, pp_footer_show_logo). pp_logo_id takes a Media Library attachment ID (not a URL) to set the site logo. pp_footer_show_logo is a boolean (1/0/true/false) that turns the footer logo on/off.',
-    'semantics'   => 'Replace. Key must be whitelisted. Value replaces entirely and is validated against the key type (pp_logo_id must be an attachment ID; pp_footer_show_logo must be a boolean).',
+    'description' => 'Updates a whitelisted WordPress site option (blogname, blogdescription, pp_logo_id, pp_logo_alt, pp_footer_show_logo, pp_footer_bg, pp_footer_text, pp_footer_link_color, pp_footer_blurb, pp_footer_contact, pp_footer_copyright). pp_logo_id takes a Media Library attachment ID (not a URL) to set the site logo. pp_footer_show_logo is a boolean (1/0/true/false) that turns the footer logo on/off. pp_footer_bg / pp_footer_text / pp_footer_link_color set the dark-marketing-footer background, text, and nav-link colors (any CSS color the style-slot color validator accepts: hex, rgb()/hsl(), transparent, currentColor, or a known color-token reference). pp_footer_blurb, pp_footer_contact, and pp_footer_copyright are text (empty pp_footer_copyright keeps the default copyright line).',
+    'semantics'   => 'Replace. Key must be whitelisted. Value replaces entirely and is validated against the key type (pp_logo_id must be an attachment ID; pp_footer_show_logo must be a boolean; pp_footer_bg/pp_footer_text/pp_footer_link_color must be a CSS color; the other pp_footer_* keys are free text).',
     'params'      => [
         'key'   => ['type' => 'string', 'required' => true],
         'value' => ['type' => 'string', 'required' => true],
