@@ -517,4 +517,223 @@ class SectionTextPanelTest extends TestCase
         $this->assertStringContainsString('content: "\2013"', $css);
         $this->assertStringContainsString('content: "\2192"', $css);
     }
+
+    // ── 5. Paired label/value rows (issue 334) ────────────────────────────
+    //
+    // panel_items entries may be a plain string (a bullet, unchanged) OR a
+    // { label, value, style? } object rendered as a two-part row. String and
+    // paired-row entries mix in one <ul>. Rows are not bullets: they carry
+    // list-style:none and their marker glyph is suppressed. A row's optional
+    // per-row style routes through the SAME shared engine + item_eligible slots
+    // as grid's per-card style (issue 306/323) — no second validator, no new
+    // colour grammar. The rendered PAINT (mono font, row colour) is pinned in
+    // tests/e2e/style-render.spec.ts; these are the markup/validation/CSS pins.
+
+    public function testPanelPairedRowRendersLabelAndValue(): void
+    {
+        $html = $this->render($this->fullPanelProps([
+            'panel_items' => [['label' => 'Uptime', 'value' => '99.9%']],
+        ]));
+        $this->assertStringContainsString('<li class="section__panel-row"', $html);
+        $this->assertStringContainsString('<span class="section__panel-row-label">Uptime</span>', $html);
+        $this->assertStringContainsString('<span class="section__panel-row-value">99.9%</span>', $html);
+        // A row is NOT a bullet — it does not get the plain bullet item class.
+        $this->assertStringNotContainsString('<li class="section__panel-item">Uptime', $html);
+    }
+
+    public function testExistingStringFormRendersByteIdentical(): void
+    {
+        // Backward-compat: an all-string panel_items array must render exactly
+        // the pre-334 markup — one <ul> of section__panel-item bullets, no rows.
+        $html = $this->render($this->fullPanelProps([
+            'panel_items' => ['Freelancers', 'Small agencies'],
+        ]));
+        // The list container and each bullet <li> are unchanged from pre-334, and
+        // no paired-row markup appears when every entry is a string.
+        $this->assertStringContainsString('<ul class="section__panel-list">', $html);
+        $this->assertStringContainsString('<li class="section__panel-item">Freelancers</li>', $html);
+        $this->assertStringContainsString('<li class="section__panel-item">Small agencies</li>', $html);
+        $this->assertStringNotContainsString('section__panel-row', $html);
+        // No paired-row spans in the panel list when every entry is a string.
+        $this->assertStringNotContainsString('section__panel-row-label', $html);
+    }
+
+    public function testPanelMixesStringAndPairedRows(): void
+    {
+        $html = $this->render($this->fullPanelProps([
+            'panel_items' => ['Included', ['label' => 'Plan', 'value' => 'Pro']],
+        ]));
+        // Both shapes render, in one list, in order.
+        $this->assertStringContainsString('<li class="section__panel-item">Included</li>', $html);
+        $this->assertStringContainsString('<li class="section__panel-row"', $html);
+        $this->assertMatchesRegularExpression('/Included.*section__panel-row/s', $html);
+    }
+
+    public function testPanelPairedRowLabelAndValueAreEscaped(): void
+    {
+        $html = $this->render($this->fullPanelProps([
+            'panel_items' => [['label' => 'A & B', 'value' => '<x>']],
+        ]));
+        $this->assertStringContainsString('A &amp; B', $html);
+        $this->assertStringContainsString('&lt;x&gt;', $html);
+        $this->assertStringNotContainsString('<x>', $html);
+    }
+
+    public function testPanelPairedRowAcceptsLabelOnlyOrValueOnly(): void
+    {
+        // A partial row still renders authored content rather than silently
+        // dropping it (mirrors the panel's other never-drop-content rules); the
+        // absent side renders as an empty span.
+        $labelOnly = $this->render($this->fullPanelProps([
+            'panel_items' => [['label' => 'Solo']],
+        ]));
+        $this->assertStringContainsString('<span class="section__panel-row-label">Solo</span>', $labelOnly);
+        $this->assertStringContainsString('<span class="section__panel-row-value"></span>', $labelOnly);
+
+        $valueOnly = $this->render($this->fullPanelProps([
+            'panel_items' => [['value' => '42']],
+        ]));
+        $this->assertStringContainsString('<span class="section__panel-row-value">42</span>', $valueOnly);
+    }
+
+    public function testPanelSkipsShapelessArrayAndNonScalarEntries(): void
+    {
+        // An array with neither label nor value, and non-scalar label/value, are
+        // dropped (same posture as the string form's skip rule).
+        $html = $this->render($this->fullPanelProps([
+            'panel_items' => [
+                ['nested' => 'x'],
+                ['label' => ['not', 'scalar']],
+                ['label' => '', 'value' => ''],
+                ['label' => 'Kept', 'value' => 'Yes'],
+            ],
+        ]));
+        $this->assertSame(1, substr_count($html, 'section__panel-row"'));
+        $this->assertStringContainsString('Kept', $html);
+    }
+
+    public function testPanelPairedRowPerRowStyleRendersInline(): void
+    {
+        // A per-row style map (issue 306 mechanism) emits inline custom
+        // properties on the row element only.
+        $html = $this->render($this->fullPanelProps([
+            'panel_items' => [
+                ['label' => 'Plan', 'value' => 'Free'],
+                ['label' => 'Plan', 'value' => 'Pro', 'style' => ['--section-panel-text' => '#22d3ee']],
+            ],
+        ]));
+        $this->assertMatchesRegularExpression(
+            '/<li class="section__panel-row" style="--section-panel-text: #22d3ee;">/',
+            $html
+        );
+        // The un-styled row carries no inline style attribute.
+        $this->assertMatchesRegularExpression('/<li class="section__panel-row">\s*<span class="section__panel-row-label">Plan<\/span>\s*<span class="section__panel-row-value">Free/', $html);
+    }
+
+    // Validation — through the shared engine only (no second validator).
+
+    public function testPanelPairedRowStructuredFormPassesValidation(): void
+    {
+        $composition = [[
+            'component' => 'section',
+            'props'     => $this->fullPanelProps([
+                'panel_items' => ['A string bullet', ['label' => 'WordPress', 'value' => '6.7.1']],
+            ]),
+        ]];
+        $this->assertTrue(
+            pp_validate_composition($composition),
+            'A mixed string + paired-row panel_items array must validate.'
+        );
+    }
+
+    public function testPanelPairedRowStyleMapValidates(): void
+    {
+        $composition = [[
+            'component' => 'section',
+            'props'     => $this->fullPanelProps([
+                'panel_items' => [['label' => 'X', 'value' => 'Y', 'style' => ['--section-panel-text' => '#f8fafc']]],
+            ]),
+        ]];
+        $this->assertTrue(
+            pp_validate_composition($composition),
+            'A per-row style setting the item_eligible --section-panel-text slot must validate.'
+        );
+    }
+
+    public function testPanelPairedRowRejectsIneligibleSlot(): void
+    {
+        // --section-padding-top is a real section slot but is section-scoped, not
+        // item_eligible, so it renders nothing on a single row — the issue-323
+        // gate rejects it (reported-success-without-effect class).
+        $composition = [[
+            'component' => 'section',
+            'props'     => $this->fullPanelProps([
+                'panel_items' => [['label' => 'X', 'value' => 'Y', 'style' => ['--section-padding-top' => '4rem']]],
+            ]),
+        ]];
+        $result = pp_validate_composition($composition);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_style_slot', $result->get_error_code());
+    }
+
+    public function testPanelPairedRowRejectsInvalidStyleValue(): void
+    {
+        $composition = [[
+            'component' => 'section',
+            'props'     => $this->fullPanelProps([
+                'panel_items' => [['label' => 'X', 'value' => 'Y', 'style' => ['--section-panel-text' => 'notacolor']]],
+            ]),
+        ]];
+        $result = pp_validate_composition($composition);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_style_value', $result->get_error_code());
+    }
+
+    public function testPanelFontSlotValidatesWithMonoToken(): void
+    {
+        $composition = [[
+            'component' => 'section',
+            'props'     => ['body' => '<p>x</p>', 'layout' => 'text-panel', 'panel_heading' => 'H'],
+            'style'     => ['--section-panel-font' => 'var(--font-mono)'],
+        ]];
+        $this->assertTrue(
+            pp_validate_composition($composition),
+            '--section-panel-font must accept the --font-mono token via the shared engine.'
+        );
+    }
+
+    // CSS contract (structure pins; the rendered paint lives in the E2E spec).
+
+    public function testPanelFontSlotConsumedInSectionBlock(): void
+    {
+        $this->assertMatchesRegularExpression(
+            '/\.section__panel\s*\{[^}]*font-family:\s*var\(--section-panel-font,\s*inherit\)/s',
+            $this->sectionBlock(),
+            '--section-panel-font must be consumed as font-family: var(--section-panel-font, inherit) so an unset panel inherits the page font byte-identically.'
+        );
+    }
+
+    public function testPanelRowColorRoutesThroughPanelTextSlot(): void
+    {
+        $this->assertMatchesRegularExpression(
+            '/\.section__panel-row\s*\{[^}]*color:\s*var\(--section-panel-text,/s',
+            $this->sectionBlock(),
+            'A paired row must take its colour from the item_eligible --section-panel-text slot so a per-row override recolours it.'
+        );
+    }
+
+    public function testPanelRowMarkerGlyphIsSuppressed(): void
+    {
+        // A row is not a bullet: its ::before marker box is neutralised so a
+        // marker on the <ul> paints only the string bullets, not the rows.
+        $this->assertMatchesRegularExpression(
+            '/\.section__panel-list > \.section__panel-row::before\s*\{\s*content:\s*none/s',
+            $this->sectionBlock(),
+            'The shared issue-339 marker glyph must be suppressed on paired rows.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.section__panel-row\s*\{[^}]*list-style:\s*none/s',
+            $this->sectionBlock()
+        );
+    }
 }

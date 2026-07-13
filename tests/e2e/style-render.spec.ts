@@ -2287,4 +2287,65 @@ test.describe('#333 chrome site options render', () => {
     const arrow = await bodyItem.evaluate((el) => getComputedStyle(el, '::before').content);
     expect(arrow).toContain('→');
   });
+
+  test('#334 paired rows: mono font + per-row accent paint, row marker suppressed @smoke', async ({
+    page,
+  }) => {
+    // Cross-sheet PAINT proof (the #342 gap: a slot can validate yet never
+    // render). One page exercises all three parts of the capability:
+    //   - --section-panel-font: var(--font-mono) actually reaches the panel font;
+    //   - a per-row style recolours ONE row via the item_eligible --section-panel-text;
+    //   - a paired row shows NO marker glyph while a string bullet in the same
+    //     list still does (mixed list, marker on the <ul>).
+    pageId = createPage('E2E Panel Paired Rows');
+    setComposition(pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec01',
+          layout: 'text-panel',
+          title: 'Environment',
+          body: '<p>Left.</p>',
+          panel_heading: 'Runtime',
+          panel_items_marker: 'check',
+          panel_items: [
+            'All checks passing',
+            { label: 'WordPress', value: '6.7.1' },
+            { label: 'Uptime', value: '99.9%', style: { '--section-panel-text': '#22d3ee' } },
+          ],
+        },
+        style: { '--section-panel-font': 'var(--font-mono)' },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    // 1. The mono font slot reaches the panel.
+    const panel = page.locator('.section__panel');
+    await expect(panel).toBeVisible({ timeout: 10000 });
+    const font = await panel.evaluate((el) => getComputedStyle(el).fontFamily);
+    expect(font).toContain('monospace');
+
+    // 2. The string bullet keeps its check marker; the paired rows suppress it.
+    const bulletMarker = await page
+      .locator('.section__panel-item')
+      .first()
+      .evaluate((el) => getComputedStyle(el, '::before').content);
+    expect(bulletMarker).not.toBe('none');
+    expect(bulletMarker).not.toBe('normal');
+
+    const rowMarker = await page
+      .locator('.section__panel-row')
+      .first()
+      .evaluate((el) => getComputedStyle(el, '::before').content);
+    expect(rowMarker).toBe('none');
+
+    // 3. The per-row accent recolours only the styled row (last row = Uptime).
+    const rowColor = await page
+      .locator('.section__panel-row')
+      .last()
+      .evaluate((el) => getComputedStyle(el).color);
+    expect(rowColor).toBe('rgb(34, 211, 238)');
+  });
 });

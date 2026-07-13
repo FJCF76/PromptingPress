@@ -32,10 +32,23 @@ $panel_cta_variant  = $props['panel_cta_variant']  ?? 'primary';
 $panel_items_marker = $props['panel_items_marker'] ?? 'disc';
 $body_marker        = $props['body_marker']        ?? 'disc';
 
-// Only string, non-empty list entries render (mirrors grid bullets).
+// A panel entry is EITHER a plain string (a bullet, unchanged) OR a paired-row
+// object { label, value, style? } (issue 334). Keep non-empty strings and any
+// array that carries a scalar label or value; drop everything else (empty
+// strings, numbers, and shapeless arrays) exactly as the string-only form did.
 $panel_items = array_values(array_filter(
     $panel_items,
-    static fn ($item) => is_string($item) && $item !== ''
+    static function ($item) {
+        if (is_string($item)) {
+            return $item !== '';
+        }
+        if (is_array($item)) {
+            $has_label = isset($item['label']) && is_scalar($item['label']) && (string) $item['label'] !== '';
+            $has_value = isset($item['value']) && is_scalar($item['value']) && (string) $item['value'] !== '';
+            return $has_label || $has_value;
+        }
+        return false;
+    }
 ));
 
 $allowed_panel_cta_variants = ['primary', 'secondary', 'outline', 'ghost'];
@@ -180,7 +193,25 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                     <?php if (!empty($panel_items)) : ?>
                         <ul class="section__panel-list<?php echo esc_attr($panel_list_marker_class); ?>">
                             <?php foreach ($panel_items as $panel_item) : ?>
-                                <li class="section__panel-item"><?php echo esc_html($panel_item); ?></li>
+                                <?php if (is_array($panel_item)) : ?>
+                                    <?php
+                                    // Paired-row entry (issue 334): label/value, not a bullet.
+                                    // Optional per-row style routes through the SAME shared
+                                    // engine + slots as grid's per-card style (issue 306); the
+                                    // renderer only echoes item_eligible slots (issue 323).
+                                    $row_label      = isset($panel_item['label']) && is_scalar($panel_item['label']) ? (string) $panel_item['label'] : '';
+                                    $row_value      = isset($panel_item['value']) && is_scalar($panel_item['value']) ? (string) $panel_item['value'] : '';
+                                    $row_style      = is_array($panel_item['style'] ?? null) ? $panel_item['style'] : [];
+                                    $row_style_vars = pp_render_style_vars($row_style, 'section');
+                                    $row_style_attr = $row_style_vars ? ' style="' . $row_style_vars . ';"' : '';
+                                    ?>
+                                    <li class="section__panel-row"<?php echo $row_style_attr; ?>>
+                                        <span class="section__panel-row-label"><?php echo esc_html($row_label); ?></span>
+                                        <span class="section__panel-row-value"><?php echo esc_html($row_value); ?></span>
+                                    </li>
+                                <?php else : ?>
+                                    <li class="section__panel-item"><?php echo esc_html($panel_item); ?></li>
+                                <?php endif; ?>
                             <?php endforeach; ?>
                         </ul>
                     <?php endif; ?>
