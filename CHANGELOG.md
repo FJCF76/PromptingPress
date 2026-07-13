@@ -4,6 +4,23 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.117] — 2026-07-13 — the hero proof line now follows the hero's alignment (#338)
+
+**In a centered hero, the proof line under the buttons rendered flush LEFT while the eyebrow, title, subtitle and buttons above it were all centered. The operator had already said the hero was centered, and no style slot existed to correct the proof line, so the layout simply could not be fixed through any documented surface. The proof line now follows the hero's alignment: centered in the centered and cover layouts, left-packed in the left and split layouts. Nothing to set, and no change to compositions that already exist.**
+
+The cause was a flexbox default. `.hero__proof` is a flex container, and its `justify-content` was never declared, so it sat at the initial value and packed its items to the left. The centered hero DOES inherit `text-align: center` onto that row, which is why the styles looked correct on inspection, but a flex container ignores `text-align` when it places its items: the box was centered while the words inside it were not. The left and split heroes wanted left-packing anyway, so the missing declaration read as correct everywhere it was looked at. The hero's flex rows now declare their packing explicitly and take it from the layout variant, which means the proof row and the button row both center in a centered hero and both stay left in a left-aligned one. This is the same class as the hero eyebrow (#225) and the CTA eyebrow (#255): a flexbox default quietly overriding the component's alignment intent.
+
+### Fixed
+
+- The hero proof line follows the hero's alignment instead of always packing left (#338). `.hero__proof` and `.hero__cta-group` now declare `justify-content` explicitly; `.hero--centered` and `.hero--cover` center both rows, while `.hero--left` and `.hero--split` keep them packed to the leading edge. The button row carried the same undeclared default and could left-pack in a centered hero as soon as the buttons wrapped, so it is fixed in the same change. Alignment is driven by the layout the operator already chose, not by a new style slot. Left and split heroes render exactly as before.
+
+### Tests
+
+- `tests/e2e/style-render.spec.ts` pins the behavior in a real browser, measuring where the glyphs actually land rather than what the stylesheet declares — this bug was invisible at the declaration level, which is how it shipped. The proof content is measured with a Range over the row's contents, so the pins cover the bare-text proof (an anonymous flex item with no element to select) as well as element children, across the left, centered and cover layouts at desktop and mobile, plus a wrapped proof row where each flex line is checked on its own. Scope pins prove the fix does not over-apply: a split hero's proof line must stay left-packed, and the cover hero's overlay must still cover its section. A wrapped CTA group is pinned per layout, since that row's fault only becomes visible once the buttons wrap. Every pin carries a non-vacuity floor that fails if the content ever fills its column, where centered and left-packed would render identically.
+- `tests/js/css-lint.test.js` adds declaration guards for both hero rows: base packing, the centered/cover overrides, the absence of any left/split override, and — the cascade risk the fixture pages cannot see — that no other rule and no other stylesheet re-justifies these rows, which an ID-scoped rule could otherwise do on real pages while every rendered pin stayed green.
+
+---
+
 ## [v0.16.116] — 2026-07-13 — border style slots no longer paint an unwanted 3px border (#332)
 
 **Setting any border-related style slot — even to `0` — could paint a 3px solid border around the whole component that nobody asked for. Thirteen documented slots across six components were affected, on any stock WordPress install. This release makes the component roots immune, so a border slot now produces exactly the border it specifies and nothing else. The slot names are unchanged: existing compositions keep working, and nothing about how you set a border needs to change.**

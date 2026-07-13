@@ -387,11 +387,17 @@
   line-height: 1.6;
 }
 
+/* align-self places the GROUP's box; justify-content packs the buttons INSIDE it. The
+   two are independent, and only align-self was declared: while the box shrink-wraps its
+   buttons the distinction is invisible, but as soon as the buttons WRAP the box fills the
+   content column and the rows pack left again — centered hero included. Declare the
+   packing explicitly rather than inheriting the flexbox initial value (issue 338). */
 .hero__cta-group {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-sm);
   align-self: flex-start;
+  justify-content: flex-start;
 }
 
 .hero__cta {
@@ -414,10 +420,20 @@
 
 .hero--centered .hero__cta-group {
   align-self: center;
+  justify-content: center;
 }
 
 .hero--centered .hero__cta {
   align-self: center;
+}
+
+/* The proof row is the one flex row .hero__content never shrink-wraps (it sets no
+   align-items, so .hero__proof stretches). Its BOX is therefore centered already; its
+   ITEMS are not, and text-align:center — which this layout does inherit — has no say in
+   where a flex container puts its items. Centering follows the layout variant, so a
+   centered hero needs no second instruction from the operator (issue 338). */
+.hero--centered .hero__proof {
+  justify-content: center;
 }
 
 /* Left variant — used by inner pages; compact vertical rhythm */
@@ -451,6 +467,9 @@
 }
 
 /* Cover variant: full-width background image with overlay */
+/* A flex row whose single item is .container. The container's auto inline margins already
+   absorb the free space, so this centering is what already happens — declared here only so
+   the row states its intent instead of resting on the flexbox initial value (issue 338). */
 .hero--cover {
   position: relative;
   background-size: cover;
@@ -459,6 +478,7 @@
   min-height: 70vh;
   display: flex;
   align-items: center;
+  justify-content: center;
 }
 
 .hero__overlay {
@@ -493,10 +513,16 @@
 
 .hero--cover .hero__cta-group {
   align-self: center;
+  justify-content: center;
 }
 
 .hero--cover .hero__cta {
   align-self: center;
+}
+
+/* Cover centers its content like .hero--centered, so its proof row packs the same way. */
+.hero--cover .hero__proof {
+  justify-content: center;
 }
 
 .hero--cover .btn--outline {
@@ -709,12 +735,19 @@
   }
 }
 
-/* Proof slot: trust signals after CTA */
+/* Proof slot: trust signals after CTA.
+   justify-content is the row's packing, and it is NOT inherited from the layout: the
+   left/split heroes want it at flex-start, and leaving it at the flexbox initial value
+   (normal -> flex-start) got them that for free — which is exactly why the centered hero
+   silently shipped a left-packed proof line. The variant rules above win on specificity with
+   or without this declaration; it is here so the row STATES its packing, and a reader does
+   not have to recall the flexbox initial value to know what a left hero does (issue 338). */
 .hero__proof {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-sm);
   align-items: center;
+  justify-content: flex-start;
   margin-top: var(--space-md);
   font-size: 0.875rem;
   /* Route the proof color through a per-instance slot so a dark hero can lift it

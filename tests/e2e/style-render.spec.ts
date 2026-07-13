@@ -84,6 +84,117 @@ async function styleComponent(
   );
 }
 
+/**
+ * Where a flex row's CONTENT actually sits, versus the column it is supposed to align to
+ * (issue 338).
+ *
+ * The row's own box proves nothing here: `.hero__proof` STRETCHES (its parent
+ * `.hero__content` is a flex column that sets no align-items), so the box is already
+ * centered in a centered hero while the content packs left inside it. Measuring
+ * `boundingBox()` — what the #225 eyebrow pins do, because there the box IS the bug —
+ * would pass on the broken CSS.
+ *
+ * Content is measured with a Range over the row's contents rather than a child locator:
+ * the operator's proof is arbitrary wp_kses_post HTML and is usually a BARE TEXT RUN,
+ * which becomes an anonymous flex item with no element to select. Union the fragment
+ * rects from getClientRects() (not getBoundingClientRect, whose single rect is the one a
+ * browser could legitimately report at line-box width) so what is measured is where the
+ * glyphs landed.
+ *
+ * The reference is the CONTENT COLUMN, not the row's own box: that is the centerline the
+ * reader perceives, and it stays the right question even if a future change shrink-wraps
+ * the row.
+ */
+function measureRowContent(el: Element) {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0);
+  // rectCount is reported so callers can prove the Range measured SOMETHING. Math.min of an
+  // empty list is Infinity, so an unrendered row would produce contentWidth === -Infinity —
+  // which silently SATISFIES a "content is narrower than the column" floor. The guard against
+  // a vacuous pin needs its own guard.
+  const left = Math.min(...rects.map((r) => r.left));
+  const right = Math.max(...rects.map((r) => r.right));
+
+  // The reference is the column's CONTENT box, not its border box: .hero__content has neither
+  // padding nor border, but .hero__surface (the split proof's parent) carries both, and
+  // measuring against its border box would read its 32px padding as a 32px misalignment.
+  // Split renders the proof inside .hero__surface instead of .hero__content.
+  const column = (el.closest('.hero__content') ?? el.parentElement) as Element;
+  const box = column.getBoundingClientRect();
+  const cs = getComputedStyle(column);
+  const padLeft = parseFloat(cs.paddingLeft) + parseFloat(cs.borderLeftWidth);
+  const padRight = parseFloat(cs.paddingRight) + parseFloat(cs.borderRightWidth);
+  const columnLeft = box.left + padLeft;
+  const columnWidth = box.width - padLeft - padRight;
+
+  // Per-FLEX-LINE boxes, for wrapped rows. justify-content packs each line independently, so
+  // a wrapped row's union rect (above) cannot see which line is misplaced. Children sharing a
+  // top edge are on the same line. Empty for a bare-text proof, which has no element children.
+  const byTop = new Map<number, { left: number; right: number }>();
+  for (const child of Array.from(el.children)) {
+    const r = child.getBoundingClientRect();
+    if (r.width === 0) continue;
+    const key = Math.round(r.top);
+    const cur = byTop.get(key);
+    if (cur) {
+      cur.left = Math.min(cur.left, r.left);
+      cur.right = Math.max(cur.right, r.right);
+    } else {
+      byTop.set(key, { left: r.left, right: r.right });
+    }
+  }
+
+  return {
+    rectCount: rects.length,
+    contentLeft: left,
+    contentWidth: right - left,
+    contentCenter: (left + right) / 2,
+    columnLeft,
+    columnWidth,
+    columnCenter: columnLeft + columnWidth / 2,
+    justifyContent: getComputedStyle(el).justifyContent,
+    lines: [...byTop.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, v]) => ({ left: v.left, width: v.right - v.left, center: (v.left + v.right) / 2 })),
+  };
+}
+
+// Sub-pixel layout noise, not a meaningful offset. The bug this file guards misplaces content
+// by hundreds of pixels, so a 2px window fails on the regression without pinning exact metrics.
+const ALIGN_TOLERANCE_PX = 2;
+// "Centered" and "left" are only DIFFERENT questions while the content is narrower than the
+// column it sits in. A row that fills its column reads the same under either alignment, so any
+// pin on it would pass on any justify-content. Rows must clear this bar to be worth asserting.
+const NON_VACUITY_MAX_FILL = 0.9;
+
+/** One measured box (content run, flex line, or button) against the column it aligns to. */
+type AlignedBox = { left: number; width: number; center: number };
+type ColumnBox = { columnLeft: number; columnWidth: number; columnCenter: number };
+
+function expectBoxAligned(box: AlignedBox, column: ColumnBox, align: 'start' | 'center') {
+  expect(box.width).toBeGreaterThan(0);
+  expect(box.width).toBeLessThan(column.columnWidth * NON_VACUITY_MAX_FILL);
+
+  if (align === 'center') {
+    // The bug: the words sat flush left inside a perfectly centered box.
+    expect(Math.abs(box.center - column.columnCenter)).toBeLessThan(ALIGN_TOLERANCE_PX);
+  } else {
+    expect(Math.abs(box.left - column.columnLeft)).toBeLessThan(ALIGN_TOLERANCE_PX);
+  }
+}
+
+/** Assert a measured row is real (see measureRowContent) and aligned as the layout intends. */
+function expectRowAligned(m: ReturnType<typeof measureRowContent>, align: 'start' | 'center') {
+  // The Range measured actual glyphs, not an empty box.
+  expect(m.rectCount).toBeGreaterThan(0);
+  expectBoxAligned(
+    { left: m.contentLeft, width: m.contentWidth, center: m.contentCenter },
+    m,
+    align,
+  );
+}
+
 /** Computed featured-treatment surfaces of one grid card (issue 293). */
 function grabCardStyles(el: Element) {
   const before = getComputedStyle(el, '::before');
@@ -1322,4 +1433,340 @@ test.describe('Safe-surface rendered proof', () => {
     expect(border.left).toBe('0px');
     expect(border.color).toBe('rgb(255, 0, 128)');
   });
+
+  /*
+   * #338 — the hero proof line rendered LEFT-ALIGNED in a centered hero.
+   *
+   * Third instance of the class #225 and #255 already hit: a flexbox default silently
+   * overriding the component's alignment intent. `.hero__proof` is a flex container with
+   * no justify-content, so its items packed at the initial `flex-start`. `text-align:
+   * center` IS inherited onto it from `.hero--centered .hero__inner` — and a flex
+   * container ignores text-align when placing its items. The box was centered; the words
+   * inside it were not.
+   *
+   * This is invisible at the declaration level, which is exactly how it shipped: every
+   * slot worked, the composition validated, and the computed style said `text-align:
+   * center`. Reading one computed property is what made the first dogfood pass call it
+   * "already centered". So these pins measure GEOMETRY — where the glyphs actually
+   * landed relative to the content column — and never trust a single declaration.
+   *
+   * Both proof shapes are covered, because they produce different flex items:
+   *   - a bare text run  -> ONE anonymous flex item (the shape the dogfood used)
+   *   - element children -> one flex item PER element, which also wrap independently
+   * Both viewports are covered, per the #86/#225 lesson recorded above: "mobile always
+   * passed" is how the last cascade bug in this file hid.
+   */
+  const proofLayouts: { layout: string; align: 'start' | 'center' }[] = [
+    { layout: 'left', align: 'start' },
+    { layout: 'centered', align: 'center' },
+    { layout: 'cover', align: 'center' },
+  ];
+  const proofShapes: { label: string; proof: string }[] = [
+    { label: 'bare text', proof: 'No card required' },
+    { label: 'element children', proof: '<span>No card</span><span>No setup</span>' },
+  ];
+  const proofViewports = [
+    { label: 'desktop', width: 1280, height: 900 },
+    { label: 'mobile', width: 375, height: 800 },
+  ];
+
+  for (const { layout, align } of proofLayouts) {
+    for (const shape of proofShapes) {
+      for (const viewport of proofViewports) {
+        // Post-merge main runs ONLY the @smoke subset, so the subset must carry BOTH halves
+        // of the invariant, not just the reported bug. Centered/bare text/desktop is the
+        // shipped bug (packing must be centered). Left/bare text/desktop is the mirror-image
+        // regression an unscoped `.hero__proof { justify-content: center }` would cause
+        // (packing must stay left) — a fix that over-applies is as wrong as one that
+        // under-applies, and only a rendered pin can tell them apart.
+        const smoke =
+          (layout === 'centered' || layout === 'left') &&
+          shape.label === 'bare text' &&
+          viewport.label === 'desktop'
+            ? ' @smoke'
+            : '';
+
+        test(`#338 hero proof content follows the layout's alignment (${layout}, ${shape.label}, ${viewport.label})${smoke}`, async ({
+          page,
+        }) => {
+          pageId = createPage(`E2E Hero Proof ${layout} ${shape.label} ${viewport.label}`);
+          setComposition(pageId, [
+            {
+              component: 'hero',
+              props: {
+                id: 'pp-hero01',
+                layout,
+                // A long title widens .hero__content, so the proof row has room to be
+                // wrong in — with a narrow column, left and centre would coincide.
+                title: 'A deliberately long hero headline that widens the content column',
+                proof: shape.proof,
+              },
+            },
+          ]);
+
+          await page.setViewportSize({ width: viewport.width, height: viewport.height });
+          await page.goto(`/?page_id=${pageId}`);
+
+          const proof = page.locator('.hero__proof');
+          await expect(proof).toBeVisible({ timeout: 10000 });
+
+          expectRowAligned(await proof.evaluate(measureRowContent), align);
+        });
+      }
+    }
+  }
+
+  /*
+   * The other half of the fix: the split hero renders its proof markup inside
+   * `.hero__surface` (components/hero/hero.php), NOT under `.hero__content`, and split is
+   * a LEFT-aligned layout. The centered/cover overrides must not leak into it — an
+   * unscoped `.hero__proof { justify-content: center }` would fix the reported bug and
+   * silently centre every left-aligned proof line on the site, with all the pins above
+   * still green. Same scope failure #255 records for the CTA.
+   */
+  /*
+   * Both viewports, but they can assert different things, and the difference is the point.
+   *
+   * At >=1024px `.hero--split .hero__inner` is a GRID, so `.hero__surface` is stretched by its
+   * track: the column is wider than the proof, and left-vs-centre is a real question that
+   * geometry can answer.
+   *
+   * Below that the split hero is a flex column with `align-items: flex-start`, so
+   * `.hero__surface` SHRINK-WRAPS its content. The row and its column are then the same box,
+   * and no packing is observable — every alignment renders identically. Asserting geometry
+   * there would be a pin that cannot fail. So mobile asserts the computed declaration (proving
+   * the centered/cover overrides did not leak into split in that media context) and asserts
+   * the shrink-wrap itself, so that if `.hero__surface` ever stops shrink-wrapping — the
+   * moment geometry becomes meaningful again — this fails loudly instead of quietly guarding
+   * nothing.
+   */
+  for (const viewport of proofViewports) {
+    test(`#338 a split hero keeps its proof line left-packed — the fix stays scoped (${viewport.label})`, async ({
+      page,
+    }) => {
+      pageId = createPage(`E2E Hero Proof Split Scope ${viewport.label}`);
+      setComposition(pageId, [
+        {
+          component: 'hero',
+          props: {
+            id: 'pp-hero01',
+            layout: 'split',
+            title: 'A deliberately long hero headline that widens the content column',
+            // Split passes the proof markup through verbatim into .hero__surface, so the
+            // class comes from the authored markup — the shape `.hero__surface .hero__proof`
+            // already exists to style.
+            proof: '<div class="hero__proof">No card required</div>',
+          },
+        },
+      ]);
+
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto(`/?page_id=${pageId}`);
+
+      const proof = page.locator('.hero__proof');
+      await expect(proof).toBeVisible({ timeout: 10000 });
+
+      const m = await proof.evaluate(measureRowContent);
+
+      // The declaration half, asserted in BOTH media contexts: split must inherit the base
+      // packing. A leak of the centered/cover override would show up here first.
+      expect(m.justifyContent).toBe('flex-start');
+
+      if (viewport.label === 'desktop') {
+        expectRowAligned(m, 'start');
+      } else {
+        // The surface shrink-wraps: row == column, so alignment is unobservable by
+        // construction. Pin the shrink-wrap rather than pretend to pin the alignment.
+        expect(m.rectCount).toBeGreaterThan(0);
+        expect(m.contentWidth).toBeGreaterThan(m.columnWidth * NON_VACUITY_MAX_FILL);
+      }
+    });
+  }
+
+  /*
+   * justify-content packs each flex LINE independently, and `.hero__proof` is `flex-wrap:
+   * wrap`. The pins above all measure single-line rows, where the union of the content rects
+   * is the whole story. A wrapped row is where packing is most visible — the partially filled
+   * LAST line is the one a reader sees hanging left under a centered hero — and a rule that
+   * packed only the first line would keep every other pin in this file green.
+   *
+   * Lines are recovered by grouping the Range's client rects by their top edge, then each
+   * line is checked on its own. The union-vs-column floor used elsewhere cannot work here:
+   * a wrapped row's full lines fill the column by definition.
+   */
+  for (const { layout, align } of [
+    { layout: 'centered', align: 'center' },
+    { layout: 'left', align: 'start' },
+  ] as const) {
+    test(`#338 every line of a wrapped proof row follows the layout's alignment (${layout})`, async ({
+      page,
+    }) => {
+      pageId = createPage(`E2E Hero Proof Wrapped ${layout}`);
+      setComposition(pageId, [
+        {
+          component: 'hero',
+          props: {
+            id: 'pp-hero01',
+            layout,
+            title: 'A deliberately long hero headline that widens the content column',
+            // Enough items that they cannot sit on one line, and an item count that leaves
+            // the last line partially filled (where centering vs left-packing diverges).
+            proof:
+              '<span>No card required</span><span>No setup</span><span>No install</span>' +
+              '<span>No lock-in</span><span>Cancel anytime</span>',
+          },
+        },
+      ]);
+
+      await page.setViewportSize({ width: 375, height: 800 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      const proof = page.locator('.hero__proof');
+      await expect(proof).toBeVisible({ timeout: 10000 });
+
+      const m = await proof.evaluate(measureRowContent);
+
+      // Precondition: the row really wrapped. On one line this pin proves nothing new.
+      expect(m.lines.length).toBeGreaterThan(1);
+
+      // The LAST line is the partially filled one, so its packing is unambiguous. Full lines
+      // span the column and read the same under either alignment; expectBoxAligned's
+      // non-vacuity floor enforces that the line asserted here is genuinely short.
+      expectBoxAligned(m.lines[m.lines.length - 1], m, align);
+    });
+  }
+
+  /*
+   * `.hero--cover { justify-content: center }` is the one declaration in this change with no
+   * behavior of its own: `.container`'s auto inline margins already absorb the free space. It
+   * is declared so the row states its intent, but "inert" is a claim worth pinning, because a
+   * flex container's justify-content DOES set the static position of its absolutely positioned
+   * children — and `.hero__overlay` is exactly that. It is only harmless because the overlay
+   * pins all four sides with `inset: 0`. If that ever becomes width-based, this declaration
+   * would silently offset the overlay, and nothing else here would notice.
+   */
+  test('#338 the cover hero overlay still covers the whole section', async ({ page }) => {
+    pageId = createPage('E2E Hero Cover Overlay');
+    setComposition(pageId, [
+      {
+        component: 'hero',
+        props: {
+          id: 'pp-hero01',
+          layout: 'cover',
+          title: 'A deliberately long hero headline that widens the content column',
+          proof: 'No card required',
+        },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const hero = page.locator('.hero--cover');
+    await expect(hero).toBeVisible({ timeout: 10000 });
+
+    const cover = await hero.evaluate((el) => {
+      const overlay = el.querySelector('.hero__overlay') as Element;
+      const h = el.getBoundingClientRect();
+      const o = overlay.getBoundingClientRect();
+      return {
+        heroLeft: h.left,
+        heroWidth: h.width,
+        overlayLeft: o.left,
+        overlayWidth: o.width,
+        justifyContent: getComputedStyle(el).justifyContent,
+      };
+    });
+
+    expect(cover.justifyContent).toBe('center');
+    // The overlay is flush with the section on both edges — justify-content did not shift it.
+    expect(Math.abs(cover.overlayLeft - cover.heroLeft)).toBeLessThan(1);
+    expect(Math.abs(cover.overlayWidth - cover.heroWidth)).toBeLessThan(1);
+  });
+
+  /*
+   * The CTA group carries the SAME unset-justify-content hole, but it hides: `align-self:
+   * center` shrink-wraps the group's box, so where the box packs its buttons never comes
+   * up — until the buttons WRAP. Then the box fills the content column and the rows pack
+   * left, in a centered hero, exactly like the proof line did. Left unfixed, this is the
+   * bug's next reappearance, one row up.
+   *
+   * The wrap is forced through the documented `--hero-content-width` slot rather than a
+   * narrow viewport, because below 768px `main .btn` is `width: 100%` — full-bleed buttons
+   * have no alignment left to get wrong, so a mobile fixture cannot discriminate the bug.
+   * Narrowing the column at DESKTOP keeps the buttons at their natural width and makes the
+   * packing observable. The wrap is asserted before the alignment: a fixture whose buttons
+   * stopped wrapping would otherwise turn this pin green while guarding nothing.
+   */
+  for (const { layout, align } of [
+    { layout: 'centered', align: 'center' },
+    // Cover carries its own `.hero--cover .hero__cta-group` override. Without it here, that
+    // rule's only evidence would be a declaration pin — the standard that let #338 ship.
+    { layout: 'cover', align: 'center' },
+    { layout: 'left', align: 'start' },
+  ] as const) {
+    test(`#338 a wrapped hero cta group follows the layout's alignment (${layout})`, async ({
+      page,
+    }) => {
+      pageId = createPage(`E2E Hero CTA Wrap ${layout}`);
+      setComposition(pageId, [
+        {
+          component: 'hero',
+          props: {
+            id: 'pp-hero01',
+            layout,
+            title: 'A deliberately long hero headline that widens the content column',
+            cta_text: 'Get started',
+            cta_url: '/start',
+            cta2_text: 'Book a demo',
+            cta2_url: '/contact',
+          },
+        },
+      ]);
+
+      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+      // Narrower than the two buttons side by side (each floors at `main .btn`'s
+      // min-width: 13.25rem), so they must wrap — and wide enough that one button is well
+      // short of filling its row, so "centered" and "left" stay different answers.
+      const res = await styleComponent(page, pageId, { '--hero-content-width': '26rem' });
+      expect(res.success).toBe(true);
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      const group = page.locator('.hero__cta-group');
+      await expect(group).toBeVisible({ timeout: 10000 });
+
+      const boxes = await group.evaluate((el) => {
+        const g = el.getBoundingClientRect();
+        return {
+          justifyContent: getComputedStyle(el).justifyContent,
+          // The group IS the column its buttons align to.
+          columnLeft: g.left,
+          columnWidth: g.width,
+          columnCenter: g.left + g.width / 2,
+          buttons: Array.from(el.children).map((c) => {
+            const r = c.getBoundingClientRect();
+            return { left: r.left, top: r.top, width: r.width, center: r.left + r.width / 2 };
+          }),
+        };
+      });
+
+      expect(boxes.justifyContent).toBe(align === 'center' ? 'center' : 'flex-start');
+      expect(boxes.buttons).toHaveLength(2);
+
+      // Precondition: the buttons really are on separate rows. Without the wrap the group box
+      // shrink-wraps to its content and every assertion below is trivially true. If this ever
+      // fails, suspect `main .btn`'s min-width (13.25rem) or --space-sm, not the hero.
+      expect(Math.abs(boxes.buttons[0].top - boxes.buttons[1].top)).toBeGreaterThan(1);
+
+      // Each wrapped row holds one button narrower than the group, so its placement within
+      // that row is a real constraint.
+      for (const button of boxes.buttons) {
+        expectBoxAligned(button, boxes, align);
+      }
+    });
+  }
 });
