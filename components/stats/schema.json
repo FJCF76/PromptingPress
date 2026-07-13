@@ -55,6 +55,7 @@
       "--stats-title-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading text color" },
       "--stats-title-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading, if set" },
       "--stats-number-color": { "type": "color", "default": "var(--color-accent)", "description": "Stat number (large metric value) text color" },
+      "--stats-number-size": { "type": "length", "default": "2.5rem", "description": "Stat number (large metric value) font size" },
       "--stats-label-color": { "type": "color", "default": "var(--color-muted)", "description": "Stat label text color" },
       "--stats-bg-position": { "type": "position", "default": "center", "description": "background_image focal point" }
     }
