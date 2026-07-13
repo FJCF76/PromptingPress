@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.113] — 2026-07-13 — off-center radial gradients now validate: `radial-gradient(circle at top left, ...)` and other `at <position>` spotlights are accepted for gradient slots (#301)
+
+**Radial gradients are the way to paint an off-center spotlight or corner glow behind a section, but the gradient validator rejected the one piece of syntax that makes that possible: any `at <position>` clause. `radial-gradient(circle, ...)` passed while the identical `radial-gradient(circle at top left, ...)` failed, and the error text claimed radial-gradient was supported, so the failure read as a bug. This release accepts the standard `at <position>` clause so brand backgrounds can place the gradient center where the design wants it.**
+
+The radial branch of the gradient grammar now accepts an optional shape (`circle`/`ellipse`) and/or an optional `at <position>` clause, where `<position>` is one or two tokens, each a placement keyword (`center`, `top`, `bottom`, `left`, `right`) or a non-negative percentage. So `radial-gradient(circle at top left, #2a2145, #1a1a2e)`, `radial-gradient(at 20% 30%, ...)`, and `radial-gradient(ellipse at bottom right, ...)` all validate now. The grammar stays deliberately bounded: radial size keywords like `closest-side`, length positions like `at 10px`, and anything function-shaped (`var()`/`url()`/`env()`) remain rejected, so a value bound for an inline style attribute can still only be keyword and percentage tokens.
+
+### Fixed
+
+- The `gradient` style-slot validator (`_pp_validate_gradient`) now accepts the CSS `radial-gradient(... at <position>)` syntax (placement keywords and non-negative percentages, with or without a leading `circle`/`ellipse`). Off-center and corner-anchored radial gradients previously failed validation even though they are valid CSS; the four forms that already passed still pass, and the bounded grammar continues to reject size keywords, length positions, and function/`var()` tokens (#301).
+
+### Docs
+
+- The runtime AI system prompt (`lib/ai-context.php`) and `ai-instructions/style-component.md` now document that `radial-gradient()` may carry a shape and/or `at <position>` clause, with a worked example and the explicit note that radial size keywords and length positions are not accepted (#301).
+
+### Tests
+
+- `ApplyTest` pins the new accepts (`circle at top left`, `ellipse at bottom right`, shape-less `at top left`, percentage positions `at 20% 30%`), preserves the four prior allowlisted forms, and adds adversarial rejects proving the `at <position>` clause is a closed security boundary: `url(`, `expression(`, `javascript:`, a `;` declaration break, a `/* */` comment sequence, and `var()` inside the position all fail closed, as do radial size keywords (`closest-side`, `farthest-corner`), length positions, and a dangling `at`/`circle at` with no position tokens (#301).
+
 ## [v0.16.112] — 2026-07-13 — the footer can now be a dark marketing footer: background/text/link colors, a brand blurb, a contact block, and a custom copyright line, all through site options (#300)
 
 **A dark-branded site always ended on a light footer. The footer is template-owned, so it had no style slots, no brand blurb, no contact column, and a fixed "© <year> <site>. All rights reserved." line you could only change by renaming the whole site. Rebuilding a real marketing footer natively was impossible. This release adds six whitelisted `pp_footer_*` site options — the same safe surface as the footer logo (#234) — so a footer can go dark and carry brand copy without touching theme files.**
