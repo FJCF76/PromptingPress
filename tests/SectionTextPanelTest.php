@@ -1,0 +1,354 @@
+<?php
+/**
+ * tests/SectionTextPanelTest.php
+ *
+ * Section text-panel layout (issue 104): a two-column "text + content panel"
+ * layout where the right column is a server-validated panel built from PROPS
+ * (panel_heading / panel_body / panel_items / panel CTA) — NOT nested
+ * components, so the "components never nest components" invariant holds. The
+ * panel is styleable per-instance through the --section-panel-* style slots.
+ *
+ * Three layers are pinned here:
+ *   1. Render — the panel column, list, and CTA render (and degrade) correctly,
+ *      and the left column keeps the normal section header/content markup.
+ *   2. Validation — the new flat props and the new style slots pass the SHARED
+ *      engine (pp_validate_composition), and an unknown panel-ish prop is still
+ *      rejected by the #147 prop-key gate.
+ *   3. CSS contract — the panel box + text route through the slots, the list
+ *      markers are restored (base reset strips them), the panel CTA color routes
+ *      through the documented per-component --btn-* idiom, and the two columns
+ *      top-align at >=768px. (The generic "every slot is consumed / unbypassed"
+ *      proof is owned by StyleSlotContractTest #305; these are the value-level
+ *      and structure pins that file does not assert.)
+ */
+
+use PHPUnit\Framework\TestCase;
+
+class SectionTextPanelTest extends TestCase
+{
+    private string $themeRoot;
+    private string $componentsCss;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->themeRoot     = dirname(__DIR__);
+        $this->componentsCss = file_get_contents($this->themeRoot . '/assets/css/components.css');
+        $GLOBALS['_pp_test_store'] = [
+            'post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100, 'custom_css' => '',
+        ];
+    }
+
+    private function render(array $props): string
+    {
+        ob_start();
+        pp_get_component('section', $props);
+        return ob_get_clean();
+    }
+
+    private function fullPanelProps(array $overrides = []): array
+    {
+        return array_merge([
+            'layout'          => 'text-panel',
+            'eyebrow'         => 'Honest',
+            'title'           => 'No fine print',
+            'body'            => '<p>Left column copy.</p>',
+            'panel_heading'   => 'Who is it for?',
+            'panel_body'      => 'Teams of every size.',
+            'panel_items'     => ['Freelancers', 'Small agencies'],
+            'panel_cta_text'  => 'Get started',
+            'panel_cta_url'   => '/signup',
+        ], $overrides);
+    }
+
+    // ── 1. Render ─────────────────────────────────────────────────────────
+
+    public function testTextPanelRendersBothColumns(): void
+    {
+        $html = $this->render($this->fullPanelProps());
+
+        $this->assertStringContainsString('section--text-panel', $html, 'root carries the layout class.');
+        $this->assertStringContainsString('section__grid', $html, 'two columns share the section grid.');
+        // Left column: normal section header + content.
+        $this->assertStringContainsString('section__body', $html);
+        $this->assertMatchesRegularExpression('/section__content[^>]*>\s*<p>Left column copy\.<\/p>/s', $html);
+        // Right column: the panel.
+        $this->assertStringContainsString('class="section__panel"', $html);
+        $this->assertStringContainsString('<h3 class="section__panel-heading">Who is it for?</h3>', $html);
+        $this->assertStringContainsString('Teams of every size.', $html);
+    }
+
+    public function testPanelListRendersEachItem(): void
+    {
+        $html = $this->render($this->fullPanelProps());
+        $this->assertStringContainsString('<ul class="section__panel-list">', $html);
+        $this->assertStringContainsString('<li class="section__panel-item">Freelancers</li>', $html);
+        $this->assertStringContainsString('<li class="section__panel-item">Small agencies</li>', $html);
+    }
+
+    public function testPanelListSkipsNonStringAndEmptyEntries(): void
+    {
+        $html = $this->render($this->fullPanelProps([
+            'panel_items' => ['Keep', '', ['nested'], 42, 'Also keep'],
+        ]));
+        $this->assertSame(2, substr_count($html, 'section__panel-item'), 'only non-empty string items render.');
+        $this->assertStringContainsString('>Keep</li>', $html);
+        $this->assertStringContainsString('>Also keep</li>', $html);
+    }
+
+    public function testPanelCtaRendersWithTextAndUrl(): void
+    {
+        $html = $this->render($this->fullPanelProps());
+        $this->assertMatchesRegularExpression(
+            '/<a href="\/signup" class="section__panel-cta btn">\s*Get started\s*<\/a>/s',
+            $html
+        );
+    }
+
+    public function testPanelCtaSuppressedWithoutUrl(): void
+    {
+        $html = $this->render($this->fullPanelProps(['panel_cta_url' => '']));
+        $this->assertStringNotContainsString('section__panel-cta', $html, 'CTA needs both a label and a URL.');
+    }
+
+    public function testPanelCtaSuppressedWithoutText(): void
+    {
+        $html = $this->render($this->fullPanelProps(['panel_cta_text' => '']));
+        $this->assertStringNotContainsString('section__panel-cta', $html);
+    }
+
+    public function testPanelCtaVariantAddsModifier(): void
+    {
+        $html = $this->render($this->fullPanelProps(['panel_cta_variant' => 'outline']));
+        $this->assertStringContainsString('class="section__panel-cta btn btn--outline"', $html);
+    }
+
+    public function testPanelCtaInvalidVariantFallsBackToPrimary(): void
+    {
+        $html = $this->render($this->fullPanelProps(['panel_cta_variant' => 'rainbow']));
+        // primary is the bare .btn — no btn-- modifier.
+        $this->assertStringContainsString('class="section__panel-cta btn"', $html);
+        $this->assertStringNotContainsString('btn--rainbow', $html);
+    }
+
+    public function testPanelCtaUrlIsEscaped(): void
+    {
+        // The CTA href routes through esc_url — a URL with an illegal space is
+        // sanitized rather than emitted verbatim.
+        $html = $this->render($this->fullPanelProps([
+            'panel_cta_url' => 'https://example.com/a b',
+        ]));
+        $this->assertStringContainsString('href="https://example.com/ab"', $html);
+        $this->assertStringNotContainsString('example.com/a b', $html);
+    }
+
+    public function testPanelHeadingAndBodyAreEscaped(): void
+    {
+        $html = $this->render($this->fullPanelProps([
+            'panel_heading' => 'A & B <x>',
+            'panel_body'    => 'C & D <y>',
+            'panel_items'   => ['E & F <z>'],
+        ]));
+        $this->assertStringNotContainsString('<x>', $html);
+        $this->assertStringNotContainsString('<y>', $html);
+        $this->assertStringNotContainsString('<z>', $html);
+        $this->assertStringContainsString('A &amp; B', $html);
+    }
+
+    // ── Fallback: no panel content degrades to text-only ──────────────────
+
+    public function testTextPanelWithoutContentFallsBackToTextOnly(): void
+    {
+        $html = $this->render([
+            'layout' => 'text-panel',
+            'title'  => 'Just text',
+            'body'   => '<p>Nothing on the right.</p>',
+        ]);
+        $this->assertStringContainsString('section--text-only', $html, 'empty panel degrades to text-only.');
+        $this->assertStringNotContainsString('section--text-panel', $html);
+        $this->assertStringNotContainsString('section__panel', $html);
+    }
+
+    public function testTextPanelWithOnlyHeadingStillRendersPanel(): void
+    {
+        $html = $this->render([
+            'layout'        => 'text-panel',
+            'title'         => 'Has a panel',
+            'body'          => '<p>Body.</p>',
+            'panel_heading' => 'Solo heading',
+        ]);
+        $this->assertStringContainsString('section--text-panel', $html);
+        $this->assertStringContainsString('class="section__panel"', $html);
+    }
+
+    public function testTextPanelWithOnlyItemsStillRendersPanel(): void
+    {
+        $html = $this->render([
+            'layout'      => 'text-panel',
+            'title'       => 'Has a panel',
+            'body'        => '<p>Body.</p>',
+            'panel_items' => ['Only a list'],
+        ]);
+        $this->assertStringContainsString('section--text-panel', $html);
+        $this->assertStringContainsString('<li class="section__panel-item">Only a list</li>', $html);
+    }
+
+    public function testTextPanelWithOnlyCtaStillRendersPanel(): void
+    {
+        $html = $this->render([
+            'layout'         => 'text-panel',
+            'title'          => 'Has a panel',
+            'body'           => '<p>Body.</p>',
+            'panel_cta_text' => 'Only a button',
+            'panel_cta_url'  => '/go',
+        ]);
+        $this->assertStringContainsString('section--text-panel', $html);
+        $this->assertStringContainsString('section__panel-cta', $html);
+    }
+
+    public function testTextPanelWithOnlyBodyRendersPanelNotDropped(): void
+    {
+        // panel_body counts toward $has_panel, so a body-only panel is never
+        // silently dropped to text-only (authored content preservation).
+        $html = $this->render([
+            'layout'     => 'text-panel',
+            'title'      => 'Has a panel',
+            'body'       => '<p>Left.</p>',
+            'panel_body' => 'A supporting note.',
+        ]);
+        $this->assertStringContainsString('section--text-panel', $html);
+        $this->assertStringContainsString('<p class="section__panel-body">A supporting note.</p>', $html);
+    }
+
+    public function testNonArrayPanelItemsCoerceToEmptyWithoutWarning(): void
+    {
+        // A non-array panel_items (e.g. a string) must coerce to no list and not
+        // emit a PHP warning — with a heading present so the panel still renders.
+        $html = $this->render([
+            'layout'        => 'text-panel',
+            'title'         => 'Has a panel',
+            'body'          => '<p>Left.</p>',
+            'panel_heading' => 'H',
+            'panel_items'   => 'oops-not-an-array',
+        ]);
+        $this->assertStringContainsString('class="section__panel"', $html);
+        $this->assertStringNotContainsString('section__panel-item', $html);
+        $this->assertStringNotContainsString('section__panel-list', $html);
+    }
+
+    // ── Style slots reach the rendered root ───────────────────────────────
+
+    public function testPanelStyleSlotsRenderInlineOnRoot(): void
+    {
+        $html = $this->render($this->fullPanelProps([
+            '__pp_style' => [
+                '--section-panel-bg'   => '#0f172a',
+                '--section-panel-text' => '#f8fafc',
+            ],
+        ]));
+        $this->assertStringContainsString('--section-panel-bg: #0f172a', $html);
+        $this->assertStringContainsString('--section-panel-text: #f8fafc', $html);
+    }
+
+    // ── 2. Validation (shared engine) ─────────────────────────────────────
+
+    public function testTextPanelPropsPassSharedValidation(): void
+    {
+        $composition = [[
+            'component' => 'section',
+            'props'     => $this->fullPanelProps(['panel_cta_variant' => 'ghost']),
+        ]];
+        $this->assertTrue(
+            pp_validate_composition($composition),
+            'A section with all text-panel props must validate.'
+        );
+    }
+
+    public function testTextPanelStyleSlotMapValidates(): void
+    {
+        $composition = [[
+            'component' => 'section',
+            'props'     => ['body' => '<p>x</p>', 'layout' => 'text-panel', 'panel_heading' => 'H'],
+            'style'     => [
+                '--section-panel-bg'           => '#0f172a',
+                '--section-panel-border-color' => '#334155',
+                '--section-panel-border-width' => '1px',
+                '--section-panel-radius'       => '1rem',
+                '--section-panel-padding'      => '2rem',
+                '--section-panel-text'         => '#f8fafc',
+            ],
+        ]];
+        $this->assertTrue(
+            pp_validate_composition($composition),
+            'All six --section-panel-* slots must validate against the shared style-slot engine.'
+        );
+    }
+
+    public function testUnknownPanelPropIsRejected(): void
+    {
+        // The #147 prop-key gate reads schema.json props; a plausible-but-absent
+        // panel key must still be rejected (reported-success-without-effect class).
+        $composition = [[
+            'component' => 'section',
+            'props'     => ['body' => '<p>x</p>', 'layout' => 'text-panel', 'panel_footer' => 'nope'],
+        ]];
+        $result = pp_validate_composition($composition);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('unknown_prop', $result->get_error_code());
+        $this->assertStringContainsString('panel_footer', $result->get_error_message());
+    }
+
+    // ── 3. CSS contract (value-level + structure pins) ────────────────────
+
+    private function sectionBlock(): string
+    {
+        // The COMPONENT: section block through the next COMPONENT header.
+        preg_match(
+            '/COMPONENT:\s*section\b(.*?)(?=\/\*\s*={5,}[^*]*?COMPONENT:|\z)/s',
+            $this->componentsCss,
+            $m
+        );
+        return $m[1] ?? '';
+    }
+
+    public function testEveryPanelSlotConsumedWithFallbackInSectionBlock(): void
+    {
+        $block = $this->sectionBlock();
+        $slots = [
+            '--section-panel-bg', '--section-panel-border-color', '--section-panel-border-width',
+            '--section-panel-radius', '--section-panel-padding', '--section-panel-text',
+        ];
+        foreach ($slots as $slot) {
+            $this->assertMatchesRegularExpression(
+                '/var\(' . preg_quote($slot, '/') . ',/',
+                $block,
+                "{$slot} must be consumed as var({$slot}, <fallback>) inside the COMPONENT: section block."
+            );
+        }
+    }
+
+    public function testPanelListRestoresMarkersAndIndent(): void
+    {
+        $block = $this->sectionBlock();
+        $this->assertMatchesRegularExpression(
+            '/\.section__panel-list\s*\{[^}]*list-style:\s*disc/s',
+            $block,
+            'the panel list must restore disc markers stripped by the base reset (issue 104).'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.section__panel-list\s*\{[^}]*padding-left:\s*var\(--space-/s',
+            $block,
+            'the panel list indent must use a spacing token.'
+        );
+    }
+
+    public function testTextPanelColumnsTopAlignAtDesktop(): void
+    {
+        // The panel column must top-align (align-items:start) rather than center
+        // like the image variants — pinned inside a >=768px media rule.
+        $this->assertMatchesRegularExpression(
+            '/@media \(min-width: 768px\)\s*\{\s*\.section--text-panel \.section__grid\s*\{[^}]*align-items:\s*start/s',
+            $this->componentsCss
+        );
+    }
+}

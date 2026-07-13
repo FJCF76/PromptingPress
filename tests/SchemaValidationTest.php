@@ -246,7 +246,7 @@ class SchemaValidationTest extends TestCase
     {
         $expected = [
             'hero'    => 37,
-            'section' => 21,
+            'section' => 27,
             'grid'    => 28,
             'cta'     => 26,
         ];

@@ -1,6 +1,6 @@
 {
   "component": "section",
-  "description": "Generic text section with an optional image. Supports four structural layouts: text-only, image-left, image-right, centered.",
+  "description": "Generic text section with an optional image or content panel. Supports five structural layouts: text-only, image-left, image-right, centered, text-panel.",
   "props": {
     "id": {
       "type": "string",
@@ -64,10 +64,10 @@
     },
     "layout": {
       "type": "enum",
-      "values": ["text-only", "image-left", "image-right", "centered"],
+      "values": ["text-only", "image-left", "image-right", "centered", "text-panel"],
       "required": false,
       "default": "text-only",
-      "description": "Column layout. 'centered' centers text with no image (image_url suppressed). Falls back to text-only if image_url is empty for image layouts."
+      "description": "Column layout. 'centered' centers text with no image (image_url suppressed). 'text-panel' places the text column beside a styleable content panel (panel_heading/panel_body/panel_items + panel CTA) on the right at >=768px, stacked text-then-panel on mobile. Falls back to text-only if image_url is empty for image layouts, or if a text-panel layout has no panel content."
     },
     "theme": {
       "type": "enum",
@@ -81,11 +81,48 @@
       "required": false,
       "default": "",
       "description": "Optional background image URL. When set, renders as a CSS background-image with a dark overlay for text readability. Combines with any theme. Text automatically uses light colors for contrast."
+    },
+    "panel_heading": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "text-panel layout only: heading of the right-hand content panel (rendered as an <h3>). Ignored by other layouts."
+    },
+    "panel_body": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "text-panel layout only: optional plain-text intro paragraph inside the panel, above the list. Escaped as text (no HTML). Distinct from panel_items, which renders as a bulleted list."
+    },
+    "panel_items": {
+      "type": "array",
+      "required": false,
+      "default": [],
+      "description": "text-panel layout only: array of plain-text strings rendered as a bulleted list inside the panel. Non-string or empty entries are skipped."
+    },
+    "panel_cta_text": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "text-panel layout only: label of the panel's call-to-action button. The button renders only when both panel_cta_text and panel_cta_url are set."
+    },
+    "panel_cta_url": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "text-panel layout only: destination URL of the panel's call-to-action button (passed through esc_url). The button renders only when both panel_cta_text and panel_cta_url are set."
+    },
+    "panel_cta_variant": {
+      "type": "enum",
+      "values": ["primary", "secondary", "outline", "ghost"],
+      "required": false,
+      "default": "primary",
+      "description": "text-panel layout only: style of the panel CTA button (shares the .btn variants). 'primary' = filled accent, 'secondary' = muted surface fill, 'outline' = accent border, 'ghost' = borderless. On a dark panel, 'primary' (accent fill with light label) and 'outline' both read well."
     }
   },
   "styling": {
     "root_class": "section",
-    "variant_classes": ["section--text-only", "section--image-left", "section--image-right", "section--centered", "pp-section--dark", "pp-section--inverted"],
+    "variant_classes": ["section--text-only", "section--image-left", "section--image-right", "section--centered", "section--text-panel", "pp-section--dark", "pp-section--inverted"],
     "tokens": ["--space-xl", "--space-2xl", "--space-3xl", "--color-bg", "--color-bg-inverted", "--overlay-bg"],
     "style_slots": {
       "--section-padding-top": { "type": "length", "default": "var(--space-xl)", "description": "Top padding of the section" },
@@ -108,7 +145,13 @@
       "--section-image-aspect-ratio": { "type": "ratio", "default": "auto", "description": "image-left/image-right image aspect ratio (e.g. '16/9', '1'). Default 'auto' preserves the image's natural proportions" },
       "--section-bg-position": { "type": "position", "default": "center", "description": "background_image focal point" },
       "--section-overlay-bg": { "type": "gradient", "default": "var(--overlay-bg)", "description": "Background image overlay color or gradient (e.g. a transparent-to-dark scrim for text legibility over an image)" },
-      "--section-shadow": { "type": "shadow", "default": "none", "description": "Box shadow of the section (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" }
+      "--section-shadow": { "type": "shadow", "default": "none", "description": "Box shadow of the section (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" },
+      "--section-panel-bg": { "type": "gradient", "default": "var(--color-surface)", "description": "text-panel layout: background color or gradient of the right-hand content panel" },
+      "--section-panel-border-color": { "type": "color", "default": "transparent", "description": "text-panel layout: border color of the content panel" },
+      "--section-panel-border-width": { "type": "length", "default": "0", "description": "text-panel layout: border width of the content panel" },
+      "--section-panel-radius": { "type": "length", "default": "var(--radius)", "description": "text-panel layout: corner radius of the content panel" },
+      "--section-panel-padding": { "type": "length", "default": "var(--space-lg)", "description": "text-panel layout: inner padding of the content panel" },
+      "--section-panel-text": { "type": "color", "default": "var(--color-text)", "description": "text-panel layout: text color inside the content panel (heading, body, and list) — set a light value for a dark panel" }
     },
     "recipes": {
       "accent-panel": {
