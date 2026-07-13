@@ -59,6 +59,10 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
     <?php endif; ?>
     <div class="container">
         <div class="cta__inner">
+            <?php // Skip the text block entirely when there is no eyebrow/title/text: a
+                  // title-less CTA is the standalone-button pattern (issue 294), so it must
+                  // render just the button row — no empty heading and no stray flex gap. ?>
+            <?php if ($eyebrow || $title || $text) : ?>
             <div class="cta__text">
                 <?php if ($eyebrow) : ?>
                     <span class="cta__eyebrow"><?php echo esc_html($eyebrow); ?></span>
@@ -71,6 +75,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                     <p class="cta__body"><?php echo esc_html($text); ?></p>
                 <?php endif; ?>
             </div>
+            <?php endif; ?>
 
             <a href="<?php echo esc_url($button_url); ?>" class="cta__button btn<?php echo esc_attr($button_variant_class); ?>">
                 <?php echo esc_html($button_text); ?>

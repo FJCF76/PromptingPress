@@ -319,6 +319,55 @@ class ComponentPropsTest extends TestCase
         $this->assertStringNotContainsString('btn--', $html);
     }
 
+    // ── Title-less CTA = standalone button row (issue 294) ─────────────────
+
+    public function testCtaTitlelessRendersNoHeading(): void
+    {
+        // A CTA with only button props renders the button, but no <h2> heading
+        // and no empty text wrapper (which would add a stray flex gap / break
+        // the inline space-between layout).
+        $html = $this->render('cta', ['button_text' => 'Empezar', 'button_url' => '/signup']);
+        $this->assertStringContainsString('class="cta__button btn"', $html);
+        $this->assertStringContainsString('Empezar', $html);
+        $this->assertStringNotContainsString('cta__title', $html);
+        $this->assertStringNotContainsString('<h2', $html);
+        $this->assertStringNotContainsString('cta__text', $html);
+    }
+
+    public function testCtaTitlelessKeepsAnchorId(): void
+    {
+        // id/anchor must keep working on a title-less CTA.
+        $html = $this->render('cta', [
+            'id'          => 'closing-cta',
+            'button_text' => 'Go',
+            'button_url'  => '/',
+        ]);
+        $this->assertStringContainsString('id="closing-cta"', $html);
+    }
+
+    public function testCtaWithTitleStillRendersHeading(): void
+    {
+        // Regression guard: supplying a title must still emit the heading and
+        // the text wrapper (unchanged behavior).
+        $html = $this->render('cta', $this->ctaProps());
+        $this->assertStringContainsString('cta__text', $html);
+        $this->assertStringContainsString('<h2 class="cta__title"', $html);
+    }
+
+    public function testCtaEyebrowOnlyStillRendersTextWrapper(): void
+    {
+        // The text wrapper appears whenever eyebrow OR title OR text is present,
+        // even without a title.
+        $html = $this->render('cta', [
+            'eyebrow'     => 'NEW',
+            'button_text' => 'Go',
+            'button_url'  => '/',
+        ]);
+        $this->assertStringContainsString('cta__text', $html);
+        $this->assertStringContainsString('cta__eyebrow', $html);
+        $this->assertStringNotContainsString('<h2', $html);
+    }
+
     // ── Hero CTA variants (props, set via update_component) — #93 ───────────
     // Extends the shared .btn--*/--btn-* primitive (established for CTA above)
     // to hero's two CTA buttons, which previously hardcoded bare .btn / .btn--outline

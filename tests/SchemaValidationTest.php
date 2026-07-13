@@ -163,7 +163,7 @@ class SchemaValidationTest extends TestCase
         );
     }
 
-    // ── CTA schema requires title, button_text, button_url ────────────────
+    // ── CTA schema requires button_text, button_url; title is optional ────
 
     public function testCtaSchemaRequiredProps(): void
     {
@@ -172,12 +172,29 @@ class SchemaValidationTest extends TestCase
 
         $this->assertNotNull($schema);
 
-        foreach (['title', 'button_text', 'button_url'] as $required) {
+        foreach (['button_text', 'button_url'] as $required) {
             $this->assertTrue(
                 !empty($schema['props'][$required]['required']),
                 "CTA prop '{$required}' should be marked as required."
             );
         }
+    }
+
+    /**
+     * issue 294: cta.title is optional so a title-less CTA renders a standalone
+     * button row (the sanctioned heading-less button pattern). The required-props
+     * gate is schema-driven, so this flag is what relaxes validation.
+     */
+    public function testCtaSchemaTitleIsOptional(): void
+    {
+        $schemaFile = $this->themeRoot . '/components/cta/schema.json';
+        $schema     = json_decode(file_get_contents($schemaFile), true);
+
+        $this->assertNotNull($schema);
+        $this->assertFalse(
+            $schema['props']['title']['required'] ?? false,
+            "CTA 'title' prop should be optional (required = false or absent)."
+        );
     }
 
     // ── Consistent layout/theme naming (issue #69) ──────────────────────
@@ -440,6 +457,42 @@ class SchemaValidationTest extends TestCase
         ];
         $result = pp_validate_composition($composition);
         $this->assertTrue($result);
+    }
+
+    // ── Title-less CTA passes shared validation (issue 294) ───────────────
+
+    public function testTitlelessCtaPassesValidation(): void
+    {
+        // The shared engine's required-props gate is schema-driven, so relaxing
+        // cta.title in schema.json is what lets a title-less CTA validate.
+        $composition = [
+            ['component' => 'cta', 'props' => ['button_text' => 'Go', 'button_url' => '/']],
+        ];
+        $result = pp_validate_composition($composition);
+        $this->assertTrue($result, 'A title-less CTA with button props must validate.');
+    }
+
+    public function testCtaMissingButtonTextStillRejected(): void
+    {
+        // Relaxing title must NOT relax button_text — it is still required.
+        $composition = [
+            ['component' => 'cta', 'props' => ['button_url' => '/']],
+        ];
+        $result = pp_validate_composition($composition);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_composition', $result->get_error_code());
+        $this->assertStringContainsString('button_text', $result->get_error_message());
+    }
+
+    public function testCtaMissingButtonUrlStillRejected(): void
+    {
+        $composition = [
+            ['component' => 'cta', 'props' => ['button_text' => 'Go']],
+        ];
+        $result = pp_validate_composition($composition);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_composition', $result->get_error_code());
+        $this->assertStringContainsString('button_url', $result->get_error_message());
     }
 
     // ── Featured first-card remnant slots (issue 293) ────────────────────
@@ -907,17 +960,18 @@ class SchemaValidationTest extends TestCase
 
     public function testMultipleMissingRequiredPropsOnOneItemReportOneError(): void
     {
-        // Exercises the `continue 2` in the REQUIRED-PROP loop. `cta` requires title,
-        // button_text and button_url; all three are absent. Without `continue 2` this item
-        // would emit three errors, shifting every later index and breaking the invariant
-        // that errors[0] is the only error pp_validate_composition() would have returned.
+        // Exercises the `continue 2` in the REQUIRED-PROP loop. `cta` requires
+        // button_text and button_url (title is optional since issue 294); both are
+        // absent. Without `continue 2` this item would emit two errors, shifting every
+        // later index and breaking the invariant that errors[0] is the only error
+        // pp_validate_composition() would have returned.
         $errors = pp_validate_composition_errors([
             ['component' => 'cta', 'props' => []],
         ]);
 
         $this->assertCount(1, $errors, 'an item stops at its first failing prop check');
         $this->assertSame('invalid_composition', $errors[0]->get_error_code());
-        $this->assertStringContainsString('title', $errors[0]->get_error_message());
+        $this->assertStringContainsString('button_text', $errors[0]->get_error_message());
     }
 
     public function testMissingPropSkipsTheStyleChecksForThatItem(): void
@@ -929,7 +983,7 @@ class SchemaValidationTest extends TestCase
         ]);
 
         $this->assertCount(1, $errors);
-        $this->assertStringContainsString('title', $errors[0]->get_error_message());
+        $this->assertStringContainsString('button_text', $errors[0]->get_error_message());
     }
 
     public function testMultipleInvalidStyleSlotsOnOneItemReportOneError(): void
