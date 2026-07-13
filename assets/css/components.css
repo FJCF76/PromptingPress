@@ -1229,6 +1229,59 @@
   background: var(--grid-card-bg, var(--color-bg));
 }
 
+/* Card top bar + featured first-card treatment (issue 293). These composed-page
+   rules live here (not the final cascade, where they used to sit) so the issue 293
+   slots are consumed inside the COMPONENT: grid block per the slot-contract guard.
+   Cascade-equivalent: no other rule anywhere styles .grid__item::before, and the
+   :first-child rule outranks the final cascade's [0,3,1] base rules by specificity
+   in either order; the premium later winners (border-color, base box-shadow) still
+   win exactly as before. Unset output is byte-identical — every fallback below is
+   the literal that used to be hardcoded. */
+main > .grid:not(.grid--steps) .grid__item::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  /* The top bar routes through the issue 293 bar slots on EVERY card; the
+     featured :first-child rule below re-consumes them with louder defaults.
+     The slots are shared (not featured-only) because the slot-contract guard
+     collapses pseudo-classes onto the base subject, so a featured-only slot
+     would flag these base literals as unwaivable bypasses. Setting the slots
+     pins one bar on every card; --grid-card-bar-height: 0 removes it. */
+  height: var(--grid-card-bar-height, 2px);
+  background: var(--grid-card-bar-color, var(--color-border));
+}
+
+main > .grid:not(.grid--steps) .grid__item:first-child {
+  /* Featured-card accent border DEFAULT tier; a per-instance --grid-card-border
+     overrides it, mirroring --grid-card-bg below, so a declared style slot never
+     silently no-ops on the first card (issue 226). Note: the premium later-cascade
+     :first-child rule re-declares border-color with a --color-accent-strong
+     fallback and currently wins when the slot is unset; this declaration is the
+     base tier that takes over if that premium layer is ever removed. */
+  border-color: var(--grid-card-border, var(--color-border-accent));
+  /* Featured-card accent fill is the DEFAULT; a per-instance --grid-card-bg
+     overrides it so the first card stays uniform with the rest when an author
+     sets an explicit card color (e.g. uniform dark cards on a dark band). The
+     texture-stripe line color routes through the issue 293 slot; transparent
+     removes the stripe. */
+  background:
+    linear-gradient(90deg, var(--grid-featured-texture-color, rgba(37, 99, 235, 0.055)) 1px, transparent 1px) 0 0 / 2.75rem 100%,
+    var(--grid-card-bg, linear-gradient(180deg, var(--color-surface-accent) 0%, var(--color-surface) 100%));
+  /* Featured glow: the issue 293 featured-shadow slot wins first, then the shared
+     --grid-card-shadow exactly as before, then the glow literal. The mobile
+     featured rule in the final cascade re-declares this same chain. */
+  box-shadow: var(--grid-featured-shadow, var(--grid-card-shadow,
+    inset 0 0 0 1px rgba(37, 99, 235, 0.055),
+    0 18px 42px rgba(37, 99, 235, 0.10)));
+}
+
+main > .grid:not(.grid--steps) .grid__item:first-child::before {
+  height: var(--grid-card-bar-height, 4px);
+  background: var(--grid-card-bar-color, linear-gradient(90deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 18%, transparent)));
+}
+
 /* ==========================================================================
    COMPONENT: table
    Data table with horizontal scroll on mobile.
@@ -2943,36 +2996,8 @@ main > .grid:not(.grid--steps) .grid__item {
     var(--grid-card-bg, linear-gradient(180deg, var(--color-bg) 0%, var(--color-surface) 100%));
 }
 
-main > .grid:not(.grid--steps) .grid__item::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
-  height: 2px;
-  background: var(--color-border);
-}
-
-main > .grid:not(.grid--steps) .grid__item:first-child {
-  /* Featured-card accent border is the DEFAULT; a per-instance --grid-card-border
-     overrides it, mirroring --grid-card-bg below, so a declared style slot never
-     silently no-ops on the first card (issue 226). */
-  border-color: var(--grid-card-border, var(--color-border-accent));
-  /* Featured-card accent fill is the DEFAULT; a per-instance --grid-card-bg
-     overrides it so the first card stays uniform with the rest when an author
-     sets an explicit card color (e.g. uniform dark cards on a dark band). */
-  background:
-    linear-gradient(90deg, rgba(37, 99, 235, 0.055) 1px, transparent 1px) 0 0 / 2.75rem 100%,
-    var(--grid-card-bg, linear-gradient(180deg, var(--color-surface-accent) 0%, var(--color-surface) 100%));
-  box-shadow: var(--grid-card-shadow,
-    inset 0 0 0 1px rgba(37, 99, 235, 0.055),
-    0 18px 42px rgba(37, 99, 235, 0.10));
-}
-
-main > .grid:not(.grid--steps) .grid__item:first-child::before {
-  height: 4px;
-  background: linear-gradient(90deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 18%, transparent));
-}
+/* The card top-bar and featured first-card rules moved into the COMPONENT: grid
+   block (issue 293); the cascade-equivalence argument lives with the rules there. */
 
 main > .grid:not(.grid--steps) .grid__item:first-child .grid__item-title {
   color: var(--grid-item-title-color, var(--color-text));
@@ -3066,7 +3091,9 @@ main > .grid .grid__item-link::after {
   }
 
   main > .grid:not(.grid--steps) .grid__item:first-child {
-    box-shadow: var(--grid-card-shadow, 0 14px 32px rgba(37, 99, 235, 0.09));
+    /* Same featured-shadow chain as the component-block rule (issue 293), so the
+       slot does not silently no-op below 768px; only the glow literal differs. */
+    box-shadow: var(--grid-featured-shadow, var(--grid-card-shadow, 0 14px 32px rgba(37, 99, 235, 0.09)));
   }
 }
 

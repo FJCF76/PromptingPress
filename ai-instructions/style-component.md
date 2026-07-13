@@ -106,6 +106,15 @@ or a single-layer `box-shadow` (2-4 px/rem lengths plus an rgb/rgba/hsl/hsla col
 cta, and testimonials (card) components each expose namespaced `*-border-color`,
 `*-border-width`, `*-radius`, and `*-shadow` slots.
 
+The grid's **featured first-card treatment** (accent top bar, texture stripe, blue
+glow on card 1 of a cards-layout grid) is slot-controllable (#293):
+`--grid-card-bar-color`/`--grid-card-bar-height` pin one top bar on EVERY card
+(height `0` removes it everywhere); `--grid-featured-texture-color: transparent`
+removes the card-1 texture stripe; `--grid-featured-shadow` overrides the shared
+`--grid-card-shadow` on card 1 only (`none` removes the glow, or set
+`--grid-card-shadow` for one identical shadow on all cards). For a uniform row in
+one step, apply the `uniform-cards` recipe instead of setting the slots by hand.
+
 The `position` and `ratio` types (#108) control image focal point and aspect ratio,
 per-instance. `position` accepts 1-2 keyword/length tokens (no functions, no `var()`);
 `ratio` accepts `auto` (natural proportions) or a number/fraction. `--{hero,section}-image-position`
@@ -132,6 +141,7 @@ controls the `background_image`/cover-layout CSS background. Not exposed on logo
 | section | `spacious-editorial` | Wide body with generous padding |
 | grid | `dark-showcase` | Dark background with light cards |
 | grid | `dense-cards` | Compact card layout with tight spacing |
+| grid | `uniform-cards` | Neutralize the featured first-card treatment (top bar, texture, glow) for a uniform row |
 | cta | `dark-bold` | Dark background with large title |
 | cta | `accent-framed` | Accent border with rounded corners |
 | testimonials | `dark-showcase` | Dark background with light cards |

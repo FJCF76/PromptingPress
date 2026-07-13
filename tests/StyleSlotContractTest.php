@@ -488,6 +488,53 @@ class StyleSlotContractTest extends TestCase
         );
     }
 
+    /**
+     * Featured first-card remnant slots (issue 293): value-level fallback pins.
+     *
+     * The generic checks above prove the slots are consumed and unbypassed; they do
+     * NOT pin the fallback literals. Byte-identical unset output depends on those
+     * literals being exactly the values that used to be hardcoded, in a two-tier
+     * shape (base card vs featured first card), plus the mobile featured-shadow
+     * chain — a fourth consumer the issue body never listed, where the slot would
+     * otherwise silently no-op below 768px.
+     */
+    public function testIssue293FeaturedRemnantSlotFallbacks(): void
+    {
+        $block = $this->stripComments($this->componentBlock('grid'));
+
+        // Bar slots, two-tier: base hairline vs featured accent gradient.
+        $this->assertStringContainsString('height: var(--grid-card-bar-height, 2px)', $block);
+        $this->assertStringContainsString('background: var(--grid-card-bar-color, var(--color-border))', $block);
+        $this->assertStringContainsString('height: var(--grid-card-bar-height, 4px)', $block);
+        $this->assertStringContainsString(
+            'background: var(--grid-card-bar-color, linear-gradient(90deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 18%, transparent)))',
+            $block
+        );
+
+        // Texture stripe: featured-only color slot over the original 0.055 literal.
+        $this->assertStringContainsString(
+            'linear-gradient(90deg, var(--grid-featured-texture-color, rgba(37, 99, 235, 0.055)) 1px, transparent 1px)',
+            $block
+        );
+
+        // Featured glow: featured slot first, shared card shadow second (unchanged
+        // semantics), original glow literal last.
+        $this->assertMatchesRegularExpression(
+            '/box-shadow:\s*var\(--grid-featured-shadow,\s*var\(--grid-card-shadow,\s*inset 0 0 0 1px rgba\(37, 99, 235, 0\.055\),\s*0 18px 42px rgba\(37, 99, 235, 0\.10\)\)\)/',
+            $block
+        );
+
+        // Mobile featured glow (max-width: 767px, final cascade) re-declares the
+        // same chain with its own literal — delete the chain there and the slot
+        // reports success while mobile renders the old glow.
+        $css = $this->stripComments($this->css);
+        $this->assertStringContainsString(
+            'box-shadow: var(--grid-featured-shadow, var(--grid-card-shadow, 0 14px 32px rgba(37, 99, 235, 0.09)))',
+            $css,
+            'The mobile featured-glow rule must route through --grid-featured-shadow (issue 293).'
+        );
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**

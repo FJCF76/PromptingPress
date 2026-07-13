@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.104] — 2026-07-13 — the grid's featured first-card remnants (accent top bar, texture stripe, glow) are finally slot-controllable: uniform card rows are one recipe away (#293)
+
+**Every 3-up feature row used to render with an unremovable "first card is special" statement: after #226 and #292 fixed the border and background slots, the featured first card still painted a 4px accent top bar, a blue texture stripe, and an inset blue glow from hardcoded literals no slot could reach. A neutral, uniform card row — the most common marketing section there is — was impossible through supported mechanisms. This release puts all three remnants behind style slots and ships a `uniform-cards` recipe that neutralizes the treatment in one step.**
+
+Four new grid slots follow the `var(--slot, <literal>)` idiom with byte-identical unset output. `--grid-card-bar-color` and `--grid-card-bar-height` control the card top bar on EVERY card with two-tier defaults (2px hairline on cards 2..N, 4px accent gradient on the featured card); they are shared rather than featured-only because the slot-contract guard collapses pseudo-classes onto the base subject, so featured-only bar slots would have flagged the base hairline literals as unwaivable bypasses — height `0` removes the bar everywhere. `--grid-featured-texture-color` slots the texture stripe's line color (`transparent` removes it), and `--grid-featured-shadow` chains ahead of the shared `--grid-card-shadow` at both the desktop and the previously unlisted mobile featured-glow rule, so the slot cannot silently no-op below 768px. The featured rules moved from the late cascade into the `COMPONENT: grid` block (cascade-equivalent — nothing else styles `.grid__item::before`, and the `:first-child` rule outranks the late base rules by specificity in either order) so the guard's in-block consumption check enforces the new slots. The `uniform-cards` recipe pins one shared bar (removed), texture (off on card 1), shadow, border, background, and title size; the residual differences it cannot reach (the faint 0.028-alpha texture on cards 2..N, a 0.25rem featured body padding-top at desktop, the dark-theme lift) are named in the recipe description rather than silently left behind.
+
+### Added
+
+- Grid slots `--grid-card-bar-color`, `--grid-card-bar-height`, `--grid-featured-texture-color`, and `--grid-featured-shadow`, plus the `uniform-cards` recipe. Set the three neutralizers (bar height `0`, texture `transparent`, one shared `--grid-card-shadow`) or apply the recipe for a uniform card row; the featured treatment stays the unset default (#293).
+
+### Docs
+
+- `AI_CONTEXT.md` and `README.md` slot totals updated from 148 to 152 (`grid` 24 → 28, breakdown reordered); `ai-instructions/style-component.md` documents the featured-treatment slots and the new recipe (10 → 11 recipes) (#293).
+
+### Tests
+
+- `SchemaValidationTest` covers the accepted neutralizers and typed values plus four rejected cross-type shapes for the new slots, and pins the `uniform-cards` recipe to declared slots with type-valid values. `StyleSlotContractTest` pins the two-tier fallback literals and the mobile featured-shadow chain. Four rendered E2E tests prove the unset featured defaults survive the rule move, the recipe renders a uniform row at desktop and mobile, `--grid-featured-shadow` has discriminating rendered power at both breakpoints, and the bar slots pin one identical bar on featured and plain cards (#293).
+
 ## [v0.16.103] — 2026-07-13 — `stats` and `faq` can finally follow page rhythm and type scale: padding and heading-size slots, matching the other section components (#304)
 
 **The `stats` and `faq` components now expose the same box-model and typography style slots the other section-level components already had, so a full page can be tuned to one consistent vertical rhythm and heading scale. Until now `stats` and `faq` declared color and background slots (added in #100) but no padding or heading-size slots, while `hero`, `section`, `grid`, and `cta` declared all of them. That gap meant any attempt to tighten a page's band spacing or dial its title scale left two components stranded at their built-in values. This release adds `--stats-padding-top`, `--stats-padding-bottom`, `--stats-title-size`, `--faq-padding-top`, `--faq-padding-bottom`, and `--faq-heading-size`, closing the schema asymmetry.**
