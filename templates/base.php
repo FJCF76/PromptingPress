@@ -32,7 +32,16 @@ if (!function_exists('pp_base_template')) {
 <?php wp_body_open(); ?>
 <a class="skip-link screen-reader-text" href="#main"><?php esc_html_e('Skip to content', 'promptingpress'); ?></a>
 
-<?php pp_get_component('nav', ['location' => 'primary']); ?>
+<?php pp_get_component('nav', [
+    'location'   => 'primary',
+    // Header chrome is template-owned (issue 223) and set through whitelisted site
+    // options, never by composing a nav. The pp_header_* bg/text/link colors are the
+    // header's only styling surface (issue 333) — the sibling of the pp_footer_*
+    // surface below. Unset options pass '' and emit nothing.
+    'bg'         => (string) get_option('pp_header_bg', ''),
+    'text'       => (string) get_option('pp_header_text', ''),
+    'link_color' => (string) get_option('pp_header_link_color', ''),
+]); ?>
 
 <main id="main">
     <?php $content(); ?>

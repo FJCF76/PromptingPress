@@ -152,11 +152,23 @@
   --header-height: 65px;
 }
 
+/* Header chrome slots (issue 333). The header is template-owned (issue 223) and
+   declares no style_slots, so these are consumed from the pp_header_* site options
+   that base.php maps onto nav's props; the issue-305 slot guard does not cover them
+   and HeaderChromeTest pins the consume-plus-fallback contract instead.
+
+   `background`, NOT `background-color`: --header-bg is a gradient-typed option
+   (color OR gradient), and a gradient is a CSS <image> — assigning one to
+   background-color is invalid, so the browser drops the declaration and the header
+   paints nothing. The shorthand accepts both a plain color and a gradient. Its
+   reset of the other background-* longhands is a no-op here: this rule is the only
+   place .site-header touches background at all. Unset, it resolves to the same
+   --color-bg as before, so default rendering is unchanged. */
 .site-header {
   position: sticky;
   top: 0;
   z-index: 100;
-  background-color: var(--color-bg);
+  background: var(--header-bg, var(--color-bg));
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -172,7 +184,7 @@
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 1.25rem;
-  color: var(--color-text);
+  color: var(--header-text, var(--color-text));
   text-decoration: none;
   flex-shrink: 0;
   min-height: 44px;
@@ -201,7 +213,7 @@
   background: none;
   border: none;
   border-radius: var(--radius);
-  color: var(--color-text);
+  color: var(--header-text, var(--color-text));
   cursor: pointer;
   transition: color var(--transition);
 }
@@ -224,10 +236,16 @@
   list-style: none;
 }
 
+/* Nav links route through --header-link-color; the logo and toggle route through
+   --header-text. Two slots, mirroring the footer's text-vs-link split (issue 300),
+   so a header can carry a muted wordmark with brighter links (or the reverse).
+   Hover and current-item keep --color-accent: this issue's surface is background,
+   text, and link color only — the accent is a global design token the site builder
+   already controls. */
 .nav__menu ul li a {
   display: block;
   padding: var(--space-sm) var(--space-sm);
-  color: var(--color-text);
+  color: var(--header-link-color, var(--color-text));
   text-decoration: none;
   border-radius: var(--radius);
   transition: color var(--transition);
@@ -1897,8 +1915,12 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
    so an unset footer renders byte-identical to before. These are NOT schema
    style_slots (footer declares none), so they are outside the issue 305 slot
    guard; FooterChromeTest pins the consume-plus-fallback contract instead. */
+/* `background`, NOT `background-color` (issue 333): --footer-bg is gradient-typed
+   (color OR gradient), and a gradient is a CSS <image> — background-color would drop
+   it as invalid and the footer would paint nothing. The shorthand takes both. Its
+   longhand reset is a no-op: this rule is the only place .site-footer sets background. */
 .site-footer {
-  background-color: var(--footer-bg, var(--color-surface));
+  background: var(--footer-bg, var(--color-surface));
   color: var(--footer-text, inherit);
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-lg);

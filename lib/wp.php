@@ -762,6 +762,69 @@ function pp_render_style_vars(array $style, string $component_name): string {
 }
 
 /**
+ * Renders an inline ` style="..."` attribute of CSS custom properties for
+ * TEMPLATE-OWNED chrome — the header and footer, whose styling surface is
+ * whitelisted site options (pp_header_* / pp_footer_*) rather than component
+ * style_slots, so pp_render_style_vars() (which reads a component's schema
+ * slots) does not apply to them.
+ *
+ * Each entry maps a CSS custom-property name to its value plus the SITE-OPTION
+ * KEY that declares its type. The type is read from pp_allowed_site_options()
+ * — the single source of truth — never hand-copied into the caller. That is the
+ * point: the drift that silently dropped gradients before #333 was a render-time
+ * type ('color') hardcoded separately from the whitelist's declared type
+ * ('gradient'). Deriving the type here makes that divergence impossible.
+ *
+ * Each value is re-validated at the render boundary through the shared engine
+ * (#330); a rejected or empty value is dropped while its siblings still render.
+ * An all-empty/all-dropped set yields '' (no attribute at all), so unset chrome
+ * is byte-identical to markup that never had the surface.
+ *
+ * @param array<string,array{value:string,option:string}> $vars
+ *        CSS var name => ['value' => stored value, 'option' => whitelisted option key].
+ * @return string  A ready-to-echo ` style="..."` attribute, or '' when nothing renders.
+ */
+function pp_chrome_style_attr(array $vars): string {
+    $allowed = pp_allowed_site_options();
+    $decls   = [];
+    foreach ($vars as $css_var => $slot) {
+        $value = (string) ($slot['value'] ?? '');
+        if ($value === '') {
+            continue;
+        }
+        // The CSS property name is developer-supplied (callers hardcode it), never
+        // user input — but this is a shared primitive, so keep it structurally safe:
+        // a custom property is `--` followed by name chars. Anything else is a caller
+        // bug; drop it rather than emit an odd token into the attribute.
+        if (!preg_match('/^--[A-Za-z0-9_-]+$/', (string) $css_var)) {
+            continue;
+        }
+        // Type comes from the whitelist, keyed by the option name — never a
+        // second, hand-maintained copy (the #333 drift class).
+        $type = $allowed[$slot['option']] ?? null;
+        // Fail CLOSED to an explicit CSS-color allowlist. This helper only ever emits
+        // background/text/link COLOR surfaces, so only 'color' and 'gradient' may reach
+        // the render boundary. An unresolved key (null) OR a resolved-but-non-style type
+        // — e.g. a caller that names 'blogname' (string) or 'pp_footer_show_logo' (bool)
+        // by mistake — is dropped here. Without this, pp_render_style_value_allowed()
+        // would validate the value under a non-CSS type: _pp_validate_token_value() has
+        // no case for 'string'/'bool'/'attachment_id', so it falls through to a permissive
+        // pass, leaving only the layer-1 injection reject set. Constraining the type is
+        // strictly safer and keeps the drift-proofing above meaningful.
+        if ($type !== 'color' && $type !== 'gradient') {
+            continue;
+        }
+        if (!pp_render_style_value_allowed($value, $type)) {
+            continue;
+        }
+        $decls[] = $css_var . ': ' . $value;
+    }
+    // esc_attr on the whole attribute value is defense-in-depth on output; the
+    // render boundary above is the real gate.
+    return $decls ? ' style="' . esc_attr(implode('; ', $decls)) . '"' : '';
+}
+
+/**
  * Renders a heading title with an optional accent-colored substring (#110).
  *
  * A structured, plain-text mechanism — NOT an HTML/markup allowlist. `$title`
@@ -2068,7 +2131,10 @@ function pp_set_font_urls(array $urls): bool {
  * on/off flag: accepts 1/0/true/false, stored as '1' or '0') | 'color' (a CSS
  * color accepted by the shared _pp_validate_color() engine — hex/rgb/hsl,
  * transparent/currentColor, or a single known color-typed design-token
- * reference). '0' (not '') is the canonical OFF form for bool so a stored
+ * reference) | 'gradient' (the shared color-OR-gradient union: everything
+ * 'color' accepts, PLUS a bounded linear-gradient()/radial-gradient() with 2+
+ * color stops — used for the chrome BACKGROUND options, issue 333).
+ * '0' (not '') is the canonical OFF form for bool so a stored
  * value always re-validates — the snapshot/rollback path re-applies it
  * through the validating writer.
  *
@@ -2088,12 +2154,31 @@ function pp_allowed_site_options(): array {
         // (issue 223) and not a composition component, so it has no style_slots;
         // these site options are the supported surface. Colors emit inline
         // --footer-* custom properties; strings render brand/contact/copyright.
-        'pp_footer_bg'         => 'color',
+        //
+        // pp_footer_bg is 'gradient', not 'color' (issue 333). The 'gradient' type
+        // is a color-OR-gradient UNION (see _pp_validate_token_value()), so it is a
+        // strict superset of 'color': every value that validated before still does.
+        // Issue 300 typed it 'color' on the belief that the color engine already
+        // accepted gradients; it does not (_pp_validate_color() has no gradient
+        // branch), so a gradient footer was silently inexpressible. Widened here
+        // alongside the header rather than left as an asymmetry the AI would have
+        // to memorize ("header takes a gradient, footer does not").
+        'pp_footer_bg'         => 'gradient',
         'pp_footer_text'       => 'color',
         'pp_footer_link_color' => 'color',
         'pp_footer_blurb'      => 'string',
         'pp_footer_contact'    => 'string',
         'pp_footer_copyright'  => 'string',
+        // Header chrome (issue 333). The header/nav is template-owned (issue 223)
+        // exactly like the footer, so it declares no style_slots and these site
+        // options are its ONLY styling surface. Before this, the header was the one
+        // above-the-fold element with no authorable surface at all: .site-header was
+        // hard-bound to --color-bg. Colors emit inline --header-* custom properties.
+        // pp_header_bg is 'gradient' (color OR gradient) so a gradient marketing
+        // header is expressible; text/link stay 'color'.
+        'pp_header_bg'         => 'gradient',
+        'pp_header_text'       => 'color',
+        'pp_header_link_color' => 'color',
     ];
 }
 
@@ -2159,6 +2244,24 @@ function pp_validate_site_option_value(string $key, string $value) {
             return new WP_Error('invalid_option_value', sprintf(
                 'Option "%s" requires a CSS color (hex, rgb()/hsl(), transparent, '
                 . 'currentColor, or a known color token reference), got "%s".',
+                $key, $value
+            ));
+        }
+    }
+    if ($type === 'gradient') {
+        // Delegate to the shared slot-type engine (issue 333) — the SAME validator
+        // every `gradient`-typed style slot goes through, for the same reason the
+        // 'color' branch above delegates: no second, surface-specific rule. The
+        // 'gradient' type is a color-OR-gradient union, so a background option
+        // accepts every plain color a 'color' option does, PLUS a bounded
+        // linear-gradient()/radial-gradient(). Routed through
+        // _pp_validate_token_value() (not a bare _pp_validate_gradient() call) so
+        // the union stays defined in exactly one place.
+        if (_pp_validate_token_value($value, 'gradient') !== true) {
+            return new WP_Error('invalid_option_value', sprintf(
+                'Option "%s" requires a CSS color (hex, rgb()/hsl(), transparent, '
+                . 'currentColor, or a known color token reference) or a bounded '
+                . 'linear-gradient()/radial-gradient() with 2+ color stops, got "%s".',
                 $key, $value
             ));
         }
