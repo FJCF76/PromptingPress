@@ -86,19 +86,43 @@ The footer logo is **off by default**. Turn it on with the `pp_footer_show_logo`
 wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_show_logo","value":"true"}'
 ```
 
-The value is a boolean — `1`, `0`, `true`, or `false`. When on, the footer resolves the same logo as the header (`pp_logo_id` → `custom_logo` theme-mod → text wordmark). When off, the footer shows only its copyright line.
+The value is a boolean — `1`, `0`, `true`, or `false`. When on, the footer resolves the same logo as the header (`pp_logo_id` → `custom_logo` theme-mod → text wordmark). When off, the footer omits the logo but still renders its menu, copyright line, and any blurb/contact you set (see the dark marketing footer section below).
 
 `footer.show_logo` is a prop of the template-owned `footer` component; since #223 you cannot pass it by composing a `footer` (the write is rejected with `template_owned_component`, and every validator flags the page). The site option is the only supported surface. `pp_logo_id` still sets the **header** logo independently.
 
 ---
 
-## Whitelisted logo options
+## Dark marketing footer (background, text, blurb, contact, copyright)
+
+The footer is template-owned (#223) with no composition style slots, so a dark marketing footer is built through site options too (#300), the same `update_site_option` safe surface. All are optional; unset, the footer looks exactly as before.
+
+```bash
+# Dark band with light text and a brand blurb
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_bg","value":"#1a1a2e"}'
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_text","value":"#e8e8f0"}'
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_link_color","value":"#c8c8e0"}'
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_blurb","value":"Ship credible sites in an afternoon."}'
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_contact","value":"hello@example.com\nSan Francisco, CA"}'
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_copyright","value":"© 2026 Example Inc. Beta."}'
+```
+
+The three color keys accept the same values as any style-slot color: hex, `rgb()`/`hsl()`, `transparent`, `currentColor`, or a single known color-token reference like `var(--color-accent)`. They are validated by the shared color engine (the same one style slots use) and rendered as inline `--footer-*` custom properties. `pp_footer_text` colors the blurb, contact block, and copyright line. `pp_footer_copyright` replaces the default `© <year> <site title>. All rights reserved.` line verbatim, so include the year yourself; leave it empty to keep the default. This is a tight dark-footer surface, not a general footer builder.
+
+---
+
+## Whitelisted logo + footer options
 
 | Key | Value | Notes |
 |-----|-------|-------|
 | `pp_logo_id` | Media Library attachment ID (integer) | Must be an image. Never a URL. |
 | `pp_logo_alt` | string | Optional. Defaults to the attachment's alt metadata, then the site title. |
 | `pp_footer_show_logo` | boolean (`1`/`0`/`true`/`false`) | Optional, default off. Turns the footer logo on/off. Uses the same resolved logo as the header. |
+| `pp_footer_bg` | CSS color | Optional. Footer background (`--footer-bg`). The primary dark-footer control. |
+| `pp_footer_text` | CSS color | Optional. Footer text color (`--footer-text`) — blurb, contact, copyright. |
+| `pp_footer_link_color` | CSS color | Optional. Footer nav-link color (`--footer-link-color`). |
+| `pp_footer_blurb` | string | Optional. Brand/description line under the footer logo. |
+| `pp_footer_contact` | string | Optional. Contact/secondary text block (newlines become line breaks). |
+| `pp_footer_copyright` | string | Optional. Replaces the default copyright line; empty keeps the default. |
 
 ---
 

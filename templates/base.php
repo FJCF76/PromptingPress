@@ -47,10 +47,18 @@ if (!function_exists('pp_base_template')) {
 <?php endif; endif; ?>
 
 <?php pp_get_component('footer', [
-    'location'  => 'footer',
-    // Footer logo is site chrome, set via the pp_footer_show_logo site option
-    // (issue 234) — the footer can no longer be composed to pass show_logo (issue 223).
-    'show_logo' => get_option('pp_footer_show_logo', '') === '1',
+    'location'   => 'footer',
+    // Footer chrome is template-owned (issue 223) and set through whitelisted
+    // site options, never by composing a footer. show_logo is the pp_footer_show_logo
+    // surface (issue 234); the dark-marketing-footer bg/text/link colors and the
+    // blurb/contact/copyright content are the pp_footer_* surfaces (issue 300).
+    'show_logo'  => get_option('pp_footer_show_logo', '') === '1',
+    'bg'         => (string) get_option('pp_footer_bg', ''),
+    'text'       => (string) get_option('pp_footer_text', ''),
+    'link_color' => (string) get_option('pp_footer_link_color', ''),
+    'blurb'      => (string) get_option('pp_footer_blurb', ''),
+    'contact'    => (string) get_option('pp_footer_contact', ''),
+    'copyright'  => (string) get_option('pp_footer_copyright', ''),
 ]); ?>
 
 <?php wp_footer(); ?>

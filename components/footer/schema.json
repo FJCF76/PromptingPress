@@ -1,6 +1,6 @@
 {
   "component": "footer",
-  "description": "Site footer with an optional WP nav menu and a copyright line. Reads a registered WP nav menu by theme location slug.",
+  "description": "Site footer with an optional WP nav menu and a copyright line. Reads a registered WP nav menu by theme location slug. Template-owned chrome (issue 223): it is rendered once by the theme, never composed. Its content and colors are set through whitelisted site options (update_site_option), NOT by composing a footer or passing props directly. The props below document the template contract; base.php maps the pp_footer_* site options onto them.",
   "props": {
     "location": {
       "type": "string",
@@ -31,12 +31,48 @@
       "required": false,
       "default": "",
       "description": "Alt text for the footer logo image. Defaults to the attachment's own alt metadata, then logo_text/site title."
+    },
+    "bg": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Footer background color (issue 300). Set via the pp_footer_bg site option; emitted as the --footer-bg custom property. A CSS color validated by the shared color engine (hex, rgb()/hsl(), transparent, currentColor, or a known color-token reference). Empty = the default light surface. This is the primary dark-marketing-footer control."
+    },
+    "text": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Footer text color (issue 300). Set via the pp_footer_text site option; emitted as --footer-text. Applies to the blurb, contact block, and copyright. Same color validation as bg. Empty = inherit / the muted default."
+    },
+    "link_color": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Footer nav-link color (issue 300). Set via the pp_footer_link_color site option; emitted as --footer-link-color. Same color validation as bg. Empty = the muted default."
+    },
+    "blurb": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Short brand/description line under the footer logo (issue 300). Set via the pp_footer_blurb site option. Plain text; newlines render as line breaks."
+    },
+    "contact": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Contact/secondary text block, e.g. an address or email (issue 300). Set via the pp_footer_contact site option. Plain text; newlines render as line breaks."
+    },
+    "copyright": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Configurable copyright line (issue 300). Set via the pp_footer_copyright site option. When empty, the footer renders the default line '© <year> <site title>. All rights reserved.'. When set, this string replaces it verbatim (include the year yourself)."
     }
   },
   "styling": {
     "root_class": "site-footer",
     "variant_classes": [],
-    "tokens": ["--color-border", "--color-muted"]
+    "tokens": ["--color-border", "--color-muted", "--footer-bg", "--footer-text", "--footer-link-color"]
   },
   "safe_to_edit": ["footer.php", "../../assets/css/components.css (COMPONENT: footer section)"],
   "do_not_touch": ["schema.json without updating README.md"]

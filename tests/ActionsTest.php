@@ -3603,6 +3603,29 @@ class ActionsTest extends TestCase
         $this->assertSame('a:1:{i:0;s:5:"x/x.php";}', get_option('active_plugins', ''));
     }
 
+    public function testFooterChromeOptionRollsBackWithDeleteOnEmptyBaseline(): void
+    {
+        // issue 300 + issue 281: a footer color option unset before the run has an
+        // empty ('') captured baseline. On rollback the restore path must DELETE the
+        // option (delete-on-empty), not write '' (which the color validator rejects),
+        // so the footer returns to its default light surface. Proves the generic
+        // site-option snapshot/restore covers the new pp_footer_* keys automatically.
+        $this->assertArrayNotHasKey('pp_footer_bg', $GLOBALS['_pp_test_store']['options']);
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'update_site_option', 'params' => ['key' => 'pp_footer_bg', 'value' => '#1a1a2e']],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+        $this->assertArrayNotHasKey(
+            'pp_footer_bg',
+            $GLOBALS['_pp_test_store']['options'],
+            'an unset footer color baseline must be restored by deleting the option, not by writing an invalid ""'
+        );
+    }
+
     public function testBatchRollsBackCustomCssOnLaterFailure(): void
     {
         $GLOBALS['_pp_test_store']['custom_css'] = '.hero { color: red; }';
