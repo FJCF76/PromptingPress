@@ -665,7 +665,10 @@
   align-items: center;
   margin-top: var(--space-md);
   font-size: 0.875rem;
-  color: var(--color-muted);
+  /* Route the proof color through a per-instance slot so a dark hero can lift it
+     off the dark background; unset resolves to --color-muted, byte-identical to
+     the prior hardcoded value (issue 296). */
+  color: var(--hero-proof-color, var(--color-muted));
 }
 
 /* ==========================================================================

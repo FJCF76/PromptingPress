@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.105] — 2026-07-13 — the hero proof line can finally be lifted off a dark hero: it has its own color slot instead of a hardcoded muted token (#296)
+
+**A hero's proof line — the small trust signals rendered below the CTA — shipped in a hardcoded `var(--color-muted)` with no per-instance color slot. On any dark hero (`--hero-bg` set to a dark color or gradient) that produced a low-contrast, dark-on-dark line that no supported action could fix, while `validate page` and `check page` both passed. This is the same "a literal token defeats per-instance theming" family as #222/#248/#292. This release adds a `--hero-proof-color` style slot so an operator can set the proof color to a light value on a dark hero.**
+
+The base `.hero__proof` rule now routes its color through `var(--hero-proof-color, var(--color-muted))`, the same `var(--slot, <literal>)` idiom the rest of the hero color slots use. Unset output is byte-identical to before — the proof line keeps rendering in `--color-muted` until an operator sets the slot — so nothing about the shipped pages changes on upgrade. The proof line has a single color declaration (no premium, inverted-theme, or media-query rule re-declares it), so the one base rule is the whole surface. The slot is enforced live by the existing style-slot contract test, which auto-discovers every schema slot and fails the build if one is not consumed by the CSS or is bypassed by a literal. No new prop, token, recipe, or action surface was added.
+
+### Fixed
+
+- The `hero.proof` line now honors a `--hero-proof-color` style slot (default `var(--color-muted)`). Set it per instance with `style_component` to give a dark hero a readable, light-colored proof line instead of the fixed dark-on-dark muted token. Byte-identical when unset (#296).
+
+### Docs
+
+- `AI_CONTEXT.md` and `README.md` style-slot totals updated from 152 to 153 (`hero` 36 → 37) to match the schemas (#296).
+
+### Tests
+
+- `StyleSlotContractTest` pins the `var(--hero-proof-color, var(--color-muted))` base-rule fallback for byte-identical unset output; `SchemaValidationTest` and `OperateTest` hero slot-count pins and the `css-lint` subset count bump from 36/111 to 37/112 in lockstep with the new slot (#296).
+
 ## [v0.16.104] — 2026-07-13 — the grid's featured first-card remnants (accent top bar, texture stripe, glow) are finally slot-controllable: uniform card rows are one recipe away (#293)
 
 **Every 3-up feature row used to render with an unremovable "first card is special" statement: after #226 and #292 fixed the border and background slots, the featured first card still painted a 4px accent top bar, a blue texture stripe, and an inset blue glow from hardcoded literals no slot could reach. A neutral, uniform card row — the most common marketing section there is — was impossible through supported mechanisms. This release puts all three remnants behind style slots and ships a `uniform-cards` recipe that neutralizes the treatment in one step.**

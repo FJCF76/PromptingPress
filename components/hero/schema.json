@@ -153,6 +153,7 @@
       "--hero-title-weight": { "type": "number", "default": "var(--font-weight-heading)", "description": "Title font weight" },
       "--hero-subtitle-size": { "type": "length", "default": "1.0625rem", "description": "Subtitle font size" },
       "--hero-subtitle-color": { "type": "color", "default": "var(--color-muted)", "description": "Subtitle text color" },
+      "--hero-proof-color": { "type": "color", "default": "var(--color-muted)", "description": "Proof line text color (trust signals below the CTA); route it to a light value on dark heroes so it is not dark-on-dark" },
       "--hero-content-gap": { "type": "length", "default": "var(--space-md)", "description": "Gap between content elements" },
       "--hero-content-width": { "type": "length", "default": "var(--measure-centered)", "description": "Max width of the content column" },
       "--hero-overlay-bg": { "type": "gradient", "default": "var(--overlay-bg)", "description": "Cover-layout overlay background color or gradient (e.g. a transparent-to-dark scrim for text legibility over an image)" },
