@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.112] — 2026-07-13 — the footer can now be a dark marketing footer: background/text/link colors, a brand blurb, a contact block, and a custom copyright line, all through site options (#300)
+
+**A dark-branded site always ended on a light footer. The footer is template-owned, so it had no style slots, no brand blurb, no contact column, and a fixed "© <year> <site>. All rights reserved." line you could only change by renaming the whole site. Rebuilding a real marketing footer natively was impossible. This release adds six whitelisted `pp_footer_*` site options — the same safe surface as the footer logo (#234) — so a footer can go dark and carry brand copy without touching theme files.**
+
+Set `pp_footer_bg`, `pp_footer_text`, and `pp_footer_link_color` to any CSS color the style-slot color validator already accepts (hex, `rgb()`/`hsl()`, `transparent`, `currentColor`, or a known color-token reference like `var(--color-accent)`) for a dark band with readable text and links; they render as inline `--footer-*` custom properties, so an unset footer looks exactly as before. Set `pp_footer_blurb` for a short brand line under the logo, `pp_footer_contact` for an address/email block (newlines become line breaks), and `pp_footer_copyright` to replace the default copyright line (empty keeps the default). Colors go through the same shared validation engine as every other slot color — there is no second, footer-specific validator — and every option round-trips through snapshot/restore, so a rollback restores or clears each one cleanly. This is a tight dark-footer surface, not a general footer builder. Logo sizing is unchanged (that was #299).
+
+### Added
+
+- Six `pp_footer_*` site options (`update_site_option`) turn the footer into a dark marketing footer: `pp_footer_bg` / `pp_footer_text` / `pp_footer_link_color` (CSS colors, validated by the shared color engine, emitted as inline `--footer-*` custom properties) and `pp_footer_blurb` / `pp_footer_contact` / `pp_footer_copyright` (text; empty copyright keeps the default line). Unset, the footer renders identically to before (#300).
+
+### Docs
+
+- `AI_CONTEXT.md`, `ai-instructions/set-logo.md` (new dark-footer section + options table), `ai-instructions/website-building.md`, the `update_site_option` action description, `components/footer/schema.json` + `README.md`, and the root `README.md` document the new footer options and that colors reuse the shared style-slot color grammar (#300).
+
+### Tests
+
+- `FooterChromeTest` pins the whitelist + `color` type, color validation delegating to the shared `_pp_validate_color` engine (accepts hex/rgb/hsl/`transparent`/`currentColor`, rejects non-colors), string options, the write + round-trip, the rendered inline `--footer-*` properties, blurb/contact/copyright rendering and escaping, byte-identical unset output (no style attr, default copyright, no `text-muted` class), the CSS `var(--footer-*, <literal>)` consume-plus-fallback contract (which the schema-slot guard does not cover), the untouched #299 logo cap, and that `base.php` maps every option; `ActionsTest` pins the snapshot/restore round-trip with delete-on-empty for an unset footer-color baseline (#300).
+
 ## [v0.16.111] — 2026-07-13 — the footer logo is now capped to a sane height, so a real wordmark no longer renders near full size and dominates the footer (#299)
 
 **Setting a real logo image (via `pp_logo_id` + `pp_footer_show_logo`) used to blow up the footer: a 664×150 wordmark rendered at roughly 491×111 px because the footer logo `<img>` had no size cap at all, while the header logo has always been constrained to a sensible height. The footer is template-owned with no style slots, so there was no way to fix it from the outside. This release adds a height cap to the footer logo that matches the header treatment, so any real-world logo aspect ratio renders at a reasonable size.**

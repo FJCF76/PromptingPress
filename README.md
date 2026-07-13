@@ -13,7 +13,7 @@
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
 [![Tests](https://img.shields.io/badge/Tests-1936+_passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-0.16.111-6366F1?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.16.112-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -142,7 +142,7 @@ No blocks. No shortcodes. No visual-builder serialization. AI can read, write, d
 | embed | WordPress shortcode / plugin content wrapper | `content` |
 | testimonials | Customer quotes with attribution — card grid or single-column stack | `items[]` |
 
-Two more components ship with the theme but are **not composable**: `nav` and `footer` are site chrome, rendered on every page by the base template. Putting either into a page composition renders the header or footer twice, so the write is rejected with `template_owned_component`. Set the site logo through the `pp_logo_id` option and the menus through the menu actions.
+Two more components ship with the theme but are **not composable**: `nav` and `footer` are site chrome, rendered on every page by the base template. Putting either into a page composition renders the header or footer twice, so the write is rejected with `template_owned_component`. Set the site logo through the `pp_logo_id` option and the menus through the menu actions. The footer's dark-marketing chrome (background/text/link colors, brand blurb, contact block, custom copyright) is set through the `pp_footer_*` site options.
 
 The auto-loader picks up any new component at `/components/{name}/{name}.php` — drop a file, add a schema, it works. No registration code.
 
