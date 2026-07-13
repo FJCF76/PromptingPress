@@ -1157,6 +1157,464 @@ class StyleSlotContractTest extends TestCase
         );
     }
 
+    /**
+     * 8. Cross-sheet silent-clobber guard (issue 342).
+     *
+     * Checks 1-7 all read ONLY components.css. That single-sheet blind spot is
+     * exactly how #336 hid: base.css:187 `p:last-child { margin-bottom: 0 }`
+     * (specificity (0,1,1)) outranks a bare `.grid__subheading` (0,1,0), and the
+     * subheading is always its header's last child — so the component's declared
+     * `margin-bottom` computed to 0px on three components while every unit check
+     * here stayed green. The #336 fix out-specified the reset at header scope but
+     * added NO structural guard, so the next element/pseudo-class reset added to
+     * base.css reopens the class.
+     *
+     * WHAT THIS PROVES, STATED HONESTLY (issue 342, decision Option 2): a static
+     * text scan cannot resolve the cascade — specificity, source order, and
+     * whether two selectors match the SAME rendered element are a browser's job.
+     * So this guard does NOT claim the cascade resolves correctly. It proves the
+     * weaker, still-load-bearing thing: every cross-sheet rule that COULD win the
+     * cascade against a bare component class on a slot-consumed property is
+     * explicitly ACCOUNTED FOR. A new such rule fails the build until a human
+     * acknowledges it with evidence. The TRUE cascade proof lives in the rendered
+     * computed-style pins in tests/e2e/style-render.spec.ts (the `#336 …`
+     * subheading tests prove the slot actually lands under the real cascade).
+     * This is the same division of labour as check 7 (WP-core immunity): the
+     * static half keeps the contract honest as the surface grows; the rendered
+     * half owns what only a browser can prove.
+     *
+     * SCOPE — the AUTOMATIC-MATCH class only. A hazard is a rule in a cross-sheet
+     * stylesheet (base.css, utilities.css) whose SUBJECT compound carries NO
+     * class/id/attribute — a pure element/pseudo-class selector (`p:last-child`,
+     * `a:hover`) that matches component-rendered elements BY TAG, with no template
+     * opt-in. That is the silent mechanism of #336. Class-subject rules (the
+     * `.mb-*`/`.text-*`/`.sr-only` utilities) are deliberately OUT of scope here:
+     * they reach a slotted element only when a template explicitly adds the class,
+     * a visible, greppable composition rather than a silent cascade defeat. One
+     * such opt-in path IS a real, breakpoint-split clobber today — `text_role`
+     * adds `.text-meta`/`.text-kicker` (which set `color`) onto `.grid__item-text`,
+     * defeating `--grid-item-text-color` below 768px — but it needs a role-vs-slot
+     * DESIGN decision, so it is tracked separately as issue #349, with the rendered
+     * pins owning its proof. Do not widen this guard to swallow that case without
+     * that decision: a guard cannot enforce a contract that is not yet decided.
+     *
+     * LOAD-ORDER ASYMMETRY (functions.php:88/104/111): base.css → components.css →
+     * utilities.css. A base.css rule only beats a bare component class when its
+     * specificity is STRICTLY greater than (0,1,0) — an equal (0,1,0) loses on
+     * source order to the later component sheet. A utilities.css rule (later than
+     * components) wins at >= (0,1,0). testCrossSheetLoadOrderAssumptionHolds pins
+     * that ordering so the threshold logic can't silently invert under a reorder.
+     *
+     * The ledger is SHRINK-ONLY, same discipline as KNOWN_DEAD_SLOT_WAIVERS:
+     *   - a new automatic-match hazard fails (acknowledge it with a justification
+     *     and, where it maps to a real element, the rendered pin that proves the
+     *     slot still lands — or fix the reset and don't add an entry);
+     *   - a ledger entry that stops offending fails (remove it with the fix);
+     *   - the exact-size pin below must move in the same change, so an entry can
+     *     never slip in or drift out through a merge unnoticed.
+     */
+    private const CROSS_SHEET_CLOBBER_LEDGER = [
+        // The #336 prose reset. Auto-matches every <p>, including component
+        // subheadings (always their header's last child). SAFE because the three
+        // subheading-bearing components out-specify it at header scope
+        // `.X__header > .X__subheading` (0,2,0), proven under the real cascade by
+        // style-render.spec.ts `#336 <component> subheading keeps its bottom
+        // rhythm`. Legitimate for prose blocks (`.section__content`, `.cta__body`)
+        // — must NOT be weakened; components out-specify it, they don't delete it.
+        'base.css|p:last-child|margin-bottom'          =>
+            'issue 336 prose reset; components out-specify at (0,2,0), pinned by style-render.spec.ts #336.',
+        // Sibling reset for blockquotes. No component declares a slotted
+        // margin-bottom on a blockquote today (exhaustive #336 sweep), so no slot
+        // is at risk now; the entry keeps a future blockquote margin slot honest.
+        'base.css|blockquote:last-child|margin-bottom' =>
+            'issue 336 sibling reset; no component slots margin-bottom on a blockquote today.',
+        // Global link hover state. A component that slots a link colour owns its
+        // RESTING colour at its own class specificity and hands the hover off
+        // intentionally (see KNOWN_DEAD_SLOT_WAIVERS `--grid-link-color` hover
+        // entry). The hover MUST visually override the resting slot — routing it
+        // through the slot would erase hover feedback. Not a silent clobber.
+        'base.css|a:hover|color'                       =>
+            'global link hover state; slotted link colours own resting colour and hand off the hover (see grid-link waiver).',
+    ];
+
+    /** Front-end stylesheets, besides components.css, that share the component cascade,
+     * with whether a same-specificity rule there WINS a tie against a component class
+     * (true when the sheet is enqueued AFTER components.css). Admin/chat sheets
+     * (pp-admin-editor.css, pp-ai-chat.css) render in a different context and are out
+     * of scope. */
+    private function crossSheetSpecs(): array
+    {
+        return [
+            ['name' => 'base.css',      'winsTie' => false,
+             'css'  => file_get_contents($this->themeRoot . '/assets/css/base.css')],
+            ['name' => 'utilities.css', 'winsTie' => true,
+             'css'  => file_get_contents($this->themeRoot . '/assets/css/utilities.css')],
+        ];
+    }
+
+    public function testNoUnacknowledgedCrossSheetClobber(): void
+    {
+        $watched = $this->watchedSlotProperties();
+
+        // Vacuity floor: the derivation must find a healthy watched-property
+        // population, or a parser regression would gut the guard silently.
+        $this->assertGreaterThan(
+            8,
+            count($watched),
+            'Watched slot-property derivation collapsed — the cross-sheet guard would pass vacuously.'
+        );
+
+        $hazards = $this->crossSheetClobberHazards($this->crossSheetSpecs(), $watched);
+
+        // Fail-closed: the three known automatic-match hazards MUST be found, or the
+        // base.css scan / specificity parser regressed and this guard passes vacuously.
+        foreach (array_keys(self::CROSS_SHEET_CLOBBER_LEDGER) as $known) {
+            $this->assertArrayHasKey(
+                $known,
+                $hazards,
+                "Cross-sheet hazard discovery lost `{$known}` — the scan or specificity "
+                . 'parser regressed and this guard would pass vacuously.'
+            );
+        }
+
+        $failures = [];
+        foreach ($hazards as $key => $decls) {
+            if (!isset(self::CROSS_SHEET_CLOBBER_LEDGER[$key])) {
+                $failures[] = "NEW cross-sheet clobber: `{$key}` declares ["
+                    . implode(', ', array_unique($decls)) . '] at a specificity that '
+                    . 'defeats a bare (0,1,0) component class. A pure element/pseudo-class '
+                    . 'rule matches component elements by tag with no template opt-in — the '
+                    . '#336 silent-clobber mechanism. Out-specify the slot in components.css '
+                    . '(header-scope the rule), add a rendered pin, and acknowledge it in '
+                    . 'CROSS_SHEET_CLOBBER_LEDGER — or remove the reset.';
+            }
+        }
+        foreach (array_keys(self::CROSS_SHEET_CLOBBER_LEDGER) as $key) {
+            if (!isset($hazards[$key])) {
+                $failures[] = "STALE ledger entry: `{$key}` no longer offends — remove it "
+                    . 'from CROSS_SHEET_CLOBBER_LEDGER (and update the size pin).';
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $failures,
+            "Cross-sheet slot-clobber guard (issue 342):\n- " . implode("\n- ", $failures)
+        );
+    }
+
+    /** Exact-size pin: any ledger edit in either direction must touch this test, so a
+     * cross-sheet acknowledgement can never slip in or drift out through a merge. */
+    public function testCrossSheetLedgerOnlyShrinks(): void
+    {
+        $this->assertSame(
+            3,
+            count(self::CROSS_SHEET_CLOBBER_LEDGER),
+            'The issue 342 cross-sheet ledger changed size. A new automatic-match reset is '
+            . 'fixed (out-specify it) or acknowledged with evidence; a fixed one is removed. '
+            . 'Update this pin in the same change. The 3 entries are base.css p:last-child + '
+            . 'blockquote:last-child (margin-bottom) and a:hover (color).'
+        );
+    }
+
+    /**
+     * Detection proof / negative control (mirrors testGuardDetectsTheDeadSlotClass):
+     * the guard must go RED on a NEW cross-sheet clobber and stay silent on the
+     * patterns it must NOT flag — proving both its power and its precision, in CI
+     * forever, without depending on the real sheets' current contents.
+     */
+    public function testCrossSheetGuardDetectsANewClobber(): void
+    {
+        $watched = ['margin-bottom', 'color', 'padding-top'];
+
+        // A NEW element+pseudo-class clobber in an EARLY (base-order) sheet: caught.
+        $this->assertArrayHasKey(
+            'x.css|li:last-child|margin-bottom',
+            $this->crossSheetClobberHazards(
+                [['name' => 'x.css', 'winsTie' => false, 'css' => 'li:last-child { margin-bottom: 0; }']],
+                $watched
+            ),
+            'The guard failed to detect a new element/pseudo-class clobber (the #336 mechanism).'
+        );
+
+        // A bare element rule (0,0,1) is out-specified by ANY component class → NOT a hazard.
+        $this->assertSame(
+            [],
+            $this->crossSheetClobberHazards(
+                [['name' => 'x.css', 'winsTie' => false, 'css' => 'li { margin-bottom: 0; }']],
+                $watched
+            ),
+            'A bare element rule (0,0,1) loses to every component class — it must not be flagged.'
+        );
+
+        // A class-subject (opt-in) rule is excluded even when it would win a tie in a
+        // later sheet: it only reaches a slotted element if a template adds the class.
+        $this->assertSame(
+            [],
+            $this->crossSheetClobberHazards(
+                [['name' => 'u.css', 'winsTie' => true, 'css' => '.mb0 { margin-bottom: 0; }']],
+                $watched
+            ),
+            'An opt-in utility class must not be flagged as a silent automatic-match clobber.'
+        );
+
+        // Source-order asymmetry, load-order logic actually bites: an element-less
+        // pseudo-class rule at (0,1,0) TIES a bare component class — it loses in an
+        // earlier sheet (not a hazard) and wins in a later one (a hazard).
+        $this->assertSame(
+            [],
+            $this->crossSheetClobberHazards(
+                [['name' => 'e.css', 'winsTie' => false, 'css' => ':hover { color: red; }']],
+                $watched
+            ),
+            '(0,1,0) in a sheet BEFORE components ties and loses on source order — not a hazard.'
+        );
+        $this->assertArrayHasKey(
+            'l.css|:hover|color',
+            $this->crossSheetClobberHazards(
+                [['name' => 'l.css', 'winsTie' => true, 'css' => ':hover { color: red; }']],
+                $watched
+            ),
+            '(0,1,0) in a sheet AFTER components ties and wins on source order — a hazard.'
+        );
+
+        // Reset-shorthand path: a `margin` shorthand kills a `margin-bottom` slot.
+        $this->assertArrayHasKey(
+            't.css|p:last-child|margin',
+            $this->crossSheetClobberHazards(
+                [['name' => 't.css', 'winsTie' => false, 'css' => 'p:last-child { margin: 0; }']],
+                ['margin']
+            ),
+            'A shorthand reset (margin: kills a margin-bottom slot) must be detected.'
+        );
+
+        // A hazard nested inside @media is still caught: the innermost-rule parse
+        // matches the inner rule on its own; the @media wrapper (its body holds braces)
+        // is not lifted out. Fail-closed for hazard detection (Codex outside-voice: the
+        // regex must not skip @media-nested resets).
+        $this->assertArrayHasKey(
+            'm.css|p:last-child|margin-bottom',
+            $this->crossSheetClobberHazards(
+                [['name' => 'm.css', 'winsTie' => false,
+                  'css'  => '@media (min-width: 768px) { p:last-child { margin-bottom: 0; } }']],
+                $watched
+            ),
+            'A clobber nested in @media must still be caught (innermost-rule parse).'
+        );
+
+        // A pseudo-ELEMENT subject is a separate box, not the slot-bearing element —
+        // it must NOT be flagged even in a later (tie-winning) sheet.
+        $this->assertSame(
+            [],
+            $this->crossSheetClobberHazards(
+                [['name' => 'p.css', 'winsTie' => true, 'css' => 'p::first-line { color: red; }']],
+                $watched
+            ),
+            'A pseudo-element box is not the slot-bearing element — must not be flagged.'
+        );
+
+        // A type selector inside :not() counts toward specificity: `:hover:not(p)` is
+        // really (0,1,1) and beats a bare component class, so it IS a hazard in an
+        // early sheet. If the type were dropped it would mis-compute to (0,1,0) and slip.
+        $this->assertArrayHasKey(
+            'n.css|:hover:not(p)|color',
+            $this->crossSheetClobberHazards(
+                [['name' => 'n.css', 'winsTie' => false, 'css' => ':hover:not(p) { color: red; }']],
+                $watched
+            ),
+            'A type selector inside :not() must count toward specificity (else a real clobber slips past).'
+        );
+    }
+
+    /**
+     * The threshold logic in specWinsAgainstBareClass depends on base.css loading
+     * BEFORE components.css and utilities.css loading AFTER it. Pin that enqueue
+     * order so a reorder in functions.php can't silently invert which cross-sheet
+     * rules count as hazards (adversarial: swap the enqueues and every base.css
+     * tie flips from "loses" to "wins" and vice-versa).
+     */
+    public function testCrossSheetLoadOrderAssumptionHolds(): void
+    {
+        $fn = file_get_contents($this->themeRoot . '/functions.php');
+        $base  = strpos($fn, 'assets/css/base.css');
+        $comps = strpos($fn, 'assets/css/components.css');
+        $utils = strpos($fn, 'assets/css/utilities.css');
+
+        $this->assertNotFalse($base,  'functions.php no longer references base.css.');
+        $this->assertNotFalse($comps, 'functions.php no longer references components.css.');
+        $this->assertNotFalse($utils, 'functions.php no longer references utilities.css.');
+        $this->assertTrue(
+            $base < $comps && $comps < $utils,
+            'functions.php enqueue order changed (expected base.css < components.css < utilities.css). '
+            . 'The cross-sheet guard\'s tie-breaking (base ties LOSE, utilities ties WIN) assumes it — '
+            . 'update crossSheetSpecs() winsTie flags and this pin together.'
+        );
+    }
+
+    // ── Issue 342 cross-sheet analyzer ─────────────────────────────────────────
+
+    /**
+     * The set of CSS properties actually driven by a component slot (a compatible
+     * var(--slot) consumption in components.css), plus every shorthand that RESETS
+     * one of them (RESETTING_SHORTHANDS). A cross-sheet rule declaring one of these
+     * at a cascade-winning specificity is what can defeat a slot.
+     */
+    private function watchedSlotProperties(): array
+    {
+        $slotsByComponent = $this->slotsByComponent();
+        $slotToComponent  = [];
+        foreach ($slotsByComponent as $component => $slots) {
+            foreach ($slots as $slot => $type) {
+                $slotToComponent[$slot] = $component;
+            }
+        }
+
+        $css = $this->stripComments($this->css);
+        preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $rules, PREG_SET_ORDER);
+
+        $props = [];
+        foreach ($rules as $rule) {
+            if (!preg_match_all('/([a-z-]+)\s*:\s*([^;{}]*)/i', $rule[2], $decls, PREG_SET_ORDER)) {
+                continue;
+            }
+            foreach ($decls as $decl) {
+                $property = strtolower(trim($decl[1]));
+                foreach ($slotToComponent as $slot => $component) {
+                    if (!preg_match('/var\(\s*' . preg_quote($slot, '/') . '\b/', $decl[2])) {
+                        continue;
+                    }
+                    // Type gate, mirroring check 2 / the #305 derivation: a
+                    // type-incompatible appearance is not a real consumption.
+                    $compatible = self::PROPERTY_TYPES[$property] ?? null;
+                    $slotType   = $slotsByComponent[$component][$slot];
+                    if ($compatible !== null && !in_array($slotType, $compatible, true)) {
+                        continue;
+                    }
+                    $props[$property] = true;
+                }
+            }
+        }
+
+        // A cross-sheet shorthand that resets a watched longhand clobbers it too.
+        foreach (array_keys($props) as $p) {
+            foreach (self::RESETTING_SHORTHANDS[$p] ?? [] as $shorthand) {
+                $props[$shorthand] = true;
+            }
+        }
+
+        return array_keys($props);
+    }
+
+    /**
+     * Returns "sheet|subject|property" => [declared value, …] for every cross-sheet
+     * rule that is an AUTOMATIC-MATCH hazard: its subject compound carries no
+     * class/id/attribute (a pure element/pseudo-class selector), it declares a
+     * watched property, and its specificity defeats a bare (0,1,0) component class
+     * under that sheet's tie-break. Innermost-rule parse (same as checks 3/5) so a
+     * hazard nested in an @media block is caught, not lifted out and missed.
+     */
+    private function crossSheetClobberHazards(array $sheetSpecs, array $watched): array
+    {
+        $hazards = [];
+        foreach ($sheetSpecs as $spec) {
+            $css = $this->stripComments($spec['css']);
+            preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $rules, PREG_SET_ORDER);
+
+            foreach ($rules as $rule) {
+                foreach (explode(',', $rule[1]) as $part) {
+                    $part = trim($part);
+                    if ($part === '' || !$this->subjectIsAutomaticMatch($part)) {
+                        continue;
+                    }
+                    if (!$this->specWinsAgainstBareClass($this->selectorSpecificity($part), $spec['winsTie'])) {
+                        continue;
+                    }
+                    foreach ($watched as $prop) {
+                        if (!preg_match_all(
+                            '/(?<![-a-z])' . preg_quote($prop, '/') . '\s*:\s*([^;}]+)/i',
+                            $rule[2],
+                            $m
+                        )) {
+                            continue;
+                        }
+                        foreach ($m[1] as $value) {
+                            $hazards["{$spec['name']}|{$part}|{$prop}"][] = trim($value);
+                        }
+                    }
+                }
+            }
+        }
+        ksort($hazards);
+        return $hazards;
+    }
+
+    /**
+     * True when the SUBJECT (last compound) of a selector part carries no
+     * class/id/attribute — a pure element/pseudo-class selector that matches
+     * component-rendered elements by tag with no template opt-in. Class-subject
+     * rules (utilities) are opt-in and out of the silent-clobber scope (see #349).
+     */
+    private function subjectIsAutomaticMatch(string $selectorPart): bool
+    {
+        $part      = trim(preg_replace('/\s*[>+~]\s*/', ' ', $selectorPart));
+        $compounds = preg_split('/\s+/', $part);
+        $subject   = (string) end($compounds);
+        if ($subject === '' || preg_match('/[.#\[]/', $subject)) {
+            return false;
+        }
+        // A pseudo-ELEMENT (::before/::marker/::first-line) is a SEPARATE box, not the
+        // element that carries the slot — check 5 tracks it as its own subject for the
+        // same reason. A rule on it does not clobber the host element's slot, so it is
+        // out of the automatic-match hazard scope (Codex outside-voice finding).
+        return !str_contains($subject, '::');
+    }
+
+    /**
+     * CSS specificity [a=ids, b=classes/attrs/pseudo-classes, c=elements/pseudo-elements]
+     * for a single (comma-free) selector. Accurate enough to compare against a bare
+     * component class (0,1,0). :not()/:is() add no specificity themselves (their
+     * arguments do, and are counted inline); :where() adds nothing — the repo bans
+     * :is()/:where() (asserted in slotBypassOffenders), so only :not() is netted out.
+     */
+    private function selectorSpecificity(string $selector): array
+    {
+        $s = trim($selector);
+
+        $ids            = preg_match_all('/#[\w-]+/', $s);
+        $classes        = preg_match_all('/\.[\w-]+/', $s);
+        $attrs          = preg_match_all('/\[[^\]]*\]/', $s);
+        $pseudoElements = preg_match_all('/::[\w-]+/', $s);
+        $pseudoClasses  = preg_match_all('/(?<!:):(?!:)[\w-]+/', $s);
+        $funcKeywords   = preg_match_all('/(?<!:):(?:not|is|where)\(/', $s);
+
+        $b = $classes + $attrs + max(0, $pseudoClasses - $funcKeywords);
+
+        // Elements (type selectors), INCLUDING those inside functional pseudo-class
+        // arguments such as :not(a): strip pseudo-class/element NAMES but KEEP their
+        // arguments, drop the paren delimiters, then strip class/id/attr and count the
+        // bare type names left. Stripping the whole `:not(a)` dropped the `a` type and
+        // undercounted specificity, which could let a real base.css clobber like
+        // `:hover:not(p)` ((0,1,1)) slip past as (0,1,0) (Codex outside-voice finding).
+        $stripped = preg_replace('/::?[\w-]+/', ' ', $s);                         // pseudo NAMES only
+        $stripped = str_replace(['(', ')'], ' ', $stripped);                      // keep inner selectors, drop parens
+        $stripped = preg_replace('/\.[\w-]+|#[\w-]+|\[[^\]]*\]/', ' ', $stripped); // class/id/attr
+        $stripped = preg_replace('/[>+~*,]/', ' ', $stripped);                    // combinators + universal + stray commas
+        $elements = preg_match_all('/[a-zA-Z][\w-]*/', $stripped, $mm) ? count($mm[0]) : 0;
+
+        return [$ids, $b, $elements + $pseudoElements];
+    }
+
+    /**
+     * True when $spec defeats a bare component class (0,1,0): strictly greater when
+     * the sheet is enqueued before components (a tie loses on source order), or
+     * greater-or-equal when it is enqueued after (a tie wins).
+     */
+    private function specWinsAgainstBareClass(array $spec, bool $winsTie): bool
+    {
+        $cmp = ($spec[0] <=> 0) ?: (($spec[1] <=> 1) ?: ($spec[2] <=> 0));
+        return $winsTie ? $cmp >= 0 : $cmp > 0;
+    }
+
     // ── Issue 305 analyzer ────────────────────────────────────────────────────
 
     /**

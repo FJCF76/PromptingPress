@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.123] — 2026-07-14 — the slot-contract guard can no longer be blindsided by a clobber in another stylesheet (#342)
+
+**`tests/StyleSlotContractTest.php` scanned only `components.css`, so a rule in `base.css` or `utilities.css` that outranks a component's slot rule was invisible to it — which is exactly how #336 hid: `base.css`'s `p:last-child { margin-bottom: 0 }` (specificity (0,1,1)) silently beat a bare `.grid__subheading` (0,1,0) on three components while every unit test stayed green. This adds check 8, a static cross-sheet tripwire that reads `base.css` and `utilities.css` and fails the build when an automatic-match rule (a bare element/pseudo-class selector, the mechanism that matches component elements by tag with no template opt-in) declares a slot-consumed property at a specificity that defeats a bare component class. Every such candidate must be acknowledged in a shrink-only ledger with a justification; a new one fails until a human accounts for it. No product CSS changed — this is guard hardening only.**
+
+The guard is honest about what a static text scan can and cannot prove: it does not resolve the cascade (specificity, source order, and whether two selectors hit the same rendered element are a browser's job), so it does not claim the slot lands. It proves the weaker, load-bearing thing — every cross-sheet rule that *could* clobber a slot is accounted for — and leaves the true cascade proof to the rendered computed-style pins in `tests/e2e/style-render.spec.ts`. This is the same division of labour as the issue-332 immunity check already in the file: the static half keeps the contract honest as the surface grows, the rendered half owns what only a browser can prove. The threshold is load-order-aware (`base.css` before `components.css` so its ties lose; `utilities.css` after so its ties win), and that enqueue order is itself pinned so it cannot silently invert. Opt-in utility classes are deliberately out of scope — they reach a slotted element only when a template adds the class, a visible composition, not a silent cascade defeat.
+
+### Tests
+
+- `tests/StyleSlotContractTest.php` gains check 8: a cross-sheet clobber tripwire (`base.css` + `utilities.css`), a shrink-only `CROSS_SHEET_CLOBBER_LEDGER` with an exact size pin (today: `p:last-child`/`blockquote:last-child` → `margin-bottom`, `a:hover` → `color`), a `functions.php` load-order assertion, and a negative-control test proving the tripwire goes red on a new element/pseudo-class clobber while staying silent on bare element rules, opt-in utility classes, `@media`-nested rules (caught), pseudo-element boxes (skipped), and type selectors inside `:not()` (counted). New CSS-specificity and subject-parsing helpers back the check.
+
+### Docs
+
+- `README.md` and `docs/AI_IMPLEMENTATION_RECIPES.md` note that the slot contract now holds across stylesheets, not just within `components.css`, and that the static guards account for every clobber candidate while the rendered pins own the cascade proof.
+
 ## [v0.16.122] — 2026-07-14 — a text-panel can finally hold paired data: label/value rows, a monospace option, and a per-row accent (#334)
 
 **A `text-panel`'s `panel_items` accepted only plain strings, rendered as bullets, so the one thing a content panel most often holds — paired data — had nowhere to go. A pricing summary, a spec sheet, a plan comparison, a stat readout, a config list: all collapsed into flat prose bullets. Now a `panel_items` entry can be a `{ "label": "...", "value": "..." }` object that renders as a two-part row, label left and value right, alongside the existing string bullets in the same list (mix them freely). A new `--section-panel-font` style slot takes `var(--font-mono)` for a monospace panel, and any single row can be emphasised or de-emphasised with a per-row `style` map that sets the panel's own text-colour slot. Leave `panel_items` as strings and every existing panel renders byte-identically.**
