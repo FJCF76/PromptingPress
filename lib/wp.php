@@ -2169,6 +2169,28 @@ function pp_allowed_site_options(): array {
         'pp_footer_blurb'      => 'string',
         'pp_footer_contact'    => 'string',
         'pp_footer_copyright'  => 'string',
+        // Footer STRUCTURE (issue 335). Issue 300 gave the footer a dark tone
+        // but no organisation; these add the generic layout affordances a
+        // marketing footer needs — labelled columns and a delimited bottom bar
+        // — as more of the SAME site-option surface (still no footer builder,
+        // still template-owned chrome, issue 223). All optional; empty = today's
+        // rendering, so an unset footer stays byte-identical.
+        //   - menu/contact labels: optional column headings above the footer
+        //     nav menu and the contact block (empty = unlabelled, as before).
+        //   - note: optional secondary line. When NON-EMPTY it moves the
+        //     copyright into a delimited bottom bar and renders alongside it;
+        //     empty leaves the copyright inline exactly as issue 300 did.
+        'pp_footer_menu_label'    => 'string',
+        'pp_footer_contact_label' => 'string',
+        'pp_footer_note'          => 'string',
+        // Footer logo OVERRIDE (issue 335). pp_logo_id feeds both the (light)
+        // header and the (dark) footer, so a dark-on-transparent brand mark is
+        // correct in the header and invisible on a dark footer. This optional
+        // override lets the footer use a light logo variant while pp_logo_id
+        // stays the header logo. Attachment ID (never a URL), validated by the
+        // SAME pp_is_image_attachment rule as pp_logo_id. Unset falls back to
+        // pp_logo_id via pp_resolve_logo's existing resolution chain.
+        'pp_footer_logo_id'       => 'attachment_id',
         // Header chrome (issue 333). The header/nav is template-owned (issue 223)
         // exactly like the footer, so it declares no style_slots and these site
         // options are its ONLY styling surface. Before this, the header was the one

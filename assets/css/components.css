@@ -2002,6 +2002,50 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
   margin-bottom: 0;
 }
 
+/* Footer structure (issue 335). Optional column headings + a delimited bottom
+   bar. Emitted only when the matching pp_footer_* option is set, so an unset
+   footer renders exactly as issue 300 left it. Styling is deliberately NEUTRAL
+   (no color/size opinion baked in): the heading inherits the footer text color
+   through --footer-text (so it follows whatever the dark/light footer sets),
+   and the bottom bar's divider reuses --color-border — the SAME token the
+   footer's own top border uses. The capability is the structure and the slots
+   that drive it, not a specific look. */
+.site-footer__heading {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: var(--space-sm);
+  color: var(--footer-text, inherit);
+}
+
+/* Bottom bar: a delimited band below the main footer flow. Full-width divider
+   (via --color-border, matching .site-footer's own border-top), with the
+   copyright and the optional secondary note on opposite ends on wider screens. */
+.site-footer__bottom {
+  border-top: 1px solid var(--color-border);
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+}
+
+.site-footer__bottom-inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+@media (min-width: 768px) {
+  .site-footer__bottom-inner {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.site-footer__note {
+  font-size: 0.875rem;
+  color: var(--footer-text, var(--color-muted));
+  margin-bottom: 0;
+}
+
 /* ==========================================================================
    COMPONENT: stats
    Horizontal row of large-number metrics with labels.
