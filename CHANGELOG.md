@@ -4,6 +4,29 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.121] — 2026-07-14 — check-mark lists are no longer trapped inside grid cards: any section list can carry a marker (#339)
+
+**The orange check-mark bullet existed in exactly one place — a grid card's `bullets` — and nowhere else. A `section` body list and a `text-panel`'s `panel_items` could only render plain grey discs, so the purpose-built "checklist beside a panel" section could not style the checklist it exists to hold. That is fixed: `section` now takes `panel_items_marker` and `body_marker`, each choosing `disc` (the unchanged default), `check`, `dash`, or `arrow`, and the marker colour is authorable through the `--section-panel-marker-color` and `--section-body-marker-color` style slots. The same check-mark treatment the grid always had is now one shared definition reachable from every list-rendering surface. Leave the props unset and every existing list renders exactly as before.**
+
+The capability here is generic on purpose: a list can carry a marker other than a disc, and the marker's glyph and colour are authorable — a disc, a check, a dash, and an arrow are all just marker values, not a bespoke "checklist" widget. The grid's shipped bullet treatment was lifted into a single shared list-marker definition that the grid, the panel list, and the section body list all consume, so there is one place the check mark lives, not three copies. `disc` adds no class at all, which is what keeps every list that does not opt in byte-identical to before, down to the grid's own bullets. The marker colour defaults to the site accent (mirroring the grid's existing bullet colour) and is overridable per instance, so a check-list on a dark panel can be re-coloured without touching CSS. Body markers apply to a list authored as a direct child of the section body, leaving nested lists on their default disc. No colour or size opinion is baked into the component: the marker's look is a style-slot value the site-building AI chooses.
+
+### Added
+
+- `section` prop `panel_items_marker` (`disc` default / `check` / `dash` / `arrow`) — the marker for a text-panel's `panel_items` list. Pair it with the `--section-panel-marker-color` style slot (defaults to the site accent) to colour a check-list on a dark panel.
+- `section` prop `body_marker` (`disc` default / `check` / `dash` / `arrow`) — the marker for top-level `<ul>` lists in a section's `body`, coloured through the `--section-body-marker-color` style slot. This makes a check-list expressible in prose without moving the content into a grid or panel.
+
+### Fixed
+
+- The check-mark list treatment was reachable only from grid cards; `section.body` and `text-panel` `panel_items` could produce nothing but grey discs (found in the 1.0-H acceptance dogfood). The treatment is now a shared marker any list-rendering surface can opt into, so the reference "benefits beside a panel" checklist reproduces natively, glyph and colour matching. The grid's existing bullets render byte-identically.
+
+### Docs
+
+- `ai-instructions/composition.md` documents `panel_items_marker` and `body_marker` (with a body check-list example); `AI_CONTEXT.md`, `README.md`, and the `section` component README and schema carry the two new props and colour slots. The site-building AI now knows a check-list is reachable from any section list, not just the grid.
+
+### Tests
+
+- `tests/SectionTextPanelTest.php` pins the marker class wiring for every value, the `disc` default and invalid-value clamp for both props, and the section-block colour-slot mapping. `tests/e2e/style-render.spec.ts` proves the marker actually paints over the disc rules in a real WordPress 7.0 browser: the panel and body check lists compute `list-style: none` with the operator's marker colour, the grid bullet still honours `--grid-bullet-color` after the refactor, a nested body list keeps its disc, and dash and arrow render too. `tests/SchemaValidationTest.php` and `tests/js/css-lint.test.js` track the two new style slots.
+
 ## [v0.16.120] — 2026-07-13 — the footer can finally be organised: labelled columns, a delimited bottom bar, and a light logo for a dark band (#335)
 
 **Issue #300 gave the footer a dark marketing tone but no structure, so it rendered as an undifferentiated run of blurb, links, contact string, and copyright. Four new site options add the organisation a marketing footer needs, all through the same `update_site_option` surface, still with no footer builder. `pp_footer_menu_label` and `pp_footer_contact_label` put a heading over the menu and the contact columns. `pp_footer_note` moves the copyright into its own delimited bottom bar and renders a secondary line opposite it. `pp_footer_logo_id` gives the footer its own logo, so a light logo variant can sit on a dark footer while `pp_logo_id` stays the header logo. Every one is optional; unset, the footer renders as it did before — this adds structure, it does not change any default.**
