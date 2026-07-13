@@ -1315,13 +1315,44 @@ class ApplyTest extends TestCase
         $this->assertTrue(_pp_validate_gradient('radial-gradient(ellipse at center, #fff, #000)'));
     }
 
+    public function testValidateGradientAcceptsRadialAtPosition(): void
+    {
+        // #301: `at <position>` (keyword/percentage tokens) is valid CSS and
+        // now accepted — off-center spotlight gradients are the main reason to
+        // reach for radial over linear.
+        $this->assertTrue(_pp_validate_gradient('radial-gradient(circle at top left, #fff, #000)'));
+        $this->assertTrue(_pp_validate_gradient('radial-gradient(ellipse at bottom right, #fff, #000)'));
+        $this->assertTrue(_pp_validate_gradient('radial-gradient(at top left, #fff, #000)'));
+        $this->assertTrue(_pp_validate_gradient('radial-gradient(at 20% 30%, #2a2145 0%, #1a1a2e 55%)'));
+        $this->assertTrue(_pp_validate_gradient('radial-gradient(circle at 20% 80%, #fff, #000)'));
+        $this->assertTrue(_pp_validate_gradient('radial-gradient(ellipse at center, #fff, #000)'));
+    }
+
     public function testValidateGradientRejectsRadialNonAllowlistedShapePosition(): void
     {
-        // "at top left" is real CSS but outside this bounded grammar's
-        // small keyword allowlist — falls through to color-stop parsing
-        // and correctly fails as an invalid color.
-        $this->assertFalse(_pp_validate_gradient('radial-gradient(circle at top left, #fff, #000)'));
+        // Radial SIZE keywords stay out of this bounded grammar — they fall
+        // through to color-stop parsing and correctly fail as invalid colors.
         $this->assertFalse(_pp_validate_gradient('radial-gradient(closest-side, #fff, #000)'));
+        $this->assertFalse(_pp_validate_gradient('radial-gradient(farthest-corner, #fff, #000)'));
+        // A dangling shape/at with no position tokens is not a valid direction
+        // segment (and not a color) — reject.
+        $this->assertFalse(_pp_validate_gradient('radial-gradient(circle at, #fff, #000)'));
+        $this->assertFalse(_pp_validate_gradient('radial-gradient(at, #fff, #000)'));
+        // Length positions are out of #301's keyword/percentage scope.
+        $this->assertFalse(_pp_validate_gradient('radial-gradient(at 10px 20px, #fff, #000)'));
+    }
+
+    public function testValidateGradientRejectsInjectionInRadialPosition(): void
+    {
+        // The `at <position>` clause is a security boundary: stored gradient
+        // values reach inline style attributes. Nothing but keyword/percentage
+        // tokens may pass — every injection shape fails closed.
+        $this->assertFalse(_pp_validate_gradient('radial-gradient(at url(evil), #fff, #000)'));
+        $this->assertFalse(_pp_validate_gradient('radial-gradient(circle at expression(1), #fff, #000)'));
+        $this->assertFalse(_pp_validate_gradient('radial-gradient(at javascript:alert(1), #fff, #000)'));
+        $this->assertFalse(_pp_validate_gradient('radial-gradient(at top left; color:red, #fff, #000)'));
+        $this->assertFalse(_pp_validate_gradient('radial-gradient(at top /* x */ left, #fff, #000)'));
+        $this->assertFalse(_pp_validate_gradient('radial-gradient(at var(--x), #fff, #000)'));
     }
 
     public function testValidateGradientRejectsConicAndRepeating(): void

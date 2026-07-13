@@ -83,7 +83,7 @@ Check that `current` values reflect your changes and the `active_recipe` shows c
 | `duration` | `250ms`, `0.3s` | `_pp_validate_duration()` |
 | `font-family` | `"Inter", sans-serif` | `_pp_validate_font_family()` |
 | `shadow` | `var(--shadow-sm)`, `var(--shadow-md)`, `var(--shadow-lg)`, `none`, `0 4px 12px rgba(0,0,0,0.1)` | `_pp_validate_shadow()` |
-| `gradient` | `#1a1a2e`, `transparent`, `var(--color-accent)`, `linear-gradient(135deg, #fff, #000)` | `_pp_validate_color()` or `_pp_validate_gradient()` |
+| `gradient` | `#1a1a2e`, `transparent`, `var(--color-accent)`, `linear-gradient(135deg, #fff, #000)`, `radial-gradient(circle at top left, #fff, #000)` | `_pp_validate_color()` or `_pp_validate_gradient()` |
 | `position` | `center`, `top left`, `20% 80%` | `_pp_validate_position()` |
 | `ratio` | `auto`, `1`, `16/9` | `_pp_validate_ratio()` |
 
