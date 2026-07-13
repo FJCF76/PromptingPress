@@ -649,6 +649,473 @@ class StyleSlotContractTest extends TestCase
     ];
 
     /**
+     * WP core's global stylesheet (block-library / global-styles) ships
+     * attribute-SUBSTRING selectors, verified in the rendered page on WP 7.0:
+     *
+     *   html :where([style*="border-width"])      { border-style: solid }
+     *   html :where([style*="border-color"])      { border-style: solid }
+     *   html :where([style*="border-top-width"])  { border-top-style: solid }
+     *   ... and the right/bottom/left twins for both width and color (11 unscoped
+     *   rules in total; every other [style*=…] trigger core ships is scoped to a
+     *   .wp-block-* class this theme never emits).
+     *
+     * Core means the block editor's `style="border-width:2px"`. We render style slots
+     * as inline CUSTOM PROPERTIES, so a slot whose NAME embeds any of these substrings
+     * makes the selector match our component root on the property name alone — even
+     * when the value is 0 and the border lives on a descendant.
+     *
+     * Matched as a regex, not a fixed 2-item list: a future slot named
+     * `--x-border-top-width` trips core's per-side rule while containing NEITHER
+     * "border-width" nor "border-color" (adversarial-review finding).
+     */
+    private const WP_CORE_BORDER_TRIGGER_REGEX = '/border(?:-(?:top|right|bottom|left))?-(?:width|color)/';
+
+    /**
+     * The elements that can carry a slot's inline custom properties: every component
+     * root (all 12 carry data-pp-component) and the per-card .grid__item of issue 306.
+     * These are what the immunity baseline must cover.
+     */
+    private const BORDER_IMMUNITY_SELECTORS = ['[data-pp-component]', '.grid__item'];
+
+    /**
+     * The baseline must DECLARE these longhands with these VALUES. Asserting the value —
+     * not merely the property name — is load-bearing: a baseline reading
+     * `border-style: solid; border-width: 3px` names both properties and IS issue 332,
+     * rendered by our own stylesheet. A name-only check green-lights it
+     * (adversarial-review finding 1).
+     */
+    private const BORDER_IMMUNITY_DECLARATIONS = [
+        'border-style' => '/^(none|hidden)$/i',
+        'border-width' => '/^0(px|em|rem|%)?$/i',
+    ];
+
+    /**
+     * 7. Third-party cascade immunity (issue 332).
+     *
+     * The #305 bypass guard cannot see this class of defect: the slot IS consumed,
+     * our CSS text IS correct, and the damage is contributed by a FOREIGN stylesheet
+     * at runtime — core's rule lands `border-style: solid` on a root that declared no
+     * border, which then computes at the initial `medium` width (3px). The 1.0-H
+     * dogfood lost two documented slots to it.
+     *
+     * Division of labour, stated honestly: only a rendered box under real core CSS can
+     * prove the immunity holds, and that pin lives in tests/e2e/style-render.spec.ts
+     * (`#332 …`), which asserts the computed border per affected component. THIS check
+     * owns the half a browser cannot: it fails when a NEW slot name embeds a core
+     * trigger substring while the baseline does not cover the surface that carries it —
+     * i.e. it keeps the immunity honest as the slot surface grows, without waiting for
+     * someone to notice a 3px border on a page.
+     */
+    public function testBorderTriggerSlotsHaveCascadeImmunity(): void
+    {
+        $triggerSlots = $this->borderTriggerSlots();
+
+        // Fail-closed floor: 13 such slots exist today (issue 332). If discovery breaks,
+        // every assertion below would pass over an empty list.
+        $this->assertGreaterThanOrEqual(
+            13,
+            count($triggerSlots),
+            'Discovery found fewer border-trigger slots than the 13 known at issue 332 — '
+            . 'the schema scan is broken and this guard would pass vacuously.'
+        );
+
+        $gaps = $this->immunityGaps($this->css);
+        $this->assertSame(
+            [],
+            $gaps,
+            "components.css does not carry the issue 332 immunity baseline:\n  - "
+            . implode("\n  - ", $gaps)
+            . "\n\nSlots whose NAME embeds a WP-core trigger substring (so core's "
+            . ":where([style*=…]) matches the element that carries them inline):\n  "
+            . implode("\n  ", array_keys($triggerSlots))
+        );
+    }
+
+    /**
+     * Every element that receives a slot's inline custom properties must be covered by
+     * the immunity baseline. Today the renderer echoes its `pp_render_style_vars()`
+     * output onto exactly two kinds of element: the component root (data-pp-component)
+     * and grid's per-card .grid__item. Moving an inline style attribute onto some other
+     * element would silently re-open issue 332 on that element — this fails if that happens.
+     */
+    public function testInlineSlotSurfacesAreCoveredByTheImmunityBaseline(): void
+    {
+        $emitted   = 0;
+        $generated = 0;
+
+        foreach (glob($this->themeRoot . '/components/*/*.php') as $template) {
+            $source = file_get_contents($template);
+
+            // Every call that BUILDS inline slot custom properties. Each one must end up
+            // echoed onto an immune element — comparing the two counts is what stops a new
+            // surface from slipping past the line scan below (Codex outside-voice finding:
+            // a regex over echo lines alone is bypassable).
+            $generated += preg_match_all('/pp_render_style_vars\s*\(/', $source);
+
+            foreach (file($template) as $i => $line) {
+                // Match both the long `echo $x_style_attr;` form and the short-echo
+                // `<?=` form, plus any variable whose name carries style+attr.
+                // (No literal PHP close tag in this comment — it would end PHP mode.)
+                if (!preg_match('/(?:echo|<\?=)\s*\$[a-z_]*style[a-z_]*attr/i', $line)) {
+                    continue;
+                }
+                $emitted++;
+                $covered = str_contains($line, 'data-pp-component=')
+                    || preg_match('/class="[^"]*\bgrid__item\b/', $line) === 1;
+
+                $this->assertTrue(
+                    $covered,
+                    basename($template) . ':' . ($i + 1) . " emits inline style slots onto an element "
+                    . "that the issue 332 immunity baseline does not cover ("
+                    . implode(' / ', self::BORDER_IMMUNITY_SELECTORS) . "). WP core's "
+                    . ":where([style*=border-width]) will match it on the slot NAME and inject a "
+                    . "3px solid border. Give the element data-pp-component, or extend the baseline "
+                    . "in components.css AND self::BORDER_IMMUNITY_SELECTORS.\n  " . trim($line)
+                );
+            }
+        }
+
+        // Fail-closed: 7 styled components render a root style attr, grid renders a
+        // per-card one too. If the scan finds nothing, the loop above proved nothing.
+        $this->assertGreaterThanOrEqual(
+            8,
+            $emitted,
+            'Found fewer inline slot surfaces than the 8 known today — the template scan is broken.'
+        );
+
+        // Every pp_render_style_vars() call must reach an emit site the loop above actually
+        // inspected. If a template starts routing one through a helper or a differently
+        // named variable, `emitted` drops below `generated` and this trips — instead of the
+        // surface going silently unguarded (Codex outside-voice finding).
+        //
+        // NOT equality: footer.php legitimately emits inline custom properties
+        // (--footer-bg/-text/-link-color, from site options) WITHOUT pp_render_style_vars,
+        // because footer declares no schema style_slots. It is still an inline
+        // custom-property surface, so it is still covered above via data-pp-component —
+        // which is exactly the immunity this check exists to enforce. Extra emit sites are
+        // fine and get coverage-checked; a MISSING one is the bug.
+        $this->assertGreaterThanOrEqual(
+            $generated,
+            $emitted,
+            "pp_render_style_vars() is called {$generated}x but only {$emitted} inline style "
+            . 'attribute(s) were found. A slot surface is being emitted by a path this guard '
+            . 'cannot see — extend the scan (issue 332).'
+        );
+    }
+
+    /**
+     * Negative control (mirrors testGuardDetectsTheDeadSlotClass): the immunity check
+     * must actually FAIL on CSS that lacks the baseline. Without this, a refactor that
+     * broke `immunityGaps()` would leave check 7 passing on an empty result forever.
+     */
+    public function testImmunityGuardDetectsAMissingBaseline(): void
+    {
+        // No baseline at all.
+        $this->assertNotSame([], $this->immunityGaps('.grid { padding: 1rem; }'));
+
+        // Baseline present but only covers the roots — the per-card surface is exposed.
+        $this->assertNotSame(
+            [],
+            $this->immunityGaps('[data-pp-component] { border-style: none; border-width: 0; }')
+        );
+
+        // Baseline declares style but not width: core injecting a WIDTH would still land.
+        $this->assertNotSame(
+            [],
+            $this->immunityGaps('[data-pp-component], .grid__item { border-style: none; }')
+        );
+
+        // Baseline present but BELOW a component block: the component rules (equal
+        // specificity, (0,1,0)) no longer win on source order — it would clobber them.
+        $this->assertNotSame(
+            [],
+            $this->immunityGaps(
+                "/* COMPONENT: nav */\n.nav { color: red; }\n"
+                . '[data-pp-component], .grid__item { border-style: none; border-width: 0; }'
+            )
+        );
+
+        // The real shape passes.
+        $this->assertSame(
+            [],
+            $this->immunityGaps(
+                "[data-pp-component],\n.grid__item { border-style: none; border-width: 0; }\n"
+                . "/* COMPONENT: nav */\n.nav { color: red; }"
+            )
+        );
+
+        // ...and so does the equivalent split into one rule per surface. The guard checks
+        // cascade coverage, not formatting (Codex outside-voice finding: requiring a single
+        // combined rule would reject a perfectly valid implementation).
+        $this->assertSame(
+            [],
+            $this->immunityGaps(
+                "[data-pp-component] { border-style: none; border-width: 0; }\n"
+                . ".grid__item { border-style: none; border-width: 0; }\n"
+                . "/* COMPONENT: nav */\n.nav { color: red; }"
+            )
+        );
+
+        // --- Bypasses closed after adversarial review. Each of these NAMES both longhands
+        // --- and would have passed the name-only/regex-parsed guard while shipping the bug.
+
+        // 1. Values are solid/3px: this rule IS issue 332, drawn by our own stylesheet.
+        $this->assertNotSame(
+            [],
+            $this->immunityGaps('[data-pp-component], .grid__item { border-style: solid; border-width: 3px; }'),
+            'A baseline declaring solid/3px must NOT count as immunity — it is the defect itself.'
+        );
+
+        // 2. Baseline nested in an at-rule: immune above 768px, 3px border on every phone.
+        $this->assertNotSame(
+            [],
+            $this->immunityGaps(
+                "@media (min-width: 768px) {\n"
+                . "  [data-pp-component], .grid__item { border-style: none; border-width: 0; }\n"
+                . "}\n/* COMPONENT: nav */\n.nav { color: red; }"
+            ),
+            'A baseline inside @media only applies at that breakpoint — it is not immunity.'
+        );
+
+        // 3. Ancestor-scoped baseline: roots outside .wrapper stay exposed.
+        $this->assertNotSame(
+            [],
+            $this->immunityGaps('.wrapper [data-pp-component], .wrapper .grid__item { border-style: none; border-width: 0; }'),
+            'A descendant-scoped baseline does not immunize roots outside that ancestor.'
+        );
+
+        // The at-rule-aware parser must still see a legitimate baseline that merely has an
+        // @media block ABOVE it (the regex parser used to lift inner rules out to top level).
+        $this->assertSame(
+            [],
+            $this->immunityGaps(
+                "@media (min-width: 768px) { .unrelated { color: red; } }\n"
+                . "[data-pp-component], .grid__item { border-style: none; border-width: 0; }\n"
+                . "/* COMPONENT: nav */\n.nav { color: red; }"
+            )
+        );
+    }
+
+    /**
+     * Core's per-SIDE triggers (`[style*=border-top-width]` → `border-top-style: solid`) mean
+     * a slot named `--x-border-top-width` is a trigger while containing neither "border-width"
+     * nor "border-color". The old fixed 2-substring list dropped it silently
+     * (adversarial-review finding 6). No such slot exists today; the regex is what keeps the
+     * discovery honest if one is ever added.
+     */
+    public function testBorderTriggerDiscoveryCoversPerSideCoreRules(): void
+    {
+        foreach (
+            [
+                '--grid-card-border-width'   => true,
+                '--faq-border-color'         => true,
+                '--x-border-top-width'       => true,  // core: [style*=border-top-width]
+                '--x-border-left-color'      => true,  // core: [style*=border-left-color]
+                '--grid-card-border'         => false, // no width/color suffix — no core rule
+                '--grid-card-radius'         => false,
+                '--grid-card-bar-height'     => false, // core's [style*=height] is .wp-block-* scoped
+            ] as $slot => $isTrigger
+        ) {
+            $this->assertSame(
+                $isTrigger,
+                (bool) preg_match(self::WP_CORE_BORDER_TRIGGER_REGEX, $slot),
+                "Border-trigger discovery misclassified `{$slot}`."
+            );
+        }
+    }
+
+    /** Slots (across every component schema) whose NAME embeds a WP-core trigger substring. */
+    private function borderTriggerSlots(): array
+    {
+        $trigger = [];
+        foreach ($this->styledComponents() as $component) {
+            foreach ($this->slots($component) as $slot => $type) {
+                if (preg_match(self::WP_CORE_BORDER_TRIGGER_REGEX, $slot)) {
+                    $trigger[$slot] = $component;
+                }
+            }
+        }
+        ksort($trigger);
+        return $trigger;
+    }
+
+    /**
+     * TOP-LEVEL rules only: [ ['selector' => …, 'body' => …, 'offset' => …], … ].
+     *
+     * A brace-counting scan, not a regex. `/([^{}]+)\{([^{}]*)\}/` cannot match a block
+     * whose body contains braces, so it SKIPS the `@media` wrapper and lifts the rules
+     * inside it out to look top-level. That made a baseline hidden inside
+     * `@media (min-width: 768px)` — or `@media print` — read as immune while every phone
+     * rendered the 3px border (adversarial-review finding 2). At-rule bodies are stepped
+     * over wholesale here, so a baseline nested in one is simply NOT FOUND, and the caller
+     * fails closed.
+     */
+    private function topLevelRules(string $css): array
+    {
+        $rules  = [];
+        $len    = strlen($css);
+        $i      = 0;
+        $selStart = 0;
+
+        while ($i < $len) {
+            $ch = $css[$i];
+
+            if ($ch === '{') {
+                $selector = trim(substr($css, $selStart, $i - $selStart));
+
+                // Step over the whole balanced block.
+                $depth = 1;
+                $bodyStart = $i + 1;
+                $j = $bodyStart;
+                while ($j < $len && $depth > 0) {
+                    if ($css[$j] === '{') {
+                        $depth++;
+                    } elseif ($css[$j] === '}') {
+                        $depth--;
+                    }
+                    $j++;
+                }
+
+                // An at-rule (@media/@supports/@layer) is NOT a style rule, and its inner
+                // rules are not top-level. Skip the block entirely — do not descend.
+                if ($selector !== '' && $selector[0] !== '@') {
+                    $rules[] = [
+                        'selector' => $selector,
+                        'body'     => substr($css, $bodyStart, ($j - 1) - $bodyStart),
+                        'offset'   => $selStart,
+                    ];
+                }
+
+                $i = $j;
+                $selStart = $i;
+                continue;
+            }
+
+            $i++;
+        }
+
+        return $rules;
+    }
+
+    /** True when this rule is a valid immunity baseline for $surface. */
+    private function isBaselineFor(array $rule, string $surface): bool
+    {
+        // Anchored, not str_contains: `.wrapper [data-pp-component]` CONTAINS the surface
+        // but only immunizes roots inside .wrapper, leaving every other root exposed
+        // (adversarial-review finding 3). Require the surface to stand alone as one whole
+        // comma-separated compound selector.
+        $selects = false;
+        foreach (explode(',', $rule['selector']) as $part) {
+            if (trim($part) === $surface) {
+                $selects = true;
+                break;
+            }
+        }
+        if (!$selects) {
+            return false;
+        }
+
+        // VALUES, not just property names — see BORDER_IMMUNITY_DECLARATIONS.
+        foreach (self::BORDER_IMMUNITY_DECLARATIONS as $property => $valuePattern) {
+            if (!preg_match(
+                '/(?<![-a-z])' . preg_quote($property, '/') . '\s*:\s*([^;}]+)/i',
+                $rule['body'],
+                $m
+            )) {
+                return false;
+            }
+            if (!preg_match($valuePattern, trim($m[1]))) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Returns the reasons the given CSS fails to grant issue 332 immunity ([] = immune).
+     *
+     * A surface is immune when SOME top-level rule (a) selects exactly that surface,
+     * (b) declares border-style:none AND border-width:0, and (c) sits ABOVE the first
+     * component rule. (c) is load-bearing: an attribute selector and a class selector both
+     * weigh (0,1,0), so a baseline placed below the component rules would win on source
+     * order and erase the borders components legitimately draw.
+     */
+    private function immunityGaps(string $css): array
+    {
+        $stripped = $this->stripComments($css);
+        $rules    = $this->topLevelRules($stripped);
+        $gaps     = [];
+
+        $firstComponentRule = $this->firstComponentRuleOffset($rules);
+
+        // Each surface is checked INDEPENDENTLY: one combined rule and one rule per surface
+        // are both valid CSS, and the guard must not couple correctness to formatting.
+        foreach (self::BORDER_IMMUNITY_SELECTORS as $surface) {
+            $baselineOffset = null;
+
+            foreach ($rules as $rule) {
+                if ($this->isBaselineFor($rule, $surface)) {
+                    $baselineOffset = $rule['offset'];
+                    break;
+                }
+            }
+
+            if ($baselineOffset === null) {
+                $gaps[] = "no TOP-LEVEL rule selects exactly `{$surface}` while declaring "
+                    . 'border-style:none + border-width:0 — WP core will inject '
+                    . '`border-style: solid` at the initial 3px width on any element of this '
+                    . 'kind that carries a border-trigger slot. (A baseline nested in an '
+                    . '@media/@supports/@layer block, scoped under an ancestor, or declaring '
+                    . 'a non-zero/solid value does NOT count.)';
+                continue;
+            }
+
+            // Source order. Deliberately CONSERVATIVE: the baseline only needs to outrank
+            // WP core's (0,0,1) rule, which it does on specificity alone. But the component
+            // rules that legitimately draw borders weigh the SAME (0,1,0) as the baseline,
+            // so they only beat it by coming later. Requiring "baseline above the component
+            // rules" is a sufficient (not necessary) condition for both to hold, and it is
+            // the one a human can check by eye.
+            if ($firstComponentRule !== null && $baselineOffset > $firstComponentRule) {
+                $gaps[] = "the `{$surface}` baseline sits BELOW the first component rule; at "
+                    . 'equal (0,1,0) specificity it would override the borders components draw';
+            }
+        }
+
+        return $gaps;
+    }
+
+    /** Offset of the first top-level rule whose subject is a known component root class. */
+    private function firstComponentRuleOffset(array $rules): ?int
+    {
+        foreach ($rules as $rule) {
+            $isBaseline = false;
+            foreach (self::BORDER_IMMUNITY_SELECTORS as $immune) {
+                if ($this->isBaselineFor($rule, $immune)) {
+                    $isBaseline = true;
+                    break;
+                }
+            }
+            if ($isBaseline) {
+                continue; // the baseline itself is not a component rule
+            }
+            foreach (self::styledComponentRoots() as $root) {
+                if (preg_match('/(?<![-\w])' . preg_quote($root, '/') . '(?![-\w])/', $rule['selector'])) {
+                    return $rule['offset'];
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Component root class selectors (`.nav`, `.grid`, …). */
+    private static function styledComponentRoots(): array
+    {
+        return ['.nav', '.hero', '.section', '.faq', '.grid', '.table', '.cta', '.footer', '.stats', '.logos', '.embed', '.testimonials'];
+    }
+
+    /**
      * 6. Slots may only be SET by the renderer's inline style attribute
      * (issue 305, review finding): `style_component` writes the custom property
      * on the component root, and descendants inherit it. A stylesheet rule that

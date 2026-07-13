@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 
 /**
  * Rendered-proof E2E for the safe-surface sprint.
@@ -997,5 +999,327 @@ test.describe('Safe-surface rendered proof', () => {
     const buttonBox = (await button.boundingBox())!;
     const innerBox = (await page.locator('.cta__inner').boundingBox())!;
     expect(buttonBox.x + buttonBox.width).toBeLessThanOrEqual(innerBox.x + innerBox.width + 1);
+  });
+
+  /**
+   * #332 — WP core's global stylesheet ships attribute-SUBSTRING selectors:
+   *
+   *   html :where([style*=border-width]){border-style:solid}
+   *   html :where([style*=border-color]){border-style:solid}
+   *
+   * Our style slots render as inline CUSTOM PROPERTIES on the component root
+   * (`style="--grid-card-border-width:0px"`). The substring lives in the property
+   * NAME, so the selector matches the root — even when the value is 0 and the
+   * border the slot controls actually lives on a DESCENDANT (the card). Roots that
+   * declared no border of their own then computed core's injected `solid` at the
+   * initial `medium` width: a 3px border nobody asked for. The 1.0-H dogfood hit
+   * this on --grid-card-border-width and --section-panel-border-width and had to
+   * abandon two documented slots.
+   *
+   * No static check over our own CSS can see this: our stylesheet is correct, the
+   * slot is consumed, and the defect is contributed by a FOREIGN stylesheet at
+   * runtime. Only a rendered box under real WP core CSS proves the immunity — the
+   * same argument this file's header makes for #86/#24. The declaration-level half
+   * (a new slot name embedding a trigger substring) is pinned statically in
+   * StyleSlotContractTest::testBorderTriggerSlotsHaveCascadeImmunity.
+   */
+  // All 13 trigger slots, grouped by the component root that carries them inline.
+  // Setting a component's FULL trigger set at once is the acceptance criterion:
+  // "setting any of the 13 slots (including to 0) produces exactly the border the slot
+  // specifies — no injected 3px border on the root."
+  const BORDER_TRIGGER_CASES: {
+    component: string;
+    props: Record<string, unknown>;
+    slots: Record<string, string>;
+  }[] = [
+    {
+      component: 'grid',
+      props: { id: 'pp-grid01', items: [{ title: 'One', text: 'First' }] },
+      slots: { '--grid-card-border-width': '0px' },
+    },
+    {
+      component: 'faq',
+      props: { id: 'pp-faq01', items: [{ question: 'Q?', answer: 'A.' }] },
+      slots: { '--faq-border-color': '#ff0080' },
+    },
+    {
+      component: 'testimonials',
+      props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] },
+      slots: { '--testimonials-card-border-width': '0px' },
+    },
+    {
+      component: 'cta',
+      props: { id: 'pp-cta01', button_text: 'Go', button_url: '/go' },
+      slots: { '--cta-border-width': '0px', '--cta-border-color': 'transparent' },
+    },
+    {
+      component: 'section',
+      props: { id: 'pp-sec01', body: '<p>Panel body.</p>' },
+      slots: {
+        '--section-border-width': '0px',
+        '--section-border-color': 'transparent',
+        '--section-panel-border-width': '0px',
+        '--section-panel-border-color': 'transparent',
+      },
+    },
+    {
+      component: 'hero',
+      props: { id: 'pp-hero01', title: 'Hero' },
+      slots: {
+        '--hero-border-width': '0px',
+        '--hero-border-color': 'transparent',
+        '--hero-surface-border-width': '0px',
+        '--hero-surface-border-color': 'transparent',
+      },
+    },
+  ];
+
+  // Guard the guard. Derived from schema.json, NOT compared to a hardcoded count: a
+  // count check can only fail if someone edits this same array, so it could not notice
+  // a 14th border-trigger slot appearing in a schema — exactly the drift it exists to
+  // catch (testing-specialist finding). Set-equality against the schemas can.
+  test('#332 the rendered pins cover every border-trigger slot in schema.json', () => {
+    // Same per-side-aware pattern as StyleSlotContractTest::WP_CORE_BORDER_TRIGGER_REGEX.
+    const TRIGGER = /border(?:-(?:top|right|bottom|left))?-(?:width|color)/;
+    const root = path.resolve(__dirname, '..', '..');
+
+    const declared = new Set<string>();
+    for (const dir of fs.readdirSync(path.join(root, 'components'))) {
+      const schemaPath = path.join(root, 'components', dir, 'schema.json');
+      if (!fs.existsSync(schemaPath)) continue;
+      const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'));
+      for (const slot of Object.keys(schema?.styling?.style_slots ?? {})) {
+        if (TRIGGER.test(slot)) declared.add(slot);
+      }
+    }
+
+    const covered = new Set(BORDER_TRIGGER_CASES.flatMap((c) => Object.keys(c.slots)));
+
+    // Fail-closed floor: 13 trigger slots existed at issue 332.
+    expect(declared.size).toBeGreaterThanOrEqual(13);
+    expect([...covered].sort()).toEqual([...declared].sort());
+  });
+
+  for (const c of BORDER_TRIGGER_CASES) {
+    test(`#332 ${c.component}: border-trigger slots inject no core 3px border on the root`, async ({
+      page,
+    }) => {
+      pageId = createPage(`E2E Border Trigger ${c.component}`);
+      setComposition(pageId, [{ component: c.component, props: c.props }]);
+
+      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+      const res = await styleComponent(page, pageId, c.slots);
+      expect(res.success).toBe(true);
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      // Scope to THIS component's root — a bare `.grid`/`.section` locator could match
+      // chrome or a future template partial rather than the component under test.
+      const root = page.locator(`[data-pp-component="${c.component}"]`);
+      await expect(root).toBeVisible({ timeout: 10000 });
+
+      // Non-vacuity floor: this pin is only meaningful while WP core actually ships the
+      // substring trigger THIS case depends on. `--faq-border-color` rides the
+      // border-color rule, the width slots ride the border-width rule — so assert the
+      // triggers the case's own slot names imply, not a hardcoded one. If core ever drops
+      // one, this fails loudly ("the immunity may be removable") instead of passing free.
+      const triggers = [
+        ...new Set(
+          Object.keys(c.slots).map((s) => (s.includes('border-width') ? 'border-width' : 'border-color')),
+        ),
+      ];
+      const missing = await page.evaluate((needed: string[]) => {
+        const found: string[] = [];
+        for (const sheet of Array.from(document.styleSheets)) {
+          let rules: CSSRule[];
+          try {
+            rules = Array.from(sheet.cssRules ?? []);
+          } catch {
+            continue; // cross-origin sheet, not ours
+          }
+          for (const rule of rules) {
+            const sel = (rule as CSSStyleRule).selectorText;
+            if (!sel) continue;
+            for (const n of needed) {
+              // CSSOM re-serializes the attribute value WITH quotes: core's source form
+              // `[style*=border-width]` reads back as `[style*="border-width"]`.
+              if (new RegExp(`\\[style\\*=["']?${n}["']?\\]`).test(sel)) found.push(n);
+            }
+          }
+        }
+        return needed.filter((n) => !found.includes(n));
+      }, triggers);
+      expect(
+        missing,
+        `WP core no longer ships :where([style*=…]) for ${missing.join(', ')} — re-evaluate the #332 immunity baseline.`,
+      ).toEqual([]);
+
+      // The root asked for NO border. Every side must be 0 — pre-fix, the sides the
+      // component did not declare computed to core's `solid` at `medium` (3px).
+      const border = await root.evaluate((el) => {
+        const s = getComputedStyle(el);
+        return {
+          top: s.borderTopWidth,
+          right: s.borderRightWidth,
+          bottom: s.borderBottomWidth,
+          left: s.borderLeftWidth,
+        };
+      });
+      expect(border).toEqual({ top: '0px', right: '0px', bottom: '0px', left: '0px' });
+    });
+  }
+
+  // The OTHER inline-slot surface: issue 306's per-card style renders the custom property
+  // on the .grid__item itself (components/grid/grid.php), so core's [style*=border-width]
+  // matches the CARD, not the root. That is the second half of the immunity baseline and it
+  // had no rendered coverage at all (adversarial-review finding 5) — deleting `.grid__item`
+  // from the baseline broke no test. Per-card style is set through the composition, not
+  // style_component (which is component-scoped).
+  test('#332 a per-card border-trigger slot injects no core 3px border on the card', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Border Trigger Grid Per-Card');
+    setComposition(pageId, [
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-grid01',
+          items: [
+            { title: 'One', text: 'First', style: { '--grid-card-border-width': '0px' } },
+            { title: 'Two', text: 'Second' },
+          ],
+        },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const styledCard = page.locator('.grid__item').first();
+    await expect(styledCard).toBeVisible({ timeout: 10000 });
+
+    // The slot really is inline ON THE CARD — otherwise this pin proves nothing.
+    const inline = await styledCard.evaluate((el) => el.getAttribute('style'));
+    expect(inline).toContain('--grid-card-border-width');
+
+    const border = await styledCard.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return {
+        top: s.borderTopWidth,
+        right: s.borderRightWidth,
+        bottom: s.borderBottomWidth,
+        left: s.borderLeftWidth,
+      };
+    });
+    expect(border).toEqual({ top: '0px', right: '0px', bottom: '0px', left: '0px' });
+
+    // The sibling card, which carries no per-card style, keeps the 1px default.
+    const plain = page.locator('.grid__item').nth(1);
+    const plainWidth = await plain.evaluate((el) => getComputedStyle(el).borderTopWidth);
+    expect(plainWidth).toBe('1px');
+  });
+
+  // Criterion 2 — "unset output is byte-identical to today". The immunity baseline sits
+  // at the same (0,1,0) weight as the component rules, so a source-order slip would let
+  // it erase the borders components legitimately draw. With NO slot set, the default 1px
+  // card border must still render. (Codex outside-voice finding: the 0px pins alone
+  // cannot tell "slot honored" apart from "baseline killed every border".)
+  test('#332 an unstyled grid still renders its default 1px card border', async ({ page }) => {
+    pageId = createPage('E2E Border Trigger Grid Default');
+    setComposition(pageId, [
+      {
+        component: 'grid',
+        props: { id: 'pp-grid01', items: [{ title: 'One', text: 'First' }] },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const card = page.locator('.grid__item').first();
+    await expect(card).toBeVisible({ timeout: 10000 });
+
+    const border = await card.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { width: s.borderTopWidth, style: s.borderTopStyle };
+    });
+    expect(border).toEqual({ width: '1px', style: 'solid' });
+  });
+
+  // The slot must still DO its job — a fix that simply killed all borders would pass
+  // the immunity pins above. The dogfood's actual intent: a borderless card.
+  test('#332 --grid-card-border-width still reaches the card (0 = no card border)', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Border Trigger Grid Card Intent');
+    setComposition(pageId, [
+      {
+        component: 'grid',
+        props: { id: 'pp-grid01', items: [{ title: 'One', text: 'First' }] },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    const res = await styleComponent(page, pageId, { '--grid-card-border-width': '0px' });
+    expect(res.success).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const card = page.locator('.grid__item').first();
+    await expect(card).toBeVisible({ timeout: 10000 });
+
+    const width = await card.evaluate((el) => getComputedStyle(el).borderTopWidth);
+    expect(width).toBe('0px'); // slot honored: the card lost its default 1px
+  });
+
+  // Positive control: a non-zero border slot must still RENDER the border it asks for,
+  // on exactly the sides the component declares (cta borders top/bottom only).
+  test('#332 a non-zero --cta-border-width still renders on the declared sides', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Border Trigger CTA Positive');
+    setComposition(pageId, [
+      {
+        component: 'cta',
+        props: { id: 'pp-cta01', button_text: 'Go', button_url: '/go' },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    const res = await styleComponent(page, pageId, {
+      '--cta-border-width': '4px',
+      '--cta-border-color': '#ff0080',
+    });
+    expect(res.success).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const root = page.locator('.cta').first();
+    await expect(root).toBeVisible({ timeout: 10000 });
+
+    const border = await root.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return {
+        top: s.borderTopWidth,
+        bottom: s.borderBottomWidth,
+        left: s.borderLeftWidth,
+        color: s.borderTopColor,
+      };
+    });
+    // Top/bottom carry the slot; left/right stay off — the immunity baseline must not
+    // suppress a border the operator actually asked for.
+    expect(border.top).toBe('4px');
+    expect(border.bottom).toBe('4px');
+    expect(border.left).toBe('0px');
+    expect(border.color).toBe('rgb(255, 0, 128)');
   });
 });
