@@ -20,6 +20,12 @@ so in practice only `location` is ever set.
 | `logo_text` | string | No       | —          | Logo text (falls back to site title). Not reachable from a page |
 | `logo_id`   | int    | No       | —          | Media Library attachment ID for an image logo (takes priority over `logo_text`). Must be an image attachment. Not reachable from a page; use the `pp_logo_id` option |
 | `logo_alt`  | string | No       | —          | Alt text for the image logo. Not reachable from a page |
+| `bg`         | string | No | — | Footer background color. Set via the `pp_footer_bg` site option → `--footer-bg`. CSS color validated by the shared color engine |
+| `text`       | string | No | — | Footer text color (blurb/contact/copyright). Set via `pp_footer_text` → `--footer-text` |
+| `link_color` | string | No | — | Footer nav-link color. Set via `pp_footer_link_color` → `--footer-link-color` |
+| `blurb`      | string | No | — | Brand/description line under the logo. Set via `pp_footer_blurb` |
+| `contact`    | string | No | — | Contact/secondary text block. Set via `pp_footer_contact` |
+| `copyright`  | string | No | — | Copyright line. Set via `pp_footer_copyright`; empty = the default `© <year> <site title>. All rights reserved.` |
 
 ### Turning the footer logo on
 
@@ -44,6 +50,17 @@ pp_get_component('footer', ['location' => 'footer']);
 | Build the footer menu | The menu actions: `create_menu` / `set_menu` / `add_menu_item` |
 | Attach a menu to the footer | `assign_menu_location` with location `footer` |
 | Show/hide the footer logo | `update_site_option` with key `pp_footer_show_logo` (boolean) |
+| Dark marketing footer (background) | `update_site_option` with key `pp_footer_bg` (CSS color) |
+| Footer text / link colors | `update_site_option` with keys `pp_footer_text` / `pp_footer_link_color` (CSS colors) |
+| Brand blurb under the logo | `update_site_option` with key `pp_footer_blurb` (text) |
+| Contact block (address/email) | `update_site_option` with key `pp_footer_contact` (text) |
+| Custom copyright line | `update_site_option` with key `pp_footer_copyright` (text; empty = default line) |
+
+The color options accept the same values as any style-slot color (hex, `rgb()`/`hsl()`,
+`transparent`, `currentColor`, or a known color-token reference like `var(--color-accent)`);
+they are validated by the shared color engine. They render as inline `--footer-*` custom
+properties, so an unset footer looks exactly as before. This is a tight dark-marketing-footer
+surface (issue #300), not a general footer builder.
 
 `wp pp apply preflight` reports a `nav_readiness` warning when the `footer` location has no
 menu assigned, or its menu is empty.
@@ -58,4 +75,7 @@ If no menu is assigned to the location, the nav area is empty but the footer sti
 
 Styles in `assets/css/components.css` under `/* === COMPONENT: footer === */`.
 
-Background: `--color-surface`. Border top: `1px solid --color-border`.
+Background: `var(--footer-bg, --color-surface)`. Text: `var(--footer-text, inherit)`. Nav-link
+color: `var(--footer-link-color, --color-muted)`. Border top: `1px solid --color-border`. The
+`--footer-*` custom properties are emitted inline by the template from the `pp_footer_*` site
+options; unset, every rule falls back to its original value.
