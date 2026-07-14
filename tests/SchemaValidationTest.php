@@ -245,10 +245,10 @@ class SchemaValidationTest extends TestCase
     public function testStyleSlotsExistForV1Components(): void
     {
         $expected = [
-            'hero'    => 38,
-            'section' => 33,
-            'grid'    => 31,
-            'cta'     => 27,
+            'hero'    => 40,
+            'section' => 35,
+            'grid'    => 33,
+            'cta'     => 29,
         ];
 
         foreach ($expected as $component => $count) {
@@ -920,7 +920,9 @@ class SchemaValidationTest extends TestCase
             [
                 '--grid-padding-top', '--grid-padding-bottom', '--grid-bg',
                 '--grid-heading-color', '--grid-heading-accent-color', '--grid-eyebrow-color',
-                '--grid-eyebrow-bg', '--grid-eyebrow-radius', '--grid-subheading-color',
+                '--grid-eyebrow-bg', '--grid-eyebrow-radius',
+                '--grid-eyebrow-border-width', '--grid-eyebrow-border-color',
+                '--grid-subheading-color',
                 '--grid-subheading-margin-bottom', '--grid-heading-margin-bottom',
                 '--grid-heading-size', '--grid-heading-max-width', '--grid-gap',
             ],

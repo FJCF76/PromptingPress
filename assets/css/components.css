@@ -368,6 +368,7 @@
   align-self: flex-start;
   padding: 0.35rem 0.85rem;
   margin-bottom: var(--space-sm);
+  border: var(--hero-eyebrow-border-width, 0) solid var(--hero-eyebrow-border-color, transparent);
   border-radius: var(--hero-eyebrow-radius, 3px);
   font-size: 0.8125rem;
   font-weight: 600;
@@ -817,6 +818,7 @@
   display: inline-block;
   padding: 0.35rem 0.85rem;
   margin-bottom: var(--space-sm);
+  border: var(--section-eyebrow-border-width, 0) solid var(--section-eyebrow-border-color, transparent);
   border-radius: var(--section-eyebrow-radius, 3px);
   font-size: 0.8125rem;
   font-weight: 600;
@@ -1100,6 +1102,7 @@
   display: inline-block;
   padding: 0.35rem 0.85rem;
   margin-bottom: var(--space-sm);
+  border: var(--faq-eyebrow-border-width, 0) solid var(--faq-eyebrow-border-color, transparent);
   border-radius: var(--faq-eyebrow-radius, 3px);
   font-size: 0.8125rem;
   font-weight: 600;
@@ -1247,6 +1250,7 @@
   display: inline-block;
   padding: 0.35rem 0.85rem;
   margin-bottom: var(--space-sm);
+  border: var(--grid-eyebrow-border-width, 0) solid var(--grid-eyebrow-border-color, transparent);
   border-radius: var(--grid-eyebrow-radius, 3px);
   font-size: 0.8125rem;
   font-weight: 600;
@@ -1728,6 +1732,7 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
   display: inline-block;
   padding: 0.35rem 0.85rem;
   margin-bottom: var(--space-sm);
+  border: var(--cta-eyebrow-border-width, 0) solid var(--cta-eyebrow-border-color, transparent);
   border-radius: var(--cta-eyebrow-radius, 3px);
   font-size: 0.8125rem;
   font-weight: 600;
@@ -2432,6 +2437,7 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
   display: inline-block;
   padding: 0.35rem 0.85rem;
   margin-bottom: var(--space-sm);
+  border: var(--testimonials-eyebrow-border-width, 0) solid var(--testimonials-eyebrow-border-color, transparent);
   border-radius: var(--testimonials-eyebrow-radius, 3px);
   font-size: 0.8125rem;
   font-weight: 600;
@@ -3891,7 +3897,7 @@ main .btn:focus-visible,
 #agencies-hero .hero__eyebrow,
 #implementers-hero .hero__eyebrow {
   border-radius: var(--hero-eyebrow-radius, 3px);
-  border-color: var(--color-border);
+  border-color: var(--hero-eyebrow-border-color, var(--color-border));
   background:
     linear-gradient(90deg, rgba(37, 99, 235, 0.06) 1px, transparent 1px) 0 0 / 1.4rem 100%,
     var(--hero-eyebrow-bg, var(--color-surface-accent));

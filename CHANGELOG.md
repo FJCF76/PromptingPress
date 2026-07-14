@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.127] — 2026-07-14 — an eyebrow pill can now carry an outline, not just a fill (#356)
+
+**The eyebrow pill exposed text color, background, and corner radius, but no border, so an outlined pill was simply not authorable — the only way to fake one was a tinted background. This adds a per-component border to the eyebrow on all six components that render one (hero, section, faq, grid, cta, testimonials) through two style slots: `--<component>-eyebrow-border-width` and `--<component>-eyebrow-border-color`. Leave them unset and every page renders exactly as before, down to the byte: the default is a zero-width transparent border, which draws nothing.**
+
+An outlined pill is a generic capability, not a product feature, so this follows the same shape the component roots already use for their own borders (`border: var(--x-border-width, 0) solid var(--x-border-color, transparent)`) rather than inventing a new grammar. Width is a `length` slot defaulting to `0`; color is a `color` slot defaulting to `transparent`; the border style is a fixed `solid`, consistent with every other border in the theme. The two new slots surface to the site-building AI through the same runtime schema inspection that carries every style slot and the `--<component>-eyebrow-*` wildcard already documented for grid card-scope rejection, so no accepted-grammar description changed. The slot names embed `border-width`/`border-color`, which are WP-core cascade triggers (#332), but their inline custom properties render on the immunized component root, and the #332 rendered-immunity coverage was extended to all twelve new slots so the phantom-border guard stays honest.
+
+### Fixed
+
+- The eyebrow pill on `hero`, `section`, `faq`, `grid`, `cta`, and `testimonials` now takes an authorable border through `--<component>-eyebrow-border-width` and `--<component>-eyebrow-border-color`, so an outlined pill is expressible. Unset, the border is zero-width and transparent — byte-identical to before. On the four benchmark hero pages whose eyebrow re-declares `border-color` at ID specificity, that declaration now routes through the color slot so a set value still reaches the pill.
+
+### Docs
+
+- `AI_CONTEXT.md` and `README.md` slot counts updated (175 → 187). The new slots surface to the chat AI through the existing runtime slot inspection and the documented `--<component>-eyebrow-*` wildcard, so no accepted-grammar description changed.
+
+### Tests
+
+- `tests/e2e/style-render.spec.ts` gains a rendered computed-style pin proving that setting the hero eyebrow border slots renders a real 3px border in the asked-for color (on both a plain id and the ID-specificity benchmark hero, proving the routing), while an unset eyebrow stays at `0px` — byte-identical to before. The #332 `BORDER_TRIGGER_CASES` immunity set is extended to all twelve new border-trigger slots so cascade immunity stays proven. Slot-count pins in `tests/SchemaValidationTest.php`, `tests/OperateTest.php`, and `tests/js/css-lint.test.js` updated, and the two grid eyebrow border slots added to the grid card-scope-ineligible set.
+
 ## [v0.16.126] — 2026-07-14 — a centered section now centers its body copy under its heading, not just the heading (#354)
 
 **A `section` with `layout: centered` centered its heading but left the body copy pinned to the left, so the paragraph sat about 112px off-center from the title above it. Now the body block centers under the heading, the way a centered layout is meant to read. Only the `centered` layout is touched: `text-only`, `image-left`, `image-right`, and `text-panel` render exactly as before, down to the byte.**
