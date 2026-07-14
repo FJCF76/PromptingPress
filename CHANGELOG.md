@@ -4,7 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [v0.16.132] — 2026-07-14 — a grid card's link/button now follows --grid-item-text-align, so a centered card is fully centered (#361)
+## [v0.16.133] — 2026-07-15 — a stats heading with a long title now centers on the page instead of sitting left of center (#367)
+
+**A `stats` component's heading rendered left of page center on desktop. `.stats__heading` carries `text-align: center` and the shared `max-width: var(--cta-content-width, 40rem)` cap, but shipped with no auto side-margins. A block `<h2>` fills to that 40rem cap inside the wider centered `.container`, so the heading box pinned to the container's left edge (measured x 96-736 in a 1280px viewport, where the centered position is ~288-928) and `text-align: center` only centered the text inside that left-pinned box. The heading sat left of page center for any title long enough to reach the cap. This adds auto side-margins so the heading box centers under the already-centered stats row.**
+
+Same class of bug as #354, on the stats component. The fix is `margin-left: auto; margin-right: auto` on `.stats__heading`, mirroring #354's `.section--centered .section__content` fix and the file's centering convention. Both sides auto, so the box centers regardless of writing direction and collapses to zero margin when the heading is as wide as the container (narrow viewports), introducing no band. The stats component is already centered end to end (`.stats__list` uses `justify-content: center`, `.stats__item` uses `align-items: center`), so centering the heading is consistent with the rest of the component. A pure alignment fix: no prop, schema, style slot, validator, or AI-facing behavior changes.
+
+### Fixed
+
+- A `stats` heading now centers within its container on desktop instead of pinning to the left edge. Previously a long stats title sat left of page center because the 40rem-capped heading box was left-aligned with only its text centered inside it. A heading narrower than the cap and narrow-viewport rendering are unaffected.
+
+### Tests
+
+- `tests/e2e/style-render.spec.ts` adds a rendered-geometry pin: at 1280px the stats heading box center-x equals its containing `.container` center-x (and the centered `.stats__list` beneath it), with real free space between them so the equality is a genuine reposition, not a fill artifact. Proven red→green: reverting the CSS left-pins the box and fails the assertion by ~224px. `tests/js/css-lint.test.js` adds a declaration-level guard that aggregates per selector and asserts any centered, max-width-capped content-block selector (`__heading`/`__title`/`__body`/`__content`) also declares an auto inline margin, plus targeted pins for `.stats__heading` (#367) and `.section--centered .section__content` (#354).
+
+
 
 **#357 made a grid card's TEXT content (title, text, bullets) alignable through the `align`-typed `--grid-item-text-align` slot, but the `Read more` link stayed pinned left. `.grid__item-link` is a content-width flex item placed by `align-self: flex-start`, and per the #338 flex trap `text-align` cannot move a flex item's box — so a centered contact card (the webfiable use case #357 cites) centered its emoji/label but left the link flush left, only half-expressible. This makes the link follow the same slot: the operator still sets ONE value and both the text and the link align together, so a centered card is fully centered and a right-aligned card is fully right-aligned.**
 
