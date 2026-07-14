@@ -2482,4 +2482,98 @@ test.describe('#333 chrome site options render', () => {
       .evaluate((el) => getComputedStyle(el).color);
     expect(rowColor).toBe('rgb(34, 211, 238)');
   });
+
+  // #354 — a section with layout:centered centered its heading but LEFT-PINNED its body
+  // copy. The outer .section__body centers itself (max-width --measure-centered = 56rem,
+  // margin auto) but the inner .section__content carried a narrower cap (42rem) with NO
+  // auto margins, so it left-pinned inside the wider centered wrapper: title center-x 640,
+  // paragraph center-x ~528, a visible ~112px asymmetry. This is invisible at the
+  // declaration level — the bug is the ABSENCE of a margin rule, exactly how it shipped —
+  // so only a rendered box under the full cascade proves the fix. The mirror-image guard
+  // (a text-only section in the same page stays left-pinned) proves the fix is scoped to
+  // .section--centered and did not leak into the other four layouts.
+  test('#354 centered layout centers the body copy under its heading (scoped) @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Centered Body Alignment');
+    setComposition(pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec-centered',
+          layout: 'centered',
+          title: 'Especificaciones',
+          body: '<p>The body copy of a centered section must sit centered under its heading, not pinned to the left edge of the wider centered wrapper.</p>',
+        },
+      },
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec-textonly',
+          layout: 'text-only',
+          title: 'Plain section',
+          body: '<p>A non-centered section keeps its body copy pinned to the left; the centered fix must not reach it.</p>',
+        },
+      },
+    ]);
+
+    // 1280px: the container caps at 72rem (1152px), so the centered body reaches its full
+    // 56rem (896px) and the inner content its 42rem (672px) — ~224px of real free space
+    // for the auto margins to redistribute. Without that free space the center-x equality
+    // would be vacuous (a box that fills its parent is trivially "centered" in it).
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const centeredBody = page.locator('#pp-sec-centered .section__body');
+    await expect(centeredBody).toBeVisible({ timeout: 10000 });
+
+    const centered = await page.evaluate(() => {
+      const body = document.querySelector('#pp-sec-centered .section__body') as HTMLElement;
+      const content = document.querySelector('#pp-sec-centered .section__content') as HTMLElement;
+      const b = body.getBoundingClientRect();
+      const c = content.getBoundingClientRect();
+      const cs = getComputedStyle(content);
+      return {
+        bodyWidth: b.width,
+        contentWidth: c.width,
+        bodyCenterX: b.left + b.width / 2,
+        contentCenterX: c.left + c.width / 2,
+        marginLeft: cs.marginLeft,
+        marginRight: cs.marginRight,
+      };
+    });
+
+    // Free space is real: the content wrapper is meaningfully narrower than its centered
+    // body, so a centered center-x is a genuine reposition, not a fill artifact.
+    expect(centered.bodyWidth - centered.contentWidth).toBeGreaterThan(150);
+    // The FIX: the content block centers under the (already centered) heading. Tolerance
+    // 2px absorbs sub-pixel rounding / device-scale jitter; the broken state is ~112px off,
+    // far above it, so the mutation sensitivity is unaffected.
+    expect(Math.abs(centered.contentCenterX - centered.bodyCenterX)).toBeLessThanOrEqual(2);
+    // Auto margins resolved to real, symmetric, non-zero pixels (the ~112px each side).
+    // Without the #354 rule this computes to '0px' and the center-x assertion above fails.
+    expect(centered.marginLeft).not.toBe('0px');
+    expect(centered.marginLeft).toBe(centered.marginRight);
+
+    // Mirror-image guard: the text-only section is unchanged. Its .section__content fills
+    // its wrapper (no free space) and stays left-pinned, and the rule does not attach —
+    // computed side-margins stay 0px. This proves the fix is scoped to .section--centered
+    // and did not leak into the other layouts.
+    const textOnly = await page.evaluate(() => {
+      const body = document.querySelector('#pp-sec-textonly .section__body') as HTMLElement;
+      const content = document.querySelector('#pp-sec-textonly .section__content') as HTMLElement;
+      const b = body.getBoundingClientRect();
+      const c = content.getBoundingClientRect();
+      const cs = getComputedStyle(content);
+      return {
+        bodyLeft: b.left,
+        contentLeft: c.left,
+        marginLeft: cs.marginLeft,
+        marginRight: cs.marginRight,
+      };
+    });
+    expect(textOnly.marginLeft).toBe('0px');
+    expect(textOnly.marginRight).toBe('0px');
+    expect(Math.abs(textOnly.contentLeft - textOnly.bodyLeft)).toBeLessThanOrEqual(2);
+  });
 });

@@ -2711,6 +2711,19 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
   text-align: center;
 }
 
+/* The centered layout centers the OUTER .section__body (max-width --measure-centered,
+   56rem) but its inner .section__content carries a NARROWER cap (--section-body-width,
+   42rem) with no auto margins, so the body copy left-pinned inside the wider centered
+   wrapper while the title sat centered — a visible ~112px asymmetry (issue 354). Give
+   the inner wrapper auto side-margins so the measure centers under the heading. Scoped
+   to .section--centered only: text-only / image-left / image-right / text-panel keep
+   .section__content left-pinned (byte-identical). Text is already centered here via the
+   inherited text-align:center on .section--centered .section__body. */
+.section--centered .section__content {
+  margin-left: auto;
+  margin-right: auto;
+}
+
 /* ==========================================================================
    SHARED: Pagination
    Renders under the post grid on the blog index / archives (issue 126).
