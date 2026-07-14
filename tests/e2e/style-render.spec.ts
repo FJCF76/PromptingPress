@@ -2957,6 +2957,82 @@ test.describe('#333 chrome site options render', () => {
     expect(textOnly.marginRight).toBe('0px');
     expect(Math.abs(textOnly.contentLeft - textOnly.bodyLeft)).toBeLessThanOrEqual(2);
   });
+
+  // #367 — same class as #354, on the stats component. `.stats__heading` is a block <h2>
+  // that carries `max-width: var(--cta-content-width, 40rem)` (the shared cap rule) and
+  // `text-align: center`, but shipped with NO auto inline margins. A block h2 fills to its
+  // max-width cap inside the wider .container, so the 40rem box pinned to the container's
+  // LEFT edge (measured x 96-736 at 1280px; the container content center is ~x 288-928) and
+  // text-align:center only centered the text WITHIN that left-pinned box — the heading sat
+  // left of page center for ANY title length, not just long ones. The bug is the ABSENCE of
+  // a margin rule (exactly how it shipped), invisible at the declaration level, so only a
+  // rendered box under the full cascade proves the fix. We compare the heading box center-x
+  // to its actual containing block (the .container), the parent margin-inline:auto centers it
+  // in — not a sibling proxy — with real free space between them so the equality is a genuine
+  // reposition, not a fill artifact. Mutation-verified: reverting the CSS left-pins the box
+  // and fails the center-x assertion by ~224px ((container 1088 - cap 640) / 2).
+  test('#367 stats heading centers in its container, not pinned left @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Stats Heading Centering');
+    setComposition(pageId, [
+      {
+        component: 'stats',
+        props: {
+          id: 'pp-stats-centered',
+          title: 'The numbers behind our platform performance and reliability',
+          items: [
+            { number: '99.9%', label: 'Uptime' },
+            { number: '2.4M', label: 'Requests / day' },
+            { number: '<50ms', label: 'Median latency' },
+          ],
+        },
+      },
+    ]);
+
+    // 1280px: the container caps at 72rem (1152px), leaving the heading's 40rem (640px) cap
+    // well inside the container content width (~1088px after padding) — ~448px of real free
+    // space for the auto margins to redistribute. Without that free space the center-x
+    // equality would be vacuous (a box that fills its parent is trivially "centered" in it).
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const heading = page.locator('#pp-stats-centered .stats__heading');
+    await expect(heading).toBeVisible({ timeout: 10000 });
+
+    const geom = await page.evaluate(() => {
+      const h = document.querySelector('#pp-stats-centered .stats__heading') as HTMLElement;
+      const container = h.parentElement as HTMLElement; // the .stats .container the heading centers in
+      const list = document.querySelector('#pp-stats-centered .stats__list') as HTMLElement;
+      const hb = h.getBoundingClientRect();
+      const cb = container.getBoundingClientRect();
+      const lb = list.getBoundingClientRect();
+      const cs = getComputedStyle(h);
+      return {
+        headingWidth: hb.width,
+        containerWidth: cb.width,
+        headingCenterX: hb.left + hb.width / 2,
+        containerCenterX: cb.left + cb.width / 2,
+        listCenterX: lb.left + lb.width / 2,
+        marginLeft: cs.marginLeft,
+        marginRight: cs.marginRight,
+      };
+    });
+
+    // Free space is real: the capped heading is meaningfully narrower than its container,
+    // so a centered center-x is a genuine reposition, not a fill artifact.
+    expect(geom.containerWidth - geom.headingWidth).toBeGreaterThan(150);
+    // THE FIX: the heading box centers within the containing block that actually matters
+    // (its parent .container). Tolerance 2px absorbs sub-pixel rounding; the broken state is
+    // ~224px off, far above it, so mutation sensitivity is unaffected.
+    expect(Math.abs(geom.headingCenterX - geom.containerCenterX)).toBeLessThanOrEqual(2);
+    // ...and it lines up with the already-centered stats list beneath it (the visual band).
+    expect(Math.abs(geom.headingCenterX - geom.listCenterX)).toBeLessThanOrEqual(2);
+    // Auto margins resolved to real, symmetric, non-zero pixels (~224px each side). Without
+    // the #367 rule these compute to '0px' and the center-x assertions above fail.
+    expect(geom.marginLeft).not.toBe('0px');
+    expect(geom.marginLeft).toBe(geom.marginRight);
+  });
 });
 
 /**

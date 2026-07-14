@@ -2231,6 +2231,20 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      output is byte-identical, and an operator can now tune the scale. */
   font-size: var(--stats-title-size, 1.875rem);
   margin-bottom: var(--space-lg);
+  /* Center the heading BOX, not just its text (issue 367 — same class as issue 354).
+     The shared cap rule gives this h2 max-width: var(--cta-content-width, 40rem);
+     a block h2 fills to that cap inside the wider .container, so without auto
+     inline margins the 40rem box pins to the container's left edge (measured
+     x 96-736 at 1280px) and text-align: center only centers WITHIN that
+     left-pinned box — the heading sits left of page center for any title.
+     Auto side-margins center the box under the already-centered stats list
+     (.stats__list is justify-content: center, spanning the full container).
+     Both sides auto so it centers regardless of writing direction; collapses to
+     0 when the heading is as wide as the container (narrow viewports), so no
+     band is introduced. Physical margins mirror the landed issue-354 fix
+     (.section--centered .section__content) and the file's centering convention. */
+  margin-left: auto;
+  margin-right: auto;
   text-align: center;
   color: var(--stats-title-color, var(--color-text));
 }

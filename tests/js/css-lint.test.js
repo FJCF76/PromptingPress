@@ -1560,3 +1560,114 @@ describe('CSS lint: no raw hex in components.css', () => {
         expect(hexInValues).toEqual([]);
     });
 });
+
+/**
+ * Centered content blocks carry auto inline margins (#367, class of #354).
+ *
+ * A block-level content element (a heading/title/body/content wrapper) that
+ * carries BOTH `text-align: center` AND a `max-width` cap but NO auto inline
+ * margins is falsely centered: the block fills to its cap and pins to its
+ * container's LEFT edge, and text-align only centers the text WITHIN that
+ * left-pinned box. That is exactly how `.stats__heading` shipped (#367).
+ *
+ * This is a DECLARATION-LEVEL backstop, not a cascade-aware layout engine. It
+ * aggregates per exact selector string and is blind to specificity, source
+ * order, media context, and INHERITED (undeclared) text-align. The authoritative
+ * proof lives in the rendered e2e pins (#354, #367 in style-render.spec.ts),
+ * which measure real boxes under the full cascade. What this adds cheaply: the
+ * next centered heading that declares a cap + center on one selector but forgets
+ * its auto margins fails here before it reaches a browser.
+ *
+ * Coverage note (why #354 needs its OWN targeted pin below, not the class scan):
+ * the class scan only fires when cap AND center land on the SAME selector key.
+ * `.stats__heading` does (cap @ the shared rule, center @ its own rule), so the
+ * scan catches #367. The #354 selector `.section--centered .section__content`
+ * does NOT — its centering is INHERITED from `.section--centered .section__body`,
+ * never declared on `.section__content`, so declaration aggregation can never
+ * mark it center=true. It is pinned directly instead.
+ *
+ * Scope is the content-block naming (trailing `__heading` / `__title` /
+ * `__body` / `__content` element), which is the surface this defect lives on.
+ * Controls are deliberately out: `main .btn` also matches text-align:center +
+ * max-width, but its box is positioned by its flex parent (display:inline-flex,
+ * justify-content:center) and text-align centers its own LABEL — auto margins
+ * are neither the mechanism nor expected there. Excluding it by name (a button
+ * is not a `__heading`) is correct, not a carve-out. The known live tradeoff: a
+ * future content block centered by a flex/grid PARENT (the `.btn` mechanism
+ * under a content-block name) would be a spurious offender; whitelist it here
+ * with a comment if one ever appears.
+ */
+describe('CSS lint: centered content blocks carry auto inline margins (#367)', () => {
+    const stripped = stripComments(COMPONENTS_CSS);
+
+    // selector -> { maxWidth, center, autoMargin } aggregated across every rule.
+    const AUTO_MARGIN =
+        /margin(-inline(-start|-end)?|-left|-right)?\s*:\s*[^;}]*\bauto\b/;
+    const agg = new Map();
+    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+    let m;
+    while ((m = ruleRe.exec(stripped)) !== null) {
+        const body = m[2];
+        const hasMax = /(max-width|max-inline-size)\s*:/.test(body);
+        const hasCenter = /text-align\s*:\s*center/.test(body);
+        const hasAuto = AUTO_MARGIN.test(body);
+        if (!hasMax && !hasCenter && !hasAuto) continue;
+        m[1].split(',').forEach(raw => {
+            const sel = raw.trim().replace(/\s+/g, ' ');
+            if (!sel || sel.startsWith('@')) return;
+            const cur = agg.get(sel) || { maxWidth: false, center: false, autoMargin: false };
+            cur.maxWidth = cur.maxWidth || hasMax;
+            cur.center = cur.center || hasCenter;
+            cur.autoMargin = cur.autoMargin || hasAuto;
+            agg.set(sel, cur);
+        });
+    }
+
+    // A content-block selector = the element it TARGETS (the trailing compound of
+    // a descendant selector) is a __heading/__title/__body/__content element. Test
+    // only the last space-separated compound so `.foo__heading .child` (targets
+    // `.child`) is NOT pulled in, while `.section--centered .section__body` (targets
+    // `.section__body`) is. Word-boundaried so `.stats__heading-accent` never matches.
+    const isContentBlock = (sel) => {
+        const target = sel.split(' ').pop();
+        return /__(heading|title|body|content)(?![\w-])/.test(target);
+    };
+
+    const centeredCapped = [...agg.entries()]
+        .filter(([sel, p]) => isContentBlock(sel) && p.maxWidth && p.center);
+
+    // Not vacuous: `.stats__heading` (cap+center on one key) MUST be a member, or a
+    // selector rename would make the offender scan below silently pass on nothing.
+    test('finds the centered, max-width-capped content blocks it governs', () => {
+        expect(centeredCapped.length).toBeGreaterThan(0);
+        expect(centeredCapped.map(([sel]) => sel)).toContain('.stats__heading');
+    });
+
+    test('every centered, capped content block also declares an auto inline margin', () => {
+        const offenders = centeredCapped
+            .filter(([, p]) => !p.autoMargin)
+            .map(([sel]) => sel);
+        expect(offenders).toEqual([]);
+    });
+
+    // Targeted regression pin for the exact #367 selector: it must keep BOTH the cap+center
+    // that make centering meaningful AND the auto margin that delivers it. Removing the
+    // auto margins (the bug) fails here even if the class scan above were ever narrowed.
+    test('.stats__heading is centered, capped, and carries an auto inline margin', () => {
+        const p = agg.get('.stats__heading');
+        expect(p).toBeDefined();
+        expect(p.maxWidth).toBe(true);
+        expect(p.center).toBe(true);
+        expect(p.autoMargin).toBe(true);
+    });
+
+    // Targeted regression pin for the landed #354 fix, which the class scan cannot see
+    // (its centering is inherited, never declared on this selector). The auto side-margins
+    // are the whole fix — if they are ever removed, the centered-layout body copy left-pins
+    // again. The #354 e2e pin proves the rendered geometry; this guards the declaration.
+    test('.section--centered .section__content carries an auto inline margin (#354)', () => {
+        const p = agg.get('.section--centered .section__content');
+        expect(p).toBeDefined();
+        expect(p.autoMargin).toBe(true);
+    });
+});
