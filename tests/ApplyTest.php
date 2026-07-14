@@ -1663,6 +1663,55 @@ class ApplyTest extends TestCase
         $this->assertSame('length', $tokens['--btn-padding-x']['type']);
     }
 
+    // ── --btn-radius (issue 369) ──────────────────────────────────────────
+    // components.css reads `border-radius: var(--btn-radius, var(--radius))`,
+    // but --btn-radius was never declared in :root, so update_design_token
+    // rejected it as unregistered. Worse, the WINNING cascade rule for every
+    // composed button — the premium-CTA block `main .btn { border-radius: 4px }`
+    // — hardcoded 4px and ignored the token entirely, so even a registered token
+    // was inert. The fix registers --btn-radius (defaulting to the composed
+    // button's actual current radius, 4px, so unset output is byte-identical)
+    // and routes that winning rule through var(--btn-radius, 4px). Card/panel
+    // radius still reads the GLOBAL --radius, so button radius is now settable
+    // on its own without pilling every card.
+
+    public function testBtnRadiusIsRegisteredAsLengthToken(): void
+    {
+        $tokens = pp_design_tokens();
+        $this->assertArrayHasKey('--btn-radius', $tokens);
+        $this->assertSame('length', $tokens['--btn-radius']['type']);
+    }
+
+    public function testBtnRadiusDefaultsToComposedButtonRadiusForByteIdenticalUnset(): void
+    {
+        // Registering the token in :root DEFINES the property globally, so the
+        // `var(--btn-radius, 4px)` fallback in the winning rule never fires — the
+        // declared default wins. It must therefore equal the composed button's
+        // actual current radius (4px), NOT var(--radius) (6px): a 6px default
+        // would silently restyle every existing button 4px->6px. 4px keeps unset
+        // rendering byte-identical.
+        $tokens = pp_design_tokens();
+        $this->assertSame('4px', $tokens['--btn-radius']['value']);
+    }
+
+    public function testUpdateDesignTokenAcceptsBtnRadiusLength(): void
+    {
+        // The whole point of the issue: --btn-radius must validate through the
+        // SAME shared length engine (_pp_validate_token_value) so an operator
+        // can pill a CTA (100px) without touching --radius.
+        $result = pp_validate_apply('update_design_token', ['token' => '--btn-radius', 'value' => '100px']);
+        $this->assertTrue($result);
+    }
+
+    public function testUpdateDesignTokenRejectsInvalidBtnRadius(): void
+    {
+        // Same length grammar as every other length token — a non-length value
+        // is rejected by the shared engine, not a surface-specific validator.
+        $result = pp_validate_apply('update_design_token', ['token' => '--btn-radius', 'value' => 'rounded']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_length', $result->get_error_code());
+    }
+
     // ── Font apply tests ─────────────────────────────────────────────────
 
     public function testEnqueueFontValid(): void
