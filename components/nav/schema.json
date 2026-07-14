@@ -42,7 +42,7 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Header nav-link color (issue 333). Set via the pp_header_link_color site option; emitted as --header-link-color. A CSS color (no gradient). Empty = the default text color. Hover and current-page links keep --color-accent, which is a global design token."
+      "description": "Header nav-link color (issue 333). Set via the pp_header_link_color site option; emitted as --header-link-color. A CSS color (no gradient). Empty = the default text color. The active/current link color also follows --header-link-color (issue 355), falling back to --color-accent when unset; the current item keeps its bold weight. Hover keeps --color-accent, which is a global design token."
     }
   },
   "styling": {

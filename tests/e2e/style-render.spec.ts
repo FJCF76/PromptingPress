@@ -2757,3 +2757,129 @@ test.describe('#333 chrome site options render', () => {
     expect(Math.abs(textOnly.contentLeft - textOnly.bodyLeft)).toBeLessThanOrEqual(2);
   });
 });
+
+/**
+ * #355 — the active/current header link must honor pp_header_link_color.
+ *
+ * Bug: `.nav__menu li.current-menu-item > a` (and the `aria-current="page"` variant)
+ * hard-coded `color: var(--color-accent)`, which won over `--header-link-color`. On a
+ * one-page anchor-nav marketing site every link points at the current page, so WordPress
+ * marks them all current and the WHOLE menu ignored pp_header_link_color, rendering the
+ * accent instead. Fix: the active link color routes through
+ * `var(--header-link-color, var(--color-accent))`, keeping `font-weight:700` — the operator's
+ * color wins when set, the accent stays the fallback when unset (so an unstyled header is
+ * byte-identical to before), and the current item stays bold either way.
+ *
+ * Static CSS-text pins (css-lint.test.js) can prove the declaration is present; only
+ * getComputedStyle on a REAL current-menu-item can prove the rendered cascade. That needs a
+ * SEEDED WP menu whose item points at the viewed page — which is exactly why #333 pinned only
+ * the logo color, not a nav link. WordPress marks the item server-side: `current-menu-item` on
+ * the `<li>` and `aria-current="page"` on the `<a>`, so both fixed selectors are exercised.
+ */
+function createMenu(name: string): number {
+  return parseInt(
+    execSync(`npx wp-env run cli wp menu create "${name}" --porcelain`, {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+    }).trim(),
+    10,
+  );
+}
+
+function addPageToMenu(menuId: number, pageId: number): void {
+  execSync(`npx wp-env run cli wp menu item add-post ${menuId} ${pageId}`, {
+    cwd: process.cwd(),
+    encoding: 'utf-8',
+  });
+}
+
+function assignMenuToPrimary(menuId: number): void {
+  execSync(`npx wp-env run cli wp menu location assign ${menuId} primary`, {
+    cwd: process.cwd(),
+    encoding: 'utf-8',
+  });
+}
+
+function deleteMenu(menuId: number): void {
+  try {
+    // Deleting the menu also clears its `primary` location assignment.
+    execSync(`npx wp-env run cli wp menu delete ${menuId}`, { cwd: process.cwd() });
+  } catch {
+    /* already gone */
+  }
+}
+
+test.describe('#355 active header link honors pp_header_link_color', () => {
+  let pageId = 0;
+  let menuId = 0;
+
+  test.afterEach(async () => {
+    // Site option + menu are site-global — a leak would style/route every later test's page.
+    deleteSiteOption('pp_header_link_color');
+    if (menuId) {
+      deleteMenu(menuId);
+      menuId = 0;
+    }
+    if (pageId) {
+      try {
+        deletePage(pageId);
+      } catch {
+        /* already cleaned */
+      }
+      pageId = 0;
+    }
+  });
+
+  // Seed a page, put it in a menu, and attach that menu to the header's `primary` location,
+  // so visiting the page makes its own menu item the current-menu-item.
+  function seedCurrentItemPage(title: string): void {
+    pageId = createPage(title);
+    setComposition(pageId, [{ component: 'hero', props: { id: 'pp-hero01', title: 'Hero' } }]);
+    menuId = createMenu(`E2E 355 ${Date.now()}`);
+    addPageToMenu(menuId, pageId);
+    assignMenuToPrimary(menuId);
+  }
+
+  test('#355 the active link follows pp_header_link_color, keeping its bold weight @smoke', async ({
+    page,
+  }) => {
+    seedCurrentItemPage('E2E Active Link Color');
+    // #c8c8e0 = rgb(200, 200, 224); distinct from the accent default #3157f4 = rgb(49, 87, 244).
+    setSiteOption('pp_header_link_color', '#c8c8e0');
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const activeLink = page.locator('.nav__menu li.current-menu-item > a');
+    await expect(activeLink).toBeVisible({ timeout: 10000 });
+
+    // THE assertion. Before the fix this came back rgb(49, 87, 244) — the hard-coded
+    // var(--color-accent) won over --header-link-color and the operator's color was ignored.
+    const color = await activeLink.evaluate((el) => getComputedStyle(el).color);
+    expect(color).toBe('rgb(200, 200, 224)');
+
+    // Emphasis is preserved — the current item is still distinguishable by weight.
+    const weight = await activeLink.evaluate((el) => getComputedStyle(el).fontWeight);
+    expect(weight).toBe('700');
+  });
+
+  test('#355 an unset header link color leaves the active link on the accent (unchanged)', async ({
+    page,
+  }) => {
+    // Default stays neutral: with no pp_header_link_color, the active link falls back to
+    // --color-accent, so existing sites render byte-identically to before the fix.
+    seedCurrentItemPage('E2E Active Link Default');
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const activeLink = page.locator('.nav__menu li.current-menu-item > a');
+    await expect(activeLink).toBeVisible({ timeout: 10000 });
+
+    const color = await activeLink.evaluate((el) => getComputedStyle(el).color);
+    expect(color).toBe('rgb(49, 87, 244)');
+
+    const weight = await activeLink.evaluate((el) => getComputedStyle(el).fontWeight);
+    expect(weight).toBe('700');
+  });
+});
