@@ -1375,7 +1375,7 @@
   flex: 1;
 }
 
-/* Issue #349 — an explicit per-instance --grid-item-text-color must win over a
+/* Issue 349 — an explicit per-instance --grid-item-text-color must win over a
    text_role color preset at ALL breakpoints. text_role adds .text-meta / .text-kicker
    (utilities.css), each a (0,1,0) `color` rule enqueued AFTER components.css, so it
    defeats the (0,1,0) base rule on the source-order tie below the 768px premium
