@@ -67,7 +67,7 @@ Preflight checks:
 2. **Capability** — manage_options or WP-CLI context
 3. **Drift** — no overlapping drift between manifest and your planned file mutations
 4. **Theme writable** — theme directory is writable for file-based applies
-5. **Target page** — (for page operations) post exists and has a composition
+5. **Target page** — (for page operations) the post exists. Whether it has a non-empty composition is NOT checked here: preflight runs once per target and is action-agnostic, so the "needs an existing composition" precondition is enforced per-action at execute time — component-level edits (`add_component`, `remove_component`, `reorder_components`, `update_component`, `style_component`) require one; populate/lifecycle/metadata actions (`update_composition`, `trash_page`, `publish_page`, …) do not, so a page created empty by `create_page` can still be populated or deleted (#358)
 6. **Surface classification** — (when `planned_files` provided) classifies each path as safe/extension/core; core files fail preflight with routing guidance toward the correct approved surface
 
 **If PREFLIGHT fails**: STOP. Do not proceed to EDIT or APPLY. Report the failure in HANDOFF.
