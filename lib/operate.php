@@ -187,6 +187,61 @@ function pp_inspect_site(?int $post_id = null): array {
 // ── Preflight ──────────────────────────────────────────────────────────────
 
 /**
+ * Composition-presence precondition for a page/section action (#358).
+ *
+ * Preflight's target_page check (Check 6) accepts any EXISTING page as a valid
+ * target, because preflight runs once per (run, post_id) and cannot know which
+ * action a run will execute against that coverage. This is the other half: the
+ * per-action gate that DOES know the action, so it can distinguish:
+ *
+ *   - Component-level actions (add_component, remove_component, reorder_components,
+ *     update_component, style_component) act ON existing components, so they REQUIRE
+ *     a non-empty composition. Gated here → fail-closed on a composition-less page.
+ *   - Populate / lifecycle / metadata actions (update_composition, trash_page,
+ *     publish_page, restore_composition, update_page_title, ...) need only the PAGE
+ *     to exist. Gating them on a non-empty composition strands a page created empty
+ *     by create_page — it could be neither populated NOR deleted through the
+ *     operate surface. These opt out via 'requires_composition' => false.
+ *
+ * DECLARATIVE + FAIL-CLOSED: the requirement is read from the action's
+ * 'requires_composition' flag, which pp_register_action() defaults to TRUE. An
+ * un-annotated action stays gated; an action opts out only by explicitly setting
+ * the flag false. The inline default here (treat a missing key as "requires")
+ * mirrors that default so a hand-built action array (e.g. a test fixture) is also
+ * fail-closed.
+ *
+ * Site-scoped actions carry no post_id and are not composition-targeted; this is a
+ * no-op for them ($post_id === null → true).
+ *
+ * @param array    $action  The registered action definition.
+ * @param int|null $post_id The target post ID (null for site-scoped actions).
+ * @return true|WP_Error  WP_Error('composition_required', ...) when the gate is closed.
+ */
+function pp_action_composition_precondition(array $action, ?int $post_id) {
+    if ($post_id === null) {
+        return true; // site-scoped: no composition target to require
+    }
+    // Fail-closed: a missing flag means "requires a composition".
+    $requires = !array_key_exists('requires_composition', $action)
+        || $action['requires_composition'] !== false;
+    if (!$requires) {
+        return true;
+    }
+    $composition = pp_get_composition($post_id);
+    if (!empty($composition)) {
+        return true;
+    }
+    return new WP_Error(
+        'composition_required',
+        sprintf(
+            'Action "%s" operates on an existing composition, but post %d has none yet. Populate it first with update_composition (or restore it), then retry.',
+            $action['name'] ?? '?',
+            $post_id
+        )
+    );
+}
+
+/**
  * Runs all preflight checks before an apply mutation.
  *
  * @param array      $context  Playbook context: 'planned_files', 'post_id', 'apply_name'.
@@ -365,12 +420,25 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
             // that preflight gates mutations (#96), make page-scoped actions
             // impossible. pp_get_composition decodes the string and still handles
             // array fixtures.
+            // An existing page is a VALID preflight target regardless of whether its
+            // composition is empty (#358). The old gate rejected a composition-less
+            // page here, but preflight runs ONCE per (run, post_id) and is
+            // action-agnostic — its coverage then unlocks every page-scoped action on
+            // that post — so rejecting on empty composition stranded pages created
+            // empty by create_page: update_composition (which POPULATES) and
+            // trash_page (which DELETES) could never earn coverage. The per-action
+            // composition precondition (pp_action_composition_precondition(), enforced
+            // at action execute where the action IS known) is what keeps
+            // component-level actions closed on a composition-less page; preflight
+            // cannot make that call because it does not know which action will run.
             $composition = pp_get_composition($context['post_id']);
-            if (!empty($composition)) {
-                $checks[] = ['check' => 'target_page', 'pass' => true, 'message' => 'Target page exists with composition: ' . $post->post_title];
-            } else {
-                $checks[] = ['check' => 'target_page', 'pass' => false, 'message' => 'Post ID ' . $context['post_id'] . ' exists but has no composition.'];
-            }
+            $checks[] = [
+                'check'   => 'target_page',
+                'pass'    => true,
+                'message' => !empty($composition)
+                    ? 'Target page exists with composition: ' . $post->post_title
+                    : 'Target page exists (composition is empty — populate with update_composition, or trash it; component-level edits still require content): ' . $post->post_title,
+            ];
         }
     }
 

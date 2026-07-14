@@ -851,6 +851,140 @@ class OperateTest extends TestCase
         $this->assertFalse($check['pass']);
     }
 
+    // ── #358: create_page must not strand a composition-less page ─────────────
+    //
+    // Two-sided proof. POSITIVE: a page created empty by create_page can now be
+    // populated by update_composition and deleted by trash_page through the
+    // operate surface (the original dead-end, RED→GREEN). NEGATIVE (the security
+    // half): component-level actions STILL fail the composition precondition on a
+    // composition-less page — the gate stays closed for them.
+
+    public function testPreflightTargetPagePassesForEmptyComposition(): void
+    {
+        // The #358 dead-end: create_page yields a page with no _pp_composition, and
+        // Check 6 used to FAIL for it ('exists but has no composition'), so its
+        // preflight never passed and no page-scoped action could earn coverage.
+        // An existing page is now a valid preflight target regardless of emptiness.
+        $post_id = pp_execute_action('create_page', ['title' => 'Empty Page 358'])['target']['post_id'];
+        $this->assertSame([], pp_get_composition($post_id), 'create_page output unchanged: composition stays empty');
+
+        $result = pp_preflight(['post_id' => $post_id]);
+        $check   = $this->findCheck($result, 'target_page');
+        $this->assertNotNull($check);
+        $this->assertTrue($check['pass'], 'target_page must PASS for an existing but composition-less page (#358)');
+    }
+
+    public function testPreflightTargetPageStillFailsClosedForNonExistentPost(): void
+    {
+        // Relaxing Check 6 must NOT open it for a non-existent post: get_post()
+        // returning null is still a hard fail (fail-closed boundary preserved).
+        $result = pp_preflight(['post_id' => 987654]);
+        $check   = $this->findCheck($result, 'target_page');
+        $this->assertNotNull($check);
+        $this->assertFalse($check['pass'], 'a non-existent post must still fail target_page');
+    }
+
+    public function testCompositionPreconditionAllowsPopulateAndTrashOnEmptyPage(): void
+    {
+        // POSITIVE end-to-end: create empty → update_composition populates →
+        // trash_page deletes, all through the real action path. Each populate/
+        // lifecycle action opts out of the composition requirement, so the
+        // precondition passes on the still-empty page.
+        $post_id = pp_execute_action('create_page', ['title' => 'Populate 358'])['target']['post_id'];
+
+        $this->assertTrue(
+            pp_action_composition_precondition(pp_get_action('update_composition'), $post_id),
+            'update_composition must clear the precondition on an empty page'
+        );
+        $populate = pp_execute_action('update_composition', [
+            'post_id'     => $post_id,
+            'composition' => [['component' => 'hero', 'props' => ['title' => 'Hello']]],
+        ]);
+        $this->assertTrue($populate['ok'], $populate['error'] ?? 'update_composition failed');
+        $this->assertNotEmpty(pp_get_composition($post_id), 'page must now be populated');
+
+        // trash_page also opts out — a page created empty must be deletable too.
+        $empty2 = pp_execute_action('create_page', ['title' => 'Trash 358'])['target']['post_id'];
+        $this->assertTrue(
+            pp_action_composition_precondition(pp_get_action('trash_page'), $empty2),
+            'trash_page must clear the precondition on an empty page'
+        );
+        $trash = pp_execute_action('trash_page', ['post_id' => $empty2]);
+        $this->assertTrue($trash['ok'], $trash['error'] ?? 'trash_page failed');
+    }
+
+    public function testCompositionPreconditionBlocksComponentActionsOnEmptyPage(): void
+    {
+        // NEGATIVE / security: component-level actions require an existing
+        // composition, so the gate stays CLOSED for them on a composition-less page.
+        $post_id = pp_execute_action('create_page', ['title' => 'Blocked 358'])['target']['post_id'];
+
+        foreach (['add_component', 'remove_component', 'reorder_components', 'update_component', 'style_component'] as $name) {
+            $result = pp_action_composition_precondition(pp_get_action($name), $post_id);
+            $this->assertInstanceOf(WP_Error::class, $result, "$name must be blocked on a composition-less page");
+            $this->assertSame('composition_required', $result->get_error_code(), "$name must fail closed with composition_required");
+        }
+    }
+
+    public function testCompositionPreconditionAllowsComponentActionsOnPopulatedPage(): void
+    {
+        $post_id = pp_execute_action('create_page', ['title' => 'Populated 358'])['target']['post_id'];
+        pp_execute_action('update_composition', [
+            'post_id'     => $post_id,
+            'composition' => [['component' => 'hero', 'props' => ['title' => 'Hi']]],
+        ]);
+
+        foreach (['add_component', 'update_component', 'style_component'] as $name) {
+            $this->assertTrue(
+                pp_action_composition_precondition(pp_get_action($name), $post_id),
+                "$name must clear the precondition once the composition is non-empty"
+            );
+        }
+    }
+
+    public function testCompositionPreconditionDefaultsToRequiredFailClosed(): void
+    {
+        // Declarative default-deny: an action array with NO 'requires_composition'
+        // key (e.g. a hand-built fixture that skipped pp_register_action) inherits
+        // "requires" — the gate must fail closed rather than open.
+        $post_id = pp_execute_action('create_page', ['title' => 'Default 358'])['target']['post_id'];
+        $unflagged = ['name' => '_test_unflagged_action', 'scope' => 'page'];
+
+        $result = pp_action_composition_precondition($unflagged, $post_id);
+        $this->assertInstanceOf(WP_Error::class, $result, 'an un-annotated action must be gated (fail-closed default)');
+        $this->assertSame('composition_required', $result->get_error_code());
+    }
+
+    public function testRegisterActionDefaultsRequiresCompositionTrue(): void
+    {
+        // The default is applied at registration time, so every real action either
+        // sets the flag explicitly or inherits true.
+        pp_register_action('_test_358_default_action', ['scope' => 'page', 'params' => []]);
+        try {
+            $action = pp_get_action('_test_358_default_action');
+            $this->assertTrue($action['requires_composition'], 'un-annotated actions default to requires_composition=true');
+        } finally {
+            unset($GLOBALS['_pp_actions']['_test_358_default_action']);
+        }
+
+        // Component-level actions inherit the default; opt-out actions set it false.
+        $this->assertTrue(pp_get_action('style_component')['requires_composition']);
+        $this->assertTrue(pp_get_action('add_component')['requires_composition']);
+        $this->assertFalse(pp_get_action('update_composition')['requires_composition']);
+        $this->assertFalse(pp_get_action('trash_page')['requires_composition']);
+        // restore_composition opts out too — #233: restore is never blocked by
+        // current validation; its precondition is "has history", not "has content".
+        $this->assertFalse(pp_get_action('restore_composition')['requires_composition']);
+    }
+
+    public function testCompositionPreconditionIsNoopForSiteScopedAction(): void
+    {
+        // Site-scoped actions carry no post_id; the precondition is a no-op for them
+        // even though they inherit requires_composition=true.
+        $this->assertTrue(pp_action_composition_precondition(pp_get_action('create_page'), null));
+        $this->assertTrue(pp_action_composition_precondition(pp_get_action('update_site_option'), null));
+    }
+
     public function testPreflightAcceptsPreComputedDrift(): void
     {
         // Provide pre-computed drift with no issues

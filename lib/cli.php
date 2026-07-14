@@ -92,6 +92,18 @@ function _pp_cli_require_preflight_for_action(string $run_id, array $action, arr
     }
 
     _pp_cli_require_preflight_covers($run_id, $post_id);
+
+    // Composition-presence precondition (#358). Coverage proves a preflight ran for
+    // this target, but preflight is action-agnostic — it accepts any existing page.
+    // This is where the action IS known, so enforce the per-action requirement:
+    // component-level actions (requires_composition defaults TRUE) are blocked on a
+    // composition-less page, while populate/lifecycle/metadata actions
+    // (requires_composition => false) pass. Fail-closed and declarative; see
+    // pp_action_composition_precondition() in lib/operate.php.
+    $precondition = pp_action_composition_precondition($action, $post_id);
+    if (is_wp_error($precondition)) {
+        WP_CLI::error($precondition->get_error_message());
+    }
 }
 
 /**

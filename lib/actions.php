@@ -37,6 +37,16 @@ function pp_register_action(string $name, array $definition): void {
         $_pp_actions = [];
     }
     $definition['name'] = $name;
+    // Composition precondition (#358), DECLARATIVE + FAIL-CLOSED. Every action
+    // defaults to requiring a non-empty composition on its target page; an action
+    // opts out ONLY by explicitly setting 'requires_composition' => false. So a
+    // newly registered component-level action that forgets the flag is gated by
+    // default (default-deny) rather than silently mutable on a composition-less
+    // page. pp_action_composition_precondition() (lib/operate.php) reads this flag;
+    // it is a no-op for site-scoped actions (no post_id). See #358.
+    if (!array_key_exists('requires_composition', $definition)) {
+        $definition['requires_composition'] = true;
+    }
     $_pp_actions[$name] = $definition;
 }
 
@@ -1159,7 +1169,7 @@ function _pp_action_preview(string $name, string $scope, array $target, $before,
 pp_register_action('create_page', [
     'scope'       => 'site',
     'description' => 'Creates a new page with the Composition template. Each composition item is {"component": "name", "props": {...}}.',
-    'semantics'   => 'Create. Title is required. Composition defaults to empty array. Status defaults to "draft". Composition items use the same {"component", "props"} shape as elsewhere. Optional slug sets the canonical route up front (#134) — omit to let WordPress derive one from the title.',
+    'semantics'   => 'Create. Title is required. Composition defaults to empty array. Status defaults to "draft". Composition items use the same {"component", "props"} shape as elsewhere. Optional slug sets the canonical route up front (#134) — omit to let WordPress derive one from the title. A page created with no composition is NOT stranded: it can be populated later with update_composition or deleted with trash_page through the operate surface (#358); only component-level edits (add/remove/reorder/update/style_component) require an existing composition first.',
     'params'      => [
         'title'       => ['type' => 'string', 'required' => true],
         'composition' => ['type' => 'array',  'required' => false],
@@ -1261,6 +1271,8 @@ pp_register_action('update_site_option', [
 
 pp_register_action('update_page_title', [
     'scope'       => 'page',
+    // Page metadata: needs only that the page EXISTS, not a populated composition (#358).
+    'requires_composition' => false,
     'description' => 'Updates a page title.',
     'semantics'   => 'Replace. Title is fully replaced.',
     'params'      => [
@@ -1297,6 +1309,8 @@ pp_register_action('update_page_title', [
 
 pp_register_action('update_page_slug', [
     'scope'       => 'page',
+    // Page metadata: needs only that the page EXISTS, not a populated composition (#358).
+    'requires_composition' => false,
     'description' => 'Updates a page slug (post_name) / permalink (#134). WordPress de-duplicates the slug internally on collision (suffixing -2, -3, ...) — the result reports the actual slug that was set, which may differ from the one requested.',
     'semantics'   => 'Replace. Slug is sanitized via sanitize_title() and, on a naming collision with another post, de-duplicated by WordPress core — never silently. The resulting slug is always reported in changes.',
     'params'      => [
@@ -1337,6 +1351,8 @@ pp_register_action('update_page_slug', [
 
 pp_register_action('update_seo_meta', [
     'scope'       => 'page',
+    // Page metadata: needs only that the page EXISTS, not a populated composition (#358).
+    'requires_composition' => false,
     'description' => 'Sets page-specific SEO metadata: meta_description, seo_title (overrides the rendered <title> tag), and canonical_url. The first-class, safe-surface alternative to hand-patching theme PHP for per-page metadata (#41).',
     'semantics'   => 'Patch. meta is shallow-merged into existing SEO metadata; unspecified keys are left unchanged. Set a key to "" to clear it.',
     'params'      => [
@@ -1490,8 +1506,13 @@ pp_register_action('list_redirects', [
 pp_register_action('update_composition', [
     'scope'          => 'page',
     'mutates_composition' => true,
+    // This action POPULATES the composition, so requiring a non-empty one as a
+    // precondition would strand a page created empty by create_page — it could
+    // never be filled through the operate surface (#358). It needs only the page
+    // to exist (checked in validate via _pp_validate_page_exists).
+    'requires_composition' => false,
     'impact_warning' => 'Replaces entire page composition',
-    'description' => 'Replaces the entire composition array for a page. Each item is {"component": "name", "props": {...}}.',
+    'description' => 'Replaces the entire composition array for a page. Populates a page created empty (its composition need not already exist). Each item is {"component": "name", "props": {...}}.',
     'semantics'   => 'Replace. The full composition array is replaced. Pass the complete array, not a partial update. Items use {"component", "props"} shape.',
     'params'      => [
         'post_id'          => ['type' => 'int',   'required' => true],
@@ -1531,6 +1552,8 @@ pp_register_action('update_composition', [
 
 pp_register_action('publish_page', [
     'scope'       => 'page',
+    // Page lifecycle: acts on post_status, needs only that the page EXISTS (#358).
+    'requires_composition' => false,
     'description' => 'Publishes a page (sets post_status to publish).',
     'semantics'   => 'Sets post_status to "publish". Idempotent on already-published pages.',
     'params'      => [
@@ -1783,6 +1806,12 @@ function _pp_resolve_history_target(array $history, array $params) {
 pp_register_action('restore_composition', [
     'scope'          => 'page',
     'mutates_composition' => true,
+    // Restore is NEVER blocked by current validation (#233): its precondition is
+    // "the history ring has a target", enforced by its own validate — NOT "the
+    // CURRENT composition is non-empty". Gating it on a non-empty current
+    // composition would block restoring a page that was populated then cleared,
+    // exactly the #233 contract violation. So it opts out of the #358 gate.
+    'requires_composition' => false,
     'impact_warning' => 'Rewrites the page composition to a prior version',
     'description' => 'Restores a page composition to a prior version recorded in its history ring. Select the target with steps_back (1 = most recent prior state, the default) or history_index (absolute 0-based). history_index takes precedence.',
     'semantics'   => 'Rewrite. The composition is replaced with a prior snapshot captured before an earlier write. Restore is itself a conflict-checked write (records its own history entry), so it can be undone in turn.',
@@ -2030,7 +2059,11 @@ pp_register_action('update_component', [
 
 pp_register_action('trash_page', [
     'scope'       => 'page',
-    'description' => 'Moves a page to the trash (reversible, does not permanently delete).',
+    // Page lifecycle: DELETES the page, needs only that it EXISTS. Requiring a
+    // populated composition would strand an empty page — undeletable AND
+    // unpopulatable through the operate surface (#358).
+    'requires_composition' => false,
+    'description' => 'Moves a page to the trash (reversible, does not permanently delete). Works on a page created empty (no composition required).',
     'semantics'   => 'Moves post_status to "trash". Reversible via restore_page.',
     'params'      => [
         'post_id' => ['type' => 'int', 'required' => true],
@@ -2071,6 +2104,8 @@ pp_register_action('trash_page', [
 
 pp_register_action('restore_page', [
     'scope'       => 'page',
+    // Page lifecycle: acts on post_status, needs only that the page EXISTS (#358).
+    'requires_composition' => false,
     'description' => 'Restores a page from the trash back to its previous status.',
     'semantics'   => 'Restores a trashed page. Only works on pages with post_status "trash".',
     'params'      => [
@@ -2110,6 +2145,8 @@ pp_register_action('restore_page', [
 
 pp_register_action('unpublish_page', [
     'scope'       => 'page',
+    // Page lifecycle: acts on post_status, needs only that the page EXISTS (#358).
+    'requires_composition' => false,
     'description' => 'Reverts a published page back to draft status.',
     'semantics'   => 'Sets post_status from "publish" to "draft". Only works on published pages.',
     'params'      => [
