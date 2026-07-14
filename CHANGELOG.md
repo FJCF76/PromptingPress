@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.126] — 2026-07-14 — a centered section now centers its body copy under its heading, not just the heading (#354)
+
+**A `section` with `layout: centered` centered its heading but left the body copy pinned to the left, so the paragraph sat about 112px off-center from the title above it. Now the body block centers under the heading, the way a centered layout is meant to read. Only the `centered` layout is touched: `text-only`, `image-left`, `image-right`, and `text-panel` render exactly as before, down to the byte.**
+
+The centered layout centers an outer wrapper (`.section__body`, capped at the wider 56rem centered measure) but its inner body-copy wrapper (`.section__content`, capped at the narrower 42rem prose measure) had no horizontal centering of its own, so it hugged the left edge of the wider centered block while the title was explicitly centered. The two lines of a "centered" section therefore disagreed with each other. The fix gives the inner wrapper auto side-margins in the centered layout only, so the narrower body column sits centered under the heading. The text inside was already centered; this centers the block it lives in.
+
+### Fixed
+
+- On `section` with `layout: centered`, the body copy block now centers under the heading instead of pinning to the left of the wider centered wrapper. Scoped to the centered layout only; the other four section layouts keep their left-aligned body copy and render byte-identically.
+
+### Tests
+
+- `tests/e2e/style-render.spec.ts` gains a rendered-geometry pin asserting that in a `layout: centered` section the `.section__content` box shares its center-x with the centered `.section__body` (with real free space between them, so the match is a genuine reposition, not a fill artifact), while a `text-only` section in the same page keeps its body copy left-pinned with zero side-margins. Proven red→green: with the fix reverted the centered assertion fails by the ~112px offset.
+
 ## [v0.16.125] — 2026-07-14 — a grid card's own text color now holds on mobile, even when the card also carries a meta/kicker role (#349)
 
 **Setting a per-card text color (`--grid-item-text-color`) on a grid card that also used a `meta` or `kicker` typography role worked on desktop but silently reverted to the role's preset color below 768px. The color you authored simply vanished on phones. Now an explicit `--grid-item-text-color` wins over the role's preset at every breakpoint, so the card text renders in the color you set no matter the screen width. Leave the slot unset and every page renders exactly as before, down to the byte, at both breakpoints.**
