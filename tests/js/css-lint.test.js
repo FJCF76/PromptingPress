@@ -88,6 +88,37 @@ describe('CSS lint: positional selectors', () => {
     });
 });
 
+// Issue 355: the active/current header link must route its COLOR through
+// --header-link-color (falling back to --color-accent) instead of hard-coding the
+// accent, so an operator's pp_header_link_color reaches the active link too. The
+// bold weight (the emphasis) must stay. The e2e render pin proves the current-menu-item
+// path in a real browser; this static pin also covers the aria-current declaration
+// (which WP sets on the same element, so the render pin can't isolate it) and guards
+// against a regression back to the bare `color: var(--color-accent)`.
+describe('CSS lint: #355 active header link honors --header-link-color', () => {
+    const css = stripComments(COMPONENTS_CSS);
+    const ACTIVE_COLOR = 'color: var(--header-link-color, var(--color-accent))';
+    const BARE_ACCENT = /color:\s*var\(--color-accent\)\s*;/;
+
+    test('current-menu-item / current_page_item link routes color through --header-link-color, keeping bold weight', () => {
+        const rule = css.match(
+            /\.nav__menu ul li\.current-menu-item > a,\s*\.nav__menu ul li\.current_page_item > a\s*\{([^}]*)\}/,
+        );
+        expect(rule).not.toBeNull();
+        expect(rule[1]).toContain('font-weight: 700');
+        expect(rule[1]).toContain(ACTIVE_COLOR);
+        expect(rule[1]).not.toMatch(BARE_ACCENT);
+    });
+
+    test('aria-current="page" link routes color through --header-link-color, keeping bold weight', () => {
+        const rule = css.match(/\.nav__menu ul li a\[aria-current="page"\]\s*\{([^}]*)\}/);
+        expect(rule).not.toBeNull();
+        expect(rule[1]).toContain('font-weight: 700');
+        expect(rule[1]).toContain(ACTIVE_COLOR);
+        expect(rule[1]).not.toMatch(BARE_ACCENT);
+    });
+});
+
 describe('CSS lint: no modern CSS features', () => {
     const MODERN_FEATURES = [
         // color-mix() intentionally allowed — used for token-adaptive button shadows/focus rings.
