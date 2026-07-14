@@ -1198,6 +1198,181 @@ test.describe('Safe-surface rendered proof', () => {
     expect(plain.barImage).toBe('none');
   });
 
+  // #226: the `card_emphasis: uniform` PROP opts the first card out of the entire
+  // featured treatment so a symmetric/peer card row renders equal cards. This is the
+  // measured 1.0-H symptom: the featured first card's body padding-top (2.25rem) +
+  // larger title pushed card 0's checklist ~36px below its peers, so three spec
+  // cards could not line up. Unlike the uniform-cards RECIPE (slot-only, which can
+  // neutralize the bar/texture/glow but NOT the :first-child padding-top or title
+  // size), the prop drops every featured :first-child rule via :not(.grid--uniform),
+  // so card 0 falls through to the shared all-cards rules and equals its siblings.
+  // Two grids on one page: `uniform` (all cards equal) and `featured` (the default,
+  // which MUST still emphasize card 0 — the byte-identical / mutation guard). On the
+  // pre-#226 CSS the uniform grid's card 0 stays featured and the equality pins fail.
+  test('#226 card_emphasis:uniform equalizes the first card; featured stays emphasized @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Grid Card Emphasis Uniform');
+    setComposition(pageId, [
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-grid-uniform',
+          card_emphasis: 'uniform',
+          title: 'Uniform spec row',
+          items: [
+            { title: 'Método de análisis', text: 'First' },
+            { title: 'Datos y privacidad', text: 'Second' },
+            { title: 'Compatibilidad', text: 'Third' },
+          ],
+        },
+      },
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-grid-featured',
+          title: 'Featured row',
+          items: [
+            { title: 'Lead', text: 'First' },
+            { title: 'Two', text: 'Second' },
+            { title: 'Three', text: 'Third' },
+          ],
+        },
+      },
+    ]);
+
+    // Desktop: the padding-top (min-width:1024px) and larger-title rules that create
+    // the first-card asymmetry live here, so the symptom only manifests at >=1024px.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    // Grab the metrics that make card 0 DIFFERENT from its siblings under the
+    // featured treatment: body padding-top (the 36px push), title font-size, the
+    // ::before accent bar, plus the shared surface fields from grabCardStyles.
+    const cardMetrics = (sel: string) =>
+      page.locator(sel).evaluate((el) => {
+        const body = el.querySelector('.grid__item-body') as HTMLElement;
+        const title = el.querySelector('.grid__item-title') as HTMLElement;
+        const before = getComputedStyle(el, '::before');
+        return {
+          padTop: getComputedStyle(body).paddingTop,
+          titleSize: getComputedStyle(title).fontSize,
+          barHeight: before.height,
+          barImage: before.backgroundImage,
+          shadow: getComputedStyle(el).boxShadow,
+          border: getComputedStyle(el).borderTopColor,
+        };
+      });
+
+    await expect(page.locator('#pp-grid-uniform .grid__item')).toHaveCount(3, {
+      timeout: 10000,
+    });
+
+    // ── Uniform grid: card 0 is identical to its siblings ──
+    const uFirst = await cardMetrics('#pp-grid-uniform .grid__item:nth-child(1)');
+    const uSib = await cardMetrics('#pp-grid-uniform .grid__item:nth-child(2)');
+
+    expect(uFirst.padTop).toBe(uSib.padTop); // the 36px offset is gone (THE symptom)
+    expect(uFirst.titleSize).toBe(uSib.titleSize); // no larger featured title
+    expect(uFirst.barHeight).toBe(uSib.barHeight); // hairline, not the 4px accent bar
+    expect(uFirst.barImage).toBe(uSib.barImage); // no accent gradient bar (both 'none')
+    expect(uFirst.barImage).toBe('none');
+    expect(uFirst.shadow).toBe(uSib.shadow); // shared shadow, no blue glow
+    expect(uFirst.shadow).not.toContain('inset');
+    expect(uFirst.border).toBe(uSib.border); // no accent border
+
+    // ── Featured grid (default): card 0 MUST still be emphasized ──
+    // Proves the guard neutralizes emphasis ONLY under .grid--uniform, and that the
+    // default remains byte-identical to the historical featured treatment.
+    const fFirst = await cardMetrics('#pp-grid-featured .grid__item:nth-child(1)');
+    const fSib = await cardMetrics('#pp-grid-featured .grid__item:nth-child(2)');
+
+    expect(fFirst.padTop).not.toBe(fSib.padTop); // featured card 0 sits lower
+    expect(fFirst.titleSize).not.toBe(fSib.titleSize); // featured card 0 title larger
+    expect(fFirst.barHeight).toBe('4px'); // the accent bar
+    expect(fSib.barHeight).toBe('2px');
+    expect(fFirst.barImage).toContain('linear-gradient'); // accent gradient bar
+    expect(fFirst.shadow).toContain('inset'); // the blue glow ring
+
+    // Mobile (<768px): a separate featured-shadow rule (the max-width:767px block)
+    // also carries the :not(.grid--uniform) guard, so the featured glow must be
+    // dropped there too. Pin card 0 == its sibling under uniform, and the featured
+    // grid keeping its glow, at this second chain site.
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('#pp-grid-uniform .grid__item')).toHaveCount(3, {
+      timeout: 10000,
+    });
+
+    // The mobile featured glow is a blue-tinted (37,99,235) drop shadow, not the
+    // desktop inset ring; siblings/uniform cards get the neutral (15,23,42) shadow.
+    const uFirstM = await cardMetrics('#pp-grid-uniform .grid__item:nth-child(1)');
+    const uSibM = await cardMetrics('#pp-grid-uniform .grid__item:nth-child(2)');
+    expect(uFirstM.shadow).toBe(uSibM.shadow); // no featured glow on mobile
+    expect(uFirstM.shadow).not.toContain('37, 99, 235'); // not the blue featured glow
+
+    const fFirstM = await cardMetrics('#pp-grid-featured .grid__item:nth-child(1)');
+    expect(fFirstM.shadow).toContain('37, 99, 235'); // featured grid keeps its glow on mobile
+  });
+
+  // #226: the featured treatment includes a dark-theme lift (translateY on card 0 at
+  // >=768px). A partial opt-out that neutralized padding/bar but left the lift would
+  // still misalign a dark uniform row, so card_emphasis:uniform must drop it too.
+  test('#226 card_emphasis:uniform neutralizes the dark-theme first-card lift', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Grid Card Emphasis Dark Lift');
+    setComposition(pageId, [
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-grid-dark-uniform',
+          theme: 'dark',
+          card_emphasis: 'uniform',
+          title: 'Dark uniform',
+          items: [
+            { title: 'One', text: 'First' },
+            { title: 'Two', text: 'Second' },
+          ],
+        },
+      },
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-grid-dark-featured',
+          theme: 'dark',
+          title: 'Dark featured',
+          items: [
+            { title: 'One', text: 'First' },
+            { title: 'Two', text: 'Second' },
+          ],
+        },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const transformOf = (sel: string) =>
+      page.locator(sel).evaluate((el) => getComputedStyle(el).transform);
+
+    await expect(page.locator('#pp-grid-dark-uniform .grid__item')).toHaveCount(2, {
+      timeout: 10000,
+    });
+
+    // Uniform: card 0 has NO lift — same transform as its sibling.
+    const duFirst = await transformOf('#pp-grid-dark-uniform .grid__item:nth-child(1)');
+    const duSib = await transformOf('#pp-grid-dark-uniform .grid__item:nth-child(2)');
+    expect(duFirst).toBe(duSib);
+    expect(duFirst).toBe('none');
+
+    // Featured (default): card 0 IS lifted — a real transform, unlike its sibling.
+    const dfFirst = await transformOf('#pp-grid-dark-featured .grid__item:nth-child(1)');
+    const dfSib = await transformOf('#pp-grid-dark-featured .grid__item:nth-child(2)');
+    expect(dfFirst).not.toBe('none'); // translateY lift present
+    expect(dfFirst).not.toBe(dfSib);
+  });
+
   // Parent-constrains-child axis (#302's --section-body-width): the pre-fix bug
   // was a literal max-width on the OUTER .section__body capping the slotted inner
   // .section__content — a shape the static guard's own docblock says no

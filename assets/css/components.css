@@ -1615,7 +1615,14 @@ main > .grid:not(.grid--steps) .grid__item::before {
   background: var(--grid-card-bar-color, var(--color-border));
 }
 
-main > .grid:not(.grid--steps) .grid__item:first-child {
+/* The whole featured first-card treatment below (this block, its ::before bar,
+   the larger title, the extra body padding-top, and the dark-theme lift) carries
+   a :not(.grid--uniform) guard. The grid `card_emphasis: uniform` prop emits
+   .grid--uniform, which drops every featured rule so the first card falls through
+   to the shared all-cards rules and renders identically to its siblings — a
+   symmetric/peer card row (issue 226). The DEFAULT (featured) emits no class, so
+   the guard never matches an existing page and output stays byte-identical. */
+main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child {
   /* Featured-card accent border DEFAULT tier; a per-instance --grid-card-border
      overrides it, mirroring --grid-card-bg below, so a declared style slot never
      silently no-ops on the first card (issue 226). Note: the premium later-cascade
@@ -1639,7 +1646,7 @@ main > .grid:not(.grid--steps) .grid__item:first-child {
     0 18px 42px rgba(37, 99, 235, 0.10)));
 }
 
-main > .grid:not(.grid--steps) .grid__item:first-child::before {
+main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::before {
   height: var(--grid-card-bar-height, 4px);
   background: var(--grid-card-bar-color, linear-gradient(90deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 18%, transparent)));
 }
@@ -3504,7 +3511,7 @@ main > .grid:not(.grid--steps) .grid__item {
 /* The card top-bar and featured first-card rules moved into the COMPONENT: grid
    block (issue 293); the cascade-equivalence argument lives with the rules there. */
 
-main > .grid:not(.grid--steps) .grid__item:first-child .grid__item-title {
+main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child .grid__item-title {
   color: var(--grid-item-title-color, var(--color-text));
 }
 
@@ -3572,20 +3579,20 @@ main > .grid .grid__item-link::after {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  main > .grid:not(.grid--steps) .grid__item:first-child .grid__item-body {
+  main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child .grid__item-body {
     padding-top: 2.25rem;
   }
 
-  main > .grid:not(.grid--steps) .grid__item:first-child .grid__item-title {
+  main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child .grid__item-title {
     font-size: var(--grid-item-title-size, 1.22rem);
     line-height: 1.22;
   }
 
-  main > .grid--dark:not(.grid--steps) .grid__item:first-child {
+  main > .grid--dark:not(.grid--steps):not(.grid--uniform) .grid__item:first-child {
     transform: translateY(-0.18rem);
   }
 
-  main > .grid--dark:not(.grid--steps) .grid__item:first-child:hover {
+  main > .grid--dark:not(.grid--steps):not(.grid--uniform) .grid__item:first-child:hover {
     transform: translateY(-0.34rem);
   }
 }
@@ -3595,7 +3602,7 @@ main > .grid .grid__item-link::after {
     gap: var(--grid-gap, 0.85rem);
   }
 
-  main > .grid:not(.grid--steps) .grid__item:first-child {
+  main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child {
     /* Same featured-shadow chain as the component-block rule (issue 293), so the
        slot does not silently no-op below 768px; only the glow literal differs. */
     box-shadow: var(--grid-featured-shadow, var(--grid-card-shadow, 0 14px 32px rgba(37, 99, 235, 0.09)));
@@ -3952,7 +3959,7 @@ main > .grid .grid__item {
   box-shadow: var(--grid-card-shadow, 0 10px 24px rgba(15, 23, 42, 0.055));
 }
 
-main > .grid:not(.grid--steps) .grid__item:first-child {
+main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child {
   /* Later-cascade winner: this is the border-color that actually applies. Route it
      through --grid-card-border too (matching the earlier rule) or the slot stays
      ignored on the first card (issue 226). */

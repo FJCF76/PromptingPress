@@ -423,7 +423,9 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
  * targeted pin.
  */
 describe('CSS lint: featured grid card honors --grid-card-border (#226)', () => {
-    const SELECTOR = 'main > .grid:not(.grid--steps) .grid__item:first-child';
+    // The featured first-card rules carry a :not(.grid--uniform) guard so the
+    // `card_emphasis: uniform` prop can opt out of the whole treatment (#226).
+    const SELECTOR = 'main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child';
 
     // Brace-matched extraction of every rule whose selector is EXACTLY this
     // (whitespace-normalized). `::before` / descendant rules share the prefix
