@@ -26,7 +26,7 @@ title, its publish status, and site-level design tokens.
 Before this gate existed, the loop let a typed action change a page's composition
 *before* `wp pp apply preflight` ran its safety checks (target resolution, drift
 detection, capability, surface classification, and the page-specific "does this
-post exist and have a composition" check). The documented loop even encoded the
+target post exist" check). The documented loop even encoded the
 wrong order: it listed EDIT (the typed mutation) before PREFLIGHT (the gate). So a
 production page could be mutated, and only then would the gate that was supposed to
 protect it get a chance to object. By then the write had already landed.
