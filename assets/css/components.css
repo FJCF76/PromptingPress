@@ -1375,6 +1375,25 @@
   flex: 1;
 }
 
+/* Issue 349 — an explicit per-instance --grid-item-text-color must win over a
+   text_role color preset at ALL breakpoints. text_role adds .text-meta / .text-kicker
+   (utilities.css), each a (0,1,0) `color` rule enqueued AFTER components.css, so it
+   defeats the (0,1,0) base rule on the source-order tie below the 768px premium
+   breakpoint — the slot was honored on desktop and dead on mobile. These (0,2,0)
+   companion rules out-specify the utility regardless of enqueue order (mirroring how
+   the desktop `main > .grid .grid__item-text` premium rule already does at (0,2,1)),
+   so the slot always wins when set. The fallback is the exact role token, so an UNSET
+   slot still renders the role colour — byte-identical to today at both breakpoints
+   (desktop stays governed by the premium rule, which is strictly higher at (0,2,1)).
+   Only meta/kicker set a colour; mono/label do not, so they need no companion rule. */
+.grid__item-text.text-meta {
+  color: var(--grid-item-text-color, var(--text-meta-color));
+}
+
+.grid__item-text.text-kicker {
+  color: var(--grid-item-text-color, var(--text-kicker-color));
+}
+
 .grid__item-bullets {
   list-style: none;
   display: flex;

@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.125] — 2026-07-14 — a grid card's own text color now holds on mobile, even when the card also carries a meta/kicker role (#349)
+
+**Setting a per-card text color (`--grid-item-text-color`) on a grid card that also used a `meta` or `kicker` typography role worked on desktop but silently reverted to the role's preset color below 768px. The color you authored simply vanished on phones. Now an explicit `--grid-item-text-color` wins over the role's preset at every breakpoint, so the card text renders in the color you set no matter the screen width. Leave the slot unset and every page renders exactly as before, down to the byte, at both breakpoints.**
+
+The role class the card gets from `text_role` (`.text-meta` / `.text-kicker`) sets a color of its own, and because the theme's utility stylesheet loads after the component stylesheet, that role color won the tie against the card's own text-color rule on narrow screens, while a wider-screen rule out-specified it on desktop. The result was a color slot that reported success and rendered nothing on mobile. The fix out-specifies the role color at all breakpoints with the authored slot, falling back to the role's own color when the slot is unset, so nothing changes unless you explicitly set the color. Only `meta` and `kicker` carry a preset color; the `mono` and `label` roles were never affected.
+
+### Fixed
+
+- An explicit per-card `--grid-item-text-color` now overrides a `text_role: meta` or `text_role: kicker` color preset at all breakpoints, mobile included. Previously the slot was honored at ≥768px and silently defeated below it. Unset-slot output is byte-identical to before at both breakpoints; no default color changed.
+
+### Docs
+
+- The grid `text_role` note in `ai-instructions/composition.md`, `ai-instructions/style-component.md`, `components/grid/schema.json`, and `components/grid/README.md` now documents that an explicit `--grid-item-text-color` always wins over a role's preset color, and that the role's non-color typography (size, weight, letter-spacing, transform) always applies.
+
+### Tests
+
+- `tests/e2e/style-render.spec.ts` gains a rendered computed-style pin asserting the slot wins over `meta` and `kicker` at BOTH 375px and 1280px, and that unset cards stay byte-identical (role color on mobile, secondary color on desktop). Proven red→green: with the fix reverted, the mobile set-slot assertion fails. `tests/js/css-lint.test.js` widens its grid-card-text fallback allow-list to accept the role-color tokens, which are fixed global tokens never re-scoped under any theme.
+
 ## [v0.16.124] — 2026-07-14 — the header's top gap is authorable now, so "tighten this header" is fully expressible (#343)
 
 **The site-building AI could set the space *below* a component's sub-heading but not the space *above* it, so a request like "tighten this header" was only half-expressible. This adds three style slots — `--section-title-margin-bottom`, `--grid-heading-margin-bottom`, and `--testimonials-heading-margin-bottom` — that make the gap between the title and the sub-heading authorable on section, grid, and testimonials. Leave them unset and every page renders exactly as before, down to the byte: the slots add reach, not a new spacing opinion.**

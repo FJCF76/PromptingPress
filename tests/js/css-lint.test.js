@@ -348,6 +348,12 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
     // Inverted grid CARDS keep a light background (`--grid-card-bg: var(--color-bg)`),
     // so their text must stay DARK. Theming it would be the inverse of #222: an
     // inverted grid would render light-on-light card text. Pin both halves of that.
+    // The fallback must be a FIXED global token (never a theme-swapped var): a bare
+    // `--color-*`, OR the `--text-meta-color` / `--text-kicker-color` role tokens used
+    // by the #349 role-vs-slot companion rules (`.grid__item-text.text-meta/.text-kicker`).
+    // Those two are aliases defined once in base.css :root (→ --color-muted / --color-accent)
+    // and are never redefined under any inverted/bg-image/theme scope, so they stay dark
+    // on a light card exactly like a bare --color-* fallback.
     test('inverted grid card text resolves to a global token, never a theme var', () => {
         const cardDecls = rules
             .filter(r => targetsElement(r.selector, '.grid__item-title') ||
@@ -356,7 +362,7 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
 
         expect(cardDecls.length).toBeGreaterThan(0);
         const offenders = cardDecls
-            .filter(d => !/^var\(--grid-item-(title|text)-color,\s*var\(--color-[a-z0-9-]+\)\)$/.test(d.value))
+            .filter(d => !/^var\(--grid-item-(title|text)-color,\s*var\(--(color-[a-z0-9-]+|text-(meta|kicker)-color)\)\)$/.test(d.value))
             .map(d => `${d.selector.split('\n').pop().trim()} { color: ${d.value} }`);
         expect(offenders).toEqual([]);
     });
