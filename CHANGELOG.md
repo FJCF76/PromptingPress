@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.134] — 2026-07-15 — button corner radius is now its own design token, so you can pill a CTA without rounding every card (#369)
+
+**The button corner radius was unreachable through the design-token surface. `components.css` advertised a `--btn-radius` hook (`border-radius: var(--btn-radius, var(--radius))`), but `--btn-radius` was never a registered token, so `update_design_token --token=--btn-radius` was rejected as unregistered. The only radius lever that WAS registered, `--radius`, is global: setting it to `100px` to pill a CTA also pills every card and panel. Worse, the winning cascade rule for composed buttons (`main .btn`, the premium-CTA treatment) hardcoded `border-radius: 4px`, so the button radius never even followed `--radius` — it was a fixed 4px with no operator control at all. A pill CTA over square cards was inexpressible. This registers `--btn-radius` as a `length` design token (default `4px`, the button's actual current radius) and routes the winning rule through it, so an operator can set the button radius on its own.**
+
+`--btn-radius` is declared in `assets/css/base.css` `:root` with the same `/* length: ... */` type-comment convention every other token uses, so `pp_design_tokens()` registers it and `update_design_token` validates its value through the shared `_pp_validate_token_value` length engine (no second validator). The premium-CTA block that decides the rendered button radius now reads `border-radius: var(--btn-radius, 4px)`, so setting `--btn-radius` to `100px` pills the button while `--radius` and every card/panel that reads it stay put. The registered default is `4px` (the value composed buttons already rendered), not `var(--radius)`: because declaring the token in `:root` defines the property globally, the fallback never fires, so the default has to match today's rendered value to keep unset output byte-identical. Every composed button (cta, hero, section) renders inside `main` and was already 4px, so unset rendering is unchanged. The token surfaces to the chat AI automatically (the runtime token catalog in `lib/ai-context.php` enumerates `pp_design_tokens()`), and the static catalog and retheme guide are updated to name it. `--btn-radius` contains `radius`, not `border-width`/`border-color`, so it does not trip the #332 core-border-trigger guard.
+
+### Fixed
+
+- Button corner radius is now settable on its own via `update_design_token --token=--btn-radius` (e.g. `--value=100px` for a pill CTA). Previously the only radius token an operator could set was the global `--radius`, which rounds cards and panels too, and the composed button radius was hardcoded at 4px and ignored it entirely. Cards and panels keep reading `--radius`, so button and card radius are now independent. Unset rendering is byte-identical: composed buttons still render at 4px.
+
+### Docs
+
+- `ai-instructions/retheme.md` no longer tells the AI to use `--radius` for "pill-shaped buttons" (an impossible instruction — `--radius` is global and never reached the button). It now points at `--btn-radius` as the per-button lever and reserves `--radius` for cards, panels, and surfaces. `AI_CONTEXT.md` lists `--btn-radius` in the Button token group.
+
+### Tests
+
+- `tests/ApplyTest.php` pins that `--btn-radius` registers as a `length` token defaulting to `4px`, that `update_design_token --token=--btn-radius --value=100px` validates through the shared engine, and that a non-length value is rejected with `invalid_length`. `tests/e2e/style-render.spec.ts` adds two rendered-proof pins driving the real `update_design_token` apply: setting `--btn-radius=100px` computes the composed button's `border-radius` to `100px` while `:root`'s `--radius` stays `0.375rem` and the card stays `4px` (decoupling), and unset computes the button at `4px` (byte-identical). Both proven red→green: removing the token registration reverts the apply to "not a registered design token", and reverting the cascade route leaves the button at 4px instead of 100px.
+
 ## [v0.16.133] — 2026-07-15 — a stats heading with a long title now centers on the page instead of sitting left of center (#367)
 
 **A `stats` component's heading rendered left of page center on desktop. `.stats__heading` carries `text-align: center` and the shared `max-width: var(--cta-content-width, 40rem)` cap, but shipped with no auto side-margins. A block `<h2>` fills to that 40rem cap inside the wider centered `.container`, so the heading box pinned to the container's left edge (measured x 96-736 in a 1280px viewport, where the centered position is ~288-928) and `text-align: center` only centered the text inside that left-pinned box. The heading sat left of page center for any title long enough to reach the cap. This adds auto side-margins so the heading box centers under the already-centered stats row.**
