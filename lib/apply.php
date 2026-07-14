@@ -746,6 +746,28 @@ function _pp_validate_ratio(string $value): bool {
 }
 
 /**
+ * Validates a CSS text-align value for the bounded `align` slot type
+ * (#357 — authorable content alignment on grid cards and any future
+ * component that opts in).
+ *
+ * Accepts exactly the closed set of `text-align` placement keywords
+ * {left, right, center, start, end, justify}, matched case-insensitively
+ * (mirroring _pp_validate_position(), which lowercases before comparing).
+ * Everything else is rejected — including the `position` keywords `top`/
+ * `bottom`, lengths/percentages, and the CSS-wide `unset`/`initial`/`inherit`
+ * keywords — so the type stays a tight closed vocabulary rather than a raw
+ * keyword passthrough. This is the shared engine's ONLY alignment validator;
+ * grid does not add a second one (repo invariant: validation lives in the
+ * shared engines). A typed `align` slot is honored at the #330 render
+ * boundary for free, because pp_render_style_value_allowed() delegates to
+ * _pp_validate_token_value().
+ */
+function _pp_validate_align(string $value): bool {
+    $keywords = ['left', 'right', 'center', 'start', 'end', 'justify'];
+    return in_array(strtolower(trim($value)), $keywords, true);
+}
+
+/**
  * Validates a token value based on its type.
  *
  * @return true|WP_Error
@@ -808,6 +830,11 @@ function _pp_validate_token_value(string $value, ?string $type) {
         case 'ratio':
             if (!_pp_validate_ratio($value)) {
                 return new WP_Error('invalid_ratio', 'Value must be "auto", a positive number (e.g. 1, 1.6), or two positive numbers separated by a slash (e.g. 16/9).');
+            }
+            break;
+        case 'align':
+            if (!_pp_validate_align($value)) {
+                return new WP_Error('invalid_align', 'Value must be a text-align keyword: left, right, center, start, end, or justify.');
             }
             break;
         case 'raw':

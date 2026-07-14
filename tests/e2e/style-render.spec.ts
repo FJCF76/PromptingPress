@@ -324,6 +324,117 @@ test.describe('Safe-surface rendered proof', () => {
     }
   });
 
+  // #357: grid card content alignment is authorable via the `align`-typed
+  // --grid-item-text-align slot. Default `left` is byte-identical to today; `center`
+  // and `right` must actually MOVE the glyphs, not merely set a declaration. The
+  // StyleSlotContractTest proves the CSS consumes var(--grid-item-text-align, left)
+  // and GridItemStyleTest proves the inline var reaches the card; only a rendered box
+  // proves the browser honors it. Per the #338 lesson (a flex container ignores
+  // text-align for ITEM placement), the card body is a flex column, so we assert BOTH
+  // the computed declaration AND the geometry of a card's title glyphs relative to the
+  // body's content box — center card centered, right card flush right, unset card flush
+  // left (the byte-identical default). Two viewports, per the #86/#349 mobile-hid-it
+  // lesson.
+  test('#357 grid card content honors --grid-item-text-align (center/right/left) @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Grid Item Text Align');
+    setComposition(pageId, [
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-grid01',
+          title: 'Alignment',
+          items: [
+            { title: 'Center', text: 'hola', link_url: '/x', link_text: 'Reach us', style: { '--grid-item-text-align': 'center' } },
+            { title: 'Right', text: 'hola', link_url: '/x', link_text: 'Reach us', style: { '--grid-item-text-align': 'right' } },
+            { title: 'Unset', text: 'hola', link_url: '/x', link_text: 'Reach us' },
+          ],
+        },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // Computed declaration on the card body (inherited by every content item).
+    const bodyAlign = (i: number) =>
+      page.locator('.grid__item').nth(i).locator('.grid__item-body')
+        .evaluate((el) => getComputedStyle(el).textAlign);
+
+    // Geometry: where a card title's GLYPHS actually land, relative to the body's
+    // content box. Returns the fraction of leftover horizontal space that sits to the
+    // LEFT of the glyph run (0 = flush left, ~0.5 = centered, ~1 = flush right). This is
+    // the mutation-check: without the CSS rule the declaration would be `start` and all
+    // three fractions collapse to ~0, so center/right assertions go red.
+    const titleOffsetFraction = (i: number) =>
+      page.locator('.grid__item').nth(i).locator('.grid__item-title')
+        .evaluate((el) => {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0);
+          if (rects.length === 0) return -1; // guard against a vacuous measurement
+          const glyphLeft = Math.min(...rects.map((r) => r.left));
+          const glyphRight = Math.max(...rects.map((r) => r.right));
+          const glyphWidth = glyphRight - glyphLeft;
+          const body = el.parentElement as HTMLElement; // .grid__item-body
+          const cs = getComputedStyle(body);
+          const rect = body.getBoundingClientRect();
+          const contentLeft = rect.left + parseFloat(cs.paddingLeft) + parseFloat(cs.borderLeftWidth);
+          const contentRight = rect.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth);
+          const slack = (contentRight - contentLeft) - glyphWidth;
+          if (slack <= 1) return -2; // title fills the column — geometry can't discriminate
+          return (glyphLeft - contentLeft) / slack;
+        });
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('.grid__item')).toHaveCount(3, { timeout: 10000 });
+
+      // Declaration: the slot value reaches the rendered body; unset falls back to left.
+      expect(await bodyAlign(0)).toBe('center');
+      expect(await bodyAlign(1)).toBe('right');
+      expect(await bodyAlign(2)).toBe('left');
+
+      // Geometry: the glyphs actually moved (this is what a declaration-only pin misses).
+      // The sentinels -1 (nothing measured) / -2 (title fills the column) must never
+      // reach the band asserts, so gate them first — otherwise a vacuous measurement
+      // could satisfy the left-flush floor. Bands carry a subpixel tolerance: glyph ink
+      // can sit a hair outside the content box (font hinting/letter-spacing), so left is
+      // "near 0" and right is "near 1", not exact.
+      const centerFrac = await titleOffsetFraction(0);
+      const rightFrac = await titleOffsetFraction(1);
+      const leftFrac = await titleOffsetFraction(2);
+      for (const f of [centerFrac, rightFrac, leftFrac]) {
+        expect(f, 'geometry measured a real glyph run (not a -1/-2 sentinel)').toBeGreaterThan(-0.5);
+      }
+      expect(centerFrac).toBeGreaterThan(0.3);
+      expect(centerFrac).toBeLessThan(0.7);
+      expect(rightFrac).toBeGreaterThan(0.85);
+      expect(leftFrac).toBeLessThan(0.15);
+
+      // Documented BOUNDARY (issue 357): the slot aligns TEXT content only. The
+      // "Read more" link sets align-self:flex-start, so per the #338 flex trap it
+      // is NOT moved by text-align — even in the centered card the link box stays
+      // left-anchored. Pinned so a future change to the link's alignment can't
+      // silently contradict the schema/README note, and so the limitation is
+      // visible in the test corpus rather than a surprise. (Centering the link too
+      // is a separate follow-up: it needs the link's align-self to follow.)
+      const linkBox = await page.locator('.grid__item').nth(0).locator('.grid__item-link')
+        .evaluate((a: HTMLElement) => {
+          const body = a.closest('.grid__item-body') as HTMLElement;
+          const cs = getComputedStyle(body);
+          const rect = body.getBoundingClientRect();
+          const contentLeft = rect.left + parseFloat(cs.paddingLeft) + parseFloat(cs.borderLeftWidth);
+          const link = a.getBoundingClientRect();
+          return { alignSelf: getComputedStyle(a).alignSelf, leftGap: link.left - contentLeft };
+        });
+      expect(linkBox.alignSelf).toBe('flex-start');
+      expect(Math.abs(linkBox.leftGap)).toBeLessThan(2); // link hugs the content-left edge
+    }
+  });
+
   // #24: a hero-surface slot must reach the rendered inner shell (.hero__surface only
   // renders for the split variant with proof markup).
   test('#24 hero surface honors --hero-surface-border-width', async ({ page }) => {

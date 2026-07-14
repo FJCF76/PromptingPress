@@ -164,7 +164,7 @@ If adding background-image support to another component, follow this exact patte
 
 **Backgrounds accept gradients (#333).** `pp_header_bg` and `pp_footer_bg` are `gradient`-typed: they accept everything a CSS color does (hex, `rgb()`/`hsl()`, `transparent`, `currentColor`, a bare `var(--token)` reference to a registered color token) **and** a bounded `linear-gradient()` / `radial-gradient()` with 2+ color stops — e.g. `linear-gradient(135deg, #1a1a2e, #16121f)`. That is how a gradient marketing header or footer is built. The four text/link options (`pp_header_text`, `pp_header_link_color`, `pp_footer_text`, `pp_footer_link_color`) take a plain CSS color only — a gradient on those is rejected. `conic-gradient()`, `repeating-*-gradient()`, and `var()`/`url()`/`env()` inside a gradient are not accepted.
 
-**Grid:** `layout` = `cards` (card grid), `steps` (numbered process cards — filled circular number badge, subtle connector line between badges at desktop). `theme` controls background color independently of `layout`. Card items accept `bullets` — a checklist of plain-text lines rendered below `text`, each prefixed with a check mark.
+**Grid:** `layout` = `cards` (card grid), `steps` (numbered process cards — filled circular number badge, subtle connector line between badges at desktop). `theme` controls background color independently of `layout`. Card items accept `bullets` — a checklist of plain-text lines rendered below `text`, each prefixed with a check mark. Card text alignment (title/text/bullets) is authorable via the `align`-typed `--grid-item-text-align` slot (`left` default / `center` / `right` / `start` / `end` / `justify`) — item-eligible, so settable grid-wide or per-card in `items[].style` (e.g. centered emoji/label contact cards). The `Read more` link keeps its own left-anchored position (align-self) and is not moved by this slot.
 
 **FAQ structured data (#3):** The FAQ component always emits a `<script type="application/ld+json">` FAQPage schema block immediately after its own markup, derived from `items` — zero-config, no toggle prop. `question`/`answer` are stripped of HTML (`wp_strip_all_tags()`) before encoding, since Google's FAQPage schema expects plain text; items missing a question or answer are skipped. Nothing is emitted if there are no complete items.
 
@@ -380,7 +380,7 @@ Token overrides survive theme updates — `base.css` is overwritten on update, b
 
 Style slots allow per-instance visual customization of components without CSS edits. Each component declares allowed CSS custom properties in its `schema.json` under `styling.style_slots`. Only declared slots are accepted — arbitrary CSS is rejected.
 
-**187 style slots** across 7 components: hero (40), section (35), grid (33), cta (29), testimonials (24), faq (16), stats (10).
+**188 style slots** across 7 components: hero (40), section (35), grid (34), cta (29), testimonials (24), faq (16), stats (10).
 
 **How it works:**
 1. Composition entries gain an optional `style` key alongside `props`

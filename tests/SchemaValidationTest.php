@@ -247,7 +247,7 @@ class SchemaValidationTest extends TestCase
         $expected = [
             'hero'    => 40,
             'section' => 35,
-            'grid'    => 33,
+            'grid'    => 34,
             'cta'     => 29,
         ];
 
@@ -331,7 +331,7 @@ class SchemaValidationTest extends TestCase
     public function testStyleSlotStructure(): void
     {
         $components = ['hero', 'section', 'grid', 'cta'];
-        $validTypes = ['color', 'length', 'number', 'shadow', 'gradient', 'position', 'ratio', 'font-family'];
+        $validTypes = ['color', 'length', 'number', 'shadow', 'gradient', 'position', 'ratio', 'align', 'font-family'];
 
         foreach ($components as $component) {
             $schemaFile = $this->themeRoot . "/components/{$component}/schema.json";
@@ -730,6 +730,7 @@ class SchemaValidationTest extends TestCase
         return match ($type) {
             'length'  => '2rem',
             'shadow'  => 'none',
+            'align'   => 'center',
             default   => '#123456', // color + gradient both accept a hex color
         };
     }
@@ -910,6 +911,7 @@ class SchemaValidationTest extends TestCase
                 '--grid-card-radius', '--grid-card-shadow', '--grid-card-bar-color',
                 '--grid-card-bar-height', '--grid-featured-texture-color',
                 '--grid-featured-shadow', '--grid-card-padding', '--grid-card-gap',
+                '--grid-item-text-align',
                 '--grid-item-title-size', '--grid-item-title-color', '--grid-item-text-color',
                 '--grid-bullet-color', '--grid-link-color', '--grid-step-color',
             ],
