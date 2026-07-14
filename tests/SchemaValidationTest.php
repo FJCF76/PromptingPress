@@ -246,8 +246,8 @@ class SchemaValidationTest extends TestCase
     {
         $expected = [
             'hero'    => 38,
-            'section' => 32,
-            'grid'    => 30,
+            'section' => 33,
+            'grid'    => 31,
             'cta'     => 27,
         ];
 
@@ -921,8 +921,8 @@ class SchemaValidationTest extends TestCase
                 '--grid-padding-top', '--grid-padding-bottom', '--grid-bg',
                 '--grid-heading-color', '--grid-heading-accent-color', '--grid-eyebrow-color',
                 '--grid-eyebrow-bg', '--grid-eyebrow-radius', '--grid-subheading-color',
-                '--grid-subheading-margin-bottom', '--grid-heading-size',
-                '--grid-heading-max-width', '--grid-gap',
+                '--grid-subheading-margin-bottom', '--grid-heading-margin-bottom',
+                '--grid-heading-size', '--grid-heading-max-width', '--grid-gap',
             ],
             $scopes['ineligible'],
             'The container/heading-scoped set drifted from issue 323.'

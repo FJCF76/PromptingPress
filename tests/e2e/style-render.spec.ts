@@ -1849,6 +1849,76 @@ test.describe('Safe-surface rendered proof', () => {
     });
   }
 
+  // ── #343: title -> subheading gap is now slot-driven ──────────────────────
+  //
+  // #336 made the subheading's BOTTOM margin authorable; the title's OWN bottom
+  // margin (the title -> subheading gap, the TOP half of the header rhythm) stayed
+  // hardcoded. This routes it through a slot so the whole header rhythm is
+  // slot-driven. The gap is NOT the simple base literal: for section/grid a shared
+  // "premium typography" rule (`main > .X .heading`, [0,2,1]) overrides the base
+  // [0,1,0] rule at every breakpoint, so the value that actually renders is 1.65rem
+  // at >=768px (this test's 1280px viewport) and 1.25rem below it. The slot is
+  // routed through the base rule AND both premium breakpoints (the #302 split), so
+  // a declaration-level assertion would not prove the slot survives the premium
+  // override — only computed style does. testimonials has no premium override, so
+  // its base var(--space-lg) (32px) is what renders. 1.65rem @ 16px root = 26.4px.
+  // Pinned twice: unset -> the real rendered default, and set -> the operator wins.
+  for (const { component, locator, slot, expected } of [
+    { component: 'section', locator: '.section__title', slot: '--section-title-margin-bottom', expected: '26.4px' },
+    { component: 'grid', locator: '.grid__heading', slot: '--grid-heading-margin-bottom', expected: '26.4px' },
+    { component: 'testimonials', locator: '.testimonials__heading', slot: '--testimonials-heading-margin-bottom', expected: '32px' },
+  ]) {
+    test(`#343 ${component} title keeps its slot-driven gap above the subheading @smoke`, async ({
+      page,
+    }) => {
+      pageId = createPage(`E2E ${component} Title Rhythm`);
+      setComposition(pageId, [
+        {
+          component,
+          props: {
+            id: 'pp-ttl01',
+            title: 'Rhythm',
+            eyebrow: 'Kicker',
+            subheading: 'The title must not collide with the sub-heading below it.',
+            // Each component's own required props (section: body, grid/testimonials: items).
+            ...(component === 'section' ? { body: '<p>Body copy.</p>' } : {}),
+            ...(component === 'grid' ? { items: [{ title: 'One', text: 'Card' }] } : {}),
+            ...(component === 'testimonials'
+              ? { items: [{ quote: 'Great.', author: 'A. Person' }] }
+              : {}),
+          },
+        },
+      ]);
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      const title = page.locator(locator);
+      await expect(title).toBeVisible({ timeout: 10000 });
+
+      // Unset: today's literal renders (byte-identical to pre-#343). The slot adds
+      // capability, not a new default. The title is NOT the header's last child, so
+      // the `p:last-child` reset never applied here in the first place.
+      const unset = await title.evaluate((el) => getComputedStyle(el).marginBottom);
+      expect(unset).toBe(expected);
+      const isLastChild = await title.evaluate((el) => el === el.parentElement?.lastElementChild);
+      expect(isLastChild).toBe(false);
+
+      // Set: the new slot drives it. A value no token resolves to.
+      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+      const res = await styleComponent(page, pageId, { [slot]: '61px' });
+      expect(res.success).toBe(true);
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      const set = await page.locator(locator).evaluate(
+        (el) => getComputedStyle(el).marginBottom
+      );
+      expect(set).toBe('61px');
+    });
+  }
+
   // Strand 1. The eyebrow had color/bg slots but no radius slot, so the pill
   // shape was unreachable.
   //

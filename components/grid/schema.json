@@ -86,6 +86,7 @@
       "--grid-eyebrow-radius": { "type": "length", "default": "3px", "description": "Eyebrow pill corner radius. Set a large value (e.g. 999px) for a fully rounded pill." },
       "--grid-subheading-color": { "type": "color", "default": "var(--color-muted)", "description": "Subheading text color" },
       "--grid-subheading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space between the subheading and the content below it" },
+      "--grid-heading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space between the heading and the subheading below it" },
       "--grid-heading-size": { "type": "length", "default": "inherit", "description": "Heading font size" },
       "--grid-heading-max-width": { "type": "length", "default": "40rem", "description": "Heading maximum width — increase to let long headings use available horizontal space" },
       "--grid-gap": { "type": "length", "default": "var(--space-lg)", "description": "Gap between grid cards" },
