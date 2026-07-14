@@ -1574,6 +1574,55 @@ class ApplyTest extends TestCase
         $this->assertSame('invalid_ratio', $result->get_error_code());
     }
 
+    // ── _pp_validate_align() tests (#357 — card content text-align) ──────────
+
+    public function testValidateAlignAcceptsEveryTextAlignKeyword(): void
+    {
+        foreach (['left', 'right', 'center', 'start', 'end', 'justify'] as $keyword) {
+            $this->assertTrue(_pp_validate_align($keyword), "{$keyword} should be accepted.");
+        }
+    }
+
+    public function testValidateAlignIsCaseInsensitiveAndTrims(): void
+    {
+        // Mirrors _pp_validate_position(), which lowercases before comparing.
+        $this->assertTrue(_pp_validate_align('Center'));
+        $this->assertTrue(_pp_validate_align('JUSTIFY'));
+        $this->assertTrue(_pp_validate_align('  center  '));
+    }
+
+    public function testValidateAlignRejectsPositionOnlyKeywords(): void
+    {
+        // top/bottom are `position` keywords, not valid text-align values --
+        // the align type is a tighter closed set than position.
+        $this->assertFalse(_pp_validate_align('top'));
+        $this->assertFalse(_pp_validate_align('bottom'));
+    }
+
+    public function testValidateAlignRejectsLengthsMultiTokenAndCssWide(): void
+    {
+        $this->assertFalse(_pp_validate_align('20%'));
+        $this->assertFalse(_pp_validate_align('left top'));
+        $this->assertFalse(_pp_validate_align('unset'));
+        $this->assertFalse(_pp_validate_align('initial'));
+        $this->assertFalse(_pp_validate_align('inherit'));
+        $this->assertFalse(_pp_validate_align(''));
+        $this->assertFalse(_pp_validate_align('middle'));
+    }
+
+    public function testValidateTokenValuePassesForAlignType(): void
+    {
+        $this->assertTrue(_pp_validate_token_value('center', 'align'));
+        $this->assertTrue(_pp_validate_token_value('left', 'align'));
+    }
+
+    public function testValidateTokenValueFailsForInvalidAlign(): void
+    {
+        $result = _pp_validate_token_value('top', 'align');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_align', $result->get_error_code());
+    }
+
     // ── New Token Declarations ───────────────────────────────────────────
 
     public function testNewTokensFontWeightHeadingExists(): void

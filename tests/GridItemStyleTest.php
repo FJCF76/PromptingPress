@@ -167,4 +167,71 @@ class GridItemStyleTest extends TestCase
         $this->assertStringNotContainsString('display:none', $html);
         $this->assertStringNotContainsString('<li class="grid__item" style=', $html, 'A guarded value must not reach the inline style attribute.');
     }
+
+    // ── #357 — --grid-item-text-align (align-typed content alignment) ────────
+
+    public function testItemTextAlignRendersInlineOnThatCardOnly(): void
+    {
+        // Page contact-card case: center one card's content stack, leave the other
+        // at the historical left default.
+        $html = $this->render('grid', [
+            'items' => [
+                ['title' => 'Left card'],
+                ['title' => 'Contact', 'text' => 'hola@example.com', 'style' => ['--grid-item-text-align' => 'center']],
+            ],
+        ]);
+
+        $cards = $this->cards($html);
+        $this->assertStringContainsString('style="--grid-item-text-align: center;"', $cards[1]);
+        // The sibling emits no inline style — it renders byte-identically to today.
+        $this->assertStringNotContainsString('style=', $cards[0]);
+    }
+
+    public function testItemTextAlignRendersGridWideOnTheSection(): void
+    {
+        // item_eligible slot set at grid level aligns every card — rendered on the
+        // section wrapper, consumed by .grid__item-body via var(--slot, left).
+        $html = $this->render('grid', [
+            '__pp_style' => ['--grid-item-text-align' => 'right'],
+            'items'      => [['title' => 'A'], ['title' => 'B']],
+        ]);
+
+        $this->assertMatchesRegularExpression(
+            '/<section[^>]*style="[^"]*--grid-item-text-align: right;?"/',
+            $html,
+            'A grid-level align slot must render on the section element.'
+        );
+    }
+
+    public function testUnsetItemTextAlignEmitsNoInlineProperty(): void
+    {
+        // Byte-identical unset contract (#357): an item that does not set the slot
+        // emits no inline custom property, so the CSS fallback keeps it left.
+        $html = $this->render('grid', [
+            'items' => [
+                ['title' => 'Plain'],
+                ['title' => 'Also plain', 'text' => 'no style'],
+            ],
+        ]);
+
+        $this->assertStringNotContainsString('--grid-item-text-align', $html);
+        foreach ($this->cards($html) as $card) {
+            $this->assertStringNotContainsString('style=', $card);
+        }
+    }
+
+    public function testInvalidItemTextAlignIsDroppedAtRender(): void
+    {
+        // The #330 render boundary re-validates through the shared engine: an
+        // invalid alignment keyword ('middle' is not a text-align value) is dropped,
+        // and because it is the card's only slot no inline style attribute renders.
+        $html = $this->render('grid', [
+            'items' => [
+                ['title' => 'Card', 'style' => ['--grid-item-text-align' => 'middle']],
+            ],
+        ]);
+
+        $this->assertStringNotContainsString('--grid-item-text-align', $html);
+        $this->assertStringNotContainsString('style=', $this->cards($html)[0]);
+    }
 }

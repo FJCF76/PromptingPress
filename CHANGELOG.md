@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.128] — 2026-07-14 — a grid card's text can now be centered, not just left-aligned (#357)
+
+**A `grid` card always rendered its content left-aligned; there was no way to center a card's text, so the centered emoji/label contact-card pattern was simply not authorable. This adds `--grid-item-text-align`, a per-card (and grid-wide) style slot that takes a `text-align` keyword. Leave it unset and every card renders exactly as before, down to the byte: the default is `left`, the theme's historical alignment.**
+
+Text alignment is a generic CSS property, not a product feature, so this exposes it through a new generic `align` slot type on the shared style engine rather than a named "centered-card" variant. The `align` type accepts exactly the closed set of `text-align` keywords — `left`, `right`, `center`, `start`, `end`, `justify` — validated by the same shared engine (`_pp_validate_token_value`) that types every other slot, so the render boundary (#330) rejects an invalid alignment for free. The slot is card-scoped (item-eligible), so it can center one card in a row via `items[].style` or every card via the grid-level style, mirroring how `--grid-item-text-color` and `--grid-item-title-size` are already scoped. It aligns the card's text content — title, text, bullets — which are full-width flex items whose inline content follows `text-align`. The `Read more` link keeps its own left-anchored position (`align-self: flex-start`); centering the link alongside the text is a separate concern tracked in #361.
+
+### Fixed
+
+- `grid` cards now take an authorable text alignment through `--grid-item-text-align` (`left` default / `center` / `right` / `start` / `end` / `justify`), so a centered emoji/label contact card is expressible. Unset, a card emits no inline alignment and renders byte-identically to before (left-aligned).
+
+### Docs
+
+- The new `align` slot type is documented in the AI-facing type list (`lib/ai-context.php`), `ai-instructions/style-component.md`, and the chat AI's invalid-value remediation hint, so the site-building AI knows the type exists and what it accepts. `AI_CONTEXT.md`, `README.md`, `components/grid/README.md`, and `ai-instructions/composition.md` document the new card slot and its scope (text content, not the link); slot counts updated (187 → 188).
+
+### Tests
+
+- `tests/e2e/style-render.spec.ts` gains a rendered computed-style + glyph-geometry pin proving a card's content computes `text-align: center`/`right` when set and `left` when unset (byte-identical), at both mobile and desktop, and pinning the documented boundary that the `Read more` link stays left-anchored under `text-align: center`. Proven red→green: with the CSS rule reverted the center assertion fails (`start` instead of `center`). `tests/ApplyTest.php` adds accept/reject coverage for the `align` validator (the six keywords accepted; `top`, `20%`, `left top`, `unset`, empty rejected); `tests/GridItemStyleTest.php` pins per-card and grid-wide render, byte-identical unset, and render-boundary drop of an invalid value. Slot-type/count pins in `tests/SchemaValidationTest.php`, `tests/StyleSlotContractTest.php`, and `tests/js/css-lint.test.js` updated for the new type and slot.
+
 ## [v0.16.127] — 2026-07-14 — an eyebrow pill can now carry an outline, not just a fill (#356)
 
 **The eyebrow pill exposed text color, background, and corner radius, but no border, so an outlined pill was simply not authorable — the only way to fake one was a tinted background. This adds a per-component border to the eyebrow on all six components that render one (hero, section, faq, grid, cta, testimonials) through two style slots: `--<component>-eyebrow-border-width` and `--<component>-eyebrow-border-color`. Leave them unset and every page renders exactly as before, down to the byte: the default is a zero-width transparent border, which draws nothing.**
