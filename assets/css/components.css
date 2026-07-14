@@ -1361,9 +1361,10 @@
   /* Authorable TEXT alignment (issue 357). The body's text-bearing children
      (title, text, bullets) are full-width flex items (align-items:stretch), so
      text-align inherits into them and governs their INLINE content. The
-     .grid__item-link is deliberately NOT covered: it sets align-self:flex-start
-     (content-width, cross-start), so per the issue 338 flex trap text-align
-     cannot move its box — the link stays left-anchored regardless of this slot.
+     .grid__item-link is a content-width flex item placed by align-self, so per
+     the issue 338 flex trap text-align cannot move its box; it follows the SAME
+     alignment through the derived --pp-grid-link-align companion instead (issue
+     361, on .grid__item-link below), so a centered card centers its link too.
      Default left is byte-identical to today's rendering (LTR theme, no rtl.css);
      an unset slot emits no inline custom property, so the fallback keeps every
      existing card left-aligned. Consumed via the shared align-typed slot. */
@@ -1504,7 +1505,11 @@
   font-size: 0.9rem;
   color: var(--grid-link-color, var(--color-accent));
   text-decoration: none;
-  align-self: flex-start;
+  /* Follows the card's --grid-item-text-align via the derived --pp-grid-link-align
+     companion (issue 361): grid.php maps left/start/justify->flex-start,
+     center->center, right/end->flex-end. UNSET emits no companion, so the
+     flex-start fallback is byte-identical to the historical left-pinned link. */
+  align-self: var(--pp-grid-link-align, flex-start);
   margin-top: auto;
 }
 

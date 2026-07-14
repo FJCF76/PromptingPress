@@ -334,8 +334,10 @@ test.describe('Safe-surface rendered proof', () => {
   // the computed declaration AND the geometry of a card's title glyphs relative to the
   // body's content box — center card centered, right card flush right, unset card flush
   // left (the byte-identical default). Two viewports, per the #86/#349 mobile-hid-it
-  // lesson.
-  test('#357 grid card content honors --grid-item-text-align (center/right/left) @smoke', async ({
+  // lesson. #361 extends this: the card's link/button follows the SAME slot value (via
+  // the derived --pp-grid-link-align companion), so the link box is asserted to track
+  // the text — a centered card is fully centered, unset stays left-pinned.
+  test('#357/#361 grid card content + link honor --grid-item-text-align (center/right/left) @smoke', async ({
     page,
   }) => {
     pageId = createPage('E2E Grid Item Text Align');
@@ -414,24 +416,48 @@ test.describe('Safe-surface rendered proof', () => {
       expect(rightFrac).toBeGreaterThan(0.85);
       expect(leftFrac).toBeLessThan(0.15);
 
-      // Documented BOUNDARY (issue 357): the slot aligns TEXT content only. The
-      // "Read more" link sets align-self:flex-start, so per the #338 flex trap it
-      // is NOT moved by text-align — even in the centered card the link box stays
-      // left-anchored. Pinned so a future change to the link's alignment can't
-      // silently contradict the schema/README note, and so the limitation is
-      // visible in the test corpus rather than a surprise. (Centering the link too
-      // is a separate follow-up: it needs the link's align-self to follow.)
-      const linkBox = await page.locator('.grid__item').nth(0).locator('.grid__item-link')
-        .evaluate((a: HTMLElement) => {
-          const body = a.closest('.grid__item-body') as HTMLElement;
-          const cs = getComputedStyle(body);
-          const rect = body.getBoundingClientRect();
-          const contentLeft = rect.left + parseFloat(cs.paddingLeft) + parseFloat(cs.borderLeftWidth);
-          const link = a.getBoundingClientRect();
-          return { alignSelf: getComputedStyle(a).alignSelf, leftGap: link.left - contentLeft };
-        });
-      expect(linkBox.alignSelf).toBe('flex-start');
-      expect(Math.abs(linkBox.leftGap)).toBeLessThan(2); // link hugs the content-left edge
+      // #361: the link/button FOLLOWS the card's alignment. The "Read more" link is
+      // a content-width flex item placed by align-self, so per the #338 flex trap
+      // text-align cannot move it; grid.php derives a --pp-grid-link-align companion
+      // from the same slot value so the link tracks the text. Measure the link BOX,
+      // not just the computed property: fraction of the body's leftover horizontal
+      // space that sits LEFT of the link box (0 = flush left, ~0.5 = centered, ~1 =
+      // flush right). This is the mutation-check — delete the companion (or the CSS
+      // var consumption) and center/right collapse to ~0, going red. Unset stays
+      // flush-left (byte-identical to today), so this same pin guards the default.
+      const linkOffsetFraction = (i: number) =>
+        page.locator('.grid__item').nth(i).locator('.grid__item-link')
+          .evaluate((a: HTMLElement) => {
+            const body = a.closest('.grid__item-body') as HTMLElement;
+            const cs = getComputedStyle(body);
+            const rect = body.getBoundingClientRect();
+            const contentLeft = rect.left + parseFloat(cs.paddingLeft) + parseFloat(cs.borderLeftWidth);
+            const contentRight = rect.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth);
+            const link = a.getBoundingClientRect();
+            const slack = (contentRight - contentLeft) - link.width;
+            const alignSelf = getComputedStyle(a).alignSelf;
+            if (slack <= 1) return { alignSelf, frac: -2 }; // link fills the column — can't discriminate
+            return { alignSelf, frac: (link.left - contentLeft) / slack };
+          });
+
+      const centerLink = await linkOffsetFraction(0); // --grid-item-text-align: center
+      const rightLink = await linkOffsetFraction(1);  // --grid-item-text-align: right
+      const unsetLink = await linkOffsetFraction(2);  // unset — must stay left-pinned
+
+      // Computed align-self reflects the derived companion (unset falls back to flex-start).
+      expect(centerLink.alignSelf).toBe('center');
+      expect(rightLink.alignSelf).toBe('flex-end');
+      expect(unsetLink.alignSelf).toBe('flex-start');
+
+      // Geometry: the link box actually moved (what a property-only pin misses). Gate
+      // the -2 sentinel (link fills the column) so a vacuous read can't satisfy a band.
+      for (const l of [centerLink, rightLink, unsetLink]) {
+        expect(l.frac, 'link box has measurable slack in its column').toBeGreaterThan(-0.5);
+      }
+      expect(centerLink.frac).toBeGreaterThan(0.3);
+      expect(centerLink.frac).toBeLessThan(0.7);
+      expect(rightLink.frac).toBeGreaterThan(0.85);
+      expect(unsetLink.frac).toBeLessThan(0.15); // byte-identical default: link hugs content-left
     }
   });
 

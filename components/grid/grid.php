@@ -51,9 +51,20 @@ $theme_class   = $theme !== 'default' ? ' grid--' . $theme : '';
 // to the shared all-cards rules.
 $emphasis_class = $card_emphasis === 'uniform' ? ' grid--uniform' : '';
 
-// Style slot overrides (per-instance visual customization).
-$slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'grid');
-$style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
+// Style slot overrides (per-instance visual customization). The card link/button
+// follows the card's --grid-item-text-align via the derived --pp-grid-link-align
+// plumbing property (issue 361), so a centered card centers its link too; it is
+// appended here at grid level and per card below so cascade proximity holds.
+$grid_style_parts = [];
+$slot_style       = pp_render_style_vars($props['__pp_style'] ?? [], 'grid');
+if ($slot_style !== '') {
+    $grid_style_parts[] = $slot_style;
+}
+$grid_link_align = pp_grid_link_align_decl($props['__pp_style'] ?? []);
+if ($grid_link_align !== '') {
+    $grid_style_parts[] = $grid_link_align;
+}
+$style_attr = $grid_style_parts ? ' style="' . implode('; ', $grid_style_parts) . ';"' : '';
 
 ?>
 <section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($layout_class); ?><?php echo esc_attr($theme_class); ?><?php echo esc_attr($emphasis_class); ?>" data-pp-component="grid"<?php echo $style_attr; ?>>
@@ -93,9 +104,21 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                     // validated against the SAME grid style slots as grid-level style.
                     // The consuming CSS reads var(--slot, fallback), so a per-item slot
                     // set here overrides the grid-level value by cascade proximity.
-                    $item_style      = is_array($item['style'] ?? null) ? $item['style'] : [];
-                    $item_style_vars = pp_render_style_vars($item_style, 'grid');
-                    $item_style_attr = $item_style_vars ? ' style="' . $item_style_vars . ';"' : '';
+                    // A per-card --grid-item-text-align also derives the card's
+                    // --pp-grid-link-align companion (issue 361); appended on the
+                    // .grid__item so it overrides any grid-level companion by
+                    // cascade proximity, exactly like the text-align slot itself.
+                    $item_style       = is_array($item['style'] ?? null) ? $item['style'] : [];
+                    $item_style_vars  = pp_render_style_vars($item_style, 'grid');
+                    $item_link_align  = pp_grid_link_align_decl($item_style);
+                    $item_style_parts = [];
+                    if ($item_style_vars !== '') {
+                        $item_style_parts[] = $item_style_vars;
+                    }
+                    if ($item_link_align !== '') {
+                        $item_style_parts[] = $item_link_align;
+                    }
+                    $item_style_attr = $item_style_parts ? ' style="' . implode('; ', $item_style_parts) . ';"' : '';
                 ?>
                     <li class="grid__item"<?php echo $item_style_attr; ?>>
                         <?php if ($is_steps) : ?>
