@@ -1210,22 +1210,39 @@ test.describe('Safe-surface rendered proof', () => {
     {
       component: 'grid',
       props: { id: 'pp-grid01', items: [{ title: 'One', text: 'First' }] },
-      slots: { '--grid-card-border-width': '0px' },
+      slots: {
+        '--grid-card-border-width': '0px',
+        '--grid-eyebrow-border-width': '0px',
+        '--grid-eyebrow-border-color': 'transparent',
+      },
     },
     {
       component: 'faq',
       props: { id: 'pp-faq01', items: [{ question: 'Q?', answer: 'A.' }] },
-      slots: { '--faq-border-color': '#ff0080' },
+      slots: {
+        '--faq-border-color': '#ff0080',
+        '--faq-eyebrow-border-width': '0px',
+        '--faq-eyebrow-border-color': 'transparent',
+      },
     },
     {
       component: 'testimonials',
       props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] },
-      slots: { '--testimonials-card-border-width': '0px' },
+      slots: {
+        '--testimonials-card-border-width': '0px',
+        '--testimonials-eyebrow-border-width': '0px',
+        '--testimonials-eyebrow-border-color': 'transparent',
+      },
     },
     {
       component: 'cta',
       props: { id: 'pp-cta01', button_text: 'Go', button_url: '/go' },
-      slots: { '--cta-border-width': '0px', '--cta-border-color': 'transparent' },
+      slots: {
+        '--cta-border-width': '0px',
+        '--cta-border-color': 'transparent',
+        '--cta-eyebrow-border-width': '0px',
+        '--cta-eyebrow-border-color': 'transparent',
+      },
     },
     {
       component: 'section',
@@ -1235,6 +1252,8 @@ test.describe('Safe-surface rendered proof', () => {
         '--section-border-color': 'transparent',
         '--section-panel-border-width': '0px',
         '--section-panel-border-color': 'transparent',
+        '--section-eyebrow-border-width': '0px',
+        '--section-eyebrow-border-color': 'transparent',
       },
     },
     {
@@ -1245,6 +1264,8 @@ test.describe('Safe-surface rendered proof', () => {
         '--hero-border-color': 'transparent',
         '--hero-surface-border-width': '0px',
         '--hero-surface-border-color': 'transparent',
+        '--hero-eyebrow-border-width': '0px',
+        '--hero-eyebrow-border-color': 'transparent',
       },
     },
   ];
@@ -2021,6 +2042,54 @@ test.describe('Safe-surface rendered proof', () => {
         .locator('.hero__eyebrow')
         .evaluate((el) => getComputedStyle(el).borderRadius);
       expect(rounded).toBe('999px');
+    });
+  }
+
+  // #356: the eyebrow pill had color/bg/radius slots but no border slot, so an
+  // OUTLINED pill was inexpressible. Border width/color slots make it authorable.
+  //
+  // Both ids are load-bearing, exactly as in the #336 radius strand above: the
+  // `#home-hero, #how-hero, #agencies-hero, #implementers-hero .hero__eyebrow`
+  // block re-declares `border-color` at ID specificity (1,1,0). If that literal
+  // were left unrouted it would clobber --hero-eyebrow-border-color on those four
+  // benchmark heroes, and a non-matching id (pp-hero01) could not catch it.
+  for (const heroId of ['pp-hero01', 'home-hero']) {
+    test(`#356 hero eyebrow border is slot-driven and defaults to no border (#${heroId}) @smoke`, async ({
+      page,
+    }) => {
+      pageId = createPage(`E2E Hero Eyebrow Border Slot ${heroId}`);
+      setComposition(pageId, [
+        { component: 'hero', props: { id: heroId, eyebrow: 'Kicker', title: 'Border' } },
+      ]);
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      const eyebrow = page.locator('.hero__eyebrow');
+      await expect(eyebrow).toBeVisible({ timeout: 10000 });
+
+      // Unset output stays byte-identical to pre-#356: the default pill has no
+      // visible border (0-width), the slot adds capability, not opinion.
+      expect(await eyebrow.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px');
+
+      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+      const res = await styleComponent(page, pageId, {
+        '--hero-eyebrow-border-width': '3px',
+        '--hero-eyebrow-border-color': '#ff0080',
+      });
+      expect(res.success).toBe(true);
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      const outlined = await page.locator('.hero__eyebrow').evaluate((el) => {
+        const s = getComputedStyle(el);
+        return { width: s.borderTopWidth, color: s.borderTopColor };
+      });
+      // The outlined pill now renders: a real 3px border in the asked-for color,
+      // reaching even the ID-specificity benchmark heroes (routing proven).
+      expect(outlined.width).toBe('3px');
+      expect(outlined.color).toBe('rgb(255, 0, 128)');
     });
   }
 
