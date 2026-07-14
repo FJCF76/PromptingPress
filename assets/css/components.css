@@ -3994,7 +3994,15 @@ main .btn,
 #how-cta .cta__button,
 #agencies-cta .cta__button,
 #implementers-cta .cta__button {
-  border-radius: 4px;
+  /* This premium-CTA block is the later-cascade winner for composed buttons
+     (it overrides the base `.btn { border-radius: var(--btn-radius, var(--radius)) }`
+     at equal specificity + source order), so the button radius must be routed
+     through --btn-radius HERE or the token stays inert on every rendered button
+     (issue 369). --btn-radius is registered defaulting to 4px, so unset output
+     is byte-identical to the previous hardcoded 4px; an override (e.g. 100px)
+     pills the button without touching the global --radius (or anything that
+     reads it), so the button radius is no longer chained to the card radius. */
+  border-radius: var(--btn-radius, 4px);
 }
 
 #home-cta.cta--inline .cta__inner,

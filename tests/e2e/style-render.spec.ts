@@ -3160,3 +3160,180 @@ test.describe('#355 active header link honors pp_header_link_color', () => {
     expect(weight).toBe('700');
   });
 });
+
+/**
+ * #369 — --btn-radius is a real, settable design token.
+ *
+ * components.css reads `border-radius: var(--btn-radius, var(--radius))`, but
+ * --btn-radius was never declared in :root, so update_design_token rejected it
+ * as unregistered. The only reachable lever was the GLOBAL --radius — which also
+ * rounds every card. A pill CTA over square cards was inexpressible.
+ *
+ * Registering the token is not enough on its own: the WINNING cascade rule for
+ * every composed button is the premium-CTA block `main .btn { border-radius: 4px }`
+ * (components.css), which overrode the base `.btn { var(--btn-radius, var(--radius)) }`
+ * and hardcoded 4px. So the fix ALSO routes that winning rule through
+ * `var(--btn-radius, 4px)`, and registers --btn-radius defaulting to 4px (the
+ * composed button's actual current radius). A validator-only test cannot see any
+ * of this — only a rendered box proves the two goals:
+ *   1. DECOUPLING — setting --btn-radius=100px through the REAL update_design_token
+ *      apply pills the `.btn`, while a card's radius (which reads --radius) does
+ *      NOT move. Button radius is now independent of the global radius.
+ *   2. BYTE-IDENTICAL UNSET — with no override, the composed button computes 4px,
+ *      exactly the hardcoded value it rendered before the token existed.
+ *
+ * The button is a `.cta__button.btn`; the card is a `.grid__item`
+ * (`border-radius: var(--grid-card-radius, var(--radius))`). --radius is
+ * 0.375rem = 6px at the default 16px root; the composed button default is 4px.
+ */
+test.describe('#369 --btn-radius rendered proof (real WP)', () => {
+  // wp-env wraps command output in "ℹ Starting"/"✔ Ran" banner lines (ANSI-colored).
+  function stripWpEnvNoise(raw: string): string {
+    return raw
+      .split('\n')
+      .filter((line) => {
+        const t = line.replace(/\x1b\[[0-9;]*m/g, '').trim();
+        return !(t.startsWith('ℹ Starting') || t.startsWith('✔ Ran') || t.startsWith('✖'));
+      })
+      .join('\n')
+      .trim();
+  }
+
+  function wpCli(cmd: string): string {
+    return stripWpEnvNoise(
+      execSync(`npx wp-env run cli ${cmd}`, { cwd: process.cwd(), encoding: 'utf-8' }),
+    );
+  }
+
+  // Brace-match the first balanced JSON object, skipping any wrapper/"Success:" text.
+  function parseCliJson(raw: string, what: string): Record<string, unknown> {
+    const start = raw.indexOf('{');
+    if (start === -1) throw new Error(`No JSON object in ${what}: ${raw}`);
+    let depth = 0,
+      inStr = false,
+      esc = false;
+    for (let i = start; i < raw.length; i++) {
+      const c = raw[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (c === '\\') esc = true;
+        else if (c === '"') inStr = false;
+      } else if (c === '"') inStr = true;
+      else if (c === '{') depth++;
+      else if (c === '}' && --depth === 0) return JSON.parse(raw.slice(start, i + 1));
+    }
+    throw new Error(`Unbalanced JSON in ${what}: ${raw}`);
+  }
+
+  // Drive the SAME apply path a chat AI would: operate inspect → preflight → execute.
+  function applyToken(token: string, value: string): void {
+    const runId = parseCliJson(wpCli('wp pp operate inspect'), 'operate inspect').run_id as string;
+    if (!runId) throw new Error('operate inspect returned no run_id');
+    wpCli(`wp pp apply preflight --run-id=${runId} --apply=update_design_token`);
+    const json = JSON.stringify({ token, value }).replace(/'/g, "'\\''");
+    const out = wpCli(
+      `wp pp apply execute update_design_token --run-id=${runId} --params='${json}'`,
+    );
+    if (parseCliJson(out, 'apply execute').ok !== true) {
+      throw new Error(`update_design_token ${token}=${value} did not apply: ${out}`);
+    }
+  }
+
+  function resetToken(token: string): void {
+    try {
+      const runId = parseCliJson(wpCli('wp pp operate inspect'), 'operate inspect').run_id as string;
+      wpCli(`wp pp apply preflight --run-id=${runId} --apply=update_design_token`);
+      wpCli(`wp pp apply reset --run-id=${runId} --token=${token}`);
+    } catch {
+      /* nothing to reset */
+    }
+  }
+
+  const CTA_GRID = [
+    {
+      component: 'cta',
+      props: {
+        id: 'radius-cta',
+        title: 'Get started today',
+        text: 'Supporting copy.',
+        button_text: 'Get started',
+        button_url: '/start',
+      },
+    },
+    {
+      component: 'grid',
+      props: {
+        id: 'radius-grid',
+        title: 'Cards keep their radius',
+        items: [{ title: 'One', text: 'A card that reads --radius' }],
+      },
+    },
+  ];
+
+  let pageId = 0;
+
+  test.afterEach(async () => {
+    resetToken('--btn-radius');
+    if (pageId) {
+      deletePage(pageId);
+      pageId = 0;
+    }
+  });
+
+  test('setting --btn-radius=100px pills the button without touching --radius or the card @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E btn-radius decouples from global radius');
+    setComposition(pageId, CTA_GRID);
+
+    applyToken('--btn-radius', '100px');
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const button = page.locator('.cta__button.btn');
+    const card = page.locator('.grid__item');
+    await expect(button).toBeVisible({ timeout: 10000 });
+    await expect(card).toBeVisible({ timeout: 10000 });
+
+    const buttonRadius = await button.evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
+    const cardRadius = await card.evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
+    // The GLOBAL radius token itself — the ONLY lever this button had before #369.
+    const rootRadius = await page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue('--radius').trim(),
+    );
+
+    // The button follows the new per-element token — it pills.
+    expect(buttonRadius).toBe('100px');
+    // The decoupling the issue is about: setting --btn-radius touched NEITHER the
+    // global --radius (still its 0.375rem default) NOR the card, which keeps its
+    // own 4px default. Before #369 the only way to round the button was to move
+    // --radius, which would have rounded the card with it. A validator-only test
+    // cannot see that --radius and the card stayed put.
+    expect(rootRadius).toBe('0.375rem');
+    expect(cardRadius).toBe('4px');
+    expect(cardRadius).not.toBe(buttonRadius);
+  });
+
+  test('an unset --btn-radius renders the composed button at its historical 4px (byte-identical) @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E btn-radius unset is byte-identical');
+    setComposition(pageId, CTA_GRID);
+    // No applyToken: --btn-radius uses its registered 4px default.
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const button = page.locator('.cta__button.btn');
+    await expect(button).toBeVisible({ timeout: 10000 });
+
+    const buttonRadius = await button.evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
+
+    // Unset, the composed button computes 4px — exactly the hardcoded value it
+    // rendered before --btn-radius existed. Registering the token defaulting to
+    // 4px and routing the winning `main .btn` rule through var(--btn-radius, 4px)
+    // changed nothing about the default rendering.
+    expect(buttonRadius).toBe('4px');
+  });
+});

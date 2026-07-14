@@ -45,6 +45,7 @@
   /* Button rhythm */
   --btn-padding-y: var(--space-sm);  /* length: Button vertical padding */
   --btn-padding-x: var(--space-lg);  /* length: Button horizontal padding */
+  --btn-radius: 4px;                 /* length: Button corner radius — the authorable button shape; override to pill a CTA (e.g. 100px) without rounding cards, which follow --radius */
 
   /* Shape & motion */
   --radius:     0.375rem;   /* length: 6px — increase for rounder corners */
