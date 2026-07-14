@@ -46,7 +46,7 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 | hero    | title                                   | title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, layout, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof |
 | section | body                                    | title, title_accent, eyebrow, subheading, heading_align, layout, theme, image_url, image_id, image_alt, background_image |
 | faq     | items[] {question, answer}              | title, title_accent, eyebrow, theme, id                 |
-| grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, heading_align, layout, theme |
+| grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, heading_align, layout, card_emphasis, theme |
 | table   | headers[], rows[][]                     | title, caption                                          |
 | cta     | button_text, button_url                 | title, title_accent, eyebrow, text, layout, theme, background_image, button_variant |
 | stats   | items[] {number, label}                 | title, title_accent, theme, background_image            |
@@ -188,6 +188,27 @@ Renders numbered process cards. Use for How-It-Works or sequential flows. Cards 
       { "number": "1", "title": "Sign up", "text": "Create your account." },
       { "number": "2", "title": "Configure", "text": "Set your preferences." },
       { "number": "3", "title": "Launch", "text": "Go live." }
+    ]
+  }
+}
+```
+
+### grid.card_emphasis: "featured" | "uniform"
+
+Controls whether the **first card** gets the emphasized "featured" treatment. Default `featured` (unchanged historical behavior) gives card 1 an accent top bar, a tinted fill, a larger title, extra body top-padding, and — on the `dark` theme — a slight lift, drawing the eye to a lead item.
+
+Set `card_emphasis: "uniform"` to render **every card identically**. Use it for a symmetric/peer card row where the cards are equal and the featured emphasis would mislead or misalign them: specification/comparison cards whose checklists must line up across the row (the featured card's extra top-padding otherwise pushes its content down relative to its neighbors), or an equal-weight feature/plan row. Keep `featured` when one card is genuinely the lead. Cards-layout concept; ignored on `steps`. This is a grid prop (set with `create_page` / `update_component`), not a style slot, and it drops the *whole* featured treatment — more complete than the slot-level `uniform-cards` recipe, which cannot reach the first-card top-padding or the dark lift.
+
+```json
+{
+  "component": "grid",
+  "props": {
+    "title": "Especificaciones",
+    "card_emphasis": "uniform",
+    "items": [
+      { "title": "Método de análisis", "bullets": ["Estático", "Dinámico"] },
+      { "title": "Datos y privacidad", "bullets": ["Cifrado", "Sin reventa"] },
+      { "title": "Compatibilidad", "bullets": ["Web", "API"] }
     ]
   }
 }
