@@ -380,7 +380,7 @@ Token overrides survive theme updates — `base.css` is overwritten on update, b
 
 Style slots allow per-instance visual customization of components without CSS edits. Each component declares allowed CSS custom properties in its `schema.json` under `styling.style_slots`. Only declared slots are accepted — arbitrary CSS is rejected.
 
-**172 style slots** across 7 components: hero (38), section (32), grid (30), cta (27), testimonials (21), faq (14), stats (10).
+**175 style slots** across 7 components: hero (38), section (33), grid (31), cta (27), testimonials (22), faq (14), stats (10).
 
 **How it works:**
 1. Composition entries gain an optional `style` key alongside `props`

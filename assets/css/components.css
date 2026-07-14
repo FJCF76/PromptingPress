@@ -829,7 +829,12 @@
 .section__title {
   font-size: var(--section-title-size, inherit);
   color: var(--section-title-color, var(--section-title-theme-color, var(--color-text)));
-  margin-bottom: var(--space-md);
+  /* Top-side header rhythm (title -> subheading gap). issue 336 made the subheading's
+     BOTTOM margin authorable; this routes the title's own bottom margin through a
+     slot so the whole header rhythm is slot-driven (issue 343). No header-scoping
+     needed: the title is a heading, not the header's last child, so base.css's
+     `p:last-child` reset never reached it. Today's literal stays the fallback. */
+  margin-bottom: var(--section-title-margin-bottom, var(--space-md));
 }
 
 .section__title-accent {
@@ -1255,7 +1260,11 @@
   color: var(--grid-heading-color, var(--grid-heading-theme-color, var(--color-text)));
   font-size: var(--grid-heading-size, inherit);
   max-width: var(--grid-heading-max-width, 40rem);
-  margin-bottom: var(--space-lg);
+  /* Top-side header rhythm (heading -> subheading gap), mirror of the issue 336
+     subheading BOTTOM slot on the adjacent property (issue 343). The heading is
+     not the header's last child, so base.css's `p:last-child` reset never won
+     here — a plain slot on the heading suffices. Today's literal is the fallback. */
+  margin-bottom: var(--grid-heading-margin-bottom, var(--space-lg));
 }
 
 .grid__heading-accent {
@@ -2416,7 +2425,11 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
 .testimonials__heading {
   color: var(--testimonials-heading-color, var(--color-text));
   max-width: 40rem;
-  margin-bottom: var(--space-lg);
+  /* Top-side header rhythm (heading -> subheading gap), mirror of the issue 336
+     subheading BOTTOM slot on the adjacent property (issue 343). The heading is
+     not the header's last child, so base.css's `p:last-child` reset never won
+     here — a plain slot on the heading suffices. Today's literal is the fallback. */
+  margin-bottom: var(--testimonials-heading-margin-bottom, var(--space-lg));
 }
 
 .testimonials__heading-accent {
@@ -3245,7 +3258,6 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
   main > .section .section__title,
   main > .grid .grid__heading,
   main > .faq .faq__heading {
-    margin-bottom: 1.65rem;
     font-weight: 560;
     line-height: 1.12;
   }
@@ -3262,20 +3274,30 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
      .section__title / .grid__heading rules ([0,1,0]) and silently ignoring a
      declared --section-title-size / --grid-heading-size. Route each through its
      size slot with the clamp() as the fallback so unset output is unchanged. faq
-     now routes through --faq-heading-size too (issue 304). */
+     now routes through --faq-heading-size too (issue 304).
+
+     margin-bottom joins the split for section/grid (issue 343): this premium rule
+     hardcoded the title -> subheading gap (1.65rem here, 1.25rem in the max-width
+     rule below) at [0,2,1], outranking the base [0,1,0] rules and silently ignoring
+     a declared --section-title-margin-bottom / --grid-heading-margin-bottom. Route
+     each through its slot with 1.65rem as the fallback so unset output is unchanged.
+     faq stays a bare literal (no faq heading-margin slot in issue 343's scope). */
   main > .grid .grid__heading {
     color: var(--grid-heading-color, var(--grid-heading-theme-color, var(--color-text)));
     font-size: var(--grid-heading-size, clamp(2.25rem, 3vw, 2.62rem));
+    margin-bottom: var(--grid-heading-margin-bottom, 1.65rem);
   }
 
   main > .section .section__title {
     color: var(--section-title-color, var(--section-title-theme-color, var(--color-text)));
     font-size: var(--section-title-size, clamp(2.25rem, 3vw, 2.62rem));
+    margin-bottom: var(--section-title-margin-bottom, 1.65rem);
   }
 
   main > .faq .faq__heading {
     color: var(--faq-heading-color, var(--faq-heading-theme-color, var(--color-text)));
     font-size: var(--faq-heading-size, clamp(2.25rem, 3vw, 2.62rem));
+    margin-bottom: 1.65rem;
   }
 
   main > .section .section__content,
@@ -3354,9 +3376,23 @@ main > .grid:not(.grid--steps) .grid__item:first-child::before {
   main > .section .section__title,
   main > .grid .grid__heading,
   main > .faq .faq__heading {
-    margin-bottom: 1.25rem;
     font-weight: 560;
     line-height: 1.15;
+  }
+
+  /* margin-bottom split per-selector so each component's heading-margin slot
+     reaches the title at this breakpoint too (issue 343); fallbacks preserve
+     today's 1.25rem. faq keeps the bare literal (out of issue 343's scope). */
+  main > .grid .grid__heading {
+    margin-bottom: var(--grid-heading-margin-bottom, 1.25rem);
+  }
+
+  main > .section .section__title {
+    margin-bottom: var(--section-title-margin-bottom, 1.25rem);
+  }
+
+  main > .faq .faq__heading {
+    margin-bottom: 1.25rem;
   }
 
   main > .section .section__content,
