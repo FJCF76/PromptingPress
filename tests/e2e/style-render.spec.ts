@@ -260,6 +260,70 @@ test.describe('Safe-surface rendered proof', () => {
     expect(color).toBe('rgb(255, 0, 128)');
   });
 
+  // #349: an explicit per-instance --grid-item-text-color must win over a text_role
+  // color preset (.text-meta / .text-kicker) at BOTH breakpoints. The bug was a
+  // breakpoint split: the role utility (utilities.css, enqueued after components.css)
+  // is (0,1,0) and defeated the (0,1,0) base slot rule on the source-order tie below
+  // 768px, while the (0,2,1) desktop premium rule out-specified it — so the slot was
+  // honored on desktop and DEAD on mobile. A single-viewport pin would miss it exactly
+  // as it shipped, so this asserts at 375px (mobile) AND 1280px (desktop).
+  //
+  // Four cards prove both halves in one render (per-item `style`, the #306 per-instance
+  // path): cards 0/1 SET --grid-item-text-color and must render the slot colour at both
+  // breakpoints (the fix); cards 2/3 leave it UNSET and must render byte-identically to
+  // today — the role colour on mobile (--text-meta-color=--color-muted #5e6677 /
+  // --text-kicker-color=--color-accent #3157f4), and the premium fallback
+  // --color-text-secondary (#2d3648) on desktop, where the (0,2,1) rule still governs.
+  // The unset assertions guard that the fix changed NO default colour.
+  test('#349 explicit --grid-item-text-color beats text_role at both breakpoints @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Grid Text Role Slot Precedence');
+    const SLOT = '#ff0080'; // vivid, no token uses it — a leak or clobber is obvious
+    setComposition(pageId, [
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-grid01',
+          title: 'Role vs slot',
+          items: [
+            { title: 'One', text: 'Set meta', text_role: 'meta', style: { '--grid-item-text-color': SLOT } },
+            { title: 'Two', text: 'Set kicker', text_role: 'kicker', style: { '--grid-item-text-color': SLOT } },
+            { title: 'Three', text: 'Unset meta', text_role: 'meta' },
+            { title: 'Four', text: 'Unset kicker', text_role: 'kicker' },
+          ],
+        },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    const textColor = (i: number) =>
+      page.locator('.grid__item').nth(i).locator('.grid__item-text')
+        .evaluate((el) => getComputedStyle(el).color);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('.grid__item')).toHaveCount(4, { timeout: 10000 });
+
+      // Set slot wins at BOTH breakpoints (mobile is the case that shipped broken).
+      expect(await textColor(0)).toBe('rgb(255, 0, 128)'); // set + meta
+      expect(await textColor(1)).toBe('rgb(255, 0, 128)'); // set + kicker
+
+      // Unset output is byte-identical to today: role colour on mobile, premium
+      // --color-text-secondary on desktop. No default colour changed.
+      if (width >= 768) {
+        expect(await textColor(2)).toBe('rgb(45, 54, 72)'); // unset meta -> --color-text-secondary
+        expect(await textColor(3)).toBe('rgb(45, 54, 72)'); // unset kicker -> --color-text-secondary
+      } else {
+        expect(await textColor(2)).toBe('rgb(94, 102, 119)'); // unset meta -> --text-meta-color (--color-muted)
+        expect(await textColor(3)).toBe('rgb(49, 87, 244)'); // unset kicker -> --text-kicker-color (--color-accent)
+      }
+    }
+  });
+
   // #24: a hero-surface slot must reach the rendered inner shell (.hero__surface only
   // renders for the split variant with proof markup).
   test('#24 hero surface honors --hero-surface-border-width', async ({ page }) => {
