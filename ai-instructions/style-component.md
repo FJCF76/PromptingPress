@@ -115,6 +115,16 @@ removes the card-1 texture stripe; `--grid-featured-shadow` overrides the shared
 `--grid-card-shadow` for one identical shadow on all cards). For a uniform row in
 one step, apply the `uniform-cards` recipe instead of setting the slots by hand.
 
+For a fully uniform card row, prefer the grid **`card_emphasis: uniform`** PROP
+(set with `update_component` / `create_page`, NOT `style_component` — it is a prop,
+not a style slot). It drops the ENTIRE featured first-card treatment — the accent
+bar, tinted fill, larger title, the extra first-card top-padding, AND the dark-theme
+lift — so card 1 renders identically to its siblings. This is the right tool for a
+symmetric/peer card row (specification/comparison cards whose checklists must line
+up, an equal-weight feature/plan row). It is more complete than the slot-level
+`uniform-cards` recipe, which cannot reach the first-card top-padding or the dark
+lift. Keep the default `featured` when one card is genuinely the lead.
+
 To style **one card differently from its siblings** (a dark CTA panel beside light
 checklist cards, or a green-on-dark terminal card), set a per-card `style` object on
 that grid item — `props.items[].style` — with the **card-scoped** grid slots (e.g.

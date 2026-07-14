@@ -13,6 +13,7 @@ Responsive card grid for discrete content objects. Use this for blog post listin
 | `subheading`    | string | No       | `''`      | Supporting line below the title |
 | `heading_align` | enum   | No       | `'start'` | Header block alignment: `start` / `center` |
 | `layout`        | enum   | No       | `'cards'`   | Structural layout: `cards` (card grid) / `steps` (numbered process cards) |
+| `card_emphasis` | enum   | No       | `'featured'` | First-card emphasis: `featured` (default — first card gets an accent bar, tinted fill, larger title, extra top padding, dark-theme lift) / `uniform` (every card identical). Use `uniform` for a symmetric/peer card row (see below). Cards-layout concept; ignored on `steps`. |
 | `theme`         | enum   | No       | `'default'` | Background color: `default` / `dark` / `inverted` (independent of `layout`) |
 | `items`         | array  | Yes      | —         | Array of card objects |
 
@@ -48,6 +49,17 @@ At desktop, a composed `cards` grid lays out by item count:
 | other | 2 |
 
 The `steps` layout is 3 across at desktop, except for a 4-item steps grid, which lays out 2 x 2.
+
+## Card emphasis (featured vs uniform)
+
+By default a `cards` grid gives its **first card** a "featured" treatment: an accent top bar, a tinted gradient fill, a larger title, extra body top-padding, and (on the `dark` theme) a slight upward lift. This draws the eye to a lead item and is the historical, unchanged default (`card_emphasis: 'featured'`).
+
+Set `card_emphasis: 'uniform'` to render **every card identically** — no featured first card. Use it whenever the cards are peers of equal weight and the featured emphasis would mislead or misalign them:
+
+- Symmetric specification/comparison rows whose checklists or bodies must line up across cards (the featured card's extra top-padding otherwise pushes its content down relative to its neighbors).
+- Equal-weight feature, benefit, or plan rows where no single card should stand out.
+
+Keep the default `featured` when one card really is the lead (a highlighted plan, a primary feature). This is a structural prop, not a style slot — set it with `create_page` / `update_component`, not `style_component`. It differs from styling one card individually (`items[].style`) or from the slot-level `uniform-cards` recipe: `uniform` cleanly drops the *entire* featured treatment (including the first-card top-padding and dark-theme lift that slot overrides cannot reach).
 
 ## Steps layout
 

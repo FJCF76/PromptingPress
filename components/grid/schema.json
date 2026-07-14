@@ -46,6 +46,13 @@
       "default": "cards",
       "description": "Structural layout. 'cards' = standard card grid. 'steps' = numbered process cards with visual connectors at desktop. Use 'steps' for How-it-works / process flows."
     },
+    "card_emphasis": {
+      "type": "enum",
+      "values": ["featured", "uniform"],
+      "required": false,
+      "default": "featured",
+      "description": "Whether the first card gets the emphasized 'featured' treatment (accent top bar, tinted fill, larger title, extra top padding, and — on dark theme — a lift). 'featured' (default, unchanged historical behavior) emphasizes the first card, drawing the eye to a lead item. 'uniform' renders every card identically — use it for a symmetric/peer card row where all cards are equal (e.g. three specification cards whose checklists must line up, or an equal-weight feature/plan row). Cards-layout concept; ignored on 'steps'."
+    },
     "theme": {
       "type": "enum",
       "values": ["default", "dark", "inverted"],
@@ -73,7 +80,7 @@
   },
   "styling": {
     "root_class": "grid",
-    "variant_classes": ["grid--steps", "grid--dark", "grid--inverted"],
+    "variant_classes": ["grid--steps", "grid--dark", "grid--inverted", "grid--uniform"],
     "tokens": ["--space-xl", "--space-2xl", "--space-3xl", "--color-bg", "--color-surface", "--color-border", "--color-bg-inverted"],
     "style_slots": {
       "--grid-padding-top": { "type": "length", "default": "var(--space-xl)", "description": "Top padding of the grid section" },

@@ -63,6 +63,76 @@ class ComponentPropsTest extends TestCase
         $this->assertStringContainsString('class="section section--centered"', $html);
     }
 
+    // ── Grid card_emphasis opt-out (issue 226) ─────────────────────────────
+    // 'uniform' emits .grid--uniform, which the featured :first-child selectors
+    // guard with :not(.grid--uniform) so a symmetric card row renders equal
+    // cards. Default 'featured' emits NO class (byte-identical existing pages).
+
+    public function testGridUniformEmphasisEmitsClass(): void
+    {
+        $html = $this->render('grid', [
+            'card_emphasis' => 'uniform',
+            'items' => [['title' => 'One', 'text' => 'a']],
+        ]);
+        $this->assertStringContainsString('grid--uniform', $html);
+    }
+
+    public function testGridFeaturedEmphasisEmitsNoClassAndStaysByteIdentical(): void
+    {
+        $html = $this->render('grid', [
+            'card_emphasis' => 'featured',
+            'items' => [['title' => 'One', 'text' => 'a']],
+        ]);
+        $this->assertStringNotContainsString('grid--uniform', $html);
+        // Explicit 'featured' must render exactly like the historical default:
+        // the bare root class, no emphasis modifier.
+        $this->assertStringContainsString('class="grid"', $html);
+    }
+
+    public function testGridAbsentEmphasisEmitsNoUniformClass(): void
+    {
+        $html = $this->render('grid', [
+            'items' => [['title' => 'One', 'text' => 'a']],
+        ]);
+        $this->assertStringNotContainsString('grid--uniform', $html);
+        $this->assertStringContainsString('class="grid"', $html);
+    }
+
+    public function testGridInvalidEmphasisFallsBackToFeatured(): void
+    {
+        $html = $this->render('grid', [
+            'card_emphasis' => 'bogus',
+            'items' => [['title' => 'One', 'text' => 'a']],
+        ]);
+        $this->assertStringNotContainsString('grid--uniform', $html);
+    }
+
+    public function testGridUniformComposesWithThemeAndLayoutClasses(): void
+    {
+        $html = $this->render('grid', [
+            'card_emphasis' => 'uniform',
+            'theme' => 'dark',
+            'items' => [['title' => 'One', 'text' => 'a']],
+        ]);
+        $this->assertStringContainsString('grid--dark', $html);
+        $this->assertStringContainsString('grid--uniform', $html);
+    }
+
+    public function testGridUniformClassIsEmittedEvenOnStepsLayout(): void
+    {
+        // 'uniform' is a cards-layout concept and inert on steps (the featured
+        // CSS rules already carry :not(.grid--steps)). The class is still emitted
+        // so that if a future steps-specific first-card emphasis rule is ever
+        // added, it can be guarded with the same :not(.grid--uniform) hook.
+        $html = $this->render('grid', [
+            'card_emphasis' => 'uniform',
+            'layout' => 'steps',
+            'items' => [['number' => '1', 'title' => 'One', 'text' => 'a']],
+        ]);
+        $this->assertStringContainsString('grid--steps', $html);
+        $this->assertStringContainsString('grid--uniform', $html);
+    }
+
     public function testSectionCenteredSuppressesImageEvenWhenProvided(): void
     {
         $html = $this->render('section', [

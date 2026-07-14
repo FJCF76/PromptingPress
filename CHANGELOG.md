@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.130] — 2026-07-14 — a grid can now render a uniform card row, opting the first card out of the featured treatment (#226)
+
+**A `cards`-layout grid always emphasized its first card — an accent top bar, a tinted fill, a larger title, extra top-padding, and (on the dark theme) a slight lift — with no way to turn it off. That made a symmetric card row inexpressible: three equal specification cards rendered with the first one larger and pushed ~36px lower than its peers, so their checklists could not line up. This adds `card_emphasis`, a grid prop that takes `featured` (the default) or `uniform`. Set `uniform` and every card renders identically. Leave it unset or `featured` and the grid renders exactly as before, down to the byte.**
+
+`card_emphasis` is a generic enum prop (a uniform card row is a normal marketing need), matching the existing class-emitting enum convention (`layout`, `theme`, `heading_align`): `uniform` emits a `grid--uniform` modifier class; the default `featured` emits no class. Rather than an override block that re-resets each featured property, the whole featured treatment is guarded — every `main > .grid:not(.grid--steps) .grid__item:first-child` rule in `assets/css/components.css` gains a `:not(.grid--uniform)`, so under `uniform` the first card matches no featured rule and falls through to the shared all-cards rules, rendering identically to its siblings by construction. Because the default emits no class, the guard never matches an existing page: adding `:not(.grid--uniform)` only raises each featured rule's specificity by one class column, uniformly, with no competing rule in the flip band, so unset output is byte-identical. The prop flows through the schema-driven prop-key gate (#147) and the shared composition validator — no grid-specific second validator. It is `cards`-layout emphasis; on `steps` the class is inert (the featured rules already carry `:not(.grid--steps)`).
+
+### Added
+
+- `grid` accepts a `card_emphasis` prop (`featured` default / `uniform`). `uniform` opts the first card out of the entire featured treatment — accent bar, tinted fill, larger title, extra top-padding, and dark-theme lift — so a symmetric/peer card row renders equal cards. Unset or `featured` is byte-identical to before. Invalid values coerce to `featured`, matching how `layout`/`theme` handle unknown enum values.
+
+### Docs
+
+- `components/grid/schema.json` (new `card_emphasis` enum + `grid--uniform` variant class), `components/grid/README.md` (new prop row + "Card emphasis" section), `AI_CONTEXT.md`, `README.md`, `ai-instructions/composition.md` (worked JSON example), and `ai-instructions/style-component.md` now document the prop and when to use it — a symmetric/peer card row vs the featured default — and note it is a prop (set via `create_page`/`update_component`), not a style slot, and drops more of the featured treatment than the slot-level `uniform-cards` recipe can reach. The runtime AI context (`lib/ai-context.php`) renders the enum and its values automatically.
+
+### Tests
+
+- `tests/ComponentPropsTest.php` adds PHP render pins for the class emission, the byte-identical `featured`/absent default, invalid-value coercion, and composition with `theme`/`steps` classes. `tests/e2e/style-render.spec.ts` adds computed-style pins proving a `uniform` grid's first card equals its siblings (body `padding-top`, title `font-size`, no `::before` accent bar, shadow, border) at desktop and mobile while a default grid stays featured, plus a dark-theme pin that the first-card lift is neutralized. Proven red→green: neutering the class emission makes the first equality assertion (`padding-top`) fail. `tests/js/css-lint.test.js`'s featured-selector constant is updated to the guarded form so its zero-match drift guard keeps matching.
+
 ## [v0.16.129] — 2026-07-14 — a styled header's active nav link now honors its link color, not the accent (#355)
 
 **Setting `pp_header_link_color` recolored the header's nav links, but the active/current link ignored it and stayed the global accent. On a one-page anchor-nav marketing site every link points at the current page, so WordPress marks them all current and the whole menu ignored the option. Now the active/current link color follows `pp_header_link_color` too, falling back to the global accent only when the option is unset. The current item keeps its bold weight, so it stays distinguishable. Leave the option unset and the header renders exactly as before, down to the byte: the active link is still the accent, still bold.**

@@ -18,10 +18,16 @@ $heading_align = $props['heading_align'] ?? 'start';
 $items   = $props['items']   ?? [];
 $layout  = $props['layout']  ?? 'cards';
 $theme   = $props['theme']   ?? 'default';
+$card_emphasis = $props['card_emphasis'] ?? 'featured';
 
 $allowed_layouts = ['cards', 'steps'];
 if (!in_array($layout, $allowed_layouts, true)) {
     $layout = 'cards';
+}
+
+$allowed_card_emphasis = ['featured', 'uniform'];
+if (!in_array($card_emphasis, $allowed_card_emphasis, true)) {
+    $card_emphasis = 'featured';
 }
 
 $allowed_themes = ['default', 'dark', 'inverted'];
@@ -38,13 +44,19 @@ $header_align_class = $heading_align === 'center' ? ' grid__header--center' : ''
 $is_steps      = $layout === 'steps';
 $layout_class  = $is_steps ? ' grid--steps' : '';
 $theme_class   = $theme !== 'default' ? ' grid--' . $theme : '';
+// 'uniform' opts the first card out of the featured emphasis so every card
+// renders identically (issue 226). Default 'featured' emits no class, keeping
+// existing pages byte-identical. The featured CSS selectors carry a
+// :not(.grid--uniform) guard, so this class makes the first card fall through
+// to the shared all-cards rules.
+$emphasis_class = $card_emphasis === 'uniform' ? ' grid--uniform' : '';
 
 // Style slot overrides (per-instance visual customization).
 $slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'grid');
 $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
 
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($layout_class); ?><?php echo esc_attr($theme_class); ?>" data-pp-component="grid"<?php echo $style_attr; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($layout_class); ?><?php echo esc_attr($theme_class); ?><?php echo esc_attr($emphasis_class); ?>" data-pp-component="grid"<?php echo $style_attr; ?>>
     <div class="container">
 
         <?php if ($title || $eyebrow || $subheading) : ?>
