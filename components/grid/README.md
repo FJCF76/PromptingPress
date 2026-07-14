@@ -104,3 +104,23 @@ Styles in `assets/css/components.css` under `/* === COMPONENT: grid === */`.
 
 Card hover state: `translateY(-2px)` — subtle lift. No shadow by default; set a
 `--grid-card-shadow` style slot (e.g. `var(--shadow-md)`) for elevated cards.
+
+## Card content alignment
+
+`--grid-item-text-align` (an `align`-typed style slot, #357) controls the alignment
+of a card's **text content** — title, text, and bullets — within the card body. It
+accepts one `text-align` keyword: `left` (default, unchanged historical rendering),
+`center`, `right`, `start`, `end`, or `justify`. Because the card body is a flex
+column whose text-bearing children stretch to full width, the value governs each
+item's inline content — so `center` centers the text stack (the centered emoji/label
+contact-card pattern).
+
+The `Read more` link is **not** moved by this slot. `.grid__item-link` sets
+`align-self: flex-start`, so it stays left-anchored (content-width) regardless of the
+value — `text-align` aligns inline text, not a flex item's box. Centering a card's
+link/button alongside its text is a separate concern (it would need the link's
+`align-self` to follow the alignment).
+
+The slot is `item_eligible`: set it grid-wide via the grid-level style to align every
+card, or per-card in `items[].style` to align a single card. An unset slot emits no
+inline custom property, so existing cards render byte-identically (left-aligned).

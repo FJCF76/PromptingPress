@@ -135,6 +135,15 @@ layout, section's image-left/image-right); `--{hero,section,cta,stats}-bg-positi
 controls the `background_image`/cover-layout CSS background. Not exposed on logos
 (fixed `object-fit: contain` layout, not a crop model).
 
+The `align` type (#357) controls text alignment. It accepts exactly one `text-align`
+keyword: `left`, `right`, `center`, `start`, `end`, or `justify`. Grid exposes it as
+`--grid-item-text-align` — an item-eligible slot, so it can be set grid-wide (all cards)
+or per-card via `items[].style`. Default `left` matches historical rendering; set
+`center` to center a card's text content (title, text, bullets) — the centered
+emoji/label contact-card pattern. The `Read more` link is NOT moved by this slot: it
+uses `align-self: flex-start` and stays left-anchored (text-align aligns inline text,
+not a flex item's box).
+
 > **Button and text styling are PROPS, not style slots.** A CTA's button style
 > (`button_variant`: primary/secondary/outline/ghost) and a grid item's typography
 > role (`text_role`: mono/meta/label/kicker) are set with `update_component` (props),
