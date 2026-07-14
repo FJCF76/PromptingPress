@@ -141,7 +141,7 @@ wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_hea
 wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_header_link_color","value":"#c8c8e0"}'
 ```
 
-`pp_header_text` colors the logo wordmark and the mobile hamburger toggle; `pp_header_link_color` colors the nav links. Hover and current-page links keep `--color-accent` — that is a global design token, so change it with `update_design_token` if the accent needs to suit a dark header. Layout, sticky behavior, and menu structure are not configurable here: this is a color surface, not a header builder.
+`pp_header_text` colors the logo wordmark and the mobile hamburger toggle; `pp_header_link_color` colors the nav links, including the active/current link (#355 — it follows `pp_header_link_color` and only falls back to `--color-accent` when you leave the link color unset; the current item keeps its bold weight either way). Hover keeps `--color-accent` — that is a global design token, so change it with `update_design_token` if the accent needs to suit a dark header. Style the header to match the SITE's real header, not the hero: a dark hero is not a reason to make the header dark. Layout, sticky behavior, and menu structure are not configurable here: this is a color surface, not a header builder.
 
 ## Gradients on the background options
 

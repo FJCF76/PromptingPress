@@ -241,9 +241,11 @@
 /* Nav links route through --header-link-color; the logo and toggle route through
    --header-text. Two slots, mirroring the footer's text-vs-link split (issue 300),
    so a header can carry a muted wordmark with brighter links (or the reverse).
-   Hover and current-item keep --color-accent: this issue's surface is background,
-   text, and link color only — the accent is a global design token the site builder
-   already controls. */
+   Hover keeps --color-accent (a global design token). The active/current link COLOR
+   also routes through --header-link-color (issue 355), falling back to --color-accent
+   when the operator hasn't set a header link color — so styling the header no longer
+   leaves the active link stuck on the global accent (the common one-page anchor-nav
+   case marks every link current). The active EMPHASIS (font-weight:700) is unchanged. */
 .nav__menu ul li a {
   display: block;
   padding: var(--space-sm) var(--space-sm);
@@ -258,17 +260,20 @@
   text-decoration: underline;
 }
 
-/* Active link: WP sets current-menu-item on <li> — this is the primary active style. */
+/* Active link: WP sets current-menu-item on <li> — this is the primary active style.
+   Color follows --header-link-color so an operator's pp_header_link_color reaches the
+   active link too (issue 355); --color-accent stays the fallback, so an unset header
+   renders byte-identically to before. The bold weight marks the current item either way. */
 .nav__menu ul li.current-menu-item > a,
 .nav__menu ul li.current_page_item > a {
   font-weight: 700;
-  color: var(--color-accent);
+  color: var(--header-link-color, var(--color-accent));
 }
 
 /* aria-current="page" is a secondary enhancement (e.g. set by other means). */
 .nav__menu ul li a[aria-current="page"] {
   font-weight: 700;
-  color: var(--color-accent);
+  color: var(--header-link-color, var(--color-accent));
 }
 
 /* Desktop: hamburger hidden, menu always visible */
