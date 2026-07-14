@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.124] — 2026-07-14 — the header's top gap is authorable now, so "tighten this header" is fully expressible (#343)
+
+**The site-building AI could set the space *below* a component's sub-heading but not the space *above* it, so a request like "tighten this header" was only half-expressible. This adds three style slots — `--section-title-margin-bottom`, `--grid-heading-margin-bottom`, and `--testimonials-heading-margin-bottom` — that make the gap between the title and the sub-heading authorable on section, grid, and testimonials. Leave them unset and every page renders exactly as before, down to the byte: the slots add reach, not a new spacing opinion.**
+
+This is the top-side companion to the sub-heading bottom-margin slots added in #336. The whole header rhythm on these three components is now slot-driven instead of half-hardcoded. The gap is not a single fixed value: on section and grid the responsive "premium typography" rules set it to `1.65rem` on wide screens and `1.25rem` on narrow ones, and both of those declarations now route through the slot with today's literal as the fallback, so a set value wins at every breakpoint and an unset slot changes nothing. Testimonials, which has no responsive override, keeps its `var(--space-lg)` default. The FAQ heading shares the same responsive rule but is out of scope here and keeps its literal spacing, unchanged.
+
+### Fixed
+
+- The title-to-subheading gap on `section`, `grid`, and `testimonials` is now routed through a per-component `--<component>-<title|heading>-margin-bottom` style slot instead of a bare literal, at the base rule and at both responsive breakpoints. Defaults are byte-identical to before.
+
+### Docs
+
+- `AI_CONTEXT.md` and `README.md` slot counts updated (172 → 175). The new slots surface to the chat AI through the existing runtime slot inspection and the `--grid-heading-*` wildcard already documented for grid card-scope rejection, so no accepted-grammar description changed.
+
+### Tests
+
+- `tests/e2e/style-render.spec.ts` gains rendered computed-style pins per component proving the slot's default renders unchanged (26.4px section/grid at ≥768px, 32px testimonials) and that a set value reaches the element under the real cascade, including past the premium-typography override. `tests/StyleSlotContractTest.php` auto-discovers the three new slots and confirms none is bypassed by a literal re-declaration. Slot-count pins in `tests/SchemaValidationTest.php` and `tests/js/css-lint.test.js` updated, and `--grid-heading-margin-bottom` added to the grid card-scope-ineligible set.
+
 ## [v0.16.123] — 2026-07-14 — the slot-contract guard can no longer be blindsided by a clobber in another stylesheet (#342)
 
 **`tests/StyleSlotContractTest.php` scanned only `components.css`, so a rule in `base.css` or `utilities.css` that outranks a component's slot rule was invisible to it — which is exactly how #336 hid: `base.css`'s `p:last-child { margin-bottom: 0 }` (specificity (0,1,1)) silently beat a bare `.grid__subheading` (0,1,0) on three components while every unit test stayed green. This adds check 8, a static cross-sheet tripwire that reads `base.css` and `utilities.css` and fails the build when an automatic-match rule (a bare element/pseudo-class selector, the mechanism that matches component elements by tag with no template opt-in) declares a slot-consumed property at a specificity that defeats a bare component class. Every such candidate must be acknowledged in a shrink-only ledger with a justification; a new one fails until a human accounts for it. No product CSS changed — this is guard hardening only.**
