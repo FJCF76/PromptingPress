@@ -107,8 +107,14 @@ For a SITE, set `--radius` via `update_design_token`. As a release default, in
 | `0`        | Sharp, geometric corners |
 | `0.375rem` | Subtle rounding (default) |
 | `0.75rem`  | Noticeable rounding |
-| `1rem`     | Rounded cards |
-| `9999px`   | Pill-shaped buttons (use only on .btn, not cards) |
+| `1rem`     | Rounded cards and surfaces |
+
+`--radius` is the GLOBAL shape token — it drives cards, panels, surfaces, and
+image corners. It does not control button corners: buttons have their own
+`--btn-radius` token (default `4px`). To pill a CTA without rounding cards, set
+`--btn-radius` (e.g. `100px`) via `update_design_token` and leave `--radius`
+alone. Setting `--radius` to a huge value to "pill buttons" is the wrong lever —
+it rounds every card and panel too, and no longer reaches the button at all.
 
 ---
 
