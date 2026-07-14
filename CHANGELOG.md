@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.132] — 2026-07-14 — a grid card's link/button now follows --grid-item-text-align, so a centered card is fully centered (#361)
+
+**#357 made a grid card's TEXT content (title, text, bullets) alignable through the `align`-typed `--grid-item-text-align` slot, but the `Read more` link stayed pinned left. `.grid__item-link` is a content-width flex item placed by `align-self: flex-start`, and per the #338 flex trap `text-align` cannot move a flex item's box — so a centered contact card (the webfiable use case #357 cites) centered its emoji/label but left the link flush left, only half-expressible. This makes the link follow the same slot: the operator still sets ONE value and both the text and the link align together, so a centered card is fully centered and a right-aligned card is fully right-aligned.**
+
+`align-self` accepts `start`/`end`/`center` but not `left`/`right`/`justify`, so a bare `align-self: var(--grid-item-text-align)` would silently drop `right` (invalid value) and render it left — a real keyword map is required. Rather than a second schema slot or inline-style substring matching (the #332 hazard), `grid.php` derives an internal plumbing custom property `--pp-grid-link-align` from the same slot value through `pp_grid_link_align_decl()` (`lib/wp.php`), mirroring the existing `--pp-list-marker-color` internal-plumbing pattern. The map is physical (LTR theme, no `rtl.css`, mirroring #357's own default): `left`/`start`/`justify` → `flex-start`, `center` → `center`, `right`/`end` → `flex-end`. The CSS reads `align-self: var(--pp-grid-link-align, flex-start)`. A companion is emitted at BOTH grid level (on the section) and per card (on the `.grid__item`), and for every recognized value including `left` → `flex-start`, so a per-card override resets a grid-level companion the card inherits by cascade proximity. The value passes the SAME render boundary the text-align slot itself passes (#330/#233), so a stored value the shared engine would reject derives no companion. An UNSET slot emits nothing, so the `flex-start` fallback keeps every existing card byte-identical to today's left-pinned link. No second schema slot, no new public surface.
+
+### Fixed
+
+- A grid card's link/button now follows `--grid-item-text-align`: setting the slot to `center` centers the link, `right`/`end` right-aligns it, and `left`/`start`/`justify` (and unset) keep it left-pinned. The slot is emitted grid-wide or per-card, so one value aligns the whole card's content — a fully centered contact card is now expressible. Unset is byte-identical to prior rendering.
+
+### Docs
+
+- The `--grid-item-text-align` slot description in `components/grid/schema.json` (surfaced to the chat AI at runtime via `lib/ai-context.php`), `components/grid/README.md`, `ai-instructions/style-component.md`, `ai-instructions/composition.md`, `AI_CONTEXT.md`, and the `.grid__item-body`/`.grid__item-link` comments in `assets/css/components.css` now state that the slot aligns BOTH the text and the link/button, replacing the prior "the link keeps its own left-anchored position and is not moved by this slot" caveat.
+
+### Tests
+
+- `tests/GridItemStyleTest.php` gains a table-driven pin over all six `align` keywords mapping to the correct `--pp-grid-link-align` companion, a per-card-override-resets-inherited-grid-companion pin, grid-wide companion on the section, and byte-identical unset / render-boundary-drop parity (no companion for an unset or invalid value). `tests/e2e/style-render.spec.ts` rewrites the #357 boundary into a #361 rendered-geometry pin: a centered card's link box is horizontally centered, a right card's link is flush right, and an unset card's link stays flush left, at both mobile and desktop, measuring the link box position (not just the computed property) so a reverted companion goes red.
+
 ## [v0.16.131] — 2026-07-14 — create_page no longer strands a composition-less page; a declarative per-action gate keeps component edits closed (#358)
 
 **`create_page` with no `composition` produced a page with no `_pp_composition`, and the preflight `target_page` check (the #96 mutation gate) then rejected EVERY page-scoped action on it — "Post ID N exists but has no composition." Because preflight runs once per target and is action-agnostic (its coverage unlocks all page actions for that post), that rejection blocked `update_composition` (which POPULATES the page) and `trash_page` (which DELETES it), not just component edits. The product's own `create_page` could strand a page that could be neither filled nor removed through the operate surface. This splits the precondition: `target_page` now accepts any existing page, and a new declarative, fail-closed per-action gate enforces the "needs a composition" requirement only where the action is known.**
