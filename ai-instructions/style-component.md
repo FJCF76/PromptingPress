@@ -149,10 +149,11 @@ The `align` type (#357) controls text alignment. It accepts exactly one `text-al
 keyword: `left`, `right`, `center`, `start`, `end`, or `justify`. Grid exposes it as
 `--grid-item-text-align` — an item-eligible slot, so it can be set grid-wide (all cards)
 or per-card via `items[].style`. Default `left` matches historical rendering; set
-`center` to center a card's text content (title, text, bullets) — the centered
-emoji/label contact-card pattern. The `Read more` link is NOT moved by this slot: it
-uses `align-self: flex-start` and stays left-anchored (text-align aligns inline text,
-not a flex item's box).
+`center` to center a card's content — the centered emoji/label contact-card pattern.
+The slot aligns BOTH the text content (title, text, bullets) AND the `Read more`
+link/button: the link follows the same alignment via a derived companion (#361), so
+one value fully centers (or right-aligns) the whole card. An unset slot leaves the
+card byte-identically left-aligned.
 
 > **Button and text styling are PROPS, not style slots.** A CTA's button style
 > (`button_variant`: primary/secondary/outline/ghost) and a grid item's typography
