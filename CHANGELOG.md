@@ -16,7 +16,7 @@ The gate is split into the two places that can each answer their half correctly.
 
 ### Docs
 
-- The `create_page`, `update_composition`, and `trash_page` action descriptions in `lib/actions.php` (surfaced to the chat AI at runtime via `lib/ai-context.php`) now state that an empty page is populatable and deletable, and that only component-level edits require an existing composition. `ai-instructions/playbook-create-page.md` already documented the create→populate flow this fix restores.
+- The `create_page`, `update_composition`, and `trash_page` action descriptions in `lib/actions.php` (surfaced to the chat AI at runtime via `lib/ai-context.php`) now state that an empty page is populatable and deletable, and that only component-level edits require an existing composition. `ai-instructions/operating-loop.md` and `docs/operating-loop-safety.md` no longer describe the `target_page` preflight check as "post exists AND has a composition" — the check now only verifies the page exists, and the composition precondition is documented as a per-action gate. `ai-instructions/playbook-create-page.md` already documented the create→populate flow this fix restores.
 
 ### Tests
 
