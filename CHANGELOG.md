@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.129] — 2026-07-14 — a styled header's active nav link now honors its link color, not the accent (#355)
+
+**Setting `pp_header_link_color` recolored the header's nav links, but the active/current link ignored it and stayed the global accent. On a one-page anchor-nav marketing site every link points at the current page, so WordPress marks them all current and the whole menu ignored the option. Now the active/current link color follows `pp_header_link_color` too, falling back to the global accent only when the option is unset. The current item keeps its bold weight, so it stays distinguishable. Leave the option unset and the header renders exactly as before, down to the byte: the active link is still the accent, still bold.**
+
+The active-link rules in `assets/css/components.css` (`.nav__menu li.current-menu-item > a`, `.current_page_item > a`, and `a[aria-current="page"]`) hard-coded `color: var(--color-accent)`, which won over `--header-link-color` (the token set by `pp_header_link_color`, #333). They now resolve `color: var(--header-link-color, var(--color-accent))`, mirroring the base nav-link rule, so an operator's chosen link color reaches the active link while an unset option falls back to the accent exactly as before. The `font-weight: 700` emphasis is unchanged, so the current page stays marked. This adds no site option and no public surface — it is a cascade correction on existing header chrome. On a normal multi-page menu with a styled header, the current item's color now matches its siblings and is distinguished by weight; the accent color highlight yields to the operator's chosen link color by design.
+
+### Fixed
+
+- The header's active/current nav link now follows `pp_header_link_color` (emitted as `--header-link-color`) instead of forcing the global accent over it, so styling the header colors the active link too. It falls back to `--color-accent` when the option is unset, so an unstyled header is byte-identical to before, and the bold weight still marks the current item.
+
+### Docs
+
+- `AI_CONTEXT.md`, `ai-instructions/set-logo.md`, `components/nav/schema.json`, `components/nav/README.md`, and the `update_site_option` action description (`lib/actions.php`) now state that `pp_header_link_color` colors the active/current header link (with the accent as the unset fallback) and that the current item keeps its bold weight. A one-line steer was added that the header should be styled to match the site's real header, not the hero (a dark hero is not a reason for a dark header). The nav README's active-link note was corrected: WordPress marks the current item server-side (`current-menu-item` / `aria-current`), no JS.
+
+### Tests
+
+- `tests/e2e/style-render.spec.ts` gains a `#355` rendered pin that seeds a real WP menu (so the `current-menu-item` is genuine, not a static assertion) and proves the active link computes the operator's `pp_header_link_color` when set and `--color-accent` when unset, `font-weight: 700` in both. Proven red→green: reverting the CSS makes the set-color assertion fail (accent instead of the link color). `tests/js/css-lint.test.js` adds a static pin that both active declarations (including the `aria-current` one the render pin can't isolate) route color through `--header-link-color`, and guards against a regression to the bare `var(--color-accent)`.
+
 ## [v0.16.128] — 2026-07-14 — a grid card's text can now be centered, not just left-aligned (#357)
 
 **A `grid` card always rendered its content left-aligned; there was no way to center a card's text, so the centered emoji/label contact-card pattern was simply not authorable. This adds `--grid-item-text-align`, a per-card (and grid-wide) style slot that takes a `text-align` keyword. Leave it unset and every card renders exactly as before, down to the byte: the default is `left`, the theme's historical alignment.**
