@@ -182,7 +182,10 @@ class GridItemStyleTest extends TestCase
         ]);
 
         $cards = $this->cards($html);
-        $this->assertStringContainsString('style="--grid-item-text-align: center;"', $cards[1]);
+        // The slot renders on the card, and the link/button follows via the derived
+        // --pp-grid-link-align companion (#361: center -> center) so a centered card
+        // is fully centered — the operator sets ONE value, both text and link align.
+        $this->assertStringContainsString('style="--grid-item-text-align: center; --pp-grid-link-align: center;"', $cards[1]);
         // The sibling emits no inline style — it renders byte-identically to today.
         $this->assertStringNotContainsString('style=', $cards[0]);
     }
@@ -197,9 +200,16 @@ class GridItemStyleTest extends TestCase
         ]);
 
         $this->assertMatchesRegularExpression(
-            '/<section[^>]*style="[^"]*--grid-item-text-align: right;?"/',
+            '/<section[^>]*style="[^"]*--grid-item-text-align: right\b/',
             $html,
             'A grid-level align slot must render on the section element.'
+        );
+        // The link companion (#361) rides on the same section wrapper so every card's
+        // link follows the grid-wide alignment (right -> flex-end).
+        $this->assertMatchesRegularExpression(
+            '/<section[^>]*style="[^"]*--pp-grid-link-align: flex-end\b/',
+            $html,
+            'A grid-level align slot must also derive the link-align companion on the section.'
         );
     }
 
@@ -215,6 +225,9 @@ class GridItemStyleTest extends TestCase
         ]);
 
         $this->assertStringNotContainsString('--grid-item-text-align', $html);
+        // No slot => no link companion either, so the CSS flex-start fallback keeps
+        // the link byte-identically left-pinned (#361 default parity).
+        $this->assertStringNotContainsString('--pp-grid-link-align', $html);
         foreach ($this->cards($html) as $card) {
             $this->assertStringNotContainsString('style=', $card);
         }
@@ -232,6 +245,70 @@ class GridItemStyleTest extends TestCase
         ]);
 
         $this->assertStringNotContainsString('--grid-item-text-align', $html);
+        // The same render boundary gates the companion (#361), so a rejected value
+        // derives no --pp-grid-link-align either — no half-applied alignment.
+        $this->assertStringNotContainsString('--pp-grid-link-align', $html);
         $this->assertStringNotContainsString('style=', $this->cards($html)[0]);
+    }
+
+    /**
+     * #361 — the derived link-align companion maps every accepted `align` keyword to
+     * its physical `align-self` equivalent (left/start/justify -> flex-start,
+     * center -> center, right/end -> flex-end). Table-driven so every branch of the
+     * map in pp_grid_link_align_decl() is exercised, including the ones that map to
+     * the flex-start default (which MUST still emit, so a per-card override can reset
+     * an inherited grid-level companion).
+     *
+     * @dataProvider linkAlignKeywordProvider
+     */
+    public function testItemTextAlignDerivesLinkCompanion(string $keyword, string $expected): void
+    {
+        $html  = $this->render('grid', [
+            'items' => [
+                ['title' => 'Card', 'link_url' => '/x', 'style' => ['--grid-item-text-align' => $keyword]],
+            ],
+        ]);
+        $card = $this->cards($html)[0];
+
+        $this->assertStringContainsString('--grid-item-text-align: ' . $keyword . ';', $card);
+        $this->assertStringContainsString('--pp-grid-link-align: ' . $expected . ';', $card);
+    }
+
+    /** @return array<string, array{0:string,1:string}> */
+    public static function linkAlignKeywordProvider(): array
+    {
+        return [
+            'left -> flex-start'    => ['left', 'flex-start'],
+            'start -> flex-start'   => ['start', 'flex-start'],
+            'justify -> flex-start' => ['justify', 'flex-start'],
+            'center -> center'      => ['center', 'center'],
+            'right -> flex-end'     => ['right', 'flex-end'],
+            'end -> flex-end'       => ['end', 'flex-end'],
+        ];
+    }
+
+    public function testPerCardAlignResetsInheritedGridCompanion(): void
+    {
+        // A grid-level `center` centers every card's link; one card overridden back to
+        // `left` must re-pin ITS link left. Because the companion is emitted for the
+        // recognized `left` value too (-> flex-start) on the .grid__item, it overrides
+        // the section's --pp-grid-link-align by cascade proximity — the card is not
+        // left with a centered link inherited from the grid (#361 per-card parity).
+        $html = $this->render('grid', [
+            '__pp_style' => ['--grid-item-text-align' => 'center'],
+            'items'      => [
+                ['title' => 'Inherits center', 'link_url' => '/a'],
+                ['title' => 'Overridden left', 'link_url' => '/b', 'style' => ['--grid-item-text-align' => 'left']],
+            ],
+        ]);
+
+        // Section carries the centered companion for the inheriting card.
+        $this->assertMatchesRegularExpression(
+            '/<section[^>]*style="[^"]*--pp-grid-link-align: center\b/',
+            $html
+        );
+        // The overridden card re-pins its own link left on the .grid__item.
+        $overridden = $this->cards($html)[1];
+        $this->assertStringContainsString('--pp-grid-link-align: flex-start;', $overridden);
     }
 }

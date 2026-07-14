@@ -762,6 +762,65 @@ function pp_render_style_vars(array $style, string $component_name): string {
 }
 
 /**
+ * Maps a grid card's --grid-item-text-align value to the align-self keyword its
+ * link/button must follow, returned as the internal plumbing custom property
+ * --pp-grid-link-align (issue 361). This is the second mechanism the text-align
+ * slot cannot supply on its own: .grid__item-link is a content-width flex item
+ * placed by align-self, and per the issue 338 flex trap text-align never moves a
+ * flex item's box — so after issue 357 a centered card centered its text but left
+ * the "Read more" link pinned left. The operator still sets ONE authorable slot
+ * (--grid-item-text-align); this derives the link's cross-axis placement from the
+ * SAME value so the text and the link align together (no second schema slot).
+ *
+ * A keyword map is required, not a pass-through: align-self accepts start/end/
+ * center but NOT left/right/justify, so a bare `align-self: var(--grid-item-text-
+ * align)` would silently drop `right` (invalid value) and render it left. Physical
+ * mapping (LTR theme, no rtl.css — mirrors the text-align slot's own physical
+ * default in issue 357):
+ *     left | start | justify -> flex-start   (also the CSS default)
+ *     center                 -> center
+ *     right | end            -> flex-end
+ *
+ * A companion is emitted for every RECOGNIZED value INCLUDING left -> flex-start,
+ * so a per-card override resets a grid-level companion the card inherits from the
+ * section by cascade proximity (a card set back to `left` must re-pin its link
+ * left even when the grid centers the rest). An UNSET or unrecognized value emits
+ * NOTHING, so the CSS fallback (flex-start) keeps every existing card byte-
+ * identical to today. The value passes the SAME render boundary the text-align
+ * slot itself passes (#330/#233): a stored value the shared engine would reject
+ * (out-of-band write, restore) derives no companion, exactly as it renders no slot.
+ *
+ * @param array $style  A grid style-slot map (grid-level __pp_style or a card's style).
+ * @return string  '--pp-grid-link-align: <keyword>', or '' when nothing should render.
+ */
+function pp_grid_link_align_decl(array $style): string {
+    $value = $style['--grid-item-text-align'] ?? null;
+    if (!is_string($value) || $value === '') {
+        return '';
+    }
+    // Same render-boundary gate the text-align slot itself passes through, so a
+    // value the shared engine rejects derives no companion (parity with #330).
+    if (!pp_render_style_value_allowed($value, 'align')) {
+        return '';
+    }
+    // The align type validates to exactly these six keywords (_pp_validate_align);
+    // map them to their physical align-self equivalent. Anything else emits nothing.
+    $map = [
+        'left'    => 'flex-start',
+        'start'   => 'flex-start',
+        'justify' => 'flex-start',
+        'center'  => 'center',
+        'right'   => 'flex-end',
+        'end'     => 'flex-end',
+    ];
+    $keyword = $map[$value] ?? null;
+    if ($keyword === null) {
+        return '';
+    }
+    return '--pp-grid-link-align: ' . $keyword;
+}
+
+/**
  * Renders an inline ` style="..."` attribute of CSS custom properties for
  * TEMPLATE-OWNED chrome — the header and footer, whose styling surface is
  * whitelisted site options (pp_header_* / pp_footer_*) rather than component

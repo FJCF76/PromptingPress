@@ -120,18 +120,20 @@ Card hover state: `translateY(-2px)` — subtle lift. No shadow by default; set 
 ## Card content alignment
 
 `--grid-item-text-align` (an `align`-typed style slot, #357) controls the alignment
-of a card's **text content** — title, text, and bullets — within the card body. It
-accepts one `text-align` keyword: `left` (default, unchanged historical rendering),
-`center`, `right`, `start`, `end`, or `justify`. Because the card body is a flex
-column whose text-bearing children stretch to full width, the value governs each
-item's inline content — so `center` centers the text stack (the centered emoji/label
-contact-card pattern).
+of a card's **content** within the card body. It accepts one `text-align` keyword:
+`left` (default, unchanged historical rendering), `center`, `right`, `start`, `end`,
+or `justify`. Because the card body is a flex column whose text-bearing children
+stretch to full width, the value governs each item's inline content — so `center`
+centers the text stack (the centered emoji/label contact-card pattern).
 
-The `Read more` link is **not** moved by this slot. `.grid__item-link` sets
-`align-self: flex-start`, so it stays left-anchored (content-width) regardless of the
-value — `text-align` aligns inline text, not a flex item's box. Centering a card's
-link/button alongside its text is a separate concern (it would need the link's
-`align-self` to follow the alignment).
+The `Read more` link/button follows the SAME alignment (#361). `.grid__item-link` is
+a flex item placed by `align-self`, and per the #338 flex trap `text-align` cannot
+move its box — so `grid.php` derives an internal `--pp-grid-link-align` companion from
+the same slot value (`left`/`start`/`justify` → `flex-start`, `center` → `center`,
+`right`/`end` → `flex-end`) and the CSS reads `align-self: var(--pp-grid-link-align,
+flex-start)`. The operator sets ONE slot; text and link align together, so a centered
+card is fully centered. An unset slot emits no companion, so the `flex-start` fallback
+keeps the link byte-identically left-pinned.
 
 The slot is `item_eligible`: set it grid-wide via the grid-level style to align every
 card, or per-card in `items[].style` to align a single card. An unset slot emits no
