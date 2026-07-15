@@ -2,7 +2,7 @@
 Contributors: fjcf76
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 0.16.136
+Stable tag: 1.0.0
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -19,6 +19,10 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 4. Activate the theme.
 
 == Changelog ==
+
+= 1.0.0 =
+* First stable release: the v1.0.0 acceptance gate is closed. Every capability shipped in the 0.16.x series; 1.0.0 certifies that surface rather than adding to it, following three benchmark dogfoods that verified the product materially credible with all trust-class defects resolved
+* Version bump and a documentation-freshness pass only — no behavior changed
 
 = 0.16.48 =
 * Rollup of the 0.16 series (48 patch releases). Highlights:

@@ -4,6 +4,16 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.0.0] — 2026-07-15 — first stable release: the v1.0.0 acceptance gate is closed (#141)
+
+**PromptingPress reaches 1.0.0. This is a milestone marker, not a feature release: every capability shipped in the 0.16.x train below, and this entry carries no new code beyond the five-file version bump and a documentation-freshness pass. What 1.0.0 marks is the close of the v1.0.0 acceptance gate (#141) — the milestone reached zero open issues, and three independent benchmark dogfoods verified the product materially credible with all trust-class defects resolved. The 0.16.x train is what earned the tag: the composition/file authority model, the shared validation engines (no surface-specific second validator), write-time compare-and-swap on composition writes (#13), composition history and restore (#133/#233), the typed action/apply layer with preview and rollback, the per-instance style-slot contract enforced by static and rendered-cascade guards, and the runtime AI action catalog. 1.0.0 does not add to that surface; it certifies it.**
+
+This release bumps the version across the five synced files (style.css, package.json, functions.php `PP_VERSION`, the README badge, and readme.txt's Stable tag) from 0.16.136 to 1.0.0, and corrects the two stale theme-version strings in README.md's project-status section (the release-history range and the "What exists today" heading) that still read v0.16.99. A full audit of the documentation surfaces (README.md, readme.txt, AI_CONTEXT.md, AI_RULES.md, docs/, ai-instructions/) found no other stale theme-version string or stale feature claim: the style-slot count (194) and its per-component breakdown are test-guarded against the schemas (`SchemaValidationTest::testDocsStyleSlotCountMatchesSchema`) and remain current, and the per-post composition-freshness version references (the #13 compare-and-swap counter) are a distinct value from the theme version and were correctly left untouched. No behavior changed.
+
+### Docs
+
+- README.md's project-status section now reads v1.0.0 instead of v0.16.99 in the release-history range and the "What exists today" heading. All other documented counts, claims, and grammars were audited and confirmed current — no other changes were needed.
+
 ## [v0.16.136] — 2026-07-15 — add_component now accepts a per-instance style, so you can add a styled component in one call instead of two (#368)
 
 **The `add_component` action took `component`, `props`, and `position` but had no `style` param. Because composition items already carry a per-instance `items[].style` map, an operator would naturally pass `style` to `add_component` too — and the action returned `ok: true` while silently dropping the styling. That is the #147 trust class: a mutating action reports success while ignoring an input that had visible intent. Per-instance styling only landed through a separate `style_component` call or a full composition write. This adds an optional `style` param to `add_component` that is written onto the new composition item and validated by the exact same shared engine as `items[].style`, so a styled component can be added in one call — and an invalid style is now rejected instead of silently accepted.**
