@@ -26,7 +26,7 @@ The format is AI-native: the same JSON a human edits in the admin meta box is wh
 
 - `component` — must match a registered component name (a folder in `components/`)
 - `props` — must satisfy required props from that component's `schema.json`
-- `style` — (optional) per-instance CSS custom property overrides, validated against the component's `schema.json` → `styling.style_slots`. Only declared slots are accepted. Use `style_component` action to set these; see `ai-instructions/style-component.md`
+- `style` — (optional) per-instance CSS custom property overrides, validated against the component's `schema.json` → `styling.style_slots`. Only declared slots are accepted. Set these via a composition write (`create_page` / `update_composition`), the `style_component` action, or by passing `style` to `add_component` (which writes it onto the new item in one call, validated by the same shared engine — no separate follow-up `style_component` needed); see `ai-instructions/style-component.md`
 - Order in the array = render order on the page
 - Any registered component can appear any number of times in any order
 

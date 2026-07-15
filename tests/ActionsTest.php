@@ -1455,6 +1455,155 @@ class ActionsTest extends TestCase
         $this->assertEquals('cta', $comp[2]['component']);
     }
 
+    // ── Action: add_component — per-instance style (#368) ──────────────────
+    // add_component accepts an optional `style` map written onto the new
+    // composition item and validated by the SAME shared engine as items[].style
+    // (pp_validate_composition → _pp_validate_style_slot_map). No surface-specific
+    // validator; the style-slot error codes below are the shared-engine codes.
+
+    public function testAddComponentWithStyleWritesStyleOntoNewItem(): void
+    {
+        $id = pp_create_page('Add Style Test', 'draft');
+        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'First']]]);
+
+        $result = pp_execute_action('add_component', [
+            'post_id'   => $id,
+            'component' => 'hero',
+            'props'     => ['title' => 'Styled'],
+            'style'     => ['--hero-bg' => '#1a1a2e', '--hero-padding-top' => '8rem'],
+        ]);
+        $this->assertTrue($result['ok']);
+        $comp = pp_get_composition($id);
+        $this->assertCount(2, $comp);
+        $this->assertSame('#1a1a2e', $comp[1]['style']['--hero-bg']);
+        $this->assertSame('8rem', $comp[1]['style']['--hero-padding-top']);
+    }
+
+    public function testAddComponentRejectsInvalidStyleValue(): void
+    {
+        $id = pp_create_page('Add Bad Value', 'draft');
+        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'First']]]);
+
+        // Same rejection (and same shared-engine error code) as items[].style /
+        // style_component would give for a non-color value on a color slot.
+        $result = pp_validate_action('add_component', [
+            'post_id'   => $id,
+            'component' => 'hero',
+            'props'     => ['title' => 'Styled'],
+            'style'     => ['--hero-bg' => 'not-a-color'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_style_value', $result->get_error_code());
+    }
+
+    public function testAddComponentRejectsUnknownStyleSlot(): void
+    {
+        $id = pp_create_page('Add Bad Slot', 'draft');
+        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'First']]]);
+
+        $result = pp_validate_action('add_component', [
+            'post_id'   => $id,
+            'component' => 'hero',
+            'props'     => ['title' => 'Styled'],
+            'style'     => ['--hero-display' => 'none'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_style_slot', $result->get_error_code());
+    }
+
+    public function testAddComponentInvalidStyleDoesNotMutate(): void
+    {
+        $id = pp_create_page('Add No Mutate', 'draft');
+        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'First']]]);
+        $before = pp_get_composition($id);
+
+        $result = pp_execute_action('add_component', [
+            'post_id'   => $id,
+            'component' => 'hero',
+            'props'     => ['title' => 'Styled'],
+            'style'     => ['--hero-bg' => 'not-a-color'],
+        ]);
+        $this->assertFalse($result['ok']);
+        $after = pp_get_composition($id);
+        $this->assertEquals($before, $after, 'A rejected style must not append or partially write.');
+        $this->assertCount(1, $after);
+    }
+
+    public function testAddComponentEmptyStyleOmitsStyleKey(): void
+    {
+        // An empty style map carries no visible styling intent, so it is omitted
+        // (matches update_component's `!empty` treatment). The stored item is
+        // byte-identical to an add_component with no style param at all.
+        $id = pp_create_page('Add Empty Style', 'draft');
+        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'First']]]);
+
+        $result = pp_execute_action('add_component', [
+            'post_id'   => $id,
+            'component' => 'section',
+            'props'     => ['body' => 'No style'],
+            'style'     => [],
+        ]);
+        $this->assertTrue($result['ok']);
+        $comp = pp_get_composition($id);
+        $this->assertArrayNotHasKey('style', $comp[1]);
+    }
+
+    public function testAddComponentStyleWithPositionInsertsStyledItemAtIndex(): void
+    {
+        $id = pp_create_page('Add Style Pos', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'hero', 'props' => ['title' => 'First']],
+            ['component' => 'section', 'props' => ['body' => 'Last']],
+        ]);
+
+        $result = pp_execute_action('add_component', [
+            'post_id'   => $id,
+            'component' => 'hero',
+            'props'     => ['title' => 'Inserted'],
+            'style'     => ['--hero-bg' => '#123456'],
+            'position'  => 1,
+        ]);
+        $this->assertTrue($result['ok']);
+        $comp = pp_get_composition($id);
+        $this->assertCount(3, $comp);
+        $this->assertSame('Inserted', $comp[1]['props']['title']);
+        $this->assertSame('#123456', $comp[1]['style']['--hero-bg']);
+        $this->assertArrayNotHasKey('style', $comp[0]);
+        $this->assertArrayNotHasKey('style', $comp[2]);
+    }
+
+    public function testAddComponentDoesNotSilentlyDropStyle(): void
+    {
+        // #368 regression: add_component used to accept a `style` key, return
+        // ok:true, and silently drop it (the #147 trust class). Now a valid style
+        // is HONORED (persisted onto the new item) and an invalid style is
+        // REJECTED — never a silent ok:true with the styling gone.
+        $id = pp_create_page('Regression 368', 'draft');
+        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'First']]]);
+
+        // Valid style is honored, not dropped.
+        $ok = pp_execute_action('add_component', [
+            'post_id'   => $id,
+            'component' => 'hero',
+            'props'     => ['title' => 'Styled'],
+            'style'     => ['--hero-bg' => '#0d1117'],
+        ]);
+        $this->assertTrue($ok['ok']);
+        $comp = pp_get_composition($id);
+        $this->assertArrayHasKey('style', $comp[1], 'Valid style must be persisted, not silently dropped.');
+        $this->assertSame('#0d1117', $comp[1]['style']['--hero-bg']);
+
+        // Invalid style is rejected, not silently accepted behind ok:true.
+        $bad = pp_execute_action('add_component', [
+            'post_id'   => $id,
+            'component' => 'hero',
+            'props'     => ['title' => 'Bad'],
+            'style'     => ['--hero-bg' => 'not-a-color'],
+        ]);
+        $this->assertFalse($bad['ok'], 'Invalid style must be rejected, never silently accepted.');
+        $this->assertCount(2, pp_get_composition($id), 'A rejected add must not append.');
+    }
+
     // ── Action: remove_component ───────────────────────────────────────────
 
     public function testRemoveComponentRemovesByIndex(): void
