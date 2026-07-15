@@ -168,7 +168,7 @@ If adding background-image support to another component, follow this exact patte
 
 **FAQ structured data (#3):** The FAQ component always emits a `<script type="application/ld+json">` FAQPage schema block immediately after its own markup, derived from `items` — zero-config, no toggle prop. `question`/`answer` are stripped of HTML (`wp_strip_all_tags()`) before encoding, since Google's FAQPage schema expects plain text; items missing a question or answer are skipped. Nothing is emitted if there are no complete items.
 
-**Section headers (hero, section, faq, grid, cta, testimonials):** `eyebrow` renders a short kicker label as a pill above the title on all six. `subheading` (section, grid, testimonials only) renders a supporting line below the title — hero uses `subtitle` and cta uses `text` for the same concept, so neither has a `subheading` prop. `heading_align` (`start` default, or `center`; section, grid, testimonials only) centers the eyebrow/title/subheading block, independent of the component's own `layout`.
+**Section headers (hero, section, faq, grid, cta, testimonials):** `eyebrow` renders a short kicker label as a pill above the title on all six. The pill is styled through per-component eyebrow style slots — color, bg, radius, border, and casing: the `text-transform`-typed `--<component>-eyebrow-text-transform` slot defaults to `uppercase`; set it to `none` for a sentence-case kicker (or `lowercase`/`capitalize`). `subheading` (section, grid, testimonials only) renders a supporting line below the title — hero uses `subtitle` and cta uses `text` for the same concept, so neither has a `subheading` prop. `heading_align` (`start` default, or `center`; section, grid, testimonials only) centers the eyebrow/title/subheading block, independent of the component's own `layout`.
 
 **title_accent (hero, section, grid, cta, faq, stats, testimonials):** All seven heading-bearing components accept `title_accent` — an exact, case-sensitive substring of `title` rendered in a per-component accent color slot (e.g. `--hero-title-accent-color`). It is a structured plain-text mechanism, not an HTML allowlist: if `title_accent` isn't a literal substring of `title`, it is silently ignored and `title` renders in full.
 
@@ -380,7 +380,7 @@ Token overrides survive theme updates — `base.css` is overwritten on update, b
 
 Style slots allow per-instance visual customization of components without CSS edits. Each component declares allowed CSS custom properties in its `schema.json` under `styling.style_slots`. Only declared slots are accepted — arbitrary CSS is rejected.
 
-**188 style slots** across 7 components: hero (40), section (35), grid (34), cta (29), testimonials (24), faq (16), stats (10).
+**194 style slots** across 7 components: hero (41), section (36), grid (35), cta (30), testimonials (25), faq (17), stats (10).
 
 **How it works:**
 1. Composition entries gain an optional `style` key alongside `props`
