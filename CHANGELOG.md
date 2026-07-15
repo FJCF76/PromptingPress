@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.136] — 2026-07-15 — add_component now accepts a per-instance style, so you can add a styled component in one call instead of two (#368)
+
+**The `add_component` action took `component`, `props`, and `position` but had no `style` param. Because composition items already carry a per-instance `items[].style` map, an operator would naturally pass `style` to `add_component` too — and the action returned `ok: true` while silently dropping the styling. That is the #147 trust class: a mutating action reports success while ignoring an input that had visible intent. Per-instance styling only landed through a separate `style_component` call or a full composition write. This adds an optional `style` param to `add_component` that is written onto the new composition item and validated by the exact same shared engine as `items[].style`, so a styled component can be added in one call — and an invalid style is now rejected instead of silently accepted.**
+
+The `style` map routes through the composition validator that `add_component` already calls: the new item is built with its `style` key and passed to `pp_validate_composition()`, whose per-item pass validates the style against the component's schema-declared `style_slots` via the same `_pp_validate_style_slot_map` engine that validates `items[].style` (issues #306/#323) and `style_component` — no surface-specific second validator. An unknown slot is rejected with `invalid_style_slot` and an out-of-type value with `invalid_style_value`, identical to every other style surface. The capability is opt-in: an `add_component` call with no `style` (or an empty `style` map, matching `update_component`'s treatment) leaves the stored item byte-identical to before. `style` combines with `position`, so a styled component can be inserted at any index. The chat AI learns the new param automatically — the runtime action catalog in `lib/ai-context.php` generates the signature and description from the registry — and the static `AI_CONTEXT.md` and `ai-instructions/composition.md` name it in the same change.
+
+### Fixed
+
+- `add_component` now honors an optional per-instance `style` map (item-scoped style slots, the same map and shared validator as composition `items[].style` and `style_component`), writing it onto the new component in one call. Previously a `style` key passed to `add_component` was silently dropped behind `ok: true`; now a valid style is applied and an invalid one is rejected with the same `invalid_style_slot` / `invalid_style_value` errors as every other style surface. An `add_component` call without `style` is unchanged.
+
+### Docs
+
+- The `add_component` action description (surfaced to the chat AI at runtime via `lib/ai-context.php`), the `AI_CONTEXT.md` action table, and `ai-instructions/composition.md` all describe the new `style` param and note it is item-scoped, same as `items[].style`. The `AI_CONTEXT.md` `update_component` row is also corrected to list its existing `style` param, so the two actions read consistently.
+
+### Tests
+
+- New `tests/ActionsTest.php` cases pin the honored path (a valid style persists onto the new item and combines with `position`), the rejection path (invalid slot value and unknown slot fail through the shared engine with the same error codes as `items[].style`), the no-mutation guarantee (a rejected style does not append or partially write), the opt-in guarantee (empty style omits the key), and the #368 regression itself (valid style honored, invalid style rejected — never silently dropped).
+
 ## [v0.16.135] — 2026-07-15 — eyebrow letter-casing is now authorable, so a kicker can be sentence case instead of forced uppercase (#370)
 
 **The eyebrow/kicker pill baked `text-transform: uppercase` into all six section-header components (hero, section, faq, grid, cta, testimonials) with no slot to change it. The pill already exposed color, background, radius, and border slots, but its casing was a fixed opinion: a design that shows the kicker in sentence case, lowercase, or title case was inexpressible through the documented surface. This adds a per-component `--<component>-eyebrow-text-transform` style slot, consumed as `text-transform: var(--slot, uppercase)`, so an operator can author the casing. The default stays `uppercase`, so unset rendering is byte-identical.**
