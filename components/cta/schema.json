@@ -85,6 +85,7 @@
       "--cta-eyebrow-radius": { "type": "length", "default": "3px", "description": "Eyebrow pill corner radius. Set a large value (e.g. 999px) for a fully rounded pill." },
       "--cta-eyebrow-border-width": { "type": "length", "default": "0", "description": "Eyebrow pill border width. Set a non-zero width (with --cta-eyebrow-border-color) for an outlined pill; 0 (default) renders no border." },
       "--cta-eyebrow-border-color": { "type": "color", "default": "transparent", "description": "Eyebrow pill border color. Takes effect when --cta-eyebrow-border-width is non-zero." },
+      "--cta-eyebrow-text-transform": { "type": "text-transform", "default": "uppercase", "description": "Eyebrow pill letter-casing. Default uppercase renders the kicker in caps; set none to keep it as authored (e.g. sentence case), or lowercase / capitalize." },
       "--cta-title-size": { "type": "length", "default": "inherit", "description": "Title font size" },
       "--cta-body-color": { "type": "color", "default": "var(--color-muted)", "description": "Body text color" },
       "--cta-body-size": { "type": "length", "default": "inherit", "description": "Body text font size" },

@@ -152,8 +152,8 @@ describe('CSS lint: style slot fallback patterns', () => {
         });
     });
 
-    test('hero/section/grid/cta schemas declare 138 style slots (subset of the 188 total)', () => {
-        expect(allSlots.length).toBe(138);
+    test('hero/section/grid/cta schemas declare 142 style slots (subset of the 194 total)', () => {
+        expect(allSlots.length).toBe(142);
     });
 
     allSlots.forEach(({ component, slotName }) => {

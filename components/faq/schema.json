@@ -57,6 +57,7 @@
       "--faq-eyebrow-radius": { "type": "length", "default": "3px", "description": "Eyebrow pill corner radius. Set a large value (e.g. 999px) for a fully rounded pill." },
       "--faq-eyebrow-border-width": { "type": "length", "default": "0", "description": "Eyebrow pill border width. Set a non-zero width (with --faq-eyebrow-border-color) for an outlined pill; 0 (default) renders no border." },
       "--faq-eyebrow-border-color": { "type": "color", "default": "transparent", "description": "Eyebrow pill border color. Takes effect when --faq-eyebrow-border-width is non-zero." },
+      "--faq-eyebrow-text-transform": { "type": "text-transform", "default": "uppercase", "description": "Eyebrow pill letter-casing. Default uppercase renders the kicker in caps; set none to keep it as authored (e.g. sentence case), or lowercase / capitalize." },
       "--faq-heading-size": { "type": "length", "default": "1.875rem", "description": "Section heading font size" },
       "--faq-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading text color" },
       "--faq-heading-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading, if set" },

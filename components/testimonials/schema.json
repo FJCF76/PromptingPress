@@ -82,6 +82,7 @@
       "--testimonials-eyebrow-radius": { "type": "length", "default": "3px", "description": "Eyebrow pill corner radius. Set a large value (e.g. 999px) for a fully rounded pill." },
       "--testimonials-eyebrow-border-width": { "type": "length", "default": "0", "description": "Eyebrow pill border width. Set a non-zero width (with --testimonials-eyebrow-border-color) for an outlined pill; 0 (default) renders no border." },
       "--testimonials-eyebrow-border-color": { "type": "color", "default": "transparent", "description": "Eyebrow pill border color. Takes effect when --testimonials-eyebrow-border-width is non-zero." },
+      "--testimonials-eyebrow-text-transform": { "type": "text-transform", "default": "uppercase", "description": "Eyebrow pill letter-casing. Default uppercase renders the kicker in caps; set none to keep it as authored (e.g. sentence case), or lowercase / capitalize." },
       "--testimonials-subheading-color": { "type": "color", "default": "var(--color-muted)", "description": "Subheading text color" },
       "--testimonials-subheading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space between the subheading and the content below it" },
       "--testimonials-heading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space between the heading and the subheading below it" },

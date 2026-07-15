@@ -768,6 +768,30 @@ function _pp_validate_align(string $value): bool {
 }
 
 /**
+ * Validates a CSS text-transform value for the bounded `text-transform`
+ * slot type (#370 — authorable letter-casing on the eyebrow/kicker pill and
+ * any future component that opts in).
+ *
+ * Accepts exactly the closed set of general-purpose `text-transform` keywords
+ * {none, uppercase, lowercase, capitalize}, matched case-insensitively
+ * (mirroring _pp_validate_align()). Everything else is rejected — including
+ * the CJK-typography values `full-width`/`full-size-kana` (form conversion,
+ * not case control, so out of scope for a case slot the same way `align`
+ * omits `match-parent`/`justify-all`), `math-auto`, and the CSS-wide
+ * `unset`/`initial`/`inherit`/`revert` keywords — so the type stays a tight
+ * closed vocabulary rather than a raw keyword passthrough. This is the shared
+ * engine's ONLY text-transform validator; components do not add a second one
+ * (repo invariant: validation lives in the shared engines). A typed
+ * `text-transform` slot is honored at the #330 render boundary for free,
+ * because pp_render_style_value_allowed() delegates to
+ * _pp_validate_token_value().
+ */
+function _pp_validate_text_transform(string $value): bool {
+    $keywords = ['none', 'uppercase', 'lowercase', 'capitalize'];
+    return in_array(strtolower(trim($value)), $keywords, true);
+}
+
+/**
  * Validates a token value based on its type.
  *
  * @return true|WP_Error
@@ -835,6 +859,11 @@ function _pp_validate_token_value(string $value, ?string $type) {
         case 'align':
             if (!_pp_validate_align($value)) {
                 return new WP_Error('invalid_align', 'Value must be a text-align keyword: left, right, center, start, end, or justify.');
+            }
+            break;
+        case 'text-transform':
+            if (!_pp_validate_text_transform($value)) {
+                return new WP_Error('invalid_text_transform', 'Value must be a text-transform keyword: none, uppercase, lowercase, or capitalize.');
             }
             break;
         case 'raw':
