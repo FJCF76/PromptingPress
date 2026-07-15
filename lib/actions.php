@@ -1592,12 +1592,13 @@ pp_register_action('publish_page', [
 pp_register_action('add_component', [
     'scope'       => 'page',
     'mutates_composition' => true,
-    'description' => 'Adds a component to a page composition.',
-    'semantics'   => 'Append by default. If position is provided, insert at that index (0-based). Validates the resulting composition.',
+    'description' => 'Adds a component to a page composition. Optionally accepts style to set per-instance style slots on the new component in the same call (same item-scoped style map as composition items[].style; only schema-declared style slots are accepted, validated by the same shared engine).',
+    'semantics'   => 'Append by default. If position is provided, insert at that index (0-based). Optional style is a map of slot name → value written onto the new item and validated via pp_validate_composition() (same rules as items[].style). Validates the resulting composition.',
     'params'      => [
         'post_id'          => ['type' => 'int',    'required' => true],
         'component'        => ['type' => 'string', 'required' => true],
         'props'            => ['type' => 'array',  'required' => true],
+        'style'            => ['type' => 'array',  'required' => false],
         'position'         => ['type' => 'int',    'required' => false],
         'expected_version' => _pp_expected_version_param(),
     ],
@@ -1607,6 +1608,14 @@ pp_register_action('add_component', [
             return $exists;
         }
         $new_item = ['component' => $params['component'], 'props' => $params['props']];
+        // Optional per-instance style: written onto the new item so the SAME shared
+        // engine that validates composition items[].style (item-scoped slots per
+        // #306/#323) validates it here too — no surface-specific second validator.
+        // Only set when non-empty, so an add_component WITHOUT style leaves the
+        // stored item byte-identical to before (matches update_component's style).
+        if (!empty($params['style'])) {
+            $new_item['style'] = $params['style'];
+        }
         // Validate the single new component
         $valid = pp_validate_composition([$new_item]);
         if (is_wp_error($valid)) {
@@ -1624,6 +1633,9 @@ pp_register_action('add_component', [
     'preview' => function (array $params): array {
         $current   = pp_get_composition($params['post_id']);
         $new_item  = ['component' => $params['component'], 'props' => $params['props']];
+        if (!empty($params['style'])) {
+            $new_item['style'] = $params['style'];
+        }
         $after     = $current;
         if (isset($params['position'])) {
             array_splice($after, $params['position'], 0, [$new_item]);
@@ -1637,6 +1649,9 @@ pp_register_action('add_component', [
     'execute' => function (array $params): array {
         $current   = pp_get_composition($params['post_id']);
         $new_item  = ['component' => $params['component'], 'props' => $params['props']];
+        if (!empty($params['style'])) {
+            $new_item['style'] = $params['style'];
+        }
         $after     = $current;
         if (isset($params['position'])) {
             array_splice($after, $params['position'], 0, [$new_item]);
