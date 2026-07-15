@@ -144,6 +144,7 @@
       "--hero-eyebrow-radius": { "type": "length", "default": "3px", "description": "Eyebrow pill corner radius. Set a large value (e.g. 999px) for a fully rounded pill." },
       "--hero-eyebrow-border-width": { "type": "length", "default": "0", "description": "Eyebrow pill border width. Set a non-zero width (with --hero-eyebrow-border-color) for an outlined pill; 0 (default) renders no border." },
       "--hero-eyebrow-border-color": { "type": "color", "default": "transparent", "description": "Eyebrow pill border color. Takes effect when --hero-eyebrow-border-width is non-zero." },
+      "--hero-eyebrow-text-transform": { "type": "text-transform", "default": "uppercase", "description": "Eyebrow pill letter-casing. Default uppercase renders the kicker in caps; set none to keep it as authored (e.g. sentence case), or lowercase / capitalize." },
       "--hero-accent": { "type": "color", "default": "var(--color-accent)", "description": "Button background and border color" },
       "--hero-accent-hover": { "type": "color", "default": "var(--color-accent-hover)", "description": "Button hover background color" },
       "--hero-cta2-bg": { "type": "color", "default": "(varies by cta2_variant)", "description": "Second CTA button background color, independent of the primary button. Applies whatever cta2_variant is set to." },

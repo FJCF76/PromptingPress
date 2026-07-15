@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v0.16.135] — 2026-07-15 — eyebrow letter-casing is now authorable, so a kicker can be sentence case instead of forced uppercase (#370)
+
+**The eyebrow/kicker pill baked `text-transform: uppercase` into all six section-header components (hero, section, faq, grid, cta, testimonials) with no slot to change it. The pill already exposed color, background, radius, and border slots, but its casing was a fixed opinion: a design that shows the kicker in sentence case, lowercase, or title case was inexpressible through the documented surface. This adds a per-component `--<component>-eyebrow-text-transform` style slot, consumed as `text-transform: var(--slot, uppercase)`, so an operator can author the casing. The default stays `uppercase`, so unset rendering is byte-identical.**
+
+The casing values route through a new generic `text-transform` slot value type, added to the shared validator exactly like the `align` type from #357: `_pp_validate_text_transform` accepts a closed, case-insensitive keyword set (`none`, `uppercase`, `lowercase`, `capitalize`) and is dispatched from `_pp_validate_token_value` (no second validator). The type rejects everything outside that set, including the CJK-typography values `full-width`/`full-size-kana` (form conversion, not case control, the same way `align` omits `match-parent`) and the CSS-wide `unset`/`initial`/`inherit` keywords, so a slot value that would silently do nothing is caught at write time. A typed `text-transform` slot is honored at the render boundary for free, because `pp_render_style_value_allowed()` delegates to the same engine. The slot name contains `text-transform`, not `border-width`/`border-color`, so it does not trip the #332 core-border-trigger guard. The chat AI learns the new type and slots automatically: the runtime type list and slot catalog in `lib/ai-context.php`, the type-help hint in `lib/ai-chat.php`, and the static `AI_CONTEXT.md` / `ai-instructions` docs all name the casing slot and its keyword set in the same change.
+
+### Fixed
+
+- The eyebrow/kicker pill casing is now settable per component via the `--<component>-eyebrow-text-transform` style slot on hero, section, faq, grid, cta, and testimonials (`none` for sentence case as authored, or `uppercase`/`lowercase`/`capitalize`). Previously the pill was hardcoded to `uppercase` with no override. Unset rendering is byte-identical: the eyebrow still renders uppercase.
+
+### Docs
+
+- `AI_CONTEXT.md`, `ai-instructions/style-component.md`, and `ai-instructions/composition.md` describe the `text-transform` slot type and the per-component eyebrow casing slot; the style-slot total is updated to 194. `lib/ai-context.php` lists `text-transform` in the declared-type vocabulary and describes the eyebrow casing slot, and each component's `schema.json` documents its new slot.
+
+### Tests
+
+- New validator unit tests pin the `text-transform` type's accepted keyword set and its rejections (CJK/exotic values, CSS-wide keywords, `align` keywords, junk, empty). A rendered computed-style pin in `tests/e2e/style-render.spec.ts` proves the eyebrow computes `uppercase` when the slot is unset and `none` when the slot is set, including the ID-specificity benchmark hero, red then green. Slot-count and grid card-scope ledgers are updated to 194.
+
 ## [v0.16.134] — 2026-07-15 — button corner radius is now its own design token, so you can pill a CTA without rounding every card (#369)
 
 **The button corner radius was unreachable through the design-token surface. `components.css` advertised a `--btn-radius` hook (`border-radius: var(--btn-radius, var(--radius))`), but `--btn-radius` was never a registered token, so `update_design_token --token=--btn-radius` was rejected as unregistered. The only radius lever that WAS registered, `--radius`, is global: setting it to `100px` to pill a CTA also pills every card and panel. Worse, the winning cascade rule for composed buttons (`main .btn`, the premium-CTA treatment) hardcoded `border-radius: 4px`, so the button radius never even followed `--radius` — it was a fixed 4px with no operator control at all. A pill CTA over square cards was inexpressible. This registers `--btn-radius` as a `length` design token (default `4px`, the button's actual current radius) and routes the winning rule through it, so an operator can set the button radius on its own.**

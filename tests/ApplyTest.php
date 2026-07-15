@@ -1623,6 +1623,62 @@ class ApplyTest extends TestCase
         $this->assertSame('invalid_align', $result->get_error_code());
     }
 
+    // ── text-transform slot type (#370) ──────────────────────────────────
+
+    public function testValidateTextTransformAcceptsClosedKeywordSet(): void
+    {
+        $this->assertTrue(_pp_validate_text_transform('none'));
+        $this->assertTrue(_pp_validate_text_transform('uppercase'));
+        $this->assertTrue(_pp_validate_text_transform('lowercase'));
+        $this->assertTrue(_pp_validate_text_transform('capitalize'));
+    }
+
+    public function testValidateTextTransformIsCaseInsensitiveAndTrims(): void
+    {
+        // Mirrors _pp_validate_align(), which lowercases before comparing.
+        $this->assertTrue(_pp_validate_text_transform('None'));
+        $this->assertTrue(_pp_validate_text_transform('UPPERCASE'));
+        $this->assertTrue(_pp_validate_text_transform('  capitalize  '));
+    }
+
+    public function testValidateTextTransformRejectsCjkExoticAndCssWide(): void
+    {
+        // full-width / full-size-kana are valid CSS text-transform values but
+        // CJK form-conversion, not case control -- excluded from this slot the
+        // same way `align` omits match-parent/justify-all.
+        $this->assertFalse(_pp_validate_text_transform('full-width'));
+        $this->assertFalse(_pp_validate_text_transform('full-size-kana'));
+        $this->assertFalse(_pp_validate_text_transform('math-auto'));
+        // CSS-wide keywords are rejected: the type is a closed vocabulary.
+        $this->assertFalse(_pp_validate_text_transform('unset'));
+        $this->assertFalse(_pp_validate_text_transform('initial'));
+        $this->assertFalse(_pp_validate_text_transform('inherit'));
+        $this->assertFalse(_pp_validate_text_transform('revert'));
+    }
+
+    public function testValidateTextTransformRejectsAlignKeywordsJunkAndEmpty(): void
+    {
+        // Disjoint from the `align` keyword set -- a different closed vocabulary.
+        $this->assertFalse(_pp_validate_text_transform('center'));
+        $this->assertFalse(_pp_validate_text_transform('left'));
+        $this->assertFalse(_pp_validate_text_transform('caps'));
+        $this->assertFalse(_pp_validate_text_transform('uppercase lowercase'));
+        $this->assertFalse(_pp_validate_text_transform(''));
+    }
+
+    public function testValidateTokenValuePassesForTextTransformType(): void
+    {
+        $this->assertTrue(_pp_validate_token_value('none', 'text-transform'));
+        $this->assertTrue(_pp_validate_token_value('uppercase', 'text-transform'));
+    }
+
+    public function testValidateTokenValueFailsForInvalidTextTransform(): void
+    {
+        $result = _pp_validate_token_value('center', 'text-transform');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_text_transform', $result->get_error_code());
+    }
+
     // ── New Token Declarations ───────────────────────────────────────────
 
     public function testNewTokensFontWeightHeadingExists(): void

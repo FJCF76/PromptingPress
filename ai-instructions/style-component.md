@@ -155,6 +155,15 @@ link/button: the link follows the same alignment via a derived companion (#361),
 one value fully centers (or right-aligns) the whole card. An unset slot leaves the
 card byte-identically left-aligned.
 
+The `text-transform` type (#370) controls letter-casing. It accepts exactly one
+`text-transform` keyword: `none`, `uppercase`, `lowercase`, or `capitalize` — a closed
+set (the CJK `full-width`/`full-size-kana` values and bare `unset`/`initial` are
+rejected, the same tight-vocabulary posture as `align`). The eyebrow/kicker pill
+exposes it on all six section-header components as `--{hero,section,faq,grid,cta,testimonials}-eyebrow-text-transform`,
+defaulting to `uppercase` (today's baked rendering). Set it to `none` when a reference
+shows the kicker in sentence case, or `lowercase`/`capitalize` for those looks. An unset
+slot leaves the eyebrow byte-identically uppercase.
+
 > **Button and text styling are PROPS, not style slots.** A CTA's button style
 > (`button_variant`: primary/secondary/outline/ghost) and a grid item's typography
 > role (`text_role`: mono/meta/label/kicker) are set with `update_component` (props),

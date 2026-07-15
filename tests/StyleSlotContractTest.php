@@ -647,6 +647,7 @@ class StyleSlotContractTest extends TestCase
         'opacity'                    => ['number'],
         'font-family'                => ['font-family'],
         'text-align'                 => ['align'],
+        'text-transform'             => ['text-transform'],
     ];
 
     /**

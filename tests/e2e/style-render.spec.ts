@@ -2405,6 +2405,51 @@ test.describe('Safe-surface rendered proof', () => {
     });
   }
 
+  // #370: the eyebrow pill baked `text-transform: uppercase` with no slot, so a
+  // sentence-case kicker was inexpressible. The per-component text-transform slot
+  // makes the casing authorable while keeping uppercase as the unset default.
+  //
+  // Both ids are load-bearing like the #356 strand above: `home-hero` is one of
+  // the four ID-specificity benchmark heroes whose `.hero__eyebrow` block
+  // re-declares radius/border/bg/color. It does NOT re-declare text-transform, so
+  // the base rule's `var(--hero-eyebrow-text-transform, uppercase)` must still win
+  // there — testing `home-hero` proves the slot reaches the ID-scoped heroes too.
+  for (const heroId of ['pp-hero01', 'home-hero']) {
+    test(`#370 hero eyebrow text-transform is slot-driven and defaults to uppercase (#${heroId}) @smoke`, async ({
+      page,
+    }) => {
+      pageId = createPage(`E2E Hero Eyebrow Text-Transform Slot ${heroId}`);
+      setComposition(pageId, [
+        { component: 'hero', props: { id: heroId, eyebrow: 'Kicker', title: 'Casing' } },
+      ]);
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      const eyebrow = page.locator('.hero__eyebrow');
+      await expect(eyebrow).toBeVisible({ timeout: 10000 });
+
+      // Unset output stays byte-identical to pre-#370: the eyebrow still computes
+      // `uppercase`. The slot adds capability, not a new default.
+      expect(await eyebrow.evaluate((el) => getComputedStyle(el).textTransform)).toBe('uppercase');
+
+      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+      const res = await styleComponent(page, pageId, {
+        '--hero-eyebrow-text-transform': 'none',
+      });
+      expect(res.success).toBe(true);
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      // Setting the slot to `none` renders the kicker sentence-case, reaching even
+      // the ID-specificity benchmark heroes (routing proven).
+      expect(
+        await page.locator('.hero__eyebrow').evaluate((el) => getComputedStyle(el).textTransform),
+      ).toBe('none');
+    });
+  }
+
   // Strand 2. .stats__number had a color slot but no size slot at all, so the
   // headline figure's scale was simply not authorable.
   test('#336 stats number size is slot-driven and defaults to the documented 2.5rem @smoke', async ({

@@ -245,10 +245,10 @@ class SchemaValidationTest extends TestCase
     public function testStyleSlotsExistForV1Components(): void
     {
         $expected = [
-            'hero'    => 40,
-            'section' => 35,
-            'grid'    => 34,
-            'cta'     => 29,
+            'hero'    => 41,
+            'section' => 36,
+            'grid'    => 35,
+            'cta'     => 30,
         ];
 
         foreach ($expected as $component => $count) {
@@ -331,7 +331,7 @@ class SchemaValidationTest extends TestCase
     public function testStyleSlotStructure(): void
     {
         $components = ['hero', 'section', 'grid', 'cta'];
-        $validTypes = ['color', 'length', 'number', 'shadow', 'gradient', 'position', 'ratio', 'align', 'font-family'];
+        $validTypes = ['color', 'length', 'number', 'shadow', 'gradient', 'position', 'ratio', 'align', 'text-transform', 'font-family'];
 
         foreach ($components as $component) {
             $schemaFile = $this->themeRoot . "/components/{$component}/schema.json";
@@ -728,10 +728,11 @@ class SchemaValidationTest extends TestCase
     private static function validValueForType(string $type): string
     {
         return match ($type) {
-            'length'  => '2rem',
-            'shadow'  => 'none',
-            'align'   => 'center',
-            default   => '#123456', // color + gradient both accept a hex color
+            'length'          => '2rem',
+            'shadow'          => 'none',
+            'align'           => 'center',
+            'text-transform'  => 'none',
+            default           => '#123456', // color + gradient both accept a hex color
         };
     }
 
@@ -924,6 +925,7 @@ class SchemaValidationTest extends TestCase
                 '--grid-heading-color', '--grid-heading-accent-color', '--grid-eyebrow-color',
                 '--grid-eyebrow-bg', '--grid-eyebrow-radius',
                 '--grid-eyebrow-border-width', '--grid-eyebrow-border-color',
+                '--grid-eyebrow-text-transform',
                 '--grid-subheading-color',
                 '--grid-subheading-margin-bottom', '--grid-heading-margin-bottom',
                 '--grid-heading-size', '--grid-heading-max-width', '--grid-gap',

@@ -378,7 +378,7 @@
   font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
+  text-transform: var(--hero-eyebrow-text-transform, uppercase);
   color: var(--hero-eyebrow-color, var(--color-text));
   background: var(--hero-eyebrow-bg, var(--color-surface-accent));
 }
@@ -828,7 +828,7 @@
   font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
+  text-transform: var(--section-eyebrow-text-transform, uppercase);
   color: var(--section-eyebrow-color, var(--color-text));
   background: var(--section-eyebrow-bg, var(--color-surface-accent));
 }
@@ -1112,7 +1112,7 @@
   font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
+  text-transform: var(--faq-eyebrow-text-transform, uppercase);
   color: var(--faq-eyebrow-color, var(--color-text));
   background: var(--faq-eyebrow-bg, var(--color-surface-accent));
 }
@@ -1260,7 +1260,7 @@
   font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
+  text-transform: var(--grid-eyebrow-text-transform, uppercase);
   color: var(--grid-eyebrow-color, var(--color-text));
   background: var(--grid-eyebrow-bg, var(--color-surface-accent));
 }
@@ -1764,7 +1764,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
+  text-transform: var(--cta-eyebrow-text-transform, uppercase);
   color: var(--cta-eyebrow-color, var(--color-text));
   background: var(--cta-eyebrow-bg, var(--color-surface-accent));
 }
@@ -2483,7 +2483,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
+  text-transform: var(--testimonials-eyebrow-text-transform, uppercase);
   color: var(--testimonials-eyebrow-color, var(--color-text));
   background: var(--testimonials-eyebrow-bg, var(--color-surface-accent));
 }

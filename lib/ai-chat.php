@@ -658,6 +658,10 @@ function _pp_suggest_alternative_value(string $type, string $description, string
         return 'This slot requires a text-align keyword: "left", "right", "center", "start", "end", or "justify".';
     }
 
+    if ($type === 'text-transform') {
+        return 'This slot requires a text-transform keyword: "none" (sentence case as authored), "uppercase", "lowercase", or "capitalize".';
+    }
+
     if ($type === 'duration') {
         return 'Try "0s" to disable the duration, or a value like "300ms".';
     }
