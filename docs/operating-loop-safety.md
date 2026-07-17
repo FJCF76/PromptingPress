@@ -181,7 +181,7 @@ into one of two classes:
 | Preflight **freshness** pre-check (#113) | Data-safety | WP-CLI only (`_pp_cli_require_composition_fresh`) — pre-check, not the guarantee |
 | Write-time **compare-and-swap** (#13) | Data-safety | Shared choke point (`pp_update_composition`), **opt-in**: CLI ✅, editor AJAX ✅, chat AJAX ❌ (#392) |
 | Pre-apply **rollback snapshot** | Data-safety | Recorded in the CLI preflight only; apply/token mutation outside a CLI run is not yet covered (#393) |
-| `composition_required` precondition (#358) | Data-safety | WP-CLI only today; chat AJAX reaches `pp_execute_action()` without it (#387) |
+| `composition_required` precondition (#358) | Data-safety | Shared choke point (`pp_validate_action`) — every executor caller inherits it: CLI, chat AJAX, batch, `pp_patch_composition()` (#387) |
 
 The takeaway for future hardening: leave loop-discipline gates in the CLI, but do
 not move a data-safety invariant into a CLI wrapper. When you add one, put it at
