@@ -542,6 +542,76 @@ class ActionsTest extends TestCase
         $this->assertSame('unknown_prop', $result['error_code'], 'validate-stage rejection must carry its code (#312)');
     }
 
+    // ── Retired `variant` prop is rejected at write time (#388) ──
+    //
+    // #69 split `variant` into `layout`/`theme`. v1's public API accepts NO alias:
+    // every write path must reject `variant` with unknown_prop, never silently migrate
+    // it. Restore/read paths still decode it (see testRestoreNormalizesLegacyVariantSnapshot)
+    // — that asymmetry is the whole point of #388. One test per write path.
+
+    public function testCreatePageRejectsRetiredVariantProp(): void
+    {
+        $result = pp_execute_action('create_page', [
+            'title'       => 'Legacy variant on create',
+            'composition' => [['component' => 'hero', 'props' => ['title' => 'Hi', 'variant' => 'split']]],
+        ]);
+
+        $this->assertFalse($result['ok'], 'v1 write path must not accept the retired variant prop');
+        $this->assertSame('unknown_prop', $result['error_code']);
+        $this->assertStringContainsString('variant', $result['error']);
+    }
+
+    public function testUpdateCompositionRejectsRetiredVariantProp(): void
+    {
+        $id = pp_create_page('Legacy variant on replace', 'draft');
+        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'Original']]]);
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => $id,
+            'composition' => [['component' => 'section', 'props' => ['body' => 'x', 'variant' => 'dark']]],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('unknown_prop', $result['error_code']);
+        $this->assertStringContainsString('variant', $result['error']);
+        // The rejected replacement never landed; the prior composition is intact.
+        $this->assertSame('Original', pp_get_composition($id)[0]['props']['title']);
+    }
+
+    public function testAddComponentRejectsRetiredVariantProp(): void
+    {
+        $id = pp_create_page('Legacy variant on add', 'draft');
+        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'Hi']]]);
+
+        $result = pp_execute_action('add_component', [
+            'post_id'   => $id,
+            'component' => 'cta',
+            'props'     => ['button_text' => 'Go', 'button_url' => '/x', 'variant' => 'inline'],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('unknown_prop', $result['error_code']);
+        $this->assertStringContainsString('variant', $result['error']);
+        $this->assertCount(1, pp_get_composition($id), 'the rejected component was not appended');
+    }
+
+    public function testUpdateComponentRejectsRetiredVariantProp(): void
+    {
+        $id = pp_create_page('Legacy variant on update', 'draft');
+        pp_update_composition($id, [['component' => 'section', 'props' => ['body' => 'Hi']]]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['variant' => 'inverted'],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('unknown_prop', $result['error_code']);
+        $this->assertStringContainsString('variant', $result['error']);
+        $this->assertArrayNotHasKey('variant', pp_get_composition($id)[0]['props']);
+    }
+
     // ── Validate-stage rejections carry the WP_Error code in the envelope (#312) ──
     //
     // pp_execute_action() runs pp_validate_action() first; that early-return envelope
@@ -680,12 +750,14 @@ class ActionsTest extends TestCase
 
     public function testRestoreNormalizesLegacyVariantSnapshot(): void
     {
-        // TRIPWIRE (#233). Pre-#69 snapshots in a live history ring are keyed on `variant`.
-        // restore_composition decodes them via pp_normalize_composition() ->
-        // pp_migrate_legacy_variant_keys(). That shim is marked for removal at the v1.0.0
-        // tag; #69's migration plan covered stored _pp_composition, never the history ring.
-        // If this test fails because the shim was deleted, the ring needs a migration first
-        // — otherwise restore silently writes a composition nothing decodes.
+        // TRIPWIRE (#233, #388). Pre-#69 snapshots in a live history ring are keyed on
+        // `variant`. restore_composition decodes them by calling pp_migrate_legacy_variant_keys()
+        // EXPLICITLY on the restore path (actions.php:1920) — the write-path normalizer stopped
+        // migrating in #388, so this decode is what keeps the ring restorable. The shim is
+        // permanent until a history-ring migration ships; #69's plan covered stored
+        // _pp_composition, never the history ring. If this test fails because the shim was
+        // deleted, the ring needs a migration first — otherwise restore silently writes a
+        // composition nothing decodes.
         $post_id = pp_create_page('Legacy variant snapshot');
         pp_update_composition($post_id, [
             ['component' => 'hero', 'props' => ['title' => 'A', 'variant' => 'left']],
@@ -694,6 +766,9 @@ class ActionsTest extends TestCase
 
         $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
         $this->assertTrue($result['ok']);
+        // Execute-path findings describe the migrated composition — a decoded `variant`
+        // must not be reported as unknown_prop (mirrors the preview-path pin).
+        $this->assertNotContains('unknown_prop', array_column($result['findings'], 'type'), 'decoded variant is not flagged unknown_prop on execute');
 
         $props = pp_get_composition($post_id)[0]['props'];
         $this->assertSame('left', $props['layout'], 'legacy variant is decoded to layout');
@@ -721,6 +796,25 @@ class ActionsTest extends TestCase
         $this->assertArrayNotHasKey('variant', $restored[1]['props']);
 
         $this->assertContains('template_owned_component', array_column($result['findings'], 'type'));
+    }
+
+    public function testRestorePreviewMigratesLegacyVariantAndDoesNotFlagIt(): void
+    {
+        // #388: the restore PREVIEW path migrates `variant` explicitly (actions.php:1895)
+        // now that pp_normalize_composition() no longer does. The migrated `after` must
+        // decode to `layout`, and findings must NOT surface unknown_prop for the retired
+        // key — the preview describes the decoded composition, not its legacy encoding.
+        $post_id = pp_create_page('Legacy variant preview');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['title' => 'A', 'variant' => 'left']],
+        ]);
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+
+        $preview = pp_preview_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertTrue($preview['ok']);
+        $this->assertSame('left', $preview['after'][0]['props']['layout'], 'preview decodes legacy variant');
+        $this->assertArrayNotHasKey('variant', $preview['after'][0]['props']);
+        $this->assertNotContains('unknown_prop', array_column($preview['findings'], 'type'), 'decoded variant is not flagged as unknown_prop');
     }
 
     public function testRestoreOfMalformedSnapshotReportsRatherThanFatals(): void
@@ -2157,9 +2251,14 @@ class ActionsTest extends TestCase
         $this->assertEquals('https://example.com/photo.jpg', $normalized[0]['props']['image_url']);
     }
 
-    // ── Legacy `variant` migration (issue #69) — remove with the shim at v1.0.0 ──
+    // ── Legacy `variant` migration (issue #69, split by path in #388) ──
+    // The migration is a RESTORE/READ-PATH decode only: pp_migrate_legacy_variant_keys()
+    // is exercised directly here (restore_composition + lib/wp.php read path call it
+    // explicitly). The WRITE path no longer migrates — pp_normalize_composition() leaves
+    // `variant` in place so the shared unknown_prop gate rejects it (see the write-reject
+    // action tests below and testNormalizeCompositionDoesNotMigrateVariant).
 
-    public function testNormalizeMigratesStructuralVariantToLayout(): void
+    public function testMigrateLegacyKeysMapsStructuralVariantToLayout(): void
     {
         // hero/cta/testimonials: structural `variant` -> `layout`.
         $raw = [
@@ -2167,7 +2266,7 @@ class ActionsTest extends TestCase
             ['component' => 'cta', 'props' => ['title' => 'Go', 'variant' => 'inline']],
             ['component' => 'testimonials', 'props' => ['variant' => 'stack']],
         ];
-        $normalized = pp_normalize_composition($raw);
+        $normalized = pp_migrate_legacy_variant_keys($raw);
         foreach ([0, 1, 2] as $i) {
             $this->assertArrayNotHasKey('variant', $normalized[$i]['props']);
         }
@@ -2176,20 +2275,20 @@ class ActionsTest extends TestCase
         $this->assertEquals('stack', $normalized[2]['props']['layout']);
     }
 
-    public function testNormalizeMigratesGridDefaultVariantToCardsLayout(): void
+    public function testMigrateLegacyKeysMapsGridDefaultVariantToCardsLayout(): void
     {
         // grid also renames the legacy structural value `default` -> `cards`.
         $raw = [
             ['component' => 'grid', 'props' => ['variant' => 'default']],
             ['component' => 'grid', 'props' => ['variant' => 'steps']],
         ];
-        $normalized = pp_normalize_composition($raw);
+        $normalized = pp_migrate_legacy_variant_keys($raw);
         $this->assertEquals('cards', $normalized[0]['props']['layout']);
         $this->assertEquals('steps', $normalized[1]['props']['layout']);
         $this->assertArrayNotHasKey('variant', $normalized[0]['props']);
     }
 
-    public function testNormalizeMigratesToneVariantToTheme(): void
+    public function testMigrateLegacyKeysMapsToneVariantToTheme(): void
     {
         // section/stats/logos/embed: tonal `variant` -> `theme`.
         $raw = [
@@ -2198,7 +2297,7 @@ class ActionsTest extends TestCase
             ['component' => 'logos', 'props' => ['variant' => 'dark', 'items' => []]],
             ['component' => 'embed', 'props' => ['content' => 'x', 'variant' => 'inverted']],
         ];
-        $normalized = pp_normalize_composition($raw);
+        $normalized = pp_migrate_legacy_variant_keys($raw);
         $this->assertEquals('dark', $normalized[0]['props']['theme']);
         $this->assertEquals('inverted', $normalized[1]['props']['theme']);
         $this->assertEquals('dark', $normalized[2]['props']['theme']);
@@ -2208,18 +2307,32 @@ class ActionsTest extends TestCase
         }
     }
 
-    public function testNormalizeVariantDoesNotOverwriteExplicitNewKey(): void
+    public function testMigrateLegacyKeysDoesNotOverwriteExplicitNewKey(): void
     {
         // If the new key is already present, it wins; legacy `variant` is dropped.
         $raw = [
             ['component' => 'hero', 'props' => ['layout' => 'cover', 'variant' => 'split']],
             ['component' => 'section', 'props' => ['body' => 'x', 'theme' => 'inverted', 'variant' => 'dark']],
         ];
-        $normalized = pp_normalize_composition($raw);
+        $normalized = pp_migrate_legacy_variant_keys($raw);
         $this->assertEquals('cover', $normalized[0]['props']['layout']);
         $this->assertEquals('inverted', $normalized[1]['props']['theme']);
         $this->assertArrayNotHasKey('variant', $normalized[0]['props']);
         $this->assertArrayNotHasKey('variant', $normalized[1]['props']);
+    }
+
+    public function testNormalizeCompositionDoesNotMigrateVariant(): void
+    {
+        // #388: the write-path normalizer must NOT rewrite `variant`. It leaves the
+        // retired key in place so pp_validate_composition() rejects it as unknown_prop
+        // (verified by the write-reject action tests). Migration is a read-path concern.
+        $raw = [
+            ['component' => 'hero', 'props' => ['title' => 'Hi', 'variant' => 'split']],
+        ];
+        $normalized = pp_normalize_composition($raw);
+        $this->assertArrayHasKey('variant', $normalized[0]['props'], 'write path leaves legacy variant untouched');
+        $this->assertSame('split', $normalized[0]['props']['variant']);
+        $this->assertArrayNotHasKey('layout', $normalized[0]['props'], 'write path does not synthesize layout from variant');
     }
 
     public function testNormalizeCompositionHandlesEmptyArray(): void
@@ -2230,10 +2343,12 @@ class ActionsTest extends TestCase
     public function testCreatePageExecutesWithTypeKeyInComposition(): void
     {
         // Simulates the T4 failure: AI sends "type" instead of "component"
+        // (uses the canonical `layout` prop — the retired `variant` alias is rejected
+        // at write time since #388; this test is about the type->component alias only).
         $result = pp_execute_action('create_page', [
             'title' => 'Portfolio',
             'composition' => [
-                ['type' => 'hero', 'props' => ['title' => 'Our Work', 'variant' => 'split']],
+                ['type' => 'hero', 'props' => ['title' => 'Our Work', 'layout' => 'split']],
             ],
         ]);
 

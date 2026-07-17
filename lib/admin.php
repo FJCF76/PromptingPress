@@ -161,22 +161,32 @@ function pp_normalize_composition(array $items): array {
             unset($items[$i]['style']);
         }
     }
-    // TRANSITIONAL (issue #69): rewrite the legacy `variant` prop to the new
-    // `layout`/`theme` split. Remove this call (and pp_migrate_legacy_variant_keys)
-    // at the v1.0.0 tag — v1 ships the consistent naming with no permanent alias.
-    return pp_migrate_legacy_variant_keys($items);
+    // WRITE PATH: the retired `variant` prop is NOT migrated here (#388). The v1
+    // public API accepts no alias — an unmapped `variant` prop falls through to the
+    // shared unknown_prop gate in pp_validate_composition_all() and the write is
+    // rejected, so `create_page`/`update_composition` never silently rewrite it.
+    // Legacy `variant` is still decoded on the RESTORE/READ paths only, which call
+    // pp_migrate_legacy_variant_keys() explicitly (restore_composition, lib/wp.php,
+    // the editor read path) — see that helper's #233 note.
+    return $items;
 }
 
 /**
- * TRANSITIONAL one-time shim (issue #69) — REMOVE AT v1.0.0 TAG.
+ * RESTORE/READ-PATH compatibility shim (issue #69, split by path in #388).
  *
  * Before v1, `variant` meant two different things depending on the component:
  * a structural mode on hero/grid/cta/testimonials, and a color/tone preset on
  * section/stats/logos/embed. v1 splits these into `layout` (structure) and
  * `theme` (tone) so no component uses `variant` for two meanings. This rewrites
- * any legacy `variant` key on stored or AI-authored compositions to the new key
- * so existing content renders unchanged. It is deliberately NOT a permanent
- * alias: delete it once dev/poc compositions are migrated (by the v1.0.0 tag).
+ * any legacy `variant` key on a stored or history-ring composition to the new
+ * key so pre-rename content renders unchanged.
+ *
+ * NOT a write-path alias (#388): new writes through create_page/update_composition/
+ * add_component/update_component reject `variant` with unknown_prop — v1's public
+ * API is `layout`/`theme` only. This helper runs ONLY on decode of already-stored
+ * shapes: restore_composition, lib/wp.php's read path, and the editor read path.
+ * It is permanent until an explicit history-ring migration ships (see the #233
+ * note below) — the "remove at tag" plan was retired when the shim was split.
  *
  * Mapping:
  *   structural (variant -> layout): hero, grid, cta, testimonials
@@ -184,15 +194,16 @@ function pp_normalize_composition(array $items): array {
  *   tone       (variant -> theme):  section, stats, logos, embed
  * An explicit new key already present wins; the legacy `variant` is then dropped.
  *
- * DEPENDENT — READ BEFORE REMOVING (#233): restore_composition runs every history-ring
- * snapshot through pp_normalize_composition(), which calls this. Rings are bounded but
- * long-lived, so a live install can still hold pre-#69 snapshots keyed on `variant`.
- * Deleting this shim at the v1.0.0 tag without migrating those rings does not make a
- * restore fail — it makes it succeed while writing a composition nothing decodes, so the
- * page comes back subtly wrong rather than loudly wrong. #69's migration plan covers
- * stored `_pp_composition` on read/save; it never covered `_pp_composition_history`.
- * Removal must therefore either preserve restore compatibility or ship an explicit
- * history migration. Pinned by ActionsTest::testRestoreNormalizesLegacyVariantSnapshot().
+ * DEPENDENT — READ BEFORE REMOVING (#233, #388): restore_composition runs every
+ * history-ring snapshot through this helper. Rings are bounded but long-lived, so a
+ * live install can still hold pre-#69 snapshots keyed on `variant`. Deleting this shim
+ * without migrating those rings does not make a restore fail — it makes it succeed while
+ * writing a composition nothing decodes, so the page comes back subtly wrong rather than
+ * loudly wrong. #69's migration plan covers stored `_pp_composition` on read/save; it
+ * never covered `_pp_composition_history`. #388 split the shim (write paths reject,
+ * restore/read paths still migrate) precisely so this compatibility could stay without
+ * reopening the write-time alias. Removal must therefore still ship an explicit history
+ * migration first. Pinned by ActionsTest::testRestoreNormalizesLegacyVariantSnapshot().
  *
  * @param  array $items  Composition array (component key already canonicalized).
  * @return array         Composition array with legacy `variant` keys migrated.
@@ -792,8 +803,9 @@ function pp_composition_workspace_page(): void {
     // Pretty-print stored JSON so the editor shows readable multi-line content.
     // For a valid list composition, also migrate any legacy `variant` key so the
     // editor never surfaces the retired prop on a pre-rename page (issue #69 read
-    // path — remove with the shim at v1.0.0). A corrupt/non-list payload is shown
-    // raw and unmigrated so the operator can still repair it.
+    // path — permanent per #388: the write path rejects `variant`, so this decode
+    // keeps already-stored legacy pages editable). A corrupt/non-list payload is
+    // shown raw and unmigrated so the operator can still repair it.
     if ($raw) {
         $decoded = json_decode($raw, true);
         if (is_array($decoded)) {

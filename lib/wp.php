@@ -305,16 +305,20 @@ function pp_get_composition_result(int $post_id): array {
 }
 
 /**
- * TRANSITIONAL read-path shim (issue #69) — REMOVE AT v1.0.0 TAG.
+ * READ-PATH compatibility shim (issue #69, permanent per #388).
  *
- * Renderers, inspect, and guardrails read stored compositions directly (they do
- * not run pp_normalize_composition, which only covers the apply/write path). A
- * composition persisted before the `variant` -> `layout`/`theme` split would
- * otherwise lose its structural/tone setting after the rename. This migrates the
- * decoded items on read so pre-rename content renders unchanged, mirroring the
- * write-path migration in pp_normalize_composition(). Delegates to the single
- * migration helper in lib/admin.php; guarded so a partial include (some unit
- * tests load lib/wp.php alone) degrades to the raw items instead of fatally.
+ * Action-layer reads (inspect, guardrails, the editor, restore's current-composition
+ * fetch via pp_get_composition) decode stored compositions directly; they do not run
+ * pp_normalize_composition, which only covers the apply/write path. A composition
+ * persisted before the `variant` -> `layout`/`theme` split would otherwise lose its
+ * structural/tone setting after the rename, so this migrates the decoded items on read.
+ * Note (#388): the write path no longer migrates — new writes reject `variant` with
+ * unknown_prop — so this read-path decode is the permanent counterpart that keeps
+ * already-stored legacy content readable on those paths. (The public front-end renderer
+ * reads via pp_composition(), which decodes raw and does not run this shim either way.)
+ * Delegates to the single migration helper in lib/admin.php;
+ * guarded so a partial include (some unit tests load lib/wp.php alone) degrades to
+ * the raw items instead of fatally.
  *
  * @param  array $items  Decoded composition items.
  * @return array         Items with any legacy `variant` keys migrated.

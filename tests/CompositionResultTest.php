@@ -252,10 +252,11 @@ class CompositionResultTest extends TestCase
         $this->assertSame([], pp_get_composition($this->postId));
     }
 
-    // ── Legacy `variant` read-path migration (issue #69) ─────────────────
-    // A composition stored before the `variant` -> `layout`/`theme` split must
-    // render unchanged: renderers read through pp_get_composition(), which now
-    // migrates on read. Remove with the shim at the v1.0.0 tag.
+    // ── Legacy `variant` read-path migration (issue #69, permanent per #388) ──
+    // A composition stored before the `variant` -> `layout`/`theme` split must stay
+    // decodable: action-layer reads go through pp_get_composition(), which migrates on
+    // read. #388 made this read-path decode permanent (the write path now rejects
+    // `variant` as unknown_prop) rather than a shim slated for removal at the v1.0.0 tag.
 
     public function testGetCompositionMigratesLegacyVariantOnRead(): void
     {
