@@ -134,7 +134,7 @@ renders the header or footer twice, and the write is rejected with the error cod
 
 ### Component capabilities reference
 
-**Two consistent axes — `layout` (structure) and `theme` (color/tone).** There is no `variant` prop anywhere; the name is retired. Structure is always `layout`, color/tone is always `theme`, and they never overload one key:
+**Two consistent axes — `layout` (structure) and `theme` (color/tone).** There is no `variant` prop anywhere; the name is retired. A write carrying `props.variant` is rejected as `unknown_prop` on every write path (`create_page`, `update_composition`, `add_component`, `update_component`) — v1 accepts no alias, only `layout`/`theme` (#388). (Restoring a pre-rename snapshot still decodes a stored `variant` to `layout`/`theme` on the read/restore path; the rejection is write-time only.) Structure is always `layout`, color/tone is always `theme`, and they never overload one key:
 
 - **`layout`** (structural, changes DOM/rendering) is used by the components that have more than one structure: `hero` (`left`, `centered`, `split`, `cover`), `section` (`text-only`, `image-left`, `image-right`, `centered`, `text-panel`), `grid` (`cards`, `steps`), `cta` (`full-width`, `inline`), `testimonials` (`grid`, `stack`).
 - **`theme`** (color/tone preset, `default` | `dark` | `inverted`) is used by the section-level components that carry a background tone: `section`, `stats`, `logos`, `embed`, `grid`, `cta`, `testimonials`, `faq`.
