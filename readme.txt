@@ -2,7 +2,7 @@
 Contributors: fjcf76
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 1.0.7
+Stable tag: 1.1.0
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -19,6 +19,10 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 4. Activate the theme.
 
 == Changelog ==
+
+= 1.1.0 =
+* Executor-level safety hardening (seven-issue gate from the 2026-07-16 complexity audit): data-safety invariants moved to shared choke points — the composition-presence precondition now guards every executor caller including chat, the retired variant prop is rejected at write time while stored legacy pages still migrate on read/restore/render, operate patch shares the real per-action gate and error parity with action execute, and the WP-CLI gate stack's fail-closed branches are unit-pinned
+* No new product features; trust/guardrail release verified by the full suites
 
 = 1.0.0 =
 * First stable release: the v1.0.0 acceptance gate is closed. Every capability shipped in the 0.16.x series; 1.0.0 certifies that surface rather than adding to it, following three benchmark dogfoods that verified the product materially credible with all trust-class defects resolved
