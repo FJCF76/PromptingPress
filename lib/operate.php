@@ -1925,6 +1925,25 @@ function pp_patch_composition(int $post_id, string $selector_string, string $val
         return $composition;
     }
 
+    // 2a. Composition-presence precondition (#358, #387). This patch resolves the
+    // target component (step 3) BEFORE it routes through pp_execute_action('update_component'),
+    // where the shared validator's precondition would fire. On a composition-less
+    // page component resolution returns the confusing component_not_found first, so
+    // run the same shared predicate here to fail closed early with the clear
+    // composition_required error. update_component defaults requires_composition=TRUE,
+    // so this gate is closed on an empty page and open once content exists. Using the
+    // one predicate (not a re-implemented check) keeps a single enforcement rule.
+    // Guard the (theme-bug) case where update_component is unregistered: skip the
+    // pre-check and let the downstream pp_execute_action('update_component') return
+    // its graceful unknown_action error rather than fataling on a null action here.
+    $patch_action = pp_get_action('update_component');
+    if ($patch_action !== null) {
+        $precondition = pp_action_composition_precondition($patch_action, $post_id);
+        if (is_wp_error($precondition)) {
+            return $precondition;
+        }
+    }
+
     // 3. Resolve component
     if (isset($parsed['component_id'])) {
         // ID-based targeting

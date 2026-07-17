@@ -1041,7 +1041,10 @@ class ActionsTest extends TestCase
     {
         $id = pp_create_page('', 'auto-draft');
 
-        // component_index 5 is out of bounds on an empty composition — fails.
+        // A component-level action on this composition-less page fails closed with
+        // composition_required (#358/#387 — the shared validator gates it before the
+        // out-of-bounds index check). The point of this test is unchanged: a FAILED
+        // action must not promote the auto-draft to a real draft.
         $result = pp_execute_action('update_component', [
             'post_id'         => $id,
             'component_index' => 5,
@@ -1049,6 +1052,7 @@ class ActionsTest extends TestCase
         ]);
 
         $this->assertFalse($result['ok']);
+        $this->assertSame('composition_required', $result['error_code']);
         $this->assertSame('auto-draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
     }
 
