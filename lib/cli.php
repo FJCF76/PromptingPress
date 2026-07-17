@@ -111,8 +111,9 @@ function _pp_cli_require_preflight_covers(string $run_id, ?int $post_id): void {
  *   - a page/section action with no post_id;
  *   - a site action carrying a post_id.
  * Split out of _pp_cli_require_preflight_for_action() so those branches are
- * unit-testable without WP_CLI::error()'s exit. It does NOT enforce coverage or
- * the #358 composition precondition — those stay in the wrapper below.
+ * unit-testable without WP_CLI::error()'s exit. It does NOT enforce coverage —
+ * that stays in the wrapper below. (The #358 composition precondition moved to
+ * the shared validator pp_validate_action() in #387; it is no longer a CLI gate.)
  *
  * @param array    $action  The registered action (expects 'scope', 'name').
  * @param int|null $post_id The resolved target post, or null for site scope.
@@ -154,17 +155,16 @@ function _pp_cli_require_preflight_for_action(string $run_id, array $action, arr
 
     _pp_cli_require_preflight_covers($run_id, $post_id);
 
-    // Composition-presence precondition (#358). Coverage proves a preflight ran for
-    // this target, but preflight is action-agnostic — it accepts any existing page.
-    // This is where the action IS known, so enforce the per-action requirement:
-    // component-level actions (requires_composition defaults TRUE) are blocked on a
-    // composition-less page, while populate/lifecycle/metadata actions
-    // (requires_composition => false) pass. Fail-closed and declarative; see
-    // pp_action_composition_precondition() in lib/operate.php.
-    $precondition = pp_action_composition_precondition($action, $post_id);
-    if (is_wp_error($precondition)) {
-        WP_CLI::error($precondition->get_error_message());
-    }
+    // The #358 composition-presence precondition is NOT enforced here anymore
+    // (#387). It moved into the shared validator pp_validate_action() (lib/actions.php)
+    // so EVERY executor caller — chat AJAX via pp_execute_action(), WP-CLI, the batch
+    // executor, and pp_patch_composition() — is covered by one guard instead of one
+    // per entry point. The CLI `action execute` command already calls
+    // pp_validate_action() before this gate, so a component action on a
+    // composition-less page still fails closed with the same 'composition_required'
+    // message via WP_CLI::error() there; the `operate patch` command reaches the
+    // guard through pp_patch_composition(). See pp_action_composition_precondition()
+    // in lib/operate.php for the single predicate.
 }
 
 /**
@@ -1455,10 +1455,11 @@ class PP_Operate_Command extends WP_CLI_Command {
         // completed INSPECT, and a PREFLIGHT covering this page) — against the REAL
         // update_component registration, not a synthetic partial action array.
         // Using the real action means the patch path also gets the scope-consistency
-        // assertion and the #358 composition precondition for free: patching a
-        // composition-less page now fails closed early with a clear composition_required
-        // error instead of a late, confusing failure inside pp_patch_composition. The
-        // --preview path stays read-only and ungated (it never touches the action
+        // assertion. The #358 composition precondition is enforced inside
+        // pp_patch_composition() itself (via the shared predicate, #387), so patching
+        // a composition-less page still fails closed early with a clear
+        // composition_required error instead of a late, confusing component_not_found.
+        // The --preview path stays read-only and ungated (it never touches the action
         // registry). update_component is composition-mutating, so the freshness gate
         // (#113) and baseline refresh apply on the mutating path.
         $expected_version = null;
@@ -1475,8 +1476,10 @@ class PP_Operate_Command extends WP_CLI_Command {
             if ($patch_action === null) {
                 WP_CLI::error('The "update_component" action is not registered; cannot gate the patch write. This is a theme bug.');
             }
-            // Shared per-action gate: scope-consistency + preflight coverage (#96) +
-            // composition precondition (#358), against the real registered action.
+            // Shared per-action gate: scope-consistency + preflight coverage (#96),
+            // against the real registered action. (The #358 composition precondition
+            // now fires inside pp_patch_composition() / the shared validator — #387 —
+            // not in this gate.)
             _pp_cli_require_preflight_for_action($run_id, $patch_action, ['post_id' => $post_id]);
             // The freshness gate returns the validated baseline version; thread it into the
             // patch so the apply is an atomic compare-and-swap (#13), not check-then-write.

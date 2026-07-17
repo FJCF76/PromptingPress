@@ -926,6 +926,109 @@ class OperateTest extends TestCase
         }
     }
 
+    public function testExecutorBlocksComponentActionOnEmptyPageWithoutCliGate(): void
+    {
+        // #387 acceptance #1 (the core bug): a component-level action on a
+        // composition-less page must fail with composition_required through
+        // pp_execute_action() DIRECTLY — the path the in-admin chat AJAX handler
+        // uses (lib/ai-chat.php calls pp_execute_action()) — with NO WP-CLI gate
+        // involved. Before #387 the precondition lived only in the CLI gate, so this
+        // exact call returned ok:true and created the first component, letting chat
+        // bypass the #358 requirement. Now the shared validator enforces it.
+        $post_id = pp_execute_action('create_page', ['title' => 'Chat Bypass 387'])['target']['post_id'];
+        $this->assertEmpty(pp_get_composition($post_id), 'page starts with no composition');
+
+        $result = pp_execute_action('add_component', [
+            'post_id'   => $post_id,
+            'component' => 'hero',
+            'props'     => ['title' => 'Should be rejected'],
+        ]);
+
+        $this->assertFalse($result['ok'], 'add_component on a composition-less page must fail via the executor');
+        $this->assertSame('composition_required', $result['error_code'], 'the envelope must carry the machine-readable error_code');
+        $this->assertEmpty(pp_get_composition($post_id), 'the rejected action must not have written a first component');
+    }
+
+    public function testExecutorAllowsComponentActionOnceComposed(): void
+    {
+        // The mirror of the block above: once the page has content, the same
+        // executor call succeeds — the relocated guard opens exactly when #358 says
+        // it should, so we did not over-block the normal edit path.
+        $post_id = pp_execute_action('create_page', ['title' => 'Composed 387'])['target']['post_id'];
+        pp_execute_action('update_composition', [
+            'post_id'     => $post_id,
+            'composition' => [['component' => 'hero', 'props' => ['title' => 'Seed']]],
+        ]);
+
+        $result = pp_execute_action('add_component', [
+            'post_id'   => $post_id,
+            'component' => 'hero',
+            'props'     => ['title' => 'Second'],
+        ]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? 'add_component on a populated page must succeed');
+        $this->assertCount(2, pp_get_composition($post_id), 'the second component must be appended');
+    }
+
+    public function testExecutorReturnsNotFoundNotCompositionRequiredForNonexistentPage(): void
+    {
+        // #387 ordering: the composition guard is gated on page existence, so a
+        // component action on a NONEXISTENT page still surfaces the action's own
+        // not_found (from semantic validate) rather than the misleading
+        // composition_required — "populate it first" makes no sense for a page that
+        // does not exist. This pins the _pp_validate_page_exists()===false branch.
+        $result = pp_execute_action('add_component', [
+            'post_id'   => 987654,
+            'component' => 'hero',
+            'props'     => ['title' => 'X'],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('not_found', $result['error_code'], 'a nonexistent page must report not_found, not composition_required');
+    }
+
+    public function testValidatorSkipsCompositionGuardForSiteScopedActionWithStrayPostId(): void
+    {
+        // #387 hardening: a site-scoped action inherits requires_composition=TRUE by
+        // default but is NOT composition-targeted. A stray post_id in its params
+        // (e.g. a malformed proposal) must NOT trip the composition guard — the shared
+        // validator keys the precondition on the declared scope, not the raw param,
+        // keeping acceptance #2 (site-scoped actions unaffected) true.
+        $empty = pp_execute_action('create_page', ['title' => 'Site Scope 387'])['target']['post_id'];
+        $this->assertEmpty(pp_get_composition($empty), 'target page is composition-less');
+
+        pp_register_action('_test_387_site_action', [
+            'scope'    => 'site',
+            'params'   => [],
+            'validate' => function (array $params) { return true; },
+        ]);
+        try {
+            // requires_composition defaulted TRUE by pp_register_action; without the
+            // scope gate this stray post_id at an empty page would return composition_required.
+            $this->assertTrue(pp_get_action('_test_387_site_action')['requires_composition']);
+            $result = pp_validate_action('_test_387_site_action', ['post_id' => $empty]);
+            $this->assertTrue($result, 'a site-scoped action must validate despite a stray post_id at a composition-less page');
+        } finally {
+            unset($GLOBALS['_pp_actions']['_test_387_site_action']);
+        }
+    }
+
+    public function testPatchPreviewOnCompositionLessPageFailsClosed(): void
+    {
+        // #387: pp_patch_composition() enforces the composition precondition in step
+        // 2a, BEFORE the read-only preview branch, so previewing a patch on a
+        // composition-less page fails closed with composition_required (a clear error)
+        // instead of the confusing component_not_found — and never diffs a component
+        // that cannot exist. Preview still writes nothing.
+        $post_id = pp_execute_action('create_page', ['title' => 'Preview 387'])['target']['post_id'];
+        $this->assertEmpty(pp_get_composition($post_id));
+
+        $result = pp_patch_composition($post_id, 'hero.title', 'x', /* preview */ true);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('composition_required', $result->get_error_code());
+        $this->assertEmpty(pp_get_composition($post_id), 'preview must not write');
+    }
+
     public function testCompositionPreconditionAllowsComponentActionsOnPopulatedPage(): void
     {
         $post_id = pp_execute_action('create_page', ['title' => 'Populated 358'])['target']['post_id'];

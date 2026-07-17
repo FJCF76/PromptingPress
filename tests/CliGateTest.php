@@ -15,11 +15,12 @@
  *      wrappers still fail closed and still emit the exact user-facing messages.
  *
  * Out of scope for the ORIGINAL #390 predicate pins: the #358 composition-
- * precondition branch inside _pp_cli_require_preflight_for_action() — those pins
- * all short-circuit BEFORE the precondition call is reached. #391 then adds the
- * operate-patch unification pins at the end of this file, which DO reach the
- * precondition (patching a composition-less page now fails closed there). #387
- * later relocates the precondition check into the shared validator.
+ * precondition branch — #390's pins all short-circuit BEFORE it. #387 then
+ * relocated the precondition out of the CLI gate and into the shared validator
+ * pp_validate_action() (lib/actions.php), so _pp_cli_require_preflight_for_action()
+ * now enforces coverage + scope only. The operate-patch pins below reflect that:
+ * the composition-less rejection is enforced inside pp_patch_composition() (via
+ * the shared predicate), not by the CLI gate wrapper.
  */
 
 use PHPUnit\Framework\TestCase;
@@ -352,11 +353,14 @@ class CliGateTest extends TestCase
 
     public function testUpdateComponentRegistrationSupportsPatchGateRouting(): void
     {
-        // The patch gate keys on these three fields of the real registration:
+        // The patch path keys on these three fields of the real registration:
         //   scope='section'        → _pp_cli_preflight_target_error resolves the target;
         //   mutates_composition    → freshness gate + baseline refresh engage;
         //   requires_composition   → #358 precondition engages (defaulted TRUE by
         //                            pp_register_action, since update_component omits it).
+        //                            Since #387 the precondition fires in the shared
+        //                            validator / pp_patch_composition(), but it still
+        //                            reads THIS flag, so the assertion below still guards it.
         // If any drifts, the patch routing silently changes behavior — fail here first.
         $action = pp_get_action('update_component');
         $this->assertIsArray($action, 'update_component must be registered for patch to route through it');
@@ -367,27 +371,45 @@ class CliGateTest extends TestCase
 
     public function testPatchGateRejectsCompositionLessPageViaSharedGate(): void
     {
-        // Routing the REAL update_component action through the shared gate with a
-        // preflight covering the page but an EMPTY composition now fails closed
-        // early with composition_required (#358) — the clearer-earlier-rejection
-        // the hand-rolled coverage-only path skipped by construction.
+        // Post-#387: the CLI gate wrapper (coverage + scope) no longer enforces the
+        // #358 precondition — that moved into the shared validator. On a composition-
+        // less page with a covering preflight, the wrapper now PASSES (coverage +
+        // scope are both satisfied); the composition_required rejection is enforced
+        // one layer in, inside pp_patch_composition() via the shared predicate,
+        // failing closed early with the clear error instead of a late component_not_found.
         $run_id  = $this->newRun();
         $post_id = 501;
         $this->assertTrue(pp_operate_record_preflight($run_id, $post_id, [], ['version' => 0, 'hash' => 'empty'], []));
         // No _pp_composition meta set → pp_get_composition() returns [].
         $action = pp_get_action('update_component');
-        $this->expectException(WpCliExitException::class);
-        $this->expectExceptionMessage('operates on an existing composition, but post ' . $post_id . ' has none yet');
-        _pp_cli_require_preflight_for_action($run_id, $action, ['post_id' => $post_id]);
+
+        // The CLI gate wrapper no longer throws for the composition-less page.
+        $threw = false;
+        try {
+            _pp_cli_require_preflight_for_action($run_id, $action, ['post_id' => $post_id]);
+        } catch (WpCliExitException $e) {
+            $threw = true;
+        }
+        $this->assertFalse($threw, 'the CLI gate wrapper enforces coverage+scope only after #387; the #358 gate is not here');
+
+        // The shared precondition now fires inside pp_patch_composition() itself.
+        $result = pp_patch_composition($post_id, 'hero.title', 'anything');
+        $this->assertInstanceOf(WP_Error::class, $result, 'patching a composition-less page must fail closed');
+        $this->assertSame('composition_required', $result->get_error_code());
+        $this->assertStringContainsString(
+            'operates on an existing composition, but post ' . $post_id . ' has none yet',
+            $result->get_error_message()
+        );
     }
 
     public function testPatchGateAcceptsPreflightedComponentEditViaSharedGate(): void
     {
         // Valid, preflighted component edit against a populated, UNCHANGED page:
-        // the FULL non-preview patch gate sequence accepts — coverage + #358
-        // precondition (require_preflight_for_action) AND the freshness gate (#113),
-        // exactly the two gates patch() runs with the real update_component action.
-        // "No change to patch semantics for valid, preflighted component edits."
+        // the FULL non-preview patch gate sequence accepts — coverage + scope
+        // (require_preflight_for_action) AND the freshness gate (#113), exactly the
+        // two gates patch() runs with the real update_component action. The #358
+        // precondition (relocated in #387) also passes here because the page has
+        // content. "No change to patch semantics for valid, preflighted component edits."
         $run_id  = $this->newRun();
         $post_id = 502;
         $this->assertTrue(pp_operate_record_preflight($run_id, $post_id, [], ['version' => 1, 'hash' => 'h'], []));

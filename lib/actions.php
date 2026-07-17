@@ -123,6 +123,43 @@ function pp_validate_action(string $name, array $params) {
         return $logo_error;
     }
 
+    // Composition-presence precondition (#358, #387). Runs HERE — in the shared
+    // validator, not in a per-entry-point gate — so every caller of
+    // pp_validate_action() (AJAX via pp_execute_action(), WP-CLI, the batch
+    // executor, and pp_patch_composition() via update_component) is covered by
+    // the same guard. Before #387 this lived only in the WP-CLI gate
+    // (_pp_cli_require_preflight_for_action), so the in-admin chat AJAX — which
+    // calls pp_execute_action() directly — could add the first component to a
+    // composition-less page, bypassing the gate. Component-level actions
+    // (requires_composition defaults TRUE) fail closed on a composition-less
+    // page with error_code 'composition_required'; populate/lifecycle/metadata
+    // actions opt out via requires_composition => false; site-scoped actions
+    // (no post_id) are a no-op. Declarative + fail-closed; the single predicate
+    // lives in pp_action_composition_precondition() (lib/operate.php).
+    //
+    // Gated on the page EXISTING: a nonexistent (or non-page) post is the
+    // action's own not_found / not_a_page case, emitted by the semantic validate
+    // below — "populate it first" would misdirect for a page that isn't there.
+    // For an existing page we enforce BEFORE semantic validation so EVERY
+    // requires_composition action reports the uniform composition_required rather
+    // than a per-action index_out_of_bounds on a composition-less page.
+    //
+    // Only page/section-scoped actions carry a composition target. Site-scoped
+    // actions (create_page, update_site_option, menu/CSS actions) inherit
+    // requires_composition=TRUE by default but are NOT composition-targeted, so a
+    // STRAY post_id in their params must not trip this guard — key on the declared
+    // scope, not just the raw param. This mirrors pp_action_composition_precondition()'s
+    // own "site-scoped is a no-op" contract and keeps acceptance #2 (site-scoped
+    // actions unaffected) true even when a caller passes an undeclared post_id.
+    $post_id = isset($params['post_id']) ? (int) $params['post_id'] : null;
+    $is_site_scope = ($action['scope'] ?? '') === 'site';
+    if (!$is_site_scope && $post_id !== null && _pp_validate_page_exists($post_id) === true) {
+        $composition_error = pp_action_composition_precondition($action, $post_id);
+        if (is_wp_error($composition_error)) {
+            return $composition_error;
+        }
+    }
+
     // Semantic validation: action's own checks
     return call_user_func($action['validate'], $params);
 }
