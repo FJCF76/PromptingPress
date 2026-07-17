@@ -95,8 +95,14 @@ advisory lock** and refuses the write if it moved, returning the same
 `composition_conflict`. Because the compare and the write are both under the one lock,
 there is no gap left for a lost update to slip through. The baseline is optional at the
 choke point (a new page or a legacy direct write omits it and writes unconditionally),
-so the guarantee is opt-in per writer, and every agent-driven or editor-driven write
-opts in.
+so the guarantee is **opt-in per writer**. Two writers opt in today: the WP-CLI
+operate loop (it threads the freshness-validated baseline through `action execute` /
+`operate patch`) and the dashboard editor's save/publish AJAX (it echoes the loaded
+version back as `expected_version`). The **chat AI path does not yet opt in**: its
+`wp_ajax_pp_ai_chat` handler calls `pp_execute_action()` without an `expected_version`,
+so a chat-driven composition write is *not* CAS-protected. Threading it through the
+chat path has its own baseline-lifecycle design ([#392](https://github.com/FJCF76/PromptingPress/issues/392),
+v1.0.2) and is out of scope for v1.0.1.
 
 ### The loop runs PREFLIGHT before EDIT
 
@@ -148,6 +154,53 @@ target a page that doesn't exist, you get "post N does not exist," not a confusi
 "go preflight a page that isn't there." The gate only demands a preflight for an
 action that would actually run.
 
+## 🗂️ Two classes of gate (and where each one lives)
+
+The gates above are not all the same kind of thing, and conflating them is how a
+data-safety rule can quietly end up enforced in only one caller. Sort every gate
+into one of two classes:
+
+- **Loop-discipline gates** enforce *operator workflow order* — the run token,
+  the INSPECT→PLAN→PREFLIGHT→EDIT→APPLY→HANDOFF sequence, "no mutation before a
+  covering PREFLIGHT is on record." They exist to keep a human/agent operating a
+  CLI run honestly. They can legitimately stay **WP-CLI/operate-loop-specific**,
+  because they gate the *loop*, not the *write*: a caller that never joins a run
+  (the dashboard editor, a chat AJAX action) is not skipping a data-safety
+  invariant by not having a run token.
+- **Data-safety invariants** protect the *bytes in the database* — that a write
+  can't clobber a concurrent one, can't land on unvalidated content, and can't
+  mutate something with no way back. These must sit at a **shared choke point**
+  every writer passes through, or, where they don't yet, be **named here as a
+  caller-specific gap** so nobody assumes a system-wide guarantee that isn't there.
+
+| Gate | Class | Where it lives today |
+|------|-------|----------------------|
+| Run token / `--run-id`, 2-hour expiry, site binding | Loop-discipline | WP-CLI only (`lib/cli.php`, `lib/operate.php`) |
+| INSPECT-first + PREFLIGHT-before-EDIT ordering | Loop-discipline | WP-CLI only |
+| Preflight **coverage** match (post-N vs site-grain) | Loop-discipline (proves a covering preflight *ran*) | WP-CLI only (`pp_operate_preflight_covers`) |
+| Preflight **freshness** pre-check (#113) | Data-safety | WP-CLI only (`_pp_cli_require_composition_fresh`) — pre-check, not the guarantee |
+| Write-time **compare-and-swap** (#13) | Data-safety | Shared choke point (`pp_update_composition`), **opt-in**: CLI ✅, editor AJAX ✅, chat AJAX ❌ (#392) |
+| Pre-apply **rollback snapshot** | Data-safety | Recorded in the CLI preflight only; apply/token mutation outside a CLI run is not yet covered (#393) |
+| `composition_required` precondition (#358) | Data-safety | WP-CLI only today; chat AJAX reaches `pp_execute_action()` without it (#387) |
+
+The takeaway for future hardening: leave loop-discipline gates in the CLI, but do
+not move a data-safety invariant into a CLI wrapper. When you add one, put it at
+the shared validator/executor choke point so every caller inherits it — or, if you
+can't yet, add a row here marking the caller that still lacks it.
+
+### Scope of this release
+
+**v1.0.1 is executor-level safety hardening, not a redesign of the operate loop.**
+It classifies the existing gates (this document), adds fail-closed test coverage,
+unifies the CLI patch path with the shared gate stack, and moves the
+`composition_required` precondition into the shared executor so the chat path
+inherits it ([#387](https://github.com/FJCF76/PromptingPress/issues/387)). It does
+**not** rethread the remaining data-safety invariants through every caller. Two
+caller-specific gaps are tracked and deliberately left for later: chat-path CAS
+([#392](https://github.com/FJCF76/PromptingPress/issues/392), v1.0.2) and reversible
+apply/token mutation outside CLI runs
+([#393](https://github.com/FJCF76/PromptingPress/issues/393), unscheduled).
+
 ## ⚖️ Trade-offs (made on purpose)
 
 - **Operators run an extra step per page.** You must preflight each page
@@ -176,6 +229,14 @@ action that would actually run.
   A no-post preflight covers all site-scoped actions for the run's lifetime. That
   matches what `pp_preflight()` actually checks today; per-option coverage is a
   future refinement.
+- **CAS on chat-driven composition writes** ([#392](https://github.com/FJCF76/PromptingPress/issues/392),
+  v1.0.2). The chat AJAX action path does not thread `expected_version`, so the
+  write-time compare-and-swap does not protect it (see the gate table above).
+  Closing it needs a chat-side baseline lifecycle, tracked separately.
+- **Reversible apply/token mutation outside a CLI run** ([#393](https://github.com/FJCF76/PromptingPress/issues/393)).
+  The pre-apply rollback snapshot is recorded by the CLI preflight only; an apply
+  or token mutation driven from outside a run has no equivalent pre-mutation
+  snapshot yet.
 
 ## 📚 Related
 
