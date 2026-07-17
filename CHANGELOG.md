@@ -4,6 +4,17 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.0.1] — 2026-07-17 — classify operating-loop gates and correct the stale chat-CAS claim (#389)
+
+**The operating-loop safety docs claimed every agent-driven or editor-driven composition write opts into the write-time compare-and-swap (CAS). The code is narrower than that: only the WP-CLI operate loop and the dashboard editor's save/publish AJAX thread `expected_version` into the write. The chat AI path (`wp_ajax_pp_ai_chat` → `pp_execute_action()`) does not, so a chat-driven composition write is not CAS-protected. This documentation-only patch corrects that over-claim in both `docs/operating-loop-safety.md` and `docs/reference-apply-cli.md`, and adds an explicit classification of the current gates into loop-discipline (run-token ordering, INSPECT/PREFLIGHT/HANDOFF choreography — legitimately CLI-specific) versus data-safety invariants (preconditions, freshness, CAS, rollback — which belong at shared choke points or must be named as caller-specific gaps). No runtime behavior changed.**
+
+This is the first item of the v1.0.1 executor-level safety-hardening gate (#141, Part 1.5) from the 2026-07-16 fragile-complexity audit. Mapping the gates first means later fixes in the gate do not blindly relocate loop-choreography into shared executors. The docs now cross-reference the remaining data-safety gaps that stay outside v1.0.1 — chat-path CAS (#392, v1.0.2) and reversible apply/token mutation outside CLI runs (#393) — and note that the `composition_required` chat bypass (#387) is closed within v1.0.1 itself. The verified code anchors: CAS opt-in threading at `lib/cli.php` and `lib/admin.php`, the choke point `pp_update_composition` (`lib/wp.php`), the un-threaded chat handler at `lib/ai-chat.php`, and the CLI-only `composition_required` precondition (`lib/operate.php`).
+
+### Docs
+
+- `docs/operating-loop-safety.md` no longer claims chat-driven composition writes have CAS protection; it now names exactly which writers opt in (CLI + editor) and which do not (chat), adds a "Two classes of gate" section with a per-gate classification table, and states that v1.0.1 is executor-level hardening, not a redesign of the operate loop.
+- `docs/reference-apply-cli.md` corrects the same over-claim in the `expected_version` reference: the CLI agent path and dashboard editor supply it; the AI chat action path does not yet (tracked in #392).
+
 ## [v1.0.0] — 2026-07-15 — first stable release: the v1.0.0 acceptance gate is closed (#141)
 
 **PromptingPress reaches 1.0.0. This is a milestone marker, not a feature release: every capability shipped in the 0.16.x train below, and this entry carries no new code beyond the five-file version bump and a documentation-freshness pass. What 1.0.0 marks is the close of the v1.0.0 acceptance gate (#141) — the milestone reached zero open issues, and three independent benchmark dogfoods verified the product materially credible with all trust-class defects resolved. The 0.16.x train is what earned the tag: the composition/file authority model, the shared validation engines (no surface-specific second validator), write-time compare-and-swap on composition writes (#13), composition history and restore (#133/#233), the typed action/apply layer with preview and rollback, the per-instance style-slot contract enforced by static and rendered-cascade guards, and the runtime AI action catalog. 1.0.0 does not add to that surface; it certifies it.**
