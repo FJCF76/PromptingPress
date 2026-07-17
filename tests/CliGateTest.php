@@ -14,10 +14,12 @@
  *      error() throws a catchable exception in place of exit(1) — proving the
  *      wrappers still fail closed and still emit the exact user-facing messages.
  *
- * Deliberately OUT OF SCOPE (per #390): the #358 composition-precondition branch
- * inside _pp_cli_require_preflight_for_action(). #387 relocates that check into
- * the shared validator, so every fail-closed branch tested here short-circuits
- * BEFORE the precondition call is reached.
+ * Out of scope for the ORIGINAL #390 predicate pins: the #358 composition-
+ * precondition branch inside _pp_cli_require_preflight_for_action() — those pins
+ * all short-circuit BEFORE the precondition call is reached. #391 then adds the
+ * operate-patch unification pins at the end of this file, which DO reach the
+ * precondition (patching a composition-less page now fails closed there). #387
+ * later relocates the precondition check into the shared validator.
  */
 
 use PHPUnit\Framework\TestCase;
@@ -337,5 +339,101 @@ class CliGateTest extends TestCase
         // Non-mutating action → no CAS baseline applies.
         $version = _pp_cli_require_composition_fresh('123e4567-e89b-42d3-a456-426614174000', ['name' => 'set_title', 'scope' => 'page'], 5);
         $this->assertNull($version);
+    }
+
+    // ── operate-patch unification with the shared per-action gate (#391) ──────
+    // `operate patch` no longer hand-rolls a synthetic partial action array; it
+    // resolves the REAL update_component registration and routes through
+    // _pp_cli_require_preflight_for_action(). These pin that the routing target
+    // still carries the metadata the shared gate consumes, that the newly-shared
+    // #358 precondition now fires for the patch path, and — via a source tripwire —
+    // that patch() actually calls the shared gate (a helper test alone can't catch
+    // a patch() that stops calling it).
+
+    public function testUpdateComponentRegistrationSupportsPatchGateRouting(): void
+    {
+        // The patch gate keys on these three fields of the real registration:
+        //   scope='section'        → _pp_cli_preflight_target_error resolves the target;
+        //   mutates_composition    → freshness gate + baseline refresh engage;
+        //   requires_composition   → #358 precondition engages (defaulted TRUE by
+        //                            pp_register_action, since update_component omits it).
+        // If any drifts, the patch routing silently changes behavior — fail here first.
+        $action = pp_get_action('update_component');
+        $this->assertIsArray($action, 'update_component must be registered for patch to route through it');
+        $this->assertSame('section', $action['scope']);
+        $this->assertTrue($action['mutates_composition']);
+        $this->assertTrue($action['requires_composition'], 'defaulted TRUE by pp_register_action → #358 gate engages for patch');
+    }
+
+    public function testPatchGateRejectsCompositionLessPageViaSharedGate(): void
+    {
+        // Routing the REAL update_component action through the shared gate with a
+        // preflight covering the page but an EMPTY composition now fails closed
+        // early with composition_required (#358) — the clearer-earlier-rejection
+        // the hand-rolled coverage-only path skipped by construction.
+        $run_id  = $this->newRun();
+        $post_id = 501;
+        $this->assertTrue(pp_operate_record_preflight($run_id, $post_id, [], ['version' => 0, 'hash' => 'empty'], []));
+        // No _pp_composition meta set → pp_get_composition() returns [].
+        $action = pp_get_action('update_component');
+        $this->expectException(WpCliExitException::class);
+        $this->expectExceptionMessage('operates on an existing composition, but post ' . $post_id . ' has none yet');
+        _pp_cli_require_preflight_for_action($run_id, $action, ['post_id' => $post_id]);
+    }
+
+    public function testPatchGateAcceptsPreflightedComponentEditViaSharedGate(): void
+    {
+        // Valid, preflighted component edit against a populated, UNCHANGED page:
+        // the FULL non-preview patch gate sequence accepts — coverage + #358
+        // precondition (require_preflight_for_action) AND the freshness gate (#113),
+        // exactly the two gates patch() runs with the real update_component action.
+        // "No change to patch semantics for valid, preflighted component edits."
+        $run_id  = $this->newRun();
+        $post_id = 502;
+        $this->assertTrue(pp_operate_record_preflight($run_id, $post_id, [], ['version' => 1, 'hash' => 'h'], []));
+        // Non-empty composition (already-decoded list fixture → returned as-is).
+        update_post_meta($post_id, '_pp_composition', [['type' => 'hero', 'props' => []]]);
+        // Live marker matches the recorded baseline → the freshness gate accepts.
+        $this->setLiveMarker($post_id, 1, 'h');
+        $action = pp_get_action('update_component');
+        _pp_cli_require_preflight_for_action($run_id, $action, ['post_id' => $post_id]);
+        $baseline = _pp_cli_require_composition_fresh($run_id, $action, $post_id);
+        $this->assertSame(1, $baseline, 'freshness gate accepts and returns the CAS baseline for the real update_component action');
+    }
+
+    public function testPatchCommandRoutesThroughSharedPerActionGate(): void
+    {
+        // Source tripwire: the behavioral tests above exercise the shared gate, but
+        // only this pins that PP_Target_Command::patch() actually CALLS it. A
+        // regression that reverts patch() to the hand-rolled synthetic gate would
+        // pass every helper test yet fail here. (Same idiom as InvariantTest /
+        // NavReadinessTest reading source back.)
+        $src = file_get_contents(dirname(__DIR__) . '/lib/cli.php');
+        $this->assertNotFalse($src, 'lib/cli.php must be readable');
+
+        $start = strpos($src, 'public function patch(');
+        $this->assertNotFalse($start, 'patch() method must exist');
+        // Bound the slice at the next method so we assert on patch() only.
+        $next  = strpos($src, 'public function ', $start + 1);
+        $patch = $next !== false ? substr($src, $start, $next - $start) : substr($src, $start);
+
+        // Loose positive matches (call name + real-action resolution) so a benign
+        // reflow or variable rename does not false-fail; the high-value guard is the
+        // variable-name-agnostic negative assertion that the synthetic array is gone.
+        $this->assertStringContainsString(
+            '_pp_cli_require_preflight_for_action(',
+            $patch,
+            'patch() must route through the shared per-action gate (#391)'
+        );
+        $this->assertStringContainsString(
+            "pp_get_action('update_component')",
+            $patch,
+            'patch() must gate against the real update_component registration'
+        );
+        $this->assertStringNotContainsString(
+            "['mutates_composition' => true]",
+            $patch,
+            'patch() must not rebuild the synthetic partial action array (#391)'
+        );
     }
 }

@@ -1449,22 +1449,35 @@ class PP_Operate_Command extends WP_CLI_Command {
             WP_CLI::error('--target is required.');
         }
 
-        // Preflight-before-mutation gate (#96). The mutating path writes
-        // _pp_composition through the update_component action, so it must sit
-        // behind the same run-token discipline as `action execute`: a valid
-        // run-id, a completed INSPECT, and a PREFLIGHT covering this page. The
-        // --preview path stays read-only and ungated.
-        // The mutating patch path writes the composition through the update_component
-        // action, so it is composition-mutating: gate it on freshness (#113) just like
-        // `action execute`. Resolve that action once for both the gate and the refresh.
-        $patch_action = ['mutates_composition' => true];
+        // Preflight-before-mutation gate (#96/#391). The mutating path writes
+        // _pp_composition through the update_component action, so it routes through
+        // the SAME per-action gate stack as `action execute` (a valid run-id, a
+        // completed INSPECT, and a PREFLIGHT covering this page) — against the REAL
+        // update_component registration, not a synthetic partial action array.
+        // Using the real action means the patch path also gets the scope-consistency
+        // assertion and the #358 composition precondition for free: patching a
+        // composition-less page now fails closed early with a clear composition_required
+        // error instead of a late, confusing failure inside pp_patch_composition. The
+        // --preview path stays read-only and ungated (it never touches the action
+        // registry). update_component is composition-mutating, so the freshness gate
+        // (#113) and baseline refresh apply on the mutating path.
         $expected_version = null;
         if (!$preview) {
             $run_id = _pp_cli_require_run_id($assoc_args);
             if (!pp_operate_check_step($run_id, 'INSPECT')) {
                 WP_CLI::error('Run token "' . $run_id . '" has no completed INSPECT step. Run `wp pp operate inspect` first.');
             }
-            _pp_cli_require_preflight_covers($run_id, $post_id);
+            // Resolve the REAL registered action the patch writes through, so the gate,
+            // freshness, and refresh all key on the real registration rather than a
+            // synthetic partial array (#391). Fail closed if it is somehow unregistered;
+            // the name is hardcoded, so null is a theme bug, not a user error.
+            $patch_action = pp_get_action('update_component');
+            if ($patch_action === null) {
+                WP_CLI::error('The "update_component" action is not registered; cannot gate the patch write. This is a theme bug.');
+            }
+            // Shared per-action gate: scope-consistency + preflight coverage (#96) +
+            // composition precondition (#358), against the real registered action.
+            _pp_cli_require_preflight_for_action($run_id, $patch_action, ['post_id' => $post_id]);
             // The freshness gate returns the validated baseline version; thread it into the
             // patch so the apply is an atomic compare-and-swap (#13), not check-then-write.
             $expected_version = _pp_cli_require_composition_fresh($run_id, $patch_action, $post_id);
