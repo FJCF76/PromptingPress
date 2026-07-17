@@ -419,9 +419,9 @@ npm run env:stop
 
 PromptingPress is in active development by a single developer. It is not yet packaged for broad distribution. The current focus is making the AI-agent workflow reliable and the composition model complete.
 
-See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 through v1.0.0.
+See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 through v1.0.1.
 
-**What exists today (v1.0.0):**
+**What exists today (v1.0.1):**
 - 12 components with schema contracts and 194 per-instance style slots, plus named recipes
 - A contract-test suite that enforces the style-slot contract: every declared slot must be consumed by the CSS, and literal re-declarations that would defeat a slot fail the build — including cross-stylesheet clobbers, where an automatic-match rule in `base.css`/`utilities.css` outranks a component slot (issue [#342](https://github.com/FJCF76/PromptingPress/issues/342)). Known exceptions live in shrink-only ledgers (issues [#309](https://github.com/FJCF76/PromptingPress/issues/309), [#342](https://github.com/FJCF76/PromptingPress/issues/342)); the static guards account for every clobber candidate, and the rendered computed-style checks own the true cascade proof
 - Typed action/apply layer with validation, preview, and rollback
