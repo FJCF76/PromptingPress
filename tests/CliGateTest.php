@@ -1,0 +1,341 @@
+<?php
+/**
+ * tests/CliGateTest.php — Fail-closed coverage for the WP-CLI gate stack (#390).
+ *
+ * The gate composition in lib/cli.php (run-id validation, preflight coverage,
+ * scope-consistency, composition freshness) was load-bearing but untested,
+ * because each wrapper called WP_CLI::error() directly — a process exit that is
+ * hostile to unit testing. #390 extracts the decision of each gate into a pure
+ * predicate (message-or-null, or a discriminated result for freshness) so every
+ * fail-closed branch is assertable without the exit. This file pins:
+ *
+ *   1. the pure predicates directly (the decision), and
+ *   2. the thin WP_CLI wrappers (the composition), via a WP_CLI stub whose
+ *      error() throws a catchable exception in place of exit(1) — proving the
+ *      wrappers still fail closed and still emit the exact user-facing messages.
+ *
+ * Deliberately OUT OF SCOPE (per #390): the #358 composition-precondition branch
+ * inside _pp_cli_require_preflight_for_action(). #387 relocates that check into
+ * the shared validator, so every fail-closed branch tested here short-circuits
+ * BEFORE the precondition call is reached.
+ */
+
+use PHPUnit\Framework\TestCase;
+
+// ── Minimal WP-CLI stubs so lib/cli.php loads outside a real WP-CLI runtime ──
+// error() throws instead of exiting, so a wrapper's fail-closed branch is
+// observable as a catchable exception carrying the exact user-facing message.
+if (!class_exists('WpCliExitException')) {
+    class WpCliExitException extends \RuntimeException {}
+}
+if (!class_exists('WP_CLI_Command')) {
+    class WP_CLI_Command {}
+}
+if (!class_exists('WP_CLI')) {
+    class WP_CLI {
+        public static function error($message, $exit = true): void { throw new WpCliExitException((string) $message); }
+        public static function add_command($name, $handler, $args = []): void {}
+        public static function line($message = ''): void {}
+        public static function warning($message = ''): void {}
+        public static function success($message = ''): void {}
+        public static function debug($message = '', $group = false): void {}
+        public static function log($message = ''): void {}
+    }
+}
+
+require_once dirname(__DIR__) . '/lib/cli.php';
+
+class CliGateTest extends TestCase
+{
+    /** @var string[] Run tokens created during a test, cleaned up in tearDown. */
+    private array $runs = [];
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // Stable site identity so a run created and read within one test matches.
+        $GLOBALS['_pp_test_store']['options']['siteurl'] = 'https://example.com';
+        $GLOBALS['_pp_test_store']['post_meta'] = [];
+    }
+
+    protected function tearDown(): void
+    {
+        foreach ($this->runs as $run_id) {
+            pp_operate_cleanup_run($run_id);
+        }
+        $this->runs = [];
+        $GLOBALS['_pp_test_store']['post_meta'] = [];
+        parent::tearDown();
+    }
+
+    /** Creates a run token and registers it for cleanup. */
+    private function newRun(): string
+    {
+        $run_id = pp_operate_create_run();
+        $this->assertIsString($run_id, 'run token created');
+        $this->runs[] = $run_id;
+        return $run_id;
+    }
+
+    /** Sets the live composition marker (what pp_get_composition_marker reads). */
+    private function setLiveMarker(int $post_id, int $version, string $hash): void
+    {
+        update_post_meta($post_id, '_pp_composition_version', $version);
+        update_post_meta($post_id, '_pp_composition_hash', $hash);
+    }
+
+    // ── Gate 1: run-id validation ────────────────────────────────────────────
+
+    public function testRunIdErrorMissing(): void
+    {
+        $error = _pp_cli_run_id_error([]);
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('--run-id is required', $error);
+    }
+
+    public function testRunIdErrorEmptyString(): void
+    {
+        // empty('') is true — the missing branch, not the invalid branch.
+        $error = _pp_cli_run_id_error(['run-id' => '']);
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('--run-id is required', $error);
+    }
+
+    public function testRunIdErrorInvalidUuid(): void
+    {
+        $error = _pp_cli_run_id_error(['run-id' => 'not-a-uuid']);
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('valid UUID v4', $error);
+        $this->assertStringContainsString('not-a-uuid', $error, 'echoes the offending value');
+    }
+
+    public function testRunIdErrorValidReturnsNull(): void
+    {
+        $this->assertNull(_pp_cli_run_id_error(['run-id' => '123e4567-e89b-42d3-a456-426614174000']));
+    }
+
+    public function testRequireRunIdThrowsOnMissing(): void
+    {
+        $this->expectException(WpCliExitException::class);
+        $this->expectExceptionMessage('--run-id is required');
+        _pp_cli_require_run_id([]);
+    }
+
+    public function testRequireRunIdThrowsOnInvalid(): void
+    {
+        $this->expectException(WpCliExitException::class);
+        $this->expectExceptionMessage('valid UUID v4');
+        _pp_cli_require_run_id(['run-id' => 'garbage']);
+    }
+
+    public function testRequireRunIdReturnsValidToken(): void
+    {
+        $uuid = '123e4567-e89b-42d3-a456-426614174000';
+        $this->assertSame($uuid, _pp_cli_require_run_id(['run-id' => $uuid]));
+    }
+
+    // ── Gate 2: scope-consistency / preflight target resolution ──────────────
+
+    public function testPreflightTargetErrorUnrecognizedScope(): void
+    {
+        $error = _pp_cli_preflight_target_error(['name' => 'weird_action', 'scope' => 'galaxy'], 5);
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('unrecognized scope "galaxy"', $error);
+        $this->assertStringContainsString('weird_action', $error);
+    }
+
+    public function testPreflightTargetErrorMissingScopeKeyIsUnrecognized(): void
+    {
+        // No 'scope' key defaults to 'unknown', which is not page/section/site.
+        $error = _pp_cli_preflight_target_error(['name' => 'no_scope'], null);
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('unrecognized scope "unknown"', $error);
+    }
+
+    public function testPreflightTargetErrorPageWithoutPostId(): void
+    {
+        $error = _pp_cli_preflight_target_error(['name' => 'set_prop', 'scope' => 'page'], null);
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('page-scoped but no post_id was provided', $error);
+    }
+
+    public function testPreflightTargetErrorSectionWithoutPostId(): void
+    {
+        $error = _pp_cli_preflight_target_error(['name' => 'edit_section', 'scope' => 'section'], null);
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('section-scoped but no post_id was provided', $error);
+    }
+
+    public function testPreflightTargetErrorSiteWithPostId(): void
+    {
+        $error = _pp_cli_preflight_target_error(['name' => 'set_logo', 'scope' => 'site'], 5);
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('site-scoped but a post_id', $error);
+    }
+
+    public function testPreflightTargetErrorValidPageReturnsNull(): void
+    {
+        $this->assertNull(_pp_cli_preflight_target_error(['name' => 'set_prop', 'scope' => 'page'], 5));
+    }
+
+    public function testPreflightTargetErrorValidSiteReturnsNull(): void
+    {
+        $this->assertNull(_pp_cli_preflight_target_error(['name' => 'set_logo', 'scope' => 'site'], null));
+    }
+
+    // ── Gate 3: preflight coverage ───────────────────────────────────────────
+
+    public function testPreflightCoverageErrorWhenNotCovered(): void
+    {
+        // A fresh run has INSPECT only — no PREFLIGHT recorded for post 42.
+        $run_id = $this->newRun();
+        $error = _pp_cli_preflight_coverage_error($run_id, 42);
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('no completed PREFLIGHT covering post 42', $error);
+        $this->assertStringContainsString('--post_id=42', $error, 'hint targets the post');
+    }
+
+    public function testPreflightCoverageErrorSiteScopeWording(): void
+    {
+        $run_id = $this->newRun();
+        $error = _pp_cli_preflight_coverage_error($run_id, null);
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('no completed PREFLIGHT covering site-scoped changes', $error);
+    }
+
+    public function testPreflightCoverageErrorNullWhenCovered(): void
+    {
+        $run_id = $this->newRun();
+        $this->assertTrue(pp_operate_record_preflight($run_id, 42, [], ['version' => 1, 'hash' => 'h'], []));
+        $this->assertNull(_pp_cli_preflight_coverage_error($run_id, 42));
+    }
+
+    // ── Gate 2+3 composition, via the wrapper (fail-closed, pre-#358) ─────────
+
+    public function testRequirePreflightForActionThrowsOnUnrecognizedScope(): void
+    {
+        $this->expectException(WpCliExitException::class);
+        $this->expectExceptionMessage('unrecognized scope');
+        _pp_cli_require_preflight_for_action(
+            '123e4567-e89b-42d3-a456-426614174000',
+            ['name' => 'weird', 'scope' => 'galaxy'],
+            ['post_id' => 5]
+        );
+    }
+
+    public function testRequirePreflightForActionThrowsOnPageWithoutPostId(): void
+    {
+        $this->expectException(WpCliExitException::class);
+        $this->expectExceptionMessage('no post_id was provided');
+        _pp_cli_require_preflight_for_action(
+            '123e4567-e89b-42d3-a456-426614174000',
+            ['name' => 'set_prop', 'scope' => 'page'],
+            []
+        );
+    }
+
+    public function testRequirePreflightForActionThrowsOnSiteWithPostId(): void
+    {
+        $this->expectException(WpCliExitException::class);
+        $this->expectExceptionMessage('site-scoped but a post_id');
+        _pp_cli_require_preflight_for_action(
+            '123e4567-e89b-42d3-a456-426614174000',
+            ['name' => 'set_logo', 'scope' => 'site'],
+            ['post_id' => 5]
+        );
+    }
+
+    public function testRequirePreflightForActionThrowsOnMissingCoverage(): void
+    {
+        // Scope is consistent, so the target gate passes; coverage then fails
+        // (no PREFLIGHT recorded) — reached BEFORE the #358 precondition.
+        $run_id = $this->newRun();
+        $this->expectException(WpCliExitException::class);
+        $this->expectExceptionMessage('no completed PREFLIGHT covering post 77');
+        _pp_cli_require_preflight_for_action(
+            $run_id,
+            ['name' => 'set_prop', 'scope' => 'page'],
+            ['post_id' => 77]
+        );
+    }
+
+    // ── Gate 4: composition freshness ────────────────────────────────────────
+
+    public function testFreshnessDecisionNoOpForNonMutatingAction(): void
+    {
+        $decision = _pp_cli_composition_fresh_decision('123e4567-e89b-42d3-a456-426614174000', ['name' => 'set_title', 'scope' => 'page'], 5);
+        $this->assertSame(['status' => 'ok', 'version' => null], $decision);
+    }
+
+    public function testFreshnessDecisionNoOpForSiteScope(): void
+    {
+        // Even a composition-mutating action with no post_id (site grain) is a no-op.
+        $decision = _pp_cli_composition_fresh_decision('123e4567-e89b-42d3-a456-426614174000', ['name' => 'x', 'scope' => 'site', 'mutates_composition' => true], null);
+        $this->assertSame(['status' => 'ok', 'version' => null], $decision);
+    }
+
+    public function testFreshnessDecisionErrorOnMissingBaseline(): void
+    {
+        // Mutating action, valid run, but no snapshot recorded for post 7.
+        $run_id = $this->newRun();
+        $decision = _pp_cli_composition_fresh_decision($run_id, ['name' => 'set_prop', 'scope' => 'page', 'mutates_composition' => true], 7);
+        $this->assertSame('error', $decision['status']);
+        $this->assertStringContainsString('no composition freshness baseline for post 7', $decision['message']);
+    }
+
+    public function testFreshnessDecisionErrorOnStaleMarker(): void
+    {
+        // Recorded marker v1/a; live marker v2/b — the composition moved under us.
+        $run_id = $this->newRun();
+        $this->assertTrue(pp_operate_record_preflight($run_id, 9, [], ['version' => 1, 'hash' => 'a'], []));
+        $this->setLiveMarker(9, 2, 'b');
+        $decision = _pp_cli_composition_fresh_decision($run_id, ['name' => 'set_prop', 'scope' => 'page', 'mutates_composition' => true], 9);
+        $this->assertSame('error', $decision['status']);
+        $this->assertStringContainsString('[composition_conflict]', $decision['message']);
+        $this->assertStringContainsString('preflight version 1, live version 2', $decision['message']);
+    }
+
+    public function testFreshnessDecisionOkReturnsBaselineVersion(): void
+    {
+        // Recorded marker matches the live marker → accept, returning the CAS baseline.
+        $run_id = $this->newRun();
+        $this->assertTrue(pp_operate_record_preflight($run_id, 11, [], ['version' => 3, 'hash' => 'match'], []));
+        $this->setLiveMarker(11, 3, 'match');
+        $decision = _pp_cli_composition_fresh_decision($run_id, ['name' => 'set_prop', 'scope' => 'page', 'mutates_composition' => true], 11);
+        $this->assertSame(['status' => 'ok', 'version' => 3], $decision);
+    }
+
+    public function testRequireCompositionFreshThrowsOnMissingBaseline(): void
+    {
+        $run_id = $this->newRun();
+        $this->expectException(WpCliExitException::class);
+        $this->expectExceptionMessage('no composition freshness baseline for post 7');
+        _pp_cli_require_composition_fresh($run_id, ['name' => 'set_prop', 'scope' => 'page', 'mutates_composition' => true], 7);
+    }
+
+    public function testRequireCompositionFreshThrowsOnStaleMarker(): void
+    {
+        $run_id = $this->newRun();
+        $this->assertTrue(pp_operate_record_preflight($run_id, 9, [], ['version' => 1, 'hash' => 'a'], []));
+        $this->setLiveMarker(9, 2, 'b');
+        $this->expectException(WpCliExitException::class);
+        $this->expectExceptionMessage('[composition_conflict]');
+        _pp_cli_require_composition_fresh($run_id, ['name' => 'set_prop', 'scope' => 'page', 'mutates_composition' => true], 9);
+    }
+
+    public function testRequireCompositionFreshReturnsVersionWhenFresh(): void
+    {
+        $run_id = $this->newRun();
+        $this->assertTrue(pp_operate_record_preflight($run_id, 11, [], ['version' => 3, 'hash' => 'match'], []));
+        $this->setLiveMarker(11, 3, 'match');
+        $version = _pp_cli_require_composition_fresh($run_id, ['name' => 'set_prop', 'scope' => 'page', 'mutates_composition' => true], 11);
+        $this->assertSame(3, $version);
+    }
+
+    public function testRequireCompositionFreshReturnsNullForNoOp(): void
+    {
+        // Non-mutating action → no CAS baseline applies.
+        $version = _pp_cli_require_composition_fresh('123e4567-e89b-42d3-a456-426614174000', ['name' => 'set_title', 'scope' => 'page'], 5);
+        $this->assertNull($version);
+    }
+}

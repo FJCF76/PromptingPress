@@ -30,18 +30,35 @@ function _pp_cli_preflight_record_failed(array $result, string $message): void {
 }
 
 /**
+ * Pure decision for the --run-id gate (#390): returns the fail-closed error
+ * message, or null when the arg is present and a valid UUID v4. Split out of
+ * _pp_cli_require_run_id() so the two rejection branches (missing, invalid) are
+ * unit-testable without going through WP_CLI::error()'s process exit. The
+ * wrapper below owns the emit; this owns the decision and the message text.
+ *
+ * @param array $assoc_args The CLI assoc args (expects a 'run-id' key).
+ * @return string|null  The user-facing error, or null to accept.
+ */
+function _pp_cli_run_id_error(array $assoc_args): ?string {
+    if (empty($assoc_args['run-id'])) {
+        return '--run-id is required. Run `wp pp operate inspect` first to get a run token.';
+    }
+    if (!pp_operate_valid_run_id($assoc_args['run-id'])) {
+        return '--run-id must be a valid UUID v4. Got: "' . $assoc_args['run-id'] . '"';
+    }
+    return null;
+}
+
+/**
  * Validates and returns the --run-id from CLI args.
  * Halts with WP_CLI::error if missing or not a valid UUID v4.
  */
 function _pp_cli_require_run_id(array $assoc_args): string {
-    if (empty($assoc_args['run-id'])) {
-        WP_CLI::error('--run-id is required. Run `wp pp operate inspect` first to get a run token.');
+    $error = _pp_cli_run_id_error($assoc_args);
+    if ($error !== null) {
+        WP_CLI::error($error);
     }
-    $run_id = $assoc_args['run-id'];
-    if (!pp_operate_valid_run_id($run_id)) {
-        WP_CLI::error('--run-id must be a valid UUID v4. Got: "' . $run_id . '"');
-    }
-    return $run_id;
+    return $assoc_args['run-id'];
 }
 
 /**
@@ -50,15 +67,33 @@ function _pp_cli_require_run_id(array $assoc_args): string {
  * specific $post_id for page/section mutations, or the site grain when $post_id
  * is null. Shared by `action execute` and `operate patch`.
  */
-function _pp_cli_require_preflight_covers(string $run_id, ?int $post_id): void {
+/**
+ * Pure decision for the preflight-coverage gate (#96/#390): returns the
+ * fail-closed error message when the run has no completed PREFLIGHT covering the
+ * intended target, or null when coverage exists. Split out of
+ * _pp_cli_require_preflight_covers() so the uncovered branch and its actionable
+ * message are unit-testable without WP_CLI::error()'s exit.
+ *
+ * @param string   $run_id  The run token UUID.
+ * @param int|null $post_id The mutation target post, or null for site-scoped.
+ * @return string|null  The user-facing error, or null to accept.
+ */
+function _pp_cli_preflight_coverage_error(string $run_id, ?int $post_id): ?string {
     if (pp_operate_preflight_covers($run_id, $post_id)) {
-        return;
+        return null;
     }
     $target = $post_id !== null ? 'post ' . $post_id : 'site-scoped changes';
     $hint   = 'wp pp apply preflight --run-id=' . $run_id
             . ($post_id !== null ? ' --post_id=' . $post_id : '');
-    WP_CLI::error('Run token "' . $run_id . '" has no completed PREFLIGHT covering ' . $target
-        . '. Mutating actions require a successful preflight first. Run `' . $hint . '`.');
+    return 'Run token "' . $run_id . '" has no completed PREFLIGHT covering ' . $target
+        . '. Mutating actions require a successful preflight first. Run `' . $hint . '`.';
+}
+
+function _pp_cli_require_preflight_covers(string $run_id, ?int $post_id): void {
+    $error = _pp_cli_preflight_coverage_error($run_id, $post_id);
+    if ($error !== null) {
+        WP_CLI::error($error);
+    }
 }
 
 /**
@@ -67,28 +102,54 @@ function _pp_cli_require_preflight_covers(string $run_id, ?int $post_id): void {
  * carry none), asserts that the action's declared scope is consistent with that
  * presence so a misdeclared action can't be mis-gated, then enforces coverage.
  */
-function _pp_cli_require_preflight_for_action(string $run_id, array $action, array $params): void {
-    $scope   = $action['scope'] ?? 'unknown';
-    $post_id = isset($params['post_id']) ? (int) $params['post_id'] : null;
+/**
+ * Pure decision for the scope-consistency guardrail (#390) that resolves an
+ * action's preflight target from its declared scope and the presence of a
+ * post_id. Returns the fail-closed error message for the three misdeclaration
+ * branches, or null when scope and post_id are mutually consistent:
+ *   - unrecognized scope (not page/section/site);
+ *   - a page/section action with no post_id;
+ *   - a site action carrying a post_id.
+ * Split out of _pp_cli_require_preflight_for_action() so those branches are
+ * unit-testable without WP_CLI::error()'s exit. It does NOT enforce coverage or
+ * the #358 composition precondition — those stay in the wrapper below.
+ *
+ * @param array    $action  The registered action (expects 'scope', 'name').
+ * @param int|null $post_id The resolved target post, or null for site scope.
+ * @return string|null  The user-facing error, or null to accept.
+ */
+function _pp_cli_preflight_target_error(array $action, ?int $post_id): ?string {
+    $scope = $action['scope'] ?? 'unknown';
 
     // Fail closed on an unrecognized scope. The page/site assertions below only
     // hold for the known scopes; a missing or mistyped scope would otherwise fall
     // through to post_id-presence keying, letting a misdeclared page action be
     // unlocked by a site-grain preflight. Refuse rather than guess the target.
     if (!in_array($scope, ['page', 'section', 'site'], true)) {
-        WP_CLI::error('Action "' . ($action['name'] ?? '?') . '" has an unrecognized scope "'
-            . $scope . '"; refusing to resolve a preflight target. This is an action-registration bug.');
+        return 'Action "' . ($action['name'] ?? '?') . '" has an unrecognized scope "'
+            . $scope . '"; refusing to resolve a preflight target. This is an action-registration bug.';
     }
 
     // Scope-consistency guardrail: page/section MUST carry post_id; site MUST NOT.
     $is_page_scope = in_array($scope, ['page', 'section'], true);
     if ($is_page_scope && $post_id === null) {
-        WP_CLI::error('Action "' . ($action['name'] ?? '?') . '" is ' . $scope
-            . '-scoped but no post_id was provided; cannot resolve a preflight target.');
+        return 'Action "' . ($action['name'] ?? '?') . '" is ' . $scope
+            . '-scoped but no post_id was provided; cannot resolve a preflight target.';
     }
     if ($scope === 'site' && $post_id !== null) {
-        WP_CLI::error('Action "' . ($action['name'] ?? '?') . '" is site-scoped but a post_id '
-            . 'was provided; site actions are not page-targeted.');
+        return 'Action "' . ($action['name'] ?? '?') . '" is site-scoped but a post_id '
+            . 'was provided; site actions are not page-targeted.';
+    }
+
+    return null;
+}
+
+function _pp_cli_require_preflight_for_action(string $run_id, array $action, array $params): void {
+    $post_id = isset($params['post_id']) ? (int) $params['post_id'] : null;
+
+    $target_error = _pp_cli_preflight_target_error($action, $post_id);
+    if ($target_error !== null) {
+        WP_CLI::error($target_error);
     }
 
     _pp_cli_require_preflight_covers($run_id, $post_id);
@@ -125,27 +186,52 @@ function _pp_cli_require_preflight_for_action(string $run_id, array $action, arr
  *
  * @return int|null  The baseline version to use as expected_version, or null (no CAS).
  */
-function _pp_cli_require_composition_fresh(string $run_id, array $action, ?int $post_id): ?int {
+/**
+ * Pure decision for the preflight-freshness gate (#113/#390). Reads the recorded
+ * and live composition markers and resolves the gate to one of:
+ *   ['status' => 'ok',    'version' => int|null]  — accept; version is the CAS
+ *        baseline to thread as expected_version, or null for the no-op cases
+ *        (non-composition-mutating action, or site-scoped/no post_id);
+ *   ['status' => 'error', 'message' => string]    — fail-closed, with the exact
+ *        user-facing message for the missing-baseline or stale-marker branch.
+ * Split out of _pp_cli_require_composition_fresh() so both rejection branches are
+ * unit-testable without WP_CLI::error()'s exit. The single snapshot read here is
+ * also reused for the returned version, so the wrapper below never re-reads.
+ *
+ * @param string   $run_id  The run token UUID.
+ * @param array    $action  The registered action (checks 'mutates_composition').
+ * @param int|null $post_id The mutation target post, or null.
+ * @return array  A discriminated result: {status:'ok', version:int|null} or {status:'error', message:string}.
+ */
+function _pp_cli_composition_fresh_decision(string $run_id, array $action, ?int $post_id): array {
     if (empty($action['mutates_composition']) || $post_id === null) {
-        return null;
+        return ['status' => 'ok', 'version' => null];
     }
 
     $recorded = pp_operate_get_composition_snapshot($run_id, $post_id);
     if ($recorded === null) {
-        WP_CLI::error('Run token "' . $run_id . '" recorded no composition freshness baseline for post '
-            . $post_id . '. Re-run `wp pp apply preflight --run-id=' . $run_id . ' --post_id=' . $post_id . '`.');
+        return ['status' => 'error', 'message' => 'Run token "' . $run_id . '" recorded no composition freshness baseline for post '
+            . $post_id . '. Re-run `wp pp apply preflight --run-id=' . $run_id . ' --post_id=' . $post_id . '`.'];
     }
 
     $live = pp_get_composition_marker($post_id);
     if (!pp_composition_marker_matches($recorded, $live)) {
-        WP_CLI::error('Stale preflight for post ' . $post_id . ': the composition changed since preflight '
+        return ['status' => 'error', 'message' => 'Stale preflight for post ' . $post_id . ': the composition changed since preflight '
             . '(preflight version ' . (int) $recorded['version'] . ', live version ' . (int) $live['version'] . '). '
             . 'Another path (a CLI action, the dashboard editor, or publish flow) modified it. '
             . 'Re-inspect and re-run `wp pp apply preflight --run-id=' . $run_id . ' --post_id=' . $post_id
-            . '` before executing. [composition_conflict]');
+            . '` before executing. [composition_conflict]'];
     }
 
-    return (int) $recorded['version'];
+    return ['status' => 'ok', 'version' => (int) $recorded['version']];
+}
+
+function _pp_cli_require_composition_fresh(string $run_id, array $action, ?int $post_id): ?int {
+    $decision = _pp_cli_composition_fresh_decision($run_id, $action, $post_id);
+    if ($decision['status'] === 'error') {
+        WP_CLI::error($decision['message']);
+    }
+    return $decision['version'];
 }
 
 /**
