@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.0.2] — 2026-07-17 — unit coverage for the WP-CLI gate stack fail-closed branches (#390)
+
+**The WP-CLI gate stack is load-bearing safety logic, but the composed fail-closed decisions in its wrappers (`_pp_cli_require_run_id`, `_pp_cli_require_preflight_for_action`, `_pp_cli_require_preflight_covers`, `_pp_cli_require_composition_fresh`) had no direct unit coverage, because each wrapper calls `WP_CLI::error()` — a process exit — inline with its branch logic. That left the safety decisions both unshared and untested. This change extracts the decision of each gate into a pure predicate (a message-or-null return, or a discriminated result for the freshness gate) and adds `tests/CliGateTest.php`, which pins every fail-closed branch at both the predicate and the wrapper level. The wrappers stay thin emit shims; every user-facing message, return value, and branch ordering is byte-identical to before, so no CLI behavior changed.**
+
+This is the second item of the v1.0.1 executor-level safety-hardening gate (#141, Part 1.5) from the 2026-07-16 fragile-complexity audit. Pinning the composition first means later gate-stack refactors (the operate-patch unification in #391) can move this logic without silently changing a fail-closed decision. Coverage spans the eight branches the issue names: missing and invalid run ID, missing preflight coverage, unrecognized action scope, a page/section action without `post_id`, a site action carrying `post_id`, a missing composition-freshness baseline, and a stale composition marker — plus the accept and no-op paths. The composition-precondition branch (#358) is deliberately excluded: #387 relocates it into the shared validator, so pinning it here as CLI behavior would churn when that lands. The new test defines a `WP_CLI` stub whose `error()` throws a catchable exception in place of `exit(1)`, faithfully modeling the fail-closed semantics without a live WP-CLI runtime.
+
+### Tests
+
+- `tests/CliGateTest.php` (new, 30 tests) covers the WP-CLI gate composition without relying on interactive `WP_CLI::error()` exits: each fail-closed branch is asserted on its exact user-facing message, and each accept/no-op path on its exact return value, at both the extracted pure predicate and the thin wrapper. Full suite: 1889 PHP tests green (up from 1859), 575 JS tests green.
+
+### Fixed
+
+- The four WP-CLI gate wrappers in `lib/cli.php` now delegate their fail-closed decision to a pure, testable predicate (`_pp_cli_run_id_error`, `_pp_cli_preflight_target_error`, `_pp_cli_preflight_coverage_error`, `_pp_cli_composition_fresh_decision`), so the composed safety logic is unit-testable instead of trapped behind `WP_CLI::error()`. Behavior, messages, and ordering are unchanged; the `composition_required` precondition (#358) is untouched.
+
 ## [v1.0.1] — 2026-07-17 — classify operating-loop gates and correct the stale chat-CAS claim (#389)
 
 **The operating-loop safety docs claimed every agent-driven or editor-driven composition write opts into the write-time compare-and-swap (CAS). The code is narrower than that: only the WP-CLI operate loop and the dashboard editor's save/publish AJAX thread `expected_version` into the write. The chat AI path (`wp_ajax_pp_ai_chat` → `pp_execute_action()`) does not, so a chat-driven composition write is not CAS-protected. This documentation-only patch corrects that over-claim in both `docs/operating-loop-safety.md` and `docs/reference-apply-cli.md`, and adds an explicit classification of the current gates into loop-discipline (run-token ordering, INSPECT/PREFLIGHT/HANDOFF choreography — legitimately CLI-specific) versus data-safety invariants (preconditions, freshness, CAS, rollback — which belong at shared choke points or must be named as caller-specific gaps). No runtime behavior changed.**
