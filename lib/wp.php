@@ -208,6 +208,14 @@ function pp_thumbnail_url(string $size = 'large'): string {
  * Returns the composition array for the current page from _pp_composition post meta.
  * Returns an empty array when the meta is absent, empty, or contains invalid JSON.
  *
+ * Runs the legacy `variant` read-path shim (pp_migrate_stored_composition) on the
+ * decoded items so a stored pre-#69 composition renders with `variant` honored,
+ * matching the MIGRATION behavior of the editor/restore/inspect read paths (#400).
+ * It does not add their list-shape enforcement (that decode/classification gate is
+ * pp_get_composition_result()'s job, #144, deliberately left untouched here). The
+ * migration is a no-op for the modern layout/theme shape, so those compositions
+ * render byte-identically.
+ *
  * @return array  Array of component objects: [['component' => string, 'props' => array], ...]
  */
 function pp_composition(): array {
@@ -216,7 +224,7 @@ function pp_composition(): array {
         return [];
     }
     $items = json_decode($raw, true);
-    return is_array($items) ? $items : [];
+    return is_array($items) ? pp_migrate_stored_composition($items) : [];
 }
 
 // ── Site-state read functions (action-layer support) ─────────────────────────
@@ -314,8 +322,9 @@ function pp_get_composition_result(int $post_id): array {
  * structural/tone setting after the rename, so this migrates the decoded items on read.
  * Note (#388): the write path no longer migrates — new writes reject `variant` with
  * unknown_prop — so this read-path decode is the permanent counterpart that keeps
- * already-stored legacy content readable on those paths. (The public front-end renderer
- * reads via pp_composition(), which decodes raw and does not run this shim either way.)
+ * already-stored legacy content readable on those paths. As of #400 the public
+ * front-end renderer (pp_composition()) also routes its decoded items through this
+ * shim, so the render boundary is no longer the odd reader that bypasses migration.
  * Delegates to the single migration helper in lib/admin.php;
  * guarded so a partial include (some unit tests load lib/wp.php alone) degrades to
  * the raw items instead of fatally.
