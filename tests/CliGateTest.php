@@ -21,6 +21,13 @@
  * now enforces coverage + scope only. The operate-patch pins below reflect that:
  * the composition-less rejection is enforced inside pp_patch_composition() (via
  * the shared predicate), not by the CLI gate wrapper.
+ *
+ * #399 added a page-existence gate at the top of pp_patch_composition() (reusing
+ * the shared _pp_validate_page_exists()), so the patch path now reports not_found /
+ * not_a_page for a nonexistent / non-page id BEFORE the composition precondition —
+ * parity with `action execute`. The pins below cover all three orderings:
+ * nonexistent → not_found, non-page → not_a_page, existing + composition-less →
+ * composition_required.
  */
 
 use PHPUnit\Framework\TestCase;
@@ -68,6 +75,8 @@ class CliGateTest extends TestCase
         }
         $this->runs = [];
         $GLOBALS['_pp_test_store']['post_meta'] = [];
+        // Drop pages this class registers so the shared posts store stays clean (#399).
+        unset($GLOBALS['_pp_test_store']['posts'][501], $GLOBALS['_pp_test_store']['posts'][504]);
         parent::tearDown();
     }
 
@@ -379,6 +388,10 @@ class CliGateTest extends TestCase
         // failing closed early with the clear error instead of a late component_not_found.
         $run_id  = $this->newRun();
         $post_id = 501;
+        // The page must EXIST (#399): the composition-less rejection is only reachable
+        // once the page-existence gate passes. Register 501 as a real page so this test
+        // exercises "existing + composition-less → composition_required", not "not_found".
+        $GLOBALS['_pp_test_store']['posts'][$post_id] = ['post_type' => 'page', 'post_title' => 'Composition-less', 'post_status' => 'publish'];
         $this->assertTrue(pp_operate_record_preflight($run_id, $post_id, [], ['version' => 0, 'hash' => 'empty'], []));
         // No _pp_composition meta set → pp_get_composition() returns [].
         $action = pp_get_action('update_component');
@@ -400,6 +413,47 @@ class CliGateTest extends TestCase
             'operates on an existing composition, but post ' . $post_id . ' has none yet',
             $result->get_error_message()
         );
+    }
+
+    public function testPatchNonexistentPageFailsWithNotFoundBeforeCompositionPrecondition(): void
+    {
+        // #399: a numeric-but-nonexistent post id must fail with the SAME not_found
+        // class `action execute` produces (via _pp_validate_page_exists() in
+        // pp_validate_action()), BEFORE the step-2a composition precondition fires.
+        // Before the fix it surfaced the misleading 'composition_required'
+        // ("post N has none yet") for a page that does not exist.
+        $post_id = 999999;
+        // Guarantee isolation from any prior test that might have registered this id
+        // in the shared store, then confirm it is genuinely absent.
+        unset($GLOBALS['_pp_test_store']['posts'][$post_id]);
+        $this->assertNull(get_post($post_id), 'guard test requires a genuinely nonexistent id');
+
+        $result = pp_patch_composition($post_id, 'hero.title', 'anything');
+        $this->assertInstanceOf(WP_Error::class, $result, 'patching a nonexistent page must fail closed');
+        $this->assertSame('not_found', $result->get_error_code(), 'nonexistent page reports not_found, not composition_required');
+
+        // Parity holds on the read-only --preview path too (both route through the gate).
+        $preview = pp_patch_composition($post_id, 'hero.title', 'anything', /* preview */ true);
+        $this->assertInstanceOf(WP_Error::class, $preview);
+        $this->assertSame('not_found', $preview->get_error_code());
+    }
+
+    public function testPatchNonPagePostFailsWithNotAPage(): void
+    {
+        // #399 parity: a post that exists but is not a 'page' reports not_a_page —
+        // the same class action execute's semantic validate emits — again before the
+        // composition precondition. Uses the same shared _pp_validate_page_exists().
+        $post_id = 504;
+        $GLOBALS['_pp_test_store']['posts'][$post_id] = ['post_type' => 'post', 'post_title' => 'Blog Post', 'post_status' => 'publish'];
+
+        $result = pp_patch_composition($post_id, 'hero.title', 'anything');
+        $this->assertInstanceOf(WP_Error::class, $result, 'patching a non-page post must fail closed');
+        $this->assertSame('not_a_page', $result->get_error_code());
+
+        // Parity holds on the read-only --preview path too.
+        $preview = pp_patch_composition($post_id, 'hero.title', 'anything', /* preview */ true);
+        $this->assertInstanceOf(WP_Error::class, $preview);
+        $this->assertSame('not_a_page', $preview->get_error_code());
     }
 
     public function testPatchGateAcceptsPreflightedComponentEditViaSharedGate(): void

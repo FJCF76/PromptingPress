@@ -1909,6 +1909,22 @@ function _pp_pick_nested_match_field(string $component_type): ?string {
  * @return array|WP_Error  Preview diff or action result, or WP_Error.
  */
 function pp_patch_composition(int $post_id, string $selector_string, string $value, bool $preview = false, ?int $expected_version = null) {
+    // 0. Page-existence gate (#399). Establishes not_found / not_a_page parity with
+    // `wp pp action execute`, which guards its composition precondition on
+    // _pp_validate_page_exists() inside pp_validate_action() (lib/actions.php) so a
+    // nonexistent page fails with the action's own not_found. `operate patch` never
+    // ran that check, so a numeric-but-nonexistent post id fell through to the step-2a
+    // composition precondition below and surfaced the misleading 'composition_required'
+    // ("post N has none yet") for a page that does not exist. Reuse the shared page
+    // predicate here — no surface-specific second validator (repo invariant) — BEFORE
+    // any composition access, so both the --preview and mutating patch paths report the
+    // same error class as action execute. An existing composition-less page still gets
+    // the clear 'composition_required' from step 2a.
+    $page_exists = _pp_validate_page_exists($post_id);
+    if (is_wp_error($page_exists)) {
+        return $page_exists;
+    }
+
     // 1. Parse selector
     $parsed = pp_parse_composition_selector($selector_string);
     if (is_wp_error($parsed)) {
