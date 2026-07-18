@@ -97,6 +97,19 @@ header('X-Accel-Buffering: no'); // nginx
 $system_prompt = pp_ai_system_prompt();
 $messages = pp_ai_format_messages($system_prompt, $conversation, $page_id);
 
+// Composition CAS baseline (#404): capture the page's version right after the context the
+// model reads is assembled, so the browser can store it as the conversation's per-page
+// baseline and thread it back on write. Captured here — not at execute time — so the CAS
+// covers the whole gap between the model reading the page and the user applying, which is
+// where lost updates happen. Only when a page is in scope and still exists.
+$page_baseline = null;
+if ($page_id && get_post($page_id)) {
+    $page_baseline = [
+        'post_id' => $page_id,
+        'version' => pp_get_composition_marker($page_id)['version'],
+    ];
+}
+
 // ── Stream Response ────────────────────────────────────────────────────────
 
 $keepalive_interval = 12; // seconds
@@ -147,6 +160,11 @@ if ($proposal) {
 }
 if ($truncated) {
     $done_data['truncated'] = true;
+}
+// Ship the CAS baseline for the page the model just read (#404) so the chat UI stores it
+// as this conversation's per-page baseline and threads it back on the next write.
+if ($page_baseline !== null) {
+    $done_data['page_baseline'] = $page_baseline;
 }
 echo "data: " . wp_json_encode($done_data) . "\n\n";
 echo "data: [DONE]\n\n";

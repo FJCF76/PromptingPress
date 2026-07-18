@@ -4,6 +4,26 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.1.1] — 2026-07-18 — chat composition writes gain fail-closed CAS conflict protection (#404)
+
+**Chat was the one composition writer that never threaded a version baseline, so a chat-driven write could silently clobber a concurrent editor, CLI, or chat change. It now opts into the write-time compare-and-swap (#13) — mandatorily and fail-closed — on both chat entry points, implementing the accepted v1.2.0-gate design (#392). This is the implementation phase of the v1.2.0 chat-CAS gate (#141, Part 1.6); the gate-close/tag is a separate release.**
+
+When the model reads a page, the chat backend captures that page's `composition_version` as the conversation's per-page baseline and threads it back on write. `wp_ajax_pp_ai_execute` rejects a composition-mutating action with no baseline (`missing_expected_version`) before executing; `wp_ajax_pp_ai_execute_batch` rejects the whole batch before any step runs if any composition-mutating step's target page lacks a baseline (nothing executes, so there is nothing to roll back). A batch supplies a per-`post_id` baseline map and the executor chains each write's server-derived post-write version into the next mutating step on that page, so a multi-step proposal never false-conflicts against its own earlier writes; a page created mid-batch joins the map at the writer's version-0 semantics with no browser baseline. On `composition_conflict` the handlers return the structured envelope (`error_code` plus `expected_version`/`current_version`), and the chat UI shows one affordance — **Re-read & re-preview** — which re-reads the page for a fresh baseline and re-previews the proposal before the user confirms again, never a blind retry. The writer (`pp_update_composition`) and the action registry are untouched; the mandate lives in the chat entry points' contracts. Applies/token writes stay out of scope (#393), and the editor's opt-in posture is unchanged.
+
+### Fixed
+- Chat single-execute (`wp_ajax_pp_ai_execute`) and batch (`wp_ajax_pp_ai_execute_batch`) now thread `expected_version` into composition-mutating writes and reject fail-closed when a baseline is missing, closing the last composition writer that skipped the write-time CAS (#404).
+- A composition-mutating action's `ok:true` envelope and the batch success envelope now carry the post-write `composition_version`(s), so the chat UI refreshes its per-page baseline from every success instead of a second read.
+- After a rolled-back batch, the chat UI re-reads the baseline for every touched page, so the version churn the rollback introduces can't spuriously conflict the next apply.
+
+### Docs
+- `docs/operating-loop-safety.md` (chat CAS gate row), `docs/reference-apply-cli.md`, `AI_CONTEXT.md`, `ai-instructions/website-building.md`, and the runtime AI context (`lib/ai-context.php`, which now surfaces the concurrency baseline in the page context the model reads) updated to describe chat writes as CAS-protected.
+
+### Tests
+- Integrated-path PHP pins through the real handler functions and the writer CAS: editor-vs-chat and chat-vs-editor (both directions), chat-vs-chat, batch no-false-conflict, stale-initial-baseline rollback, multi-page per-page chaining, mid-batch create_page (version-0), fail-closed mandates (single + batch), success-envelope version refresh, legacy version-0 page, and a guarantee regression that a review-gap external write survives a CAS-rejected batch rollback.
+- New vitest pins for the JS baseline map, version-map refresh, and conflict detection helpers.
+
+---
+
 ## [v1.1.0] — 2026-07-17 — executor-level safety hardening: the v1.1.0 gate is closed (#141)
 
 **This is a gate rollup marker, not a feature release: every change shipped in the v1.0.1–v1.0.7 working versions below, and this entry carries no new code beyond the five-file version bump and a documentation-freshness pass. What 1.1.0 marks is the close of the executor-level safety-hardening gate (#141, Part 1.5) opened by the 2026-07-16 fragile-complexity audit — seven issues, milestone v1.1.0 at zero open. The through-line of the gate: data-safety invariants now live at shared choke points instead of only in WP-CLI wrappers. The operating-loop gates are classified loop-discipline vs data-safety with the stale chat-CAS docs claim corrected (#389); the CLI gate stack's fail-closed branches are unit-pinned via extracted pure predicates (#390); `operate patch` routes through the real registered action instead of a hand-rolled synthetic gate (#391); the `composition_required` precondition (#358) moved into the shared validator so every `pp_execute_action()` caller — chat AJAX, batch, admin, CLI — inherits it (#387); the retired `variant` prop is rejected at write time while restore/read paths keep migrating (#388); `operate patch` reports `not_found` for nonexistent pages in parity with `action execute` (#399); and the front-end renderer migrates legacy `variant` at read time, closing the last read path that bypassed the shared migration engine (#400).**

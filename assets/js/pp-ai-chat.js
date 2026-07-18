@@ -77,6 +77,83 @@ function ppChatShouldSuggestPageSwitch(activePageId, detectedPageId) {
     return !!detectedPageId && Number(detectedPageId) !== Number(activePageId);
 }
 
+// ── Composition CAS baselines (#404) ─────────────────────────────────────────
+// The chat UI carries a per-page baseline (the composition version the model
+// reasoned against) and threads it back on every write so a stale overwrite is
+// rejected server-side (composition_conflict) instead of silently clobbering a
+// concurrent editor/CLI/chat change. These helpers are pure so tests can pin
+// the map arithmetic and the conflict detection without a DOM.
+
+/**
+ * Builds the batch baseline map {post_id → version} to send with a batch: for
+ * every step that targets a page, include that page's stored baseline when
+ * known. A superset of the mutating steps is fine — the server ignores
+ * baselines for non-mutating steps and enforces coverage only on mutating ones,
+ * so this never needs the server's mutating-action list mirrored in the browser.
+ * A page with no stored baseline is omitted (the server then fails the write
+ * closed rather than writing without CAS).
+ */
+function ppChatBuildBatchBaselines(steps, pageBaselines) {
+    var map = {};
+    if (!steps || !pageBaselines) return map;
+    steps.forEach(function (s) {
+        var pid = s && s.params && s.params.post_id;
+        if (pid === undefined || pid === null || pid === '') return;
+        var key = Number(pid);
+        if (isNaN(key)) return;
+        if (Object.prototype.hasOwnProperty.call(pageBaselines, key)) {
+            map[key] = pageBaselines[key];
+        }
+    });
+    return map;
+}
+
+/**
+ * Merges a server-returned {post_id → version} map (single-execute
+ * composition_version, or a batch's versions map) into the stored baselines,
+ * mutating and returning the same object. Ignores non-numeric/negative values so
+ * a malformed response can't poison a baseline. This is how a successful write
+ * refreshes the baseline without a second read.
+ */
+function ppChatApplyVersionMap(pageBaselines, versions) {
+    if (!pageBaselines || !versions || typeof versions !== 'object') return pageBaselines;
+    Object.keys(versions).forEach(function (pid) {
+        var v = versions[pid];
+        var key = Number(pid);
+        if (!isNaN(key) && typeof v === 'number' && v >= 0) {
+            pageBaselines[key] = v;
+        }
+    });
+    return pageBaselines;
+}
+
+/**
+ * True when a server error payload is the structured composition_conflict
+ * envelope (#404 req.7). Drives the Re-read & re-preview conflict state instead
+ * of a generic error line.
+ */
+function ppChatIsCompositionConflict(errData) {
+    return !!(errData && typeof errData === 'object' && errData.error_code === 'composition_conflict');
+}
+
+/**
+ * True when a completed batch failed on a composition_conflict at its failed
+ * step (the batch response is a success envelope carrying a per-step failure).
+ */
+function ppChatBatchHitConflict(batch) {
+    if (!batch || batch.ok || batch.failed_at === null || batch.failed_at === undefined) return false;
+    var failed = batch.steps && batch.steps[batch.failed_at];
+    return !!(failed && failed.error_code === 'composition_conflict');
+}
+
+/**
+ * The single user-facing conflict message. One message, one affordance
+ * (Re-read & re-preview) — never a blind retry that re-sends the stale write.
+ */
+function ppChatConflictMessage() {
+    return 'This page changed while the proposal was pending (another tab, agent, or editor). Nothing was applied.';
+}
+
 function ppChatFormatDiffValue(val) {
     if (val === null || val === undefined) return '(none)';
     if (typeof val === 'object') {
@@ -553,7 +630,8 @@ function ppChatAppendValidationItems(container, items, className) {
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify({
                 conversation: conversation,
-                activePageId: activePageId
+                activePageId: activePageId,
+                pageBaselines: pageBaselines
             }));
         } catch (e) {
             // Storage full or unavailable — continue without persistence
@@ -583,11 +661,65 @@ function ppChatAppendValidationItems(container, items, className) {
         }
     }
 
+    // ── Composition CAS baselines (#404) ──────────────────────────────
+
+    // Stores a {post_id, version} baseline from a context read (SSE done event
+    // or AJAX fallback). Null/malformed payloads are ignored.
+    function storePageBaseline(baseline) {
+        if (!baseline || typeof baseline !== 'object') return;
+        var pid = Number(baseline.post_id);
+        var version = baseline.version;
+        if (isNaN(pid) || typeof version !== 'number' || version < 0) return;
+        pageBaselines[pid] = version;
+        saveState();
+    }
+
+    // Re-reads a page's current composition version from the server and refreshes
+    // the stored baseline. Backs the Re-read & re-preview conflict affordance:
+    // resolves once the fresh baseline is stored, rejects on any failure.
+    function refreshBaseline(pageId) {
+        var d = new FormData();
+        d.append('action', 'pp_ai_page_baseline');
+        d.append('nonce', config.executeNonce);
+        d.append('post_id', pageId);
+        return fetch(config.ajaxUrl, { method: 'POST', credentials: 'same-origin', body: d })
+            .then(function (r) { return r.json(); })
+            .then(function (resp) {
+                if (resp.success && resp.data && typeof resp.data.version === 'number') {
+                    storePageBaseline(resp.data);
+                    return resp.data;
+                }
+                throw new Error('baseline read failed');
+            });
+    }
+
+    // Re-reads the baseline for every distinct page a set of steps targets, best
+    // effort. Used after a rolled-back batch, whose snapshot-restore bumps the
+    // version of every touched page (#404): without this the stored baseline goes
+    // stale and the next apply false-conflicts.
+    function refreshTouchedBaselines(steps) {
+        if (!steps) return;
+        var seen = {};
+        steps.forEach(function (s) {
+            var pid = s && s.params && s.params.post_id;
+            if (pid === undefined || pid === null || pid === '') return;
+            var key = Number(pid);
+            if (isNaN(key) || seen[key]) return;
+            seen[key] = true;
+            refreshBaseline(key).catch(function () { /* best effort */ });
+        });
+    }
+
     // ── State ─────────────────────────────────────────────────────────
 
     var conversation = [];
     var isStreaming = false;
     var activePageId = null;
+    // Per-page composition CAS baselines {post_id → version} (#404): captured on
+    // every context read, refreshed from every successful write, threaded back on
+    // the next write. Persisted with the conversation so a reload keeps the
+    // baseline the pending proposal was reasoned against.
+    var pageBaselines = {};
 
     // issue 139: set to the current request's stop function while a stream
     // is in flight, so the Stop button (wired once at init) can reach
@@ -1074,7 +1206,7 @@ function ppChatAppendValidationItems(container, items, className) {
             applyBtn.className = 'button button-primary pp-ai-proposal-apply';
             applyBtn.textContent = steps.length > 1 ? 'Apply All' : 'Apply';
             applyBtn.addEventListener('click', function () {
-                executeProposal(steps, stepElements, applyBtn, cancelBtn, card);
+                executeProposal(steps, stepElements, applyBtn, cancelBtn, card, pageId);
             });
 
             var cancelBtn = document.createElement('button');
@@ -1154,7 +1286,7 @@ function ppChatAppendValidationItems(container, items, className) {
 
     // ── Proposal Execution ─────────────────────────────────────────────
 
-    function executeProposal(steps, stepElements, applyBtn, cancelBtn, card) {
+    function executeProposal(steps, stepElements, applyBtn, cancelBtn, card, pageId) {
         applyBtn.disabled = true;
         cancelBtn.disabled = true;
 
@@ -1171,6 +1303,10 @@ function ppChatAppendValidationItems(container, items, className) {
         data.append('steps', JSON.stringify(steps.map(function (s) {
             return { type: s.type, name: s.name, params: s.params || {} };
         })));
+        // Thread the per-page CAS baselines for every page this proposal touches
+        // (#404). The server enforces coverage on the mutating steps and rejects
+        // the whole batch fail-closed if a mutating page has no baseline.
+        data.append('baselines', JSON.stringify(ppChatBuildBatchBaselines(steps, pageBaselines)));
 
         fetch(config.ajaxUrl, {
             method: 'POST',
@@ -1184,11 +1320,19 @@ function ppChatAppendValidationItems(container, items, className) {
                     el.classList.remove('pp-ai-step-executing');
                     el.classList.add('pp-ai-step-failed');
                 });
-                addStatusMessage('Error: ' + (resp.data || 'Unknown error'), true);
+                // A missing-baseline mandate rejection (#404) or a pre-exec
+                // conflict arrives as a structured payload — show the conflict
+                // affordance rather than "[object Object]".
+                if (ppChatIsCompositionConflict(resp.data)
+                    || (resp.data && resp.data.error_code === 'missing_expected_version')) {
+                    showConflictState(card, steps, pageId);
+                } else {
+                    addStatusMessage('Error: ' + ((resp.data && resp.data.error) || resp.data || 'Unknown error'), true);
+                }
                 return;
             }
 
-            var batch = resp.data; // { ok, steps: [...], failed_at, rolled_back }
+            var batch = resp.data; // { ok, steps: [...], failed_at, rolled_back, versions }
             var applied = [];
 
             batch.steps.forEach(function (stepResult, i) {
@@ -1214,9 +1358,27 @@ function ppChatAppendValidationItems(container, items, className) {
             }
 
             if (batch.ok) {
+                // Refresh per-page baselines from the post-write versions so the
+                // next proposal chains off fresh state, not a stale read (#404).
+                ppChatApplyVersionMap(pageBaselines, batch.versions);
+                saveState();
                 finalizeProposalSuccess(card, applied, steps);
                 return;
             }
+
+            // A conflict at the failed step means another writer moved the page
+            // mid-proposal; the batch rolled back. Offer Re-read & re-preview, not
+            // a blind retry (#404).
+            if (ppChatBatchHitConflict(batch)) {
+                showConflictState(card, steps, pageId);
+                return;
+            }
+
+            // A non-conflict rollback (e.g. a validation error at a later step) still
+            // rewrites every snapshotted page's composition, which bumps its version —
+            // leaving our stored baselines stale. Re-read the baseline for each touched
+            // page so the next apply doesn't false-conflict against that churn (#404).
+            refreshTouchedBaselines(steps);
 
             var failedResult = batch.steps[batch.failed_at];
             var message = 'Error on step ' + (batch.failed_at + 1) + ': ' + (failedResult.error || 'Unknown error');
@@ -1232,6 +1394,59 @@ function ppChatAppendValidationItems(container, items, className) {
             });
             addStatusMessage('Error: ' + err.message, true);
         });
+    }
+
+    /**
+     * Composition-conflict state (#404): the page changed while the proposal was
+     * pending, so nothing was applied. Renders one message and one affordance,
+     * Re-read & re-preview — re-fetch the page's fresh baseline, then re-render
+     * the proposal so it previews against current state and the user confirms
+     * again. Never a blind retry that re-sends the stale write with a bumped
+     * version (that would turn the CAS into an auto-overwrite button).
+     */
+    function showConflictState(card, steps, pageId) {
+        card.innerHTML = '';
+        card.classList.add('pp-ai-proposal-conflict');
+
+        var msg = document.createElement('div');
+        msg.className = 'pp-ai-status pp-ai-status-error';
+        msg.setAttribute('role', 'alert');
+        msg.textContent = ppChatConflictMessage();
+        card.appendChild(msg);
+
+        var actions = document.createElement('div');
+        actions.className = 'pp-ai-proposal-actions';
+
+        var rereadBtn = document.createElement('button');
+        rereadBtn.className = 'button button-primary';
+        rereadBtn.textContent = 'Re-read & re-preview';
+        rereadBtn.addEventListener('click', function () {
+            rereadBtn.disabled = true;
+            rereadBtn.textContent = 'Re-reading…';
+
+            var freshSteps = steps.map(function (s) {
+                return { type: s.type, name: s.name, params: s.params || {}, description: s.description };
+            });
+
+            var readTarget = Number(pageId);
+            var reader = isNaN(readTarget)
+                ? Promise.resolve()
+                : refreshBaseline(readTarget);
+
+            reader.then(function () {
+                card.remove();
+                // Re-render the proposal fresh: previews every step against current
+                // state and shows Apply again, now backed by the refreshed baseline.
+                renderProposal({ proposal: true, steps: freshSteps }, pageId);
+            }).catch(function () {
+                rereadBtn.disabled = false;
+                rereadBtn.textContent = 'Re-read & re-preview';
+                addStatusMessage('Could not re-read the page. Try again.', true);
+            });
+        });
+        actions.appendChild(rereadBtn);
+        card.appendChild(actions);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
     function buildPostApplyCard(card, applied, steps) {
@@ -1397,6 +1612,14 @@ function ppChatAppendValidationItems(container, items, className) {
                 undoData.append('name', 'restore_composition');
                 undoData.append('params[post_id]', undoTarget.postId);
                 undoData.append('params[steps_back]', undoTarget.stepsBack);
+                // restore_composition is composition-mutating, so the server now
+                // requires a CAS baseline (#404). Thread the page's current stored
+                // baseline; an external write since apply makes this conflict
+                // rather than blindly clobber.
+                var undoBaseline = pageBaselines[Number(undoTarget.postId)];
+                if (typeof undoBaseline === 'number') {
+                    undoData.append('params[expected_version]', undoBaseline);
+                }
 
                 fetch(config.ajaxUrl, {
                     method: 'POST',
@@ -1407,7 +1630,15 @@ function ppChatAppendValidationItems(container, items, className) {
                 .then(function (resp) {
                     if (resp.success) {
                         undoLink.textContent = 'Changes undone ✓';
+                        // Refresh the baseline from the post-write version (#404).
+                        if (resp.data && typeof resp.data.composition_version === 'number') {
+                            pageBaselines[Number(undoTarget.postId)] = resp.data.composition_version;
+                            saveState();
+                        }
                         ppChatAppendUndoFindings(card, (resp.data && resp.data.findings) || []);
+                    } else if (ppChatIsCompositionConflict(resp.data)) {
+                        undoLink.textContent = 'Page changed — undo not applied';
+                        undoLink.className = 'pp-ai-link-error';
                     } else {
                         undoLink.textContent = 'Undo failed';
                         undoLink.className = 'pp-ai-link-error';
@@ -1604,6 +1835,13 @@ function ppChatAppendValidationItems(container, items, className) {
                                 messagesEl.scrollTop = messagesEl.scrollHeight;
                             }
 
+                            // Store the CAS baseline the server captured for the page the
+                            // model read (#404) — this is the version any proposal from this
+                            // turn was reasoned against, threaded back on write.
+                            if (data.done) {
+                                storePageBaseline(data.page_baseline);
+                            }
+
                             if (data.done && data.proposal) {
                                 proposalReceived = true;
                                 renderProposal(data.proposal, requestPageId);
@@ -1772,6 +2010,9 @@ function ppChatAppendValidationItems(container, items, className) {
                 msgBody.classList.remove('pp-ai-msg-streaming');
                 conversation.push({ role: 'assistant', content: resp.data.content });
 
+                // Store the CAS baseline the fallback captured (#404), same as the SSE path.
+                storePageBaseline(resp.data.page_baseline);
+
                 if (resp.data.proposal) {
                     renderProposal(resp.data.proposal, requestPageId);
                 } else if (looksLikeIncompleteProposal(resp.data.content)) {
@@ -1828,6 +2069,19 @@ function ppChatAppendValidationItems(container, items, className) {
         // <select>'s string value.
         activePageId = state.activePageId ? Number(state.activePageId) : null;
 
+        // Restore per-page CAS baselines (#404). Coerce keys to Number so they
+        // match the numeric activePageId invariant; drop anything non-numeric.
+        if (state.pageBaselines && typeof state.pageBaselines === 'object') {
+            pageBaselines = {};
+            Object.keys(state.pageBaselines).forEach(function (pid) {
+                var key = Number(pid);
+                var v = state.pageBaselines[pid];
+                if (!isNaN(key) && typeof v === 'number' && v >= 0) {
+                    pageBaselines[key] = v;
+                }
+            });
+        }
+
         if (!Array.isArray(state.conversation) || !state.conversation.length) return;
 
         conversation = state.conversation;
@@ -1869,6 +2123,7 @@ function ppChatAppendValidationItems(container, items, className) {
 
         conversation = [];
         activePageId = null;
+        pageBaselines = {};
         clearState();
         messagesEl.innerHTML = '';
         setStreamingUiState(false);
@@ -1925,6 +2180,11 @@ if (typeof module !== 'undefined' && module.exports) {
         buildCompositionSummary: ppChatBuildCompositionSummary,
         detectPageId: ppChatDetectPageId,
         findPageById: ppChatFindPageById,
-        shouldSuggestPageSwitch: ppChatShouldSuggestPageSwitch
+        shouldSuggestPageSwitch: ppChatShouldSuggestPageSwitch,
+        buildBatchBaselines: ppChatBuildBatchBaselines,
+        applyVersionMap: ppChatApplyVersionMap,
+        isCompositionConflict: ppChatIsCompositionConflict,
+        batchHitConflict: ppChatBatchHitConflict,
+        conflictMessage: ppChatConflictMessage
     };
 }

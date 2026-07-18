@@ -95,14 +95,29 @@ advisory lock** and refuses the write if it moved, returning the same
 `composition_conflict`. Because the compare and the write are both under the one lock,
 there is no gap left for a lost update to slip through. The baseline is optional at the
 choke point (a new page or a legacy direct write omits it and writes unconditionally),
-so the guarantee is **opt-in per writer**. Two writers opt in today: the WP-CLI
+so the guarantee is **opt-in per writer**. Three writers opt in today: the WP-CLI
 operate loop (it threads the freshness-validated baseline through `action execute` /
-`operate patch`) and the dashboard editor's save/publish AJAX (it echoes the loaded
-version back as `expected_version`). The **chat AI path does not yet opt in**: its
-`wp_ajax_pp_ai_chat` handler calls `pp_execute_action()` without an `expected_version`,
-so a chat-driven composition write is *not* CAS-protected. Threading it through the
-chat path has its own baseline-lifecycle design ([#392](https://github.com/FJCF76/PromptingPress/issues/392),
-v1.0.2) and is out of scope for v1.0.1.
+`operate patch`), the dashboard editor's save/publish AJAX (it echoes the loaded
+version back as `expected_version`), and the **chat AI path** (#404).
+
+The chat path opts in **mandatorily and fail-closed**, not opportunistically. When the
+model reads a page's context, the server captures that page's `composition_version` as the
+conversation's per-page baseline. Both chat entry points then require it: a composition-
+mutating `wp_ajax_pp_ai_execute` REJECTS the write with `missing_expected_version` if no
+baseline is supplied, and `wp_ajax_pp_ai_execute_batch` REJECTS the whole batch — before
+executing any step — if any composition-mutating step's target page lacks a baseline (so
+nothing runs and there is nothing to roll back). A batch threads a per-`post_id` baseline
+map and chains each write's server-derived post-write version into the next mutating step
+on that page, so a multi-step proposal never false-conflicts against its own earlier
+writes. Applies (token writes, [#393](https://github.com/FJCF76/PromptingPress/issues/393))
+are outside the composition CAS. On `composition_conflict` the handler returns the
+structured envelope (`error_code` + `expected_version`/`current_version`), and the chat UI
+shows one affordance — **Re-read & re-preview** — which re-reads the page for a fresh
+baseline and re-previews the proposal against current state before the user confirms again;
+it is never a blind retry that re-sends the stale write with a bumped version. The writer's
+own null-skips-CAS back-compat is untouched — the mandate lives in the chat entry points'
+contracts. This shipped per the baseline-lifecycle design on
+[#392](https://github.com/FJCF76/PromptingPress/issues/392) (v1.2.0 gate).
 
 ### The loop runs PREFLIGHT before EDIT
 
@@ -229,10 +244,6 @@ apply/token mutation outside CLI runs
   A no-post preflight covers all site-scoped actions for the run's lifetime. That
   matches what `pp_preflight()` actually checks today; per-option coverage is a
   future refinement.
-- **CAS on chat-driven composition writes** ([#392](https://github.com/FJCF76/PromptingPress/issues/392),
-  v1.0.2). The chat AJAX action path does not thread `expected_version`, so the
-  write-time compare-and-swap does not protect it (see the gate table above).
-  Closing it needs a chat-side baseline lifecycle, tracked separately.
 - **Reversible apply/token mutation outside a CLI run** ([#393](https://github.com/FJCF76/PromptingPress/issues/393)).
   The pre-apply rollback snapshot is recorded by the CLI preflight only; an apply
   or token mutation driven from outside a run has no equivalent pre-mutation

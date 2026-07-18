@@ -624,6 +624,24 @@ function pp_execute_action(string $name, array $params): array {
         }
     }
 
+    // Post-write composition version on the success envelope (#404). The chat UI refreshes
+    // its per-page CAS baseline from this instead of a second read, and the batch executor
+    // chains it into the next mutating step on the same page. Attached for composition-
+    // mutating actions and create_page (whose new page needs a baseline to join the map);
+    // resolve the post_id from params, falling back to a created page's result target.
+    if (($result['ok'] ?? false)
+        && (pp_action_is_composition_mutating($name) || $name === 'create_page')) {
+        $version_post_id = null;
+        if (isset($params['post_id']) && is_numeric($params['post_id'])) {
+            $version_post_id = (int) $params['post_id'];
+        } elseif (isset($result['target']['post_id']) && is_numeric($result['target']['post_id'])) {
+            $version_post_id = (int) $result['target']['post_id'];
+        }
+        if ($version_post_id !== null) {
+            $result['composition_version'] = pp_get_composition_marker($version_post_id)['version'];
+        }
+    }
+
     return $result;
 }
 
@@ -1025,21 +1043,64 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
  * pp_execute_action()/pp_execute_apply() already do — a genuinely invalid
  * step is caught at its own turn and the whole batch rolls back cleanly.
  *
- * @param  array $steps  Each: ['type' => 'action'|'apply', 'name' => string, 'params' => array]
+ * Composition CAS baselines (#404): $baselines is a per-post map {post_id => version} the
+ * browser captured when the model read each page. A composition-mutating step's baseline is
+ * threaded into its params['expected_version'] before execution — from the browser map for
+ * the first write to a page, then from the SERVER-DERIVED post-write version for every
+ * subsequent write to that same page (in-request chaining). That chaining is why a batch
+ * can repeatedly mutate one page without false-conflicting against its own earlier writes:
+ * the first write catches anything that moved since the model read, later writes always
+ * carry the fresh version. The mandate that every mutating step is covered lives in the
+ * chat entry point (lib/ai-chat.php) — reached only after that gate passes.
+ *
+ * @param  array $steps      Each: ['type' => 'action'|'apply', 'name' => string, 'params' => array]
+ * @param  array $baselines  {post_id => version} CAS baselines per page (#404); [] = none.
  * @return array          ['ok', 'steps' (per-step results), 'failed_at' (?int),
  *                          'rolled_back' (bool), 'rollback_errors' (string[] —
  *                          non-empty when the rollback itself could not fully
  *                          restore something; a consumer must not treat
- *                          rolled_back: true as clean without checking it)]
+ *                          rolled_back: true as clean without checking it),
+ *                          'versions' ({post_id => composition_version} for every page a
+ *                          composition-mutating or create_page step wrote — the chat UI
+ *                          refreshes its per-page baselines from this (#404, A3))]
  */
-function pp_ai_execute_batch(array $steps): array {
+function pp_ai_execute_batch(array $steps, array $baselines = []): array {
     $snapshot = _pp_snapshot_batch_targets($steps);
     $results = [];
+
+    // Working per-page version map: seeded from the browser baselines, then advanced to the
+    // server-derived post-write version after each successful write so the next mutating
+    // step on that page chains off what THIS batch just wrote, never a stale value (#404).
+    $versions = [];
+    foreach ($baselines as $bp => $bv) {
+        $normalized_bv = _pp_normalize_version_baseline($bv);
+        if (is_numeric($bp) && $normalized_bv !== null) {
+            $versions[(int) $bp] = $normalized_bv;
+        }
+    }
+    $mutated_versions = []; // {post_id => post-write version}, returned to the client.
 
     foreach ($steps as $i => $step) {
         $type   = $step['type']   ?? '';
         $name   = $step['name']   ?? '';
         $params = $step['params'] ?? [];
+
+        // Thread the CAS baseline into a composition-mutating step (#404). Use the chained
+        // post-write version if this batch already wrote the page, else the browser
+        // baseline. When neither is present, expected_version is left unset, which the
+        // writer treats as null → an unconditional write (NOT a CAS against version 0;
+        // only a supplied 0 compares against a legacy page's version 0). Through the real
+        // chat handler this unset path is unreachable: _pp_ai_batch_baselines_cover_mutations()
+        // rejects a mutating step whose page has no baseline before the batch runs. It can
+        // only occur for a direct executor caller — the mandate lives in the entry point,
+        // not here, so the executor stays usable without one.
+        if ($type === 'action' && pp_action_is_composition_mutating($name)
+            && isset($params['post_id']) && is_numeric($params['post_id'])) {
+            $step_pid = (int) $params['post_id'];
+            if (array_key_exists($step_pid, $versions)) {
+                $params['expected_version'] = $versions[$step_pid];
+            }
+        }
 
         $result = ($type === 'apply')
             ? pp_execute_apply($name, $params)
@@ -1058,6 +1119,25 @@ function pp_ai_execute_batch(array $steps): array {
 
         if ($name === 'create_page' && !empty($result['ok']) && isset($result['target']['post_id'])) {
             $snapshot['created_posts'][] = (int) $result['target']['post_id'];
+        }
+
+        // Advance the per-page version map from the server-derived post-write version
+        // (pp_execute_action attaches composition_version for mutating actions + create_page)
+        // so the next mutating step on this page chains off it, and record it for the
+        // response so the chat UI can refresh its baseline (#404, A2/A3). A page created
+        // mid-batch joins the map here at its version-0-derived version with no browser
+        // baseline required.
+        if (!empty($result['ok']) && isset($result['composition_version'])) {
+            $written_pid = null;
+            if (isset($params['post_id']) && is_numeric($params['post_id'])) {
+                $written_pid = (int) $params['post_id'];
+            } elseif (isset($result['target']['post_id']) && is_numeric($result['target']['post_id'])) {
+                $written_pid = (int) $result['target']['post_id'];
+            }
+            if ($written_pid !== null) {
+                $versions[$written_pid]         = (int) $result['composition_version'];
+                $mutated_versions[$written_pid] = (int) $result['composition_version'];
+            }
         }
 
         // Post-apply DOM validation per step, matching the existing
@@ -1091,6 +1171,9 @@ function pp_ai_execute_batch(array $steps): array {
                 'failed_at'       => $i,
                 'rolled_back'     => true,
                 'rollback_errors' => $rollback_errors,
+                // Everything rolled back, so no page's version survived this batch — the
+                // client must re-read context for a fresh baseline, not trust a partial map.
+                'versions'        => [],
             ];
         }
     }
@@ -1101,6 +1184,7 @@ function pp_ai_execute_batch(array $steps): array {
         'failed_at'       => null,
         'rolled_back'     => false,
         'rollback_errors' => [],
+        'versions'        => $mutated_versions,
     ];
 }
 
@@ -1159,6 +1243,53 @@ function _pp_expected_version_param(): array {
 }
 
 /**
+ * True when the named action mutates a page's composition and therefore participates in
+ * the write-time CAS (#13). The marker is the SAME declarative `mutates_composition` flag
+ * the CLI baseline gate reads (lib/cli.php:207/245/430) — the single source of truth for
+ * "this action threads a composition CAS baseline," so the chat mandate (#404) and the CLI
+ * freshness gate can never drift on which actions need one. Every such action also declares
+ * the optional `expected_version` param and passes it to pp_update_composition().
+ *
+ * create_page is deliberately NOT in this set: it creates a page whose composition starts
+ * at the writer's version-0 semantics, so it needs no browser-supplied baseline.
+ *
+ * @param string $name  Action name.
+ * @return bool
+ */
+function pp_action_is_composition_mutating(string $name): bool {
+    $action = pp_get_action($name);
+    return $action !== null && !empty($action['mutates_composition']);
+}
+
+/**
+ * Normalizes an untrusted composition-version baseline to a clean non-negative int or null.
+ *
+ * The version counter is always a non-negative integer. Anything that is not a plain
+ * non-negative integer (a float like 1.9, a mixed string like "12abc", an array, a bool)
+ * is a malformed/hostile client value — normalized to null (ABSENT) rather than coerced
+ * into a wrong baseline that would either spuriously conflict or silently match the wrong
+ * version. A legitimate 0 is preserved (a legacy/never-written page reads as version 0 and
+ * initializes to version 1). Backs the editor's request baseline
+ * (_pp_expected_version_from_request, lib/admin.php) and the chat batch baseline-map parser
+ * (#404), so those two surfaces reject the same hostile shapes. The chat SINGLE-execute
+ * mandate does not route through here: its baseline arrives as an action param already
+ * int-coerced by pp_ai_coerce_params() and then int-type-checked by pp_validate_action(),
+ * so a non-integer expected_version is rejected there instead (invalid_param_type).
+ *
+ * @param mixed $raw  Untrusted value.
+ * @return int|null
+ */
+function _pp_normalize_version_baseline($raw): ?int {
+    // A real int is accepted when non-negative. Otherwise ONLY a plain digit string counts
+    // — this deliberately rejects bools (true casts to "1"), floats (1.9), signed/mixed
+    // strings ("-1", "12abc"), and arrays, none of which are a legitimate version baseline.
+    if (is_int($raw)) {
+        return $raw >= 0 ? $raw : null;
+    }
+    return (is_string($raw) && ctype_digit($raw)) ? (int) $raw : null;
+}
+
+/**
  * Extracts the optimistic-locking baseline (#13) from an untrusted request array ($_POST),
  * returning a clean non-negative integer version or null.
  *
@@ -1176,14 +1307,7 @@ function _pp_expected_version_from_request(array $src): ?int {
     if (!isset($src['expected_version'])) {
         return null;
     }
-    $raw = $src['expected_version'];
-    // A real int is accepted when non-negative. Otherwise ONLY a plain digit string counts
-    // — this deliberately rejects bools (true casts to "1"), floats ("1.9"), signed/mixed
-    // strings ("-1", "12abc"), and arrays, none of which are a legitimate version baseline.
-    if (is_int($raw)) {
-        return $raw >= 0 ? $raw : null;
-    }
-    return (is_string($raw) && ctype_digit($raw)) ? (int) $raw : null;
+    return _pp_normalize_version_baseline($src['expected_version']);
 }
 
 function _pp_action_preview(string $name, string $scope, array $target, $before, $after, array $changes): array {

@@ -854,29 +854,62 @@ add_action('wp_ajax_pp_ai_preview', function () {
 
 // ── AJAX: Execute Action/Apply ─────────────────────────────────────────────
 
-add_action('wp_ajax_pp_ai_execute', function () {
-    check_ajax_referer('pp_ai_execute', 'nonce');
-
+/**
+ * Core logic for the single-execute AJAX handler, extracted from the
+ * wp_ajax_pp_ai_execute closure so it's directly unit-testable (add_action is a
+ * no-op in the test bootstrap, so the closure body is unreachable from tests —
+ * the #387 lesson: pin the real handler path, not a helper-only slice). Mirrors
+ * the extraction already used for _pp_ai_chat_fallback_response(): the guard,
+ * baseline-mandate, execute, and post-apply-validation logic live here; the AJAX
+ * closure is a thin adapter that translates the result to
+ * wp_send_json_success()/wp_send_json_error().
+ *
+ * Composition CAS baseline (#404): a composition-mutating ACTION must carry an
+ * `expected_version` baseline in its params, or this handler rejects it fail-
+ * closed with `missing_expected_version` BEFORE executing — chat writes never
+ * reach the writer without CAS. Applies (token writes, #393) and non-mutating
+ * actions are exempt. On `composition_conflict` the error payload is the
+ * STRUCTURED envelope (error_code + expected/current versions, #312/#404 req.7),
+ * not a collapsed string, so the UI can render Re-read & re-preview.
+ *
+ * @param  array $post  $_POST-shaped input: ['type', 'name', 'params'].
+ * @return array        ['ok' => bool, 'data' => mixed] — 'data' is the success
+ *                       result array (with 'validation' + 'composition_version')
+ *                       when ok, else an error string or structured error array.
+ */
+function _pp_ai_execute_response(array $post): array {
     if (!current_user_can('edit_posts')) {
-        wp_send_json_error('Permission denied.');
+        return ['ok' => false, 'data' => 'Permission denied.'];
     }
 
-    $type   = sanitize_text_field($_POST['type'] ?? '');
-    $name   = sanitize_text_field($_POST['name'] ?? '');
-    $params = _pp_ai_get_unslashed_post_params();
+    $type   = sanitize_text_field($post['type'] ?? '');
+    $name   = sanitize_text_field($post['name'] ?? '');
+    $params = isset($post['params']) ? wp_unslash((array) $post['params']) : [];
 
     if (!in_array($type, ['action', 'apply'], true)) {
-        wp_send_json_error('Invalid type. Must be "action" or "apply".');
+        return ['ok' => false, 'data' => 'Invalid type. Must be "action" or "apply".'];
     }
 
-    if (empty($name)) {
-        wp_send_json_error('Name is required.');
+    if ($name === '') {
+        return ['ok' => false, 'data' => 'Name is required.'];
     }
 
     $params = pp_ai_coerce_params($type, $name, $params);
 
     if (!_pp_user_meets_required_caps(_pp_required_caps_for($type, $name, $params))) {
-        wp_send_json_error('Permission denied.');
+        return ['ok' => false, 'data' => 'Permission denied.'];
+    }
+
+    // Fail-closed CAS baseline mandate (#404): a composition-mutating action without a
+    // baseline is rejected before it can write. Opt-in is how the chat gap survived to v1;
+    // chat UI and server ship in the same plugin version, so there is no compat window.
+    if ($type === 'action' && pp_action_is_composition_mutating($name)
+        && _pp_action_expected_version($params) === null) {
+        return ['ok' => false, 'data' => [
+            'error'      => 'This change needs the page\'s current version as a baseline, '
+                          . 'which is missing. Re-read the page and try again.',
+            'error_code' => 'missing_expected_version',
+        ]];
     }
 
     // Media-library URL/image-type validation (#124) now runs inside
@@ -891,11 +924,11 @@ add_action('wp_ajax_pp_ai_execute', function () {
     }
 
     if (is_wp_error($result)) {
-        wp_send_json_error($result->get_error_message());
+        return ['ok' => false, 'data' => $result->get_error_message()];
     }
 
     if (!$result['ok']) {
-        wp_send_json_error($result['error'] ?? 'Execution failed.');
+        return ['ok' => false, 'data' => _pp_ai_execute_error_payload($result, $params)];
     }
 
     // Post-apply validation — wrapped in try/catch so validation failure
@@ -917,7 +950,48 @@ add_action('wp_ajax_pp_ai_execute', function () {
     }
 
     $result['validation'] = $validation;
-    wp_send_json_success($result);
+    return ['ok' => true, 'data' => $result];
+}
+
+/**
+ * Builds the error payload for a failed single-execute result (#404). A
+ * `composition_conflict` is returned as a STRUCTURED envelope carrying the
+ * machine-readable code plus both versions (the baseline the caller sent and the
+ * live version that beat it), so the chat UI can render the Re-read & re-preview
+ * state instead of a generic failure string. The current version is read fresh
+ * from the marker at conflict time — the writer is never touched. Every other
+ * failure collapses to its message string (unchanged behavior).
+ *
+ * @param array $result  The failed action/apply result array.
+ * @param array $params  The executed params (source of expected_version + post_id).
+ * @return string|array
+ */
+function _pp_ai_execute_error_payload(array $result, array $params) {
+    if (($result['error_code'] ?? '') === 'composition_conflict') {
+        $current = null;
+        if (isset($params['post_id']) && is_numeric($params['post_id'])) {
+            $current = pp_get_composition_marker((int) $params['post_id'])['version'];
+        }
+        return [
+            'error'            => $result['error'] ?? 'Execution failed.',
+            'error_code'       => 'composition_conflict',
+            'expected_version' => _pp_action_expected_version($params),
+            'current_version'  => $current,
+        ];
+    }
+    return $result['error'] ?? 'Execution failed.';
+}
+
+add_action('wp_ajax_pp_ai_execute', function () {
+    check_ajax_referer('pp_ai_execute', 'nonce');
+
+    $resp = _pp_ai_execute_response($_POST);
+
+    if ($resp['ok']) {
+        wp_send_json_success($resp['data']);
+    } else {
+        wp_send_json_error($resp['data']);
+    }
 });
 
 // ── AJAX: Batch Execute Proposal Steps ──────────────────────────────────────
@@ -926,19 +1000,86 @@ add_action('wp_ajax_pp_ai_execute', function () {
 // every target up front and rolls everything back if any step fails, so a
 // failure never leaves the page half-mutated.
 
-add_action('wp_ajax_pp_ai_execute_batch', function () {
-    check_ajax_referer('pp_ai_execute', 'nonce');
+/**
+ * Parses the browser-supplied batch CAS baseline map (#404): a JSON object
+ * {post_id => version} naming a baseline for every page any composition-mutating
+ * step targets. Each entry is validated like a single write's expected_version
+ * (via _pp_normalize_version_baseline) — a non-numeric key or a hostile/malformed
+ * version is dropped, so a bad entry reads as ABSENT and trips the fail-closed
+ * mandate rather than smuggling a wrong baseline into the writer. A legitimate 0
+ * (legacy/never-written page) is preserved.
+ *
+ * @param mixed $raw  $_POST['baselines'] — a JSON string (magic-quoted) or array.
+ * @return array      {int post_id => int version}
+ */
+function _pp_ai_parse_batch_baselines($raw): array {
+    $decoded = is_array($raw) ? $raw : json_decode((string) wp_unslash((string) $raw), true);
+    if (!is_array($decoded)) {
+        return [];
+    }
+    $map = [];
+    foreach ($decoded as $pid => $version) {
+        if (!is_numeric($pid)) {
+            continue;
+        }
+        $normalized = _pp_normalize_version_baseline($version);
+        if ($normalized !== null) {
+            $map[(int) $pid] = $normalized;
+        }
+    }
+    return $map;
+}
 
+/**
+ * Fail-closed batch baseline mandate (#404, A1): true only when every
+ * composition-mutating step has a baseline in the map for its target page. A
+ * mutating step with no resolvable post_id, or a target page absent from the
+ * map, fails coverage — the batch is then rejected before any step runs, so
+ * there is nothing to roll back. Non-mutating actions, applies, and create_page
+ * (which starts a page at version-0 semantics) never need a baseline.
+ *
+ * @param array $steps      Normalized steps.
+ * @param array $baselines  {post_id => version} from _pp_ai_parse_batch_baselines().
+ * @return bool
+ */
+function _pp_ai_batch_baselines_cover_mutations(array $steps, array $baselines): bool {
+    foreach ($steps as $step) {
+        if (($step['type'] ?? '') !== 'action' || !pp_action_is_composition_mutating($step['name'] ?? '')) {
+            continue;
+        }
+        $params = $step['params'] ?? [];
+        if (!isset($params['post_id']) || !is_numeric($params['post_id'])) {
+            return false; // mutating step with no target page — cannot verify, fail closed.
+        }
+        if (!array_key_exists((int) $params['post_id'], $baselines)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * Core logic for the batch-execute AJAX handler, extracted for the same reason
+ * as _pp_ai_execute_response() (testable real-handler path, #387). Normalizes +
+ * capability-checks every step up front, enforces the fail-closed baseline
+ * mandate (A1), then threads the baseline map through pp_ai_execute_batch().
+ *
+ * @param  array $post  $_POST-shaped input: ['steps' (JSON), 'baselines' (JSON)].
+ * @return array        ['ok' => bool, 'data' => mixed].
+ */
+function _pp_ai_execute_batch_response(array $post): array {
     if (!current_user_can('edit_posts')) {
-        wp_send_json_error('Permission denied.');
+        return ['ok' => false, 'data' => 'Permission denied.'];
     }
 
-    $raw_steps = wp_unslash($_POST['steps'] ?? '');
+    $raw_steps = wp_unslash($post['steps'] ?? '');
     $steps = json_decode((string) $raw_steps, true);
 
     if (!is_array($steps) || empty($steps)) {
-        wp_send_json_error('steps must be a non-empty array.');
+        return ['ok' => false, 'data' => 'steps must be a non-empty array.'];
     }
+
+    $baselines = _pp_ai_parse_batch_baselines($post['baselines'] ?? '');
 
     // Every step's capability requirement is checked up front, before any
     // step executes — unlike semantic state validation, a capability
@@ -952,23 +1093,86 @@ add_action('wp_ajax_pp_ai_execute_batch', function () {
         $params = is_array($step['params'] ?? null) ? $step['params'] : [];
 
         if (!in_array($type, ['action', 'apply'], true)) {
-            wp_send_json_error('Invalid step type. Must be "action" or "apply".');
+            return ['ok' => false, 'data' => 'Invalid step type. Must be "action" or "apply".'];
         }
-        if (empty($name)) {
-            wp_send_json_error('Each step requires a name.');
+        if ($name === '') {
+            return ['ok' => false, 'data' => 'Each step requires a name.'];
         }
 
         $params = pp_ai_coerce_params($type, $name, $params);
 
         if (!_pp_user_meets_required_caps(_pp_required_caps_for($type, $name, $params))) {
-            wp_send_json_error('Permission denied.');
+            return ['ok' => false, 'data' => 'Permission denied.'];
         }
 
         $normalized[] = ['type' => $type, 'name' => $name, 'params' => $params];
     }
 
-    $batch = pp_ai_execute_batch($normalized);
-    wp_send_json_success($batch);
+    // Fail-closed baseline mandate (#404, A1): reject the whole batch before executing any
+    // step if any composition-mutating step's target page lacks a baseline. Nothing runs,
+    // so there is nothing to roll back — atomicity is preserved.
+    if (!_pp_ai_batch_baselines_cover_mutations($normalized, $baselines)) {
+        return ['ok' => false, 'data' => [
+            'error'      => 'This proposal changes a page but is missing that page\'s current '
+                          . 'version as a baseline. Re-read the page and try again.',
+            'error_code' => 'missing_expected_version',
+        ]];
+    }
+
+    return ['ok' => true, 'data' => pp_ai_execute_batch($normalized, $baselines)];
+}
+
+add_action('wp_ajax_pp_ai_execute_batch', function () {
+    check_ajax_referer('pp_ai_execute', 'nonce');
+
+    $resp = _pp_ai_execute_batch_response($_POST);
+
+    if ($resp['ok']) {
+        wp_send_json_success($resp['data']);
+    } else {
+        wp_send_json_error($resp['data']);
+    }
+});
+
+// ── AJAX: Read a page's current composition CAS baseline ────────────────────
+// Backs the chat UI's "Re-read & re-preview" conflict affordance (#404): a
+// read-only lookup of a page's current composition version so the UI can refresh
+// its stale baseline before re-previewing a proposal. Never mutates anything.
+
+/**
+ * Core logic for the page-baseline read handler (#404), extracted for testability.
+ *
+ * @param  array $post  $_POST-shaped input: ['post_id'].
+ * @return array        ['ok' => bool, 'data' => mixed] — data is
+ *                       ['post_id' => int, 'version' => int] when ok.
+ */
+function _pp_ai_page_baseline_response(array $post): array {
+    if (!current_user_can('edit_posts')) {
+        return ['ok' => false, 'data' => 'Permission denied.'];
+    }
+    $post_id = isset($post['post_id']) && is_numeric($post['post_id']) ? (int) $post['post_id'] : 0;
+    if ($post_id <= 0 || !get_post($post_id)) {
+        return ['ok' => false, 'data' => 'Invalid page.'];
+    }
+    if (!current_user_can('edit_post', $post_id)) {
+        return ['ok' => false, 'data' => 'Permission denied.'];
+    }
+    return ['ok' => true, 'data' => [
+        'post_id' => $post_id,
+        'version' => pp_get_composition_marker($post_id)['version'],
+    ]];
+}
+
+add_action('wp_ajax_pp_ai_page_baseline', function () {
+    check_ajax_referer('pp_ai_execute', 'nonce');
+
+    $resp = _pp_ai_page_baseline_response($_POST);
+
+    if ($resp['ok']) {
+        wp_send_json_success($resp['data']);
+    } else {
+        wp_send_json_error($resp['data']);
+    }
 });
 
 // ── AJAX: Non-Streaming Chat Fallback ──────────────────────────────────────
@@ -1019,13 +1223,22 @@ function _pp_ai_chat_fallback_response(array $post): array {
 
     $proposal = pp_ai_parse_proposal($result['full_response']);
 
-    return [
-        'ok'   => true,
-        'data' => [
-            'content'  => $result['full_response'],
-            'proposal' => $proposal,
-        ],
+    $data = [
+        'content'  => $result['full_response'],
+        'proposal' => $proposal,
     ];
+
+    // Composition CAS baseline (#404): the SSE path ships this in its done event; the
+    // fallback must too, or a proposal generated here would reach execute with no baseline
+    // and be rejected by the fail-closed mandate. Captured at the same read the model saw.
+    if ($page_id && get_post($page_id)) {
+        $data['page_baseline'] = [
+            'post_id' => $page_id,
+            'version' => pp_get_composition_marker($page_id)['version'],
+        ];
+    }
+
+    return ['ok' => true, 'data' => $data];
 }
 
 add_action('wp_ajax_pp_ai_chat', function () {

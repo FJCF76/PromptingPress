@@ -75,6 +75,13 @@ test.describe('Post-Apply Validation', () => {
     // 3. Call the execute endpoint directly from the page context.
     const result = await page.evaluate(async (pid: number) => {
       const config = (window as any).ppAiChat;
+      // Composition-mutating action → thread the CAS baseline (#404).
+      const bData = new FormData();
+      bData.append('action', 'pp_ai_page_baseline');
+      bData.append('nonce', config.executeNonce);
+      bData.append('post_id', String(pid));
+      const baseline = await (await fetch(config.ajaxUrl, { method: 'POST', credentials: 'same-origin', body: bData })).json();
+
       const data = new FormData();
       data.append('action', 'pp_ai_execute');
       data.append('nonce', config.executeNonce);
@@ -83,6 +90,9 @@ test.describe('Post-Apply Validation', () => {
       data.append('params[post_id]', String(pid));
       data.append('params[component]', 'hero');
       data.append('params[props]', JSON.stringify({ title: 'Updated Hero' }));
+      if (baseline && baseline.success && baseline.data) {
+        data.append('params[expected_version]', String(baseline.data.version));
+      }
 
       const resp = await fetch(config.ajaxUrl, {
         method: 'POST',
@@ -130,6 +140,13 @@ test.describe('Post-Apply Validation', () => {
     //    We use style_component to modify a property without changing the image.
     const result = await page.evaluate(async (pid: number) => {
       const config = (window as any).ppAiChat;
+      // Composition-mutating action → thread the CAS baseline (#404).
+      const bData = new FormData();
+      bData.append('action', 'pp_ai_page_baseline');
+      bData.append('nonce', config.executeNonce);
+      bData.append('post_id', String(pid));
+      const baseline = await (await fetch(config.ajaxUrl, { method: 'POST', credentials: 'same-origin', body: bData })).json();
+
       const data = new FormData();
       data.append('action', 'pp_ai_execute');
       data.append('nonce', config.executeNonce);
@@ -138,6 +155,9 @@ test.describe('Post-Apply Validation', () => {
       data.append('params[post_id]', String(pid));
       data.append('params[component_index]', '0');
       data.append('params[style]', JSON.stringify({ '--hero-padding-top': '4rem' }));
+      if (baseline && baseline.success && baseline.data) {
+        data.append('params[expected_version]', String(baseline.data.version));
+      }
 
       const resp = await fetch(config.ajaxUrl, {
         method: 'POST',
@@ -298,24 +318,38 @@ test.describe('Post-Apply Validation', () => {
           const step = steps[idx];
           stepEls[idx].classList.add('pp-ai-step-executing');
 
-          const data = new FormData();
-          data.append('action', 'pp_ai_execute');
-          data.append('nonce', config.executeNonce);
-          data.append('type', step.type);
-          data.append('name', step.name);
-          Object.keys(step.params).forEach((key) => {
-            const val = (step.params as any)[key];
-            data.append(
-              'params[' + key + ']',
-              typeof val === 'object' ? JSON.stringify(val) : String(val),
-            );
-          });
+          // Composition-mutating step → read a fresh CAS baseline before each
+          // execute (#404) so the two sequential update_components chain instead
+          // of the second false-conflicting.
+          const bData = new FormData();
+          bData.append('action', 'pp_ai_page_baseline');
+          bData.append('nonce', config.executeNonce);
+          bData.append('post_id', String((step.params as any).post_id));
 
-          fetch(config.ajaxUrl, {
-            method: 'POST',
-            credentials: 'same-origin',
-            body: data,
-          })
+          fetch(config.ajaxUrl, { method: 'POST', credentials: 'same-origin', body: bData })
+            .then((r) => r.json())
+            .then((baseline) => {
+              const data = new FormData();
+              data.append('action', 'pp_ai_execute');
+              data.append('nonce', config.executeNonce);
+              data.append('type', step.type);
+              data.append('name', step.name);
+              Object.keys(step.params).forEach((key) => {
+                const val = (step.params as any)[key];
+                data.append(
+                  'params[' + key + ']',
+                  typeof val === 'object' ? JSON.stringify(val) : String(val),
+                );
+              });
+              if (baseline && baseline.success && baseline.data) {
+                data.append('params[expected_version]', String(baseline.data.version));
+              }
+              return fetch(config.ajaxUrl, {
+                method: 'POST',
+                credentials: 'same-origin',
+                body: data,
+              });
+            })
             .then((r) => r.json())
             .then((resp) => {
               stepEls[idx].classList.remove('pp-ai-step-executing');
@@ -397,6 +431,16 @@ test.describe('Post-Apply Validation', () => {
       page.evaluate(
         async (args: { pid: number; name: string; key: string; value: unknown }) => {
           const config = (window as any).ppAiChat;
+          // Composition-mutating actions now require a CAS baseline (#404): read the
+          // page's current version fresh (so chained calls don't false-conflict) and
+          // thread it, as the real chat UI does.
+          const bData = new FormData();
+          bData.append('action', 'pp_ai_page_baseline');
+          bData.append('nonce', config.executeNonce);
+          bData.append('post_id', String(args.pid));
+          const bResp = await fetch(config.ajaxUrl, { method: 'POST', credentials: 'same-origin', body: bData });
+          const baseline = await bResp.json();
+
           const data = new FormData();
           data.append('action', 'pp_ai_execute');
           data.append('nonce', config.executeNonce);
@@ -404,6 +448,9 @@ test.describe('Post-Apply Validation', () => {
           data.append('name', args.name);
           data.append('params[post_id]', String(args.pid));
           data.append('params[component_index]', '0');
+          if (baseline && baseline.success && baseline.data) {
+            data.append('params[expected_version]', String(baseline.data.version));
+          }
           data.append('params[' + args.key + ']', JSON.stringify(args.value));
           const resp = await fetch(config.ajaxUrl, {
             method: 'POST',
