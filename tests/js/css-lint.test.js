@@ -20,6 +20,11 @@ const BASE_CSS = fs.readFileSync(
     'utf-8'
 );
 
+const UTILITIES_CSS = fs.readFileSync(
+    path.resolve(__dirname, '../../assets/css/utilities.css'),
+    'utf-8'
+);
+
 // Strip CSS comments for cleaner matching.
 function stripComments(css) {
     return css.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -152,8 +157,8 @@ describe('CSS lint: style slot fallback patterns', () => {
         });
     });
 
-    test('hero/section/grid/cta schemas declare 143 style slots (subset of the 195 total)', () => {
-        expect(allSlots.length).toBe(143);
+    test('hero/section/grid/cta schemas declare 144 style slots (subset of the total)', () => {
+        expect(allSlots.length).toBe(144);
     });
 
     allSlots.forEach(({ component, slotName }) => {
@@ -198,6 +203,90 @@ describe('CSS lint: secondary/ghost buttons never get a filled gradient', () => 
             if (catchesBareMainBtn) offenders.push(selector.trim().split('\n')[0].slice(0, 80));
         }
         expect(offenders).toEqual([]);
+    });
+});
+
+/**
+ * Premium primary-button fill can be flattened via the documented slot (#412).
+ *
+ * The premium filled treatment paints the primary button with a `background:`
+ * SHORTHAND carrying a gradient background-IMAGE layer. That layer sits above the
+ * `background-color` the cta block routes through --cta-button-bg, so a bare
+ * shorthand here silently re-kills the slot (Symptom 1: --cta-button-bg does nothing
+ * on the default variant) — the #226/#302 dead-slot class, evading the same-property
+ * #305 guard through a DIFFERENT cascade layer. This guard extends the slot contract
+ * to that layer-defeat: every rule targeting the primary-button surface
+ * (`main .btn:not(...)`, the composed winner) that sets `background`/`background-image`
+ * MUST route through var(--cta-button-bg / --cta-button-hover-bg), so a future
+ * shorthand cannot re-defeat the flat-button slot.
+ */
+describe('CSS lint: premium primary-button fill routes through --cta-button-bg (#412)', () => {
+    const css = stripComments(COMPONENTS_CSS);
+    // Innermost rules: `selectors { body-without-braces }`.
+    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+
+    // A rule targets the composed primary-button FILL surface when a selector is
+    // `main .btn:not(.btn--outline)...` — the filled treatment that excludes the
+    // transparent variants. `.btn--outline` appears here only INSIDE the `:not()`, so
+    // key on that exact shape rather than a bare `.btn--outline` substring (which would
+    // wrongly reject the very selector we want, the trap the #305-era gradient guard hit).
+    function targetsPrimaryFill(selector) {
+        return selector.split(',').some(sel =>
+            /(^|\s)main\s+\.btn:not\(\.btn--outline\)/.test(sel.trim())
+        );
+    }
+
+    // background declarations (shorthand OR background-image), excluding background-color.
+    function fillDecls(body) {
+        return (body.match(/(?<![-a-z])background(?:-image)?\s*:[^;}]+/gi) || [])
+            .map(d => d.trim());
+    }
+
+    const surfaceRules = [];
+    let m;
+    while ((m = ruleRe.exec(css)) !== null) {
+        if (!targetsPrimaryFill(m[1])) continue;
+        const decls = fillDecls(m[2]);
+        if (decls.length) surfaceRules.push({ selector: m[1].replace(/\s+/g, ' ').trim(), body: m[2], decls });
+    }
+
+    // Guard against a vacuous pass: the filled treatment (rest + hover) is at least two rules.
+    test('finds the premium primary-fill rules that set a background', () => {
+        expect(surfaceRules.length).toBeGreaterThanOrEqual(2);
+    });
+
+    test('every primary-fill background routes through --cta-button-bg / --cta-button-hover-bg', () => {
+        const offenders = [];
+        surfaceRules.forEach(r => {
+            const isHover = /:hover\b/.test(r.selector);
+            const slot = isHover ? '--cta-button-hover-bg' : '--cta-button-bg';
+            r.decls.forEach(d => {
+                if (!new RegExp('background(?:-image)?\\s*:\\s*var\\(\\s*' + slot + '\\b').test(d)) {
+                    offenders.push(`${r.selector} { ${d} }`);
+                }
+            });
+        });
+        expect(offenders).toEqual([]);
+    });
+
+    // Detection proof: a bare gradient shorthand on the surface must be CAUGHT, and a
+    // slot-routed one must PASS — so a parser regression can't make the scan vacuous.
+    test('detector flags a bare gradient shorthand but passes a slot-routed one', () => {
+        const bad = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) { background: linear-gradient(red, blue); }';
+        const good = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) { background: var(--cta-button-bg, linear-gradient(red, blue)); }';
+        const scan = (fixture) => {
+            const rr = /([^{}]+)\{([^{}]*)\}/g;
+            let mm, out = [];
+            while ((mm = rr.exec(fixture)) !== null) {
+                if (!targetsPrimaryFill(mm[1])) continue;
+                fillDecls(mm[2]).forEach(d => {
+                    if (!/background(?:-image)?\s*:\s*var\(\s*--cta-button-bg\b/.test(d)) out.push(d);
+                });
+            }
+            return out;
+        };
+        expect(scan(bad).length).toBe(1);
+        expect(scan(good).length).toBe(0);
     });
 });
 
@@ -1091,9 +1180,11 @@ describe('CSS lint: hero eyebrow is a pill, not a full-width band', () => {
  * invisible at the declaration level, which is exactly how it shipped; the rendered proof
  * lives in tests/e2e/style-render.spec.ts (#338), which measures where the glyphs actually
  * land. What these add is cheap coverage of the cascade risk the rendered pins cannot see
- * on a fixture page: the four benchmark IDs carry `#home-hero .hero__proof` rules whose
- * (1,1,0) specificity outranks every class rule below, so a justify-content declared there
- * would beat the fix on real pages while every E2E fixture stayed green.
+ * on a fixture page: any ID-specificity (1,1,0) rule re-declaring the packing would beat
+ * the fix on real pages while every E2E fixture stayed green. (The demo-ID
+ * `#home-hero .hero__proof` rules that once posed this risk were evicted in #412, and
+ * the #412 ID-selector lint now forbids their return; this stays the property-level
+ * backstop for any equivalent high-specificity re-justification.)
  */
 describe('CSS lint: hero flex rows declare their justification', () => {
     // Last match wins among equal-specificity rules, same as the #225 guard above.
@@ -1134,9 +1225,9 @@ describe('CSS lint: hero flex rows declare their justification', () => {
     });
 
     // The cascade risk that would defeat the fix with every pin above still green: an
-    // ID-specificity rule (the benchmark pages already own `#home-hero .hero__proof` for
-    // margin/width) or a media-scoped rule re-declaring the packing. Only the three known
-    // class rules may justify these rows.
+    // ID-specificity rule (the #412 lint now forbids any ID selector in shipped CSS) or a
+    // media-scoped rule re-declaring the packing. Only the three known class rules may
+    // justify these rows.
     test.each(ROWS)('no other rule anywhere re-justifies %s', row => {
         const owners = [row, `.hero--centered ${row}`, `.hero--cover ${row}`];
         rulesMatching(row)
@@ -1169,394 +1260,6 @@ describe('CSS lint: hero flex rows declare their justification', () => {
         expect(base).toBeDefined();
         expect(base.body).toMatch(/display\s*:\s*flex\s*;/);
         rules.forEach(r => expect(r.body).not.toMatch(/flex-direction\s*:\s*column/));
-    });
-});
-
-/**
- * CTA eyebrow stays a pill, above the title (#255).
- *
- * Same visual failure as #225, different mechanism. `#home-cta .cta__text` is
- * `display: contents` at >=768px, which dissolves its box and promotes the eyebrow
- * into `#home-cta.cta--inline .cta__inner` — a GRID. Grid blockifies the eyebrow's
- * inline-block, and with no placement of its own it auto-flows past every
- * explicitly-placed sibling (title col1/rows1-2, body col2/row1, button col2/row2)
- * into the first free cell — row 3, column 1 — and stretches it there: a band the
- * full width of the title column, rendered BELOW the button.
- *
- * So the fix has two halves, and both need pinning: `justify-self: start` sizes the
- * pill to its text, and `grid-row: 1` puts it back above the title. A pin on the
- * width alone would stay green while the eyebrow rendered under the button.
- */
-describe('CSS lint: cta eyebrow is a pill above the title (#255)', () => {
-    const DESKTOP = '(min-width: 768px)';
-    const BASE = '.cta__eyebrow';
-    const PLACED = '#home-cta.cta--inline .cta__eyebrow';
-
-    // The cascade winner among equal-specificity rules is the LAST declaration, not the
-    // first — and these selectors really are declared more than once: `.cta__inner` is
-    // styled by the shared four-CTA block AND by a #home-cta-specific override further
-    // down, both at >=768px. Taking the first match reads the wrong rule, and a
-    // duplicate appended later would shadow a pin while it stayed green.
-    function declFor(needle, selector, prop, media) {
-        const decls = rulesMatching(needle)
-            .filter(r => r.media === media && r.selectors.includes(selector))
-            .map(r => new RegExp(prop + '\\s*:\\s*([^;}]+)').exec(r.body))
-            .filter(Boolean);
-        return decls.length ? decls[decls.length - 1][1].trim() : null;
-    }
-
-    // The pill is padding + background, not `display` — pinning `inline-block` would be
-    // vacuous, since the grid parent blockifies it regardless. That is the whole bug.
-    test('the base rule keeps its pill styling', () => {
-        const rule = rulesMatching(BASE).find(r => r.selectors.includes(BASE) && !r.media);
-        expect(rule.body).toMatch(/padding\s*:/);
-        expect(rule.body).toMatch(/background\s*:/);
-    });
-
-    // A width on the base rule would defeat justify-self without touching it.
-    test('the base rule sizes the pill by its content, not a width', () => {
-        const rule = rulesMatching(BASE).find(r => r.selectors.includes(BASE) && !r.media);
-        expect(rule.body).not.toMatch(/(?:^|[;\s])(?:min-)?width\s*:/);
-    });
-
-    // Half one of the fix: the pill is sized to its text instead of stretching across
-    // the 36-40rem title column.
-    test('the promoted eyebrow opts out of the grid stretch', () => {
-        expect(declFor(BASE, PLACED, 'justify-self', DESKTOP)).toBe('start');
-    });
-
-    // Half two: without an explicit row it auto-places into row 3, i.e. below the
-    // button. This is the pin that a width-only guard would miss.
-    test('the promoted eyebrow is placed in row 1 of the title column', () => {
-        expect(declFor(BASE, PLACED, 'grid-column', DESKTOP)).toBe('1');
-        expect(declFor(BASE, PLACED, 'grid-row', DESKTOP)).toBe('1');
-    });
-
-    // Row 1 belongs to the eyebrow. If the title ever reclaims it, the two collide in
-    // the same cell and the eyebrow renders on top of the headline.
-    test('the title starts at row 2, leaving row 1 to the eyebrow', () => {
-        expect(declFor('.cta__title', '#home-cta .cta__title', 'grid-row', DESKTOP))
-            .toBe('2 / span 2');
-    });
-
-    /*
-     * Scope guard — the reason the placement rule carries `.cta--inline`.
-     *
-     * `layout` accepts 'full-width' (the DEFAULT) and 'inline'. The grid only exists
-     * for `.cta--inline`; in the full-width layout `.cta__inner` stays a flex COLUMN,
-     * where the cross axis is horizontal and `align-self: end` pushes the pill to the
-     * right edge (measured: x=1110 vs 611 in a 1280px viewport). Grid placement only
-     * means "grid", so a bare `#home-cta .cta__eyebrow` selector would fix the inline
-     * layout by breaking the default one.
-     */
-    test('the placement rule is scoped to the inline layout, never bare #home-cta', () => {
-        const placement = /grid-(?:row|column)\s*:|justify-self\s*:|align-self\s*:/;
-        rulesMatching(BASE)
-            .filter(r => placement.test(r.body))
-            .forEach(r =>
-                r.selectors
-                    .filter(s => s.includes('.cta__eyebrow'))
-                    .forEach(s => expect(s).toContain('.cta--inline'))
-            );
-    });
-
-    // The placement rules are dead code unless the parent is still a grid and
-    // .cta__text still dissolves into it. If either stops being true, the eyebrow is no
-    // longer a grid item and every pin above silently stops describing the render.
-    const INNER = '#home-cta.cta--inline .cta__inner';
-
-    test('the eyebrow is only a grid item because .cta__text dissolves into a grid', () => {
-        expect(declFor('.cta__inner', INNER, 'display', DESKTOP)).toBe('grid');
-        // Two tracks, not merely "some template". `grid-column: 1` on the eyebrow and
-        // `grid-column: 2` on the body/button only mean anything against a two-column
-        // track; a collapse to one column would leave every placement pin green while
-        // describing a layout that no longer exists.
-        expect(declFor('.cta__inner', INNER, 'grid-template-columns', DESKTOP))
-            .toMatch(/minmax\(.+\)\s+minmax\(.+\)/);
-        expect(declFor('.cta__text', '#home-cta .cta__text', 'display', DESKTOP))
-            .toBe('contents');
-    });
-
-    /*
-     * The empty row 1 collapses only while the row gap is 0 — and EVERY shipped page is
-     * in that state, because none of them sets an eyebrow. This is the highest-blast-
-     * radius way the fix can regress: a gap above the title on every live CTA.
-     *
-     * Reading the last `row-gap` declaration is not enough. `.cta__inner`'s base rule
-     * declares the `gap` SHORTHAND (`gap: var(--cta-inner-gap, ...)`), and a shorthand
-     * re-declared inside the desktop block would reset row-gap back to a non-zero value
-     * while a `row-gap`-only scan still reported 0. So pin both: row-gap is 0, and no
-     * shorthand reintroduces one. (`column-gap` is fine — the hyphen means the
-     * word-boundary below never matches it.)
-     */
-    test('row-gap stays 0 so the empty row collapses when no eyebrow is set', () => {
-        expect(declFor('.cta__inner', INNER, 'row-gap', DESKTOP)).toBe('0');
-    });
-
-    test('no gap shorthand in the desktop block can reset that row-gap', () => {
-        rulesMatching('.cta__inner')
-            .filter(r => r.media === DESKTOP && r.selectors.includes(INNER))
-            .forEach(r => expect(r.body).not.toMatch(/(?:^|[;{\s])gap\s*:/));
-    });
-
-    /*
-     * Half (a) of the bug — the stretch — can return without touching the placement at
-     * all. Two distinct guards, because the two declaration families have different
-     * legitimacy:
-     *
-     * Sizing (width / min-width / flex basis / place-self) is NEVER legitimate on the
-     * pill, in ANY rule, including the two owners. `width: 100%` added to the placement
-     * rule itself restores the band, and a guard that skipped the owners would sail
-     * straight past it.
-     */
-    const SIZE_RESTORING = /(?:^|[;{\s])(?:min-)?width\s*:|(?:^|[;\s])flex\s*:|place-self\s*:/;
-
-    test('no eyebrow rule anywhere gives the pill a width', () => {
-        rulesMatching(BASE).forEach(r => expect(r.body).not.toMatch(SIZE_RESTORING));
-    });
-
-    // Alignment IS legitimate — but only on the two owner rules. Anywhere else (a
-    // media-scoped override, a duplicate appended later, a new ID-specificity block) it
-    // can re-stretch the pill or drag it out of column 1 while every pin above stays green.
-    test('only the two owner rules may align the pill', () => {
-        const owners = [BASE, PLACED];
-        rulesMatching(BASE)
-            .filter(r => !r.selectors.every(s => owners.includes(s)))
-            .forEach(r => expect(r.body).not.toMatch(BAND_RESTORING));
-    });
-});
-
-/*
- * #258: the inline CTA grid activates at 768px, but the content box it gets there is
- * only ~40rem — the container's padding plus .cta__inner's own clamp(2rem, 4vw, 2.6rem)
- * padding and border come out of the viewport first. The old floors demanded
- * 36rem + 18rem + a >=3rem gap = ~57rem, so the grid could not shrink and scrolled the
- * page sideways from 768px to ~1030px.
- *
- * The rendered proof lives in the E2E suite (scrollWidth <= viewport). These pins guard
- * the two structural properties that proof silently depends on, and that a later edit
- * could break while the CSS still looked reasonable.
- */
-describe('CSS lint: the inline cta grid can shrink to its breakpoint (#258)', () => {
-    const DESKTOP = '(min-width: 768px)';
-    const INNER = '#home-cta.cta--inline .cta__inner';
-
-    function columnsFor(selector, media) {
-        const decls = rulesMatching('.cta__inner')
-            .filter(r => r.media === media && r.selectors.includes(selector))
-            .map(r => /grid-template-columns\s*:\s*([^;}]+)/.exec(r.body))
-            .filter(Boolean);
-        return decls.length ? decls[decls.length - 1][1].trim() : null;
-    }
-
-    // Read the LAST declaration, i.e. the cascade winner: .cta__inner's tracks are set by
-    // the shared four-CTA block AND re-set by the #home-cta override after it. A pin that
-    // matched the first hit would keep passing while a later rule reintroduced fixed floors.
-    const columns = () => columnsFor(INNER, DESKTOP);
-
-    /*
-     * The whole fix. A track whose MIN is a fixed length cannot shrink below it, which is
-     * precisely how the bug worked. Column 1 must therefore floor at 0, and column 2 may
-     * only floor at the button's min-width (below).
-     */
-    test('column 1 floors at 0 so the grid can shrink below its content', () => {
-        expect(columns()).toMatch(/^minmax\(\s*0\s*,/);
-    });
-
-    /*
-     * Column 2's floor is not an arbitrary number — it is .cta__button's min-width. The
-     * button is the one item in that column that refuses to get narrower, so if the floor
-     * ever drops below the button's min-width the button overflows its own track and the
-     * page scrolls sideways again. Derive both from the stylesheet and compare, so moving
-     * either one without the other fails here instead of in someone's browser.
-     */
-    test('column 2 floors at exactly the cta button min-width', () => {
-        // The cascade winner AT THE BREAKPOINT, which is not simply the last unscoped
-        // rule: #home-cta .cta__button is declared min-width twice outside any media
-        // query, and a `@media (min-width: 768px)` rule for these buttons already exists.
-        // A min-width added to that media rule would beat both base declarations exactly
-        // where this grid is live, so consider unscoped and desktop rules together and
-        // take the last. Reading only the unscoped rules would compare the track floor
-        // against a value the browser no longer uses, and pass while the button overflows.
-        const buttonMinWidth = rulesMatching('.cta__button')
-            .filter(r => (r.media === null || r.media === DESKTOP)
-                && r.selectors.includes('#home-cta .cta__button'))
-            .map(r => /min-width\s*:\s*([^;}]+)/.exec(r.body))
-            .filter(Boolean)
-            .pop();
-
-        expect(buttonMinWidth).toBeTruthy();
-
-        const floor = /minmax\(\s*([^,]+),[^)]*\)\s*$/.exec(columns());
-        expect(floor).toBeTruthy();
-        expect(floor[1].trim()).toBe(buttonMinWidth[1].trim());
-    });
-
-    /*
-     * The 0 floor shrinks the TRACK, but it does not make the title's text fit inside it:
-     * a long unbreakable word would simply paint outside the narrowed column and scroll
-     * the page anyway. base.css's `overflow-wrap: break-word` on `p, h1..h6` is what lets
-     * the word wrap mid-word instead (measured: forcing `overflow-wrap: normal` on the
-     * title at 768px puts ~97px back outside the viewport). Nothing in components.css says
-     * so, so a base.css edit could reopen #258 from a distance. The E2E long-word case
-     * proves the render; this pin names the cross-file dependency.
-     */
-    test('the title can still break a long word (base.css keeps the 0 floor effective)', () => {
-        // Scoped, not a file-wide substring search: `overflow-wrap: break-word` narrowed
-        // to some unrelated selector would leave a bare /break-word/ match green while the
-        // CTA title regained a min-content floor — the exact edit that reopens #258. The
-        // title renders as an <h2> and the body as a <p>, so assert the rule that actually
-        // covers them still carries the declaration.
-        const wrapping = stripComments(BASE_CSS)
-            .split('}')
-            .map(chunk => chunk.split('{'))
-            .filter(([, body]) => body && /overflow-wrap\s*:\s*break-word/.test(body))
-            .map(([selectors]) => selectors.split(',').map(s => s.trim()));
-
-        expect(wrapping.length).toBeGreaterThan(0);
-
-        const covered = wrapping.flat();
-        expect(covered).toContain('h2');
-        expect(covered).toContain('p');
-    });
-});
-
-/*
- * #265: the SHARED four-CTA inline grid rule can shrink to its breakpoint.
- *
- * #258 fixed only #home-cta, whose tracks are re-set by a #home-cta-specific override.
- * #how-cta / #agencies-cta / #implementers-cta never reach that override — they are sized
- * by the shared four-CTA rule, which had the same fixed floors (32.5rem + 14rem + gap) and
- * scrolled the page sideways at 768..912px. The rendered proof lives in the E2E suite
- * (scrollWidth <= viewport, now parametrized over all four ids); these pins guard the two
- * structural properties that proof silently depends on for the shared-rule ids.
- */
-describe('CSS lint: the shared inline cta grid can shrink to its breakpoint (#265)', () => {
-    const DESKTOP = '(min-width: 768px)';
-    // Every id NOT carrying a later same-selector override — i.e. the three sized only by
-    // the shared rule. #home-cta is excluded: its own override is the cascade winner and is
-    // already pinned by the #258 block above.
-    const SHARED_IDS = ['how-cta', 'agencies-cta', 'implementers-cta'];
-
-    function columnsFor(selector, media) {
-        const decls = rulesMatching('.cta__inner')
-            .filter(r => r.media === media && r.selectors.includes(selector))
-            .map(r => /grid-template-columns\s*:\s*([^;}]+)/.exec(r.body))
-            .filter(Boolean);
-        return decls.length ? decls[decls.length - 1][1].trim() : null;
-    }
-
-    for (const id of SHARED_IDS) {
-        const INNER = `#${id}.cta--inline .cta__inner`;
-        const columns = () => columnsFor(INNER, DESKTOP);
-
-        /*
-         * The whole fix: a fixed track minimum cannot shrink below itself, which is exactly
-         * how the bug worked. Column 1 must floor at 0 so the grid can shrink below its
-         * content at the 768px breakpoint.
-         */
-        test(`#${id} column 1 floors at 0 so the grid can shrink below its content`, () => {
-            expect(columns()).toMatch(/^minmax\(\s*0\s*,/);
-        });
-
-        /*
-         * Column 2's floor is not arbitrary — it is .cta__button's min-width. The button is
-         * the one item in that column that refuses to get narrower, so if the floor drops
-         * below the button min-width the button overflows its own track and the page scrolls
-         * sideways again. Derive both from the stylesheet and compare, so moving either one
-         * without the other fails here instead of in someone's browser.
-         */
-        test(`#${id} column 2 floors at exactly the cta button min-width`, () => {
-            const buttonMinWidth = rulesMatching('.cta__button')
-                .filter(r => (r.media === null || r.media === DESKTOP)
-                    && r.selectors.includes(`#${id} .cta__button`))
-                .map(r => /min-width\s*:\s*([^;}]+)/.exec(r.body))
-                .filter(Boolean)
-                .pop();
-
-            expect(buttonMinWidth).toBeTruthy();
-
-            const floor = /minmax\(\s*([^,]+),[^)]*\)\s*$/.exec(columns());
-            expect(floor).toBeTruthy();
-            expect(floor[1].trim()).toBe(buttonMinWidth[1].trim());
-        });
-    }
-});
-
-/*
- * #257: the full-width cta centers its body and button.
- *
- * `#home-cta .cta__text` is `display: contents` at >=768px, but the grid it feeds is
- * `.cta--inline` only. `layout` defaults to 'full-width', where `.cta__inner` stays a
- * flex COLUMN (align-items: center). grid-column/grid-row/justify-self are all inert on
- * a flex item, so they are safe to declare bare — but `align-self` is NOT. A bare
- * `#home-cta .cta__body { align-self: end }` and `#home-cta .cta__button { align-self:
- * start }` therefore leaked into the full-width column and shoved the body to the right
- * edge and the button to the left, while the eyebrow and title stayed centered.
- *
- * The fix scopes those two `align-self` declarations to `#home-cta.cta--inline`. The
- * rendered proof (both boxes centered within .cta__inner) lives in the E2E suite; these
- * pins guard the scope, which a later edit could quietly widen back to bare #home-cta.
- */
-describe('CSS lint: the full-width cta centers its body and button (#257)', () => {
-    const DESKTOP = '(min-width: 768px)';
-
-    // The cross-axis values a flex column reads as horizontal placement. The shared
-    // four-CTA block legitimately sets `align-self: center` / `flex-start` on these same
-    // classes (centered / left in BOTH layouts), so a blanket "no align-self bare" pin
-    // would be wrong. `start` / `end` — the grid-cross-axis values that break the
-    // full-width column — must never sit on a bare #home-cta selector, and neither may
-    // `flex-end` (its column-axis synonym for `end`, which nothing here uses legitimately).
-    // `flex-start` is deliberately NOT in this set: the shared block declares it bare at
-    // the base breakpoint, so banning it would flag correct, pre-existing CSS.
-    const LEAK = /align-self\s*:\s*(?:start|end|flex-end)\b/;
-
-    test('no bare #home-cta body/button rule sets align-self:start or :end', () => {
-        ['.cta__body', '.cta__button'].forEach(cls =>
-            rulesMatching(cls)
-                .filter(r => LEAK.test(r.body))
-                .forEach(r =>
-                    r.selectors
-                        .filter(s => s.includes('#home-cta') && s.includes(cls))
-                        .forEach(s => expect(s).toContain('.cta--inline'))
-                )
-        );
-    });
-
-    // The positive half: the inline grid still gets its intended placement. Deleting the
-    // scoped rule would center the inline body/button too, silently undoing the grid
-    // layout while the leak guard above stayed green (nothing bare, nothing to catch).
-    function scopedAlignSelf(cls) {
-        const decls = rulesMatching(cls)
-            .filter(r => r.media === DESKTOP
-                && r.selectors.includes(`#home-cta.cta--inline ${cls}`))
-            .map(r => /align-self\s*:\s*([^;}]+)/.exec(r.body))
-            .filter(Boolean);
-        return decls.length ? decls[decls.length - 1][1].trim() : null;
-    }
-
-    test('the inline body keeps align-self:end, scoped to .cta--inline', () => {
-        expect(scopedAlignSelf('.cta__body')).toBe('end');
-    });
-
-    test('the inline button keeps align-self:start, scoped to .cta--inline', () => {
-        expect(scopedAlignSelf('.cta__button')).toBe('start');
-    });
-
-    // The bare rules still describe the inline grid (grid-column:2). If the grid
-    // placement is gone, the scoped align-self pins above still pass while describing a
-    // layout that no longer exists.
-    function bareDecl(cls, prop) {
-        const decls = rulesMatching(cls)
-            .filter(r => r.media === DESKTOP && r.selectors.includes(`#home-cta ${cls}`))
-            .map(r => new RegExp(prop + '\\s*:\\s*([^;}]+)').exec(r.body))
-            .filter(Boolean);
-        return decls.length ? decls[decls.length - 1][1].trim() : null;
-    }
-
-    test('the bare desktop body/button rules keep their grid column', () => {
-        expect(bareDecl('.cta__body', 'grid-column')).toBe('2');
-        expect(bareDecl('.cta__button', 'grid-column')).toBe('2');
     });
 });
 
@@ -1665,21 +1368,9 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
         assertPropRoutesThroughSlot('.cta', 'padding-bottom', '--cta-padding-bottom', 2);
     });
 
-    // ---- Page-specific CTA ids (#home-cta ...) ----
-    // The benchmark closers carry ID-specificity ([1,0,0]) padding rules that
-    // outrank the generic .cta slot rule, so they must ALSO route through the
-    // slot or --cta-padding-* stays dead on exactly the pages that ship a CTA.
-    test('every #*-cta padding declaration routes through --cta-padding-*', () => {
-        const SEL = '#home-cta, #how-cta, #agencies-cta, #implementers-cta';
-        const bodies = bodiesForExactSelector(SEL);
-        const topDecls = bodies.flatMap(b => b.match(/padding-top\s*:[^;}]+/g) || []);
-        const botDecls = bodies.flatMap(b => b.match(/padding-bottom\s*:[^;}]+/g) || []);
-        // Desktop + both mobile blocks each declare top and bottom.
-        expect(topDecls.length).toBeGreaterThanOrEqual(2);
-        expect(botDecls.length).toBeGreaterThanOrEqual(2);
-        topDecls.forEach(d => expect(d).toMatch(/padding-top\s*:\s*var\(\s*--cta-padding-top\b/));
-        botDecls.forEach(d => expect(d).toMatch(/padding-bottom\s*:\s*var\(\s*--cta-padding-bottom\b/));
-    });
+    // (The page-specific `#*-cta` padding pins were removed with the demo-ID eviction
+    //  in #412: those ID-scoped closers no longer ship, so the generic `.cta` slot
+    //  rules above are now the whole padding surface.)
 
     // ---- Two-tier adjacent-sibling rhythm restored ----
     // The flat premium override was DELETED; the remaining rules for this exact
@@ -1846,5 +1537,102 @@ describe('CSS lint: centered content blocks carry auto inline margins (#367)', (
         const p = agg.get('.section--centered .section__content');
         expect(p).toBeDefined();
         expect(p.autoMargin).toBe(true);
+    });
+});
+
+/**
+ * No ID selectors in shipped stylesheets (#412).
+ *
+ * Shipped component CSS must contain no page-specific styling. An ID selector
+ * (`#home-cta`, `#home-hero`, ...) matches a demo/starter page by its authored id
+ * at [1,x,y] specificity that no real site can see or override, and some base
+ * behaviors used to work ONLY via those selectors. This guard evicts the class once
+ * and forbids its return: any `#id` in the SELECTOR text of components.css / base.css
+ * / utilities.css fails the build.
+ *
+ * Parses SELECTORS, not a bare `#` grep: hex color values (`#fcfdff`) live in
+ * declaration bodies, and `#anchor` fragments live inside attribute selectors
+ * (`[href="#top"]`) — both are stripped before matching so they never false-positive.
+ *
+ * The waiver ledger is SHRINK-ONLY and expected EMPTY. If a genuinely irreducible ID
+ * selector is ever proven necessary (none today), add it here with a citing comment
+ * and update the size pin in the same change — a count RISE or a NEW entry fails.
+ */
+describe('CSS lint: no ID selectors in shipped stylesheets (#412)', () => {
+    // Every `#id` appearing in a SELECTOR (never a value). Walks the CSS, captures the
+    // prelude of each style rule, drops at-rule preludes (@media/@supports/@keyframes —
+    // none carry an id selector), strips attribute selectors so `[href="#x"]` /
+    // `[style*="#fff"]` never match, then flags `#<ident>` not escaped as `\#`.
+    function idSelectors(css) {
+        const stripped = stripComments(css);
+        const offenders = [];
+        // Innermost-or-nested style rules and at-rule preludes, mirroring rulesMatching's
+        // tokenizer: group 1 = at-rule name (prelude is NOT a selector), group 3 = a style
+        // rule's selector list.
+        const pattern = /@([\w-]+)([^{;]*)\{|([^{}]+)\{([^{}]*)\}|\}|;/g;
+        let match;
+        while ((match = pattern.exec(stripped)) !== null) {
+            if (match[3] === undefined) continue; // at-rule prelude, closing brace, or `;`
+            const selectorList = match[3]
+                // Drop attribute selectors: `[href="#top"]`, `[style*="#fff"]`.
+                .replace(/\[[^\]]*\]/g, '')
+                // Neutralize escaped hashes `\#` (a literal `#` in an ident, not an id).
+                .replace(/\\#/g, '');
+            selectorList.split(',').forEach(sel => {
+                const s = sel.trim();
+                // After attribute selectors and escaped `\#` are removed above, a `#` in
+                // SELECTOR text can only begin an id selector — `#` never appears elsewhere
+                // in a standard selector (combinators, pseudo-classes, and nesting `&` use
+                // no `#`). So match an id token ANYWHERE in the compound, not only when it
+                // leads (a trailing id like `.btn#home-cta` or `a#x` must fail too — the
+                // guard's contract is "any #id in the selector text").
+                if (/#[A-Za-z_-]/.test(s)) {
+                    offenders.push(s.replace(/\s+/g, ' '));
+                }
+            });
+        }
+        return offenders;
+    }
+
+    // SHRINK-ONLY waiver ledger — expected empty. A remaining, genuinely-irreducible id
+    // selector would be listed here (verbatim, normalized) with a citing comment.
+    const ID_SELECTOR_WAIVERS = [];
+
+    test.each([
+        ['components.css', COMPONENTS_CSS],
+        ['base.css', BASE_CSS],
+        ['utilities.css', UTILITIES_CSS],
+    ])('%s contains no ID selectors', (name, css) => {
+        const offenders = idSelectors(css).filter(s => !ID_SELECTOR_WAIVERS.includes(s));
+        expect(offenders).toEqual([]);
+    });
+
+    test('the waiver ledger is empty (shrink-only; a new entry must be justified + pinned)', () => {
+        expect(ID_SELECTOR_WAIVERS.length).toBe(0);
+    });
+
+    // Detection proof (mirrors StyleSlotContractTest's testGuardDetectsTheDeadSlotClass):
+    // the parser must CATCH an id selector and must NOT be fooled by hex values or
+    // attribute-embedded fragments. Without this, a parser regression could pass the
+    // real-file scans vacuously.
+    test('detector flags an id selector but ignores hex values and href fragments', () => {
+        expect(idSelectors('#home-cta { color: red; }')).toEqual(['#home-cta']);
+        expect(idSelectors('.cta__button:not(.btn--ghost) #x .y { top: 0; }')).toEqual([
+            '.cta__button:not(.btn--ghost) #x .y',
+        ]);
+        // Trailing-id compounds (id NOT first in the simple-selector sequence) must fail too.
+        expect(idSelectors('.btn#home-cta { top: 0; }')).toEqual(['.btn#home-cta']);
+        expect(idSelectors('a#x { top: 0; }')).toEqual(['a#x']);
+        expect(idSelectors('main .cta__button:not(.btn--outline)#foo { top: 0; }')).toEqual([
+            'main .cta__button:not(.btn--outline)#foo',
+        ]);
+        // Hex color value in a body — not a selector.
+        expect(idSelectors('.a { color: #fcfdff; background: #fff; }')).toEqual([]);
+        // Anchor fragment inside an attribute selector — not an id selector.
+        expect(idSelectors('a[href="#top"] { color: blue; }')).toEqual([]);
+        expect(idSelectors('[style*="#fff"] { border: 0; }')).toEqual([]);
+        // Nested in @media — still caught.
+        expect(idSelectors('@media (min-width: 768px) { #home-hero .btn { width: auto; } }'))
+            .toEqual(['#home-hero .btn']);
     });
 });

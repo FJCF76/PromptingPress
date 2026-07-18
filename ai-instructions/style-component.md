@@ -244,6 +244,28 @@ wp pp action execute update_component --run-id=<uuid> --params='{
 `button_variant` accepts `primary` (default), `secondary`, `outline`, `ghost`. Per
 -instance button color still comes from the `--cta-accent` style slot.
 
+**Flat primary button (style slots on the DEFAULT variant).** The primary CTA button
+ships a premium filled treatment: a gradient fill, an inset bevel + drop shadow, and
+ink-on-accent text. To make it a FLAT primary (flat fill, ink text, no gradient/bevel/
+shadow) without switching to the `secondary` variant, set the documented button slots on
+the default variant -- they now win over the premium treatment:
+```bash
+wp pp action execute style_component --run-id=<uuid> --params='{
+  "post_id": 19,
+  "component_id": "pp-a1b2c3d4",
+  "style": {
+    "--cta-button-bg": "var(--color-accent)",
+    "--cta-button-color": "var(--color-bg)",
+    "--cta-button-shadow": "none"
+  }
+}'
+```
+`--cta-button-bg` is the flat fill, `--cta-button-color` the text (ink) color,
+`--cta-button-border` the border, and `--cta-button-shadow: none` removes the gradient
+bevel and drop shadow on BOTH rest and hover (the `*-hover-*` slots override the hover
+state). Unset, all of these fall back to the premium look byte-identically -- they add the
+flat-button capability, not a new default.
+
 **3. Tag a grid card's text with a typography role (an item field).**
 `text_role` lives on each item inside the grid's `items` array, not as a top-level
 prop. Patch the whole `items` array via `update_component` (a prop shallow-merge

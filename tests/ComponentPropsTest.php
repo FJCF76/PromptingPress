@@ -790,11 +790,17 @@ class ComponentPropsTest extends TestCase
     public function testCtaButtonVariantsAllRouteThroughOverrideSlotsInCss(): void
     {
         $css = file_get_contents(dirname(__DIR__) . '/assets/css/components.css');
+        // Count real CONSUMPTIONS (`var(--cta-button-bg`), not comment mentions.
+        // 4 in the cta block — the primary-shape rule plus outline/secondary/ghost, one
+        // per variant (#111) — PLUS 2 in the premium primary-fill cascade winners (the
+        // "premium CTA treatment" and "elevation correction" `main .btn:not(...)` rules),
+        // where issue 412 routes the gradient background through the slot so a flat
+        // primary button is reachable on the DEFAULT variant.
         $this->assertSame(
-            4,
-            substr_count($css, '--cta-button-bg'),
-            '--cta-button-bg must be referenced in exactly 4 places: the primary-shape rule '
-            . 'plus outline/secondary/ghost — one per variant (#111).'
+            6,
+            substr_count($css, 'var(--cta-button-bg'),
+            'var(--cta-button-bg) must be consumed by the 4 cta-block variant rules plus '
+            . 'the 2 premium primary-fill winners (issue 412).'
         );
     }
 

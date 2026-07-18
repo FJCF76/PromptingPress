@@ -1939,6 +1939,13 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   background-color: var(--cta-button-bg, var(--cta-accent, var(--color-accent)));
   border-color: var(--cta-button-border, var(--cta-accent, var(--color-accent)));
   color: var(--cta-button-color, var(--btn-text, var(--color-bg)));
+  /* Consume --cta-button-shadow in the cta block so the slot-contract keystone sees it
+     wired (issue 412), scoped to the PRIMARY variant only (matching the slot's doc and
+     the premium `main .btn:not(...)` winner). Default `none`: the premium winner ([0,4,1])
+     supplies the bevel via its own var(--cta-button-shadow, <bevel>) fallback, so an unset
+     primary button is byte-identical; setting --cta-button-shadow: none flattens rest +
+     hover. Outline/ghost/secondary keep no shadow (they never match the premium winner). */
+  box-shadow: var(--cta-button-shadow, none);
 }
 .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   background-color: var(--cta-button-hover-bg, var(--cta-accent-hover, var(--color-accent-hover)));
@@ -1991,6 +1998,18 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   text-align: center;
 }
 
+/* Full-width centering, in the BASE rules (issue 412, Symptom 2). `.cta__inner` centers
+   its children and caps `.cta__title`/`.cta__body` at --cta-content-width, but the
+   `.cta__text` wrapper had no width constraint: a long body stretched it to the full
+   inner width, so the capped title left-pinned inside it (text-align only centers the
+   glyphs WITHIN that left-pinned box). Cap `.cta__text` at the same content width and
+   center it, so an authored full-width CTA with ANY id centers title/body at the
+   default --cta-content-width — no id-scoped rule and no widened max-width needed. */
+.cta--full-width .cta__text {
+  max-width: var(--cta-content-width, 40rem);
+  margin-inline: auto;
+}
+
 /* Inline: flex row, text left, button right */
 .cta--inline .cta__inner {
   align-items: flex-start;
@@ -2007,6 +2026,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
 .cta__button {
   flex-shrink: 0;
+  /* Consume --cta-button-shadow in the cta block so the slot-contract keystone sees
+     it wired (issue 412). Default `none`: the premium `main .btn` winner ([0,4,1]) supplies
+     the bevel via its own var(--cta-button-shadow, <bevel>) fallback, so an unset
+     button is byte-identical; setting --cta-button-shadow: none flattens rest + hover. */
+  box-shadow: var(--cta-button-shadow, none);
 }
 
 /* CTA theme variants */
@@ -2062,141 +2086,6 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   opacity: 0.85;
 }
 
-/* Closing CTA correction: wide premium close, not a narrow centered poem. */
-/* Page-specific desktop CTA padding for the benchmark closers. These IDs
-   [1,0,0] outrank the generic .cta slot rule [0,1,0], so a bare literal here
-   defeats --cta-padding-* on exactly the pages that ship a CTA (issue 302).
-   Route through the slot with 5.75rem as the fallback (unset unchanged). */
-#home-cta,
-#how-cta,
-#agencies-cta,
-#implementers-cta {
-  padding-top: var(--cta-padding-top, 5.75rem);
-  padding-bottom: var(--cta-padding-bottom, 5.75rem);
-}
-
-#home-cta .container,
-#how-cta .container,
-#agencies-cta .container,
-#implementers-cta .container {
-  max-width: 70rem;
-}
-
-#home-cta.cta--inline .cta__inner,
-#how-cta.cta--inline .cta__inner,
-#agencies-cta.cta--inline .cta__inner,
-#implementers-cta.cta--inline .cta__inner {
-  width: 100%;
-  max-width: 68rem;
-  margin-right: auto;
-  margin-left: auto;
-  gap: var(--cta-inner-gap, 1.75rem);
-  align-items: flex-start;
-  text-align: left;
-}
-
-#home-cta .cta__text,
-#how-cta .cta__text,
-#agencies-cta .cta__text,
-#implementers-cta .cta__text {
-  max-width: 38rem;
-}
-
-#home-cta .cta__title,
-#how-cta .cta__title,
-#agencies-cta .cta__title,
-#implementers-cta .cta__title {
-  max-width: var(--cta-content-width, 14em);
-  margin-right: 0;
-  margin-left: 0;
-}
-
-#home-cta .cta__body,
-#how-cta .cta__body,
-#agencies-cta .cta__body,
-#implementers-cta .cta__body {
-  max-width: 36rem;
-  margin-right: 0;
-  margin-left: 0;
-}
-
-#home-cta .cta__button,
-#how-cta .cta__button,
-#agencies-cta .cta__button,
-#implementers-cta .cta__button {
-  width: fit-content;
-  min-width: 15.5rem;
-  align-self: flex-start;
-}
-
-@media (min-width: 768px) {
-  #home-cta.cta--inline .cta__inner,
-  #how-cta.cta--inline .cta__inner,
-  #agencies-cta.cta--inline .cta__inner,
-  #implementers-cta.cta--inline .cta__inner {
-    display: grid;
-    /* Both tracks must be able to SHRINK. This grid turns on at 768px, but the content
-       box it gets there is far narrower than the viewport (the container eats
-       2 * var(--space-lg) and .cta__inner eats 2 * clamp(2rem, 4vw, 2.6rem) padding plus
-       its border), leaving roughly 40rem. Fixed floors (32.5rem + 14rem + a >=3rem gap)
-       could not fit, so #how-cta / #agencies-cta / #implementers-cta scrolled the page
-       sideways from 768px through ~912px (issue 265 — the sibling of home-cta's 258 fix).
-       Column 1 floors at 0 and is fractional so it absorbs the slack; column 2 floors at
-       the button's own min-width (14.75rem, re-declared by the four-CTA button rule below)
-       so the button can never overflow its track. #home-cta re-sets these same tracks in
-       its own override further down and is unaffected. The 0 floor only works because
-       base.css's overflow-wrap:break-word lets a long title word wrap mid-word rather than
-       hold the track open. */
-    grid-template-columns: minmax(0, 2fr) minmax(14.75rem, 1fr);
-    column-gap: clamp(3rem, 7vw, 6rem);
-    align-items: center;
-  }
-
-  #home-cta .cta__button,
-  #how-cta .cta__button,
-  #agencies-cta .cta__button,
-  #implementers-cta .cta__button {
-    justify-self: start;
-    align-self: center;
-  }
-}
-
-@media (max-width: 767px) {
-  /* Route through --cta-padding-* too (issue 302). This earlier mobile CTA rule
-     is currently shadowed by the later mobile #*-cta rule, but keeping a bare
-     literal on a slot-controlled property here would re-introduce the dead slot
-     if the later rule ever moves. Fallback stays 4.25rem, so nothing changes. */
-  #home-cta,
-  #how-cta,
-  #agencies-cta,
-  #implementers-cta {
-    padding-top: var(--cta-padding-top, 4.25rem);
-    padding-bottom: var(--cta-padding-bottom, 4.25rem);
-  }
-
-  #home-cta.cta--inline .cta__inner,
-  #how-cta.cta--inline .cta__inner,
-  #agencies-cta.cta--inline .cta__inner,
-  #implementers-cta.cta--inline .cta__inner {
-    max-width: 100%;
-    gap: var(--cta-inner-gap, 1.35rem);
-  }
-
-  #home-cta .cta__title,
-  #how-cta .cta__title,
-  #agencies-cta .cta__title,
-  #implementers-cta .cta__title {
-    max-width: var(--cta-content-width, 12.5em);
-  }
-
-  #home-cta .cta__button,
-  #how-cta .cta__button,
-  #agencies-cta .cta__button,
-  #implementers-cta .cta__button {
-    width: 100%;
-    max-width: 22rem;
-  }
-}
 
 /* ==========================================================================
    COMPONENT: footer
@@ -2945,521 +2834,6 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   color: var(--color-muted);
 }
 
-/* Homepage closing CTA headline fix: title-left, action copy-right on desktop. */
-@media (min-width: 768px) {
-  /* Both tracks must be able to SHRINK, because this grid turns on at 768px but the
-     content box it gets there is far narrower than the viewport: the container eats
-     2 * var(--space-lg) (its padding switches to --space-lg at this same 768px
-     breakpoint, utilities.css), and .cta__inner itself eats 2 * clamp(2rem, 4vw, 2.6rem)
-     of padding plus its 1px border (see the .cta__inner rule further down). At 768px that
-     leaves roughly 40rem, so the old fixed floors (36rem + 18rem + a 3rem gap = 57rem)
-     could not fit and the section scrolled the page sideways from 768px through ~912px
-     (issue 258). The E2E cases pin the rendered page width across that band.
-
-     Column 2's floor is the button's own min-width (14.75rem — the four-CTA button rule
-     below re-declares it and wins over the earlier 15.5rem), so the button can never
-     overflow its track. Keep the two in step. Column 1 is 0-floored and fractional, so it
-     absorbs whatever is left. The desktop composition is unchanged in practice because
-     .cta__title and .cta__body already cap themselves (max-width 40rem / 22rem) long
-     before the tracks stop growing.
-
-     Two separate mechanisms, easy to conflate: the `0` min sizing function is what lets
-     the TRACK size below the title's min-content (a `minmax(0, ...)` track's minimum is a
-     fixed 0, so a grid item's `min-width: auto` cannot hold it open). That alone would
-     still leave a long unbreakable headline word PAINTING outside the narrowed column and
-     scrolling the page. What keeps the word inside the column is base.css's
-     `overflow-wrap: break-word` on `p, h1..h6`, which lets it wrap mid-word. Both are
-     load-bearing: at 768px, forcing `overflow-wrap: normal` on the title puts ~97px back
-     outside the viewport. The E2E long-word case guards that cross-file dependency. */
-  #home-cta.cta--inline .cta__inner {
-    grid-template-columns: minmax(0, 2fr) minmax(14.75rem, 1fr);
-    column-gap: clamp(3rem, 6vw, 5.5rem);
-    row-gap: 0;
-    align-items: center;
-  }
-
-  #home-cta .cta__text {
-    display: contents;
-    max-width: none;
-  }
-
-  /* display:contents above dissolves .cta__text, so the eyebrow becomes a grid item
-     of .cta__inner. Grid blockifies its inline-block and, with no placement of its
-     own, auto-flows it past every explicitly-placed sibling into the first free cell
-     — row 3, column 1 — and stretches it there: a band the full width of the TITLE
-     COLUMN, rendered below the button. Placing it in row 1 of the title column
-     restores the pill above the title. Row 1 collapses when no eyebrow is set
-     (row-gap is 0), so a CTA without one renders exactly as it did before.
-
-     Only .cta--inline carries this placement, because align-self is the one
-     declaration here that is NOT inert outside the grid: grid-column, grid-row and
-     justify-self are all ignored on a flex item, but .cta__inner stays a flex COLUMN
-     in the full-width layout, where the cross axis is horizontal and align-self:end
-     would shove the pill to the right edge. align-self:end is itself inert today —
-     row 1 is exactly the eyebrow's height, so there is no free space to align within
-     — and is kept to state the intent for a row that ever grows taller.
-
-     The bare #home-cta siblings below keep their grid-column/grid-row/justify-self
-     bare: those three are safely inert on a flex item, so they describe the inline
-     grid without disturbing the full-width flex column. Their align-self, which is
-     NOT inert on a flex item, is scoped to .cta--inline for the same reason this
-     selector is (issue 257) — a bare align-self:end/start leaked into the full-width
-     column and shoved the body and button to opposite edges. */
-  #home-cta.cta--inline .cta__eyebrow {
-    grid-column: 1;
-    grid-row: 1;
-    justify-self: start;
-    align-self: end;
-  }
-
-  #home-cta .cta__title {
-    grid-column: 1;
-    grid-row: 2 / span 2;
-    max-width: var(--cta-content-width, 40rem);
-    margin: 0;
-    font-size: var(--cta-title-size, clamp(2.35rem, 3.05vw, 2.65rem));
-    line-height: 1.1;
-  }
-
-  #home-cta .cta__body {
-    grid-column: 2;
-    grid-row: 2;
-    max-width: 22rem;
-    margin: 0 0 1.15rem;
-  }
-
-  #home-cta .cta__button {
-    grid-column: 2;
-    grid-row: 3;
-    justify-self: start;
-  }
-
-  /* align-self is the one placement declaration that is NOT inert on a flex item,
-     so it is scoped to the inline grid. In the default full-width layout .cta__inner
-     stays a flex COLUMN whose cross axis is horizontal; a bare align-self:end/start
-     here shoved the body to the right edge and the button to the left while the
-     eyebrow and title stayed centered (issue 257). Left bare, they leak; scoped, the
-     full-width body falls back to .cta--full-width .cta__inner's align-items:center and
-     the button to the shared four-CTA rule's align-self:center just above. */
-  #home-cta.cta--inline .cta__body {
-    align-self: end;
-  }
-
-  #home-cta.cta--inline .cta__button {
-    align-self: start;
-  }
-}
-
-@media (max-width: 767px) {
-  #home-cta.cta--inline .cta__inner {
-    align-items: center;
-    text-align: center;
-  }
-
-  #home-cta .cta__text {
-    max-width: 100%;
-  }
-
-  #home-cta .cta__title {
-    max-width: var(--cta-content-width, 21rem);
-    margin-right: auto;
-    margin-left: auto;
-    font-size: var(--cta-title-size, clamp(1.55rem, 6.5vw, 1.75rem));
-    line-height: 1.12;
-  }
-
-  #home-cta .cta__body {
-    max-width: 22rem;
-    margin-right: auto;
-    margin-left: auto;
-  }
-
-  #home-cta .cta__button {
-    align-self: center;
-  }
-}
-/* Owned technical workflow surface motif. */
-.hero .pp-workflow-surface {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  background:
-    linear-gradient(90deg, rgba(49, 87, 244, 0.04) 1px, transparent 1px) 0 0 / 3.25rem 100%,
-    linear-gradient(180deg, rgba(49, 87, 244, 0.05) 1px, transparent 1px) 0 0 / 100% 3.25rem,
-    linear-gradient(180deg, var(--color-surface) 0%, var(--color-surface) 100%);
-  box-shadow:
-    0 24px 60px rgba(16, 24, 40, 0.11),
-    inset 0 1px 0 rgba(255, 255, 255, 0.72);
-}
-
-.hero .pp-workflow-surface::before {
-  content: "";
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  right: 0;
-  left: 0;
-  height: 3px;
-  background: linear-gradient(90deg, transparent 0%, var(--color-accent) 16%, var(--color-accent) 52%, transparent 100%);
-}
-
-.hero .pp-workflow-surface::after {
-  content: "";
-  position: absolute;
-  z-index: 2;
-  top: 0.82rem;
-  left: 1rem;
-  width: 0.58rem;
-  height: 0.58rem;
-  border: 1px solid var(--color-accent);
-  border-radius: 2px;
-  background: var(--color-bg);
-  box-shadow:
-    1.05rem 0 0 var(--color-surface-accent),
-    2.1rem 0 0 var(--color-surface);
-}
-
-.hero .pp-workflow-step {
-  position: relative;
-  z-index: 1;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.68) 0%, rgba(255, 255, 255, 0.22) 100%);
-  border-color: var(--color-border);
-}
-
-.hero .pp-workflow-step::after {
-  content: "";
-  position: absolute;
-  top: 1.15rem;
-  right: 1.25rem;
-  width: 1.65rem;
-  height: 0.42rem;
-  border-top: 1px solid var(--color-border-accent);
-  border-bottom: 1px solid var(--color-border);
-  opacity: 0.72;
-}
-
-.hero .pp-workflow-step + .pp-workflow-step {
-  border-left-color: var(--color-border);
-}
-
-.hero .pp-workflow-step + .pp-workflow-step::before {
-  background: var(--color-bg);
-  border-color: var(--color-border-accent);
-  box-shadow: 0 0 0 5px rgba(49, 87, 244, 0.08);
-}
-
-.hero .pp-workflow-step--active {
-  background:
-    linear-gradient(180deg, var(--color-surface-accent) 0%, var(--color-surface) 100%);
-  box-shadow:
-    inset 0 0 0 1px rgba(49, 87, 244, 0.30),
-    0 16px 32px rgba(37, 99, 235, 0.09);
-}
-
-.hero .pp-workflow-step--active::after {
-  border-color: var(--color-accent);
-  opacity: 1;
-}
-
-.hero .pp-workflow-kicker {
-  color: var(--color-accent);
-  letter-spacing: 0.09em;
-}
-
-.hero .pp-workflow-title {
-  color: var(--color-text);
-}
-
-.hero .pp-workflow-code {
-  border-top-color: var(--color-border);
-  background:
-    linear-gradient(90deg, rgba(49, 87, 244, 0.07) 1px, transparent 1px) 0 0 / 1.35rem 100%,
-    var(--color-bg);
-  color: var(--color-muted);
-}
-
-@media (max-width: 767px) {
-  .hero .pp-workflow-surface {
-    background:
-      linear-gradient(90deg, rgba(49, 87, 244, 0.04) 1px, transparent 1px) 0 0 / 2.5rem 100%,
-      linear-gradient(180deg, var(--color-surface) 0%, var(--color-surface) 100%);
-  }
-
-  .hero .pp-workflow-surface::after {
-    display: none;
-  }
-
-  .hero .pp-workflow-step::after {
-    top: 1rem;
-    right: 1rem;
-  }
-}
-/* Explicit hero surface motif layer properties. */
-.hero .pp-workflow-surface {
-  background-color: var(--color-surface-accent);
-  background-image:
-    linear-gradient(90deg, rgba(37, 99, 235, 0.055) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(37, 99, 235, 0.045) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(37, 99, 235, 0.045));
-  background-size:
-    3.25rem 100%,
-    100% 3.25rem,
-    100% 100%;
-  background-position:
-    0 0,
-    0 0,
-    0 0;
-  background-repeat:
-    repeat,
-    repeat,
-    no-repeat;
-}
-
-.hero .pp-workflow-step + .pp-workflow-step::before {
-  box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.08);
-}
-
-.hero .pp-workflow-code {
-  background:
-    linear-gradient(90deg, rgba(37, 99, 235, 0.07) 1px, transparent 1px) 0 0 / 1.35rem 100%,
-    var(--color-bg);
-}
-
-@media (max-width: 767px) {
-  .hero .pp-workflow-surface {
-    background-image:
-      linear-gradient(90deg, rgba(37, 99, 235, 0.05) 1px, transparent 1px),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(37, 99, 235, 0.045));
-    background-size:
-      2.5rem 100%,
-      100% 100%;
-    background-repeat:
-      repeat,
-      no-repeat;
-  }
-}
-/* Page-specific surface motif image wins over prior shorthands. */
-#home-hero .pp-workflow-surface,
-#how-hero .pp-workflow-surface,
-#agencies-hero .pp-workflow-surface,
-#implementers-hero .pp-workflow-surface {
-  background-color: var(--color-surface-accent);
-  background-image:
-    linear-gradient(90deg, rgba(37, 99, 235, .055) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(37, 99, 235, .045) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(255, 255, 255, .9), rgba(37, 99, 235, .045));
-  background-size:
-    3.25rem 100%,
-    100% 3.25rem,
-    100% 100%;
-  background-position:
-    0 0,
-    0 0,
-    0 0;
-  background-repeat:
-    repeat,
-    repeat,
-    no-repeat;
-}
-
-@media (max-width: 767px) {
-  #home-hero .pp-workflow-surface,
-  #how-hero .pp-workflow-surface,
-  #agencies-hero .pp-workflow-surface,
-  #implementers-hero .pp-workflow-surface {
-    background-image:
-      linear-gradient(90deg, rgba(37, 99, 235, .05) 1px, transparent 1px),
-      linear-gradient(180deg, rgba(255, 255, 255, .92), rgba(37, 99, 235, .045));
-    background-size:
-      2.5rem 100%,
-      100% 100%;
-    background-repeat:
-      repeat,
-      no-repeat;
-  }
-}
-/* Premium mechanism strip weight. */
-#home-hero .hero__proof,
-#how-hero .hero__proof,
-#agencies-hero .hero__proof,
-#implementers-hero .hero__proof {
-  margin-top: clamp(2.4rem, 3.3vw, 3.25rem);
-}
-
-#home-hero .pp-workflow-surface,
-#how-hero .pp-workflow-surface,
-#agencies-hero .pp-workflow-surface,
-#implementers-hero .pp-workflow-surface {
-  max-width: 62rem;
-  border: 1px solid var(--color-border-accent);
-  border-radius: 10px;
-  box-shadow:
-    0 26px 64px rgba(15, 23, 42, 0.14),
-    0 0 0 1px rgba(37, 99, 235, 0.055),
-    inset 0 1px 0 rgba(255, 255, 255, 0.86);
-}
-
-#home-hero .pp-workflow-surface::before,
-#how-hero .pp-workflow-surface::before,
-#agencies-hero .pp-workflow-surface::before,
-#implementers-hero .pp-workflow-surface::before {
-  height: 4px;
-  background: linear-gradient(90deg, rgba(37, 99, 235, 0.08) 0%, rgba(37, 99, 235, 0.72) 18%, var(--color-accent) 50%, rgba(37, 99, 235, 0.72) 82%, rgba(37, 99, 235, 0.08) 100%);
-}
-
-#home-hero .pp-workflow-step,
-#how-hero .pp-workflow-step,
-#agencies-hero .pp-workflow-step,
-#implementers-hero .pp-workflow-step {
-  min-height: 12.9rem;
-  padding: 2.05rem 1.7rem 1.55rem;
-  border-color: var(--color-border);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.82) 0%, rgba(248, 251, 255, 0.62) 100%);
-}
-
-#home-hero .pp-workflow-step + .pp-workflow-step,
-#how-hero .pp-workflow-step + .pp-workflow-step,
-#agencies-hero .pp-workflow-step + .pp-workflow-step,
-#implementers-hero .pp-workflow-step + .pp-workflow-step {
-  border-left-color: var(--color-border-accent);
-}
-
-#home-hero .pp-workflow-step + .pp-workflow-step::before,
-#how-hero .pp-workflow-step + .pp-workflow-step::before,
-#agencies-hero .pp-workflow-step + .pp-workflow-step::before,
-#implementers-hero .pp-workflow-step + .pp-workflow-step::before {
-  width: 0.82rem;
-  height: 0.82rem;
-  border-width: 2px;
-  border-color: var(--color-accent);
-  background: var(--color-surface-accent);
-  box-shadow:
-    0 0 0 5px rgba(37, 99, 235, 0.08),
-    0 0 0 1px rgba(255, 255, 255, 0.92);
-}
-
-#home-hero .pp-workflow-step--active,
-#how-hero .pp-workflow-step--active,
-#agencies-hero .pp-workflow-step--active,
-#implementers-hero .pp-workflow-step--active {
-  background:
-    linear-gradient(180deg, var(--color-surface-accent) 0%, var(--color-surface) 100%);
-  box-shadow:
-    inset 0 0 0 1px rgba(49, 87, 244, 0.42),
-    inset 0 4px 0 rgba(37, 99, 235, 0.28),
-    0 18px 40px rgba(37, 99, 235, 0.13);
-}
-
-#home-hero .pp-workflow-step--active .pp-workflow-kicker,
-#how-hero .pp-workflow-step--active .pp-workflow-kicker,
-#agencies-hero .pp-workflow-step--active .pp-workflow-kicker,
-#implementers-hero .pp-workflow-step--active .pp-workflow-kicker {
-  color: var(--color-accent);
-}
-
-#home-hero .pp-workflow-kicker,
-#how-hero .pp-workflow-kicker,
-#agencies-hero .pp-workflow-kicker,
-#implementers-hero .pp-workflow-kicker {
-  display: block;
-  margin-bottom: 0.72rem;
-  color: var(--color-accent);
-  font-size: 0.72rem;
-  font-weight: 760;
-  letter-spacing: 0.105em;
-}
-
-#home-hero .pp-workflow-title,
-#how-hero .pp-workflow-title,
-#agencies-hero .pp-workflow-title,
-#implementers-hero .pp-workflow-title {
-  display: block;
-  max-width: 15rem;
-  color: var(--color-text);
-  font-size: 1.02rem;
-  font-weight: 680;
-  line-height: 1.24;
-}
-
-#home-hero .pp-workflow-code,
-#how-hero .pp-workflow-code,
-#agencies-hero .pp-workflow-code,
-#implementers-hero .pp-workflow-code {
-  display: block;
-  margin-top: 1.18rem;
-  padding: 0.92rem 0.95rem 0.82rem;
-  border: 1px solid var(--color-border);
-  border-top: 1px solid var(--color-border-accent);
-  border-radius: 5px;
-  background-color: rgba(255, 255, 255, 0.62);
-  background-image:
-    linear-gradient(90deg, rgba(37, 99, 235, .085) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(255, 255, 255, .88), rgba(37, 99, 235, .04));
-  background-size:
-    1.25rem 100%,
-    100% 100%;
-  color: var(--color-muted);
-  font-size: 0.77rem;
-  font-weight: 560;
-  line-height: 1.55;
-  letter-spacing: 0.01em;
-}
-
-@media (min-width: 768px) {
-  #home-hero .hero__proof {
-    max-width: 62rem;
-  }
-
-  #how-hero .hero__proof,
-  #agencies-hero .hero__proof,
-  #implementers-hero .hero__proof {
-    max-width: 62rem;
-  }
-}
-
-@media (max-width: 767px) {
-  #home-hero .hero__proof,
-  #how-hero .hero__proof,
-  #agencies-hero .hero__proof,
-  #implementers-hero .hero__proof {
-    margin-top: 2rem;
-  }
-
-  #home-hero .pp-workflow-surface,
-  #how-hero .pp-workflow-surface,
-  #agencies-hero .pp-workflow-surface,
-  #implementers-hero .pp-workflow-surface {
-    border-radius: 8px;
-  }
-
-  #home-hero .pp-workflow-step,
-  #how-hero .pp-workflow-step,
-  #agencies-hero .pp-workflow-step,
-  #implementers-hero .pp-workflow-step {
-    min-height: auto;
-    padding: 1.35rem 1.15rem 1.25rem;
-  }
-
-  #home-hero .pp-workflow-title,
-  #how-hero .pp-workflow-title,
-  #agencies-hero .pp-workflow-title,
-  #implementers-hero .pp-workflow-title {
-    max-width: 18rem;
-    font-size: 0.98rem;
-  }
-
-  #home-hero .pp-workflow-code,
-  #how-hero .pp-workflow-code,
-  #agencies-hero .pp-workflow-code,
-  #implementers-hero .pp-workflow-code {
-    margin-top: 0.95rem;
-    padding: 0.78rem 0.8rem;
-    font-size: 0.72rem;
-  }
-}
 /* Premium body-section typography. */
 @media (min-width: 768px) {
   main > .section .section__title,
@@ -3806,7 +3180,17 @@ main > .grid .grid__item-link::after {
    outline/ghost/secondary variants are transparent by design, and a gradient
    background-IMAGE here would paint over their transparent background-COLOR
    (a different layer that `background-color: transparent` cannot clear),
-   flattening them into low-contrast filled buttons. */
+   flattening them into low-contrast filled buttons.
+
+   This block is the later-cascade WINNER for a composed primary button ([0,4,1]
+   beats the cta block's `.cta__button:not(...)` at [0,4,0]), so the filled
+   treatment's literals are routed through the documented cta-button slots (issue 412,
+   the issue-302 idiom): the gradient/bevel/ink defaults are the FALLBACKS, so an unset
+   button renders byte-identically, while an author setting --cta-button-bg (a flat
+   color), --cta-button-color (ink), or --cta-button-shadow: none gets a FLAT primary
+   button on the DEFAULT variant. The --cta-button-* custom properties are emitted
+   inline only on the .cta root, and custom-property inheritance is DOM-scoped, so a
+   hero/standalone `.btn` (never inside a .cta) never inherits them — no leak. */
 main .btn {
   display: inline-flex;
   align-items: center;
@@ -3828,23 +3212,25 @@ main .btn {
 }
 
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  border: 1px solid var(--color-accent-strong);
-  background:
-    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%);
-  box-shadow:
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--cta-button-border, var(--color-accent-strong));
+  background: var(--cta-button-bg,
+    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%));
+  box-shadow: var(--cta-button-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 10px 24px color-mix(in srgb, var(--color-accent-strong) 16%, transparent);
-  color: var(--color-bg);
+    0 10px 24px color-mix(in srgb, var(--color-accent-strong) 16%, transparent));
+  color: var(--cta-button-color, var(--color-bg));
 }
 
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  border-color: var(--color-accent);
-  background:
-    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-hover) 100%);
-  box-shadow:
+  border-color: var(--cta-button-hover-border, var(--color-accent));
+  background: var(--cta-button-hover-bg,
+    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-hover) 100%));
+  box-shadow: var(--cta-button-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    0 14px 30px color-mix(in srgb, var(--color-accent-strong) 22%, transparent);
-  color: var(--color-bg);
+    0 14px 30px color-mix(in srgb, var(--color-accent-strong) 22%, transparent));
+  color: var(--cta-button-hover-color, var(--color-bg));
   transform: translateY(-1px);
   text-decoration: none;
 }
@@ -3867,73 +3253,6 @@ main .btn--ghost {
   background: transparent;
 }
 
-#home-hero .hero__cta-group .btn,
-#how-hero .hero__cta-group .btn,
-#agencies-hero .hero__cta-group .btn,
-#implementers-hero .hero__cta-group .btn {
-  width: auto;
-  min-width: 13.75rem;
-  max-width: 18rem;
-}
-
-#home-cta .cta__button,
-#how-cta .cta__button,
-#agencies-cta .cta__button,
-#implementers-cta .cta__button {
-  position: relative;
-  width: fit-content;
-  min-width: 14.75rem;
-  max-width: 20rem;
-  padding-right: 1.35rem;
-  padding-left: 1.35rem;
-  /* Last-resort break for an unbreakable author-supplied button_text label
-     (issue 266): `anywhere` (unlike the global `break-word`) feeds soft-wrap
-     opportunities into the intrinsic min-content size, so `fit-content`
-     collapses to the available track and the label wraps inside the button
-     instead of widening the column past its grid track and scrolling the
-     page. Short and spaced labels are unaffected (they still hit min-width). */
-  overflow-wrap: anywhere;
-}
-
-#home-cta .cta__button::before,
-#how-cta .cta__button::before,
-#agencies-cta .cta__button::before,
-#implementers-cta .cta__button::before {
-  content: "Next step";
-  position: absolute;
-  top: -1.72rem;
-  left: 0;
-  color: var(--color-accent);
-  font-size: 0.72rem;
-  font-weight: 720;
-  letter-spacing: 0.105em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-#home-cta .cta__button::after,
-#how-cta .cta__button::after,
-#agencies-cta .cta__button::after,
-#implementers-cta .cta__button::after {
-  content: "";
-  width: 0.42rem;
-  height: 0.42rem;
-  margin-left: 0.68rem;
-  border-top: 1.5px solid currentColor;
-  border-right: 1.5px solid currentColor;
-  transform: rotate(45deg);
-}
-
-@media (min-width: 768px) {
-  #home-cta .cta__button,
-  #how-cta .cta__button,
-  #agencies-cta .cta__button,
-  #implementers-cta .cta__button {
-    justify-self: start;
-    margin-top: 1.35rem;
-  }
-}
-
 @media (max-width: 767px) {
   main .btn {
     width: 100%;
@@ -3943,41 +3262,6 @@ main .btn--ghost {
     padding-right: 1rem;
     padding-left: 1rem;
   }
-
-  #home-hero .hero__cta-group,
-  #how-hero .hero__cta-group,
-  #agencies-hero .hero__cta-group,
-  #implementers-hero .hero__cta-group {
-    width: 100%;
-    align-items: center;
-  }
-
-  #home-hero .hero__cta-group .btn,
-  #how-hero .hero__cta-group .btn,
-  #agencies-hero .hero__cta-group .btn,
-  #implementers-hero .hero__cta-group .btn,
-  #home-cta .cta__button,
-  #how-cta .cta__button,
-  #agencies-cta .cta__button,
-  #implementers-cta .cta__button {
-    width: 100%;
-    max-width: 20rem;
-  }
-
-  #home-cta .cta__button,
-  #how-cta .cta__button,
-  #agencies-cta .cta__button,
-  #implementers-cta .cta__button {
-    margin-top: 1.3rem;
-  }
-
-  #home-cta .cta__button::before,
-  #how-cta .cta__button::before,
-  #agencies-cta .cta__button::before,
-  #implementers-cta .cta__button::before {
-    right: 0;
-    text-align: center;
-  }
 }
 
 /* True final cascade: CTA color and elevation correction.
@@ -3985,58 +3269,26 @@ main .btn--ghost {
    fill and has the SAME specificity as `main .btn--outline` (both 0,1,1, since
    `main` is a type selector), so without the :not() it would win by source order
    and re-fill the transparent variants — the secondary-CTA contrast bug. */
-main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary),
-#home-hero .hero__cta-group .btn,
-#how-hero .hero__cta-group .btn,
-#agencies-hero .hero__cta-group .btn,
-#implementers-hero .hero__cta-group .btn,
-#home-cta .cta__button,
-#how-cta .cta__button,
-#agencies-cta .cta__button,
-#implementers-cta .cta__button {
+main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
   border-color: var(--cta-button-border, var(--cta-accent, var(--color-accent-strong)));
-  background:
-    linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%);
-  box-shadow:
+  background: var(--cta-button-bg,
+    linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%));
+  box-shadow: var(--cta-button-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    0 10px 22px color-mix(in srgb, var(--color-accent-strong) 14%, transparent);
+    0 10px 22px color-mix(in srgb, var(--color-accent-strong) 14%, transparent));
 }
 
-main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover,
-#home-hero .hero__cta-group .btn:hover,
-#how-hero .hero__cta-group .btn:hover,
-#agencies-hero .hero__cta-group .btn:hover,
-#implementers-hero .hero__cta-group .btn:hover,
-#home-cta .cta__button:hover,
-#how-cta .cta__button:hover,
-#agencies-cta .cta__button:hover,
-#implementers-cta .cta__button:hover {
+main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   border-color: var(--cta-button-hover-border, var(--cta-accent-hover, var(--color-accent)));
-  background:
-    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%);
-  box-shadow:
+  background: var(--cta-button-hover-bg,
+    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%));
+  box-shadow: var(--cta-button-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 14px 30px color-mix(in srgb, var(--color-accent-strong) 20%, transparent);
+    0 14px 30px color-mix(in srgb, var(--color-accent-strong) 20%, transparent));
 }
 
 main .btn:focus,
-main .btn:focus-visible,
-#home-hero .hero__cta-group .btn:focus,
-#home-hero .hero__cta-group .btn:focus-visible,
-#how-hero .hero__cta-group .btn:focus,
-#how-hero .hero__cta-group .btn:focus-visible,
-#agencies-hero .hero__cta-group .btn:focus,
-#agencies-hero .hero__cta-group .btn:focus-visible,
-#implementers-hero .hero__cta-group .btn:focus,
-#implementers-hero .hero__cta-group .btn:focus-visible,
-#home-cta .cta__button:focus,
-#home-cta .cta__button:focus-visible,
-#how-cta .cta__button:focus,
-#how-cta .cta__button:focus-visible,
-#agencies-cta .cta__button:focus,
-#agencies-cta .cta__button:focus-visible,
-#implementers-cta .cta__button:focus,
-#implementers-cta .cta__button:focus-visible {
+main .btn:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 4px;
   box-shadow:
@@ -4044,8 +3296,6 @@ main .btn:focus-visible,
     0 0 0 4px color-mix(in srgb, var(--color-accent) 14%, transparent),
     0 14px 30px color-mix(in srgb, var(--color-accent-strong) 20%, transparent);
 }
-
-/* True final cascade: technical workflow brand and compact mobile closers. */
 
 /* Adjacent-sibling rhythm, restored (issue 302). This premium rule used to flatten
    the vertical rhythm to a uniform clamp() at ALL widths, outranking the base
@@ -4101,47 +3351,10 @@ main .btn:focus-visible,
   padding-bottom: var(--faq-padding-bottom, clamp(4.25rem, 6vw, 5rem));
 }
 
-/* Page-specific texture flourish (4 benchmark pages) layered ON TOP of the
-   general slot-driven background (issue 102) — an operator setting
-   --hero-eyebrow-bg for one of these pages still takes effect as the base
-   layer; only the decorative line pattern is page-specific. */
-#home-hero .hero__eyebrow,
-#how-hero .hero__eyebrow,
-#agencies-hero .hero__eyebrow,
-#implementers-hero .hero__eyebrow {
-  border-radius: var(--hero-eyebrow-radius, 3px);
-  border-color: var(--hero-eyebrow-border-color, var(--color-border));
-  background:
-    linear-gradient(90deg, rgba(37, 99, 235, 0.06) 1px, transparent 1px) 0 0 / 1.4rem 100%,
-    var(--hero-eyebrow-bg, var(--color-surface-accent));
-  color: var(--hero-eyebrow-color, var(--color-text));
-}
-
-.hero .pp-workflow-surface,
-#home-hero .pp-workflow-surface,
-#how-hero .pp-workflow-surface,
-#agencies-hero .pp-workflow-surface,
-#implementers-hero .pp-workflow-surface,
 main > .grid .grid__item,
-main > .faq .faq__item,
-#home-cta.cta--inline .cta__inner,
-#how-cta.cta--inline .cta__inner,
-#agencies-cta.cta--inline .cta__inner,
-#implementers-cta.cta--inline .cta__inner {
+main > .faq .faq__item {
   border-radius: var(--grid-card-radius, 4px);
 }
-
-.hero .pp-workflow-surface,
-#home-hero .pp-workflow-surface,
-#how-hero .pp-workflow-surface,
-#agencies-hero .pp-workflow-surface,
-#implementers-hero .pp-workflow-surface {
-  border-color: var(--color-accent-strong);
-  box-shadow:
-    inset 0 0 0 1px rgba(15, 23, 42, 0.04),
-    0 18px 42px rgba(15, 23, 42, 0.09);
-}
-
 main > .grid .grid__item {
   /* Later-cascade winner for cards 2..N: route it through --grid-card-border
      too (matching the earlier all-cards rule and the :first-child rule below)
@@ -4157,15 +3370,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child {
   border-color: var(--grid-card-border, var(--color-accent-strong));
 }
 
-main .btn,
-#home-hero .hero__cta-group .btn,
-#how-hero .hero__cta-group .btn,
-#agencies-hero .hero__cta-group .btn,
-#implementers-hero .hero__cta-group .btn,
-#home-cta .cta__button,
-#how-cta .cta__button,
-#agencies-cta .cta__button,
-#implementers-cta .cta__button {
+main .btn {
   /* This premium-CTA block is the later-cascade winner for composed buttons
      (it overrides the base `.btn { border-radius: var(--btn-radius, var(--radius)) }`
      at equal specificity + source order), so the button radius must be routed
@@ -4176,39 +3381,6 @@ main .btn,
      reads it), so the button radius is no longer chained to the card radius. */
   border-radius: var(--btn-radius, 4px);
 }
-
-#home-cta.cta--inline .cta__inner,
-#how-cta.cta--inline .cta__inner,
-#agencies-cta.cta--inline .cta__inner,
-#implementers-cta.cta--inline .cta__inner {
-  position: relative;
-  border: 1px solid var(--color-border);
-  background:
-    linear-gradient(90deg, rgba(37, 99, 235, 0.04) 1px, transparent 1px) 0 0 / 2.25rem 100%,
-    linear-gradient(180deg, var(--color-surface) 0%, var(--color-surface) 100%);
-  padding: clamp(2rem, 4vw, 2.6rem);
-}
-
-#home-cta.cta--inline .cta__inner::before,
-#how-cta.cta--inline .cta__inner::before,
-#agencies-cta.cta--inline .cta__inner::before,
-#implementers-cta.cta--inline .cta__inner::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 3px;
-  background: linear-gradient(180deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 18%, transparent));
-}
-
-#home-cta .cta__body,
-#how-cta .cta__body,
-#agencies-cta .cta__body,
-#implementers-cta .cta__body {
-  color: var(--cta-body-color, var(--color-text-secondary));
-}
-
 @media (max-width: 767px) {
   /* Mobile rhythm defaults to a uniform 3.35rem (SHARED: Adjacent-Sibling Rhythm
      is desktop-only, so there is no two-tier default here). This generic rule
@@ -4253,92 +3425,5 @@ main .btn,
   .faq {
     padding-top: var(--faq-padding-top, 3.35rem);
     padding-bottom: var(--faq-padding-bottom, 3.35rem);
-  }
-
-  #home-cta,
-  #how-cta,
-  #agencies-cta,
-  #implementers-cta {
-    padding-top: var(--cta-padding-top, 2.85rem);
-    padding-bottom: var(--cta-padding-bottom, 2.85rem);
-  }
-
-  #home-cta.cta--inline .cta__inner,
-  #how-cta.cta--inline .cta__inner,
-  #agencies-cta.cta--inline .cta__inner,
-  #implementers-cta.cta--inline .cta__inner {
-    gap: var(--cta-inner-gap, 1rem);
-    padding: 1.45rem 1.2rem 1.25rem;
-    text-align: left;
-  }
-
-  #home-cta .cta__text,
-  #how-cta .cta__text,
-  #agencies-cta .cta__text,
-  #implementers-cta .cta__text {
-    max-width: none;
-  }
-
-  #home-cta .cta__title,
-  #how-cta .cta__title,
-  #agencies-cta .cta__title,
-  #implementers-cta .cta__title {
-    max-width: var(--cta-content-width, none);
-    margin-bottom: 0.75rem;
-    font-size: var(--cta-title-size, clamp(1.48rem, 6.45vw, 1.72rem));
-    font-weight: 620;
-    line-height: 1.08;
-  }
-
-  #home-cta .cta__body,
-  #how-cta .cta__body,
-  #agencies-cta .cta__body,
-  #implementers-cta .cta__body {
-    max-width: 19.75rem;
-    color: var(--cta-body-color, var(--color-text-secondary));
-    font-size: var(--cta-body-size, 1.015rem);
-    font-weight: 450;
-    line-height: 1.52;
-  }
-
-  #home-cta .cta__text::after,
-  #how-cta .cta__text::after,
-  #agencies-cta .cta__text::after,
-  #implementers-cta .cta__text::after {
-    content: "Rules -> composition -> WordPress output";
-    display: block;
-    width: 100%;
-    margin-top: 1rem;
-    padding: 0.72rem 0.8rem;
-    border: 1px solid var(--color-border);
-    border-left: 3px solid var(--color-accent);
-    border-radius: 3px;
-    background:
-      linear-gradient(90deg, rgba(37, 99, 235, 0.06) 1px, transparent 1px) 0 0 / 1.45rem 100%,
-      var(--color-surface-accent);
-    color: var(--color-text);
-    font-size: 0.73rem;
-    font-weight: 720;
-    letter-spacing: 0.04em;
-    line-height: 1.35;
-    text-transform: uppercase;
-  }
-
-  #home-cta .cta__button,
-  #how-cta .cta__button,
-  #agencies-cta .cta__button,
-  #implementers-cta .cta__button {
-    align-self: flex-start;
-    width: 100%;
-    max-width: 19.75rem;
-    margin-top: 1.15rem;
-  }
-
-  #home-cta .cta__button::before,
-  #how-cta .cta__button::before,
-  #agencies-cta .cta__button::before,
-  #implementers-cta .cta__button::before {
-    right: auto;
-    text-align: left;
   }
 }
