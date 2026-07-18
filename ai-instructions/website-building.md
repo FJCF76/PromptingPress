@@ -44,11 +44,20 @@ Both kinds appear as HTML `id` attributes in the rendered DOM and are the only s
 
 Never use positional selectors (`nth-of-type`, `nth-child`) to target components. They break on reorder.
 
+## Concurrent edits
+
+Composition writes carry a version baseline captured when you read the page. If the page
+changed since — another tab, the dashboard editor, a CLI run, or another chat write — your
+write is rejected with `composition_conflict` and nothing is applied. This is protection,
+not a failure to route around: re-read the page for its current state, then re-propose
+against it. Never retry the same write hoping it lands.
+
 ## Escalation triggers
 
 Stop and ask the user before proceeding when:
 - Two components of the same type exist without IDs (ambiguous targeting)
 - Custom CSS conflicts are detected in the system prompt
+- A composition write is rejected with `composition_conflict` (the page changed under you — re-read and re-propose)
 - A styling change requires writing to a surface not listed in the mutation map above
 - The requested change would require a CSS feature not supported by the theme (`:has()`, `@container`, `backdrop-filter`, `mask-image` — note `color-mix(in srgb, ...)` IS allowed, for token-adaptive shadows and fades in components.css)
 
