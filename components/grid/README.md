@@ -16,6 +16,7 @@ Responsive card grid for discrete content objects. Use this for blog post listin
 | `card_emphasis` | enum   | No       | `'featured'` | First-card emphasis: `featured` (default — first card gets an accent bar, tinted fill, larger title, extra top padding, dark-theme lift) / `uniform` (every card identical). Use `uniform` for a symmetric/peer card row (see below). Cards-layout concept; ignored on `steps`. |
 | `theme`         | enum   | No       | `'default'` | Background color: `default` / `dark` / `inverted` (independent of `layout`) |
 | `columns`       | number | No       | —         | Explicit desktop (768px+) column count, integer `1`–`4`. Unset = auto by item count (see below). Out-of-range/non-integer values are rejected, not clamped. Cards-layout concept; ignored on `steps`. |
+| `image_treatment` | enum | No       | `'banner'` | How each card's `image_url` renders: `banner` (full-width 16:9 cover banner above the body) / `icon` (small fixed icon size, un-cropped, above the title — see below). Unset = `banner` (byte-identical). Values outside the set are rejected, not coerced. Cards-layout concept; ignored on `steps`. |
 | `items`         | array  | Yes      | —         | Array of card objects |
 
 Each item in `items`:
@@ -56,6 +57,14 @@ The `steps` layout is 3 across at desktop, except for a 4-item steps grid, which
 The table above is the default when `columns` is unset. Set `columns` to an integer `1`–`4` to force that many equal-width columns at desktop (768px+), overriding the item-count grain — e.g. `columns: 3` renders a 6-item `cards` grid as 3-across x 2-rows instead of the default 2 x 3, and lets a 4-item grid choose 4-across instead of the default 2 x 2. The forced grid spans the container (no narrowing/centering) regardless of item count, and the single-column collapse below 768px is unchanged. A forced count with a non-multiple item count simply wraps the remainder onto the last row (e.g. `columns: 3` with 4 items = a row of 3 then a single left-aligned card); tracks use `minmax(0, 1fr)` so cards never overflow.
 
 `columns` is a structural prop (set with `create_page` / `update_component`, not `style_component`). Values outside `1`–`4`, or non-integers, are rejected with an error — they are never silently clamped. It is a `cards` concept and is ignored on the `steps` layout, which keeps its fixed process grain.
+
+## Card image treatment (`image_treatment`)
+
+By default (`image_treatment: 'banner'`) each card's `image_url` renders inside a full-width `16:9` cover wrap above the card body — good for post thumbnails and photography, but it blows a small logo or glyph up into a cropped banner. Set `image_treatment: 'icon'` to render the image at a **small fixed icon size** instead: the `--grid-item-icon-size` slot (default `48px`) sizes a square box above the title, the `16:9` crop is dropped, and the image is `object-fit: contain` so the whole glyph/logo shows. This is the shape for the common **icon + title + text** feature card.
+
+It works with and without `bullets` on the same card, and at every breakpoint (the icon stays icon-sized on mobile; the `<768px` single-column collapse is unchanged). Resize the icon box with the `--grid-item-icon-size` style slot — grid-wide via `style_component`, or per-card via `items[].style`. The icon **follows the card's `--grid-item-text-align`**: a card (or grid) set to `center` centers its icon above the title, `right` right-aligns it, `left` (the default) keeps it left — the icon aligns with the text and the `Read more` link, which all derive from that one slot (#361). So a centered icon+title+text card is fully centered.
+
+`image_treatment` is a structural prop (set with `create_page` / `update_component`, not `style_component`). Unset keeps `banner` (byte-identical to prior rendering). A value outside the closed set (`banner` / `icon`) is rejected with `invalid_prop_value`, never silently coerced. It is a `cards` concept and is ignored on the `steps` layout, which renders no item images.
 
 ## Card emphasis (featured vs uniform)
 

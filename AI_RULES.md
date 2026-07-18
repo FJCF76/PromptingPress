@@ -65,7 +65,7 @@ CLI: `wp pp apply execute update_design_token --params='{"token":"--color-accent
 ## Anti-slop rules
 
 When building or editing components:
-- No 3-column icon grids (icon-in-circle + title + 2-line description = template slop)
+- No 3-column icon grids of DECORATION (a CSS icon-in-circle + title + 2-line filler = template slop). This bans decorative filler, not real imagery: a grid whose items carry a real uploaded logo/glyph for a real content object (integration/partner/tech-stack cards) may render those images at icon scale with the grid `image_treatment: "icon"` prop — that is a real content grid, not slop.
 - No decorative blobs, wavy dividers, or floating shapes
 - Homepage hero should usually be centered -- it is the page's visual anchor.
   Left-aligned heroes require a balancing element (image in split, or cover with

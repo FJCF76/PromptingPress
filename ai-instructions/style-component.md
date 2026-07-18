@@ -132,6 +132,19 @@ from item count. There is no `--grid-columns` slot; do not look for one. Unset
 leaves the auto-by-count default unchanged; out-of-range/non-integer values are
 rejected. `columns` is a `cards` concept and is ignored on the `steps` layout.
 
+Whether a card image renders as a **16:9 banner or a small icon** is a PROP too, not
+a style slot: set the grid **`image_treatment`** prop (`banner` default / `icon`, via
+`update_component` / `create_page`) to switch a card's `image_url` from the full-width
+16:9 cover banner to a small un-cropped icon above the title (the icon+title+text
+feature card). The *size* of that icon IS a style slot: **`--grid-item-icon-size`**
+(length, default 48px, item-eligible) — set it via `style_component` grid-wide or in a
+per-card `items[].style`. The slot only takes effect under `image_treatment: icon`;
+under the default `banner` the 16:9 wrap ignores it. The icon also FOLLOWS the card's
+`--grid-item-text-align` (center/right/left) just like the text and the `Read more`
+link do — one authored slot aligns all three — so a centered icon+title+text card is
+fully centered without a separate icon-alignment slot. `image_treatment` is a `cards`
+concept and is ignored on the `steps` layout.
+
 To style **one card differently from its siblings** (a dark CTA panel beside light
 checklist cards, or a green-on-dark terminal card), set a per-card `style` object on
 that grid item — `props.items[].style` — with the **card-scoped** grid slots (e.g.
