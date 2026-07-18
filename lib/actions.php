@@ -2682,10 +2682,18 @@ pp_register_action('assign_menu_location', [
 // Scope: site | Semantics: replace. Declarative, mirrors update_composition —
 // the friendliest shape for an LLM to propose a whole menu in one step.
 
+// Upper bound on dropdown children per top-level item (issue 381). This is an
+// abuse guard, not a UX target — a usable dropdown is far smaller. Only the
+// nested count is bounded; the flat top-level list stays uncapped (capping it
+// would reject menus that are valid today).
+if (!defined('PP_MENU_MAX_CHILDREN')) {
+    define('PP_MENU_MAX_CHILDREN', 50);
+}
+
 pp_register_action('set_menu', [
     'scope'       => 'site',
-    'description' => 'Declaratively sets a menu\'s full item list and (optionally) its location in one call. Creates the menu if a menu with this name does not already exist; replaces all its existing items with the given list.',
-    'semantics'   => 'Replace. Each item in items is either {"page_id": int} or {"url": string, "label": string}, in the order given. Existing items on the (possibly pre-existing) menu are removed first.',
+    'description' => 'Declaratively sets a menu\'s full item list and (optionally) its location in one call. Creates the menu if a menu with this name does not already exist; replaces all its existing items with the given list. Each item may carry an optional "children" array of the same {page_id} or {url, label} shape to render as a one-level dropdown submenu (max one level of nesting; a child cannot itself have children).',
+    'semantics'   => 'Replace. Each item in items is either {"page_id": int} or {"url": string, "label": string}, in the order given, and may include a "children" array of further items (same shape) to nest as a dropdown — exactly one level deep. Existing items on the (possibly pre-existing) menu are removed first.',
     'params'      => [
         'name'     => ['type' => 'string', 'required' => true],
         'items'    => ['type' => 'array',  'required' => true],
@@ -2699,24 +2707,28 @@ pp_register_action('set_menu', [
             return new WP_Error('empty_items', 'items cannot be empty.');
         }
         foreach ($params['items'] as $i => $item) {
-            if (!is_array($item)) {
-                return new WP_Error('invalid_item', sprintf('items[%d] must be an object.', $i));
+            $item_error = _pp_validate_menu_item($item, sprintf('items[%d]', $i));
+            if (is_wp_error($item_error)) {
+                return $item_error;
             }
-            $has_page = !empty($item['page_id']);
-            $has_url  = !empty($item['url']);
-            if ($has_page && $has_url) {
-                return new WP_Error('ambiguous_item', sprintf('items[%d]: provide either page_id or url + label, not both.', $i));
-            }
-            if (!$has_page && !$has_url) {
-                return new WP_Error('missing_item_link', sprintf('items[%d]: provide either page_id or url + label.', $i));
-            }
-            if ($has_page) {
-                $exists = _pp_validate_page_exists($item['page_id']);
-                if (is_wp_error($exists)) {
-                    return $exists;
+            // One level of nesting only (issue 381): a top-level item may carry
+            // children, but a child may not (depth > 1 rejected loudly).
+            if (isset($item['children'])) {
+                if (!is_array($item['children'])) {
+                    return new WP_Error('invalid_children', sprintf('items[%d]: children must be an array.', $i));
                 }
-            } elseif (empty($item['label'])) {
-                return new WP_Error('missing_item_label', sprintf('items[%d]: label is required for a custom link.', $i));
+                if (count($item['children']) > PP_MENU_MAX_CHILDREN) {
+                    return new WP_Error('too_many_children', sprintf('items[%d]: a dropdown supports at most %d children (got %d).', $i, PP_MENU_MAX_CHILDREN, count($item['children'])));
+                }
+                foreach ($item['children'] as $j => $child) {
+                    if (is_array($child) && isset($child['children'])) {
+                        return new WP_Error('nesting_too_deep', sprintf('items[%d].children[%d]: menus support one level of nesting — a child cannot have its own children.', $i, $j));
+                    }
+                    $child_error = _pp_validate_menu_item($child, sprintf('items[%d].children[%d]', $i, $j));
+                    if (is_wp_error($child_error)) {
+                        return $child_error;
+                    }
+                }
             }
         }
         if (isset($params['location'])) {
@@ -2728,9 +2740,15 @@ pp_register_action('set_menu', [
         return true;
     },
     'preview' => function (array $params): array {
-        $titles = array_map(function ($item) {
-            return !empty($item['page_id']) ? get_the_title($item['page_id']) : ($item['label'] ?? '');
-        }, $params['items']);
+        // Flatten parents + their children in render order for the preview
+        // summary (issue 381).
+        $titles = [];
+        foreach ($params['items'] as $item) {
+            $titles[] = _pp_menu_item_title($item);
+            foreach (($item['children'] ?? []) as $child) {
+                $titles[] = _pp_menu_item_title($child);
+            }
+        }
         return _pp_action_preview('set_menu', 'site', ['name' => $params['name']], null, $titles, [
             ['path' => 'menu', 'from' => null, 'to' => implode(', ', $titles)],
         ]);
@@ -2753,35 +2771,50 @@ pp_register_action('set_menu', [
             pp_clear_nav_menu_items($menu_id);
         }
 
+        // Shared failure handler for a parent OR child creation failure
+        // (issue 381 added the child loop; both must roll back identically).
+        // Inside a failed batch this restore is redundant (the batch snapshot
+        // layer rebuilds the menu again — its id churn defeats the signature
+        // skip). Accepted: the failed-batch path is rare and the final state
+        // stays correct at every entry point.
+        $fail = function (WP_Error $error) use ($existing, $menu_id, $previous_items) {
+            if ($existing) {
+                pp_clear_nav_menu_items($menu_id);
+                $restore_errors = _pp_rebuild_menu_items($menu_id, $previous_items);
+                if ($restore_errors !== []) {
+                    return _pp_action_error('set_menu', 'site', $error->get_error_message()
+                        . ' Restoring the previous menu items was also incomplete: '
+                        . implode('; ', $restore_errors));
+                }
+            } else {
+                // set_menu created this menu itself — a half-populated leftover
+                // would break the atomicity contract just as much as a gutted
+                // pre-existing menu.
+                wp_delete_nav_menu($menu_id);
+            }
+            return _pp_action_error('set_menu', 'site', $error->get_error_message());
+        };
+
         $titles = [];
         foreach ($params['items'] as $item) {
-            $link = !empty($item['page_id'])
-                ? ['page_id' => (int) $item['page_id']]
-                : ['url' => $item['url'], 'label' => $item['label']];
-            $item_id = pp_add_nav_menu_item($menu_id, $link);
-            if (is_wp_error($item_id)) {
-                if ($existing) {
-                    // Inside a failed batch this restore is redundant (the
-                    // batch snapshot layer rebuilds the menu again — its id
-                    // churn defeats the signature skip). Accepted: the
-                    // failed-batch path is rare and the final state stays
-                    // correct at every entry point.
-                    pp_clear_nav_menu_items($menu_id);
-                    $restore_errors = _pp_rebuild_menu_items($menu_id, $previous_items);
-                    if ($restore_errors !== []) {
-                        return _pp_action_error('set_menu', 'site', $item_id->get_error_message()
-                            . ' Restoring the previous menu items was also incomplete: '
-                            . implode('; ', $restore_errors));
-                    }
-                } else {
-                    // set_menu created this menu itself — a half-populated
-                    // leftover would break the atomicity contract just as
-                    // much as a gutted pre-existing menu.
-                    wp_delete_nav_menu($menu_id);
-                }
-                return _pp_action_error('set_menu', 'site', $item_id->get_error_message());
+            $parent_item_id = pp_add_nav_menu_item($menu_id, _pp_menu_item_link($item));
+            if (is_wp_error($parent_item_id)) {
+                return $fail($parent_item_id);
             }
-            $titles[] = !empty($item['page_id']) ? get_the_title($item['page_id']) : $item['label'];
+            $titles[] = _pp_menu_item_title($item);
+
+            // One level of nesting (issue 381): children are created with their
+            // parent's freshly-minted item id, so the dropdown structure and its
+            // menu_item_parent links round-trip through snapshot/restore.
+            foreach (($item['children'] ?? []) as $child) {
+                $child_link = _pp_menu_item_link($child);
+                $child_link['parent_id'] = (int) $parent_item_id;
+                $child_item_id = pp_add_nav_menu_item($menu_id, $child_link);
+                if (is_wp_error($child_item_id)) {
+                    return $fail($child_item_id);
+                }
+                $titles[] = _pp_menu_item_title($child);
+            }
         }
 
         if (!empty($params['location'])) {
@@ -2795,6 +2828,68 @@ pp_register_action('set_menu', [
 ]);
 
 // ── Internal helpers ────────────────────────────────────────────────────────
+
+/**
+ * Validates one set_menu item — a top-level item OR a dropdown child (issue
+ * 132 / 381). $label is the human-readable path used in error messages
+ * ("items[2]" or "items[2].children[0]") so the SAME link rules produce
+ * correctly-scoped errors at either depth. Error codes match the original
+ * inline top-level checks so existing callers/tests keep working.
+ *
+ * The depth-1 limit and the children[] bound are NOT enforced here; the
+ * set_menu validator owns those (a child is validated by this helper as a
+ * plain item).
+ *
+ * @param  mixed  $item   The item to validate (expected array).
+ * @param  string $label  Error-message path prefix, e.g. "items[2]".
+ * @return true|WP_Error
+ */
+function _pp_validate_menu_item($item, string $label) {
+    if (!is_array($item)) {
+        return new WP_Error('invalid_item', sprintf('%s must be an object.', $label));
+    }
+    $has_page = !empty($item['page_id']);
+    $has_url  = !empty($item['url']);
+    if ($has_page && $has_url) {
+        return new WP_Error('ambiguous_item', sprintf('%s: provide either page_id or url + label, not both.', $label));
+    }
+    if (!$has_page && !$has_url) {
+        return new WP_Error('missing_item_link', sprintf('%s: provide either page_id or url + label.', $label));
+    }
+    if ($has_page) {
+        $exists = _pp_validate_page_exists($item['page_id']);
+        if (is_wp_error($exists)) {
+            return $exists;
+        }
+    } elseif (empty($item['label'])) {
+        return new WP_Error('missing_item_label', sprintf('%s: label is required for a custom link.', $label));
+    }
+    return true;
+}
+
+/**
+ * Normalizes a validated set_menu item into the link array pp_add_nav_menu_item
+ * expects (issue 381). A validated item is exactly one of page_id or url+label.
+ *
+ * @param  array $item
+ * @return array  ['page_id' => int] or ['url' => string, 'label' => string]
+ */
+function _pp_menu_item_link(array $item): array {
+    return !empty($item['page_id'])
+        ? ['page_id' => (int) $item['page_id']]
+        : ['url' => $item['url'], 'label' => $item['label']];
+}
+
+/**
+ * Display title for a validated set_menu item (issue 381) — the linked page's
+ * title for a page item, or the custom link's label.
+ *
+ * @param  array $item
+ * @return string
+ */
+function _pp_menu_item_title(array $item): string {
+    return !empty($item['page_id']) ? get_the_title($item['page_id']) : ($item['label'] ?? '');
+}
 
 /**
  * Validates that a post_id refers to an existing page.
