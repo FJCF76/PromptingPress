@@ -2,7 +2,7 @@
 Contributors: fjcf76
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 1.2.3
+Stable tag: 1.3.0
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -19,6 +19,10 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 4. Activate the theme.
 
 == Changelog ==
+
+= 1.3.0 =
+* First post-1.0 feature release: explicit grid column-count control (1-4, auto grain unchanged when unset), icon-scale grid item images via a new image treatment option and size slot, and hierarchical dropdown menus (set_menu children) rendered as accessible WAI-ARIA disclosures with keyboard support
+* Verified by a rendered-evidence dogfood of all three capabilities at desktop and mobile viewports
 
 = 1.2.0 =
 * AI chat composition writes are now protected by the write-time compare-and-swap: proposals carry a page baseline captured when the AI read the page, stale writes are rejected with a clear conflict card and a Re-read & re-preview retry, and multi-step proposals chain baselines server-side so they never conflict with their own changes
