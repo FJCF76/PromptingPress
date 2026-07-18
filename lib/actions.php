@@ -580,24 +580,43 @@ function pp_preview_action(string $name, array $params) {
  * @return array  Canonical result: ['ok', 'action', 'scope', 'target', 'changes', 'error',
  *                'error_code'], plus any action-specific keys.
  */
+/**
+ * Builds the canonical ok:false envelope for a validate-stage rejection from a
+ * WP_Error already in hand — WITHOUT re-running pp_validate_action. Shared by
+ * pp_execute_action() and the WP-CLI `action execute` early-validation gate
+ * (lib/cli.php, #385) so both surface the identical envelope shape and neither
+ * re-validates: re-validating against mutable DB state (page existence, media
+ * attachments, composition precondition) could flip a rejection to a pass and
+ * then execute a mutation OUTSIDE the preflight (#96) and freshness/CAS (#113)
+ * gates. Emitting from the WP_Error keeps the error path fail-closed and pure.
+ *
+ * @param string   $name       The action name (may be unregistered).
+ * @param WP_Error $validation  The rejection to render.
+ * @return array   Canonical ok:false envelope: ['ok', 'action', 'scope', 'target',
+ *                 'changes', 'error', 'error_code'].
+ */
+function _pp_action_validation_error_envelope(string $name, WP_Error $validation): array {
+    $action = pp_get_action($name);
+    return [
+        'ok'         => false,
+        'action'     => $name,
+        'scope'      => $action['scope'] ?? 'unknown',
+        'target'     => [],
+        'changes'    => [],
+        'error'      => $validation->get_error_message(),
+        // Propagate the WP_Error code so validate-stage rejections carry the same
+        // machine-readable error_code as execute-stage rejections built by
+        // _pp_action_error() (#13 uniform shape). Without this, clients can only
+        // string-match the message for template_owned_component / duplicate_component_id
+        // / invalid_composition (missing-required) / unknown_prop (#312).
+        'error_code' => $validation->get_error_code(),
+    ];
+}
+
 function pp_execute_action(string $name, array $params): array {
     $validation = pp_validate_action($name, $params);
     if (is_wp_error($validation)) {
-        $action = pp_get_action($name);
-        return [
-            'ok'         => false,
-            'action'     => $name,
-            'scope'      => $action['scope'] ?? 'unknown',
-            'target'     => [],
-            'changes'    => [],
-            'error'      => $validation->get_error_message(),
-            // Propagate the WP_Error code so validate-stage rejections carry the same
-            // machine-readable error_code as execute-stage rejections built by
-            // _pp_action_error() (#13 uniform shape). Without this, clients can only
-            // string-match the message for template_owned_component / duplicate_component_id
-            // / invalid_composition (missing-required) / unknown_prop (#312).
-            'error_code' => $validation->get_error_code(),
-        ];
+        return _pp_action_validation_error_envelope($name, $validation);
     }
 
     $action = pp_get_action($name);
