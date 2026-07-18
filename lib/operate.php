@@ -656,13 +656,185 @@ define( 'PP_OPERATE_RUN_TTL', 7200 );
 define( 'PP_OPERATE_UUID_PATTERN', '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/' );
 
 /**
- * Returns the state file path for a run token.
+ * Option name for a run token's durable state (#409).
+ *
+ * Run state lives in a per-run, NON-AUTOLOADED wp_options row rather than a file in
+ * sys_get_temp_dir(). The options table is the one store guaranteed shared across
+ * every WP-CLI process that can operate the install at all. The old temp-dir file
+ * broke the operating loop whenever each `wp` call was an isolated process with its
+ * own /tmp (the standard one-ephemeral-container-per-invocation `wordpress:cli`
+ * pattern): `inspect` wrote the file in container A's /tmp and it was gone before
+ * `preflight` ran in container B. 'pp_operate_run_' + 36-char UUID = 51 chars, well
+ * under the wp_options.option_name 191-char limit.
  *
  * @param string $run_id The run token UUID.
  * @return string
  */
-function pp_operate_run_path( string $run_id ): string {
-    return sys_get_temp_dir() . '/pp-operate-run-' . $run_id . '.json';
+function pp_operate_run_option_name( string $run_id ): string {
+    return 'pp_operate_run_' . $run_id;
+}
+
+/**
+ * Per-run advisory-lock name serializing the run-state read-modify-write (#409).
+ *
+ * Replaces the old flock(LOCK_EX) on the temp file. Reuses the shared MySQL GET_LOCK
+ * engine (_pp_with_advisory_lock, lib/wp.php) that already backs the token-override
+ * and per-post composition locks — one bounded-wait acquire / release-in-finally /
+ * degrade-without-$wpdb implementation, differing only in the lock NAME. Includes DB
+ * name + blog id (writers on the SAME store serialize; unrelated installs never
+ * collide) plus the run id (different runs never serialize against each other). MySQL
+ * caps lock names at 64 chars; 'pp_oprun_' + 32-char md5 slice = 41 chars.
+ *
+ * @param string $run_id The run token UUID.
+ * @return string
+ */
+function pp_operate_run_lock_name( string $run_id ): string {
+    global $wpdb;
+    $db   = defined( 'DB_NAME' ) ? DB_NAME : ( isset( $wpdb->dbname ) ? $wpdb->dbname : 'db' );
+    $blog = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+    return 'pp_oprun_' . substr( md5( $db . '|' . $blog . '|' . $run_id ), 0, 32 );
+}
+
+/**
+ * Runs $mutator inside the per-run advisory lock. Thin wrapper over the shared
+ * _pp_with_advisory_lock() engine; on lock-acquire failure the mutator does NOT run
+ * and $fail_value is returned (fail-closed, never a silent unlocked write). Degrades
+ * to running the mutator directly only in unit context (no $wpdb); production CLI
+ * always has $wpdb, so the DB-backed store is always serialized there.
+ *
+ * @param string   $run_id
+ * @param callable $mutator     fn($wpdb): mixed
+ * @param mixed    $fail_value
+ * @return mixed
+ */
+function pp_operate_with_run_lock( string $run_id, callable $mutator, $fail_value ) {
+    return _pp_with_advisory_lock( pp_operate_run_lock_name( $run_id ), $mutator, $fail_value, 'operate run ' . $run_id );
+}
+
+/**
+ * Persists a run's state array to its non-autoloaded option.
+ *
+ * Returns true on a confirmed write OR when the stored value already equals $state:
+ * update_option() returns false on a no-op write, but the state is already durable so
+ * that is success, not failure (the old file store always rewrote and returned true).
+ * The no-op comparison is only safe because $current was read authoritatively inside
+ * the lock (pp_operate_mutate_state), so equality genuinely means nothing to persist.
+ *
+ * @param string     $run_id
+ * @param array      $state
+ * @param array|null $current  Authoritative current state (read inside the lock) for
+ *                             no-op detection. Null forces the write.
+ * @return bool
+ */
+function pp_operate_persist_state( string $run_id, array $state, ?array $current = null ): bool {
+    if ( $current !== null && $current === $state ) {
+        return true;
+    }
+    // Non-autoloaded ($autoload = false): run state must never join the alloptions
+    // autoload cache — it is per-request-irrelevant and would bloat every page load.
+    return (bool) update_option( pp_operate_run_option_name( $run_id ), $state, false );
+}
+
+/**
+ * Deletes a run's state option. No-op if the run-id is invalid or the row is absent.
+ *
+ * @param string $run_id
+ * @return void
+ */
+function pp_operate_delete_state( string $run_id ): void {
+    if ( ! pp_operate_valid_run_id( $run_id ) ) {
+        return;
+    }
+    delete_option( pp_operate_run_option_name( $run_id ) );
+}
+
+/**
+ * Classifies a run token's stored state WITHOUT side effects.
+ *
+ * Single source of truth for "why is this run (un)usable". Reads via get_option(); in a
+ * fresh CLI process (the operating-loop norm) that reads the DB on a cold cache, so a
+ * value another process committed is visible. Callers that need an authoritative read
+ * against a warm process cache (pp_operate_mutate_state, inside the lock) bust the
+ * options cache first. get_option() unserializes the row for us.
+ *
+ * @param string $run_id
+ * @return array  ['status' => one of invalid|not_found|corrupt|expired|foreign|ok,
+ *                 'data' => ?array]  ('data' is set only when status is 'ok'.)
+ */
+function pp_operate_classify_state( string $run_id ): array {
+    if ( ! pp_operate_valid_run_id( $run_id ) ) {
+        return [ 'status' => 'invalid', 'data' => null ];
+    }
+
+    $data = get_option( pp_operate_run_option_name( $run_id ), null );
+    if ( $data === null ) {
+        return [ 'status' => 'not_found', 'data' => null ];
+    }
+    if ( ! is_array( $data ) || ! isset( $data['steps_completed'] ) || ! isset( $data['created_at'] ) ) {
+        return [ 'status' => 'corrupt', 'data' => null ];
+    }
+    // Auto-expire after TTL, enforced from the stored timestamp (same 2h semantics as
+    // the old file store). The row is NOT deleted here — classification is side-effect
+    // free; cleanup is owned by pp_operate_read_state (auto-expire), pp_operate_run_status
+    // (diagnosis endpoint), and pp_operate_gc_expired_runs (abandoned-row sweep).
+    if ( ( time() - (int) $data['created_at'] ) > PP_OPERATE_RUN_TTL ) {
+        return [ 'status' => 'expired', 'data' => null ];
+    }
+    // Site identity: a run minted on another install (defense in depth beyond the
+    // per-blog option scoping) is not usable here. A run written by an older build
+    // with no site_id is treated as a mismatch — fail-closed, drains within the TTL.
+    if ( ! isset( $data['site_id'] ) || ! hash_equals( pp_operate_site_id(), (string) $data['site_id'] ) ) {
+        return [ 'status' => 'foreign', 'data' => null ];
+    }
+    return [ 'status' => 'ok', 'data' => $data ];
+}
+
+/**
+ * Sweeps expired and corrupt run-state options so abandoned runs cannot accumulate
+ * unbounded rows (#409). The old temp-dir files were reaped by the OS; the options
+ * table has no such sweep, so a run that is minted and never completed (nor followed
+ * by a read that auto-expires it) would otherwise linger until something referenced
+ * its exact UUID again — which never happens. Called opportunistically at
+ * pp_operate_create_run(), so every loop start bounds the store to runs minted within
+ * one TTL window. Enumerates via $wpdb with esc_like() + a bounded LIMIT; no-ops when
+ * no $wpdb is present (unit context).
+ *
+ * @return int  Number of rows deleted.
+ */
+function pp_operate_gc_expired_runs(): int {
+    global $wpdb;
+    if ( ! isset( $wpdb ) || ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_col' ) ) {
+        return 0;
+    }
+
+    $like  = $wpdb->esc_like( 'pp_operate_run_' ) . '%';
+    // ORDER BY option_id ASC sweeps the OLDEST rows first (option_id is the insertion-
+    // order PK), so the rows most likely to be expired are reached within the LIMIT even
+    // when many run rows exist — the sweep converges on dead rows instead of starving on
+    // an arbitrary unordered slice.
+    $names = $wpdb->get_col(
+        $wpdb->prepare(
+            "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s ORDER BY option_id ASC LIMIT 1000",
+            $like
+        )
+    );
+    if ( empty( $names ) ) {
+        return 0;
+    }
+
+    $now     = time();
+    $deleted = 0;
+    foreach ( $names as $name ) {
+        $data = get_option( $name, null );
+        $dead = ! is_array( $data )
+            || ! isset( $data['created_at'] )
+            || ( $now - (int) $data['created_at'] ) > PP_OPERATE_RUN_TTL;
+        if ( $dead ) {
+            delete_option( $name );
+            $deleted++;
+        }
+    }
+    return $deleted;
 }
 
 /**
@@ -680,23 +852,23 @@ function pp_operate_valid_run_id( string $run_id ): bool {
 /**
  * Creates a new run token for step enforcement.
  *
- * Generates a UUID, writes a state file to /tmp with INSPECT recorded.
- * The state file tracks which steps have been completed for this run.
+ * Generates a UUID and writes a per-run, non-autoloaded wp_options row with INSPECT
+ * recorded (#409). The row tracks which steps have been completed for this run and is
+ * shared across every CLI process operating this install — unlike the old temp-dir
+ * file, which was invisible to a separate ephemeral CLI container.
  *
- * Run token state files enforce step ordering in real-time (CLI calls).
+ * Run token state enforces step ordering in real-time (CLI calls).
  * pp_validate_loop_run() validates completeness post-hoc (finished run manifest).
  * These are complementary layers, not alternatives.
+ *
+ * Sweeps expired/corrupt run rows first so the store stays bounded (no unbounded
+ * option rows from abandoned runs).
  *
  * @return string|WP_Error  UUID string on success, WP_Error on failure.
  */
 function pp_operate_create_run() {
-    $tmp_dir = sys_get_temp_dir();
-    if ( ! is_writable( $tmp_dir ) ) {
-        return new WP_Error(
-            'tmp_not_writable',
-            'Cannot create run token: ' . $tmp_dir . ' is not writable. Check server permissions.'
-        );
-    }
+    // Bound the store: reap abandoned/expired run rows at the start of every loop.
+    pp_operate_gc_expired_runs();
 
     $run_id = wp_generate_uuid4();
     $state  = [
@@ -705,13 +877,10 @@ function pp_operate_create_run() {
         'site_id'         => pp_operate_site_id(),
     ];
 
-    $path   = pp_operate_run_path( $run_id );
-    $result = file_put_contents( $path, wp_json_encode( $state ), LOCK_EX );
-
-    if ( $result === false ) {
+    if ( ! pp_operate_persist_state( $run_id, $state ) ) {
         return new WP_Error(
             'state_write_failed',
-            'Cannot write run state file: ' . $path . '. Check disk space and permissions.'
+            'Cannot persist run state for token "' . $run_id . '". The options-table write failed; check the database and wp_options permissions.'
         );
     }
 
@@ -721,11 +890,12 @@ function pp_operate_create_run() {
 /**
  * Computes a stable identity for the current WordPress install.
  *
- * Run-state files live in the shared system temp dir, so two installs on the same
- * host (e.g. dev + prod) share that directory. Binding each run to a site identity
- * lets restore refuse to replay one install's snapshot against another. Uses the
- * same inputs as the token advisory lock (site URL + DB name + blog id) so the two
- * notions of "this install" stay consistent.
+ * Run state now lives in each install's own wp_options table (#409), so it is already
+ * install-scoped by the store. This identity is defense in depth: it lets a run refuse
+ * to replay one install's snapshot against another even if state is ever surfaced to a
+ * different install (and drains legacy pre-site_id rows fail-closed). Uses the same
+ * inputs as the token advisory lock (site URL + DB name + blog id) so the two notions
+ * of "this install" stay consistent.
  *
  * @return string  An opaque, install-scoped identity hash.
  */
@@ -737,176 +907,114 @@ function pp_operate_site_id(): string {
 }
 
 /**
- * Reads and validates a run-state file, returning the decoded state or null.
+ * Reads and validates a run's state, returning the decoded state or null.
  *
  * Single source of truth for "is this run usable right now": returns null on an
- * invalid run-id, a missing/corrupt/structurally-invalid file, an expired TTL
- * (the stale file is unlinked), or a site-identity mismatch. A run file written by
- * an older build (no site_id) is treated as a mismatch — fail-closed, drains within
- * the TTL. Corrupt JSON returns null WITHOUT truncating or recreating the file.
+ * invalid run-id, an absent/corrupt/structurally-invalid row, an expired TTL (the
+ * stale row is deleted), or a site-identity mismatch. A row written by an older build
+ * (no site_id) is treated as a mismatch — fail-closed, drains within the TTL.
  *
- * The read is taken under a shared lock (flock LOCK_SH) so it cannot observe a file
- * mid-write while pp_operate_mutate_state() holds LOCK_EX for its non-atomic
- * truncate+write; readers block until the writer releases and always see a complete file.
+ * No shared read lock is needed (the old flock LOCK_SH is gone): the state is a single
+ * wp_options row, and a row UPDATE is atomic, so a reader can never observe the
+ * half-written state the file store's non-atomic truncate+write could produce. All
+ * mutations still serialize through pp_operate_mutate_state's advisory lock.
  *
  * @param string $run_id  The run token UUID.
  * @return array|null  The decoded state array, or null if the run is unusable.
  */
 function pp_operate_read_state( string $run_id ): ?array {
-    if ( ! pp_operate_valid_run_id( $run_id ) ) {
+    $c = pp_operate_classify_state( $run_id );
+
+    // Auto-expire cleanup: an expired run's row is dropped on read (preserves the old
+    // file store's unlink-on-expire behavior). A corrupt row is left in place (as the
+    // old code returned null WITHOUT recreating a corrupt file); GC and run_status reap it.
+    if ( $c['status'] === 'expired' ) {
+        pp_operate_delete_state( $run_id );
         return null;
     }
 
-    $path = pp_operate_run_path( $run_id );
-
-    // Shared-lock the read. flock() is advisory: pp_operate_mutate_state() holds
-    // LOCK_EX for its non-atomic ftruncate()+fwrite() read-modify-write, so a
-    // reader that does not take LOCK_SH can observe an empty or half-written file
-    // mid-mutation. json_decode() would then fail and the run would read as
-    // missing / step-not-completed (a spurious "run not found" or a transiently
-    // unsatisfied gate). Taking LOCK_SH blocks until the writer releases, so the
-    // read always sees a complete file. A missing file → fopen 'r' fails → null,
-    // matching the prior file_exists() guard. Reader-side counterpart of the
-    // #200/#207/#212/#241/#243 writer fail-closed hardening.
-    $fh = @fopen( $path, 'r' );
-    if ( ! $fh ) {
-        return null;
-    }
-    if ( ! flock( $fh, LOCK_SH ) ) {
-        fclose( $fh );
-        return null;
-    }
-    $raw = stream_get_contents( $fh );
-    flock( $fh, LOCK_UN );
-    fclose( $fh );
-
-    $data = json_decode( (string) $raw, true );
-    if ( ! is_array( $data ) || ! isset( $data['steps_completed'] ) || ! isset( $data['created_at'] ) ) {
-        return null;
-    }
-
-    // Auto-expire after TTL. Clean up the stale file.
-    if ( ( time() - (int) $data['created_at'] ) > PP_OPERATE_RUN_TTL ) {
-        @unlink( $path );
-        return null;
-    }
-
-    // Site identity: a run from another install (shared temp dir) is not usable here.
-    if ( ! isset( $data['site_id'] ) || ! hash_equals( pp_operate_site_id(), (string) $data['site_id'] ) ) {
-        return null;
-    }
-
-    return $data;
+    return $c['status'] === 'ok' ? $c['data'] : null;
 }
 
 /**
- * Locked read-modify-write of a run-state file. Single critical-section helper behind
- * pp_operate_record_step / record_token_snapshot / record_touched_tokens so the
- * fopen+flock+validate+TTL+identity guards live in one place.
+ * Diagnoses a run token for precise operator-facing errors, and reaps terminal rows.
+ *
+ * Returns one of: 'ok', 'invalid', 'not_found', 'expired', 'corrupt', 'foreign'. As the
+ * explicit diagnosis endpoint it OWNS cleanup of provably-dead rows: an 'expired' or
+ * 'corrupt' row is deleted before returning (the caller has already captured the status
+ * for its message), so the split not-found-vs-expired errors (#409) stay precise while
+ * dead rows never accumulate. 'ok'/'foreign' rows are left intact.
+ *
+ * pp_operate_mutate_state deliberately does NOT delete an expired row, so a failed
+ * record can still be classified 'expired' here rather than degrading to 'not_found'.
+ *
+ * @param string $run_id
+ * @return string
+ */
+function pp_operate_run_status( string $run_id ): string {
+    $status = pp_operate_classify_state( $run_id )['status'];
+    if ( $status === 'expired' || $status === 'corrupt' ) {
+        pp_operate_delete_state( $run_id );
+    }
+    return $status;
+}
+
+/**
+ * Locked read-modify-write of a run's state option (#409). Single critical-section
+ * helper behind pp_operate_record_step / record_token_snapshot / record_touched_tokens
+ * so the lock + validate + TTL + identity guards live in one place.
  *
  * The $mutator receives the decoded state array and returns the new array to persist,
  * or false to abort the write (the caller then sees a false return). Returns false on
- * invalid run-id, unopenable/unlockable file, structurally-invalid or expired state,
- * site-identity mismatch, or mutator abort.
+ * an invalid run-id, a lock-acquire failure, absent/corrupt/expired/foreign state, a
+ * mutator abort, or a failed persist.
  *
- * Persistence is fail-closed: the new state is encoded BEFORE the file is truncated,
- * and the write is verified to cover the full payload (byte count + flush). On any
- * encode, truncate, seek, write, or flush failure, false is returned so callers never
- * trust a torn state file. Prior state fully survives an encode or truncate failure
- * (the file is untouched); after truncation a short/failed write restores the captured
- * prior bytes on a best-effort basis. A failed persistence can never truncate the
- * state file yet report true.
+ * Concurrency: the whole read-modify-write runs inside the per-run advisory lock (the
+ * shared GET_LOCK engine that replaced the file's flock LOCK_EX), so concurrent CLI
+ * processes serialize and cannot lose an update. Inside the lock the current state is
+ * read authoritatively — the options cache for this row is dropped first, so a value a
+ * concurrent process just committed is seen instead of a stale process-local cache.
+ *
+ * Fail-closed persistence is simpler than the file store's: a wp_options row UPDATE is
+ * atomic, so there is no torn-write / trailing-bytes / partial-flush failure mode to
+ * guard against. update_option() either commits the whole new value or it does not; on
+ * a false return (write failed) the prior row is untouched and this returns false.
  *
  * @param string   $run_id
  * @param callable $mutator  fn(array $data): array|false
- * @return bool  True only on a confirmed write.
+ * @return bool  True only on a confirmed write (or a genuine no-op).
  */
 function pp_operate_mutate_state( string $run_id, callable $mutator ): bool {
     if ( ! pp_operate_valid_run_id( $run_id ) ) {
         return false;
     }
 
-    $path = pp_operate_run_path( $run_id );
-    $fh   = @fopen( $path, 'r+' );
-    if ( ! $fh ) {
-        return false;
-    }
-
-    if ( ! flock( $fh, LOCK_EX ) ) {
-        fclose( $fh );
-        return false;
-    }
-
-    $raw  = stream_get_contents( $fh );
-    $data = json_decode( $raw, true );
-
-    $abort = static function ( $fh ) {
-        flock( $fh, LOCK_UN );
-        fclose( $fh );
-        return false;
-    };
-
-    if ( ! is_array( $data ) || ! isset( $data['steps_completed'] ) || ! isset( $data['created_at'] ) ) {
-        return $abort( $fh );
-    }
-    if ( ( time() - (int) $data['created_at'] ) > PP_OPERATE_RUN_TTL ) {
-        flock( $fh, LOCK_UN );
-        fclose( $fh );
-        @unlink( $path );
-        return false;
-    }
-    if ( ! isset( $data['site_id'] ) || ! hash_equals( pp_operate_site_id(), (string) $data['site_id'] ) ) {
-        return $abort( $fh );
-    }
-
-    $new = $mutator( $data );
-    if ( $new === false || ! is_array( $new ) ) {
-        return $abort( $fh );
-    }
-
-    // Fail closed: encode BEFORE touching the file. wp_json_encode() can return
-    // false (e.g. malformed UTF-8). If we truncated first and then discovered the
-    // encode failed, the prior state (INSPECT baseline, recorded snapshots) would
-    // already be destroyed while we returned true. Encoding first means an encode
-    // failure leaves the existing valid state file untouched.
-    $json = wp_json_encode( $new );
-    if ( ! is_string( $json ) ) {
-        return $abort( $fh );
-    }
-
-    // A failed truncate leaves the prior state fully intact, so abort without
-    // writing. Writing over a file we could not truncate would leave stale trailing
-    // bytes from the (longer) prior state after the new payload — corrupt JSON that
-    // still passes the byte-count check below and looks like a confirmed write.
-    if ( ! ftruncate( $fh, 0 ) ) {
-        return $abort( $fh );
-    }
-
-    // The file is now empty: the prior state MUST be rewritten. Any failure from here
-    // (seek, short/failed write, or flush) means the new payload did not fully land.
-    // Restore the captured prior bytes on a best-effort basis (they previously fit,
-    // so the space just freed by the truncate is available) and fail closed so the
-    // caller surfaces the error instead of trusting a torn or partial state file.
-    $seeked  = rewind( $fh );
-    $written = $seeked ? fwrite( $fh, $json ) : false;
-    $flushed = ( false !== $written ) ? fflush( $fh ) : false;
-
-    if ( ! $seeked || false === $written || strlen( $json ) !== $written || false === $flushed ) {
-        if ( rewind( $fh ) ) {
-            ftruncate( $fh, 0 );
-            rewind( $fh );
-            fwrite( $fh, $raw );
-            fflush( $fh );
+    return pp_operate_with_run_lock( $run_id, static function ( $wpdb ) use ( $run_id, $mutator ) {
+        // Authoritative read inside the lock: drop any process-local cache of this
+        // option so a concurrent writer's just-committed state is visible, then classify.
+        if ( function_exists( 'wp_cache_delete' ) ) {
+            wp_cache_delete( pp_operate_run_option_name( $run_id ), 'options' );
         }
-        flock( $fh, LOCK_UN );
-        fclose( $fh );
-        return false;
-    }
 
-    flock( $fh, LOCK_UN );
-    fclose( $fh );
+        $c = pp_operate_classify_state( $run_id );
+        // Fail closed on anything but a live run. Do NOT delete an expired/corrupt row
+        // here: the CLI calls pp_operate_run_status() next to pick the precise operator
+        // message (not-found vs expired), and that endpoint owns terminal-row cleanup.
+        if ( $c['status'] !== 'ok' ) {
+            return false;
+        }
 
-    return true;
+        $data = $c['data'];
+        $new  = $mutator( $data );
+        if ( $new === false || ! is_array( $new ) ) {
+            return false;
+        }
+
+        // Persist. A no-op mutation (new === prior) returns true without a write —
+        // update_option() reports false on a no-op, but the base was read
+        // authoritatively above, so equality means the desired state is already durable.
+        return pp_operate_persist_state( $run_id, $new, $data );
+    }, false );
 }
 
 /**
@@ -1432,22 +1540,15 @@ function pp_operate_run_rollbackable( string $run_id ): bool {
 }
 
 /**
- * Deletes the run state file. Called at HANDOFF.
+ * Deletes the run's state option. Called at HANDOFF (run completion).
  *
- * No-op if the file does not exist or run-id is invalid.
+ * No-op if the row does not exist or the run-id is invalid. Completing a run removes
+ * its row so successful runs never leave rows behind (#409).
  *
  * @param string $run_id The run token UUID.
  */
 function pp_operate_cleanup_run( string $run_id ): void {
-    if ( ! pp_operate_valid_run_id( $run_id ) ) {
-        return;
-    }
-
-    $path = pp_operate_run_path( $run_id );
-
-    if ( file_exists( $path ) ) {
-        @unlink( $path );
-    }
+    pp_operate_delete_state( $run_id );
 }
 
 // ── Semantic Composition Operator ──────────────────────────────────────────

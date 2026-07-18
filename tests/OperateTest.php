@@ -1190,22 +1190,44 @@ class OperateTest extends TestCase
 
     // ── Run Token State File Tests ────────────────────────────────────────
 
-    public function testCreateRunCreatesStateFileWithCorrectShape(): void
+    /**
+     * Reads a run's stored state directly from the options store (#409): the run-state
+     * store is now a per-run non-autoloaded wp_options row, not a temp-dir file.
+     */
+    private function readRunState(string $run_id)
+    {
+        return get_option(pp_operate_run_option_name($run_id), null);
+    }
+
+    /** Writes a run's stored state directly (test-only manipulation of the store). */
+    private function writeRunState(string $run_id, array $data): void
+    {
+        update_option(pp_operate_run_option_name($run_id), $data, false);
+    }
+
+    public function testCreateRunStoresStateOptionWithCorrectShape(): void
     {
         $run_id = pp_operate_create_run();
         $this->assertIsString($run_id);
 
-        $path = pp_operate_run_path($run_id);
-        $this->assertFileExists($path);
-
-        $data = json_decode(file_get_contents($path), true);
+        // State lives in a non-autoloaded option, not a temp-dir file.
+        $data = $this->readRunState($run_id);
         $this->assertIsArray($data);
         $this->assertArrayHasKey('steps_completed', $data);
         $this->assertArrayHasKey('created_at', $data);
+        $this->assertArrayHasKey('site_id', $data);
         $this->assertContains('INSPECT', $data['steps_completed']);
 
-        // Cleanup
         pp_operate_cleanup_run($run_id);
+    }
+
+    public function testRunOptionNameIsBoundedAndPrefixed(): void
+    {
+        $run_id = '00000000-0000-4000-8000-000000000000';
+        $name = pp_operate_run_option_name($run_id);
+        $this->assertSame('pp_operate_run_' . $run_id, $name);
+        // wp_options.option_name is VARCHAR(191); the name must fit comfortably.
+        $this->assertLessThanOrEqual(191, strlen($name));
     }
 
     public function testCreateRunReturnsValidUuid(): void
@@ -1232,18 +1254,29 @@ class OperateTest extends TestCase
         pp_operate_cleanup_run($run_id);
     }
 
-    public function testCheckStepReturnsFalseForExpiredStateFile(): void
+    public function testCheckStepReturnsFalseForExpiredState(): void
     {
         $run_id = pp_operate_create_run();
-        $path = pp_operate_run_path($run_id);
 
-        // Backdate the created_at to 3 hours ago.
-        $data = json_decode(file_get_contents($path), true);
+        // Backdate created_at to 3 hours ago (> the 2h TTL).
+        $data = $this->readRunState($run_id);
         $data['created_at'] = time() - 10800;
-        file_put_contents($path, json_encode($data), LOCK_EX);
+        $this->writeRunState($run_id, $data);
 
         $this->assertFalse(pp_operate_check_step($run_id, 'INSPECT'));
         pp_operate_cleanup_run($run_id);
+    }
+
+    public function testReadStateDeletesExpiredRow(): void
+    {
+        // Auto-expire cleanup: reading an expired run drops its row (bounded store).
+        $run_id = pp_operate_create_run();
+        $data = $this->readRunState($run_id);
+        $data['created_at'] = time() - 10800;
+        $this->writeRunState($run_id, $data);
+
+        $this->assertNull(pp_operate_read_state($run_id));
+        $this->assertNull($this->readRunState($run_id), 'expired row should be deleted on read');
     }
 
     public function testRecordStepAppendsStep(): void
@@ -1254,21 +1287,67 @@ class OperateTest extends TestCase
         pp_operate_cleanup_run($run_id);
     }
 
-    public function testCleanupRunDeletesStateFile(): void
+    public function testCleanupRunDeletesStateOption(): void
     {
         $run_id = pp_operate_create_run();
-        $path = pp_operate_run_path($run_id);
-        $this->assertFileExists($path);
+        $this->assertIsArray($this->readRunState($run_id));
 
         pp_operate_cleanup_run($run_id);
-        $this->assertFileDoesNotExist($path);
+        $this->assertNull($this->readRunState($run_id));
+    }
+
+    // ── #409 two-process repro pin ────────────────────────────────────────
+
+    public function testRunStateSurvivesTmpdirChangeBetweenInvocations(): void
+    {
+        // The bug: run state lived in sys_get_temp_dir(), so with one ephemeral CLI
+        // container per `wp` call (each a private /tmp), `inspect` wrote the file in
+        // container A's /tmp and it was gone before `preflight` ran in container B.
+        // This pins that the options-table store no longer depends on the process temp
+        // dir: mint the run under one TMPDIR, then flip TMPDIR (simulating a second
+        // invocation with a different private /tmp) and prove the state is still found.
+        $originalTmp = getenv('TMPDIR');
+        $tmpA = sys_get_temp_dir() . '/pp-tmpdir-A-' . getmypid() . '-' . mt_rand();
+        $tmpB = sys_get_temp_dir() . '/pp-tmpdir-B-' . getmypid() . '-' . mt_rand();
+        mkdir($tmpA, 0755, true);
+        mkdir($tmpB, 0755, true);
+
+        try {
+            // "Container A": mint the run.
+            putenv('TMPDIR=' . $tmpA);
+            $run_id = pp_operate_create_run();
+            $this->assertIsString($run_id);
+
+            // "Container B": a completely different private temp dir. The old file store
+            // would look in $tmpB and find nothing here.
+            putenv('TMPDIR=' . $tmpB);
+            $this->assertTrue(
+                pp_operate_check_step($run_id, 'INSPECT'),
+                'INSPECT state must be visible from a different TMPDIR (store is not temp-dir-backed)'
+            );
+            $this->assertTrue(
+                pp_operate_record_preflight($run_id, null, []),
+                'the gated PREFLIGHT record must succeed across a TMPDIR change'
+            );
+            $this->assertTrue(pp_operate_check_step($run_id, 'PREFLIGHT'));
+
+            pp_operate_cleanup_run($run_id);
+        } finally {
+            if ($originalTmp === false) {
+                putenv('TMPDIR');
+            } else {
+                putenv('TMPDIR=' . $originalTmp);
+            }
+            rmdir($tmpA);
+            rmdir($tmpB);
+        }
     }
 
     // ── Edge Case Tests ───────────────────────────────────────────────────
 
-    public function testCheckStepReturnsFalseForNonExistentStateFile(): void
+    public function testCheckStepReturnsFalseForNonExistentState(): void
     {
-        // Valid UUID format but no state file exists.
+        // Valid UUID format but no state row exists.
         $this->assertFalse(pp_operate_check_step('00000000-0000-4000-8000-000000000000', 'INSPECT'));
     }
 
@@ -1280,14 +1359,14 @@ class OperateTest extends TestCase
         $this->assertFalse(pp_operate_check_step('', 'INSPECT'));
     }
 
-    public function testCheckStepReturnsFalseForCorruptJson(): void
+    public function testCheckStepReturnsFalseForCorruptState(): void
     {
+        // A row that is not a valid state array (e.g. a hand-corrupted option).
         $fake_id = wp_generate_uuid4();
-        $path = pp_operate_run_path($fake_id);
-        file_put_contents($path, 'NOT VALID JSON {{{', LOCK_EX);
+        update_option(pp_operate_run_option_name($fake_id), 'NOT A STATE ARRAY', false);
 
         $this->assertFalse(pp_operate_check_step($fake_id, 'INSPECT'));
-        @unlink($path);
+        pp_operate_delete_state($fake_id);
     }
 
     public function testRecordStepDuplicateIsIdempotent(): void
@@ -1296,107 +1375,275 @@ class OperateTest extends TestCase
         pp_operate_record_step($run_id, 'PREFLIGHT');
         pp_operate_record_step($run_id, 'PREFLIGHT');
 
-        $path = pp_operate_run_path($run_id);
-        $data = json_decode(file_get_contents($path), true);
+        $data = $this->readRunState($run_id);
         $count = array_count_values($data['steps_completed']);
         $this->assertEquals(1, $count['PREFLIGHT']);
 
         pp_operate_cleanup_run($run_id);
     }
 
-    public function testCleanupRunNoOpForNonExistentFile(): void
+    public function testCleanupRunNoOpForNonExistentRun(): void
     {
-        // Should not throw — valid UUID format but no file exists.
+        // Should not throw — valid UUID format but no row exists.
         pp_operate_cleanup_run('00000000-0000-4000-8000-000000000001');
         $this->assertTrue(true);
     }
 
-    // ── Fail-closed persistence (issue 243) ───────────────────────────────
+    // ── State classification (#409) ───────────────────────────────────────
 
-    public function testMutateStateEncodeFailureFailsClosedAndPreservesPriorState(): void
+    public function testClassifyStateOk(): void
     {
         $run_id = pp_operate_create_run();
-        $path   = pp_operate_run_path($run_id);
-
-        // Establish a known prior state so we can prove it survives a failed persist.
-        $this->assertTrue(pp_operate_record_step($run_id, 'INSPECT'));
-        $before = file_get_contents($path);
-        $before_decoded = json_decode($before, true);
-        $this->assertContains('INSPECT', $before_decoded['steps_completed']);
-
-        // Mutator returns a structurally-valid array whose payload cannot be
-        // JSON-encoded: a lone malformed UTF-8 byte makes wp_json_encode() return
-        // false. Pre-fix, the file was truncated first and the function still
-        // returned true — destroying the prior state.
-        $result = pp_operate_mutate_state($run_id, static function (array $data) {
-            $data['bad'] = "\xB1\x31"; // invalid UTF-8 -> json_encode() === false
-            return $data;
-        });
-
-        // Fail closed: the write is refused...
-        $this->assertFalse($result);
-
-        // ...and the prior state file is byte-for-byte intact (not truncated/torn).
-        $after = file_get_contents($path);
-        $this->assertSame($before, $after);
-        $after_decoded = json_decode($after, true);
-        $this->assertIsArray($after_decoded);
-        $this->assertContains('INSPECT', $after_decoded['steps_completed']);
-
+        $c = pp_operate_classify_state($run_id);
+        $this->assertSame('ok', $c['status']);
+        $this->assertIsArray($c['data']);
         pp_operate_cleanup_run($run_id);
     }
 
-    public function testMutateStatePersistsFullMultibytePayload(): void
+    public function testClassifyStateInvalidRunId(): void
     {
-        // Guards the full-payload byte-count check: a valid write of multibyte
-        // content (where byte length != character length) must still be accepted
-        // and persisted completely. If the check used mb_strlen instead of strlen,
-        // a correct write would be wrongly rejected as short.
-        $run_id = pp_operate_create_run();
-        $path   = pp_operate_run_path($run_id);
+        $this->assertSame('invalid', pp_operate_classify_state('not-a-uuid')['status']);
+    }
 
+    public function testClassifyStateNotFound(): void
+    {
+        $this->assertSame('not_found', pp_operate_classify_state('00000000-0000-4000-8000-000000000000')['status']);
+    }
+
+    public function testClassifyStateCorrupt(): void
+    {
+        $fake_id = wp_generate_uuid4();
+        update_option(pp_operate_run_option_name($fake_id), ['no_created_at' => true], false);
+        $this->assertSame('corrupt', pp_operate_classify_state($fake_id)['status']);
+        pp_operate_delete_state($fake_id);
+    }
+
+    public function testClassifyStateExpired(): void
+    {
+        $run_id = pp_operate_create_run();
+        $data = $this->readRunState($run_id);
+        $data['created_at'] = time() - 10800;
+        $this->writeRunState($run_id, $data);
+        $this->assertSame('expired', pp_operate_classify_state($run_id)['status']);
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testClassifyStateForeignSite(): void
+    {
+        $run_id = pp_operate_create_run();
+        $data = $this->readRunState($run_id);
+        $data['site_id'] = 'a-different-install-identity';
+        $this->writeRunState($run_id, $data);
+        $this->assertSame('foreign', pp_operate_classify_state($run_id)['status']);
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testClassifyStateDoesNotDeleteExpiredRow(): void
+    {
+        // Classification is side-effect free — cleanup is owned by read_state/run_status/GC.
+        $run_id = pp_operate_create_run();
+        $data = $this->readRunState($run_id);
+        $data['created_at'] = time() - 10800;
+        $this->writeRunState($run_id, $data);
+
+        pp_operate_classify_state($run_id);
+        $this->assertNotNull($this->readRunState($run_id), 'classify must not delete the row');
+        pp_operate_cleanup_run($run_id);
+    }
+
+    // ── Run status (drives the split not-found/expired CLI errors, #409) ───
+
+    public function testRunStatusReportsAndCleansTerminalStates(): void
+    {
+        // not_found: no row, nothing to clean.
+        $this->assertSame('not_found', pp_operate_run_status('00000000-0000-4000-8000-000000000000'));
+
+        // ok: live run, row kept.
+        $run_id = pp_operate_create_run();
+        $this->assertSame('ok', pp_operate_run_status($run_id));
+        $this->assertNotNull($this->readRunState($run_id));
+
+        // expired: reported AND row reaped (so the message stays precise and rows don't pile up).
+        $data = $this->readRunState($run_id);
+        $data['created_at'] = time() - 10800;
+        $this->writeRunState($run_id, $data);
+        $this->assertSame('expired', pp_operate_run_status($run_id));
+        $this->assertNull($this->readRunState($run_id), 'expired row reaped by run_status');
+
+        // corrupt: reported AND reaped.
+        $fake_id = wp_generate_uuid4();
+        update_option(pp_operate_run_option_name($fake_id), 'garbage', false);
+        $this->assertSame('corrupt', pp_operate_run_status($fake_id));
+        $this->assertNull($this->readRunState($fake_id), 'corrupt row reaped by run_status');
+    }
+
+    public function testRunStatusKeepsForeignRow(): void
+    {
+        // A foreign row is NOT reaped (it may be a live run on the other install).
+        $run_id = pp_operate_create_run();
+        $data = $this->readRunState($run_id);
+        $data['site_id'] = 'other-install';
+        $this->writeRunState($run_id, $data);
+        $this->assertSame('foreign', pp_operate_run_status($run_id));
+        $this->assertNotNull($this->readRunState($run_id));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    // ── Mutate fail-closed semantics (#409) ───────────────────────────────
+
+    public function testMutateStateFailsClosedForNotFound(): void
+    {
+        $this->assertFalse(pp_operate_mutate_state('00000000-0000-4000-8000-000000000000', fn($d) => $d));
+    }
+
+    public function testMutateStateFailsClosedForInvalidRunId(): void
+    {
+        $this->assertFalse(pp_operate_mutate_state('not-a-uuid', fn($d) => $d));
+    }
+
+    public function testMutateStateFailsClosedForExpiredRun(): void
+    {
+        $run_id = pp_operate_create_run();
+        $data = $this->readRunState($run_id);
+        $data['created_at'] = time() - 10800;
+        $this->writeRunState($run_id, $data);
+
+        $called = false;
+        $result = pp_operate_mutate_state($run_id, function ($d) use (&$called) {
+            $called = true;
+            $d['steps_completed'][] = 'PREFLIGHT';
+            return $d;
+        });
+        $this->assertFalse($result);
+        $this->assertFalse($called, 'mutator must not run for an expired run');
+        // mutate must NOT delete the expired row (so run_status can still report expired).
+        $this->assertNotNull($this->readRunState($run_id), 'mutate must leave the expired row for run_status');
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testMutateStateFailsClosedForForeignSite(): void
+    {
+        $run_id = pp_operate_create_run();
+        $data = $this->readRunState($run_id);
+        $data['site_id'] = 'other-install';
+        $this->writeRunState($run_id, $data);
+
+        $this->assertFalse(pp_operate_mutate_state($run_id, fn($d) => $d));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testMutateStateMutatorAbortPreservesPriorState(): void
+    {
+        // Fail-closed on mutator abort: a mutator returning false (or a non-array) must
+        // refuse the write and leave the prior state fully intact. This is the DB-store
+        // equivalent of the old file store's encode/truncate fail-closed guarantee.
+        $run_id = pp_operate_create_run();
+        $this->assertTrue(pp_operate_record_step($run_id, 'PREFLIGHT'));
+        $before = $this->readRunState($run_id);
+
+        $this->assertFalse(pp_operate_mutate_state($run_id, static fn($d) => false));
+        $this->assertFalse(pp_operate_mutate_state($run_id, static fn($d) => 'not an array'));
+
+        $after = $this->readRunState($run_id);
+        $this->assertSame($before, $after, 'prior state must survive an aborted mutation byte-for-byte');
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testMutateStateIdempotentNoOpReturnsTrue(): void
+    {
+        // A no-op mutation (returns the state unchanged) reports success even though
+        // update_option() returns false on a no-op write — the state is already durable.
+        $run_id = pp_operate_create_run();
+        $this->assertTrue(pp_operate_mutate_state($run_id, static fn($d) => $d));
+        pp_operate_cleanup_run($run_id);
+    }
+
+    public function testMutateStateRoundTripsMultibytePayload(): void
+    {
+        // A valid write of multibyte content (byte length != character length) must
+        // round-trip through the option store intact.
+        $run_id = pp_operate_create_run();
         $result = pp_operate_mutate_state($run_id, static function (array $data) {
             $data['note'] = 'café ☕ 日本語 déjà';
             return $data;
         });
-
         $this->assertTrue($result);
-        $decoded = json_decode(file_get_contents($path), true);
-        $this->assertSame('café ☕ 日本語 déjà', $decoded['note']);
-
+        $this->assertSame('café ☕ 日本語 déjà', $this->readRunState($run_id)['note']);
         pp_operate_cleanup_run($run_id);
     }
 
-    public function testMutateStateShorterPayloadLeavesNoTrailingBytes(): void
+    public function testMutateStateShorterPayloadFullyReplacesPriorValue(): void
     {
-        // Guards truncate-correctness: writing a shorter state after a longer one
-        // must not leave stale trailing bytes from the prior payload (which would
-        // pass the byte-count check yet corrupt the JSON on disk).
+        // Shrinking the state (removing a key) must fully replace the stored value with
+        // no residue of the prior, larger payload.
         $run_id = pp_operate_create_run();
-        $path   = pp_operate_run_path($run_id);
-
-        // Grow the file first with a large filler value.
         $this->assertTrue(pp_operate_mutate_state($run_id, static function (array $data) {
             $data['filler'] = str_repeat('x', 500);
             return $data;
         }));
-        $this->assertGreaterThan(400, strlen(file_get_contents($path)));
+        $this->assertArrayHasKey('filler', $this->readRunState($run_id));
 
-        // Now persist a much shorter state.
-        $result = pp_operate_mutate_state($run_id, static function (array $data) {
+        $this->assertTrue(pp_operate_mutate_state($run_id, static function (array $data) {
             unset($data['filler']);
             return $data;
-        });
-        $this->assertTrue($result);
-
-        // The file must be exactly the new JSON — no leftover filler bytes.
-        $raw     = file_get_contents($path);
-        $decoded = json_decode($raw, true);
-        $this->assertIsArray($decoded);
-        $this->assertArrayNotHasKey('filler', $decoded);
-        $this->assertSame(wp_json_encode($decoded), $raw);
-
+        }));
+        $this->assertArrayNotHasKey('filler', $this->readRunState($run_id));
         pp_operate_cleanup_run($run_id);
+    }
+
+    // ── Garbage collection of abandoned run rows (#409) ────────────────────
+
+    public function testGcExpiredRunsNoOpsWithoutWpdb(): void
+    {
+        // Without a $wpdb handle (unit context) GC cannot enumerate rows; it must no-op,
+        // never fatal.
+        $this->assertSame(0, pp_operate_gc_expired_runs());
+    }
+
+    public function testGcExpiredRunsReapsExpiredAndCorruptButKeepsLive(): void
+    {
+        // Live run — must survive the sweep.
+        $live = pp_operate_create_run();
+
+        // Expired run.
+        $expired = wp_generate_uuid4();
+        update_option(pp_operate_run_option_name($expired), [
+            'steps_completed' => ['INSPECT'],
+            'created_at'      => time() - 10800,
+            'site_id'         => pp_operate_site_id(),
+        ], false);
+
+        // Corrupt run row.
+        $corrupt = wp_generate_uuid4();
+        update_option(pp_operate_run_option_name($corrupt), 'garbage', false);
+
+        // Minimal $wpdb enumerating the options store for the GC LIKE query.
+        $store =& $GLOBALS['_pp_test_store']['options'];
+        $GLOBALS['wpdb'] = new class($store) {
+            public string $options = 'wp_options';
+            private array $store;
+            public function __construct(&$store) { $this->store =& $store; }
+            public function esc_like(string $text): string { return $text; }
+            public function prepare(string $query, ...$args): string { return $query; }
+            public function get_col(string $query): array {
+                $out = [];
+                foreach (array_keys($this->store) as $name) {
+                    if (strpos($name, 'pp_operate_run_') === 0) { $out[] = $name; }
+                }
+                return $out;
+            }
+        };
+
+        try {
+            $deleted = pp_operate_gc_expired_runs();
+            $this->assertSame(2, $deleted, 'exactly the expired + corrupt rows are reaped');
+            $this->assertNull($this->readRunState($expired));
+            $this->assertNull($this->readRunState($corrupt));
+            $this->assertIsArray($this->readRunState($live), 'the live run must survive GC');
+        } finally {
+            unset($GLOBALS['wpdb']);
+            pp_operate_cleanup_run($live);
+        }
     }
 
     // ── Validation Hardening Tests ────────────────────────────────────────
@@ -2260,7 +2507,7 @@ class OperateTest extends TestCase
     public function testCreateRunWritesSiteIdentity(): void
     {
         $run_id = pp_operate_create_run();
-        $data = json_decode(file_get_contents(pp_operate_run_path($run_id)), true);
+        $data = get_option(pp_operate_run_option_name($run_id), null);
         $this->assertArrayHasKey('site_id', $data);
         $this->assertSame(pp_operate_site_id(), $data['site_id']);
         pp_operate_cleanup_run($run_id);
@@ -2305,19 +2552,18 @@ class OperateTest extends TestCase
     {
         $run_id = pp_operate_create_run();
         pp_operate_record_token_snapshot($run_id, ['--color-accent' => '#111111']);
-        $path = pp_operate_run_path($run_id);
-        $data = json_decode(file_get_contents($path), true);
+        $data = get_option(pp_operate_run_option_name($run_id), null);
         $data['created_at'] = time() - 10800; // 3h ago
-        file_put_contents($path, json_encode($data), LOCK_EX);
+        update_option(pp_operate_run_option_name($run_id), $data, false);
         $this->assertNull(pp_operate_get_token_snapshot($run_id));
-        @unlink($path);
+        pp_operate_cleanup_run($run_id);
     }
 
     public function testGetTokenSnapshotNullForForeignSiteIdentity(): void
     {
         $run_id = pp_operate_create_run();
         pp_operate_record_token_snapshot($run_id, ['--color-accent' => '#111111']);
-        // Simulate restoring under a different install sharing the temp dir.
+        // Simulate reading the run under a different install (foreign site identity).
         $GLOBALS['_pp_test_store']['options']['siteurl'] = 'https://other-install.example';
         $this->assertNull(pp_operate_get_token_snapshot($run_id));
         $this->assertFalse(pp_operate_check_step($run_id, 'INSPECT'));
@@ -2464,7 +2710,7 @@ class OperateTest extends TestCase
         // array is somehow passed, no per-post content snapshot is written.
         $run_id = pp_operate_create_run();
         pp_operate_record_preflight($run_id, null, [], null, [['component' => 'hero']]);
-        $data = json_decode(file_get_contents(pp_operate_run_path($run_id)), true);
+        $data = get_option(pp_operate_run_option_name($run_id), null);
         $this->assertArrayNotHasKey('composition_content_snapshot', $data);
         pp_operate_cleanup_run($run_id);
     }
@@ -2810,16 +3056,15 @@ class OperateTest extends TestCase
         pp_operate_cleanup_run($run_id);
     }
 
-    public function testGetTokenSnapshotLeavesCorruptFileIntact(): void
+    public function testGetTokenSnapshotLeavesCorruptStateIntact(): void
     {
         $fake_id = wp_generate_uuid4();
-        $path = pp_operate_run_path($fake_id);
-        $corrupt = 'NOT VALID JSON {{{';
-        file_put_contents($path, $corrupt, LOCK_EX);
+        $corrupt = ['not' => 'a valid state']; // missing steps_completed/created_at → corrupt
+        update_option(pp_operate_run_option_name($fake_id), $corrupt, false);
         $this->assertNull(pp_operate_get_token_snapshot($fake_id));
-        // The error path must not truncate or recreate the file.
-        $this->assertSame($corrupt, file_get_contents($path));
-        @unlink($path);
+        // The error path must not delete or rewrite the row (only expired rows auto-delete).
+        $this->assertSame($corrupt, get_option(pp_operate_run_option_name($fake_id), null));
+        pp_operate_delete_state($fake_id);
     }
 
     // ── Preflight-before-mutation coverage (#96) ──────────────────────────────
@@ -2829,7 +3074,7 @@ class OperateTest extends TestCase
         $run_id = pp_operate_create_run();
         $this->assertTrue(pp_operate_record_preflight($run_id, 42, ['--color-accent' => '#111']));
 
-        $data = json_decode(file_get_contents(pp_operate_run_path($run_id)), true);
+        $data = get_option(pp_operate_run_option_name($run_id), null);
         $this->assertContains('PREFLIGHT', $data['steps_completed']);
         $this->assertSame([42], $data['preflight_post_ids']);
         $this->assertArrayNotHasKey('preflight_site', $data);
@@ -2843,7 +3088,7 @@ class OperateTest extends TestCase
         $run_id = pp_operate_create_run();
         $this->assertTrue(pp_operate_record_preflight($run_id, null, []));
 
-        $data = json_decode(file_get_contents(pp_operate_run_path($run_id)), true);
+        $data = get_option(pp_operate_run_option_name($run_id), null);
         $this->assertContains('PREFLIGHT', $data['steps_completed']);
         $this->assertTrue($data['preflight_site']);
         $this->assertArrayNotHasKey('preflight_post_ids', $data);
@@ -2857,7 +3102,7 @@ class OperateTest extends TestCase
         pp_operate_record_preflight($run_id, 7, []);
         pp_operate_record_preflight($run_id, 9, []);
 
-        $data = json_decode(file_get_contents(pp_operate_run_path($run_id)), true);
+        $data = get_option(pp_operate_run_option_name($run_id), null);
         $this->assertSame([7, 9], $data['preflight_post_ids']);
         // PREFLIGHT step recorded once, not three times.
         $this->assertSame(['INSPECT', 'PREFLIGHT'], $data['steps_completed']);
@@ -2935,14 +3180,13 @@ class OperateTest extends TestCase
         // partial unlock. An expired run is the deterministic stand-in for a
         // write that cannot commit — record returns false and coverage is false.
         $run_id = pp_operate_create_run();
-        $path = pp_operate_run_path($run_id);
-        $data = json_decode(file_get_contents($path), true);
+        $data = get_option(pp_operate_run_option_name($run_id), null);
         $data['created_at'] = time() - 10800; // 3h ago, past the 2h TTL.
-        file_put_contents($path, json_encode($data), LOCK_EX);
+        update_option(pp_operate_run_option_name($run_id), $data, false);
 
         $this->assertFalse(pp_operate_record_preflight($run_id, 42, ['--color-accent' => '#111']));
         $this->assertFalse(pp_operate_preflight_covers($run_id, 42));
-        @unlink($path);
+        pp_operate_cleanup_run($run_id);
     }
 
     public function testLoopOrderPreflightPrecedesEdit(): void
@@ -2999,7 +3243,7 @@ class OperateTest extends TestCase
         // marker is somehow passed — freshness is a page/section concern.
         $run_id = pp_operate_create_run();
         pp_operate_record_preflight($run_id, null, [], ['version' => 1, 'hash' => 'x']);
-        $data = json_decode(file_get_contents(pp_operate_run_path($run_id)), true);
+        $data = get_option(pp_operate_run_option_name($run_id), null);
         $this->assertArrayNotHasKey('composition_snapshot', $data);
         pp_operate_cleanup_run($run_id);
     }
@@ -3128,32 +3372,29 @@ class OperateTest extends TestCase
         pp_operate_cleanup_run($run_id);
     }
 
-    public function testReadStateReturnsNullForMissingFile(): void
+    public function testReadStateReturnsNullForMissingRow(): void
     {
-        // fopen('r') on a non-existent file fails → null, matching the prior
-        // file_exists() guard. Valid UUID, no file written.
+        // A valid UUID with no stored option row classifies as not_found → null.
         $this->assertNull(pp_operate_read_state('00000000-0000-4000-8000-000000000274'));
     }
 
-    public function testReadStateReturnsNullForCorruptJson(): void
+    public function testReadStateReturnsNullForCorruptState(): void
     {
-        // A torn/corrupt payload decodes to null under the shared lock without
-        // truncating or recreating the file.
+        // A corrupt (non-state) row classifies as corrupt: read_state returns null and
+        // leaves the row in place (only expired rows are auto-deleted on read).
         $fake_id = wp_generate_uuid4();
-        $path    = pp_operate_run_path($fake_id);
-        file_put_contents($path, 'NOT VALID JSON {{{', LOCK_EX);
+        update_option(pp_operate_run_option_name($fake_id), 'NOT A STATE ARRAY', false);
 
         $this->assertNull(pp_operate_read_state($fake_id));
-        // File is untouched by the failed read.
-        $this->assertSame('NOT VALID JSON {{{', file_get_contents($path));
-        @unlink($path);
+        $this->assertSame('NOT A STATE ARRAY', get_option(pp_operate_run_option_name($fake_id), null));
+        pp_operate_delete_state($fake_id);
     }
 
-    public function testReadStateReleasesSharedLockSoWriterCanProceed(): void
+    public function testReadThenMutateThenReadRoundTrips(): void
     {
-        // The shared lock must be released (LOCK_UN + fclose) after the read, or
-        // a subsequent mutate would deadlock/fail. Proving read → mutate → read
-        // round-trips confirms no lock leak.
+        // Reads are lock-free now (a single-row option read is atomic), and the mutate
+        // advisory lock must release cleanly. Proving read → mutate → read round-trips
+        // confirms no lock leak and that a read sees a committed mutation.
         $run_id = pp_operate_create_run();
 
         $this->assertIsArray(pp_operate_read_state($run_id));
