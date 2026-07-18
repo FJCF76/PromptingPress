@@ -4,6 +4,16 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.3.0] — 2026-07-18 — first post-1.0 feature release: grid columns, icon image treatment, dropdown menus (#141)
+
+**This is a gate rollup marker: the three features of this release shipped in working versions 1.2.1–1.2.3 below, and this entry carries no new code beyond the five-file version bump and doc freshness. What 1.3.0 marks is the close of the feature gate (#141, Part 1.75) — the capability gaps that most limited fidelity in the neocompute.com benchmark dogfood, implemented as generic capabilities per the detects-not-specifies rule: an explicit grid `columns` control (1–4, opt-in, auto grain byte-identical when unset, #379); a grid `image_treatment` option rendering item images at icon scale via the `--grid-item-icon-size` slot instead of the 16:9 banner, with the icon following `--grid-item-text-align` (#380); and hierarchical menus — `set_menu` accepts `children`, rendered as WAI-ARIA disclosure dropdowns with full keyboard support and progressive enhancement (#381). The release bar was a rendered-evidence dogfood of all three capabilities on dev at both viewports (see #141), passed on RC v1.2.3.**
+
+This release bumps the version across the five synced files from 1.2.3 to 1.3.0 and updates README.md's project-status strings. No behavior changed in this entry itself.
+
+### Docs
+
+- README.md's project-status section now reads v1.3.0 in the release-history range and the "What exists today" heading. readme.txt gains its `= 1.3.0 =` rollup entry.
+
 ## [v1.2.3] — 2026-07-18 — navigation menus can have one-level dropdown submenus (#381)
 
 **Menus were flat: `set_menu` built a single row of links with no way to nest, so a "Servicios" item with a dropdown of sub-links was inexpressible through the operator surface. Each `set_menu` item now accepts an optional `children` array of the same `{page_id}` or `{url, label}` shape, and the theme renders a nested group as an accessible dropdown: hover-or-keyboard on desktop, expand-in-place in the mobile menu. Nesting is one level deep — a child with its own `children` is rejected loudly. Leave `children` off and nothing changes: a flat menu renders byte-identical. This is the third and final item of the v1.3.0 feature gate (#141, Part 1.75); the gate-close/tag is a separate release.**
