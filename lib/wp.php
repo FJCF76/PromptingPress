@@ -2090,97 +2090,132 @@ function pp_derive_family_tokens(string $base_token, string $base_value): array 
 }
 
 /**
- * Extracts the hue (0–360) from an RGB triplet.
- * Returns null for achromatic colors (saturation near zero).
+ * Reports whether two color values resolve to the same RGB triplet.
+ *
+ * Normalizes hex shorthand/case (#FFF == #ffffff), so a derived override written
+ * by a prior auto-derivation compares equal to the value recomputed now. Any value
+ * that is not parseable hex (e.g. an rgba()/var() pin) is treated as NOT equivalent
+ * to the always-hex derived value — an intentional non-hex pin diverges from the
+ * base derivation and is therefore surfaced as masking.
+ *
+ * @param string $a
+ * @param string $b
+ * @return bool
  */
-function _pp_rgb_to_hue(array $rgb): ?float {
-    $r = $rgb[0] / 255;
-    $g = $rgb[1] / 255;
-    $b = $rgb[2] / 255;
-    $max = max($r, $g, $b);
-    $min = min($r, $g, $b);
-    $delta = $max - $min;
-
-    if ($delta < 0.02) {
-        return null; // achromatic
+function _pp_colors_equivalent(string $a, string $b): bool {
+    if ($a === $b) {
+        return true;
     }
-
-    if ($max === $r) {
-        $h = 60 * fmod(($g - $b) / $delta, 6);
-    } elseif ($max === $g) {
-        $h = 60 * (($b - $r) / $delta + 2);
-    } else {
-        $h = 60 * (($r - $g) / $delta + 4);
+    $ra = _pp_hex_to_rgb($a);
+    $rb = _pp_hex_to_rgb($b);
+    if ($ra === null || $rb === null) {
+        return false;
     }
-
-    return $h < 0 ? $h + 360 : $h;
+    return $ra === $rb;
 }
 
 /**
- * Checks whether existing derived token overrides are coherent with a new base value.
+ * Detects existing derived-family overrides that MASK a base token change (#386).
  *
- * Returns warnings for tokens whose hue drifts more than 30° from the new base,
- * suggesting they may be stale from a previous palette. Only checks tokens that
- * already have an override in the database (unset tokens get auto-derived, so they
- * can't be stale).
+ * `update_design_token` auto-derives family tokens that have no override but
+ * PRESERVES existing overrides (deliberately pinned derived values must survive).
+ * A preserved override that no longer matches what the current/new base would
+ * derive keeps winning in the rendered CSS, so the base change "succeeds"
+ * (ok:true) yet has no visible effect where that override applies. This is the
+ * masking condition: a derived override EXISTS *and* DIVERGES from the value the
+ * base would derive. A coherent override (equal to the derivable value) is not
+ * masking and is not reported; mere presence is not staleness.
+ *
+ * One shared engine, two surfaces: the apply result (`stale_warnings`) and the
+ * INSPECT smell (`pp_detect_masked_derived_smells()`) both call this.
  *
  * @param string $base_token  e.g. '--color-accent'.
- * @param string $base_value  New hex value for the base token.
+ * @param string $base_value  Current/new value for the base token.
  * @return array<array{token: string, current: string, expected: string, message: string}>
+ *         One entry per masking derived override. Empty when the token is not a
+ *         family base, the base value is not a resolvable hex, or every existing
+ *         derived override is coherent with the base.
  */
-function pp_check_token_coherence(string $base_token, string $base_value): array {
-    $families = pp_token_families();
-    if (!isset($families[$base_token])) {
+function pp_masked_derived_overrides(string $base_token, string $base_value): array {
+    // pp_derive_family_tokens() returns [] for non-family bases and for base
+    // values that aren't resolvable hex (var()/rgba()) — no derivation, so no
+    // divergence can be computed and nothing is masked.
+    $derived = pp_derive_family_tokens($base_token, $base_value);
+    if (empty($derived)) {
         return [];
     }
-
-    $base_rgb = _pp_hex_to_rgb($base_value);
-    if ($base_rgb === null) {
-        return [];
-    }
-    $base_hue = _pp_rgb_to_hue($base_rgb);
 
     $overrides = pp_get_token_overrides();
-    $derived = pp_derive_family_tokens($base_token, $base_value);
-    $warnings = [];
+    $masking = [];
 
-    foreach ($families[$base_token] as $derived_token => $_recipe) {
-        // Only warn about tokens that already have overrides (those are the ones we skip)
-        if (!isset($overrides[$derived_token])) {
+    foreach ($derived as $derived_token => $derived_value) {
+        // No override → the token is (or will be) auto-derived from the base, so
+        // it can't mask the base change. A non-string override value can only come
+        // from a corrupt pp_token_overrides option (the write path enforces string);
+        // skip it rather than let this advisory detector fatal on bad stored data —
+        // this runs on the read-only INSPECT surface, which must stay chaos-tolerant.
+        if (!isset($overrides[$derived_token]) || !is_string($overrides[$derived_token])) {
+            continue;
+        }
+        // Coherent override → matches what the base derives; not masking.
+        if (_pp_colors_equivalent($overrides[$derived_token], $derived_value)) {
             continue;
         }
 
-        $current_rgb = _pp_hex_to_rgb($overrides[$derived_token]);
-        if ($current_rgb === null) {
+        $masking[] = [
+            'token'    => $derived_token,
+            'current'  => $overrides[$derived_token],
+            'expected' => $derived_value,
+            'message'  => sprintf(
+                '%s (%s) is a derived override present and unchanged; it diverges from the %s (%s) derivation (%s), so the base change may not be visible where it applies.',
+                $derived_token, $overrides[$derived_token], $base_token, $base_value, $derived_value
+            ),
+        ];
+    }
+
+    return $masking;
+}
+
+/**
+ * Site-level INSPECT smell for masked derived-family overrides (#386).
+ *
+ * Walks every token family over its CURRENT effective base value and reports the
+ * same masking condition as `pp_masked_derived_overrides()`, so an operator sees
+ * the base/derived incoherence at INSPECT — before a base change, not only after
+ * one at APPLY. Quiet on a coherently themed site (auto-derived families match
+ * their base); fires on genuine incoherence (e.g. a blue accent base with an
+ * orange accent-strong override left from a previous palette).
+ *
+ * @return array<array{type: string, base_token: string, token: string, current: string, expected: string, message: string}>
+ */
+function pp_detect_masked_derived_smells(): array {
+    $tokens = pp_design_tokens();
+    $smells = [];
+
+    foreach (array_keys(pp_token_families()) as $base_token) {
+        if (!isset($tokens[$base_token])) {
             continue;
         }
-        $current_hue = _pp_rgb_to_hue($current_rgb);
-
-        // Skip achromatic comparisons (grays have no meaningful hue)
-        if ($base_hue === null || $current_hue === null) {
+        // Guard against a corrupt token record whose value isn't a string before
+        // handing it to pp_masked_derived_overrides()'s string parameter — INSPECT
+        // must not fatal on bad stored option data.
+        $base_value = $tokens[$base_token]['value'] ?? null;
+        if (!is_string($base_value)) {
             continue;
         }
-
-        // Circular hue distance
-        $distance = abs($current_hue - $base_hue);
-        if ($distance > 180) {
-            $distance = 360 - $distance;
-        }
-
-        if ($distance > 30) {
-            $warnings[] = [
-                'token'    => $derived_token,
-                'current'  => $overrides[$derived_token],
-                'expected' => $derived[$derived_token] ?? $overrides[$derived_token],
-                'message'  => sprintf(
-                    '%s (%s) may be stale — hue differs %.0f° from %s (%s). Consider updating it.',
-                    $derived_token, $overrides[$derived_token], $distance, $base_token, $base_value
-                ),
+        foreach (pp_masked_derived_overrides($base_token, $base_value) as $m) {
+            $smells[] = [
+                'type'       => 'masked_derived_override',
+                'base_token' => $base_token,
+                'token'      => $m['token'],
+                'current'    => $m['current'],
+                'expected'   => $m['expected'],
+                'message'    => $m['message'],
             ];
         }
     }
 
-    return $warnings;
+    return $smells;
 }
 
 /**
