@@ -190,6 +190,28 @@ class GridItemStyleTest extends TestCase
         $this->assertStringNotContainsString('style=', $cards[0]);
     }
 
+    public function testIconTreatmentFollowsTextAlignViaSharedCompanion(): void
+    {
+        // #380 maintainer 7A: an icon-treatment card must center its ICON too when
+        // --grid-item-text-align is center, not just its text. The icon box reuses
+        // the SAME derived --pp-grid-link-align companion the link follows (#361),
+        // so the render must emit both the grid--image-icon variant AND the
+        // center companion on the centered card; the CSS then align-selfs the icon.
+        $html = $this->render('grid', [
+            'image_treatment' => 'icon',
+            'items' => [
+                ['title' => 'Left', 'image_url' => 'a.png'],
+                ['title' => 'Centered', 'image_url' => 'b.png', 'style' => ['--grid-item-text-align' => 'center']],
+            ],
+        ]);
+        $this->assertStringContainsString('grid--image-icon', $html);
+        $cards = $this->cards($html);
+        // The centered card carries the companion the icon-wrap align-self consumes.
+        $this->assertStringContainsString('--pp-grid-link-align: center', $cards[1]);
+        // The default card emits no inline style — its icon stays left (byte-identical).
+        $this->assertStringNotContainsString('style=', $cards[0]);
+    }
+
     public function testItemTextAlignRendersGridWideOnTheSection(): void
     {
         // item_eligible slot set at grid level aligns every card — rendered on the

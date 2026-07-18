@@ -46,7 +46,7 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 | hero    | title                                   | title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, layout, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof |
 | section | body                                    | title, title_accent, eyebrow, subheading, heading_align, layout, theme, image_url, image_id, image_alt, background_image |
 | faq     | items[] {question, answer}              | title, title_accent, eyebrow, theme, id                 |
-| grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, heading_align, layout, card_emphasis, theme, columns |
+| grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, heading_align, layout, card_emphasis, theme, columns, image_treatment |
 | table   | headers[], rows[][]                     | title, caption                                          |
 | cta     | button_text, button_url                 | title, title_accent, eyebrow, text, layout, theme, background_image, button_variant |
 | stats   | items[] {number, label}                 | title, title_accent, theme, background_image            |
@@ -233,6 +233,27 @@ Unset (omit the key) keeps the auto-by-count default — byte-identical. Values 
       { "title": "Four", "image_url": "..." },
       { "title": "Five", "image_url": "..." },
       { "title": "Six", "image_url": "..." }
+    ]
+  }
+}
+```
+
+### grid.image_treatment: "banner" | "icon"
+
+By default (`banner`) each card's `image_url` renders as a full-width 16:9 cover banner above the card body. Set `image_treatment: "icon"` to render the image at a small fixed icon size instead — un-cropped (`object-fit: contain`), sized by the `--grid-item-icon-size` slot (default 48px), above the title. Use it for the common **icon + title + text** feature card, where a ~45px logo or glyph would otherwise be blown up into a cropped banner.
+
+Unset (omit the key) keeps `banner` — byte-identical. The value set is closed: anything other than `banner` or `icon` (e.g. `card`, `Icon`, `thumbnail`) is **rejected** with `invalid_prop_value`, never coerced. `image_treatment` is a `cards` concept and is ignored on the `steps` layout (which renders no item images). Structural prop — set with `create_page` / `update_component`, not `style_component`. To change the icon box size, set the `--grid-item-icon-size` style slot via `style_component` (grid-wide) or a per-card `items[].style`. The icon **follows the card's `--grid-item-text-align`** slot (like the text and the `Read more` link do): set `--grid-item-text-align: center` for a fully centered icon+title+text card, `right` to right-align the icon; unset/`left` keeps it left.
+
+```json
+{
+  "component": "grid",
+  "props": {
+    "title": "Integrations",
+    "image_treatment": "icon",
+    "items": [
+      { "title": "Slack", "text": "Post updates to any channel.", "image_url": "..." },
+      { "title": "GitHub", "text": "Sync issues and PRs.", "image_url": "..." },
+      { "title": "Linear", "text": "Two-way task mirroring.", "image_url": "..." }
     ]
   }
 }

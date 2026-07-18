@@ -70,6 +70,22 @@ $theme_class   = $theme !== 'default' ? ' grid--' . $theme : '';
 // to the shared all-cards rules.
 $emphasis_class = $card_emphasis === 'uniform' ? ' grid--uniform' : '';
 
+// Item image treatment (issue 380). 'icon' renders each card image at a small
+// fixed icon size (--grid-item-icon-size) above the title instead of the default
+// 16:9 cover banner. Write-time validation (pp_validate_composition_errors) rejects
+// invalid values via the schema strict-enum check; this in_array guard mirrors the
+// layout/theme/card_emphasis guards above for raw-written state, so an invalid value
+// falls through to 'banner' and output stays byte-identical. Icon treatment is a
+// cards concept: steps renders no item images, so it is inert on steps (no dead
+// class leaks onto steps markup), keeping steps byte-identical too. Default 'banner'
+// emits no class, so existing pages render identically.
+$image_treatment = $props['image_treatment'] ?? 'banner';
+$allowed_image_treatments = ['banner', 'icon'];
+if (!in_array($image_treatment, $allowed_image_treatments, true)) {
+    $image_treatment = 'banner';
+}
+$image_treatment_class = ($image_treatment === 'icon' && !$is_steps) ? ' grid--image-icon' : '';
+
 // Style slot overrides (per-instance visual customization). The card link/button
 // follows the card's --grid-item-text-align via the derived --pp-grid-link-align
 // plumbing property (issue 361), so a centered card centers its link too; it is
@@ -86,7 +102,7 @@ if ($grid_link_align !== '') {
 $style_attr = $grid_style_parts ? ' style="' . implode('; ', $grid_style_parts) . ';"' : '';
 
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($layout_class); ?><?php echo esc_attr($theme_class); ?><?php echo esc_attr($emphasis_class); ?>" data-pp-component="grid"<?php echo $style_attr; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($layout_class); ?><?php echo esc_attr($theme_class); ?><?php echo esc_attr($emphasis_class); ?><?php echo esc_attr($image_treatment_class); ?>" data-pp-component="grid"<?php echo $style_attr; ?>>
     <div class="container">
 
         <?php if ($title || $eyebrow || $subheading) : ?>

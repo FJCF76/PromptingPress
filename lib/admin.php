@@ -522,6 +522,53 @@ function pp_validate_composition_errors(array $items): array {
             }
         }
 
+        // Strict enum props (issue 380). An enum prop MAY opt into write-time value
+        // validation by declaring `strict: true` in its schema (today only
+        // grid.image_treatment). When it does, a supplied value must be one of the
+        // declared `values` — otherwise the write is rejected with the standard
+        // envelope instead of the renderer silently coercing an unknown value to the
+        // default (the reported-success-without-effect class, same rationale as the
+        // issue 379 numeric-bounds check above). This is deliberately OPT-IN, not
+        // applied to every enum: enum props WITHOUT `strict` keep their historical
+        // render-time coercion (layout/theme/card_emphasis/heading_align accept-and-
+        // coerce as before), so this does not change validation for any prop beyond
+        // the one that opts in. Generic + schema-driven: no per-component branch, no
+        // second validator. "Unset" is the key being absent, null, or the empty
+        // string — that preserves the prop's default behavior (image_treatment unset
+        // => banner). Runs in the shared validator; restore_composition (#233)
+        // reports it via _pp_composition_findings() but never blocks on it.
+        if (isset($item['props']) && is_array($item['props']) && !empty($schema['props'])) {
+            foreach ($schema['props'] as $prop_name => $prop_def) {
+                if (($prop_def['type'] ?? null) !== 'enum'
+                    || empty($prop_def['strict'])
+                    || empty($prop_def['values'])
+                    || !is_array($prop_def['values'])
+                ) {
+                    continue;
+                }
+                if (!array_key_exists($prop_name, $item['props'])) {
+                    continue;
+                }
+                $value = $item['props'][$prop_name];
+                if ($value === null || $value === '') {
+                    continue; // unset sentinel — keeps the prop's default behavior
+                }
+                if (!in_array($value, $prop_def['values'], true)) {
+                    $errors[] = new WP_Error(
+                        'invalid_prop_value',
+                        sprintf(
+                            'Component "%s" prop "%s" must be one of: %s; got "%s".',
+                            $name,
+                            $prop_name,
+                            implode(', ', $prop_def['values']),
+                            is_scalar($value) ? (string) $value : gettype($value)
+                        )
+                    );
+                    continue 2;
+                }
+            }
+        }
+
         // Validate optional style key against schema-declared style slots.
         $available_slots = $schema['styling']['style_slots'] ?? [];
         if (isset($item['style']) && is_array($item['style']) && !empty($item['style'])) {
