@@ -4,6 +4,16 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.2.0] — 2026-07-18 — chat writes gain compare-and-swap conflict protection: the v1.2.0 gate is closed (#141)
+
+**This is a gate rollup marker: the single feature of this release — composition CAS baselines threaded through the AI chat's single and batch executors (#404, working version 1.1.1) — shipped below, and this entry carries no new code beyond the five-file version bump and doc freshness. What 1.2.0 marks is the close of the chat CAS gate (#141, Part 1.6), the two-phase gate opened by the 2026-07-16 complexity audit: #392 designed the baseline lifecycle (context-read derivation, fail-closed mandates on both chat entry points, per-page batch baseline map with server-side chaining, envelope version refresh, Re-read & re-preview conflict UX), and #404 implemented it. The release bar was rendered CONFLICT evidence, not a feature dogfood, and it was met on dev under v1.1.1: an editor-vs-chat interleaved write and a chat-vs-chat interleaved write were both rejected in the real chat UI with the conflict card and a usable Re-read & re-preview retry (the retried apply preserved both writers' changes — no lost update), and a three-step batch mutating the same page did not false-conflict against its own writes (version advanced exactly +3). The docs claim corrected in #389 — that every agent-driven write opts into the CAS — is now true for the chat surface.**
+
+This release bumps the version across the five synced files from 1.1.1 to 1.2.0 and updates README.md's project-status strings. Remaining tracked gap outside this gate: apply/token mutation reversibility outside CLI runs (#393, needs-design). No behavior changed in this entry itself.
+
+### Docs
+
+- README.md's project-status section now reads v1.2.0 in the release-history range and the "What exists today" heading. readme.txt gains its `= 1.2.0 =` rollup entry.
+
 ## [v1.1.1] — 2026-07-18 — chat composition writes gain fail-closed CAS conflict protection (#404)
 
 **Chat was the one composition writer that never threaded a version baseline, so a chat-driven write could silently clobber a concurrent editor, CLI, or chat change. It now opts into the write-time compare-and-swap (#13) — mandatorily and fail-closed — on both chat entry points, implementing the accepted v1.2.0-gate design (#392). This is the implementation phase of the v1.2.0 chat-CAS gate (#141, Part 1.6); the gate-close/tag is a separate release.**

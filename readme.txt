@@ -2,7 +2,7 @@
 Contributors: fjcf76
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 1.1.1
+Stable tag: 1.2.0
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -19,6 +19,10 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 4. Activate the theme.
 
 == Changelog ==
+
+= 1.2.0 =
+* AI chat composition writes are now protected by the write-time compare-and-swap: proposals carry a page baseline captured when the AI read the page, stale writes are rejected with a clear conflict card and a Re-read & re-preview retry, and multi-step proposals chain baselines server-side so they never conflict with their own changes
+* Fail-closed: a chat write without a baseline is rejected rather than silently skipping the safety check
 
 = 1.1.0 =
 * Executor-level safety hardening (seven-issue gate from the 2026-07-16 complexity audit): data-safety invariants moved to shared choke points — the composition-presence precondition now guards every executor caller including chat, the retired variant prop is rejected at write time while stored legacy pages still migrate on read/restore/render, operate patch shares the real per-action gate and error parity with action execute, and the WP-CLI gate stack's fail-closed branches are unit-pinned
