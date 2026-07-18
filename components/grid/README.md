@@ -15,6 +15,7 @@ Responsive card grid for discrete content objects. Use this for blog post listin
 | `layout`        | enum   | No       | `'cards'`   | Structural layout: `cards` (card grid) / `steps` (numbered process cards) |
 | `card_emphasis` | enum   | No       | `'featured'` | First-card emphasis: `featured` (default — first card gets an accent bar, tinted fill, larger title, extra top padding, dark-theme lift) / `uniform` (every card identical). Use `uniform` for a symmetric/peer card row (see below). Cards-layout concept; ignored on `steps`. |
 | `theme`         | enum   | No       | `'default'` | Background color: `default` / `dark` / `inverted` (independent of `layout`) |
+| `columns`       | number | No       | —         | Explicit desktop (768px+) column count, integer `1`–`4`. Unset = auto by item count (see below). Out-of-range/non-integer values are rejected, not clamped. Cards-layout concept; ignored on `steps`. |
 | `items`         | array  | Yes      | —         | Array of card objects |
 
 Each item in `items`:
@@ -49,6 +50,12 @@ At desktop, a composed `cards` grid lays out by item count:
 | other | 2 |
 
 The `steps` layout is 3 across at desktop, except for a 4-item steps grid, which lays out 2 x 2.
+
+### Forcing the desktop column count (`columns`)
+
+The table above is the default when `columns` is unset. Set `columns` to an integer `1`–`4` to force that many equal-width columns at desktop (768px+), overriding the item-count grain — e.g. `columns: 3` renders a 6-item `cards` grid as 3-across x 2-rows instead of the default 2 x 3, and lets a 4-item grid choose 4-across instead of the default 2 x 2. The forced grid spans the container (no narrowing/centering) regardless of item count, and the single-column collapse below 768px is unchanged. A forced count with a non-multiple item count simply wraps the remainder onto the last row (e.g. `columns: 3` with 4 items = a row of 3 then a single left-aligned card); tracks use `minmax(0, 1fr)` so cards never overflow.
+
+`columns` is a structural prop (set with `create_page` / `update_component`, not `style_component`). Values outside `1`–`4`, or non-integers, are rejected with an error — they are never silently clamped. It is a `cards` concept and is ignored on the `steps` layout, which keeps its fixed process grain.
 
 ## Card emphasis (featured vs uniform)
 

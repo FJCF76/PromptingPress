@@ -46,7 +46,7 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 | hero    | title                                   | title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, layout, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof |
 | section | body                                    | title, title_accent, eyebrow, subheading, heading_align, layout, theme, image_url, image_id, image_alt, background_image |
 | faq     | items[] {question, answer}              | title, title_accent, eyebrow, theme, id                 |
-| grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, heading_align, layout, card_emphasis, theme |
+| grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, heading_align, layout, card_emphasis, theme, columns |
 | table   | headers[], rows[][]                     | title, caption                                          |
 | cta     | button_text, button_url                 | title, title_accent, eyebrow, text, layout, theme, background_image, button_variant |
 | stats   | items[] {number, label}                 | title, title_accent, theme, background_image            |
@@ -209,6 +209,30 @@ Set `card_emphasis: "uniform"` to render **every card identically**. Use it for 
       { "title": "Método de análisis", "bullets": ["Estático", "Dinámico"] },
       { "title": "Datos y privacidad", "bullets": ["Cifrado", "Sin reventa"] },
       { "title": "Compatibilidad", "bullets": ["Web", "API"] }
+    ]
+  }
+}
+```
+
+### grid.columns: 1 | 2 | 3 | 4
+
+By default a `cards` grid derives its desktop column count from the number of items (2 items -> 2-up centered, 3 -> 3-across, 4 -> 2x2 centered, other counts -> 2-up). Set `columns` to force a specific desktop (768px+) count instead — an integer `1`–`4`. Use it when the auto grain is not what you want: `columns: 3` renders a 6-item grid as 3-across x 2-rows (instead of 2x3), and lets a 4-item grid be 4-across (instead of 2x2). The forced grid spans the container regardless of item count, and the single-column layout below 768px is unchanged.
+
+Unset (omit the key) keeps the auto-by-count default — byte-identical. Values outside `1`–`4`, or non-integers (`0`, `5`, `2.5`, text), are **rejected** with `invalid_prop_value`; they are never silently clamped. `columns` is a `cards` concept and is ignored on the `steps` layout, which keeps its fixed process grain. Structural prop — set with `create_page` / `update_component`, not `style_component`.
+
+```json
+{
+  "component": "grid",
+  "props": {
+    "title": "Integrations",
+    "columns": 3,
+    "items": [
+      { "title": "One", "image_url": "..." },
+      { "title": "Two", "image_url": "..." },
+      { "title": "Three", "image_url": "..." },
+      { "title": "Four", "image_url": "..." },
+      { "title": "Five", "image_url": "..." },
+      { "title": "Six", "image_url": "..." }
     ]
   }
 }
