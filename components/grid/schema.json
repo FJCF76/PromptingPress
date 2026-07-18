@@ -60,6 +60,13 @@
       "default": "default",
       "description": "Background color/tone. Independent of layout. 'default' = page background. 'dark' = surface background with borders. 'inverted' = inverted background for strong contrast."
     },
+    "columns": {
+      "type": "number",
+      "required": false,
+      "min": 1,
+      "max": 4,
+      "description": "Optional explicit desktop (>=768px) column count, an integer 1-4. Unset (key absent, null, or empty) keeps the default auto-derivation from item count (unchanged, byte-identical). When set it forces that many equal-width columns at >=768px, spanning the container, overriding the item-count grain; the single-column collapse below 768px is unchanged. Out-of-range or non-integer values (0, 5, 2.5, text) are rejected, not clamped. Cards-layout concept; ignored on 'steps' (which keeps its fixed process grain). Set with create_page / update_component, not style_component."
+    },
     "items": {
       "type": "array",
       "required": true,

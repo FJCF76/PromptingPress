@@ -133,6 +133,94 @@ class ComponentPropsTest extends TestCase
         $this->assertStringContainsString('grid--uniform', $html);
     }
 
+    // ── Grid explicit column-count control (issue 379) ─────────────────────
+    // `columns` (integer 1-4) emits data-pp-columns on the .grid__list; the CSS
+    // reads it to force the desktop track count. Unset emits NO attribute so the
+    // auto-by-count grain (data-pp-count only) stays byte-identical. Write-time
+    // validation rejects out-of-range values; the renderer additionally coerces
+    // raw-written invalid state to "no attribute" (defensive, like layout/theme).
+
+    public function testGridColumnsEmitsDataAttributeWhenSet(): void
+    {
+        $html = $this->render('grid', [
+            'columns' => 3,
+            'items' => [['title' => 'One'], ['title' => 'Two'], ['title' => 'Three']],
+        ]);
+        $this->assertStringContainsString('data-pp-columns="3"', $html);
+        // The auto-count attribute is still present alongside the override.
+        $this->assertStringContainsString('data-pp-count="3"', $html);
+    }
+
+    public function testGridColumnsAcceptsIntegerStringValue(): void
+    {
+        // Admin/JSON payloads can arrive stringified; "4" must render like 4.
+        $html = $this->render('grid', [
+            'columns' => '4',
+            'items' => [['title' => 'One']],
+        ]);
+        $this->assertStringContainsString('data-pp-columns="4"', $html);
+    }
+
+    public function testGridColumnsUnsetEmitsNoAttributeAndStaysByteIdentical(): void
+    {
+        $withUnset = $this->render('grid', [
+            'items' => [['title' => 'One'], ['title' => 'Two']],
+        ]);
+        $this->assertStringNotContainsString('data-pp-columns', $withUnset);
+
+        // Byte-identical to an explicit empty-string "unset" sentinel.
+        $withEmpty = $this->render('grid', [
+            'columns' => '',
+            'items' => [['title' => 'One'], ['title' => 'Two']],
+        ]);
+        $this->assertSame($withUnset, $withEmpty);
+    }
+
+    public function testGridColumnsCoercesOutOfRangeRawValueToNoAttribute(): void
+    {
+        // Defence-in-depth for state written through a raw, non-validating path:
+        // an out-of-range value must not emit an attribute the CSS can't honor.
+        foreach (['0', '5', '-1', '2.5', 'bogus'] as $bad) {
+            $html = $this->render('grid', [
+                'columns' => $bad,
+                'items' => [['title' => 'One']],
+            ]);
+            $this->assertStringNotContainsString(
+                'data-pp-columns',
+                $html,
+                "columns={$bad} must not emit a data-pp-columns attribute"
+            );
+        }
+    }
+
+    public function testGridColumnsIsInertOnStepsLayout(): void
+    {
+        // columns is a cards concept; the steps layout keeps its fixed process
+        // grain. The renderer must NOT emit data-pp-columns on steps (the CSS is
+        // also scoped :not(.grid--steps), but the markup itself stays honest and
+        // byte-identical), so steps output never carries a dead attribute.
+        $html = $this->render('grid', [
+            'columns' => 3,
+            'layout'  => 'steps',
+            'items'   => [['number' => '1', 'title' => 'One']],
+        ]);
+        $this->assertStringNotContainsString('data-pp-columns', $html);
+        $this->assertStringContainsString('grid--steps', $html);
+    }
+
+    public function testGridColumnsComposesWithThemeAndEmphasis(): void
+    {
+        $html = $this->render('grid', [
+            'columns' => 2,
+            'theme' => 'dark',
+            'card_emphasis' => 'uniform',
+            'items' => [['title' => 'One'], ['title' => 'Two']],
+        ]);
+        $this->assertStringContainsString('data-pp-columns="2"', $html);
+        $this->assertStringContainsString('grid--dark', $html);
+        $this->assertStringContainsString('grid--uniform', $html);
+    }
+
     public function testSectionCenteredSuppressesImageEvenWhenProvided(): void
     {
         $html = $this->render('section', [
