@@ -159,7 +159,7 @@ Components are plain PHP partials that render semantic HTML with CSS custom prop
 | `base.css` | 9 KB | Design tokens — CSS custom properties |
 | `components.css` | 84 KB | All 12 component styles, CSS variables only |
 | `utilities.css` | 3 KB | Layout helpers |
-| `main.js` | 3.6 KB | Hamburger nav toggle + sticky-header height measurement — one IIFE, zero dependencies |
+| `main.js` | 7.8 KB | Hamburger nav toggle, dropdown-submenu disclosures, and sticky-header height measurement — one IIFE, zero dependencies |
 
 No build step. No transpilation. No bundler. What you write is what ships.
 
