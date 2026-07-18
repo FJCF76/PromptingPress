@@ -244,10 +244,6 @@ apply/token mutation outside CLI runs
   A no-post preflight covers all site-scoped actions for the run's lifetime. That
   matches what `pp_preflight()` actually checks today; per-option coverage is a
   future refinement.
-- **CAS on chat-driven composition writes** ([#392](https://github.com/FJCF76/PromptingPress/issues/392),
-  v1.0.2). The chat AJAX action path does not thread `expected_version`, so the
-  write-time compare-and-swap does not protect it (see the gate table above).
-  Closing it needs a chat-side baseline lifecycle, tracked separately.
 - **Reversible apply/token mutation outside a CLI run** ([#393](https://github.com/FJCF76/PromptingPress/issues/393)).
   The pre-apply rollback snapshot is recorded by the CLI preflight only; an apply
   or token mutation driven from outside a run has no equivalent pre-mutation
