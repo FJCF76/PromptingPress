@@ -4,6 +4,23 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.3.1] — 2026-07-18 — the operating loop now works when every `wp` call runs in its own container (#409)
+
+**Operating a site whose WP-CLI runs as one fresh container per command (the standard `wordpress:cli` image, `docker run --rm --volumes-from`) was impossible: `wp pp operate inspect` minted a run token, but the very next gated command could not find its state and every mutation failed at the gate. Run state was written to the system temp dir, and each container has its own private `/tmp`, so the token's state landed in one container and vanished before the next command ran. Run state now lives in a per-run row in the site's options table, which every CLI process on the install shares. The full inspect → preflight → execute loop completes across separate ephemeral containers, exactly as it always did on a single long-lived host. Nothing changes for hosts where every `wp` call already shared a filesystem; the gate stays fail-closed, run state still expires after two hours, and completed or expired runs are removed so rows never pile up.**
+
+When a gated command still cannot record its state, the error now names the real cause instead of the old catch-all "state file may be missing or expired": a token that was never minted here (the container case) reads as "no run state found," a genuinely stale one as expired, a token from another install as foreign, an unreadable row as corrupt, and a live run whose write did not land tells you to retry. The two-hour TTL, the site-identity binding, and the step-ordering guarantees are unchanged.
+
+### Fixed
+- Run-token state moved from a `sys_get_temp_dir()` JSON file to a per-run, non-autoloaded `wp_options` row, so the operating loop completes across ephemeral/containerized WP-CLI invocations that do not share a `/tmp` (#409).
+- The PREFLIGHT-record failure is reported with its precise cause (not-found / expired / foreign / corrupt / write-failed) instead of the single misleading "State file may be missing or expired" message, so a token that landed in another container is no longer misdiagnosed as an expired one (#409).
+- Concurrent CLI writers to the same run serialize through the existing MySQL advisory lock (the same bounded-wait `GET_LOCK` engine behind token and composition writes) instead of file locking; expired and corrupt run rows are swept when a new run starts, and completed runs are removed at HANDOFF, so run rows stay bounded (#409).
+
+### Docs
+- `docs/operating-loop-safety.md`, `docs/reference-apply-cli.md`, `ai-instructions/operating-loop.md`, and `README.md` now describe run state as an options-table store shared across CLI processes and document the split not-found/expired failure messages (#409).
+
+### Tests
+- PHP pins for the options-backed store: a two-process repro that mints a run under one `TMPDIR` and completes the gated PREFLIGHT record under a different one (proving the store no longer depends on the process temp dir), state classification (ok / invalid / not-found / corrupt / expired / foreign), fail-closed mutation on every non-live state, idempotent no-op writes, `run_status` reaping expired/corrupt rows while keeping live and foreign ones, garbage collection of abandoned rows, and CLI pins that the PREFLIGHT-record message differs per cause (#409).
+
 ## [v1.3.0] — 2026-07-18 — first post-1.0 feature release: grid columns, icon image treatment, dropdown menus (#141)
 
 **This is a gate rollup marker: the three features of this release shipped in working versions 1.2.1–1.2.3 below, and this entry carries no new code beyond the five-file version bump and doc freshness. What 1.3.0 marks is the close of the feature gate (#141, Part 1.75) — the capability gaps that most limited fidelity in the neocompute.com benchmark dogfood, implemented as generic capabilities per the detects-not-specifies rule: an explicit grid `columns` control (1–4, opt-in, auto grain byte-identical when unset, #379); a grid `image_treatment` option rendering item images at icon scale via the `--grid-item-icon-size` slot instead of the 16:9 banner, with the icon following `--grid-item-text-align` (#380); and hierarchical menus — `set_menu` accepts `children`, rendered as WAI-ARIA disclosure dropdowns with full keyboard support and progressive enhancement (#381). The release bar was a rendered-evidence dogfood of all three capabilities on dev at both viewports (see #141), passed on RC v1.2.3.**
