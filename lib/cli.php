@@ -427,7 +427,24 @@ class PP_Action_Command extends WP_CLI_Command {
         if ($action !== null) {
             $validation = pp_validate_action($name, $params);
             if (is_wp_error($validation)) {
-                WP_CLI::error($validation->get_error_message());
+                // #385: surface a validation failure (param-type mismatch, missing
+                // param, or semantic reject) as the canonical ok:false envelope on
+                // stdout — identical to this command's own success/failure emit path
+                // below and to `apply execute` — NOT a bare WP_CLI::error on stderr.
+                // A batch consumer greps stdout for the envelope; a stderr-only
+                // rejection was invisible and silently left the target unchanged
+                // (neocompute dogfood: update_site_option with a numeric value left
+                // pp_logo_id at its old value while the operator believed it succeeded).
+                // Render the envelope from the WP_Error already in hand — do NOT
+                // re-run the validator via pp_execute_action(): a concurrent DB change
+                // could flip this rejection to a pass and then MUTATE, outside the
+                // preflight (#96) and freshness/CAS (#113) gates. Emitting from the
+                // WP_Error keeps this path fail-closed and pure. halt(1) preserves the
+                // non-zero exit the old WP_CLI::error produced.
+                $result = _pp_action_validation_error_envelope($name, $validation);
+                WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                WP_CLI::halt(1);
+                return;
             }
             _pp_cli_require_preflight_for_action($run_id, $action, $params);
             // Freshness gate (#113): after coverage, reject a composition-mutating action

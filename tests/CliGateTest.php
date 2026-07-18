@@ -38,18 +38,27 @@ use PHPUnit\Framework\TestCase;
 if (!class_exists('WpCliExitException')) {
     class WpCliExitException extends \RuntimeException {}
 }
+// halt() (a clean, non-zero process exit that emits nothing itself) throws a
+// distinct exception carrying the exit code, so tests can tell an envelope-on-
+// stdout-then-halt(1) failure (#385) apart from a bare WP_CLI::error on stderr.
+if (!class_exists('WpCliHaltException')) {
+    class WpCliHaltException extends \RuntimeException {}
+}
 if (!class_exists('WP_CLI_Command')) {
     class WP_CLI_Command {}
 }
 if (!class_exists('WP_CLI')) {
     class WP_CLI {
+        /** @var string[] Captured line() output — the machine-readable stdout channel. */
+        public static array $lines = [];
         public static function error($message, $exit = true): void { throw new WpCliExitException((string) $message); }
         public static function add_command($name, $handler, $args = []): void {}
-        public static function line($message = ''): void {}
+        public static function line($message = ''): void { self::$lines[] = (string) $message; }
         public static function warning($message = ''): void {}
         public static function success($message = ''): void {}
         public static function debug($message = '', $group = false): void {}
         public static function log($message = ''): void {}
+        public static function halt($code = 0): void { throw new WpCliHaltException((string) $code, (int) $code); }
     }
 }
 
@@ -566,5 +575,82 @@ class CliGateTest extends TestCase
         $this->assertSame('not_found', pp_operate_run_status($run_id));
         $msg = _pp_cli_preflight_record_failed_message($run_id, pp_operate_run_status($run_id));
         $this->assertStringContainsString('No run state found', $msg);
+    }
+
+    // ── #385: param-type / validation failures emit the ok:false envelope ──────
+    // The shared validators already return a WP_Error for every validation class,
+    // and pp_execute_action already wraps it into the ok:false envelope. The bug
+    // was purely at the `action execute` SURFACE: its early-validation gate routed
+    // that WP_Error to a bare WP_CLI::error on STDERR (dropping error_code), so a
+    // batch grepping STDOUT for the envelope missed the rejection entirely. These
+    // pins drive the real command method (PP_Action_Command::execute) so a
+    // regression back to the stderr path is caught, not just the engine shape.
+
+    /**
+     * Runs `action execute` for a run whose INSPECT step is recorded, capturing
+     * the stdout envelope. Returns the decoded envelope. Fails the test if the
+     * command took the bare-stderr (WP_CLI::error) path instead of envelope+halt.
+     */
+    private function runActionExecuteExpectingEnvelope(string $name, array $params): array
+    {
+        $run_id = $this->newRun(); // fresh run has INSPECT recorded (see operate.php)
+        WP_CLI::$lines = [];
+        $halted = false;
+        try {
+            (new PP_Action_Command())->execute([$name], [
+                'run-id' => $run_id,
+                'params' => json_encode($params),
+            ]);
+            $this->fail('execute() should have halted on a validation failure');
+        } catch (WpCliExitException $e) {
+            $this->fail('Validation failure went to a bare WP_CLI::error (stderr), not the ok:false envelope: ' . $e->getMessage());
+        } catch (WpCliHaltException $e) {
+            $halted = true;
+            $this->assertSame(1, $e->getCode(), 'exit code stays non-zero (1), matching the old WP_CLI::error');
+        }
+        $this->assertTrue($halted, 'command halted');
+        $this->assertCount(1, WP_CLI::$lines, 'exactly one envelope emitted on stdout');
+        $decoded = json_decode(WP_CLI::$lines[0], true);
+        $this->assertIsArray($decoded, 'stdout line is valid JSON');
+        return $decoded;
+    }
+
+    public function testActionExecuteNumericValueEmitsEnvelopeNotBareError(): void
+    {
+        // The reported repro: update_site_option with a numeric `value` (int 164)
+        // for a string-typed param. "164" (string) would pass; 164 (int) is rejected.
+        $envelope = $this->runActionExecuteExpectingEnvelope(
+            'update_site_option',
+            ['key' => 'pp_logo_id', 'value' => 164]
+        );
+        $this->assertFalse($envelope['ok'], 'envelope reports failure');
+        $this->assertSame('invalid_param_type', $envelope['error_code'], 'carries the machine-readable error_code (#312)');
+        $this->assertStringContainsString('value', $envelope['error'], 'names the offending param');
+        $this->assertStringContainsString('must be string', $envelope['error'], 'message preserved');
+        $this->assertSame('update_site_option', $envelope['action']);
+    }
+
+    public function testActionExecuteValidationEnvelopeShapeIsUniform(): void
+    {
+        // Regression pin: a DIFFERENT validation class (missing required param)
+        // must produce the SAME envelope shape as the numeric-value case, proving
+        // the whole validation class flows through the one choke point, not a
+        // param-type-specific patch.
+        $numeric = $this->runActionExecuteExpectingEnvelope(
+            'update_site_option',
+            ['key' => 'pp_logo_id', 'value' => 164]
+        );
+        $missing = $this->runActionExecuteExpectingEnvelope(
+            'update_site_option',
+            ['key' => 'pp_logo_id'] // required `value` omitted
+        );
+        $this->assertSame('missing_param', $missing['error_code']);
+        $this->assertFalse($missing['ok']);
+        // Identical key set → identical envelope shape across validation classes.
+        $numericKeys = array_keys($numeric);
+        $missingKeys = array_keys($missing);
+        sort($numericKeys);
+        sort($missingKeys);
+        $this->assertSame($numericKeys, $missingKeys, 'both validation failures share the envelope shape');
     }
 }
