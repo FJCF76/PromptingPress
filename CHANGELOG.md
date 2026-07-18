@@ -4,6 +4,25 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.2.2] — 2026-07-18 — grid card images can render as small icons, not just 16:9 banners (#380)
+
+**A grid card's `image_url` always rendered inside a full-width 16:9 cover wrap, so the extremely common icon + title + text feature card was inexpressible: a ~45px logo or glyph got blown up into a cropped banner. The grid now accepts an optional `image_treatment` prop (`banner` default / `icon`) that renders each card image at a small fixed icon size instead — un-cropped, above the title, sized by the new `--grid-item-icon-size` style slot (default 48px). Leave it unset and nothing changes: the banner rendering is byte-identical. This is the second item of the v1.3.0 feature gate (#141, Part 1.75); the gate-close/tag is a separate release.**
+
+`image_treatment` is an opt-in structural prop, set through `create_page` / `update_component` like `layout`, `card_emphasis`, and `columns` (not `style_component`). Under `icon`, the image is `object-fit: contain` (the whole glyph shows) inside a square box the `--grid-item-icon-size` slot controls, at every breakpoint (the icon stays icon-sized on mobile; the sub-768px single-column collapse is unchanged). The icon FOLLOWS the card's `--grid-item-text-align` — a centered card centers its icon, its text, and its Read-more link together — reusing the same derived companion the link already follows (#361), so there is no second alignment slot. Invalid values (`card`, `Icon`, `thumbnail`, numbers) are rejected at write time with the standard `invalid_prop_value` envelope, never silently coerced. The treatment is a `cards` concept and is inert on the `steps` layout, which renders no item images. The default `banner` treatment is unchanged.
+
+### Added
+- `grid` accepts an optional `image_treatment` prop (`banner` / `icon`) that renders card images at a small fixed icon size instead of the 16:9 cover banner, with the unset default byte-identical (#380).
+- New `--grid-item-icon-size` grid style slot (length, default 48px, item-eligible) sizing the icon box under `image_treatment: icon`; the icon also follows the card's `--grid-item-text-align` via the shared #361 companion (#380).
+
+### Fixed
+- Composition writes now validate schema-declared strict enums: an enum prop that opts in with `strict: true` (today only `grid.image_treatment`) is rejected with `invalid_prop_value` when given a value outside its closed set, instead of being silently coerced at render. Existing enums without the flag (`layout`/`theme`/`card_emphasis`/`heading_align`) keep their historical accept-and-coerce behavior, so no other prop's validation changed (#380).
+
+### Docs
+- `components/grid/README.md`, `ai-instructions/composition.md` + `style-component.md`, `AI_CONTEXT.md`, the README component table, and `lib/ai-context.php` document `image_treatment` and the icon-size slot; the runtime AI context surfaces the prop automatically from the schema. `AI_RULES.md`'s anti-slop rule was clarified so a real-logo icon grid is not mistaken for decorative "icon-in-circle" slop.
+
+### Tests
+- PHP validation pins for `grid.image_treatment` (accepts `banner`/`icon` and the unset sentinels; rejects unknown/case-mismatch/numeric/whitespace with `invalid_prop_value`), a non-ripple pin (an invalid `layout`/`theme` still validates), renderer pins (emits `grid--image-icon` only for `icon`, byte-identical when unset/banner, coerces raw-invalid state, inert on `steps`, composes with theme/emphasis/bullets, follows `--grid-item-text-align`), and CSS-lint pins (icon sizing via `var(--grid-item-icon-size, 48px)`, `object-fit: contain`, default 16:9 intact, rules not min-width-gated so mobile keeps the icon size, and `align-self` via the shared companion).
+
 ## [v1.2.1] — 2026-07-18 — grid gains an explicit desktop column-count control (#379)
 
 **A `cards` grid used to derive its desktop column count from the number of items — good defaults, but with no way to override them, so a 6-item grid was locked to 2x3 when you wanted 3-across x 2-rows, and a 4-item grid could not choose 4-across over 2x2. The grid now accepts an optional `columns` prop (integer 1-4) that forces the desktop (768px+) column count. Leave it unset and nothing changes: the auto-by-count default renders byte-identical. This is the first item of the v1.3.0 feature gate (#141, Part 1.75); the gate-close/tag is a separate release.**
