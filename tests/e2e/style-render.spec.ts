@@ -60,6 +60,22 @@ async function styleComponent(
   return page.evaluate(
     async (args: { pid: number; style: Record<string, unknown>; recipe?: string }) => {
       const config = (window as any).ppAiChat;
+
+      // style_component is composition-mutating, so the chat execute endpoint now
+      // requires a CAS baseline (#404). Read the page's current version first —
+      // fresh each call, so repeated styling on one page never false-conflicts —
+      // and thread it as expected_version, exactly as the real chat UI does.
+      const baselineData = new FormData();
+      baselineData.append('action', 'pp_ai_page_baseline');
+      baselineData.append('nonce', config.executeNonce);
+      baselineData.append('post_id', String(args.pid));
+      const baselineResp = await fetch(config.ajaxUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: baselineData,
+      });
+      const baseline = await baselineResp.json();
+
       const data = new FormData();
       data.append('action', 'pp_ai_execute');
       data.append('nonce', config.executeNonce);
@@ -67,6 +83,9 @@ async function styleComponent(
       data.append('name', 'style_component');
       data.append('params[post_id]', String(args.pid));
       data.append('params[component_index]', '0');
+      if (baseline && baseline.success && baseline.data) {
+        data.append('params[expected_version]', String(baseline.data.version));
+      }
       if (Object.keys(args.style).length > 0) {
         data.append('params[style]', JSON.stringify(args.style));
       }
