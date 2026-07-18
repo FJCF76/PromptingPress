@@ -297,8 +297,14 @@ function pp_ai_format_params(array $params): string {
  * Returns composition JSON + metadata for a specific page.
  * Used when the user references a specific page in the chat.
  *
+ * The `composition_version` is the write-time CAS baseline (#13/#404): the version the
+ * model reasoned against, captured at read time so a chat write can be rejected if the page
+ * moved before the user applied it. It is app-managed (the chat UI threads it back on
+ * write) — the model never sets or increments it.
+ *
  * @param int $post_id  WordPress post ID.
- * @return array  ['id' => int, 'title' => string, 'status' => string, 'composition' => array]
+ * @return array  ['id' => int, 'title' => string, 'status' => string, 'composition' => array,
+ *                'composition_version' => int]
  */
 function pp_ai_page_context(int $post_id): array {
     $post = get_post($post_id);
@@ -307,10 +313,11 @@ function pp_ai_page_context(int $post_id): array {
     }
 
     return [
-        'id'          => $post_id,
-        'title'       => $post->post_title,
-        'status'      => $post->post_status,
-        'composition' => pp_get_composition($post_id),
+        'id'                  => $post_id,
+        'title'               => $post->post_title,
+        'status'              => $post->post_status,
+        'composition'         => pp_get_composition($post_id),
+        'composition_version' => pp_get_composition_marker($post_id)['version'],
     ];
 }
 
@@ -487,6 +494,10 @@ function pp_ai_format_messages(string $system, array $conversation, ?int $page_i
             $comp_json = wp_json_encode($page_ctx['composition'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
             $system_content .= "\n\n## Current Page Context\n";
             $system_content .= "Page: {$page_ctx['title']} (ID: {$page_ctx['id']}, status: {$page_ctx['status']})\n";
+            // Concurrency baseline (#404): the version the composition below was read at.
+            // The chat app threads this back on write to reject a stale overwrite — you do
+            // not manage it; just propose changes against the composition as shown.
+            $system_content .= "Composition version: {$page_ctx['composition_version']} (concurrency baseline — managed by the app, not you)\n";
 
             // Component index summary for unambiguous targeting
             if (!empty($page_ctx['composition'])) {

@@ -4706,4 +4706,141 @@ class ActionsTest extends TestCase
         // Read-only: the store is untouched.
         $this->assertSame($snapshot, $GLOBALS['_pp_test_store']['options']['pp_redirects']);
     }
+
+    // ── Batch composition CAS baselines (#404) ──────────────────────────────
+    // The batch executor threads a per-post baseline map into composition-mutating
+    // steps and chains the server-derived post-write version after each success, so
+    // a batch never false-conflicts against its own earlier writes.
+
+    public function testCompositionMutatingDetectionMatchesMutatesFlag(): void
+    {
+        // The chat mandate keys on pp_action_is_composition_mutating(); it must
+        // track the same mutates_composition flag the CLI baseline gate reads.
+        foreach (['update_composition', 'add_component', 'remove_component',
+                  'restore_composition', 'reorder_components', 'update_component',
+                  'style_component'] as $name) {
+            $this->assertTrue(pp_action_is_composition_mutating($name), "$name should be mutating");
+        }
+        foreach (['create_page', 'update_page_title', 'update_site_option',
+                  'publish_page', 'trash_page'] as $name) {
+            $this->assertFalse(pp_action_is_composition_mutating($name), "$name should not be mutating");
+        }
+    }
+
+    public function testBatchNoFalseConflictRepeatedMutationsOnePageWithInitialBaseline(): void
+    {
+        $id = pp_create_page('Batch chain');
+        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        $baseline = pp_get_composition_marker($id)['version']; // e.g. 1
+
+        // Three mutations to the same page, only the INITIAL baseline supplied. The
+        // executor must chain the post-write version into each subsequent step so
+        // none false-conflicts against the batch's own earlier write.
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'update_component', 'params' => [
+                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'B']]],
+            ['type' => 'action', 'name' => 'update_component', 'params' => [
+                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'C']]],
+            ['type' => 'action', 'name' => 'update_component', 'params' => [
+                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'D']]],
+        ], [$id => $baseline]);
+
+        $this->assertTrue($batch['ok'], 'batch must not false-conflict against its own writes');
+        $this->assertFalse($batch['rolled_back']);
+        $this->assertSame('D', pp_get_composition($id)[0]['props']['title']);
+        // A3: the versions envelope carries the final post-write version (+3 writes).
+        $this->assertArrayHasKey($id, $batch['versions']);
+        $this->assertSame($baseline + 3, $batch['versions'][$id]);
+    }
+
+    public function testBatchStaleInitialBaselineFirstStepConflictsAndRollsBack(): void
+    {
+        $id = pp_create_page('Batch stale');
+        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+        $current = pp_get_composition_marker($id)['version']; // 2
+
+        // Supplying a STALE initial baseline (1 vs current 2) must conflict on the
+        // first mutating step and roll everything back.
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'update_component', 'params' => [
+                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'C']]],
+            ['type' => 'action', 'name' => 'update_component', 'params' => [
+                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'D']]],
+        ], [$id => $current - 1]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+        $this->assertSame(0, $batch['failed_at']);
+        $this->assertSame('composition_conflict', $batch['steps'][0]['error_code']);
+        // Content rolled back to its pre-batch state; no partial versions survived.
+        // (The rollback's snapshot restore rewrites unconditionally, so the version
+        // marker advances even though content is identical — existing batch-rollback
+        // behavior, fail-safe: the empty versions map forces the client to re-read.)
+        $this->assertSame('B', pp_get_composition($id)[0]['props']['title']);
+        $this->assertSame([], $batch['versions']);
+    }
+
+    public function testBatchChainsPerPageAcrossTwoPages(): void
+    {
+        $a = pp_create_page('Page A');
+        $b = pp_create_page('Page B');
+        pp_update_composition($a, [['component' => 'hero', 'props' => ['title' => 'A0']]]);
+        pp_update_composition($b, [['component' => 'hero', 'props' => ['title' => 'B0']]]);
+        $va = pp_get_composition_marker($a)['version'];
+        $vb = pp_get_composition_marker($b)['version'];
+
+        // Interleaved writes across two pages, each with its own baseline; the map is
+        // keyed per page so neither page's chaining bleeds into the other.
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'update_component', 'params' => [
+                'post_id' => $a, 'component_index' => 0, 'props' => ['title' => 'A1']]],
+            ['type' => 'action', 'name' => 'update_component', 'params' => [
+                'post_id' => $b, 'component_index' => 0, 'props' => ['title' => 'B1']]],
+            ['type' => 'action', 'name' => 'update_component', 'params' => [
+                'post_id' => $a, 'component_index' => 0, 'props' => ['title' => 'A2']]],
+        ], [$a => $va, $b => $vb]);
+
+        $this->assertTrue($batch['ok']);
+        $this->assertSame('A2', pp_get_composition($a)[0]['props']['title']);
+        $this->assertSame('B1', pp_get_composition($b)[0]['props']['title']);
+        $this->assertSame($va + 2, $batch['versions'][$a]);
+        $this->assertSame($vb + 1, $batch['versions'][$b]);
+    }
+
+    public function testBatchCreatePageMidBatchNeedsNoBaselineAndJoinsVersionMap(): void
+    {
+        // A page created mid-batch starts at version-0 semantics — no browser
+        // baseline required — and joins the returned versions map at its new version.
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'create_page', 'params' => [
+                'title' => 'Fresh',
+                'composition' => [['component' => 'hero', 'props' => ['title' => 'New']]],
+            ]],
+        ], []);
+
+        $this->assertTrue($batch['ok']);
+        $new_id = $batch['steps'][0]['target']['post_id'];
+        $this->assertArrayHasKey($new_id, $batch['versions']);
+        $this->assertSame(1, $batch['versions'][$new_id]);
+    }
+
+    public function testBatchLegacyPageVersionZeroBaselineInitializes(): void
+    {
+        // A page whose composition was never written reads as version 0; a batch
+        // update_composition with baseline 0 must initialize it to version 1.
+        $id = pp_create_page('Legacy');
+        $this->assertSame(0, pp_get_composition_marker($id)['version']);
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'update_composition', 'params' => [
+                'post_id' => $id,
+                'composition' => [['component' => 'hero', 'props' => ['title' => 'First']]],
+            ]],
+        ], [$id => 0]);
+
+        $this->assertTrue($batch['ok']);
+        $this->assertSame(1, pp_get_composition_marker($id)['version']);
+        $this->assertSame(1, $batch['versions'][$id]);
+    }
 }

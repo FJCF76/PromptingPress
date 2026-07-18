@@ -1092,4 +1092,297 @@ class AiChatHandlersTest extends TestCase
         $this->assertFalse($result['ok']);
         $this->assertSame('No messages provided.', $result['data']);
     }
+
+    // ── Composition CAS baseline: single-execute handler (#404) ─────────────
+    // Integrated-path: these drive _pp_ai_execute_response()/_pp_ai_execute_batch_response()
+    // — the real handler logic the AJAX closures call — through pp_execute_action /
+    // pp_ai_execute_batch and the writer CAS, not a helper-only slice (#387 lesson).
+
+    private function seedPage(string $title, array $composition): int
+    {
+        $id = pp_create_page($title);
+        pp_update_composition($id, $composition);
+        return $id;
+    }
+
+    public function testSingleExecuteRejectsMutatingActionWithoutBaseline(): void
+    {
+        $id = $this->seedPage('Mandate', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+
+        $resp = _pp_ai_execute_response([
+            'type' => 'action', 'name' => 'update_component',
+            'params' => ['post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'B']],
+        ]);
+
+        $this->assertFalse($resp['ok']);
+        $this->assertIsArray($resp['data']);
+        $this->assertSame('missing_expected_version', $resp['data']['error_code']);
+        // Fail-closed: nothing was written.
+        $this->assertSame('A', pp_get_composition($id)[0]['props']['title']);
+    }
+
+    public function testSingleExecuteNonMutatingActionNeedsNoBaseline(): void
+    {
+        $id = $this->seedPage('Title change', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+
+        $resp = _pp_ai_execute_response([
+            'type' => 'action', 'name' => 'update_page_title',
+            'params' => ['post_id' => $id, 'title' => 'Renamed'],
+        ]);
+
+        $this->assertTrue($resp['ok']);
+        $this->assertSame('Renamed', get_post($id)->post_title);
+    }
+
+    public function testSingleExecuteSuccessEnvelopeCarriesCompositionVersion(): void
+    {
+        $id = $this->seedPage('Refresh', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        $baseline = pp_get_composition_marker($id)['version'];
+
+        $resp = _pp_ai_execute_response([
+            'type' => 'action', 'name' => 'update_component',
+            'params' => ['post_id' => $id, 'component_index' => 0,
+                         'props' => ['title' => 'B'], 'expected_version' => $baseline],
+        ]);
+
+        $this->assertTrue($resp['ok']);
+        $this->assertSame($baseline + 1, $resp['data']['composition_version']);
+    }
+
+    public function testEditorVsChatStaleBaselineReturnsStructuredConflict(): void
+    {
+        // editor-vs-chat: an editor-path write bumps the version; a chat execute
+        // carrying the pre-edit baseline must be rejected with the structured
+        // composition_conflict envelope, and the composition must be unchanged.
+        $id = $this->seedPage('Conflict', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        $stale = pp_get_composition_marker($id)['version']; // 1
+
+        // Editor writes (bumps to 2) — simulated via the writer, the editor's path.
+        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'EDITOR']]], $stale);
+        $current = pp_get_composition_marker($id)['version'];
+        $this->assertSame($stale + 1, $current);
+
+        $resp = _pp_ai_execute_response([
+            'type' => 'action', 'name' => 'update_component',
+            'params' => ['post_id' => $id, 'component_index' => 0,
+                         'props' => ['title' => 'CHAT'], 'expected_version' => $stale],
+        ]);
+
+        $this->assertFalse($resp['ok']);
+        $this->assertIsArray($resp['data']);
+        $this->assertSame('composition_conflict', $resp['data']['error_code']);
+        $this->assertSame($stale, $resp['data']['expected_version']);
+        $this->assertSame($current, $resp['data']['current_version']);
+        // The editor's write stands; the chat write did not land.
+        $this->assertSame('EDITOR', pp_get_composition($id)[0]['props']['title']);
+    }
+
+    public function testChatVsEditorReverseDirectionConflict(): void
+    {
+        // A4: a chat write lands (version bumps); an editor save carrying the
+        // pre-chat version is then rejected with composition_conflict.
+        $id = $this->seedPage('Reverse', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        $preChat = pp_get_composition_marker($id)['version']; // 1
+
+        $resp = _pp_ai_execute_response([
+            'type' => 'action', 'name' => 'update_component',
+            'params' => ['post_id' => $id, 'component_index' => 0,
+                         'props' => ['title' => 'CHAT'], 'expected_version' => $preChat],
+        ]);
+        $this->assertTrue($resp['ok']);
+
+        // Editor save carrying the stale pre-chat version — the same writer CAS the
+        // editor path uses (lib/admin.php) — must now conflict.
+        $editor = pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'EDITOR']]], $preChat);
+        $this->assertTrue(is_wp_error($editor));
+        $this->assertSame('composition_conflict', $editor->get_error_code());
+        $this->assertSame('CHAT', pp_get_composition($id)[0]['props']['title']);
+    }
+
+    public function testChatVsChatSecondWriteConflicts(): void
+    {
+        $id = $this->seedPage('ChatChat', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        $baseline = pp_get_composition_marker($id)['version'];
+
+        $first = _pp_ai_execute_response([
+            'type' => 'action', 'name' => 'update_component',
+            'params' => ['post_id' => $id, 'component_index' => 0,
+                         'props' => ['title' => 'FIRST'], 'expected_version' => $baseline],
+        ]);
+        $this->assertTrue($first['ok']);
+        $this->assertSame($baseline + 1, $first['data']['composition_version']);
+
+        // Second write reuses the SAME (now stale) baseline — must conflict.
+        $second = _pp_ai_execute_response([
+            'type' => 'action', 'name' => 'update_component',
+            'params' => ['post_id' => $id, 'component_index' => 0,
+                         'props' => ['title' => 'SECOND'], 'expected_version' => $baseline],
+        ]);
+        $this->assertFalse($second['ok']);
+        $this->assertSame('composition_conflict', $second['data']['error_code']);
+        $this->assertSame('FIRST', pp_get_composition($id)[0]['props']['title']);
+    }
+
+    public function testSingleExecuteLegacyPageVersionZeroAcceptedEndToEnd(): void
+    {
+        // A page with no composition marker reads as version 0; a chat update_composition
+        // carrying baseline 0 must be accepted end-to-end and initialize it to version 1.
+        $id = pp_create_page('Legacy chat');
+        $this->assertSame(0, pp_get_composition_marker($id)['version']);
+
+        $resp = _pp_ai_execute_response([
+            'type' => 'action', 'name' => 'update_composition',
+            'params' => ['post_id' => $id,
+                         'composition' => [['component' => 'hero', 'props' => ['title' => 'Seed']]],
+                         'expected_version' => 0],
+        ]);
+
+        $this->assertTrue($resp['ok']);
+        $this->assertSame(1, $resp['data']['composition_version']);
+        $this->assertSame('Seed', pp_get_composition($id)[0]['props']['title']);
+    }
+
+    // ── Composition CAS baseline: batch handler mandate (#404) ──────────────
+
+    public function testBatchHandlerRejectsUncoveredMutatingStepBeforeExecuting(): void
+    {
+        // A1: a mutating step with no baseline for its page → the whole batch is
+        // rejected before any step runs (nothing to roll back), fail-closed.
+        $id = $this->seedPage('Batch mandate', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+
+        $resp = _pp_ai_execute_batch_response([
+            'steps' => json_encode([
+                ['type' => 'action', 'name' => 'update_component',
+                 'params' => ['post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'B']]],
+            ]),
+            'baselines' => json_encode([]), // no coverage
+        ]);
+
+        $this->assertFalse($resp['ok']);
+        $this->assertSame('missing_expected_version', $resp['data']['error_code']);
+        // Never executed → composition untouched.
+        $this->assertSame('A', pp_get_composition($id)[0]['props']['title']);
+    }
+
+    public function testBatchHandlerAcceptsCoveredMutatingStepAndReturnsVersions(): void
+    {
+        $id = $this->seedPage('Batch covered', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        $baseline = pp_get_composition_marker($id)['version'];
+
+        $resp = _pp_ai_execute_batch_response([
+            'steps' => json_encode([
+                ['type' => 'action', 'name' => 'update_component',
+                 'params' => ['post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'B']]],
+            ]),
+            'baselines' => json_encode([(string) $id => $baseline]),
+        ]);
+
+        $this->assertTrue($resp['ok']);
+        $this->assertTrue($resp['data']['ok']);
+        $this->assertSame($baseline + 1, $resp['data']['versions'][$id]);
+        $this->assertSame('B', pp_get_composition($id)[0]['props']['title']);
+    }
+
+    public function testBatchHandlerCreatePageOnlyNeedsNoBaseline(): void
+    {
+        // A batch of only non-baseline-requiring steps (create_page) passes the
+        // mandate with an empty baselines map.
+        $resp = _pp_ai_execute_batch_response([
+            'steps' => json_encode([
+                ['type' => 'action', 'name' => 'create_page',
+                 'params' => ['title' => 'Made in batch',
+                              'composition' => [['component' => 'hero', 'props' => ['title' => 'New']]]]],
+            ]),
+            'baselines' => json_encode([]),
+        ]);
+
+        $this->assertTrue($resp['ok']);
+        $this->assertTrue($resp['data']['ok']);
+        // Strong: the page was really created with its composition and joined the
+        // versions map at v1 — this would fail if create_page silently no-opped.
+        $new_id = $resp['data']['steps'][0]['target']['post_id'];
+        $this->assertSame(1, $resp['data']['versions'][$new_id]);
+    }
+
+    public function testSingleExecuteHostileExpectedVersionRejectedByValidation(): void
+    {
+        // The single-execute mandate checks baseline PRESENCE; a malformed non-integer
+        // expected_version is then rejected by pp_validate_action's int type check
+        // (invalid_param_type), so it never reaches the writer with a wrong baseline.
+        $id = $this->seedPage('Hostile single', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+
+        $resp = _pp_ai_execute_response([
+            'type' => 'action', 'name' => 'update_component',
+            'params' => ['post_id' => $id, 'component_index' => 0,
+                         'props' => ['title' => 'B'], 'expected_version' => ['nope']],
+        ]);
+
+        $this->assertFalse($resp['ok']);
+        $this->assertSame('A', pp_get_composition($id)[0]['props']['title']);
+    }
+
+    public function testBatchRejectionPreservesConcurrentExternalWrite(): void
+    {
+        // Guarantee regression (#404): the design's target scenario is an external
+        // write landing DURING the review gap (before Apply). The batch snapshot,
+        // taken at Apply time, captures that external state, so the CAS-rejected
+        // batch's rollback restores the external write rather than clobbering it.
+        $id = $this->seedPage('Guarantee', [['component' => 'hero', 'props' => ['title' => 'C0']]]);
+        $baseline = pp_get_composition_marker($id)['version']; // model read this
+
+        // Review gap: an external editor writes before the user clicks Apply.
+        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'EXTERNAL']]], $baseline);
+
+        // Apply: batch mutating step on the stale baseline → conflict → rollback.
+        $resp = _pp_ai_execute_batch_response([
+            'steps' => json_encode([
+                ['type' => 'action', 'name' => 'update_component',
+                 'params' => ['post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'CHAT']]],
+            ]),
+            'baselines' => json_encode([(string) $id => $baseline]),
+        ]);
+
+        $this->assertTrue($resp['ok']); // handler ran the batch
+        $this->assertFalse($resp['data']['ok']);
+        $this->assertTrue($resp['data']['rolled_back']);
+        $this->assertSame('composition_conflict', $resp['data']['steps'][0]['error_code']);
+        // The external write survives; neither the chat write nor the rollback clobbers it.
+        $this->assertSame('EXTERNAL', pp_get_composition($id)[0]['props']['title']);
+    }
+
+    public function testBatchBaselineParserDropsHostileEntries(): void
+    {
+        // A malformed baseline (float/negative/non-numeric) is dropped, so the page
+        // reads as uncovered and the fail-closed mandate rejects — never a wrong baseline.
+        $id = $this->seedPage('Hostile baseline', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+
+        $resp = _pp_ai_execute_batch_response([
+            'steps' => json_encode([
+                ['type' => 'action', 'name' => 'update_component',
+                 'params' => ['post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'B']]],
+            ]),
+            'baselines' => json_encode([(string) $id => '1.9']),
+        ]);
+
+        $this->assertFalse($resp['ok']);
+        $this->assertSame('missing_expected_version', $resp['data']['error_code']);
+    }
+
+    public function testPageBaselineReadReturnsCurrentVersion(): void
+    {
+        $id = $this->seedPage('Read baseline', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+
+        $resp = _pp_ai_page_baseline_response(['post_id' => $id]);
+
+        $this->assertTrue($resp['ok']);
+        $this->assertSame($id, $resp['data']['post_id']);
+        $this->assertSame(pp_get_composition_marker($id)['version'], $resp['data']['version']);
+    }
+
+    public function testPageBaselineReadRejectsMissingPage(): void
+    {
+        $resp = _pp_ai_page_baseline_response(['post_id' => 999999]);
+        $this->assertFalse($resp['ok']);
+    }
 }
