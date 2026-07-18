@@ -1352,6 +1352,43 @@
   object-fit: cover;
 }
 
+/* Item image icon treatment (issue 380). Opt-in via the grid
+   `image_treatment: "icon"` prop, emitted by grid.php as the grid--image-icon
+   variant class on the section. Renders each card image at a small fixed icon
+   size instead of the default 16:9 cover banner above: no aspect-ratio crop,
+   sized by the --grid-item-icon-size slot (length, default 48px), and
+   object-fit: contain so the whole glyph/logo shows rather than being cropped
+   to fill. Unset (default 'banner') emits no class, so neither selector matches
+   and the banner rendering above is byte-identical. Applies at ALL breakpoints
+   (NOT nested in a min-width block), so the icon stays icon-sized on mobile too;
+   the <768px single-column collapse is untouched. Scoped under .grid--image-icon
+   (only ever on cards — grid.php never emits the class on steps, which render no
+   item images). --grid-item-icon-size embeds no WP-core border-trigger substring,
+   so the issue 332 immunity baseline is unaffected; the value routes through
+   var(--slot, 48px) so the slot-contract bypass guard does not flag the literal. */
+.grid--image-icon .grid__item-image-wrap {
+  aspect-ratio: auto;
+  width: var(--grid-item-icon-size, 48px);
+  height: var(--grid-item-icon-size, 48px);
+  overflow: visible;
+  /* Follow the card's --grid-item-text-align (issue 380, maintainer 7A). The
+     fixed-width icon box is a flex child of .grid__item (a flex column); per the
+     issue 338 flex trap, text-align on the body cannot move it, so a centered
+     card would otherwise render a left-pinned icon over centered text. It reuses
+     the SAME derived companion the Read-more link already follows (--pp-grid-link
+     -align, issue 361), emitted grid-level and per-card from the one authored
+     --grid-item-text-align slot (left/start/justify->flex-start, center->center,
+     right/end->flex-end) — no second slot, no second companion. Unset emits no
+     companion, so the flex-start fallback keeps every icon card left-aligned,
+     byte-identical. Only meaningful in icon mode (the banner wrap is full-width,
+     so align-self is a no-op there). */
+  align-self: var(--pp-grid-link-align, flex-start);
+}
+
+.grid--image-icon .grid__item-image {
+  object-fit: contain;
+}
+
 .grid__item-body {
   padding: var(--grid-card-padding, var(--space-md));
   display: flex;

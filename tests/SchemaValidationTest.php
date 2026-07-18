@@ -247,7 +247,7 @@ class SchemaValidationTest extends TestCase
         $expected = [
             'hero'    => 41,
             'section' => 36,
-            'grid'    => 35,
+            'grid'    => 36,
             'cta'     => 30,
         ];
 
@@ -558,6 +558,90 @@ class SchemaValidationTest extends TestCase
             'string "0"'             => ['0'],
             'string "5"'             => ['5'],
         ];
+    }
+
+    // ── Grid item image treatment (issue 380) ────────────────────────────
+    //
+    // grid.image_treatment is a strict enum (type:enum + strict:true in
+    // schema.json), so the shared validator's generic strict-enum check accepts
+    // only the declared values ("banner"/"icon") and the unset sentinel, and
+    // rejects everything else with invalid_prop_value — the write never persists
+    // an unknown value the renderer would silently coerce to the banner default.
+
+    private function gridCompositionWithImageTreatment($treatment): array
+    {
+        $props = ['items' => [['title' => 'One', 'image_url' => 'x.png']]];
+        // '__ABSENT__' omits the key entirely; anything else is supplied verbatim.
+        if ($treatment !== '__ABSENT__') {
+            $props['image_treatment'] = $treatment;
+        }
+        return [['component' => 'grid', 'props' => $props]];
+    }
+
+    /**
+     * @dataProvider validImageTreatmentProvider
+     */
+    public function testGridImageTreatmentAcceptsDeclaredValuesAndUnset($treatment): void
+    {
+        $result = pp_validate_composition($this->gridCompositionWithImageTreatment($treatment));
+        $this->assertTrue($result, 'image_treatment=' . var_export($treatment, true) . ' must validate.');
+    }
+
+    public static function validImageTreatmentProvider(): array
+    {
+        return [
+            'banner'        => ['banner'],
+            'icon'          => ['icon'],
+            'unset: absent' => ['__ABSENT__'],
+            'unset: null'   => [null],
+            'unset: empty'  => [''],
+        ];
+    }
+
+    /**
+     * @dataProvider invalidImageTreatmentProvider
+     */
+    public function testGridImageTreatmentRejectsValuesOutsideTheClosedSet($treatment): void
+    {
+        $result = pp_validate_composition($this->gridCompositionWithImageTreatment($treatment));
+        $this->assertInstanceOf(\WP_Error::class, $result, 'image_treatment=' . var_export($treatment, true) . ' must be rejected.');
+        $this->assertSame('invalid_prop_value', $result->get_error_code());
+        // The envelope names the offending prop so the caller/AI can correct it.
+        $this->assertStringContainsString('image_treatment', $result->get_error_message());
+    }
+
+    public static function invalidImageTreatmentProvider(): array
+    {
+        return [
+            'unknown keyword'     => ['card'],
+            'case mismatch'       => ['Icon'],
+            'uppercase'           => ['BANNER'],
+            'domain look-alike'   => ['thumbnail'],
+            'numeric'             => [1],
+            'whitespace-padded'   => [' icon'],
+        ];
+    }
+
+    /**
+     * The strict-enum check is OPT-IN (only enum props with strict:true). It must
+     * NOT ripple to ordinary enum props: an invalid `layout` value keeps its
+     * historical accept-and-coerce-at-render behavior and still VALIDATES here, so
+     * this change did not silently tighten validation for props beyond #380's.
+     */
+    public function testNonStrictEnumInvalidValueStillValidates(): void
+    {
+        $result = pp_validate_composition([
+            ['component' => 'grid', 'props' => [
+                'layout' => 'bogus-not-a-layout',
+                'theme'  => 'not-a-theme',
+                'items'  => [['title' => 'One']],
+            ]],
+        ]);
+        $this->assertTrue(
+            $result,
+            'A non-strict enum (layout/theme) with an invalid value must still validate '
+            . '(render-time coercion preserved); the #380 strict check must not ripple to it.'
+        );
     }
 
     // ── Featured first-card remnant slots (issue 293) ────────────────────
@@ -977,7 +1061,7 @@ class SchemaValidationTest extends TestCase
                 '--grid-card-radius', '--grid-card-shadow', '--grid-card-bar-color',
                 '--grid-card-bar-height', '--grid-featured-texture-color',
                 '--grid-featured-shadow', '--grid-card-padding', '--grid-card-gap',
-                '--grid-item-text-align',
+                '--grid-item-text-align', '--grid-item-icon-size',
                 '--grid-item-title-size', '--grid-item-title-color', '--grid-item-text-color',
                 '--grid-bullet-color', '--grid-link-color', '--grid-step-color',
             ],
@@ -1122,12 +1206,22 @@ class SchemaValidationTest extends TestCase
             $props = [];
             foreach (($schema['props'] ?? []) as $prop_name => $prop_def) {
                 // Most prop VALUES are not type-checked by the shared validator, so a
-                // placeholder string suffices. The exception is a prop that declares
-                // integer min/max bounds (issue 379): its value IS range-checked, so
-                // supply an in-range integer instead of the placeholder.
-                $props[$prop_name] = isset($prop_def['min'])
-                    ? (int) $prop_def['min']
-                    : 'x';
+                // placeholder string suffices. Two exceptions declare their constraint
+                // in schema and ARE value-checked: a prop with integer min/max bounds
+                // (issue 379) needs an in-range integer, and a strict enum (issue 380,
+                // type:enum + strict:true) needs one of its declared values — the
+                // placeholder 'x' would be rejected as out-of-set.
+                if (isset($prop_def['min'])) {
+                    $props[$prop_name] = (int) $prop_def['min'];
+                } elseif (
+                    ($prop_def['type'] ?? null) === 'enum'
+                    && !empty($prop_def['strict'])
+                    && !empty($prop_def['values'])
+                ) {
+                    $props[$prop_name] = $prop_def['values'][0];
+                } else {
+                    $props[$prop_name] = 'x';
+                }
             }
 
             $result = pp_validate_composition([['component' => $name, 'props' => $props]]);

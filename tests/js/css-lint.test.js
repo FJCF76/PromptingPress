@@ -152,8 +152,8 @@ describe('CSS lint: style slot fallback patterns', () => {
         });
     });
 
-    test('hero/section/grid/cta schemas declare 142 style slots (subset of the 194 total)', () => {
-        expect(allSlots.length).toBe(142);
+    test('hero/section/grid/cta schemas declare 143 style slots (subset of the 195 total)', () => {
+        expect(allSlots.length).toBe(143);
     });
 
     allSlots.forEach(({ component, slotName }) => {
@@ -903,6 +903,81 @@ describe('CSS lint: grid explicit column-count override (#379)', () => {
             expect(match[1]).toMatch(/:not\(\.grid--steps\)/);
         }
         expect(seen).toBe(4);
+    });
+});
+
+/**
+ * Grid item image icon treatment (#380).
+ *
+ * `image_treatment: "icon"` emits the `grid--image-icon` variant class on the
+ * grid section. Its CSS must (a) drop the 16:9 crop (aspect-ratio: auto) and size
+ * the image wrap by the --grid-item-icon-size slot, (b) contain (not cover) the
+ * image so a logo/glyph shows whole, and — load-bearing for the acceptance's
+ * "mobile <768px verified" — (c) NOT be nested in a min-width media block, so the
+ * icon stays icon-sized on phones too. The default `.grid__item-image-wrap` must
+ * keep its 16:9 banner untouched.
+ */
+describe('CSS lint: grid item image icon treatment (#380)', () => {
+    const stripped = stripComments(COMPONENTS_CSS);
+
+    // Body of the first rule matching `selector { ... }` at top level (no nested braces).
+    function bodyFor(selector) {
+        const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const m = new RegExp(`(?:^|[}{])\\s*${escaped}\\s*\\{([^}]*)\\}`).exec(stripped);
+        return m ? m[1] : null;
+    }
+
+    test('default .grid__item-image-wrap keeps the 16:9 banner (unset = byte-identical)', () => {
+        const body = bodyFor('.grid__item-image-wrap');
+        expect(body).not.toBeNull();
+        expect(/aspect-ratio\s*:\s*16\s*\/\s*9/.test(body)).toBe(true);
+    });
+
+    test('grid--image-icon sizes the wrap via --grid-item-icon-size and drops the crop', () => {
+        const body = bodyFor('.grid--image-icon .grid__item-image-wrap');
+        expect(body).not.toBeNull();
+        expect(/aspect-ratio\s*:\s*auto/.test(body)).toBe(true);
+        // width AND height both route through the slot (length-typed, default 48px).
+        expect(/width\s*:\s*var\(--grid-item-icon-size,\s*48px\)/.test(body)).toBe(true);
+        expect(/height\s*:\s*var\(--grid-item-icon-size,\s*48px\)/.test(body)).toBe(true);
+    });
+
+    test('grid--image-icon image is contained, not cover-cropped', () => {
+        const body = bodyFor('.grid--image-icon .grid__item-image');
+        expect(body).not.toBeNull();
+        expect(/object-fit\s*:\s*contain/.test(body)).toBe(true);
+    });
+
+    test('the icon box follows --grid-item-text-align via the shared #361 companion', () => {
+        // The fixed-width icon is a flex child; it reuses the SAME derived
+        // --pp-grid-link-align companion the card link follows, so a centered card
+        // centers its icon too. Fallback flex-start keeps unset cards left (#380 7A).
+        const body = bodyFor('.grid--image-icon .grid__item-image-wrap');
+        expect(body).not.toBeNull();
+        expect(/align-self\s*:\s*var\(--pp-grid-link-align,\s*flex-start\)/.test(body)).toBe(true);
+    });
+
+    test('the icon rules apply at all breakpoints (not nested in a min-width block)', () => {
+        // Find every @media (min-width: ...) block body by brace matching, and assert
+        // no grid--image-icon rule lives inside one — otherwise mobile would keep the
+        // banner-sized image below the breakpoint.
+        const opener = /@media\s*\(min-width:[^)]*\)\s*\{/g;
+        let match;
+        let insideCount = 0;
+        while ((match = opener.exec(stripped)) !== null) {
+            let depth = 1;
+            let i = opener.lastIndex;
+            while (i < stripped.length && depth > 0) {
+                if (stripped[i] === '{') depth++;
+                else if (stripped[i] === '}') depth--;
+                i++;
+            }
+            const block = stripped.slice(opener.lastIndex, i - 1);
+            if (block.includes('.grid--image-icon')) insideCount++;
+        }
+        expect(insideCount).toBe(0);
+        // Guard against a vacuous pass: the rule must exist somewhere in the file.
+        expect(stripped.includes('.grid--image-icon .grid__item-image-wrap')).toBe(true);
     });
 });
 

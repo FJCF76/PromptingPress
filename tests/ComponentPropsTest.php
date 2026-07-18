@@ -221,6 +221,91 @@ class ComponentPropsTest extends TestCase
         $this->assertStringContainsString('grid--uniform', $html);
     }
 
+    // ── Grid item image treatment (issue 380) ─────────────────────────────
+    // `image_treatment: "icon"` emits the grid--image-icon variant class on the
+    // section; the CSS reads it to render each card image at icon scale instead of
+    // the 16:9 cover banner. Default/unset ("banner") emits NO class, so existing
+    // pages stay byte-identical. Write-time validation rejects out-of-set values;
+    // the renderer additionally coerces raw-written invalid state to "no class"
+    // (defensive, like layout/theme). Icon is a cards concept: inert on steps.
+
+    public function testGridImageTreatmentIconEmitsVariantClass(): void
+    {
+        $html = $this->render('grid', [
+            'image_treatment' => 'icon',
+            'items' => [['title' => 'One', 'image_url' => 'a.png', 'image_alt' => 'A']],
+        ]);
+        $this->assertStringContainsString('grid--image-icon', $html);
+        // The image still renders inside its wrap; only the treatment class changes.
+        $this->assertStringContainsString('grid__item-image-wrap', $html);
+    }
+
+    public function testGridImageTreatmentBannerAndUnsetEmitNoClassByteIdentical(): void
+    {
+        $withUnset = $this->render('grid', [
+            'items' => [['title' => 'One', 'image_url' => 'a.png']],
+        ]);
+        $this->assertStringNotContainsString('grid--image-icon', $withUnset);
+
+        // Explicit "banner" is byte-identical to omitting the key (the default).
+        $withBanner = $this->render('grid', [
+            'image_treatment' => 'banner',
+            'items' => [['title' => 'One', 'image_url' => 'a.png']],
+        ]);
+        $this->assertSame($withUnset, $withBanner);
+    }
+
+    public function testGridImageTreatmentInvalidValueCoercesToBanner(): void
+    {
+        // Defence-in-depth for state written through a raw, non-validating path:
+        // an unknown value must fall through to banner (no class), never leak a
+        // dead grid--image-<x> class the CSS can't honor. Covers the same reject
+        // shapes the write-time validator pins (unknown keyword, case mismatch,
+        // numeric, whitespace-padded) plus the unset sentinels (empty/null), so
+        // the render-layer coercion is proven at the same granularity as validation.
+        foreach (['card', 'Icon', 'bogus', '', ' icon', 1, null] as $bad) {
+            $html = $this->render('grid', [
+                'image_treatment' => $bad,
+                'items' => [['title' => 'One', 'image_url' => 'a.png']],
+            ]);
+            $this->assertStringNotContainsString(
+                'grid--image-icon',
+                $html,
+                'image_treatment=' . var_export($bad, true) . ' must not emit the icon variant class'
+            );
+        }
+    }
+
+    public function testGridImageTreatmentIsInertOnStepsLayout(): void
+    {
+        // Icon treatment is a cards concept; steps renders no item images, so the
+        // renderer must NOT emit grid--image-icon on steps (byte-identical steps).
+        $html = $this->render('grid', [
+            'image_treatment' => 'icon',
+            'layout' => 'steps',
+            'items' => [['number' => '1', 'title' => 'One']],
+        ]);
+        $this->assertStringNotContainsString('grid--image-icon', $html);
+        $this->assertStringContainsString('grid--steps', $html);
+    }
+
+    public function testGridImageTreatmentComposesWithThemeEmphasisAndBullets(): void
+    {
+        $html = $this->render('grid', [
+            'image_treatment' => 'icon',
+            'theme' => 'dark',
+            'card_emphasis' => 'uniform',
+            'items' => [
+                ['title' => 'One', 'image_url' => 'a.png', 'bullets' => ['Fast', 'Cheap']],
+            ],
+        ]);
+        $this->assertStringContainsString('grid--image-icon', $html);
+        $this->assertStringContainsString('grid--dark', $html);
+        $this->assertStringContainsString('grid--uniform', $html);
+        // Works alongside bullets on the same card.
+        $this->assertStringContainsString('grid__item-bullet', $html);
+    }
+
     public function testSectionCenteredSuppressesImageEvenWhenProvided(): void
     {
         $html = $this->render('section', [

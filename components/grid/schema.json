@@ -67,6 +67,14 @@
       "max": 4,
       "description": "Optional explicit desktop (>=768px) column count, an integer 1-4. Unset (key absent, null, or empty) keeps the default auto-derivation from item count (unchanged, byte-identical). When set it forces that many equal-width columns at >=768px, spanning the container, overriding the item-count grain; the single-column collapse below 768px is unchanged. Out-of-range or non-integer values (0, 5, 2.5, text) are rejected, not clamped. Cards-layout concept; ignored on 'steps' (which keeps its fixed process grain). Set with create_page / update_component, not style_component."
     },
+    "image_treatment": {
+      "type": "enum",
+      "values": ["banner", "icon"],
+      "required": false,
+      "default": "banner",
+      "strict": true,
+      "description": "How each card's image_url renders. 'banner' (default, unchanged historical behavior) is a full-width 16:9 cover banner above the card body. 'icon' renders the image at a small fixed icon size (the --grid-item-icon-size slot, default 48px) above the title, un-cropped (object-fit: contain) — for icon+title+text feature cards where a ~45px logo/glyph would otherwise be blown up into a cropped banner. Unset keeps 'banner' (byte-identical). Invalid values are rejected with the standard invalid_prop_value envelope (closed set: banner|icon), not silently coerced. Cards-layout concept; ignored on 'steps' (which renders no item images). Set with create_page / update_component, not style_component."
+    },
     "items": {
       "type": "array",
       "required": true,
@@ -81,13 +89,13 @@
         "image_alt": { "type": "string", "required": false, "default": "", "description": "Alt text for the card image. Leave empty only if the image is purely decorative." },
         "link_url":  { "type": "string", "required": false },
         "link_text": { "type": "string", "required": false, "default": "Read more" },
-        "style":     { "type": "object", "required": false, "description": "Optional per-card style overrides for THIS card only (issue 306). Accepts ONLY the CARD-SCOPED style slots — the ones flagged item_eligible in styling.style_slots because they are consumed on the .grid__item and its contents (issue 323): --grid-card-bg, --grid-card-border, --grid-card-border-width, --grid-card-radius, --grid-card-shadow, --grid-card-bar-color, --grid-card-bar-height, --grid-featured-texture-color, --grid-featured-shadow, --grid-card-padding, --grid-card-gap, --grid-item-text-align, --grid-item-title-size, --grid-item-title-color, --grid-item-text-color, --grid-bullet-color, --grid-link-color, --grid-step-color. Validated by the shared style engine exactly like grid-level slots (unknown slot names and invalid values are rejected). Rendered as inline custom properties on this card's .grid__item, so a per-card slot overrides the grid-level value by cascade proximity. Container/heading slots (--grid-bg, --grid-gap, --grid-heading-*, --grid-heading-accent-color, --grid-eyebrow-*, --grid-subheading-*, --grid-padding-*) are read on the section/list/header, not the card, so a per-card override would render nothing — they are REJECTED here with invalid_style_slot naming the card; set those on the grid-level style instead. Use per-card style for one distinct card in a row: a dark CTA panel beside light checklist cards, or a green-on-dark terminal card. Set via the composition (update_component / update_composition / create_page), not style_component (which is component-scoped)." }
+        "style":     { "type": "object", "required": false, "description": "Optional per-card style overrides for THIS card only (issue 306). Accepts ONLY the CARD-SCOPED style slots — the ones flagged item_eligible in styling.style_slots because they are consumed on the .grid__item and its contents (issue 323): --grid-card-bg, --grid-card-border, --grid-card-border-width, --grid-card-radius, --grid-card-shadow, --grid-card-bar-color, --grid-card-bar-height, --grid-featured-texture-color, --grid-featured-shadow, --grid-card-padding, --grid-card-gap, --grid-item-text-align, --grid-item-icon-size, --grid-item-title-size, --grid-item-title-color, --grid-item-text-color, --grid-bullet-color, --grid-link-color, --grid-step-color. Validated by the shared style engine exactly like grid-level slots (unknown slot names and invalid values are rejected). Rendered as inline custom properties on this card's .grid__item, so a per-card slot overrides the grid-level value by cascade proximity. Container/heading slots (--grid-bg, --grid-gap, --grid-heading-*, --grid-heading-accent-color, --grid-eyebrow-*, --grid-subheading-*, --grid-padding-*) are read on the section/list/header, not the card, so a per-card override would render nothing — they are REJECTED here with invalid_style_slot naming the card; set those on the grid-level style instead. Use per-card style for one distinct card in a row: a dark CTA panel beside light checklist cards, or a green-on-dark terminal card. Set via the composition (update_component / update_composition / create_page), not style_component (which is component-scoped)." }
       }
     }
   },
   "styling": {
     "root_class": "grid",
-    "variant_classes": ["grid--steps", "grid--dark", "grid--inverted", "grid--uniform"],
+    "variant_classes": ["grid--steps", "grid--dark", "grid--inverted", "grid--uniform", "grid--image-icon"],
     "tokens": ["--space-xl", "--space-2xl", "--space-3xl", "--color-bg", "--color-surface", "--color-border", "--color-bg-inverted"],
     "style_slots": {
       "--grid-padding-top": { "type": "length", "default": "var(--space-xl)", "description": "Top padding of the grid section" },
@@ -119,6 +127,7 @@
       "--grid-card-padding": { "item_eligible": true, "type": "length", "default": "var(--space-md)", "description": "Card body padding" },
       "--grid-card-gap": { "item_eligible": true, "type": "length", "default": "var(--space-sm)", "description": "Gap between card body elements" },
       "--grid-item-text-align": { "item_eligible": true, "type": "align", "default": "left", "description": "Alignment of the card's content within the card body. 'left' (default) is unchanged historical behavior; 'center' centers the content (use for centered emoji/label contact cards); also accepts 'right', 'start', 'end', 'justify'. Governs BOTH the text (title, text, bullets) via text-align AND the 'Read more' link/button, which follows the same alignment via the derived --pp-grid-link-align companion (issue 361: left/start/justify->flex-start, center->center, right/end->flex-end), so a centered card is fully centered. Item-eligible, so settable grid-wide or per-card." },
+      "--grid-item-icon-size": { "item_eligible": true, "type": "length", "default": "48px", "description": "Icon size (width and height) of a card image when image_treatment is 'icon' — the fixed box the un-cropped icon renders in, above the title. No effect under the default 'banner' treatment (the 16:9 cover banner ignores it). Item-eligible, so settable grid-wide or per-card." },
       "--grid-item-title-size": { "item_eligible": true, "type": "length", "default": "1.25rem", "description": "Card title font size" },
       "--grid-item-title-color": { "item_eligible": true, "type": "color", "default": "var(--color-text)", "description": "Card title text color" },
       "--grid-item-text-color": { "item_eligible": true, "type": "color", "default": "var(--color-muted)", "description": "Card description text color" },
