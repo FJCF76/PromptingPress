@@ -310,6 +310,97 @@
 }
 
 /* ==========================================================================
+   NAV: Dropdown submenus (issue 381) — one level of nesting
+   WP's default walker emits <li class="menu-item-has-children"> wrapping a
+   nested <ul class="sub-menu">. main.js enhances each into an accessible
+   disclosure: it injects a .nav__submenu-toggle button, sets .pp-has-dropdown
+   on the <li>, and toggles .is-open. Pattern = WAI-ARIA *disclosure*
+   navigation (button + aria-expanded), NOT a menubar — so there are no
+   role="menu"/"menuitem" semantics here. Every selector is scoped under
+   .nav__menu, so the footer and other WP menus are untouched.
+
+   No-JS progressive enhancement (mirrors the hamburger): submenus stay
+   visible/expanded until JS marks .pp-has-dropdown; on desktop, hover still
+   reveals the dropdown without JS (keyboard users rely on the JS-injected
+   disclosure button).
+   ========================================================================== */
+
+/* The disclosure button main.js injects after a parent link. */
+.nav__submenu-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xs);
+  margin-left: calc(-1 * var(--space-xs));
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.nav__submenu-toggle-icon {
+  transition: transform var(--transition);
+}
+
+/* Rotate the chevron when the group is open. */
+.nav__menu li.is-open > .nav__submenu-toggle .nav__submenu-toggle-icon {
+  transform: rotate(180deg);
+}
+
+/* Mobile / no-breakpoint base: a submenu is a plain nested list. Without JS it
+   stays visible. Once JS sets .pp-has-dropdown, the submenu collapses and the
+   toggle owns visibility via .is-open (expand-in-place). */
+.nav__menu li.pp-has-dropdown > .sub-menu {
+  display: none;
+}
+.nav__menu li.pp-has-dropdown.is-open > .sub-menu {
+  display: flex;
+}
+
+@media (min-width: 768px) {
+  /* Anchor the dropdown to its parent item. */
+  .nav__menu li.menu-item-has-children {
+    position: relative;
+  }
+
+  /* Desktop: the submenu floats as a dropdown, hidden until hover (mouse) or
+     an explicit .is-open toggle (the keyboard disclosure). The button's
+     aria-expanded mirrors .is-open exactly, so keyboard state and ARIA never
+     drift; hover is a pure mouse affordance (not exposed to assistive tech, so
+     it needs no ARIA). :focus-within is deliberately NOT a reveal trigger — it
+     would show the dropdown while aria-expanded still read false, and it would
+     keep the dropdown visible after Escape (which returns focus to the still-
+     inside-the-group toggle). The button owns the keyboard path instead. */
+  .nav__menu .sub-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 10;
+    min-width: 12rem;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: var(--space-xs);
+    background: var(--header-bg, var(--color-surface));
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 24px rgba(16, 24, 40, 0.12);
+    display: none;
+  }
+
+  .nav__menu li.menu-item-has-children:hover > .sub-menu,
+  .nav__menu li.is-open > .sub-menu {
+    display: flex;
+  }
+
+  .nav__menu .sub-menu li a {
+    padding: var(--space-xs) var(--space-sm);
+    white-space: nowrap;
+  }
+}
+
+/* ==========================================================================
    SHARED: Anchor scroll offset (issue 63)
    Every content component supports an `id` prop, rendering it as a direct-
    link/deep-link anchor target. Without this, jumping to #section-id lands

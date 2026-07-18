@@ -13,7 +13,7 @@
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
 [![Tests](https://img.shields.io/badge/Tests-1936+_passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-1.2.2-6366F1?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.2.3-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -159,7 +159,7 @@ Components are plain PHP partials that render semantic HTML with CSS custom prop
 | `base.css` | 9 KB | Design tokens — CSS custom properties |
 | `components.css` | 84 KB | All 12 component styles, CSS variables only |
 | `utilities.css` | 3 KB | Layout helpers |
-| `main.js` | 3.6 KB | Hamburger nav toggle + sticky-header height measurement — one IIFE, zero dependencies |
+| `main.js` | 7.8 KB | Hamburger nav toggle, dropdown-submenu disclosures, and sticky-header height measurement — one IIFE, zero dependencies |
 
 No build step. No transpilation. No bundler. What you write is what ships.
 

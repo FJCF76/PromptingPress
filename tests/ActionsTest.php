@@ -4577,6 +4577,196 @@ class ActionsTest extends TestCase
         $this->assertNull($menus[0]['location']);
     }
 
+    // ── set_menu dropdown children (#381) ──────────────────────────────────
+
+    public function testSetMenuCreatesDropdownChildrenWithParentIds(): void
+    {
+        $services = pp_create_page('Servicios', 'publish');
+
+        $result = pp_execute_action('set_menu', [
+            'name'  => 'Main Menu',
+            'items' => [
+                ['url' => 'https://example.com/', 'label' => 'Inicio'],
+                ['page_id' => $services, 'children' => [
+                    ['url' => 'https://example.com/cloud', 'label' => 'Cloud'],
+                    ['url' => 'https://example.com/hosting', 'label' => 'Hosting'],
+                ]],
+            ],
+        ]);
+
+        $this->assertTrue($result['ok']);
+        $menu_id = $result['target']['menu_id'];
+        $items   = array_values($GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id]);
+
+        // Flat store holds parent then its children, in author order.
+        $this->assertCount(4, $items);
+        $byTitle = [];
+        foreach ($items as $item) {
+            $byTitle[$item->title] = $item;
+        }
+        // Top-level items stay top-level.
+        $this->assertSame(0, $byTitle['Inicio']->menu_item_parent);
+        $this->assertSame(0, $byTitle['Servicios']->menu_item_parent);
+        // Children point at their parent's freshly-minted item id.
+        $this->assertSame($byTitle['Servicios']->ID, $byTitle['Cloud']->menu_item_parent);
+        $this->assertSame($byTitle['Servicios']->ID, $byTitle['Hosting']->menu_item_parent);
+        // Author order is preserved: Servicios, then Cloud, then Hosting.
+        $order = array_map(fn($i) => $i->title, $items);
+        $this->assertSame(['Inicio', 'Servicios', 'Cloud', 'Hosting'], $order);
+    }
+
+    public function testSetMenuRejectsChildrenNotArray(): void
+    {
+        $result = pp_validate_action('set_menu', [
+            'name'  => 'Main Menu',
+            'items' => [
+                ['url' => 'https://example.com/a', 'label' => 'Parent', 'children' => 'nope'],
+            ],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_children', $result->get_error_code());
+    }
+
+    public function testSetMenuRejectsChildWithItsOwnChildren(): void
+    {
+        $result = pp_validate_action('set_menu', [
+            'name'  => 'Main Menu',
+            'items' => [
+                ['url' => 'https://example.com/a', 'label' => 'Parent', 'children' => [
+                    ['url' => 'https://example.com/b', 'label' => 'Child', 'children' => [
+                        ['url' => 'https://example.com/c', 'label' => 'Grandchild'],
+                    ]],
+                ]],
+            ],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('nesting_too_deep', $result->get_error_code());
+    }
+
+    public function testSetMenuRejectsMalformedChildMissingLink(): void
+    {
+        $result = pp_validate_action('set_menu', [
+            'name'  => 'Main Menu',
+            'items' => [
+                ['url' => 'https://example.com/a', 'label' => 'Parent', 'children' => [[]]],
+            ],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('missing_item_link', $result->get_error_code());
+        // Error path is child-scoped so the operator can locate it.
+        $this->assertStringContainsString('children[0]', $result->get_error_message());
+    }
+
+    public function testSetMenuRejectsChildCustomLinkMissingLabel(): void
+    {
+        $result = pp_validate_action('set_menu', [
+            'name'  => 'Main Menu',
+            'items' => [
+                ['url' => 'https://example.com/a', 'label' => 'Parent', 'children' => [
+                    ['url' => 'https://example.com/b'],
+                ]],
+            ],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('missing_item_label', $result->get_error_code());
+    }
+
+    public function testSetMenuRejectsTooManyChildren(): void
+    {
+        $children = [];
+        for ($i = 0; $i <= PP_MENU_MAX_CHILDREN; $i++) {
+            $children[] = ['url' => 'https://example.com/c' . $i, 'label' => 'Child ' . $i];
+        }
+        $result = pp_validate_action('set_menu', [
+            'name'  => 'Main Menu',
+            'items' => [
+                ['url' => 'https://example.com/a', 'label' => 'Parent', 'children' => $children],
+            ],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('too_many_children', $result->get_error_code());
+    }
+
+    public function testSetMenuChildFailureMidLoopRestoresPreviousItems(): void
+    {
+        pp_execute_action('set_menu', [
+            'name'  => 'Main Menu',
+            'items' => [['url' => 'https://example.com/old', 'label' => 'Original']],
+        ]);
+
+        // A CHILD (not a top-level item) fails mid-loop after the menu was
+        // already cleared and a parent recreated: the same restore path that
+        // guards a top-level failure must also fire for children (#381).
+        $GLOBALS['_pp_test_store']['fail_menu_item_titles'] = ['BadChild'];
+        $result = pp_execute_action('set_menu', [
+            'name'  => 'Main Menu',
+            'items' => [
+                ['url' => 'https://example.com/p', 'label' => 'Parent', 'children' => [
+                    ['url' => 'https://example.com/bad', 'label' => 'BadChild'],
+                ]],
+            ],
+        ]);
+        unset($GLOBALS['_pp_test_store']['fail_menu_item_titles']);
+
+        $this->assertFalse($result['ok']);
+        $menus = pp_get_menus();
+        $this->assertCount(1, $menus[0]['items']);
+        $this->assertSame('Original', $menus[0]['items'][0]['title']);
+    }
+
+    public function testSetMenuChildFailureDeletesItsOwnNewMenu(): void
+    {
+        // set_menu created the menu itself and a child fails: no half-built
+        // menu (parent + failed child) may survive (#381).
+        $GLOBALS['_pp_test_store']['fail_menu_item_titles'] = ['BadChild'];
+        $result = pp_execute_action('set_menu', [
+            'name'  => 'Fresh Menu',
+            'items' => [
+                ['url' => 'https://example.com/p', 'label' => 'Parent', 'children' => [
+                    ['url' => 'https://example.com/bad', 'label' => 'BadChild'],
+                ]],
+            ],
+        ]);
+        unset($GLOBALS['_pp_test_store']['fail_menu_item_titles']);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame([], pp_get_menus());
+    }
+
+    public function testSetMenuAuthoredNestingRoundTripsThroughBatchRollback(): void
+    {
+        $services = pp_create_page('Servicios', 'publish');
+        pp_execute_action('set_menu', [
+            'name'  => 'Main Menu',
+            'items' => [
+                ['page_id' => $services, 'children' => [
+                    ['url' => 'https://example.com/cloud', 'label' => 'Cloud'],
+                ]],
+            ],
+        ]);
+        $menu_id = pp_get_menus()[0]['id'];
+
+        // A later batch step fails, forcing a full rollback. The nested tree
+        // authored via set_menu must be restored exactly, parent link intact.
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'add_menu_item', 'params' => [
+                'menu_id' => $menu_id, 'url' => 'https://example.com/new', 'label' => 'New',
+            ]],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertTrue($batch['rolled_back']);
+        $items   = array_values($GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id]);
+        $byTitle = [];
+        foreach ($items as $item) {
+            $byTitle[$item->title] = $item;
+        }
+        $this->assertArrayHasKey('Servicios', $byTitle);
+        $this->assertArrayHasKey('Cloud', $byTitle);
+        $this->assertSame(0, $byTitle['Servicios']->menu_item_parent);
+        $this->assertSame($byTitle['Servicios']->ID, $byTitle['Cloud']->menu_item_parent);
+    }
+
     // ── Front-end redirects (#62) ──────────────────────────────────────────
 
     public function testNormalizeRedirectPathStripsHostQueryAndTrailingSlash(): void

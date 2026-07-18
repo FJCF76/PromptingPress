@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.2.3] — 2026-07-18 — navigation menus can have one-level dropdown submenus (#381)
+
+**Menus were flat: `set_menu` built a single row of links with no way to nest, so a "Servicios" item with a dropdown of sub-links was inexpressible through the operator surface. Each `set_menu` item now accepts an optional `children` array of the same `{page_id}` or `{url, label}` shape, and the theme renders a nested group as an accessible dropdown: hover-or-keyboard on desktop, expand-in-place in the mobile menu. Nesting is one level deep — a child with its own `children` is rejected loudly. Leave `children` off and nothing changes: a flat menu renders byte-identical. This is the third and final item of the v1.3.0 feature gate (#141, Part 1.75); the gate-close/tag is a separate release.**
+
+The dropdown follows the WAI-ARIA disclosure navigation pattern, not a menubar: the parent link stays independently clickable, and JavaScript injects a separate toggle button (`aria-expanded`, `aria-controls`) that owns open/collapse. Keyboard users open a group with `Enter`/`Space` or `ArrowDown` (which moves focus to the first child), and `Escape` closes it and returns focus to the toggle. Without JavaScript the submenu stays visible (expanded on mobile, revealed on hover on desktop), so the menu never becomes unusable. Menu snapshot/restore already round-tripped nesting, so authoring a dropdown and rolling it back preserves the structure exactly. Depth beyond one level, a malformed child, or more than 50 children in a group are all rejected at write time with the standard error envelope.
+
+### Added
+- `set_menu` items accept an optional `children` array (same `{page_id}` or `{url, label}` shape) that renders as a one-level dropdown submenu; the nav template, CSS, and `main.js` render it as an accessible disclosure dropdown on desktop and an expand-in-place group in the mobile menu (#381).
+
+### Fixed
+- `set_menu` validation rejects a child with its own `children` (`nesting_too_deep`), a non-array `children` value (`invalid_children`), a group over the child cap (`too_many_children`), and malformed children with child-scoped error paths, instead of silently building a broken menu; a child creation failure mid-apply rolls the menu back to its previous items exactly like a top-level failure (#381).
+
+### Docs
+- `AI_CONTEXT.md`, `ai-instructions/website-building.md`, `components/nav/README.md`, and the `set_menu` action description/semantics (which the runtime AI context surfaces) document the `children` grammar, the one-level limit, and the disclosure keyboard behavior (#381).
+
+### Tests
+- PHP pins for `set_menu` children (parent + children created with correct `menu_item_parent` and author order; depth>1, non-array children, missing link/label, and over-cap all rejected; child-failure mid-apply restores the previous items for an existing menu and deletes a half-built new menu; set_menu-authored nesting round-trips through batch rollback) and JS pins for the disclosure enhancement (labelled toggle injected with `aria-controls`, click toggles `aria-expanded`/`is-open`, `ArrowDown` opens and focuses the first child, `Escape` closes and restores focus, click-outside closes, flat menus left untouched) (#381).
+
 ## [v1.2.2] — 2026-07-18 — grid card images can render as small icons, not just 16:9 banners (#380)
 
 **A grid card's `image_url` always rendered inside a full-width 16:9 cover wrap, so the extremely common icon + title + text feature card was inexpressible: a ~45px logo or glyph got blown up into a cropped banner. The grid now accepts an optional `image_treatment` prop (`banner` default / `icon`) that renders each card image at a small fixed icon size instead — un-cropped, above the title, sized by the new `--grid-item-icon-size` style slot (default 48px). Leave it unset and nothing changes: the banner rendering is byte-identical. This is the second item of the v1.3.0 feature gate (#141, Part 1.75); the gate-close/tag is a separate release.**

@@ -496,7 +496,10 @@ function pp_create_nav_menu(string $name) {
  * post being mutated, so it must not collide with that param name.
  *
  * @param  int   $menu_id  Menu (term) ID.
- * @param  array $item     ['page_id' => int] or ['url' => string, 'label' => string]; optional 'position' => int.
+ * @param  array $item     ['page_id' => int] or ['url' => string, 'label' => string];
+ *                         optional 'position' => int, optional 'parent_id' => int
+ *                         (the item id of the parent menu item, for one-level
+ *                         dropdown children — issue 381).
  * @return int|WP_Error    New menu item ID, or WP_Error on failure.
  */
 function pp_add_nav_menu_item(int $menu_id, array $item) {
@@ -514,6 +517,13 @@ function pp_add_nav_menu_item(int $menu_id, array $item) {
 
     if (isset($item['position'])) {
         $args['menu-item-position'] = (int) $item['position'];
+    }
+
+    // A non-zero parent id nests this item under an existing top-level item as
+    // a dropdown child (issue 381). WordPress stores it as the item's
+    // menu_item_parent, which the snapshot/rollback path already round-trips.
+    if (!empty($item['parent_id'])) {
+        $args['menu-item-parent-id'] = (int) $item['parent_id'];
     }
 
     return wp_update_nav_menu_item($menu_id, 0, $args);

@@ -129,7 +129,7 @@ renders the header or footer twice, and the write is rejected with the error cod
 
 | Component | File                         | Description                             | Configure it via |
 |-----------|------------------------------|-----------------------------------------|------------------|
-| nav       | components/nav/nav.php       | Site header, logo, hamburger mobile nav | Logo: `pp_logo_id` site option. Menu: `set_menu` / `assign_menu_location` (location `primary`). Dark/gradient header: `pp_header_bg` (CSS color **or** gradient) + `pp_header_text` / `pp_header_link_color` (CSS colors) site options |
+| nav       | components/nav/nav.php       | Site header, logo, hamburger mobile nav, one-level dropdown submenus | Logo: `pp_logo_id` site option. Menu: `set_menu` / `assign_menu_location` (location `primary`); nest links under a top-level item with `set_menu`'s per-item `children` array to get an accessible dropdown (desktop) / expand-in-place group (mobile). Dark/gradient header: `pp_header_bg` (CSS color **or** gradient) + `pp_header_text` / `pp_header_link_color` (CSS colors) site options |
 | footer    | components/footer/footer.php | Site footer with nav menu and copyright | Logo: `pp_logo_id` site option (footer override: `pp_footer_logo_id`). Menu: `set_menu` / `assign_menu_location` (location `footer`). Dark footer + blurb/contact/copyright: `pp_footer_bg` (CSS color **or** gradient) / `pp_footer_text` / `pp_footer_link_color` (CSS colors) + `pp_footer_blurb` / `pp_footer_contact` / `pp_footer_copyright` (text) site options. Structure (#335): `pp_footer_menu_label` / `pp_footer_contact_label` (column headings) + `pp_footer_note` (moves copyright into a delimited bottom bar) |
 
 ### Component capabilities reference
@@ -188,7 +188,7 @@ Every visual change maps to one surface. Writing to the wrong surface creates sp
 | Custom font loading | `pp_font_urls` option | Apply: `enqueue_font`, `remove_font`, `reset_fonts` |
 | Component-specific CSS | `assets/css/components.css` | Direct file edit (BEM, tokens only) |
 | Site name / tagline | WordPress options | Action: `update_site_option` |
-| Navigation menus | WP nav menus + `nav_menu_locations` theme mod | Actions: `set_menu` (declarative replace), `create_menu`, `add_menu_item`, `assign_menu_location` |
+| Navigation menus | WP nav menus + `nav_menu_locations` theme mod | Actions: `set_menu` (declarative replace; each item may carry a `children` array for a one-level dropdown submenu), `create_menu`, `add_menu_item`, `assign_menu_location` |
 | Page SEO metadata | `_pp_seo_meta` post meta | Action: `update_seo_meta` (patch semantics) |
 | Front-end redirects | `pp_redirects` option | Actions: `create_redirect` (old path → same-site target, 301/302), `remove_redirect`, `list_redirects`. Resolves on a 404 only — pair with `update_page_slug` so a renamed page's old URL keeps working |
 | External images | Media Library | Apply: `import_media` (sideload; returns attachment id + local URL) |

@@ -127,7 +127,7 @@ theme itself). For **site customization**, the parent-theme rows (`templates/`,
 | /assets/css/base.css     | Design token defaults           | Release-level only — site tokens via update_design_token |
 | /assets/css/components.css | Component styles              | Release-level only — inspect for site work |
 | /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Release-level only — run npm test after |
-| /assets/js/main.js       | Nav toggle, active link         | Release-level only — inspect for site work |
+| /assets/js/main.js       | Nav toggle, dropdown submenus   | Release-level only — inspect for site work |
 | /lib/wp.php              | WP function wrappers (read + write) | Only to add pp_ functions   |
 | /lib/actions.php         | Typed action model (20 actions) | Add actions following the contract |
 | /lib/guardrails.php      | CSS conflict detection, surface classification, theme integrity | Extend for new checks |
