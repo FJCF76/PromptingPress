@@ -20,11 +20,10 @@ import path from 'path';
  *          `inline-block` and stretched it across the full content width. The CSS-text
  *          pins in tests/js/css-lint.test.js can only prove the declaration is present;
  *          only a rendered box can prove the pill is not a band.
- *   #255 — the cta eyebrow must render as a pill ABOVE the title. `display: contents` on
- *          `#home-cta .cta__text` promotes it into a grid, which blockified it AND
- *          auto-placed it into row 3, column 1 — a band the full width of the title
- *          column, below the button. Position, not just width, is what a rendered box
- *          proves here.
+ *   #412 — a full-width cta authored with an ORDINARY id must center its title/body/button
+ *          in the BASE rules, not via a reserved demo id. (The former #255/#257/#258/#265
+ *          CTA-grid pins tested demo-id decoration that issue 412 evicted; they were
+ *          removed with the eviction and the css-lint ID guard forbids the ids' return.)
  */
 
 // ── Helpers (mirrors validation.spec.ts) ────────────────────────────────────
@@ -578,162 +577,16 @@ test.describe('Safe-surface rendered proof', () => {
     }
   }
 
-  // #255: the same visual failure as #225 on the CTA, but reached through the grid.
-  // `#home-cta .cta__text` is `display: contents` at >=768px, so the eyebrow is promoted
-  // into the `.cta__inner` GRID, blockified, and — with no placement of its own —
-  // auto-flowed past every explicitly-placed sibling into a stretched row-3 cell. The
-  // rendered bug was a band the full width of the title column, BELOW the button, so
-  // width alone does not prove the fix: these assert the box is a pill AND sits above
-  // the title.
-  //
-  // 768px is covered to prove the placement rules take effect the moment the media
-  // query matches. It now also FITS there: #258 replaced the old fixed track floors
-  // (minmax(36rem, 40rem) + minmax(18rem, 1fr), which needed ~57rem the 768px
-  // breakpoint never had) with shrinkable ones. The overflow those floors caused is
-  // asserted against directly by the #258 block below.
-  const ctaEyebrowViewports = [
-    { label: 'desktop', width: 1280, height: 900 },
-    { label: 'breakpoint', width: 768, height: 900 },
-    { label: 'mobile', width: 375, height: 800 },
-  ];
-
-  for (const viewport of ctaEyebrowViewports) {
-    // One @smoke case, so the post-merge main run (which executes only the @smoke
-    // subset) still watches the pill.
-    const smoke = viewport.label === 'desktop' ? ' @smoke' : '';
-
-    test(`#255 cta eyebrow renders as a pill above the title (${viewport.label})${smoke}`, async ({
-      page,
-    }) => {
-      pageId = createPage(`E2E CTA Eyebrow Pill ${viewport.label}`);
-      setComposition(pageId, [
-        {
-          component: 'cta',
-          props: {
-            // The bug is ID-scoped: only #home-cta gets `display: contents`.
-            id: 'home-cta',
-            layout: 'inline',
-            title: 'A deliberately long closing headline that widens the title column',
-            text: 'Supporting copy that occupies the right-hand column of the grid.',
-            eyebrow: 'BETA',
-            button_text: 'Get started',
-            button_url: '/start',
-          },
-        },
-      ]);
-
-      await page.setViewportSize({ width: viewport.width, height: viewport.height });
-      await page.goto(`/?page_id=${pageId}`);
-
-      const eyebrow = page.locator('.cta__eyebrow');
-      await expect(eyebrow).toBeVisible({ timeout: 10000 });
-
-      const eyebrowBox = (await eyebrow.boundingBox())!;
-      const titleBox = (await page.locator('.cta__title').boundingBox())!;
-
-      // The band spanned the whole title column. "BETA" in a padded pill is nowhere near
-      // half of it, so this fails loudly on any return of the stretch.
-      expect(eyebrowBox.width).toBeLessThan(titleBox.width * 0.5);
-
-      // The half a width-only assertion would miss: auto-placement put the pill in row 3,
-      // under the button. An eyebrow that renders below its own headline is not an eyebrow.
-      expect(eyebrowBox.y + eyebrowBox.height).toBeLessThanOrEqual(titleBox.y + 1);
-
-      // Same column as the title, flush to its leading edge.
-      expect(Math.abs(eyebrowBox.x - titleBox.x)).toBeLessThan(2);
-    });
-  }
-
-  // The state every shipped page is actually in: #home-cta with NO eyebrow. The fix moved
-  // the title off row 1, so an empty row now sits above it on every live CTA. That row
-  // collapses only while the row gap is 0 — a `gap` shorthand added to the desktop block
-  // would silently open a band of dead space above every homepage headline. The CSS-text
-  // pins guard the declarations; only a rendered box proves the row actually collapsed.
-  test('#255 a cta with no eyebrow keeps its title flush to the top (empty row collapses) @smoke', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E CTA No Eyebrow Row Collapse');
-    setComposition(pageId, [
-      {
-        component: 'cta',
-        props: {
-          id: 'home-cta',
-          layout: 'inline',
-          title: 'A deliberately long closing headline that widens the title column',
-          text: 'Supporting copy that occupies the right-hand column of the grid.',
-          button_text: 'Get started',
-          button_url: '/start',
-        },
-      },
-    ]);
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-
-    const title = page.locator('.cta__title');
-    await expect(title).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('.cta__eyebrow')).toHaveCount(0);
-
-    const titleBox = (await title.boundingBox())!;
-    const innerBox = (await page.locator('.cta__inner').boundingBox())!;
-
-    // The title's inset from the top of .cta__inner is what a phantom row 1 inflates.
-    // Measured in chromium at 1280px: 71px with the row collapsed (correct), 107px once
-    // a `gap: 1.5rem` shorthand resets row-gap and the empty row takes up space. 90px
-    // sits clear of both, so this fails on the regression without pinning exact metrics.
-    expect(titleBox.y - innerBox.y).toBeLessThan(90);
-  });
-
-  // The placement rules are deliberately scoped to `.cta--inline`, because `.cta__inner`
-  // is a flex COLUMN in the default full-width layout — where the cross axis is
-  // horizontal and `align-self: end` would push the pill to the right edge instead of
-  // leaving it centered. An unscoped `#home-cta .cta__eyebrow` selector would fix the
-  // inline layout by breaking the default one, and no inline-only test would notice.
-  test('#255 the full-width cta keeps its centered pill (fix stays scoped) @smoke', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E CTA Eyebrow Full Width');
-    setComposition(pageId, [
-      {
-        component: 'cta',
-        props: {
-          id: 'home-cta',
-          layout: 'full-width',
-          title: 'A deliberately long closing headline for the full width layout',
-          eyebrow: 'BETA',
-          button_text: 'Get started',
-          button_url: '/start',
-        },
-      },
-    ]);
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-
-    const eyebrow = page.locator('.cta__eyebrow');
-    await expect(eyebrow).toBeVisible({ timeout: 10000 });
-
-    const eyebrowBox = (await eyebrow.boundingBox())!;
-    const innerBox = (await page.locator('.cta__inner').boundingBox())!;
-
-    expect(eyebrowBox.width).toBeLessThan(innerBox.width * 0.5);
-
-    // Centered, not flushed to either edge. The regression this guards renders the pill
-    // hard against the right edge of .cta__inner.
-    const eyebrowCenter = eyebrowBox.x + eyebrowBox.width / 2;
-    const innerCenter = innerBox.x + innerBox.width / 2;
-    expect(Math.abs(eyebrowCenter - innerCenter)).toBeLessThan(2);
-  });
-
-  // Same scope failure as #255, one row down. `#home-cta .cta__body { align-self: end }`
-  // and `#home-cta .cta__button { align-self: start }` are grid-cross-axis placement for
-  // the inline layout, but they were declared bare. `.cta__inner` is a flex COLUMN in the
-  // default full-width layout, where the cross axis is horizontal — so align-self:end
-  // shoved the body to the right edge and align-self:start shoved the button to the left,
-  // while the eyebrow and title stayed centered. The fix scopes both to `.cta--inline`; in
-  // full-width the body falls back to `.cta--full-width .cta__inner`'s align-items:center
-  // and the button to the shared four-CTA rule's align-self:center. Both end up centered.
-  test('#257 the full-width cta centers its body and button (fix stays scoped) @smoke', async ({
+  // Symptom 2 (issue 412): a full-width CTA authored with an ORDINARY id must center its
+  // title/body/button in the BASE rules — the centering must not depend on a reserved
+  // demo id. Before the eviction, `.cta--full-width .cta__inner` centered its children and
+  // capped `.cta__title`/`.cta__body` at --cta-content-width, but the `.cta__text` wrapper
+  // had no width constraint: a long body stretched it to the full inner width, so the
+  // capped title left-pinned inside it (text-align only centers the glyphs WITHIN that
+  // left-pinned box). The base `.cta--full-width .cta__text { max-width: var(--cta-content-width,
+  // 40rem); margin-inline: auto }` rule fixes it for every id. Use a normal authored id
+  // (never one of the evicted demo ids) so this proves the BASE behavior, not decoration.
+  test('#412 a full-width cta with a normal id centers title/body/button in the base rules @smoke', async ({
     page,
   }) => {
     pageId = createPage('E2E CTA Full Width Centering');
@@ -741,7 +594,7 @@ test.describe('Safe-surface rendered proof', () => {
       {
         component: 'cta',
         props: {
-          id: 'home-cta',
+          id: 'inicio-analisis',
           layout: 'full-width',
           title: 'A deliberately long closing headline for the full width layout',
           text: 'Supporting copy that sits below the headline in the full-width layout.',
@@ -751,176 +604,32 @@ test.describe('Safe-surface rendered proof', () => {
       },
     ]);
 
-    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
 
+    const title = page.locator('.cta__title');
     const body = page.locator('.cta__body');
     const button = page.locator('.cta__button');
-    await expect(body).toBeVisible({ timeout: 10000 });
+    await expect(title).toBeVisible({ timeout: 10000 });
+    await expect(body).toBeVisible();
     await expect(button).toBeVisible();
 
+    const titleBox = (await title.boundingBox())!;
     const bodyBox = (await body.boundingBox())!;
     const buttonBox = (await button.boundingBox())!;
     const innerBox = (await page.locator('.cta__inner').boundingBox())!;
     const innerCenter = innerBox.x + innerBox.width / 2;
 
-    // Both boxes are narrower than .cta__inner (body caps at 22rem, the button at its
-    // fit-content width), so "centered" is a real constraint: the regression renders the
-    // body hard against the right edge (x+width ~ inner right) and the button hard against
-    // the left (x ~ inner left). Assert the centers line up instead.
+    // The measured symptom: at 1440px the title box was 640px pinned LEFT inside a
+    // full-width .cta__text (176px left gap / 624px right gap). Assert every box is
+    // centered on .cta__inner instead — a left-pinned title fails loudly (its center sits
+    // hundreds of px left of the inner center). 2px of slack for sub-pixel layout.
+    const titleCenter = titleBox.x + titleBox.width / 2;
     const bodyCenter = bodyBox.x + bodyBox.width / 2;
     const buttonCenter = buttonBox.x + buttonBox.width / 2;
+    expect(Math.abs(titleCenter - innerCenter)).toBeLessThan(2);
     expect(Math.abs(bodyCenter - innerCenter)).toBeLessThan(2);
     expect(Math.abs(buttonCenter - innerCenter)).toBeLessThan(2);
-  });
-
-  /*
-   * #258: the inline CTA grid turns on at 768px, but the old track floors
-   * (minmax(36rem, 40rem) + minmax(18rem, 1fr) + a >=3rem gap = ~57rem) could not fit
-   * in the content box that breakpoint actually provides — the container's padding and
-   * .cta__inner's own clamp(2rem, 4vw, 2.6rem) padding + border leave roughly 40rem at
-   * 768px. The grid could not shrink, so it pushed the page sideways.
-   *
-   * Measured on THIS page with the fix reverted (documentElement.scrollWidth): 768px ->
-   * 977, 800px -> 977, 860px -> 983, 912px -> 983, 1024px -> fits. So 768..912 are the
-   * cases that actually catch the regression; 1024 is carried as the clean upper edge, to
-   * fail if a future change ever widens the band into it rather than to prove today's bug.
-   *
-   * A page that scrolls sideways is the whole bug, so assert exactly that, at the widths
-   * that used to fail. scrollWidth is rounded up to an integer, so allow 1px of slack
-   * rather than pinning a fractional layout.
-   */
-  const ctaOverflowViewports = [768, 800, 860, 912, 1024];
-
-  // All four inline CTA ids share the same overflow class. #home-cta is sized by its own
-  // override (#258); #how-cta / #agencies-cta / #implementers-cta are sized by the shared
-  // four-CTA rule, which had the same fixed floors and scrolled the page sideways at
-  // tablet widths (#265). Parametrize over every id so the shared rule is proven too, not
-  // just the home override.
-  const ctaOverflowIds = ['home-cta', 'how-cta', 'agencies-cta', 'implementers-cta'];
-
-  for (const id of ctaOverflowIds) {
-    for (const width of ctaOverflowViewports) {
-      // One @smoke case per id at the worst-overflowing width, so the post-merge main run
-      // (which executes only the @smoke subset) still watches for the sideways scroll on
-      // every inline CTA, not only #home-cta.
-      const smoke = width === 768 ? ' @smoke' : '';
-
-      test(`#265 the #${id} inline cta does not scroll the page sideways at ${width}px${smoke}`, async ({
-        page,
-      }) => {
-        pageId = createPage(`E2E CTA Overflow ${id} ${width}`);
-        setComposition(pageId, [
-          {
-            component: 'cta',
-            props: {
-              // The overflowing track override / shared rule is scoped to these ids.
-              id,
-              layout: 'inline',
-              title: 'A deliberately long closing headline that widens the title column',
-              text: 'Supporting copy that occupies the right-hand column of the grid.',
-              eyebrow: 'BETA',
-              button_text: 'Get started',
-              button_url: '/start',
-            },
-          },
-        ]);
-
-        await page.setViewportSize({ width, height: 900 });
-        await page.goto(`/?page_id=${pageId}`);
-        await expect(page.locator('.cta__inner')).toBeVisible({ timeout: 10000 });
-
-        // "No overflow" is also true of a page where the rule under test never applied at
-        // all — if the component stopped emitting the id, or the media query moved, the
-        // grid would quietly fall back to the flex column and every assertion below would
-        // still pass while guarding nothing. Prove the two-column grid is live first.
-        const tracks = await page.evaluate(
-          () => getComputedStyle(document.querySelector('.cta__inner')!).gridTemplateColumns,
-        );
-        expect(tracks.split(/\s+/).filter(Boolean)).toHaveLength(2);
-
-        const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
-        expect(scrollWidth).toBeLessThanOrEqual(width + 1);
-      });
-    }
-  }
-
-  /*
-   * The fix floors column 1 at 0 (`minmax(0, 2fr)`), which only lets the track shrink
-   * because base.css declares `overflow-wrap: break-word` — that collapses the title's
-   * min-content size. A grid item's `min-width: auto` otherwise resolves to min-content
-   * and holds the track open regardless of the 0 floor, which would bring the sideways
-   * scroll straight back for any headline containing a long unbreakable word.
-   *
-   * That dependency is invisible in the CTA's own rules, so pin the behavior rather than
-   * the declaration: a headline that cannot wrap at a space must still not scroll the
-   * page. Guards a future edit to base.css, not just to this component.
-   */
-  test('#258 a long unbreakable headline word still does not scroll the page sideways', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E CTA Overflow Long Word');
-    setComposition(pageId, [
-      {
-        component: 'cta',
-        props: {
-          id: 'home-cta',
-          layout: 'inline',
-          title: 'Internationalisierungszusammenarbeitsvereinbarung',
-          text: 'Supporting copy that occupies the right-hand column of the grid.',
-          button_text: 'Get started',
-          button_url: '/start',
-        },
-      },
-    ]);
-
-    await page.setViewportSize({ width: 768, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-    await expect(page.locator('.cta__inner')).toBeVisible({ timeout: 10000 });
-
-    const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
-    expect(scrollWidth).toBeLessThanOrEqual(769);
-  });
-
-  /*
-   * Column 2's floor IS the button's min-width, which is the only reason the button can
-   * never overflow its own track. (The exact value is derived from the stylesheet by the
-   * css-lint pin rather than restated here, so the two cannot drift apart.) That holds
-   * because the button wraps its label (`white-space: normal`) instead of growing past
-   * the floor. A `white-space: nowrap` added to .cta__button would make a long label
-   * widen the track and reopen the overflow, with every other pin here still green.
-   */
-  test('#258 a long button label wraps instead of widening the action column', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E CTA Overflow Long Button');
-    setComposition(pageId, [
-      {
-        component: 'cta',
-        props: {
-          id: 'home-cta',
-          layout: 'inline',
-          title: 'A deliberately long closing headline that widens the title column',
-          text: 'Supporting copy that occupies the right-hand column of the grid.',
-          button_text: 'Start your free 30-day trial now, no card required',
-          button_url: '/start',
-        },
-      },
-    ]);
-
-    await page.setViewportSize({ width: 768, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-
-    const button = page.locator('.cta__button');
-    await expect(button).toBeVisible({ timeout: 10000 });
-
-    const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
-    expect(scrollWidth).toBeLessThanOrEqual(769);
-
-    // The button stayed inside .cta__inner's content box rather than pushing through it.
-    const buttonBox = (await button.boundingBox())!;
-    const innerBox = (await page.locator('.cta__inner').boundingBox())!;
-    expect(buttonBox.x + buttonBox.width).toBeLessThanOrEqual(innerBox.x + innerBox.width + 1);
   });
 
   /*
@@ -1470,41 +1179,6 @@ test.describe('Safe-surface rendered proof', () => {
     expect(widths.content).toBe('700px');
     expect(widths.wrapper).toBe('700px');
     expect(widths.rendered).toBeGreaterThan(640);
-  });
-
-  test('#266 an unbreakable button label wraps instead of scrolling the page', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E CTA Overflow Unbreakable Button');
-    setComposition(pageId, [
-      {
-        component: 'cta',
-        props: {
-          id: 'home-cta',
-          layout: 'inline',
-          title: 'A deliberately long closing headline that widens the title column',
-          text: 'Supporting copy that occupies the right-hand column of the grid.',
-          // No spaces: the label cannot wrap at a word boundary, so without a
-          // last-resort break it grows past its grid track and scrolls the page.
-          button_text: 'StartYourFreeThirtyDayTrialNowNoCardRequiredToday',
-          button_url: '/start',
-        },
-      },
-    ]);
-
-    await page.setViewportSize({ width: 768, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-
-    const button = page.locator('.cta__button');
-    await expect(button).toBeVisible({ timeout: 10000 });
-
-    const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
-    expect(scrollWidth).toBeLessThanOrEqual(769);
-
-    // The button wrapped inside .cta__inner's content box rather than widening past it.
-    const buttonBox = (await button.boundingBox())!;
-    const innerBox = (await page.locator('.cta__inner').boundingBox())!;
-    expect(buttonBox.x + buttonBox.width).toBeLessThanOrEqual(innerBox.x + innerBox.width + 1);
   });
 
   /**
@@ -2338,12 +2012,12 @@ test.describe('Safe-surface rendered proof', () => {
   // Strand 1. The eyebrow had color/bg slots but no radius slot, so the pill
   // shape was unreachable.
   //
-  // The `home-hero` case is the load-bearing one. `#home-hero, #how-hero,
-  // #agencies-hero, #implementers-hero .hero__eyebrow` re-declares border-radius
-  // at ID specificity (1,1,0) and would silently bypass the slot if left unrouted
-  // — the #292/#302 class of bug. A hero with any other id never matches that
-  // block, so it cannot pin the routing: revert that one literal and a
-  // non-matching id still goes green. Both ids are exercised.
+  // The `home-hero` case is now a #412 parity guard. That demo id once carried a
+  // `#home-hero, #how-hero, #agencies-hero, #implementers-hero .hero__eyebrow` block that
+  // re-declared border-radius at ID specificity (1,1,0); issue 412 evicted every such ID
+  // selector and the css-lint ID guard forbids their return. So `home-hero` must now render
+  // the eyebrow through the SAME base rules as any other id — exercising both ids proves the
+  // reserved id gets no special treatment (acceptance: home-hero renders like any id).
   for (const heroId of ['pp-hero01', 'home-hero']) {
     test(`#336 hero eyebrow radius is slot-driven and defaults to the documented 3px (#${heroId}) @smoke`, async ({
       page,
@@ -2379,11 +2053,10 @@ test.describe('Safe-surface rendered proof', () => {
   // #356: the eyebrow pill had color/bg/radius slots but no border slot, so an
   // OUTLINED pill was inexpressible. Border width/color slots make it authorable.
   //
-  // Both ids are load-bearing, exactly as in the #336 radius strand above: the
-  // `#home-hero, #how-hero, #agencies-hero, #implementers-hero .hero__eyebrow`
-  // block re-declares `border-color` at ID specificity (1,1,0). If that literal
-  // were left unrouted it would clobber --hero-eyebrow-border-color on those four
-  // benchmark heroes, and a non-matching id (pp-hero01) could not catch it.
+  // `home-hero` is a #412 parity guard, exactly as in the #336 radius strand above: the
+  // demo-id `.hero__eyebrow` block that once re-declared `border-color` at ID specificity
+  // was evicted in issue 412, so `home-hero` must render the border through the same base
+  // slot rules as any other id (exercising both ids proves the reserved id is not special).
   for (const heroId of ['pp-hero01', 'home-hero']) {
     test(`#356 hero eyebrow border is slot-driven and defaults to no border (#${heroId}) @smoke`, async ({
       page,
@@ -2428,11 +2101,10 @@ test.describe('Safe-surface rendered proof', () => {
   // sentence-case kicker was inexpressible. The per-component text-transform slot
   // makes the casing authorable while keeping uppercase as the unset default.
   //
-  // Both ids are load-bearing like the #356 strand above: `home-hero` is one of
-  // the four ID-specificity benchmark heroes whose `.hero__eyebrow` block
-  // re-declares radius/border/bg/color. It does NOT re-declare text-transform, so
-  // the base rule's `var(--hero-eyebrow-text-transform, uppercase)` must still win
-  // there — testing `home-hero` proves the slot reaches the ID-scoped heroes too.
+  // `home-hero` is a #412 parity guard like the #356 strand above: its demo-id
+  // `.hero__eyebrow` block was evicted in issue 412, so the base rule's
+  // `var(--hero-eyebrow-text-transform, uppercase)` is the only rule that applies —
+  // testing `home-hero` proves the reserved id renders the casing like any other id.
   for (const heroId of ['pp-hero01', 'home-hero']) {
     test(`#370 hero eyebrow text-transform is slot-driven and defaults to uppercase (#${heroId}) @smoke`, async ({
       page,

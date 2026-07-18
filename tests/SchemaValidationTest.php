@@ -248,7 +248,7 @@ class SchemaValidationTest extends TestCase
             'hero'    => 41,
             'section' => 36,
             'grid'    => 36,
-            'cta'     => 30,
+            'cta'     => 31,
         ];
 
         foreach ($expected as $component => $count) {

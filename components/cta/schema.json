@@ -98,6 +98,7 @@
       "--cta-button-hover-bg": { "type": "color", "default": "(varies by button_variant)", "description": "Button hover background color." },
       "--cta-button-hover-border": { "type": "color", "default": "(varies by button_variant)", "description": "Button hover border color." },
       "--cta-button-hover-color": { "type": "color", "default": "(varies by button_variant)", "description": "Button hover text color." },
+      "--cta-button-shadow": { "type": "shadow", "default": "(premium bevel)", "description": "Button box shadow on the DEFAULT (primary) variant. Set to `none` for a FLAT button (removes the gradient bevel/drop shadow on rest AND hover); pair with --cta-button-bg (a flat color) and --cta-button-color (ink) for a flat primary." },
       "--cta-border-color": { "type": "color", "default": "transparent", "description": "Top and bottom border color" },
       "--cta-border-width": { "type": "length", "default": "0", "description": "Top and bottom border width" },
       "--cta-radius": { "type": "length", "default": "0", "description": "Border radius" },
