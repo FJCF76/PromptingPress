@@ -160,7 +160,7 @@ Report:
 
 Two complementary enforcement mechanisms protect the loop:
 
-1. **Run tokens (real-time ordering):** `wp pp operate inspect` creates a state file tracking completed steps. Mutating commands (`action execute`, `apply preflight`, `apply execute`, `apply restore`, `apply reset`) require `--run-id` and check the state file before proceeding. This prevents out-of-order CLI calls.
+1. **Run tokens (real-time ordering):** `wp pp operate inspect` records run state (completed steps) in a per-run row in the install's options table. Mutating commands (`action execute`, `apply preflight`, `apply execute`, `apply restore`, `apply reset`) require `--run-id` and check that recorded state before proceeding. This prevents out-of-order CLI calls, and because the state lives in the database it is shared across separate CLI invocations even when each runs in its own ephemeral container (#409).
 
 2. **`wp pp operate validate` (post-hoc completeness):** Validates the finished run manifest — checks that all 8 steps ran, required outputs are present, viewports match the playbook, hard-gate checklist items were evaluated, and retry count is within bounds. This catches incomplete runs at HANDOFF.
 
