@@ -125,6 +125,13 @@ up, an equal-weight feature/plan row). It is more complete than the slot-level
 `uniform-cards` recipe, which cannot reach the first-card top-padding or the dark
 lift. Keep the default `featured` when one card is genuinely the lead.
 
+The grid's desktop **column count** is likewise a PROP, not a style slot: set the
+grid **`columns`** prop (integer 1-4, via `update_component` / `create_page`) to
+force a specific number of columns at >=768px instead of the default derivation
+from item count. There is no `--grid-columns` slot; do not look for one. Unset
+leaves the auto-by-count default unchanged; out-of-range/non-integer values are
+rejected. `columns` is a `cards` concept and is ignored on the `steps` layout.
+
 To style **one card differently from its siblings** (a dark CTA panel beside light
 checklist cards, or a green-on-dark terminal card), set a per-card `style` object on
 that grid item — `props.items[].style` — with the **card-scoped** grid slots (e.g.

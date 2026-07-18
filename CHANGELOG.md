@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.2.1] — 2026-07-18 — grid gains an explicit desktop column-count control (#379)
+
+**A `cards` grid used to derive its desktop column count from the number of items — good defaults, but with no way to override them, so a 6-item grid was locked to 2x3 when you wanted 3-across x 2-rows, and a 4-item grid could not choose 4-across over 2x2. The grid now accepts an optional `columns` prop (integer 1-4) that forces the desktop (768px+) column count. Leave it unset and nothing changes: the auto-by-count default renders byte-identical. This is the first item of the v1.3.0 feature gate (#141, Part 1.75); the gate-close/tag is a separate release.**
+
+`columns` is an opt-in structural prop, set through `create_page` / `update_component` like `layout` and `card_emphasis` (not `style_component`). A set value forces that many equal-width tracks at desktop, spanning the container regardless of item count, and keeps the single-column collapse below 768px intact; a forced count with a non-multiple item count simply wraps the remainder onto the last row without overflow. Out-of-range or non-integer values (0, 5, 2.5, text) are rejected at write time with the standard `invalid_prop_value` envelope, never silently clamped. The control is a `cards` concept and is ignored on the `steps` layout, which keeps its fixed process grain. The auto-derivation defaults shipped by earlier work are unchanged.
+
+### Added
+- `grid` accepts an optional `columns` prop (integer 1-4) that forces the desktop column count, overriding the item-count auto-derivation while leaving the unset default byte-identical (#379).
+
+### Fixed
+- Composition writes now validate schema-declared integer bounds on props: a bounded numeric prop supplied out of range or as a non-integer is rejected with `invalid_prop_value` instead of being coerced at render time (the shared validator gained a generic min/max check; today only `grid.columns` declares bounds) (#379).
+
+### Docs
+- `components/grid/README.md`, `ai-instructions/composition.md`, `AI_CONTEXT.md`, `AI_RULES.md`, and the README component table document the new `columns` prop; the runtime AI context surfaces it automatically from the schema.
+
+### Tests
+- PHP validation pins for `grid.columns` (accepts 1-4 and the unset sentinels; rejects 0, 5, negative, 2.5, and text with `invalid_prop_value`), renderer pins (emits `data-pp-columns` only for a valid 1-4 value, omits it when unset or on `steps`, coerces raw out-of-range state to no attribute), and CSS-lint pins that the four override rules force the right track count, span the container, stay scoped to cards, and sit after the auto count rules in source order.
+
 ## [v1.2.0] — 2026-07-18 — chat writes gain compare-and-swap conflict protection: the v1.2.0 gate is closed (#141)
 
 **This is a gate rollup marker: the single feature of this release — composition CAS baselines threaded through the AI chat's single and batch executors (#404, working version 1.1.1) — shipped below, and this entry carries no new code beyond the five-file version bump and doc freshness. What 1.2.0 marks is the close of the chat CAS gate (#141, Part 1.6), the two-phase gate opened by the 2026-07-16 complexity audit: #392 designed the baseline lifecycle (context-read derivation, fail-closed mandates on both chat entry points, per-page batch baseline map with server-side chaining, envelope version refresh, Re-read & re-preview conflict UX), and #404 implemented it. The release bar was rendered CONFLICT evidence, not a feature dogfood, and it was met on dev under v1.1.1: an editor-vs-chat interleaved write and a chat-vs-chat interleaved write were both rejected in the real chat UI with the conflict card and a usable Re-read & re-preview retry (the retried apply preserved both writers' changes — no lost update), and a three-step batch mutating the same page did not false-conflict against its own writes (version advanced exactly +3). The docs claim corrected in #389 — that every agent-driven write opts into the CAS — is now true for the chat surface.**

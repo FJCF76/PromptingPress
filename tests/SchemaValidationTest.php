@@ -495,6 +495,71 @@ class SchemaValidationTest extends TestCase
         $this->assertStringContainsString('button_url', $result->get_error_message());
     }
 
+    // ── Grid explicit column-count control (issue 379) ───────────────────
+    //
+    // grid.columns declares integer min/max bounds in schema.json, so the shared
+    // validator's generic bounds check accepts only integers 1-4 (and the unset
+    // sentinel) and rejects everything else with invalid_prop_value — the write
+    // never persists an out-of-range value the renderer would silently coerce.
+
+    private function gridCompositionWithColumns($columns): array
+    {
+        $props = ['items' => [['title' => 'One'], ['title' => 'Two'], ['title' => 'Three']]];
+        // A literal null means "supply the key as null" (the unset sentinel);
+        // the __ABSENT__ marker means "omit the key entirely".
+        if ($columns !== '__ABSENT__') {
+            $props['columns'] = $columns;
+        }
+        return [['component' => 'grid', 'props' => $props]];
+    }
+
+    /**
+     * @dataProvider validColumnsProvider
+     */
+    public function testGridColumnsAcceptsInBoundIntegers($columns): void
+    {
+        $result = pp_validate_composition($this->gridCompositionWithColumns($columns));
+        $this->assertTrue($result, 'columns=' . var_export($columns, true) . ' must validate.');
+    }
+
+    public static function validColumnsProvider(): array
+    {
+        return [
+            'int 1'         => [1],
+            'int 4'         => [4],
+            'int 2'         => [2],
+            'string "3"'    => ['3'],
+            'unset: absent' => ['__ABSENT__'],
+            'unset: null'   => [null],
+            'unset: empty'  => [''],
+        ];
+    }
+
+    /**
+     * @dataProvider invalidColumnsProvider
+     */
+    public function testGridColumnsRejectsOutOfRangeOrNonInteger($columns): void
+    {
+        $result = pp_validate_composition($this->gridCompositionWithColumns($columns));
+        $this->assertInstanceOf(\WP_Error::class, $result, 'columns=' . var_export($columns, true) . ' must be rejected.');
+        $this->assertSame('invalid_prop_value', $result->get_error_code());
+        // The envelope names the offending prop so the caller/AI can correct it.
+        $this->assertStringContainsString('columns', $result->get_error_message());
+    }
+
+    public static function invalidColumnsProvider(): array
+    {
+        return [
+            'zero (below min)'       => [0],
+            'five (above max)'       => [5],
+            'negative'               => [-1],
+            'non-integer float'      => [2.5],
+            'non-numeric string'     => ['three'],
+            'string "0"'             => ['0'],
+            'string "5"'             => ['5'],
+        ];
+    }
+
     // ── Featured first-card remnant slots (issue 293) ────────────────────
     //
     // The three featured-card remnants (accent top bar, texture stripe, glow)
@@ -1054,10 +1119,15 @@ class SchemaValidationTest extends TestCase
     public function testEveryComposableComponentAcceptsItsDeclaredSchemaProps(): void
     {
         foreach (pp_composable_components() as $name => $schema) {
-            $declared = array_keys($schema['props'] ?? []);
-            $props     = [];
-            foreach ($declared as $prop_name) {
-                $props[$prop_name] = 'x'; // prop VALUES are not type-checked here.
+            $props = [];
+            foreach (($schema['props'] ?? []) as $prop_name => $prop_def) {
+                // Most prop VALUES are not type-checked by the shared validator, so a
+                // placeholder string suffices. The exception is a prop that declares
+                // integer min/max bounds (issue 379): its value IS range-checked, so
+                // supply an in-range integer instead of the placeholder.
+                $props[$prop_name] = isset($prop_def['min'])
+                    ? (int) $prop_def['min']
+                    : 'x';
             }
 
             $result = pp_validate_composition([['component' => $name, 'props' => $props]]);

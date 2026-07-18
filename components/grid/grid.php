@@ -39,6 +39,25 @@ $allowed_heading_aligns = ['start', 'center'];
 if (!in_array($heading_align, $allowed_heading_aligns, true)) {
     $heading_align = 'start';
 }
+
+// Explicit desktop column-count override (issue 379). Write-time validation
+// (pp_validate_composition_errors) already rejects out-of-range/non-integer
+// values, so this is a defensive coercion for raw-written state (mirroring the
+// layout/theme/card_emphasis in_array guards above): only an integer 1-4 emits
+// the data-pp-columns attribute the CSS reads; anything else falls through to
+// the auto-by-count grain, so unset output stays byte-identical.
+// $is_steps is computed below; forward-declare the steps check here so a forced
+// column count is inert on steps at the RENDER layer too, not only via the CSS
+// :not(.grid--steps) scope — steps keeps its fixed process grain, so its markup
+// stays byte-identical (no dead data-pp-columns attribute leaks onto it).
+$columns_is_steps = ($layout === 'steps');
+$columns_raw = $props['columns'] ?? '';
+$columns = (is_int($columns_raw) || (is_string($columns_raw) && preg_match('/^\d+$/', $columns_raw)))
+    ? (int) $columns_raw
+    : 0;
+$columns_attr = (!$columns_is_steps && $columns >= 1 && $columns <= 4)
+    ? ' data-pp-columns="' . esc_attr((string) $columns) . '"'
+    : '';
 $header_align_class = $heading_align === 'center' ? ' grid__header--center' : '';
 
 $is_steps      = $layout === 'steps';
@@ -85,7 +104,7 @@ $style_attr = $grid_style_parts ? ' style="' . implode('; ', $grid_style_parts) 
         <?php endif; ?>
 
         <?php if (!empty($items)) : ?>
-            <ul class="grid__list" role="list" data-pp-count="<?php echo esc_attr(count($items)); ?>">
+            <ul class="grid__list" role="list" data-pp-count="<?php echo esc_attr(count($items)); ?>"<?php echo $columns_attr; ?>>
                 <?php foreach ($items as $index => $item) :
                     $item_number = $item['number']    ?? (string)($index + 1);
                     $item_title  = $item['title']     ?? '';

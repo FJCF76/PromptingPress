@@ -805,6 +805,108 @@ describe('CSS lint: single-item grid column (#297)', () => {
 });
 
 /**
+ * Grid explicit column-count override (#379).
+ *
+ * The `columns` prop (integer 1-4) emits `data-pp-columns` on `.grid__list`. Its
+ * CSS must (a) force the matching track count at >=768px, (b) span the container
+ * (reset the count-4 narrowing), (c) be scoped to cards, and — the load-bearing
+ * one — (d) sit in SOURCE ORDER after the auto `data-pp-count` rules so it wins
+ * the cascade at equal specificity. A "the rule exists" pin would miss (d); these
+ * pin containment in a `min-width: 768px` block AND relative source position.
+ */
+describe('CSS lint: grid explicit column-count override (#379)', () => {
+    const stripped = stripComments(COMPONENTS_CSS);
+
+    // Bodies of every `@media (min-width: 768px)` block, brace-matched.
+    function tabletBlocks(css) {
+        const blocks = [];
+        const opener = /@media\s*\(min-width:\s*768px\)\s*\{/g;
+        let match;
+        while ((match = opener.exec(css)) !== null) {
+            let depth = 1;
+            let i = opener.lastIndex;
+            while (i < css.length && depth > 0) {
+                if (css[i] === '{') depth++;
+                else if (css[i] === '}') depth--;
+                i++;
+            }
+            blocks.push(css.slice(opener.lastIndex, i - 1));
+        }
+        return blocks;
+    }
+
+    const tablet = tabletBlocks(stripped).join('\n');
+
+    function bodyFor(selector, scope) {
+        const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const pattern = new RegExp(`(?:^|[}{])\\s*${escaped}\\s*\\{([^}]*)\\}`, 'g');
+        const bodies = [];
+        let match;
+        while ((match = pattern.exec(scope)) !== null) {
+            bodies.push(match[1]);
+            pattern.lastIndex -= 1;
+        }
+        return bodies;
+    }
+
+    const CASES = [
+        { n: 1, cols: 'minmax(0, 1fr)' },
+        { n: 2, cols: 'repeat(2, minmax(0, 1fr))' },
+        { n: 3, cols: 'repeat(3, minmax(0, 1fr))' },
+        { n: 4, cols: 'repeat(4, minmax(0, 1fr))' },
+    ];
+
+    test('the 768px scope is found (guards against a vacuous pass)', () => {
+        expect(tablet).not.toEqual('');
+    });
+
+    CASES.forEach(({ n, cols }) => {
+        const selector = `main > .grid:not(.grid--steps) .grid__list[data-pp-columns="${n}"]`;
+
+        test(`columns=${n} forces ${cols} at >=768px, scoped to cards`, () => {
+            const bodies = bodyFor(selector, tablet);
+            expect(bodies.length).toBe(1);
+            expect(/grid-template-columns\s*:\s*([^;]+);/.exec(bodies[0])[1].trim()).toBe(cols);
+        });
+
+        test(`columns=${n} spans the container (no narrowing, no auto-centering)`, () => {
+            const bodies = bodyFor(selector, tablet);
+            expect(bodies.length).toBeGreaterThan(0);
+            bodies.forEach(body => {
+                // Explicitly neutralize the count-4 max-width + auto margins so a
+                // forced count is uniform regardless of item count.
+                expect(body).toMatch(/max-width\s*:\s*none/);
+                expect(body).not.toMatch(/margin(-left|-right|-inline[a-z-]*)?\s*:\s*[^;]*\bauto\b/);
+            });
+        });
+    });
+
+    // The cascade winner is decided by source order at equal (0,4,1) specificity.
+    // The forced-columns rules MUST appear after the LAST auto data-pp-count rule,
+    // or a 6-item grid with columns=3 would still render the count-derived 2-up.
+    test('the override rules sit after the auto data-pp-count rules in source order', () => {
+        const lastCount = stripped.lastIndexOf('[data-pp-count=');
+        const firstColumns = stripped.indexOf('[data-pp-columns=');
+        expect(lastCount).toBeGreaterThan(-1);
+        expect(firstColumns).toBeGreaterThan(-1);
+        expect(firstColumns).toBeGreaterThan(lastCount);
+    });
+
+    // Scope guard: no forced-columns rule may target steps — steps keeps its fixed
+    // process grain, so every data-pp-columns rule must carry :not(.grid--steps).
+    test('no data-pp-columns rule applies to the steps layout', () => {
+        const rulePattern = /([^{}]*\[data-pp-columns="\d"\][^{}]*)\{/g;
+        let match;
+        let seen = 0;
+        while ((match = rulePattern.exec(stripped)) !== null) {
+            seen++;
+            expect(match[1]).toMatch(/:not\(\.grid--steps\)/);
+        }
+        expect(seen).toBe(4);
+    });
+});
+
+/**
  * Hero eyebrow stays a pill (#225).
  *
  * `.hero__eyebrow` declares `display: inline-block`, but it is a direct child of

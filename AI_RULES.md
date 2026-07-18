@@ -77,7 +77,10 @@ When building or editing components:
 ## Desktop width expectations
 
 Hero width and spacing props serve layout-specific needs. All other
-components use CSS defaults — no composition-level layout overrides.
+components use CSS defaults for width and spacing — no composition-level
+width/spacing overrides. The one bounded structural exception is grid's
+optional `columns` prop (integer 1-4), which forces the desktop column count;
+it is opt-in and leaves the auto-by-count default byte-identical when unset.
 
 A page built with all-default composition props should look credible on desktop.
 If it doesn't, the fix belongs in design tokens (base.css) or component CSS

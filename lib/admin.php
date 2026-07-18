@@ -478,6 +478,50 @@ function pp_validate_composition_errors(array $items): array {
             }
         }
 
+        // Bounded numeric props (issue 379). A prop whose schema declares integer
+        // `min`/`max` bounds (today only grid.columns) must, when a value is
+        // supplied, be an integer within [min, max] — otherwise the write is
+        // rejected with the standard envelope instead of the renderer silently
+        // coercing an out-of-range value (the reported-success-without-effect
+        // class). Generic + schema-driven: only props that declare bounds are
+        // checked, so existing untyped/enum props are untouched. "Unset" is the
+        // key being absent, null, or the empty string — that preserves the
+        // prop's default behavior (grid.columns unset => auto-by-count). Runs in
+        // the shared validator (no second validator); restore_composition (#233)
+        // reports it via _pp_composition_findings() but never blocks on it.
+        if (isset($item['props']) && is_array($item['props']) && !empty($schema['props'])) {
+            foreach ($schema['props'] as $prop_name => $prop_def) {
+                if (!isset($prop_def['min']) || !isset($prop_def['max'])) {
+                    continue;
+                }
+                if (!array_key_exists($prop_name, $item['props'])) {
+                    continue;
+                }
+                $value = $item['props'][$prop_name];
+                if ($value === null || $value === '') {
+                    continue; // unset sentinel — keeps the prop's default behavior
+                }
+                $is_integer = is_int($value)
+                    || (is_string($value) && preg_match('/^-?\d+$/', $value) === 1);
+                $min = (int) $prop_def['min'];
+                $max = (int) $prop_def['max'];
+                if (!$is_integer || (int) $value < $min || (int) $value > $max) {
+                    $errors[] = new WP_Error(
+                        'invalid_prop_value',
+                        sprintf(
+                            'Component "%s" prop "%s" must be an integer between %d and %d; got "%s".',
+                            $name,
+                            $prop_name,
+                            $min,
+                            $max,
+                            is_scalar($value) ? (string) $value : gettype($value)
+                        )
+                    );
+                    continue 2;
+                }
+            }
+        }
+
         // Validate optional style key against schema-declared style slots.
         $available_slots = $schema['styling']['style_slots'] ?? [];
         if (isset($item['style']) && is_array($item['style']) && !empty($item['style'])) {

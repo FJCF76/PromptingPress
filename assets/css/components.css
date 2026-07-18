@@ -3616,6 +3616,50 @@ main > .grid .grid__item-link::after {
   }
 }
 
+/* Explicit desktop column-count override (issue 379). Opt-in via the grid
+   `columns` prop (integer 1-4), emitted by grid.php as data-pp-columns on the
+   list. Forces that many equal-width tracks at >=768px, overriding the
+   item-count auto-derivation (the data-pp-count rules above). Unset emits no
+   attribute, so none of these selectors match and the auto-derived default is
+   byte-identical. Placed AFTER the 1024px count block so, at equal (0,4,1)
+   specificity, source order wins at every >=768px width (the count-N rules and
+   the base repeat(2) rule both lose to this). max-width/margins are reset so a
+   forced count spans the container uniformly regardless of item count (the
+   count-4 rule otherwise caps at 58rem centered). minmax(0, 1fr) keeps forced
+   narrow tracks from overflowing (orphan/overflow safety). Scoped to cards
+   (:not(.grid--steps)); the steps layout keeps its fixed process grain. The
+   <768px single-column collapse is untouched. No style slot is involved, so the
+   slot-contract bypass guard does not treat these literals as offenders. */
+@media (min-width: 768px) {
+  main > .grid:not(.grid--steps) .grid__list[data-pp-columns="1"] {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: none;
+    margin-right: 0;
+    margin-left: 0;
+  }
+
+  main > .grid:not(.grid--steps) .grid__list[data-pp-columns="2"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: none;
+    margin-right: 0;
+    margin-left: 0;
+  }
+
+  main > .grid:not(.grid--steps) .grid__list[data-pp-columns="3"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    max-width: none;
+    margin-right: 0;
+    margin-left: 0;
+  }
+
+  main > .grid:not(.grid--steps) .grid__list[data-pp-columns="4"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    max-width: none;
+    margin-right: 0;
+    margin-left: 0;
+  }
+}
+
 @media (max-width: 767px) {
   main > .grid .grid__list {
     gap: var(--grid-gap, 0.85rem);

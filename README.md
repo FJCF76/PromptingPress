@@ -13,7 +13,7 @@
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
 [![Tests](https://img.shields.io/badge/Tests-1936+_passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-1.2.0-6366F1?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.2.1-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -133,7 +133,7 @@ No blocks. No shortcodes. No visual-builder serialization. AI can read, write, d
 |-----------|---------|-----------|
 | hero | Full-width headline with optional CTA, image, overlay | `title` |
 | section | Text + optional image; 4 `layout`s (text-only, image-left, image-right, centered) + `theme` (default, dark, inverted) | `body` |
-| grid | Responsive card grid; `layout` (cards, steps) + `theme` (default, dark, inverted) + `card_emphasis` (featured, uniform) | `items[]` |
+| grid | Responsive card grid; `layout` (cards, steps) + `theme` (default, dark, inverted) + `card_emphasis` (featured, uniform) + `columns` (1-4, force desktop column count) | `items[]` |
 | faq | Native `details/summary` accordion, zero JavaScript | `items[]` |
 | cta | Call-to-action block with layout, color axis, and background image; `title` optional (omit for a standalone button row) | `button_text`, `button_url` |
 | stats | Large-number metrics with labels and optional background image | `items[]` |
