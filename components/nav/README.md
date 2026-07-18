@@ -1,6 +1,6 @@
 # Component: nav
 
-Site header with logo, primary navigation menu, and a hamburger toggle for mobile. Reads a WP registered nav menu by theme location slug.
+Site header with logo, primary navigation menu, a hamburger toggle for mobile, and one-level dropdown submenus. Reads a WP registered nav menu by theme location slug.
 
 > **Site chrome — not composable.** `templates/base.php` renders `nav` on every page.
 > Putting it in a page's `_pp_composition` renders the header twice, so the write is
@@ -56,6 +56,7 @@ no menu, its menu is empty, or `pp_logo_id` points at something that is not an i
 - **Mobile** (`< 768px`): Hamburger button shown. Menu hidden (`hidden` attribute). JS in `main.js` toggles `aria-expanded` and `hidden`.
 - **Desktop** (`≥ 768px`): Hamburger hidden via CSS. Menu always visible.
 - **Keyboard**: `Escape` closes the menu and returns focus to the toggle button.
+- **Dropdown submenus** (#381): a nav item with children (authored via `set_menu`'s `children` array — one level deep) renders as an accessible dropdown. `main.js` enhances each parent into a WAI-ARIA **disclosure** (an injected `.nav__submenu-toggle` button with `aria-expanded`, never a menubar — no `role="menu"`). Desktop: hover reveals the dropdown (mouse); the button opens it for keyboard. Mobile: the group expands in place. Keyboard: the toggle opens on `Enter`/`Space`, `ArrowDown` opens it and moves focus to the first child, `Escape` closes it and returns focus to the toggle. Without JS, the submenu stays visible (expanded on mobile, hover on desktop).
 - **Active link**: WordPress marks the current item server-side (`current-menu-item` on the `<li>`, `aria-current="page"` on the `<a>`); no JS. Its color follows `--header-link-color` (falling back to `--color-accent`) and it renders in bold.
 
 ## Usage
@@ -73,7 +74,7 @@ pp_get_component('nav', [
 
 ## Setting up the menu
 
-In WP Admin: Appearance → Menus → create a menu and assign it to the "Primary Navigation" location.
+In WP Admin: Appearance → Menus → create a menu and assign it to the "Primary Navigation" location. WordPress's own "sub item" nesting (drag an item slightly right) renders as a dropdown too. Via the AI surface, nest with `set_menu`'s per-item `children` array (one level deep).
 
 ## CSS
 
