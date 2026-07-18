@@ -30,6 +30,36 @@ function _pp_cli_preflight_record_failed(array $result, string $message): void {
 }
 
 /**
+ * Builds the precise operator message when recording PREFLIGHT state fails (#409).
+ *
+ * The old single message ("State file may be missing or expired") misattributed an
+ * environmental storage problem to TTL expiry. The run-state store now reports WHY a
+ * record failed (pp_operate_run_status), so this splits the causes into distinct
+ * messages: an absent run (the ephemeral-container case) vs a genuinely expired one vs
+ * a corrupt/foreign row vs a valid run whose write did not land.
+ *
+ * @param string $run_id  The run token UUID.
+ * @param string $status  A pp_operate_run_status() classification.
+ * @return string
+ */
+function _pp_cli_preflight_record_failed_message(string $run_id, string $status): string {
+    switch ($status) {
+        case 'not_found':
+            return 'No run state found for run token "' . $run_id . '". It was never minted on this install, or it has already been cleaned up. This most often means `wp pp operate inspect` and this command ran in different environments (e.g. separate ephemeral CLI containers). Re-run `wp pp operate inspect` here to start a fresh run.';
+        case 'expired':
+            return 'Run token "' . $run_id . '" has expired (older than the ' . (int) (PP_OPERATE_RUN_TTL / 3600) . '-hour run TTL). Re-run `wp pp operate inspect` to start a fresh run.';
+        case 'foreign':
+            return 'Run token "' . $run_id . '" belongs to a different site or install and cannot be used here. Re-run `wp pp operate inspect` on this install.';
+        case 'corrupt':
+            return 'Run state for run token "' . $run_id . '" is unreadable (corrupt). Re-run `wp pp operate inspect` to start a fresh run.';
+        case 'ok':
+            return 'Could not persist PREFLIGHT state for run token "' . $run_id . '": the run exists but the options-table write did not complete, so nothing was recorded. Retry `wp pp apply preflight`; if it persists, check the database and wp_options.';
+        default: // 'invalid' or unexpected — the run-id was already format-validated upstream.
+            return 'Could not record PREFLIGHT state for run token "' . $run_id . '". Re-run `wp pp operate inspect`.';
+    }
+}
+
+/**
  * Pure decision for the --run-id gate (#390): returns the fail-closed error
  * message, or null when the arg is present and a valid UUID v4. Split out of
  * _pp_cli_require_run_id() so the two rejection branches (missing, invalid) are
@@ -989,7 +1019,10 @@ class PP_Apply_Command extends WP_CLI_Command {
         // them together means the run can never be left unlocked without its restore
         // baseline; any recording failure records nothing and reports {"ok": false}.
         if (!pp_operate_record_preflight($run_id, $context['post_id'] ?? null, $token_snapshot, $composition_marker, $composition_content)) {
-            _pp_cli_preflight_record_failed($result, 'Could not record PREFLIGHT state for run token "' . $run_id . '". State file may be missing or expired. Re-run `wp pp operate inspect`.');
+            // Ask the store WHY the record failed so the operator sees a precise cause
+            // (absent run vs expired vs corrupt/foreign vs a valid run whose write did
+            // not land) rather than the old misleading "missing or expired" (#409).
+            _pp_cli_preflight_record_failed($result, _pp_cli_preflight_record_failed_message($run_id, pp_operate_run_status($run_id)));
         }
 
         WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));

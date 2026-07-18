@@ -512,4 +512,59 @@ class CliGateTest extends TestCase
             'patch() must not rebuild the synthetic partial action array (#391)'
         );
     }
+
+    // ── #409: split not-found vs expired PREFLIGHT-record error ───────────────
+
+    public function testPreflightRecordMessageNotFoundIsDistinctAndNamesEnvironment(): void
+    {
+        // The ephemeral-container case: the run was never minted on this install.
+        $run_id = '00000000-0000-4000-8000-000000000000';
+        $msg = _pp_cli_preflight_record_failed_message($run_id, 'not_found');
+        $this->assertStringContainsString($run_id, $msg);
+        $this->assertStringContainsString('No run state found', $msg);
+        $this->assertStringContainsString('different environments', $msg);
+        // Must NOT misattribute an absent run to TTL expiry (the old misleading message).
+        $this->assertStringNotContainsString('expired', $msg);
+    }
+
+    public function testPreflightRecordMessageExpiredIsDistinct(): void
+    {
+        $run_id = '00000000-0000-4000-8000-000000000000';
+        $msg = _pp_cli_preflight_record_failed_message($run_id, 'expired');
+        $this->assertStringContainsString('expired', $msg);
+        $this->assertStringContainsString('operate inspect', $msg);
+        // Distinct from the not-found wording.
+        $this->assertStringNotContainsString('No run state found', $msg);
+    }
+
+    public function testPreflightRecordMessageForeignAndCorruptAndOkAreDistinct(): void
+    {
+        $run_id = '00000000-0000-4000-8000-000000000000';
+        $foreign = _pp_cli_preflight_record_failed_message($run_id, 'foreign');
+        $corrupt = _pp_cli_preflight_record_failed_message($run_id, 'corrupt');
+        $ok      = _pp_cli_preflight_record_failed_message($run_id, 'ok');
+
+        $this->assertStringContainsString('different site', $foreign);
+        $this->assertStringContainsString('corrupt', $corrupt);
+        // status 'ok' means the run is live but the write did not land — retry, not re-inspect.
+        $this->assertStringContainsString('did not complete', $ok);
+
+        // All four causes produce different operator guidance.
+        $this->assertCount(4, array_unique([
+            _pp_cli_preflight_record_failed_message($run_id, 'not_found'),
+            _pp_cli_preflight_record_failed_message($run_id, 'expired'),
+            $foreign,
+            $ok,
+        ]));
+    }
+
+    public function testPreflightRecordMessageEndToEndClassifiesAbsentRunAsNotFound(): void
+    {
+        // Full path: a valid but never-minted run token (the container repro) must
+        // resolve to the not_found message via pp_operate_run_status().
+        $run_id = '11111111-1111-4111-8111-111111111111';
+        $this->assertSame('not_found', pp_operate_run_status($run_id));
+        $msg = _pp_cli_preflight_record_failed_message($run_id, pp_operate_run_status($run_id));
+        $this->assertStringContainsString('No run state found', $msg);
+    }
 }

@@ -41,13 +41,16 @@ proof, not a blanket "some preflight happened."
 
 ### The run token enforces order
 
-`wp pp operate inspect` mints a **run token** (a UUID v4) and writes a small JSON
-state file in the system temp dir. Every mutating command takes that token via
-`--run-id` and checks the recorded state before doing anything. INSPECT must come
-first; mutations come later. Out-of-order CLI calls are refused. The token is
-bound to a site identity (site URL + database + blog id) and expires after two
-hours, so a token from one install or an old session can't drive a mutation
-somewhere else.
+`wp pp operate inspect` mints a **run token** (a UUID v4) and writes its state to a
+per-run, non-autoloaded row in the install's `wp_options` table. Every mutating
+command takes that token via `--run-id` and checks the recorded state before doing
+anything. INSPECT must come first; mutations come later. Out-of-order CLI calls are
+refused. The token is bound to a site identity (site URL + database + blog id) and
+expires after two hours, so a token from one install or an old session can't drive a
+mutation somewhere else. Storing the state in the options table (rather than a file in
+the system temp dir) means it is shared across every CLI process that can operate the
+install — including setups where each `wp` call runs in a separate ephemeral container
+with its own `/tmp`, which the old temp-dir file could not survive (#409).
 
 ### Preflight records the target it covered
 
