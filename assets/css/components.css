@@ -927,8 +927,8 @@
    ========================================================================== */
 
 .section {
-  padding-top: var(--section-padding-top, var(--space-xl));
-  padding-bottom: var(--section-padding-bottom, var(--space-xl));
+  padding-top: var(--section-padding-top, var(--pp-band-padding));
+  padding-bottom: var(--section-padding-bottom, var(--pp-band-padding));
   background: var(--section-bg, transparent);
   border-top: var(--section-border-width, 0) solid var(--section-border-color, transparent);
   border-bottom: var(--section-border-width, 0) solid var(--section-border-color, transparent);
@@ -1237,8 +1237,8 @@
    ========================================================================== */
 
 .faq {
-  padding-top: var(--faq-padding-top, var(--space-xl));
-  padding-bottom: var(--faq-padding-bottom, var(--space-xl));
+  padding-top: var(--faq-padding-top, var(--pp-band-padding));
+  padding-bottom: var(--faq-padding-bottom, var(--pp-band-padding));
   background: var(--faq-bg, var(--color-surface));
 }
 
@@ -1379,8 +1379,8 @@
    ========================================================================== */
 
 .grid {
-  padding-top: var(--grid-padding-top, var(--space-xl));
-  padding-bottom: var(--grid-padding-bottom, var(--space-xl));
+  padding-top: var(--grid-padding-top, var(--pp-band-padding));
+  padding-bottom: var(--grid-padding-bottom, var(--pp-band-padding));
   background: var(--grid-bg, transparent);
 }
 
@@ -1916,8 +1916,8 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    ========================================================================== */
 
 .cta {
-  padding-top: var(--cta-padding-top, var(--space-xl));
-  padding-bottom: var(--cta-padding-bottom, var(--space-xl));
+  padding-top: var(--cta-padding-top, var(--pp-band-padding));
+  padding-bottom: var(--cta-padding-bottom, var(--pp-band-padding));
   background: var(--cta-bg, transparent);
   border-top: var(--cta-border-width, 0) solid var(--cta-border-color, transparent);
   border-bottom: var(--cta-border-width, 0) solid var(--cta-border-color, transparent);
@@ -2353,8 +2353,8 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    ========================================================================== */
 
 .stats {
-  padding-top: var(--stats-padding-top, var(--space-xl));
-  padding-bottom: var(--stats-padding-bottom, var(--space-xl));
+  padding-top: var(--stats-padding-top, var(--pp-band-padding));
+  padding-bottom: var(--stats-padding-bottom, var(--pp-band-padding));
   background: var(--stats-bg, transparent);
 }
 
@@ -2596,8 +2596,8 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    ========================================================================== */
 
 .testimonials {
-  padding-top: var(--testimonials-padding-top, var(--space-xl));
-  padding-bottom: var(--testimonials-padding-bottom, var(--space-xl));
+  padding-top: var(--testimonials-padding-top, var(--pp-band-padding));
+  padding-bottom: var(--testimonials-padding-bottom, var(--pp-band-padding));
   background: var(--testimonials-bg, transparent);
 }
 
@@ -2816,11 +2816,14 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    Tightens vertical padding between consecutive section-level components
    inside <main>. First component keeps its own padding naturally (the `+`
    combinator skips it). Desktop only — mobile spacing stays uniform.
+   Routes through the shared --pp-band-padding-adjacent-top so this generic
+   catch-all (components with no padding slot: hero, table, logos, embed)
+   stays on the one rhythm definition instead of a bare literal (issue 431).
    ========================================================================== */
 
 @media (min-width: 768px) {
   main > [data-pp-component] + [data-pp-component] {
-    padding-top: var(--space-lg);
+    padding-top: var(--pp-band-padding-adjacent-top);
   }
 }
 
@@ -3417,27 +3420,32 @@ main .btn:focus-visible {
    the vertical rhythm to a uniform clamp() at ALL widths, outranking the base
    two-tier rule (SHARED: Adjacent-Sibling Rhythm, ~line 2124: 32px = var(--space-lg)
    between stacked components on desktop) AND defeating every --*-padding-top slot on
-   an adjacent component. Drop the flat override; the base rule restores the 32px
+   an adjacent component. Drop the flat override; the base rule restores the
    two-tier default for component types with no padding slot (hero/...).
    For the slot-bearing components, route the adjacent top-padding through the slot
-   with var(--space-lg) as the fallback so the slot controls adjacent spacing too.
+   with the shared --pp-band-padding-adjacent-top as the fallback so the slot
+   controls adjacent spacing too AND every band consumes the one rhythm definition
+   (issue 431 — testimonials joins the list; its adjacent-top slot was dead here).
    Desktop-scoped and placed last so it wins over the base rule; mobile keeps the
    uniform rhythm below (mobile spacing is intentionally uniform). */
 @media (min-width: 768px) {
   main > [data-pp-component] + .section {
-    padding-top: var(--section-padding-top, var(--space-lg));
+    padding-top: var(--section-padding-top, var(--pp-band-padding-adjacent-top));
   }
   main > [data-pp-component] + .grid {
-    padding-top: var(--grid-padding-top, var(--space-lg));
+    padding-top: var(--grid-padding-top, var(--pp-band-padding-adjacent-top));
   }
   main > [data-pp-component] + .cta {
-    padding-top: var(--cta-padding-top, var(--space-lg));
+    padding-top: var(--cta-padding-top, var(--pp-band-padding-adjacent-top));
   }
   main > [data-pp-component] + .stats {
-    padding-top: var(--stats-padding-top, var(--space-lg));
+    padding-top: var(--stats-padding-top, var(--pp-band-padding-adjacent-top));
   }
   main > [data-pp-component] + .faq {
-    padding-top: var(--faq-padding-top, var(--space-lg));
+    padding-top: var(--faq-padding-top, var(--pp-band-padding-adjacent-top));
+  }
+  main > [data-pp-component] + .testimonials {
+    padding-top: var(--testimonials-padding-top, var(--pp-band-padding-adjacent-top));
   }
 }
 
@@ -3445,26 +3453,28 @@ main .btn:focus-visible {
    This premium rule re-declared padding-top/bottom as bare clamp() literals,
    outranking the base .section/.grid/.cta rules ([0,1,0]) and silently ignoring a
    declared --*-padding-top/bottom. Split per component and route through the slot
-   with the clamp() as the fallback (unset output unchanged). faq now routes
-   through --faq-padding-top/bottom too (issue 304). */
+   with the shared --pp-band-padding as the fallback. faq now routes through
+   --faq-padding-top/bottom too (issue 304). The clamp() literal moved into the one
+   rhythm definition (issue 431); stats/testimonials get their own tier via their
+   base rules, which now route through the same --pp-band-padding. */
 .section {
-  padding-top: var(--section-padding-top, clamp(4.25rem, 6vw, 5rem));
-  padding-bottom: var(--section-padding-bottom, clamp(4.25rem, 6vw, 5rem));
+  padding-top: var(--section-padding-top, var(--pp-band-padding));
+  padding-bottom: var(--section-padding-bottom, var(--pp-band-padding));
 }
 
 .grid {
-  padding-top: var(--grid-padding-top, clamp(4.25rem, 6vw, 5rem));
-  padding-bottom: var(--grid-padding-bottom, clamp(4.25rem, 6vw, 5rem));
+  padding-top: var(--grid-padding-top, var(--pp-band-padding));
+  padding-bottom: var(--grid-padding-bottom, var(--pp-band-padding));
 }
 
 .cta {
-  padding-top: var(--cta-padding-top, clamp(4.25rem, 6vw, 5rem));
-  padding-bottom: var(--cta-padding-bottom, clamp(4.25rem, 6vw, 5rem));
+  padding-top: var(--cta-padding-top, var(--pp-band-padding));
+  padding-bottom: var(--cta-padding-bottom, var(--pp-band-padding));
 }
 
 .faq {
-  padding-top: var(--faq-padding-top, clamp(4.25rem, 6vw, 5rem));
-  padding-bottom: var(--faq-padding-bottom, clamp(4.25rem, 6vw, 5rem));
+  padding-top: var(--faq-padding-top, var(--pp-band-padding));
+  padding-bottom: var(--faq-padding-bottom, var(--pp-band-padding));
 }
 
 main > .grid .grid__item,
@@ -3498,48 +3508,55 @@ main .btn {
   border-radius: var(--btn-radius, 4px);
 }
 @media (max-width: 767px) {
-  /* Mobile rhythm defaults to a uniform 3.35rem (SHARED: Adjacent-Sibling Rhythm
+  /* Mobile rhythm defaults to a uniform value (SHARED: Adjacent-Sibling Rhythm
      is desktop-only, so there is no two-tier default here). This generic rule
      [0,2,1] beats the per-component .section/.grid/.cta rules below [0,1,0], so
      without the per-component adjacent rules a declared --*-padding-top would
      silently no-op on an adjacent mobile component's TOP edge (same dead-slot
-     class as issue 302). Route the slot per component with 3.35rem as the
-     fallback; unset output stays a uniform 3.35rem. */
+     class as issue 302). Route the slot per component with the shared
+     --pp-band-padding-adjacent-top as the fallback (3.35rem at this breakpoint
+     via its :root override); unset output stays uniform. testimonials joins the
+     list so its adjacent-top slot is live on mobile too (issue 431). */
   main > [data-pp-component] + [data-pp-component] {
-    padding-top: 3.35rem;
+    padding-top: var(--pp-band-padding-adjacent-top);
   }
   main > [data-pp-component] + .section {
-    padding-top: var(--section-padding-top, 3.35rem);
+    padding-top: var(--section-padding-top, var(--pp-band-padding-adjacent-top));
   }
   main > [data-pp-component] + .grid {
-    padding-top: var(--grid-padding-top, 3.35rem);
+    padding-top: var(--grid-padding-top, var(--pp-band-padding-adjacent-top));
   }
   main > [data-pp-component] + .cta {
-    padding-top: var(--cta-padding-top, 3.35rem);
+    padding-top: var(--cta-padding-top, var(--pp-band-padding-adjacent-top));
   }
   main > [data-pp-component] + .stats {
-    padding-top: var(--stats-padding-top, 3.35rem);
+    padding-top: var(--stats-padding-top, var(--pp-band-padding-adjacent-top));
   }
   main > [data-pp-component] + .faq {
-    padding-top: var(--faq-padding-top, 3.35rem);
+    padding-top: var(--faq-padding-top, var(--pp-band-padding-adjacent-top));
+  }
+  main > [data-pp-component] + .testimonials {
+    padding-top: var(--testimonials-padding-top, var(--pp-band-padding-adjacent-top));
   }
 
   /* Own mobile padding, routed through the padding slots so a declared
      --*-padding-top/bottom takes effect at mobile too (issue 302). faq now routes
-     through --faq-padding-top/bottom too (issue 304). Fallbacks equal the prior
-     literals. */
+     through --faq-padding-top/bottom too (issue 304). Fallbacks route through the
+     shared --pp-band-padding (3.35rem at this breakpoint). cta/stats/testimonials
+     no longer need a per-component restatement here — their base rules already
+     fall back to --pp-band-padding, so they join the same mobile tier (issue 431). */
   .section {
-    padding-top: var(--section-padding-top, 3.35rem);
-    padding-bottom: var(--section-padding-bottom, 3.35rem);
+    padding-top: var(--section-padding-top, var(--pp-band-padding));
+    padding-bottom: var(--section-padding-bottom, var(--pp-band-padding));
   }
 
   .grid {
-    padding-top: var(--grid-padding-top, 3.35rem);
-    padding-bottom: var(--grid-padding-bottom, 3.35rem);
+    padding-top: var(--grid-padding-top, var(--pp-band-padding));
+    padding-bottom: var(--grid-padding-bottom, var(--pp-band-padding));
   }
 
   .faq {
-    padding-top: var(--faq-padding-top, 3.35rem);
-    padding-bottom: var(--faq-padding-bottom, 3.35rem);
+    padding-top: var(--faq-padding-top, var(--pp-band-padding));
+    padding-bottom: var(--faq-padding-bottom, var(--pp-band-padding));
   }
 }

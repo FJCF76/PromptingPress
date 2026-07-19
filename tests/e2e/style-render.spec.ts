@@ -55,9 +55,15 @@ async function styleComponent(
   postId: number,
   style: Record<string, unknown>,
   recipe?: string,
+  componentIndex = 0,
 ) {
   return page.evaluate(
-    async (args: { pid: number; style: Record<string, unknown>; recipe?: string }) => {
+    async (args: {
+      pid: number;
+      style: Record<string, unknown>;
+      recipe?: string;
+      componentIndex: number;
+    }) => {
       const config = (window as any).ppAiChat;
 
       // style_component is composition-mutating, so the chat execute endpoint now
@@ -81,7 +87,7 @@ async function styleComponent(
       data.append('type', 'action');
       data.append('name', 'style_component');
       data.append('params[post_id]', String(args.pid));
-      data.append('params[component_index]', '0');
+      data.append('params[component_index]', String(args.componentIndex));
       if (baseline && baseline.success && baseline.data) {
         data.append('params[expected_version]', String(baseline.data.version));
       }
@@ -98,7 +104,7 @@ async function styleComponent(
       });
       return resp.json();
     },
-    { pid: postId, style, recipe },
+    { pid: postId, style, recipe, componentIndex },
   );
 }
 
@@ -3071,5 +3077,191 @@ test.describe('#369 --btn-radius rendered proof (real WP)', () => {
     // 4px and routing the winning `main .btn` rule through var(--btn-radius, 4px)
     // changed nothing about the default rendering.
     expect(buttonRadius).toBe('4px');
+  });
+});
+
+/**
+ * Computed-rhythm proof for the shared section-band spacing model (issue 431).
+ *
+ * The six band-level components (section, grid, cta, stats, faq, testimonials)
+ * used to hard-code their own vertical-padding literals per component per media
+ * block, so they disagreed: stats/testimonials sat at 64px while section/grid/faq
+ * were 76.8px on desktop, cta stayed 68px on mobile, and testimonials was missing
+ * from BOTH adjacent-sibling routing lists (its --testimonials-padding-top slot was
+ * dead on the adjacent-top edge). This suite proves, at the rendered level, that all
+ * six now consume ONE shared rhythm definition (--pp-band-padding for a band's own
+ * edges, --pp-band-padding-adjacent-top for a band that follows another band):
+ *
+ *   - every band reports identical unset padding-top AND padding-bottom (both
+ *     breakpoints), testimonials included — the css-lint suite proves the fallback
+ *     chains route through the shared prop; only a rendered box proves the full
+ *     cascade (base + premium + adjacent + mobile) actually resolves them equal;
+ *   - a per-instance --testimonials-padding-top wins on the ADJACENT-top edge at
+ *     1280 and 375 (the resurrected dead slot);
+ *   - retuning the single shared definition at :root moves all six together.
+ *
+ * The equalities are asserted component-vs-component, not against a hardcoded px
+ * value, so the companion band-symmetry issue (430) can retune the shared values
+ * without churning these tests. A leading hero puts all six bands in the adjacent
+ * position, so their top edges are directly comparable to each other.
+ */
+test.describe('Shared section-band rhythm (#431)', () => {
+  let pageId: number;
+
+  const BANDS = ['section', 'grid', 'cta', 'stats', 'faq', 'testimonials'] as const;
+
+  // Hero first so all six bands render in the adjacent-sibling position (their
+  // top edges are then the same tier and directly comparable). Minimal valid
+  // props per component so each renders as a direct child of <main>.
+  //
+  // faq is placed LAST on purpose. faq.php echoes a FAQPage JSON-LD <script> as a
+  // SIBLING right after its </section> (lib/wp.php pp_render_faq_schema), so any
+  // band rendered immediately after a faq has that <script> as its previous element
+  // sibling and the `main > [data-pp-component] + .band` combinator misses it —
+  // that band falls back to its own (larger) top padding. That is a pre-existing
+  // adjacent-rhythm bug in a DIFFERENT mechanism (the `+` combinator vs faq's
+  // interleaved script), not the rhythm-definition drift #431 fixes; it is tracked
+  // separately. Keeping faq last means every MEASURED band has a clean band as its
+  // previous sibling, so this suite proves the #431 deliverable (one shared rhythm,
+  // all six consuming it, testimonials resurrected) without tripping that bug.
+  const STACK = [
+    { component: 'hero', props: { id: 'pp-hero01', title: 'Lead' } },
+    { component: 'section', props: { id: 'pp-sec01', body: '<p>Section body.</p>' } },
+    { component: 'grid', props: { id: 'pp-grid01', title: 'Grid', items: [{ title: 'One', text: 'A' }] } },
+    { component: 'cta', props: { id: 'pp-cta01', title: 'CTA', button_text: 'Go', button_url: '/go' } },
+    { component: 'stats', props: { id: 'pp-stats01', items: [{ number: '10', label: 'Ten' }] } },
+    { component: 'testimonials', props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] } },
+    { component: 'faq', props: { id: 'pp-faq01', items: [{ question: 'Q?', answer: 'A.' }] } },
+  ];
+
+  async function bandPadding(page: any, band: string) {
+    return page.locator(`main > .${band === 'stats' ? 'stats' : band}`).evaluate((el: Element) => {
+      const cs = getComputedStyle(el);
+      return { top: cs.paddingTop, bottom: cs.paddingBottom };
+    });
+  }
+
+  test.afterEach(async () => {
+    if (pageId) {
+      try {
+        deletePage(pageId);
+      } catch {
+        /* already cleaned */
+      }
+      pageId = 0;
+    }
+  });
+
+  // Core scenario: every band agrees on unset padding at BOTH breakpoints. This is
+  // the heart of #431 — one spacing model, no per-component drift, testimonials in.
+  test('#431 all six bands report identical unset padding-top and padding-bottom at 1280 and 375 @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Shared Band Rhythm Equality');
+    setComposition(pageId, STACK);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('main > .testimonials')).toBeVisible({ timeout: 10000 });
+
+      const measured: Record<string, { top: string; bottom: string }> = {};
+      for (const band of BANDS) {
+        measured[band] = await bandPadding(page, band);
+      }
+
+      const tops = BANDS.map((b) => measured[b].top);
+      const bottoms = BANDS.map((b) => measured[b].bottom);
+
+      // Non-trivial values (a 0px collapse would make equality vacuously pass).
+      expect(tops.every((t) => t && t !== '0px'), `tops @${width}: ${JSON.stringify(measured)}`).toBe(true);
+      expect(bottoms.every((b) => b && b !== '0px'), `bottoms @${width}: ${JSON.stringify(measured)}`).toBe(true);
+
+      // The invariant: all six share one top tier and one bottom tier. Compare
+      // component-to-component (not to a hardcoded px) so #430 can retune freely.
+      expect(new Set(tops).size, `padding-top drift @${width}: ${JSON.stringify(measured)}`).toBe(1);
+      expect(new Set(bottoms).size, `padding-bottom drift @${width}: ${JSON.stringify(measured)}`).toBe(1);
+    }
+  });
+
+  // The resurrected dead slot: testimonials was absent from both adjacent routing
+  // lists, so --testimonials-padding-top no-op'd on the adjacent-top edge. It must
+  // now win at both breakpoints, exactly like section did in #305/#302.
+  test('#431 --testimonials-padding-top wins on an adjacent testimonials band at 1280 and 375', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Testimonials Adjacent Slot Resurrected');
+    // section first, testimonials second => testimonials is in the adjacent position.
+    setComposition(pageId, [
+      { component: 'section', props: { id: 'pp-sec01', body: '<p>Body.</p>' } },
+      { component: 'testimonials', props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] } },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // A pixel value no token resolves to, so a dead-slot no-op is unmistakable.
+    // component_index 1 = the testimonials band (index 0 is the leading section).
+    const res = await styleComponent(page, pageId, { '--testimonials-padding-top': '5px' }, undefined, 1);
+    expect(res.success).toBe(true);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      const tst = page.locator('main > .testimonials');
+      await expect(tst).toBeVisible({ timeout: 10000 });
+      const paddingTop = await tst.evaluate((el) => getComputedStyle(el).paddingTop);
+      expect(paddingTop, `adjacent-top slot @${width}`).toBe('5px');
+    }
+  });
+
+  // One knob retunes the whole site's rhythm: overriding the shared definition at
+  // :root moves every band's every edge together. Proves the fallback chains really
+  // terminate in the two shared props, not per-component copies — and covers all
+  // three routed paths at the computed level: a band's own top (first-position),
+  // every band's own bottom, and the adjacent-top tier.
+  //
+  // A band leads the stack (no hero) so the first band renders in the OWN-padding
+  // position: its top comes from --pp-band-padding, not --pp-band-padding-adjacent-top.
+  // The two shared props get DISTINCT override values so the own tier (5px) and the
+  // adjacent tier (7px) are told apart. faq stays last (its JSON-LD script, see the
+  // STACK note above, would break the `+` adjacency of anything after it).
+  test('#431 :root overrides of both shared props move every band edge (own top+bottom, adjacent top)', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Shared Band Rhythm Retune');
+    const bandLed = [
+      { component: 'section', props: { id: 'pp-sec01', body: '<p>Section body.</p>' } },
+      { component: 'grid', props: { id: 'pp-grid01', title: 'Grid', items: [{ title: 'One', text: 'A' }] } },
+      { component: 'cta', props: { id: 'pp-cta01', title: 'CTA', button_text: 'Go', button_url: '/go' } },
+      { component: 'stats', props: { id: 'pp-stats01', items: [{ number: '10', label: 'Ten' }] } },
+      { component: 'testimonials', props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] } },
+      { component: 'faq', props: { id: 'pp-faq01', items: [{ question: 'Q?', answer: 'A.' }] } },
+    ];
+    setComposition(pageId, bandLed);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('main > .faq')).toBeVisible({ timeout: 10000 });
+
+    // Two distinct override values, appended after the theme sheet so they win the
+    // :root cascade. 5px/7px resolve from no token, so a band still using a
+    // per-component literal on any edge would fail to move.
+    await page.addStyleTag({
+      content: ':root { --pp-band-padding: 5px; --pp-band-padding-adjacent-top: 7px; }',
+    });
+
+    // section is first => its top is the OWN tier (5px), proving the own-top path.
+    const first = await bandPadding(page, 'section');
+    expect(first.top, 'first band own-top did not follow --pp-band-padding').toBe('5px');
+    expect(first.bottom, 'first band own-bottom did not follow --pp-band-padding').toBe('5px');
+
+    // Every band's own bottom follows --pp-band-padding; every ADJACENT band's top
+    // follows --pp-band-padding-adjacent-top. Proves both shared props drive all six.
+    for (const band of ['grid', 'cta', 'stats', 'testimonials', 'faq']) {
+      const { top, bottom } = await bandPadding(page, band);
+      expect(bottom, `${band} own-bottom did not follow --pp-band-padding`).toBe('5px');
+      expect(top, `${band} adjacent-top did not follow --pp-band-padding-adjacent-top`).toBe('7px');
+    }
   });
 });
