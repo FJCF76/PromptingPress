@@ -2813,12 +2813,14 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
 /* ==========================================================================
    SHARED: Adjacent-Sibling Rhythm
-   Tightens vertical padding between consecutive section-level components
+   Sets the top padding of a section-level component that follows another one
    inside <main>. First component keeps its own padding naturally (the `+`
    combinator skips it). Desktop only — mobile spacing stays uniform.
-   Routes through the shared --pp-band-padding-adjacent-top so this generic
-   catch-all (components with no padding slot: hero, table, logos, embed)
-   stays on the one rhythm definition instead of a bare literal (issue 431).
+   Routes through the shared --pp-band-padding-adjacent-top, which is pinned to
+   --pp-band-padding (issue 430), so this adjacent top equals the band's own
+   edges (symmetric) instead of a tighter tier. This generic catch-all also
+   covers components with no padding slot (hero, table, logos, embed), keeping
+   them on the one shared rhythm definition instead of a bare literal (issue 431).
    ========================================================================== */
 
 @media (min-width: 768px) {
@@ -3418,10 +3420,12 @@ main .btn:focus-visible {
 
 /* Adjacent-sibling rhythm, restored (issue 302). This premium rule used to flatten
    the vertical rhythm to a uniform clamp() at ALL widths, outranking the base
-   two-tier rule (SHARED: Adjacent-Sibling Rhythm, ~line 2124: 32px = var(--space-lg)
-   between stacked components on desktop) AND defeating every --*-padding-top slot on
-   an adjacent component. Drop the flat override; the base rule restores the
-   two-tier default for component types with no padding slot (hero/...).
+   adjacent-sibling rule (SHARED: Adjacent-Sibling Rhythm) AND defeating every
+   --*-padding-top slot on an adjacent component. The shared adjacent-top tier is
+   now --pp-band-padding-adjacent-top, pinned to --pp-band-padding so the adjacent
+   top equals the band's own edges (symmetric, issue 430; formerly the tighter
+   var(--space-lg) two-tier value). Drop the flat override; the base rule carries
+   the shared default for component types with no padding slot (hero/...).
    For the slot-bearing components, route the adjacent top-padding through the slot
    with the shared --pp-band-padding-adjacent-top as the fallback so the slot
    controls adjacent spacing too AND every band consumes the one rhythm definition
