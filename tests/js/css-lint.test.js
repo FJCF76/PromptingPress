@@ -1845,6 +1845,124 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
     });
 });
 
+/**
+ * Structural pin: every band-level heading shares ONE responsive scale (#436),
+ * the typography analog of the #431 rhythm pin above.
+ *
+ * Before #436, band titles had no working default size below 768px: section /
+ * grid / cta used `font-size: var(--slot, inherit)` (collapses to 16px body size
+ * on mobile; cta collapsed at every viewport), while faq / stats / table / logos /
+ * embed / testimonials used divergent literals (1.875rem or the flat h2 element
+ * rule). The fix defines the scale once in base.css — `--pp-band-heading-size`
+ * (a fluid clamp from a ~28px mobile floor to the ~42px desktop ceiling) — and
+ * routes every band heading's font-size fallback through it.
+ *
+ * These pins enforce that model structurally so a heading can't re-introduce the
+ * collapse by pasting a literal or falling back to `inherit`:
+ *   1. every band-heading font-size declaration routes var(--<comp>-*-size,
+ *      var(--pp-band-heading-size)) — slot still wins, shared scale is the floor;
+ *   2. `inherit` never appears as a heading font-size fallback (the exact
+ *      regression that shipped the 16px collapse);
+ *   3. the shared prop is actually defined in base.css as a fluid clamp, so the
+ *      routing resolves and a rename breaks these pins loudly.
+ */
+describe('CSS lint: band-level headings share one responsive scale (#436)', () => {
+    // Brace-matched extraction of every rule whose selector is EXACTLY `selector`
+    // (whitespace-normalized), across all media contexts. Same technique as the
+    // #431 helper; re-declared here so this suite is self-contained.
+    function bodiesForExactSelector(selector) {
+        const css = stripComments(COMPONENTS_CSS).replace(/\s+/g, ' ');
+        const re = new RegExp(
+            '[{};,]\\s*' + selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{',
+            'g'
+        );
+        const bodies = [];
+        let match;
+        while ((match = re.exec(css)) !== null) {
+            let i = re.lastIndex;
+            let depth = 1;
+            const start = i;
+            while (i < css.length && depth > 0) {
+                if (css[i] === '{') depth++;
+                else if (css[i] === '}') depth--;
+                i++;
+            }
+            bodies.push(css.slice(start, i - 1));
+        }
+        return bodies;
+    }
+
+    // Each band heading: its exact selector(s) and the size slot the font-size
+    // must route through. section/grid/faq carry BOTH a base rule and a desktop
+    // premium rule ([0,2,1]); both must route the slot to the shared scale, so a
+    // multi-selector entry pins every declaration site.
+    const BAND_HEADINGS = [
+        { selectors: ['.section__title', '.section--text-only .section__title', 'main > .section .section__title'], slot: '--section-title-size' },
+        { selectors: ['.grid__heading', 'main > .grid .grid__heading'], slot: '--grid-heading-size' },
+        { selectors: ['.cta__title'], slot: '--cta-title-size' },
+        { selectors: ['.faq__heading', 'main > .faq .faq__heading'], slot: '--faq-heading-size' },
+        { selectors: ['.stats__heading'], slot: '--stats-title-size' },
+        { selectors: ['.table-section__heading'], slot: '--table-section-heading-size' },
+        { selectors: ['.logos__heading'], slot: '--logos-heading-size' },
+        { selectors: ['.embed__heading'], slot: '--embed-heading-size' },
+        { selectors: ['.testimonials__heading'], slot: '--testimonials-heading-size' },
+    ];
+
+    // 1. Every band-heading font-size routes through its slot AND falls back to the
+    //    shared --pp-band-heading-size — at every declaration site (base + premium).
+    test.each(BAND_HEADINGS)('$slot heading routes font-size through its slot to var(--pp-band-heading-size)', ({ selectors, slot }) => {
+        // Per-selector (not summed): EACH listed selector must carry at least one
+        // font-size declaration AND every such declaration must route the slot to
+        // the shared scale. A summed count would let one selector's two decls mask
+        // another selector that dropped its font-size entirely.
+        selectors.forEach(sel => {
+            const decls = bodiesForExactSelector(sel).flatMap(b => b.match(/font-size\s*:[^;}]+/g) || []);
+            expect(decls.length, `${sel} has no font-size declaration`).toBeGreaterThanOrEqual(1);
+            decls.forEach(d => {
+                expect(d).toMatch(new RegExp('font-size\\s*:\\s*var\\(\\s*' + slot + '\\s*,\\s*var\\(\\s*--pp-band-heading-size\\s*\\)'));
+            });
+        });
+    });
+
+    // 2. `inherit` never appears as a heading font-size fallback anywhere in
+    //    components.css — this is the exact regression that shipped the 16px
+    //    collapse. Body-copy slots (e.g. --cta-body-size) may still inherit;
+    //    this pin is scoped to the band-heading slots above.
+    test('no band-heading font-size falls back to inherit', () => {
+        const stripped = stripComments(COMPONENTS_CSS);
+        const headingSlots = BAND_HEADINGS.map(h => h.slot);
+        headingSlots.forEach(slot => {
+            const re = new RegExp('font-size\\s*:\\s*var\\(\\s*' + slot + '\\s*,\\s*inherit\\s*\\)');
+            expect(stripped).not.toMatch(re);
+        });
+    });
+
+    // 3. The shared scale is actually defined in base.css as a fluid clamp with a
+    //    mobile floor >= 1.5rem (never body size) and the prior desktop ceiling,
+    //    so the routing resolves and a rename breaks these pins loudly.
+    test('base.css defines --pp-band-heading-size as a fluid clamp', () => {
+        const base = stripComments(BASE_CSS);
+        const m = base.match(/--pp-band-heading-size\s*:\s*clamp\(\s*([0-9.]+)rem\s*,[^,]+,\s*([0-9.]+)rem\s*\)/);
+        expect(m, 'expected --pp-band-heading-size: clamp(floor, preferred, ceiling) in base.css').not.toBeNull();
+        // Mobile floor never collapses into body size.
+        expect(parseFloat(m[1])).toBeGreaterThanOrEqual(1.5);
+        // Ceiling stays at the prior desktop-clamp ceiling.
+        expect(parseFloat(m[2])).toBeCloseTo(2.62, 2);
+    });
+
+    // 4. The former per-component heading literals are gone from components.css —
+    //    a heading that pastes a literal instead of consuming the shared scale
+    //    fails this pin. (2.25rem lived on section text-only + the desktop clamp
+    //    floor; 1.875rem on faq/stats.) The clamp(2.25rem,3vw,2.62rem) desktop
+    //    fallback is likewise fully replaced by the shared prop.
+    test('former per-heading size literals no longer appear in components.css', () => {
+        const stripped = stripComments(COMPONENTS_CSS);
+        expect(stripped).not.toMatch(/clamp\(\s*2\.25rem\s*,\s*3vw\s*,\s*2\.62rem\s*\)/);
+        expect(stripped).not.toMatch(/font-size\s*:\s*var\(\s*--[a-z-]+-(?:title|heading)-size\s*,\s*1\.875rem\s*\)/);
+        expect(stripped).not.toMatch(/font-size\s*:\s*var\(\s*--section-title-size\s*,\s*2\.25rem\s*\)/);
+    });
+});
+
 describe('CSS lint: no raw hex in components.css', () => {
     test('components.css has no raw hex color values', () => {
         const stripped = stripComments(COMPONENTS_CSS);

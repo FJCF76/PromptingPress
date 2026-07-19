@@ -13,8 +13,11 @@ $title   = $props['title']   ?? '';
 $headers = $props['headers'] ?? [];
 $rows    = $props['rows']    ?? [];
 $caption = $props['caption'] ?? '';
+
+$slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'table');
+$style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="table-section" data-pp-component="table">
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="table-section" data-pp-component="table"<?php echo $style_attr; ?>>
     <div class="container">
 
         <?php if ($title) : ?>

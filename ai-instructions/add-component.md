@@ -151,6 +151,12 @@ Open `/assets/css/components.css` and add a labeled section at the bottom:
 }
 
 .mycomponent__title {
+  /* A band-level title shares ONE responsive heading scale with every other band
+     title (issue 436). Route its font-size through the component's own size slot,
+     falling back to the shared --pp-band-heading-size, so it never collapses to
+     body size on mobile and reads as a peer of adjacent band titles. Never fall
+     back to `inherit` (that silently discards the scale) or a bare literal. */
+  font-size: var(--mycomponent-heading-size, var(--pp-band-heading-size));
   margin-bottom: var(--space-md);
 }
 
@@ -163,7 +169,10 @@ Open `/assets/css/components.css` and add a labeled section at the bottom:
 each component's own authorable slots (`--mycomponent-padding-*`) falling back to
 `base.css` tokens. Band-level components take their default vertical rhythm from
 `--pp-band-padding` (never a per-component literal), so all sections share one
-spacing model.
+spacing model. Band titles do the same on the typography axis: their `font-size`
+falls back to `--pp-band-heading-size` (never `inherit`, never a per-component
+literal), so every band heading shares one responsive scale and never collapses
+to body size on mobile.
 
 ---
 

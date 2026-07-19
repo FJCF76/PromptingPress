@@ -4,6 +4,25 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.4.7] — 2026-07-20 — band headings share one responsive scale, so section/grid/CTA titles stop collapsing to body size on mobile (#436)
+
+**Below 768px the theme had no working default size for band headings: section, grid, and CTA titles rendered at 16px — exactly body size — on every default page, and CTA titles were body-sized at every breakpoint. The `font-size: var(--slot, inherit)` pattern behind those headings had no base value, so with no per-page override the heading silently inherited body text and the visual hierarchy vanished on phones. Now every band title (section, grid, cta, faq, stats, table, testimonials, logos, embed) draws its default size from one shared, fluid scale defined once in `base.css`, so headings scale down on small screens but never collapse into body copy, and headings at the same structural level render as peers.**
+
+The scale is a single `clamp()` from a ~28px mobile floor to the ~42px ceiling of the prior desktop-only rule, consumed as the fallback of each component's existing `--*-title-size` / `--*-heading-size` slot. This is a deliberate change to unstyled output, and it moves default sizes in three ways: (1) on mobile, section/grid/cta titles rise from 16px to ~28px and CTA rises at every width — the core fix; (2) on desktop, stats, table, testimonials, logos, and embed headings grow from a flat 30px to the shared step (up to ~38–42px), joining the same tier as section/grid/faq; (3) for section/grid/faq specifically, the desktop size is preserved at the 1280px breakpoint (~38.4px) and at the ceiling, but softens by ~3.5px across the 768–1071px tablet band (the old rule was floored flat at 36px there; the fluid scale ramps ~32.5px→36px), the deliberate cost of putting all bands on one fluid scale. Per-page intent is untouched: every `--*-title-size` / `--*-heading-size` slot still wins at every breakpoint, and `--cta-title-size: 60px` overrides the scale exactly as before. Table, logos, embed, and testimonials headings gain a `--*-heading-size` slot so their size is now authorable too, matching the other band components.
+
+### Fixed
+- Band-level headings (section, grid, cta, faq, stats, table, testimonials, logos, embed) now have a real default size at every viewport instead of collapsing to body size below 768px. Section, grid, and CTA titles no longer render at 16px on mobile, and CTA titles are no longer body-sized on desktop. All band titles at the same structural level now compute the same size per breakpoint, so stacked sections read as peers (#436).
+- The `font-size: var(--slot, inherit)` anti-pattern is removed from every band heading; each now falls back to the shared `--pp-band-heading-size` scale, which is fluid at every viewport and never resolves to the body font size (#436).
+
+### Added
+- Authorable `--table-section-heading-size`, `--logos-heading-size`, `--embed-heading-size`, and `--testimonials-heading-size` style slots, so the heading size of the table, logos, embed, and testimonials components can be set per instance like the other band components. Total per-instance style slots: 200 across 10 components (#436).
+
+### Docs
+- `AI_CONTEXT.md` and `README.md` updated to the new 200-slot / 10-component totals; `ai-instructions/add-component.md` documents routing a new band heading's `font-size` through its size slot to the shared `--pp-band-heading-size` scale (never `inherit`, never a literal) (#436).
+
+### Tests
+- `tests/js/css-lint.test.js` gains a structural suite pinning that every band heading `font-size` routes through its slot and falls back to the shared scale, that `inherit` never appears as a heading font-size fallback, and that the shared clamp is defined with a floor ≥1.5rem and the prior ceiling. `tests/e2e/style-render.spec.ts` gains viewport-typography coverage: at 375/768/1280 every band heading is an `<h2>`, computes the same size per breakpoint, clears the 1.5rem mobile floor, and never equals the body font size, plus render proof that the existing and newly-minted heading-size slots override the scale at mobile and desktop; the core and webfiable-shape scenarios are tagged `@smoke`. `tests/AiContextTest.php` pins that the newly styleable band components surface their heading-size slot in the AI prompt (#436).
+
 ## [v1.4.6] — 2026-07-20 — the "no raw hex" guard stops tripping on issue references written in CSS comments (#289)
 
 **The check that keeps hardcoded hex colors out of `components.css` used to flag a GitHub issue reference like `(#226)` written inside a `/* ... */` comment, because `#226` reads as a three-digit hex string. That forced an awkward "write `issue 226`, never `(#226)`" convention in CSS comments and had already broken two builds. Now both the local test guard and the CI check strip `/* ... */` comments before scanning, so a comment can cite `(#226)` freely while a real hardcoded color in a declaration (`color: #226;` or `color: #ff0000;`) still fails exactly as before. The two guards now run the same code, so a comment that passes locally can't fail CI or the reverse.**
