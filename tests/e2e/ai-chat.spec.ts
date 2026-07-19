@@ -52,6 +52,31 @@ function deletePage(id: number): void {
   });
 }
 
+/**
+ * Reads a page's current composition CAS version the same way the real server does
+ * when it emits the SSE `done` event's page_baseline (pp_get_composition_marker()
+ * returns `(int) get_post_meta($id, '_pp_composition_version', true)`; #404). Seeding
+ * `_pp_composition` via a direct `wp post meta update` (as these specs do) bypasses
+ * pp_update_composition, so it never bumps the version — an unwritten meta reads as 0,
+ * the legitimate version-0 baseline the server preserves. Reading the true value (vs
+ * hardcoding 0) keeps the fixture correct for any starting version.
+ */
+function compositionVersion(id: number): number {
+  const raw = wpCli(
+    `wp eval 'echo (int) get_post_meta(${id}, "_pp_composition_version", true);'`,
+  );
+  // `wp eval` prints just the integer on its own line. Match a line that is ENTIRELY an
+  // integer (last one wins) so any wp-env banner line — which echoes the command back,
+  // including this post id, plus timing digits — can never be mistaken for the version.
+  const lines = raw.split('\n').map((l) => l.replace(/\x1b\[[0-9;]*m/g, '').trim());
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/^-?\d+$/.test(lines[i])) {
+      return parseInt(lines[i], 10);
+    }
+  }
+  return 0;
+}
+
 type SseEvent = Record<string, unknown>;
 
 function sseBody(events: SseEvent[]): string {
@@ -234,10 +259,22 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
     // its return after Undo is unambiguous.
     wpCli(`wp post meta update ${pageId} _pp_composition '[{"component":"hero","props":{"title":"Keep Me"}},{"component":"section","props":{"title":"Remove Me","body":"section body"}}]'`);
 
+    // Capture the page's current CAS version so the mocked SSE `done` event can carry a
+    // page_baseline exactly like the real ai-stream.php does (#404). Without it the mock
+    // stores no baseline, and the fail-closed baseline mandate rejects both the apply and
+    // the Undo (restore_composition) writes, timing the spec out. Reading the true value
+    // (rather than assuming 0) mirrors what the server would compute at stream time.
+    const baselineVersion = compositionVersion(pageId);
+
     await gotoChat(page, pageId);
     await mockStream(page, [
       {
         done: true,
+        // page_baseline is what the real server captures for the page the model read and
+        // threads back on write (assets/js/pp-ai-chat.js storePageBaseline). The client
+        // sends it as the batch CAS baseline on apply, then refreshes from the batch
+        // response's `versions` map so the Undo threads the post-apply version (#404).
+        page_baseline: { post_id: pageId, version: baselineVersion },
         proposal: {
           steps: [
             { type: 'action', name: 'remove_component', description: 'Remove the section', params: { post_id: pageId, component_index: 1 } },
@@ -247,7 +284,9 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
     ]);
     // NOTE: no admin-ajax mock — preview, execute, and restore_composition all run
     // against real WordPress, so the composition actually changes and Undo actually
-    // restores it (that is the behavior under test, #133 acceptance criterion #4).
+    // restores it (that is the behavior under test, #133 acceptance criterion #4). The
+    // Undo only succeeds if the client refreshed its baseline from the apply response,
+    // so a green Undo also proves the real post-#404 CAS refresh path works.
 
     await page.fill('#pp-ai-input', 'Remove the section');
     await page.click('#pp-ai-send');

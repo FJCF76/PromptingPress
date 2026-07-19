@@ -189,13 +189,33 @@ function readEffectiveLockTimeout(): number {
   return n;
 }
 
-/** Reads pp_token_overrides via CLI; returns {} if the option doesn't exist yet. */
+/**
+ * Reads pp_token_overrides, returning {} when the option is absent or empty.
+ *
+ * Reads through `get_option('pp_token_overrides', array())` rather than
+ * `wp option get pp_token_overrides` on purpose (#423): `wp option get` on an ABSENT
+ * option — the normal pre-write / post-cleanup state in this suite — exits 1 and prints
+ * "Could not get 'pp_token_overrides' option. Does it exist?" to stderr, which execSync
+ * inherits. On the nightly full run that flooded the log with expected-absence noise
+ * that hides genuine teardown failures. Reading via get_option with a default never
+ * takes that error path, so expected absence stays quiet, while a real failure (wp eval
+ * itself exiting nonzero) still throws and stays visible.
+ *
+ * PHP json_encode encodes an absent/empty option as `[]` and a populated token map as a
+ * JSON object; normalize both to a plain object so callers always index a map.
+ */
 function readTokenOverrides(): Record<string, unknown> {
-  try {
-    return parseCliJson(wpCli('wp option get pp_token_overrides --format=json'), 'option get');
-  } catch {
+  const raw = wpCli(
+    `wp eval 'echo json_encode(get_option("pp_token_overrides", array()));'`,
+  ).trim();
+  // Absent/empty option → PHP encodes as `[]`; a populated token map → a JSON object.
+  if (raw === '' || raw === '[]') {
     return {};
   }
+  // parseCliJson brace-matches the first balanced JSON object, tolerating any stray
+  // wp-env banner text around it — more robust than a raw JSON.parse, and reuses the
+  // file's existing helper. A genuinely malformed payload still throws (stays visible).
+  return parseCliJson(raw, 'token overrides');
 }
 
 /** Resets a single token to its product default (best-effort; ignores failures during cleanup). */
