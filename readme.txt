@@ -2,7 +2,7 @@
 Contributors: fjcf76
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 1.3.6
+Stable tag: 1.4.0
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -19,6 +19,10 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 4. Activate the theme.
 
 == Changelog ==
+
+= 1.4.0 =
+* Operator-trust release: run-token state is durable across containerized WP-CLI invocations (options-table store, bounded locking, honest errors); shipped CSS carries no page-specific demo selectors (lint-enforced) and flat primary buttons are reachable through the documented button slots; validation failures always return the standard error envelope; masked design-token changes warn and surface as an inspect smell; the site icon/favicon is settable through the typed action path
+* Verified by a two-process run-state repro, rendered flat-button and demo-ID-parity checks, and an end-to-end typed favicon set
 
 = 1.3.0 =
 * First post-1.0 feature release: explicit grid column-count control (1-4, auto grain unchanged when unset), icon-scale grid item images via a new image treatment option and size slot, and hierarchical dropdown menus (set_menu children) rendered as accessible WAI-ARIA disclosures with keyboard support
