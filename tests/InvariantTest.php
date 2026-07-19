@@ -114,28 +114,23 @@ class InvariantTest extends TestCase
 
     public function testNoRawHexInComponentsCss(): void
     {
+        // Use the shared guard so this local test and the CI `ai-ready` workflow
+        // run the IDENTICAL detection logic (issue #289). The shared guard
+        // strips `/* ... */` comments before matching, so an issue reference in
+        // a comment (e.g. `(#226)`) passes while a real hex still fails.
+        require_once $this->themeRoot . '/scripts/check-raw-hex.php';
+
         $cssFile = $this->themeRoot . '/assets/css/components.css';
         $this->assertFileExists($cssFile, 'components.css not found.');
 
-        $content = file_get_contents($cssFile);
-        $lines   = explode("\n", $content);
+        $hits = \pp_find_raw_hex((string) file_get_contents($cssFile));
 
-        foreach ($lines as $lineNum => $line) {
-            // Skip comment lines
-            if (str_contains(ltrim($line), '*') || str_contains(ltrim($line), '//')) {
-                continue;
-            }
-
-            // Match hex colors that are not part of a longer hex sequence
-            if (preg_match('/#[0-9a-fA-F]{3,6}(?![0-9a-fA-F])/', $line, $matches)) {
-                $this->fail(
-                    "Raw hex color '{$matches[0]}' found in components.css on line " . ($lineNum + 1) . ": {$line}\n" .
-                    "Use CSS variables from base.css instead."
-                );
-            }
+        $message = "Raw hex colors found in components.css (use CSS variables from base.css):\n";
+        foreach ($hits as $hit) {
+            $message .= "  line {$hit['line']}: '{$hit['match']}' — " . trim($hit['text']) . "\n";
         }
 
-        $this->assertTrue(true, 'No raw hex colors found in components.css.');
+        $this->assertSame([], $hits, $message);
     }
 
     // ── All components have README.md ─────────────────────────────────────
