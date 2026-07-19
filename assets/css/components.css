@@ -224,6 +224,23 @@
   color: var(--color-accent);
 }
 
+/* Open-state affordance (issue 426): the toggle swaps hamburger <-> close (X)
+   purely from its own aria-expanded, so the same button visibly communicates
+   state and is the obvious close control. main.js keeps aria-expanded truthful;
+   these rules own the icon swap. The toggle is display:none at >=768px, so this
+   is inert on desktop (rendered output there is byte-identical). */
+.nav__toggle-icon--close {
+  display: none;
+}
+
+.nav__toggle[aria-expanded="true"] .nav__toggle-icon--open {
+  display: none;
+}
+
+.nav__toggle[aria-expanded="true"] .nav__toggle-icon--close {
+  display: flex;
+}
+
 /* Nav menu — visible without JS (progressive enhancement); JS adds/removes hidden. */
 .nav__menu {
   width: 100%;
@@ -274,6 +291,37 @@
 .nav__menu ul li a[aria-current="page"] {
   font-weight: 700;
   color: var(--header-link-color, var(--color-accent));
+}
+
+/* Mobile (issue 426): the nav menu is a DISCLOSURE PANEL below the header row,
+   not a third item in the header's flex row. Before this, .nav__menu (width:100%)
+   joined the nowrap flex row when un-hidden and was crushed into a ~94px column at
+   the right edge while the sticky header grew 65px -> 229px. Taking the menu OUT of
+   the flex flow (position:absolute) means opening it never reflows the logo/toggle
+   row (byte-identical open vs closed) and never grows the sticky header. The panel
+   is anchored to .nav__container (position:relative) so its left edge lines up under
+   the logo via the existing container padding; top:100% drops it just under the row.
+   It paints above page content because the whole .site-header is a z-index:100 sticky
+   stacking context — this z-index only orders the panel within that context, adding
+   no new stacking context of its own. Scoped to max-width:767px so the >=768px desktop
+   nav is entirely untouched. Short panel -> no body scroll-lock (see main.js). The
+   panel background routes the --header-bg chrome slot so a themed header carries into
+   the panel too (issue 333/426). */
+@media (max-width: 767px) {
+  .nav__container {
+    position: relative;
+  }
+
+  .nav__menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 99;
+    background: var(--header-bg, var(--color-bg));
+    border-bottom: 1px solid var(--color-border);
+    box-shadow: 0 8px 24px rgba(16, 24, 40, 0.12);
+  }
 }
 
 /* Desktop: hamburger hidden, menu always visible */

@@ -124,6 +124,103 @@ describe('CSS lint: #355 active header link honors --header-link-color', () => {
     });
 });
 
+/**
+ * Mobile nav menu is an out-of-flow PANEL, not a squeezed flex item (#426).
+ *
+ * The shipped bug: `.nav__menu` (width:100%) was a THIRD item in the header's
+ * nowrap flex row on mobile, so opening it crushed the menu into a ~94px column
+ * at the right edge and grew the sticky header 65px -> 229px. The fix takes the
+ * menu OUT of flex flow at mobile (position:absolute below the header row), so the
+ * logo/toggle row is byte-identical open vs closed. This pin locks that MECHANISM:
+ * a refactor that drops `position: absolute` from the mobile `.nav__menu` rule (or
+ * moves it back into the flow) must fail here, not just in a nightly E2E. It also
+ * pins the panel background to the --header-bg chrome slot (so a themed header
+ * carries into the panel) and the aria-expanded-driven icon swap (the close
+ * affordance). The layout rule lives in a max-width:767px block, so the media
+ * context is part of its identity (a desktop-scoped copy would not satisfy this).
+ */
+describe('CSS lint: mobile nav menu is an out-of-flow panel (#426)', () => {
+    // Body of the FIRST `.nav__menu { ... }` rule declared inside a
+    // `@media (max-width: 767px)` block, brace-matched so nested rules don't
+    // truncate it. Returns null when no such rule exists (a vacuous-pass guard).
+    function mobileNavMenuBody(css) {
+        const stripped = stripComments(css);
+        const opener = /@media\s*\(max-width:\s*767px\)\s*\{/g;
+        let m;
+        while ((m = opener.exec(stripped)) !== null) {
+            // Brace-match the media block.
+            let depth = 1;
+            let i = opener.lastIndex;
+            while (i < stripped.length && depth > 0) {
+                if (stripped[i] === '{') depth++;
+                else if (stripped[i] === '}') depth--;
+                i++;
+            }
+            const block = stripped.slice(opener.lastIndex, i - 1);
+            // `.nav__menu {` as a whole-class rule (not `.nav__menu ul`, `.nav__menu[...]`).
+            const rule = /(?:^|[}{])\s*\.nav__menu\s*\{([^}]*)\}/.exec(block);
+            if (rule) return rule[1];
+        }
+        return null;
+    }
+
+    const body = mobileNavMenuBody(COMPONENTS_CSS);
+
+    test('a mobile-scoped `.nav__menu` rule exists (guards against a vacuous pass)', () => {
+        expect(body).not.toBeNull();
+    });
+
+    test('the mobile `.nav__menu` is taken out of flex flow (position: absolute)', () => {
+        expect(body).toMatch(/position\s*:\s*absolute/);
+    });
+
+    test('the panel background routes the --header-bg chrome slot', () => {
+        expect(body).toMatch(/background\s*:\s*var\(\s*--header-bg\b/);
+    });
+
+    // Detection proof: the mechanism pin must CATCH an in-flow regression and PASS
+    // the out-of-flow panel — so a parser drift can't make the scan vacuous.
+    test('detector flags an in-flow mobile menu but passes an absolute panel', () => {
+        const inFlow =
+            '@media (max-width: 767px) { .nav__menu { width: 100%; } }';
+        const panel =
+            '@media (max-width: 767px) { .nav__menu { position: absolute; top: 100%; ' +
+            'background: var(--header-bg, var(--color-bg)); } }';
+        expect(/position\s*:\s*absolute/.test(mobileNavMenuBody(inFlow) || '')).toBe(false);
+        expect(/position\s*:\s*absolute/.test(mobileNavMenuBody(panel) || '')).toBe(true);
+    });
+
+    // The open-state affordance (#426): the same toggle button swaps hamburger <-> X,
+    // driven purely off its aria-expanded. Pin all three rules so a refactor can't
+    // silently drop the close icon (leaving the "no way to close" symptom).
+    describe('toggle icon swaps on aria-expanded', () => {
+        const stripped = stripComments(COMPONENTS_CSS).replace(/\s+/g, ' ');
+
+        function ruleBody(selector) {
+            const re = new RegExp(
+                '(?:^|[}{])\\s*' + selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{([^}]*)\\}'
+            );
+            const m = re.exec(stripped);
+            return m ? m[1] : null;
+        }
+
+        test('the close icon is hidden by default', () => {
+            const b = ruleBody('.nav__toggle-icon--close');
+            expect(b).not.toBeNull();
+            expect(b).toMatch(/display\s*:\s*none/);
+        });
+
+        test('an open toggle hides the hamburger and shows the close icon', () => {
+            const openHidden = ruleBody('.nav__toggle[aria-expanded="true"] .nav__toggle-icon--open');
+            const closeShown = ruleBody('.nav__toggle[aria-expanded="true"] .nav__toggle-icon--close');
+            expect(openHidden).not.toBeNull();
+            expect(openHidden).toMatch(/display\s*:\s*none/);
+            expect(closeShown).not.toBeNull();
+            expect(closeShown).toMatch(/display\s*:\s*(flex|block|inline-flex)/);
+        });
+    });
+});
+
 describe('CSS lint: no modern CSS features', () => {
     const MODERN_FEATURES = [
         // color-mix() intentionally allowed — used for token-adaptive button shadows/focus rings.
