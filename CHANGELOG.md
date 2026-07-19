@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.4.2] — 2026-07-19 — the mobile menu opens as a real panel below the header instead of crushing itself into the header row (#426)
+
+**On a phone, tapping the hamburger used to break the header instead of showing a menu: the menu tried to squeeze in beside the logo and toggle, rendered as a ~94px sliver jammed against the right edge, and stretched the sticky header from 65px to 229px so it covered the page. The toggle also gave no sign it could close anything. Now the menu drops down as a full-width, left-aligned panel below the header row, the logo and toggle stay exactly where they were whether the menu is open or closed, and the hamburger swaps to an X while open so it reads as the close button. Tap outside, tap a link, press Escape, or rotate/resize back to a wide screen and the menu closes cleanly. Desktop navigation and the dropdown submenus are untouched.**
+
+The menu had been a third item in the header's flex row, so opening it competed for space with the logo and toggle. Pulling it out of that row (it now sits below as its own panel) means opening it can never reflow the logo/toggle row or grow the sticky header. The panel matches your header colors (it follows the same `pp_header_bg` you set for the header). Without JavaScript the menu still shows, now as that same panel rather than a broken row. This is layout and behavior only: the header stays theme-owned chrome, so nothing about how you customize it changed (logo, header colors, and menus work exactly as before).
+
+### Fixed
+- The mobile navigation menu now opens as a full-width panel below the header instead of squeezing into the header's flex row. Opening it leaves the logo/toggle row byte-identical and no longer distorts the sticky header, and the toggle shows a close (X) icon while open. Closes on toggle re-click, Escape (focus returns to the toggle), link click, and tap outside; resizing or rotating across the tablet breakpoint resets it to closed. Desktop navigation and the submenu dropdowns are unchanged (#426).
+
+### Tests
+- New `tests/js/main-nav-toggle.test.js` unit suite covers every open/close path, `aria-expanded` truthfulness, focus return, and the breakpoint state reset. `tests/js/css-lint.test.js` pins the panel layout mechanism and the icon swap so a refactor can't silently regress to the in-row squeeze. A new `tests/e2e/nav-mobile.spec.ts` proves the open-vs-closed row geometry, every close path, and the desktop-unaffected + submenu behavior in a real browser, with the core geometry scenario tagged `@smoke` (#426).
+
 ## [v1.4.1] — 2026-07-19 — the nightly full E2E suite is green again: two non-smoke specs caught up to shipped contracts (#423)
 
 **The scheduled nightly E2E run executes the FULL Playwright suite, but PR and push CI run only the `@smoke` subset, so two non-smoke specs that had drifted from already-shipped behavior went red on the nightly without any gating check ever seeing them. Both were test drift, not product regressions: the runtime contracts they pin are correct as landed. This release realigns the tests to those contracts and quiets a stream of expected-absence teardown noise that was burying real failures in the nightly log. Nothing in the shipped theme changed — this is a test-only fix, verified by running the affected specs to green against a live WordPress 7.0 and a full-suite manual run.**
