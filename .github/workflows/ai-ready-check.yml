@@ -8,6 +8,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+
       - name: No raw WP functions in templates
         run: |
           if grep -r --include="*.php" "get_field\|wp_nav_menu\|get_bloginfo\|get_the_title\|get_the_content\|home_url\|get_permalink\|WP_Query" templates/ components/; then
@@ -57,11 +62,10 @@ jobs:
           fi
 
       - name: No raw hex in components.css
-        run: |
-          if grep -P '#[0-9a-fA-F]{3,6}(?![0-9a-fA-F])' assets/css/components.css; then
-            echo "ERROR: Raw hex color found in components.css. Use CSS variables from base.css."
-            exit 1
-          fi
+        # Shares scripts/check-raw-hex.php with tests/InvariantTest.php so this
+        # CI guard and the local test use identical semantics (issue #289):
+        # a `/* ... */` comment ref like (#226) passes; a real hex still fails.
+        run: php scripts/check-raw-hex.php assets/css/components.css
 
       - name: All components have README.md
         run: |
