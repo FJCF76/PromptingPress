@@ -26,40 +26,74 @@
   if (toggle && menu) {
 
     // JS is running — take ownership of the menu visibility.
-    // Without JS, the menu is visible (progressive enhancement).
+    // Without JS, the menu is visible (progressive enhancement); the CSS
+    // presents it as an absolutely-positioned panel below the header row so
+    // the JS-less state does not distort the header either (issue 426).
     menu.hidden = true;
 
-    toggle.addEventListener('click', function () {
-      var expanded = toggle.getAttribute('aria-expanded') === 'true';
-      toggle.setAttribute('aria-expanded', String(!expanded));
-      menu.hidden = expanded;
+    // Single source of truth for open/closed. Every path (toggle, Escape,
+    // link click, outside click, breakpoint reset) routes through here so
+    // aria-expanded and `hidden` can never drift (issue 426). The open menu
+    // is an out-of-flow panel, so it does NOT grow the sticky header — but we
+    // keep --header-height in sync anyway (cheap, and robust if header content
+    // ever changes on open). A short dropdown panel, so no body scroll-lock.
+    function setMenuOpen(open) {
+      menu.hidden = !open;
+      toggle.setAttribute('aria-expanded', String(open));
       setHeaderHeightVar();
+    }
+
+    toggle.addEventListener('click', function () {
+      setMenuOpen(menu.hidden);
     });
 
     // ── 2. Escape key closes the menu ──────────────────────────────────────
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && !menu.hidden) {
-        menu.hidden = true;
-        toggle.setAttribute('aria-expanded', 'false');
+        setMenuOpen(false);
         toggle.focus();
-        setHeaderHeightVar();
       }
     });
 
     // ── 3. Close the menu on link click ────────────────────────────────────
-    // Without this, an in-page anchor link clicked while the mobile menu is
-    // expanded would scroll while the sticky header is still in its taller,
-    // menu-open state — the exact scenario --header-height can't correct
-    // for after the fact (issue 63). Runs before the browser's default
-    // anchor-scroll for the same click, so --header-height is already
-    // updated to the collapsed height by the time the scroll happens.
+    // A disclosure closes when the user navigates. Runs before the browser's
+    // default anchor-scroll for the same click, so the menu is already closed
+    // (and --header-height already resynced) by the time the scroll to a
+    // #section-id happens — keeping the issue-63 anchor offset correct.
     menu.addEventListener('click', function (e) {
       if (e.target.tagName === 'A') {
-        menu.hidden = true;
-        toggle.setAttribute('aria-expanded', 'false');
-        setHeaderHeightVar();
+        setMenuOpen(false);
       }
     });
+
+    // ── 4. Click/tap outside the header closes the menu ────────────────────
+    // Mirrors the #381 submenu outside-close below. The toggle and menu both
+    // live inside .site-header, so a click on either is "inside" and never
+    // self-closes here; only a click on page content collapses the panel.
+    document.addEventListener('click', function (e) {
+      if (!menu.hidden && header && !header.contains(e.target)) {
+        setMenuOpen(false);
+      }
+    });
+
+    // ── 5. Reset state across the 768px breakpoint ─────────────────────────
+    // At >=768px the CSS shows the desktop nav row and hides the hamburger, so
+    // an open mobile panel must not leave a lingering open state (aria-expanded
+    // / ✕ icon). Collapse on entering desktop; returning to mobile then lands
+    // closed. matchMedia is absent in some test/older environments, so guard it.
+    if (window.matchMedia) {
+      var desktopQuery = window.matchMedia('(min-width: 768px)');
+      var resetOnDesktop = function (e) {
+        if (e.matches && !menu.hidden) {
+          setMenuOpen(false);
+        }
+      };
+      if (desktopQuery.addEventListener) {
+        desktopQuery.addEventListener('change', resetOnDesktop);
+      } else if (desktopQuery.addListener) {
+        desktopQuery.addListener(resetOnDesktop); // Safari <14 / older engines
+      }
+    }
 
   }
 
