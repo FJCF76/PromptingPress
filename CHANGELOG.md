@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.3.5] — 2026-07-19 — you can now set the browser-tab favicon / app icon through the same typed action as the logo (#414)
+
+**Setting a site's favicon had no in-contract path. `update_site_option` let you set the header/footer logo (`pp_logo_id`, a Media Library image attachment) but not the browser-tab favicon or app/OS icon, so an operator working through `wp pp` actions could not complete a basic part of a brand setup: the tab kept the default icon with no typed way to fix it. `site_icon` is now a whitelisted `update_site_option` key. Point it at a Media Library image attachment ID — the same shape and the same image validation as `pp_logo_id` — and WordPress core renders the `<link rel="icon">` and apple-touch-icon tags automatically, no page composition needed. A non-image attachment, a URL, or a bogus ID is rejected with the standard envelope, exactly like the logo.**
+
+`site_icon` is WordPress core's own option, so once it is set the favicon is emitted by core in `wp_head` with no theme rendering code. Setting it through this action writes the attachment directly and does not run the Customizer's square-crop step, so core renders the image as-is: pass a roughly square source (ideally 512px or larger) for a clean icon across the tab, home screen, and app-icon sizes. Any image is accepted with no square/size rejection (a hard size gate would be a rule the logo keys do not have), and like every attachment-ID option, clearing it with an empty value or `0` is rejected rather than treated as an unset — the favicon and the logo stay independent assets set by separate keys.
+
+### Added
+- `update_site_option` now whitelists WordPress core's `site_icon` key (an image Media Library attachment ID, validated by the same image-attachment rule as `pp_logo_id`), so the browser-tab favicon and app/OS icon are settable through the same typed, validated action as the site logo. Core's `wp_site_icon()` then emits the favicon / apple-touch-icon tags automatically; a non-image, nonexistent, or `0`/empty value is rejected with the standard error envelope (#414).
+
+### Docs
+- The `update_site_option` action description/semantics, `AI_CONTEXT.md`, `ai-instructions/set-logo.md` (new favicon section + options-table row), and `ai-instructions/website-building.md` now document `site_icon`: an image attachment ID, rendered as-is on a direct write (no auto-crop, so supply a square source), emitted by core in `wp_head` (#414).
+
+### Tests
+- `tests/LogoTest.php` pins the new key through the shared validation and write path: whitelist membership as `attachment_id`, `pp_validate_site_option_value` accepting a real image and rejecting a non-image / nonexistent / `0` attachment, `pp_update_site_option` writing and normalizing the stored ID, and the `update_site_option` action accepting a valid image and rejecting a non-image with the standard envelope (#414).
+
 ## [v1.3.4] — 2026-07-19 — changing a base color token now warns when a stale derived override would mask it, at APPLY and at INSPECT (#386)
 
 **Setting `--color-accent` could report `ok:true` and change nothing you can see. `update_design_token` auto-derives the accent/text family (`--color-accent-hover/-strong`, `--color-border-accent`, `--color-surface-accent`, `--color-text-secondary`) but deliberately PRESERVES any derived override you already set, so a pinned value survives your intent. The failure mode from the neocompute dogfood: an earlier palette left an orange `--color-accent-strong` override in place, you set `--color-accent` to blue, the apply succeeded, and the CTA stayed orange because the preserved override still won the `.btn` gradient. The base change had no visible effect and nothing said so. Now the apply result carries a `stale_warnings` entry for any preserved derived override that DIVERGES from the value the new base would derive, naming the masking token so you know your change may not show where it applies. A coherent override (one that already equals the derivable value) stays silent. No token value is ever changed by this: the result is still `ok:true` and the warning is advisory. Deliberately pinned derived values still survive untouched.**
