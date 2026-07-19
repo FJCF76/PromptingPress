@@ -39,6 +39,8 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 
 **To set the site logo:** Read `ai-instructions/set-logo.md`. Use the `update_site_option` action with key `pp_logo_id` (a Media Library image attachment ID, not a URL) to set the nav/footer logo.
 
+**To set the site favicon / app icon:** Use the `update_site_option` action with key `site_icon` (a Media Library image attachment ID, not a URL). This is WordPress core's `site_icon` option, so once set the browser-tab favicon and app/OS icon (`<link rel="icon">` / apple-touch-icon) render automatically in `wp_head` — no page composition needed. Setting it here renders the attachment as-is (the Customizer's square-crop step is not run on a direct option write), so pass a roughly square source (ideally >=512px); any image is accepted. Same validation as `pp_logo_id` (must be an image attachment).
+
 **To validate a site (CSS conflicts, navigation readiness, rendered review):** Read `ai-instructions/validate-site.md`. Run `wp pp validate site`; navigation readiness (empty/unassigned menus) surfaces automatically in preflight and post-apply output.
 
 **To provision a new WordPress site:** Read `ai-instructions/bootstrap.md` for the full state contract and WP-CLI verification commands.
@@ -188,6 +190,7 @@ Every visual change maps to one surface. Writing to the wrong surface creates sp
 | Custom font loading | `pp_font_urls` option | Apply: `enqueue_font`, `remove_font`, `reset_fonts` |
 | Component-specific CSS | `assets/css/components.css` | Direct file edit (BEM, tokens only) |
 | Site name / tagline | WordPress options | Action: `update_site_option` |
+| Favicon / app icon | WordPress `site_icon` option (Media Library attachment) | Action: `update_site_option` (key `site_icon`, an image attachment ID; core's `wp_site_icon` renders the `<link rel="icon">` tags automatically) |
 | Navigation menus | WP nav menus + `nav_menu_locations` theme mod | Actions: `set_menu` (declarative replace; each item may carry a `children` array for a one-level dropdown submenu), `create_menu`, `add_menu_item`, `assign_menu_location` |
 | Page SEO metadata | `_pp_seo_meta` post meta | Action: `update_seo_meta` (patch semantics) |
 | Front-end redirects | `pp_redirects` option | Actions: `create_redirect` (old path → same-site target, 301/302), `remove_redirect`, `list_redirects`. Resolves on a 404 only — pair with `update_page_slug` so a renamed page's old URL keeps working |
@@ -267,7 +270,7 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_set_token_override($token, $value)` | Writes a single token override to the database. |
 | `pp_clear_token_override($token)` | Removes a single token override (reverts to default). |
 | `pp_clear_all_token_overrides()` | Removes all overrides (reverts site to shipped defaults). |
-| `pp_site_option($key)`         | Whitelisted option value (blogname, blogdescription, pp_logo_id, pp_logo_alt, pp_footer_show_logo, pp_footer_bg, pp_footer_text, pp_footer_link_color, pp_footer_blurb, pp_footer_contact, pp_footer_copyright, pp_footer_menu_label, pp_footer_contact_label, pp_footer_note, pp_footer_logo_id, pp_header_bg, pp_header_text, pp_header_link_color) or WP_Error |
+| `pp_site_option($key)`         | Whitelisted option value (blogname, blogdescription, pp_logo_id, pp_logo_alt, site_icon, pp_footer_show_logo, pp_footer_bg, pp_footer_text, pp_footer_link_color, pp_footer_blurb, pp_footer_contact, pp_footer_copyright, pp_footer_menu_label, pp_footer_contact_label, pp_footer_note, pp_footer_logo_id, pp_header_bg, pp_header_text, pp_header_link_color) or WP_Error |
 | `pp_update_composition($post_id, $composition, $expected_version = null)` | Writes composition array to post meta (handles JSON serialization) and bumps the freshness marker under a per-post lock. Optional `$expected_version` (#13) does a write-time compare-and-swap: if the current version differs it returns a `composition_conflict` WP_Error and writes nothing. Null skips the CAS. Returns true\|WP_Error |
 | `pp_update_page_title($post_id, $title)` | Updates page title. Returns true\|WP_Error |
 | `pp_update_page_slug($post_id, $slug)` | Updates page slug/permalink (#134). Sanitizes via sanitize_title(); WordPress de-duplicates on collision. Returns the actual resulting slug\|WP_Error |
@@ -506,7 +509,7 @@ These are the keys every action returns, not the complete set for every action. 
 | Action | Scope | Params | Semantics |
 |---|---|---|---|
 | `create_page` | site | title (req), composition, status, slug | Create. Defaults to draft with empty composition. Optional `slug` sets the canonical route up front — omit to let WordPress derive one from the title |
-| `update_site_option` | site | key (req), value (req) | Replace. Whitelisted: blogname, blogdescription, pp_logo_id / pp_footer_logo_id (image attachment ID), pp_logo_alt, pp_footer_show_logo (bool), pp_header_bg / pp_footer_bg (CSS color **or** gradient), pp_header_text / pp_header_link_color / pp_footer_text / pp_footer_link_color (CSS color), pp_footer_blurb / pp_footer_contact / pp_footer_copyright / pp_footer_menu_label / pp_footer_contact_label / pp_footer_note (text) |
+| `update_site_option` | site | key (req), value (req) | Replace. Whitelisted: blogname, blogdescription, pp_logo_id / pp_footer_logo_id / site_icon (image attachment ID; site_icon = WP core favicon/app icon, renders via wp_site_icon), pp_logo_alt, pp_footer_show_logo (bool), pp_header_bg / pp_footer_bg (CSS color **or** gradient), pp_header_text / pp_header_link_color / pp_footer_text / pp_footer_link_color (CSS color), pp_footer_blurb / pp_footer_contact / pp_footer_copyright / pp_footer_menu_label / pp_footer_contact_label / pp_footer_note (text) |
 | `update_page_title` | page | post_id (req), title (req) | Replace |
 | `update_page_slug` | page | post_id (req), slug (req) | Replace. Sanitized via `sanitize_title()`; WordPress de-duplicates on collision (suffixing `-2`, `-3`, ...) — `changes` always reports the actual resulting slug and permalink, which may differ from what was requested |
 | `update_seo_meta` | page | post_id (req), meta (req) | **Patch.** `meta` is a map of `meta_description`/`seo_title`/`canonical_url` → value, shallow-merged into existing SEO metadata. `seo_title` overrides the rendered `<title>` tag; `canonical_url` overrides the `<link rel="canonical">` tag. Set a key to `""` to clear it |
