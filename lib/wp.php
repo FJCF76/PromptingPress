@@ -2263,6 +2263,22 @@ function pp_allowed_site_options(): array {
         'blogdescription'      => 'string',
         'pp_logo_id'           => 'attachment_id',
         'pp_logo_alt'          => 'string',
+        // Browser-tab favicon + app/OS icon (issue 414). This is WordPress
+        // core's own `site_icon` option (the value the Customizer's Site Icon
+        // control writes), not a pp_ option, so once it is set core's
+        // wp_site_icon() hook emits the `<link rel="icon">` / apple-touch-icon
+        // tags into wp_head() automatically — the theme adds no rendering code.
+        // It is the SAME shape of change as pp_logo_id (a whitelisted option
+        // pointing at a Media Library image attachment) and is validated by the
+        // SAME pp_is_image_attachment rule, so the favicon is settable through
+        // the same typed, validated path as the logo. No square/size constraint
+        // is imposed here (a hard size reject would be a surface-specific rule the
+        // logo keys don't have). Note: the Customizer's square-crop + subsize step
+        // does NOT run on a direct option write, so core's wp_site_icon() renders
+        // the chosen attachment as-is — a square source (ideally >=512px) is what
+        // looks right across the icon sizes. Like every attachment_id key, empty/0
+        // is rejected rather than treated as an unset.
+        'site_icon'            => 'attachment_id',
         // Site-option surface for the footer logo. The footer is template-owned
         // chrome (issue 223), so it cannot be composed to pass show_logo; this
         // option is the only supported way to turn the footer logo on (issue 234).

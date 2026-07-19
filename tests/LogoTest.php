@@ -142,6 +142,67 @@ class LogoTest extends TestCase
         $this->assertSame('88', get_option('pp_logo_id'));
     }
 
+    // ── site_icon / favicon site option (issue 414) ─────────────────────────
+    // WordPress core's own `site_icon` option, whitelisted as an image
+    // attachment_id and validated by the SAME pp_is_image_attachment rule as
+    // pp_logo_id, so the browser-tab favicon / app icon is settable through the
+    // same typed, validated path as the logo. Core's wp_site_icon() then emits
+    // the <link rel="icon"> tags in wp_head automatically (core behavior — no
+    // theme render code, so no render test here per the option-write pin).
+
+    public function testAllowedSiteOptionsIncludesSiteIconAsAttachmentId(): void
+    {
+        $allowed = pp_allowed_site_options();
+        $this->assertArrayHasKey('site_icon', $allowed);
+        $this->assertSame('attachment_id', $allowed['site_icon']);
+    }
+
+    public function testValidateAcceptsRealImageAttachmentForSiteIcon(): void
+    {
+        $this->seedAttachment(60, 'https://example.com/favicon-512.png');
+        $this->assertTrue(pp_validate_site_option_value('site_icon', '60'));
+    }
+
+    public function testValidateRejectsNonImageAttachmentForSiteIcon(): void
+    {
+        // An attachment that is not an image (e.g. a PDF/ICO core rejects).
+        $this->seedAttachment(61, 'https://example.com/icon.pdf', '', false);
+        $result = pp_validate_site_option_value('site_icon', '61');
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertStringContainsString('image', $result->get_error_message());
+    }
+
+    public function testValidateRejectsNonexistentAndZeroSiteIcon(): void
+    {
+        // 404 is not in the store; 0 is never a valid attachment. Both rejected,
+        // and 0 is a rejection, not a silent "unset" (same as pp_logo_id).
+        $this->assertInstanceOf(\WP_Error::class, pp_validate_site_option_value('site_icon', '404'));
+        $this->assertInstanceOf(\WP_Error::class, pp_validate_site_option_value('site_icon', '0'));
+    }
+
+    public function testUpdateWritesAndNormalizesSiteIcon(): void
+    {
+        $this->seedAttachment(62, 'https://example.com/brand-icon.png');
+        $this->assertTrue(pp_update_site_option('site_icon', '062'));
+        // Stored as the canonical int string core reads via get_option('site_icon').
+        $this->assertSame('62', get_option('site_icon'));
+    }
+
+    public function testActionAcceptsValidSiteIcon(): void
+    {
+        $this->seedAttachment(63, 'https://example.com/app-icon.png');
+        $result = pp_execute_action('update_site_option', ['key' => 'site_icon', 'value' => '63']);
+        $this->assertTrue($result['ok']);
+        $this->assertSame('63', get_option('site_icon'));
+    }
+
+    public function testActionRejectsNonImageSiteIconWithClearMessage(): void
+    {
+        $result = pp_execute_action('update_site_option', ['key' => 'site_icon', 'value' => '404']);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('attachment', $result['error']);
+    }
+
     // ── Footer show-logo site option (issue 234) ────────────────────────────
 
     public function testAllowedSiteOptionsIncludesFooterShowLogoAsBool(): void
