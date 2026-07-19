@@ -75,6 +75,32 @@
   --text-kicker-color:   var(--color-accent); /* color: Kicker text color */
 }
 
+/* ==========================================================================
+   Section band rhythm — the single source of section-level vertical spacing.
+   Every band-level component (section, grid, cta, stats, faq, testimonials)
+   routes its padding fallback through these properties, so the theme's section
+   rhythm is defined ONCE here instead of copied per component per breakpoint
+   (issue 431). Adding a new band component means consuming these, not pasting
+   literals. Internal (not authored via update_design_token, so kept out of the
+   first :root token block above); a whole-site rhythm retune changes only these.
+
+   Two-tier for now: a band that follows another band gets a tighter top
+   (--pp-band-padding-adjacent-top) than its own edges (--pp-band-padding); the
+   mobile override collapses both to one uniform value. issue 430 retunes these
+   values (symmetric top/bottom) WITHOUT touching any consuming rule.
+   ========================================================================== */
+:root {
+  --pp-band-padding:              clamp(4.25rem, 6vw, 5rem);
+  --pp-band-padding-adjacent-top: var(--space-lg);
+}
+
+@media (max-width: 767px) {
+  :root {
+    --pp-band-padding:              3.35rem;
+    --pp-band-padding-adjacent-top: 3.35rem;
+  }
+}
+
 /* Responsive breakpoints (reference — use in media queries):
    --breakpoint-sm: 640px   single-column stacking, nav collapses
    --breakpoint-md: 768px   2-col grid, nav links visible

@@ -140,8 +140,14 @@ Open `/assets/css/components.css` and add a labeled section at the bottom:
 /* === COMPONENT: mycomponent === */
 
 .mycomponent {
-  padding-top: var(--space-xl);
-  padding-bottom: var(--space-xl);
+  /* A band-level (full-width section) component shares ONE rhythm definition
+     with the others (section, grid, cta, stats, faq, testimonials). Route its
+     vertical padding through the component's own slot, falling back to the
+     shared --pp-band-padding, so it agrees with every other band by default and
+     a site-wide rhythm retune (--pp-band-padding) moves it too — never paste a
+     bare rhythm literal (issue 431). */
+  padding-top: var(--mycomponent-padding-top, var(--pp-band-padding));
+  padding-bottom: var(--mycomponent-padding-bottom, var(--pp-band-padding));
 }
 
 .mycomponent__title {
@@ -153,7 +159,11 @@ Open `/assets/css/components.css` and add a labeled section at the bottom:
 }
 ```
 
-**Rule:** Only CSS variables from `base.css`. No raw hex values.
+**Rule:** No raw hex values and no raw rhythm literals — use CSS variables:
+each component's own authorable slots (`--mycomponent-padding-*`) falling back to
+`base.css` tokens. Band-level components take their default vertical rhythm from
+`--pp-band-padding` (never a per-component literal), so all sections share one
+spacing model.
 
 ---
 

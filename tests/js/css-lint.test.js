@@ -1677,27 +1677,150 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
         });
     });
 
-    // Each slot-bearing component's adjacent rule exists at BOTH breakpoints:
-    // desktop restores the two-tier rhythm (var(--space-lg) fallback), mobile
-    // keeps the uniform default (3.35rem fallback). Every declaration routes
-    // through the slot; the two fallbacks must both be present so neither
-    // breakpoint silently drops the slot.
+    // Each slot-bearing component's adjacent rule exists at BOTH breakpoints, and
+    // BOTH fall back to the ONE shared adjacent-top definition (issue 431). The old
+    // per-breakpoint literals (desktop var(--space-lg), mobile 3.35rem) collapsed
+    // into --pp-band-padding-adjacent-top, whose value is redefined per breakpoint
+    // at :root — so there is now a single fallback token, not two literals. Every
+    // declaration must still route through the component slot (slot wins), and
+    // testimonials must be present (its adjacent rule was missing before issue 431).
     test.each([
         ['main > [data-pp-component] + .section', '--section-padding-top'],
         ['main > [data-pp-component] + .grid', '--grid-padding-top'],
         ['main > [data-pp-component] + .cta', '--cta-padding-top'],
-    ])('adjacent %s routes top-padding through the slot at both breakpoints', (selector, slot) => {
+        ['main > [data-pp-component] + .stats', '--stats-padding-top'],
+        ['main > [data-pp-component] + .faq', '--faq-padding-top'],
+        ['main > [data-pp-component] + .testimonials', '--testimonials-padding-top'],
+    ])('adjacent %s routes top-padding through the slot to the shared def at both breakpoints', (selector, slot) => {
         const bodies = bodiesForExactSelector(selector);
         const decls = bodies.flatMap(b => b.match(/padding-top\s*:[^;}]+/g) || []);
-        // Desktop (two-tier) + mobile (uniform) = two declarations minimum.
+        // Desktop + mobile = two declarations minimum.
         expect(decls.length).toBeGreaterThanOrEqual(2);
         decls.forEach(d => {
             expect(d).toMatch(new RegExp('padding-top\\s*:\\s*var\\(\\s*' + slot + '\\b'));
+            // The fallback is the ONE shared adjacent-top definition — never a bare
+            // literal, on either breakpoint.
+            expect(d).toMatch(new RegExp('var\\(\\s*' + slot + '\\s*,\\s*var\\(\\s*--pp-band-padding-adjacent-top\\s*\\)'));
         });
-        // Desktop two-tier restore: at least one falls back to var(--space-lg).
-        expect(decls.some(d => new RegExp('var\\(\\s*' + slot + '\\s*,\\s*var\\(\\s*--space-lg\\s*\\)').test(d))).toBe(true);
-        // Mobile uniform default: at least one falls back to the 3.35rem literal.
-        expect(decls.some(d => new RegExp('var\\(\\s*' + slot + '\\s*,\\s*3\\.35rem\\s*\\)').test(d))).toBe(true);
+    });
+});
+
+/**
+ * Structural pin: the six section-level band components share ONE rhythm
+ * definition (#431).
+ *
+ * Before #431 each band (section, grid, cta, stats, faq, testimonials) carried
+ * its own vertical-padding literal, duplicated per component per media block, so
+ * the defaults drifted (stats/testimonials off-tier, cta's mobile bottom off,
+ * testimonials missing from both adjacent routing lists). The fix defines the
+ * rhythm once in base.css — `--pp-band-padding` (a band's own top/bottom) and
+ * `--pp-band-padding-adjacent-top` (a band that follows another band) — and routes
+ * every band's padding fallback through it.
+ *
+ * These pins enforce that model structurally so a seventh band can't re-introduce
+ * drift by copying a literal:
+ *   1. every own-padding decl on each band's root routes var(--<comp>-padding-*,
+ *      var(--pp-band-padding));
+ *   2. every adjacent-top decl routes var(--<comp>-padding-top,
+ *      var(--pp-band-padding-adjacent-top)) — testimonials included;
+ *   3. the shared definition is the ONLY rhythm value source: the band literals
+ *      (clamp(4.25rem, 6vw, 5rem) and 3.35rem) appear nowhere in components.css;
+ *   4. the shared props are actually defined in base.css, with a mobile override,
+ *      so a rename breaks these pins loudly instead of silently no-op'ing.
+ */
+describe('CSS lint: section-level bands share one rhythm definition (#431)', () => {
+    const BAND_COMPONENTS = ['section', 'grid', 'cta', 'stats', 'faq', 'testimonials'];
+
+    // Brace-matched extraction of every rule whose selector is EXACTLY `selector`
+    // (whitespace-normalized), across all media contexts. Same technique as the
+    // #302 helper; re-declared here so this suite is self-contained.
+    function bodiesForExactSelector(selector) {
+        const css = stripComments(COMPONENTS_CSS).replace(/\s+/g, ' ');
+        const re = new RegExp(
+            '[{};,]\\s*' + selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{',
+            'g'
+        );
+        const bodies = [];
+        let match;
+        while ((match = re.exec(css)) !== null) {
+            let i = re.lastIndex;
+            let depth = 1;
+            const start = i;
+            while (i < css.length && depth > 0) {
+                if (css[i] === '{') depth++;
+                else if (css[i] === '}') depth--;
+                i++;
+            }
+            bodies.push(css.slice(start, i - 1));
+        }
+        return bodies;
+    }
+
+    // 1. Own padding: every padding-top/bottom on each band's root routes through
+    //    the component slot AND falls back to the shared --pp-band-padding.
+    test.each(BAND_COMPONENTS)('%s own padding routes through its slot to var(--pp-band-padding)', (comp) => {
+        const bodies = bodiesForExactSelector('.' + comp);
+        ['padding-top', 'padding-bottom'].forEach(prop => {
+            const slot = `--${comp}-${prop === 'padding-top' ? 'padding-top' : 'padding-bottom'}`;
+            const decls = bodies.flatMap(b => b.match(new RegExp(prop + '\\s*:[^;}]+', 'g')) || []);
+            // At least the base rule declares each edge — a drift to a different
+            // selector can't make this vacuously pass.
+            expect(decls.length).toBeGreaterThanOrEqual(1);
+            decls.forEach(d => {
+                expect(d).toMatch(new RegExp(prop + '\\s*:\\s*var\\(\\s*' + slot + '\\s*,\\s*var\\(\\s*--pp-band-padding\\s*\\)'));
+            });
+        });
+    });
+
+    // 2. Adjacent-top: every band (testimonials included) routes its adjacent-top
+    //    edge through the slot to the shared --pp-band-padding-adjacent-top, at both
+    //    breakpoints. The dead --testimonials-padding-top slot is resurrected here.
+    test.each(BAND_COMPONENTS)('adjacent %s routes top-padding to var(--pp-band-padding-adjacent-top) at both breakpoints', (comp) => {
+        const bodies = bodiesForExactSelector('main > [data-pp-component] + .' + comp);
+        const decls = bodies.flatMap(b => b.match(/padding-top\s*:[^;}]+/g) || []);
+        // Desktop + mobile adjacent rules both exist.
+        expect(decls.length).toBeGreaterThanOrEqual(2);
+        decls.forEach(d => {
+            expect(d).toMatch(new RegExp('padding-top\\s*:\\s*var\\(\\s*--' + comp + '-padding-top\\s*,\\s*var\\(\\s*--pp-band-padding-adjacent-top\\s*\\)'));
+        });
+    });
+
+    // 3. The shared definition is the ONLY rhythm value source. The former band
+    //    literals must appear NOWHERE in components.css declarations — so a seventh
+    //    band (or a future edit) that pastes a literal instead of consuming the
+    //    shared prop fails this pin.
+    test('the band rhythm literals live only in the shared definition, not in components.css', () => {
+        const stripped = stripComments(COMPONENTS_CSS);
+        expect(stripped).not.toMatch(/clamp\(\s*4\.25rem\s*,\s*6vw\s*,\s*5rem\s*\)/);
+        expect(stripped).not.toContain('3.35rem');
+    });
+
+    // 3b. The generic adjacent catch-all (components with no padding slot: hero,
+    //     table, logos, embed) also consumes the shared adjacent-top, not a literal,
+    //     so nothing routes rhythm outside the one definition.
+    test('the generic adjacent-sibling rule routes through --pp-band-padding-adjacent-top', () => {
+        const bodies = bodiesForExactSelector('main > [data-pp-component] + [data-pp-component]');
+        expect(bodies.length).toBeGreaterThanOrEqual(2); // desktop + mobile
+        const decls = bodies.flatMap(b => b.match(/padding-top\s*:[^;}]+/g) || []);
+        expect(decls.length).toBeGreaterThanOrEqual(2);
+        decls.forEach(d => {
+            expect(d).toMatch(/padding-top\s*:\s*var\(\s*--pp-band-padding-adjacent-top\s*\)/);
+        });
+    });
+
+    // 4. The shared props are actually defined in base.css — a desktop value in
+    //    :root and a mobile override — so the routing above resolves and a rename
+    //    breaks the pins loudly instead of silently no-op'ing.
+    test('base.css defines the shared rhythm props with a mobile override', () => {
+        const base = stripComments(BASE_CSS);
+        // Desktop definitions (own = clamp tier, adjacent-top = tighter).
+        expect(base).toMatch(/--pp-band-padding\s*:\s*clamp\(\s*4\.25rem\s*,\s*6vw\s*,\s*5rem\s*\)/);
+        expect(base).toMatch(/--pp-band-padding-adjacent-top\s*:\s*var\(\s*--space-lg\s*\)/);
+        // A mobile @media block redefines both to the uniform mobile tier.
+        const mobileRoot = base.match(/@media\s*\(\s*max-width:\s*767px\s*\)\s*\{\s*:root\s*\{([^}]*)\}/);
+        expect(mobileRoot, 'expected a @media (max-width: 767px) :root override in base.css').not.toBeNull();
+        expect(mobileRoot[1]).toMatch(/--pp-band-padding\s*:\s*3\.35rem/);
+        expect(mobileRoot[1]).toMatch(/--pp-band-padding-adjacent-top\s*:\s*3\.35rem/);
     });
 });
 
