@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.4.5] — 2026-07-19 — stacked section bands are now vertically symmetric, so pages stop looking top-cramped and bottom-heavy (#430)
+
+**Every section-level band that followed another band used to render with a tight ~32px top and a much larger ~77px bottom on desktop — a lopsided block. On pages where backgrounds alternate (a dark stats band, an inverted CTA, a tinted section — the normal marketing pattern), the heading hugged the top edge while a large empty gap sat under the last element. Now a band's top padding equals its bottom padding: every stacked band reads as a centered block at every breakpoint, with no per-section `--*-padding-*` tuning. This is the companion retune to v1.4.4's shared spacing model.**
+
+This is a deliberate change to unstyled output: the default top padding of any band that follows another band grows to match its bottom, so contrasting-background bands stop looking off-balance. Two bands that share a background now show more combined space between them, which is the accepted trade for symmetry that can't paint a lopsided edge onto a contrasting band. Nothing about how you configure pages changed — the per-component `--section|grid|cta|stats|faq|testimonials-padding-top/bottom` slots you already use are untouched and still win on every edge and breakpoint, including a band's adjacent top edge. The hero keeps its own larger, already-symmetric page-opening rhythm when it leads the page (its own padding is not retuned); like any band, a component placed after another band takes the shared symmetric top. `data-pp-spacing` compact and spacious stay symmetric.
+
+### Fixed
+- A section-level band (section, grid, cta, stats, faq, testimonials) that follows another band now renders equal top and bottom padding by default at every breakpoint, instead of the old tight-top / heavy-bottom shape. Pages with alternating backgrounds no longer look top-cramped and bottom-heavy, and no per-section padding override is needed to balance them (#430).
+
+### Tests
+- `tests/js/css-lint.test.js` now pins the adjacent-top rhythm to the band's own padding (the symmetry guarantee) and asserts the mobile block no longer carries a separate adjacent-top value. `tests/e2e/style-render.spec.ts` gains computed-rhythm coverage: every stacked band reports exactly equal top and bottom padding at 1280 and 375, `data-pp-spacing` compact/spacious stay symmetric, and a webfiable-shaped sequence (hero → stats → grid → cta → grid → section → cta) shows no band with the old 32px-top / 77px-bottom shape; the core symmetry scenario and the webfiable-shape scenario are tagged `@smoke` (#430).
+
 ## [v1.4.4] — 2026-07-19 — every stacked section now shares one spacing model, so bands stop disagreeing about their own padding (#431)
 
 **The six section-level components — section, grid, CTA, stats, FAQ, and testimonials — used to each carry their own copy of the vertical-padding values, and the copies had drifted apart. Stats and testimonials bands rendered shorter than their neighbors on desktop, a CTA's bottom padding didn't match the plain sections next to it on mobile, and a testimonials band that followed another band ignored a `--testimonials-padding-top` you set on it. Now all six read their default rhythm from a single shared definition, so an unstyled stack lines up: every band agrees on its top and bottom padding at every breakpoint, and every band's padding slot is live on every edge. Setting `--testimonials-padding-top` on an adjacent testimonials band now works, the same as it already did for the other components.**

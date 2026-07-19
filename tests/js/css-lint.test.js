@@ -1567,8 +1567,9 @@ describe('CSS lint: hero flex rows declare their justification', () => {
  * --grid-heading-size, or --section-body-width validated, reported success, and
  * changed nothing. The fix routes every premium re-declaration through
  * var(--slot, <literal>) with the literal as the fallback (unset output
- * unchanged), and restores the base two-tier adjacent-sibling rhythm that the
- * premium layer had flattened to a uniform clamp().
+ * unchanged), and restores the base adjacent-sibling rhythm (now the shared
+ * --pp-band-padding-adjacent-top tier) that the premium layer had flattened to
+ * a uniform clamp().
  *
  * These pins mirror the #226/#292 guards: assert every declaration of the
  * property on the target selector routes through the slot, plus a presence guard
@@ -1665,10 +1666,11 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
     //  in #412: those ID-scoped closers no longer ship, so the generic `.cta` slot
     //  rules above are now the whole padding surface.)
 
-    // ---- Two-tier adjacent-sibling rhythm restored ----
+    // ---- Adjacent-sibling rhythm routes through the shared def ----
     // The flat premium override was DELETED; the remaining rules for this exact
-    // selector are the base (var(--space-lg), desktop) and the uniform mobile
-    // literal. Neither may re-introduce the flattening clamp().
+    // selector route their top through --pp-band-padding-adjacent-top (issue 431),
+    // which is itself pinned to --pp-band-padding (issue 430 symmetry). Neither
+    // may re-introduce the flattening clamp() literal in components.css.
     test('adjacent-sibling rhythm no longer flattened by a bare clamp()', () => {
         const bodies = bodiesForExactSelector('main > [data-pp-component] + [data-pp-component]');
         expect(bodies.length).toBeGreaterThanOrEqual(2);
@@ -1680,10 +1682,11 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
     // Each slot-bearing component's adjacent rule exists at BOTH breakpoints, and
     // BOTH fall back to the ONE shared adjacent-top definition (issue 431). The old
     // per-breakpoint literals (desktop var(--space-lg), mobile 3.35rem) collapsed
-    // into --pp-band-padding-adjacent-top, whose value is redefined per breakpoint
-    // at :root — so there is now a single fallback token, not two literals. Every
-    // declaration must still route through the component slot (slot wins), and
-    // testimonials must be present (its adjacent rule was missing before issue 431).
+    // into --pp-band-padding-adjacent-top, now pinned to --pp-band-padding (issue
+    // 430) so the adjacent-top tracks the band's own edges per breakpoint — a
+    // single fallback token, not two literals. Every declaration must still route
+    // through the component slot (slot wins), and testimonials must be present
+    // (its adjacent rule was missing before issue 431).
     test.each([
         ['main > [data-pp-component] + .section', '--section-padding-top'],
         ['main > [data-pp-component] + .grid', '--grid-padding-top'],
@@ -1813,14 +1816,32 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
     //    breaks the pins loudly instead of silently no-op'ing.
     test('base.css defines the shared rhythm props with a mobile override', () => {
         const base = stripComments(BASE_CSS);
-        // Desktop definitions (own = clamp tier, adjacent-top = tighter).
+        // The band's own top/bottom rhythm on desktop.
         expect(base).toMatch(/--pp-band-padding\s*:\s*clamp\(\s*4\.25rem\s*,\s*6vw\s*,\s*5rem\s*\)/);
-        expect(base).toMatch(/--pp-band-padding-adjacent-top\s*:\s*var\(\s*--space-lg\s*\)/);
-        // A mobile @media block redefines both to the uniform mobile tier.
+        // A mobile @media block redefines --pp-band-padding to the uniform mobile
+        // tier. It does NOT redefine adjacent-top — that tracks --pp-band-padding
+        // automatically (issue 430 symmetry), so a stray mobile adjacent-top
+        // literal that could reintroduce asymmetry must not exist.
         const mobileRoot = base.match(/@media\s*\(\s*max-width:\s*767px\s*\)\s*\{\s*:root\s*\{([^}]*)\}/);
         expect(mobileRoot, 'expected a @media (max-width: 767px) :root override in base.css').not.toBeNull();
         expect(mobileRoot[1]).toMatch(/--pp-band-padding\s*:\s*3\.35rem/);
-        expect(mobileRoot[1]).toMatch(/--pp-band-padding-adjacent-top\s*:\s*3\.35rem/);
+        expect(mobileRoot[1]).not.toMatch(/--pp-band-padding-adjacent-top/);
+    });
+
+    // 5. Symmetry pin (issue 430): the adjacent-top tier is pinned to the band's
+    //    own padding, so a band that follows another band gets the SAME top as
+    //    its bottom — every stacked band is a centered block, never top-cramped /
+    //    bottom-heavy. This is a TEXT guarantee (the fallback token IS
+    //    --pp-band-padding); the E2E computed-rhythm spec proves the cascade
+    //    actually resolves top == bottom. A future edit that re-splits the tier
+    //    (e.g. back to var(--space-lg)) fails here loudly.
+    test('the adjacent-top tier is pinned to --pp-band-padding (symmetric bands)', () => {
+        const base = stripComments(BASE_CSS);
+        expect(base).toMatch(/--pp-band-padding-adjacent-top\s*:\s*var\(\s*--pp-band-padding\s*\)/);
+        // And nowhere in base.css does adjacent-top get a bare rhythm literal or
+        // the old tighter --space-lg tier that made bands asymmetric.
+        expect(base).not.toMatch(/--pp-band-padding-adjacent-top\s*:\s*var\(\s*--space-lg\s*\)/);
+        expect(base).not.toMatch(/--pp-band-padding-adjacent-top\s*:\s*\d/);
     });
 });
 

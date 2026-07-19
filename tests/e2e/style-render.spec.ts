@@ -3264,4 +3264,151 @@ test.describe('Shared section-band rhythm (#431)', () => {
       expect(top, `${band} adjacent-top did not follow --pp-band-padding-adjacent-top`).toBe('7px');
     }
   });
+
+  // ── issue 430: symmetric band rhythm ──────────────────────────────────────
+  //
+  // #431 (above) proved all six bands AGREE on a single top tier and a single
+  // bottom tier, but deliberately left the VALUES to this issue, so those tests
+  // pass even on the old 32px-top / 76.8px-bottom shape. issue 430 pins the
+  // adjacent-top tier to --pp-band-padding, so a band that follows another band
+  // gets the SAME top as its own bottom: every stacked band is a centered block,
+  // never top-cramped / bottom-heavy, at every breakpoint and under any background
+  // alternation. Because both edges now resolve to the identical custom property,
+  // the check is EXACT equality (top === bottom), stronger than the issue's stated
+  // 10% tolerance — a re-split of the tier would fail here by tens of px.
+
+  // Core scenario: every band that follows another band is vertically symmetric.
+  // Hero leads so all six bands render in the adjacent-top position (the edge the
+  // old 32px tier used to shave). faq stays last (its trailing JSON-LD <script>
+  // breaks the `+` adjacency of any band after it — pre-existing bug 432).
+  test('#430 every stacked band is vertically symmetric (top === bottom) at 1280 and 375 @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Band Rhythm Symmetry');
+    setComposition(pageId, STACK);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('main > .testimonials')).toBeVisible({ timeout: 10000 });
+
+      for (const band of BANDS) {
+        const { top, bottom } = await bandPadding(page, band);
+        // Non-trivial (a 0px collapse would make symmetry vacuously pass).
+        expect(top && top !== '0px', `${band} top vacuous @${width}: ${top}`).toBe(true);
+        // The deliberate visual change: adjacent-top no longer shaved to 32px.
+        expect(top, `${band} not symmetric @${width}: top=${top} bottom=${bottom}`).toBe(bottom);
+      }
+    }
+  });
+
+  // data-pp-spacing overrides (compact / spacious) must stay symmetric too — they
+  // set both edges to one scale step, so a band carrying either attribute reads as
+  // a centered block (compact = --space-lg; spacious = --space-2xl mobile /
+  // --space-3xl desktop). Only hero.php emits data-pp-spacing, and a hero normally
+  // leads the page, so each spacing variant is seeded as the SOLE component (own
+  // position) — that isolates the data-pp-spacing rule from the generic
+  // adjacent-sibling band rhythm. (A data-pp-spacing hero placed AFTER another band
+  // hits a pre-existing mobile-only interaction where the adjacent rule shaves the
+  // top; that narrow corner is unchanged by issue 430 and out of its scope.)
+  test('#430 data-pp-spacing compact/spacious stay symmetric at 1280 and 375', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Spacing Attr Symmetry');
+
+    for (const spacing of ['compact', 'spacious']) {
+      setComposition(pageId, [
+        { component: 'hero', props: { id: 'pp-hero-spacing', title: 'Spacing', spacing } },
+      ]);
+
+      for (const width of [1280, 375]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`/?page_id=${pageId}`);
+        const hero = page.locator('#pp-hero-spacing');
+        await expect(hero).toBeVisible({ timeout: 10000 });
+
+        const { top, bottom } = await hero.evaluate((el: Element) => {
+          const cs = getComputedStyle(el);
+          return { top: cs.paddingTop, bottom: cs.paddingBottom };
+        });
+        expect(top && top !== '0px', `${spacing} top vacuous @${width}: ${top}`).toBe(true);
+        expect(top, `${spacing} not symmetric @${width}: top=${top} bottom=${bottom}`).toBe(bottom);
+      }
+    }
+  });
+
+  // The measured webfiable.com defect sequence (issue 430 body): hero → stats →
+  // grid → cta → grid → section → cta, alternating inverted/plain backgrounds.
+  // Every band after the hero used to render 32px top / 76.8px bottom. After the
+  // fix none may: each is symmetric, and NO band shows the old shape. No faq in
+  // this sequence, so bug 432 cannot interfere.
+  test('#430 webfiable-shaped stack shows no 32/77 band; every band symmetric @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Webfiable Rhythm Shape');
+    setComposition(pageId, [
+      { component: 'hero', props: { id: 'pp-hero01', title: 'Lead' } },
+      { component: 'stats', props: { id: 'pp-stats01', theme: 'dark', items: [{ number: '10', label: 'Ten' }] } },
+      { component: 'grid', props: { id: 'pp-grid01', title: 'Grid', items: [{ title: 'One', text: 'A' }] } },
+      { component: 'cta', props: { id: 'pp-cta01', theme: 'dark', title: 'CTA', button_text: 'Go', button_url: '/go' } },
+      { component: 'grid', props: { id: 'pp-grid02', title: 'Grid Two', items: [{ title: 'Two', text: 'B' }] } },
+      { component: 'section', props: { id: 'pp-sec01', body: '<p>Section body.</p>' } },
+      { component: 'cta', props: { id: 'pp-cta02', theme: 'dark', title: 'Closing', button_text: 'Go', button_url: '/go' } },
+    ]);
+
+    // Every band-level component after the leading hero, by id (grid/cta appear twice).
+    const bandIds = ['pp-stats01', 'pp-grid01', 'pp-cta01', 'pp-grid02', 'pp-sec01', 'pp-cta02'];
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('#pp-cta02')).toBeVisible({ timeout: 10000 });
+
+      for (const id of bandIds) {
+        const { top, bottom } = await page.locator(`#${id}`).evaluate((el: Element) => {
+          const cs = getComputedStyle(el);
+          return { top: cs.paddingTop, bottom: cs.paddingBottom };
+        });
+        // Symmetric at both breakpoints (the load-bearing #430 proof).
+        expect(top, `${id} not symmetric @${width}: top=${top} bottom=${bottom}`).toBe(bottom);
+        // The old shaved adjacent-top was 32px (var(--space-lg)) on DESKTOP only —
+        // mobile adjacent-top was already 3.35rem, so a 32px check there is vacuous.
+        if (width === 1280) {
+          expect(top, `${id} still shows the old 32px adjacent-top`).not.toBe('32px');
+        }
+      }
+    }
+  });
+
+  // Slot contract under symmetry (issue 430 acceptance criterion): a per-component
+  // --*-padding-top set on a band in the ADJACENT position must still win over the
+  // now-symmetric shared fallback, at both breakpoints. The pinned adjacent-top tier
+  // is only a FALLBACK — an author's explicit slot value still governs. A section
+  // leads so the cta renders in the adjacent-top position; 5px resolves from no
+  // token, so a fallback leak (symmetric ~76.8px/53.6px) would fail loudly.
+  test('#430 --cta-padding-top wins on an adjacent cta band at 1280 and 375', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Adjacent Slot Beats Symmetric Fallback');
+    setComposition(pageId, [
+      { component: 'section', props: { id: 'pp-sec01', body: '<p>Body.</p>' } },
+      { component: 'cta', props: { id: 'pp-cta01', title: 'CTA', button_text: 'Go', button_url: '/go' } },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // component_index 1 = the cta band (index 0 is the leading section).
+    const res = await styleComponent(page, pageId, { '--cta-padding-top': '5px' }, undefined, 1);
+    expect(res.success).toBe(true);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      const cta = page.locator('main > .cta');
+      await expect(cta).toBeVisible({ timeout: 10000 });
+      const paddingTop = await cta.evaluate((el) => getComputedStyle(el).paddingTop);
+      expect(paddingTop, `adjacent-top slot override @${width}`).toBe('5px');
+    }
+  });
 });

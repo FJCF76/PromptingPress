@@ -84,20 +84,27 @@
    literals. Internal (not authored via update_design_token, so kept out of the
    first :root token block above); a whole-site rhythm retune changes only these.
 
-   Two-tier for now: a band that follows another band gets a tighter top
-   (--pp-band-padding-adjacent-top) than its own edges (--pp-band-padding); the
-   mobile override collapses both to one uniform value. issue 430 retunes these
-   values (symmetric top/bottom) WITHOUT touching any consuming rule.
+   Symmetric rhythm: a band's top and bottom padding are equal, and a band that
+   follows another band gets that SAME top, so every stacked band reads as a
+   centered block regardless of background alternation (issue 430). The
+   adjacent-top tier is kept as a live custom property so the per-component
+   adjacent-top slot still routes through it (slot contract preserved), but its
+   value is pinned to --pp-band-padding so it can never diverge from the band's
+   own edges. The mobile override changes only --pp-band-padding; adjacent-top
+   tracks it automatically. Consuming rules in components.css are untouched.
+
+   Hero opts OUT of this shared rhythm on purpose: it carries its own larger,
+   already-symmetric page-opening rhythm (--space-xl / --space-2xl, 64/112px)
+   via the --hero-padding-* slots, so it is not retuned here.
    ========================================================================== */
 :root {
   --pp-band-padding:              clamp(4.25rem, 6vw, 5rem);
-  --pp-band-padding-adjacent-top: var(--space-lg);
+  --pp-band-padding-adjacent-top: var(--pp-band-padding);
 }
 
 @media (max-width: 767px) {
   :root {
-    --pp-band-padding:              3.35rem;
-    --pp-band-padding-adjacent-top: 3.35rem;
+    --pp-band-padding: 3.35rem;
   }
 }
 
