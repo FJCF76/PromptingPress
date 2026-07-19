@@ -180,6 +180,11 @@ function pp_inspect_site(?int $post_id = null): array {
         'tokens'                   => pp_design_tokens(),
         'conflicts'                => pp_check_custom_css_conflicts(),
         'smells'                   => $smells,
+        // #386: base/derived token incoherence — a derived-family override that
+        // diverges from what its base currently derives, so a base-token change
+        // won't be visible where the override applies. Caught here at INSPECT, not
+        // only at APPLY. Empty on a coherently themed site.
+        'token_smells'             => pp_detect_masked_derived_smells(),
         'composition_decode_error' => $composition_decode_error,
     ];
 }

@@ -997,8 +997,12 @@ pp_register_apply('update_design_token', [
             $changes[] = ['token' => $derived_token, 'from' => null, 'to' => $derived_value];
         }
 
-        // Check coherence of existing overrides that were skipped above.
-        $stale_warnings = pp_check_token_coherence($token, $value);
+        // Warn about existing derived overrides that were preserved above but
+        // DIVERGE from the new base — they keep winning in the rendered CSS, so
+        // this ok:true change may not be visible where they apply (#386). Reuses
+        // the same shared engine the INSPECT smell uses. Non-destructive: no token
+        // value is changed here, the warning is advisory.
+        $stale_warnings = pp_masked_derived_overrides($token, $value);
 
         $result = _pp_apply_result(
             'update_design_token',

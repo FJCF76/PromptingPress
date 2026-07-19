@@ -221,6 +221,34 @@ class OperateTest extends TestCase
         $this->assertArrayHasKey('tokens', $result);
         $this->assertArrayHasKey('conflicts', $result);
         $this->assertArrayHasKey('smells', $result);
+        $this->assertArrayHasKey('token_smells', $result);
+    }
+
+    public function testInspectSiteSurfacesMaskedDerivedTokenSmell(): void
+    {
+        // #386: a divergent derived-family override (stale orange accent-strong
+        // over the default accent base) must be caught at INSPECT, not only APPLY.
+        unset($GLOBALS['_pp_test_store']['options']['pp_token_overrides']);
+        pp_invalidate_design_tokens_cache();
+        pp_set_token_override('--color-accent-strong', '#e07b39');
+
+        $result = pp_inspect_site();
+        $this->assertNotEmpty($result['token_smells']);
+        $this->assertSame('masked_derived_override', $result['token_smells'][0]['type']);
+        $this->assertSame('--color-accent-strong', $result['token_smells'][0]['token']);
+
+        unset($GLOBALS['_pp_test_store']['options']['pp_token_overrides']);
+        pp_invalidate_design_tokens_cache();
+    }
+
+    public function testInspectSiteTokenSmellsEmptyWhenCoherent(): void
+    {
+        // No overrides → coherently themed → no token smells at INSPECT.
+        unset($GLOBALS['_pp_test_store']['options']['pp_token_overrides']);
+        pp_invalidate_design_tokens_cache();
+
+        $result = pp_inspect_site();
+        $this->assertSame([], $result['token_smells']);
     }
 
     public function testInspectSiteReturnsValidDriftShape(): void

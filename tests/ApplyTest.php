@@ -798,32 +798,171 @@ class ApplyTest extends TestCase
         $this->assertCount(4, $result['changes']);
     }
 
-    public function testFallbackDerivationReturnsStaleWarnings(): void
+    public function testDivergentDerivedOverrideReturnsStaleWarnings(): void
     {
-        // Pre-set a blue override for a derived token
+        // #386: pre-set a blue override for a derived token, then update the base
+        // to brown. The preserved override no longer matches what brown derives —
+        // it masks the base change — so the apply must warn (ok:true + stale_warnings).
         pp_set_token_override('--color-accent-strong', '#2744b7');
 
-        // Update base to brown — hue drift should trigger a stale warning
         $result = pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#7a4f2e']);
-        $this->assertTrue($result['ok']);
+        $this->assertTrue($result['ok'], 'The base change still succeeds; the warning is advisory');
         $this->assertArrayHasKey('stale_warnings', $result);
         $this->assertNotEmpty($result['stale_warnings']);
 
-        // The warning should be about --color-accent-strong
-        $warned_tokens = array_column($result['stale_warnings'], 'token');
-        $this->assertContains('--color-accent-strong', $warned_tokens);
+        // The warning names the masking override and preserves its current value.
+        $this->assertContains('--color-accent-strong', array_column($result['stale_warnings'], 'token'));
+        $strong_warning = null;
+        foreach ($result['stale_warnings'] as $w) {
+            if ($w['token'] === '--color-accent-strong') {
+                $strong_warning = $w;
+            }
+        }
+        $this->assertSame('#2744b7', $strong_warning['current'], 'The preserved (masking) value is reported unchanged');
+
+        // No token value was mutated by the warning path: the override still holds.
+        $this->assertSame('#2744b7', pp_get_token_overrides()['--color-accent-strong']);
     }
 
     public function testNoStaleWarningsWhenCoherent(): void
     {
-        // Pre-set a brown override that's coherent with brown base (same hue family)
-        pp_set_token_override('--color-accent-strong', '#563820');
+        // #386: a derived override that EXACTLY equals what the base derives is
+        // coherent — it isn't masking anything, so no warning. Preserving the
+        // original testNoStaleWarningsWhenCoherent semantics via divergence, not
+        // presence: mere presence of a derived override is not staleness.
+        $base = '#7a4f2e';
+        $coherent = pp_derive_family_tokens('--color-accent', $base)['--color-accent-strong'];
+        pp_set_token_override('--color-accent-strong', $coherent);
 
-        // Update base to similar brown — hue drift should be small, no warning
-        $result = pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#7a4f2e']);
+        $result = pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => $base]);
         $this->assertTrue($result['ok']);
         $this->assertArrayNotHasKey('stale_warnings', $result,
-            'Coherent overrides should not produce stale warnings');
+            'A derived override equal to the derivable value is coherent, not masking');
+    }
+
+    public function testCoherentOverrideCaseInsensitiveHexDoesNotWarn(): void
+    {
+        // #386: an override written in a different hex form (uppercase / shorthand)
+        // but equal in RGB to the derivation is still coherent — no warning. Guards
+        // against the exact-string-comparison footgun the design flagged.
+        $base = '#7a4f2e';
+        $coherent = pp_derive_family_tokens('--color-accent', $base)['--color-accent-strong'];
+        pp_set_token_override('--color-accent-strong', strtoupper($coherent));
+
+        $result = pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => $base]);
+        $this->assertTrue($result['ok']);
+        $this->assertArrayNotHasKey('stale_warnings', $result,
+            'Case-different but RGB-equal override must be treated as coherent');
+    }
+
+    public function testColorsEquivalentNormalizesHexForms(): void
+    {
+        // The shared equivalence helper backing divergence detection.
+        $this->assertTrue(_pp_colors_equivalent('#ffffff', '#ffffff'));   // exact
+        $this->assertTrue(_pp_colors_equivalent('#FFF', '#ffffff'));      // shorthand + case
+        $this->assertTrue(_pp_colors_equivalent('#7A4F2E', '#7a4f2e'));   // case only
+        $this->assertFalse(_pp_colors_equivalent('#553720', '#563820'));  // off by a hair → diverges
+        // A non-hex pin can never equal the always-hex derivation → diverges.
+        $this->assertFalse(_pp_colors_equivalent('rgba(0,0,0,0.5)', '#000000'));
+        $this->assertFalse(_pp_colors_equivalent('var(--color-accent)', '#7a4f2e'));
+    }
+
+    public function testMaskedDerivedOverridesEmptyForNonFamilyBase(): void
+    {
+        // --color-bg is not a family base → no derivation → nothing can be masked.
+        pp_set_token_override('--color-accent-strong', '#2744b7');
+        $this->assertSame([], pp_masked_derived_overrides('--color-bg', '#123456'));
+    }
+
+    public function testMaskedDerivedOverridesEmptyForNonHexBase(): void
+    {
+        // A base value that isn't resolvable hex (var()/rgba()) yields no derivation,
+        // so divergence can't be computed and nothing is reported — no false positive.
+        pp_set_token_override('--color-accent-strong', '#2744b7');
+        $this->assertSame([], pp_masked_derived_overrides('--color-accent', 'var(--color-accent)'));
+        $this->assertSame([], pp_masked_derived_overrides('--color-accent', 'rgba(0,0,0,0.5)'));
+    }
+
+    public function testMaskedDerivedOverridesSkipsAbsentDerivedTokens(): void
+    {
+        // With no derived overrides at all, a base change auto-derives the whole
+        // family — nothing is masked.
+        $this->assertSame([], pp_masked_derived_overrides('--color-accent', '#7a4f2e'));
+    }
+
+    public function testDetectMaskedDerivedSmellsFiresOnDivergence(): void
+    {
+        // #386 INSPECT smell: base accent is its product default (blue-ish) while a
+        // stale orange accent-strong override lingers → masking, surfaced at INSPECT.
+        pp_set_token_override('--color-accent-strong', '#e07b39');
+
+        $smells = pp_detect_masked_derived_smells();
+        $this->assertNotEmpty($smells);
+        $smell = $smells[0];
+        $this->assertSame('masked_derived_override', $smell['type']);
+        $this->assertSame('--color-accent', $smell['base_token']);
+        $this->assertSame('--color-accent-strong', $smell['token']);
+        $this->assertSame('#e07b39', $smell['current']);
+    }
+
+    public function testDetectMaskedDerivedSmellsQuietWhenCoherent(): void
+    {
+        // A fully coherent site (only the base overridden, family auto-derived to
+        // match) produces no INSPECT token smell.
+        pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#7a4f2e']);
+        $this->assertSame([], pp_detect_masked_derived_smells());
+    }
+
+    public function testDetectMaskedDerivedSmellsQuietOnPristineSite(): void
+    {
+        // No overrides at all → no smell.
+        $this->assertSame([], pp_detect_masked_derived_smells());
+    }
+
+    public function testMaskedDerivedOverridesToleratesCorruptOverrideValue(): void
+    {
+        // A corrupt pp_token_overrides option (non-string value) must not fatal the
+        // advisory detector — the INSPECT surface stays chaos-tolerant. Bypass the
+        // string-typed writer to simulate corruption directly in the option store.
+        $GLOBALS['_pp_test_store']['options']['pp_token_overrides'] = [
+            '--color-accent-strong' => ['unexpected' => 'array'],
+        ];
+        pp_invalidate_design_tokens_cache();
+
+        // No TypeError; the malformed override is skipped, not reported.
+        $this->assertSame([], pp_masked_derived_overrides('--color-accent', '#7a4f2e'));
+        $this->assertSame([], pp_detect_masked_derived_smells());
+
+        unset($GLOBALS['_pp_test_store']['options']['pp_token_overrides']);
+        pp_invalidate_design_tokens_cache();
+    }
+
+    public function testDetectMaskedDerivedSmellsToleratesCorruptBaseValue(): void
+    {
+        // A corrupt BASE token value (non-string) must not fatal the INSPECT walk —
+        // the is_string guard in pp_detect_masked_derived_smells() skips the family.
+        $GLOBALS['_pp_test_store']['options']['pp_token_overrides'] = [
+            '--color-accent' => ['unexpected' => 'array'],
+        ];
+        pp_invalidate_design_tokens_cache();
+
+        $this->assertSame([], pp_detect_masked_derived_smells());
+
+        unset($GLOBALS['_pp_test_store']['options']['pp_token_overrides']);
+        pp_invalidate_design_tokens_cache();
+    }
+
+    public function testNonHexDerivedPinIsSurfacedAsMasking(): void
+    {
+        // A derived override that is a valid string but not hex (an intentional
+        // rgba()/var() pin) can never equal the always-hex derivation, so it
+        // diverges and IS reported as masking — not silently swallowed.
+        pp_set_token_override('--color-accent-strong', 'rgba(0,0,0,0.5)');
+
+        $masking = pp_masked_derived_overrides('--color-accent', '#7a4f2e');
+        $this->assertCount(1, $masking);
+        $this->assertSame('--color-accent-strong', $masking[0]['token']);
+        $this->assertSame('rgba(0,0,0,0.5)', $masking[0]['current']);
     }
 
     public function testExecuteComplexValueRgba(): void
