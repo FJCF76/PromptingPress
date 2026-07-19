@@ -2172,19 +2172,43 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   padding-bottom: var(--space-lg);
 }
 
+/* Footer layout (issue 427). The inner stacks two rows: the column grid, then
+   the copyright line (or, when pp_footer_note is set, the delimited bottom bar
+   renders OUTSIDE .site-footer__inner — see below, unchanged from issue 335). */
 .site-footer__inner {
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
+  gap: var(--space-lg);
 }
 
-@media (min-width: 768px) {
-  .site-footer__inner {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
+/* The brand · nav · contact columns (issue 427). Mobile: a single-column grid
+   stacks them in DOM order (brand -> nav -> contact) with a consistent rhythm.
+   Desktop (>=1024px): grid-auto-flow:column makes exactly ONE equal 1fr track
+   PER present column, so a fully configured footer is three aligned columns and
+   a sparse one (only the always-present nav) degrades to a single full-width
+   column with no phantom empty tracks. align-items:start aligns the column tops.
+   Every direct child here is a real column (the copyright is a sibling of this
+   grid, never inside it), which is what makes grid-auto-flow:column safe. */
+.site-footer__columns {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+@media (min-width: 1024px) {
+  .site-footer__columns {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: var(--space-xl);
   }
 }
+
+/* Column headings (issue 427/335). One consistent level and treatment across
+   every column: both the menu and contact headings are an h2.site-footer__heading.
+   When a label option (pp_footer_menu_label / pp_footer_contact_label) is unset,
+   the column is headless-but-styled — no default heading text is injected, which
+   keeps the option contract byte-identical (unset emits nothing) while the grid
+   still reads as a deliberate row. See .site-footer__heading below for the type. */
 
 /* Brand column (logo + optional blurb) and the optional contact block. Minimal,
    single-axis styling — the footer stays a flat marketing footer, not a builder
@@ -2193,6 +2217,20 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
+}
+
+/* Issue 382 landing slot (issue 427). The social-icon row (issue 382) is NOT
+   built here, but the layout reserves its designed home: a horizontal, wrapping
+   row that will sit under the brand blurb. Issue 382 adds the markup + the
+   pp_footer_social option; this rule is the pinned slot it drops into so that
+   feature never has to retrofit footer layout. No footer markup emits
+   .site-footer__social yet — keep this until issue 382 lands. */
+.site-footer__social {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
 }
 
 .site-footer__blurb {
@@ -2204,6 +2242,24 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 .site-footer__contact {
   font-size: 0.9rem;
   line-height: 1.6;
+}
+
+/* The contact block is an <address> (issue 427). <address> defaults to italic;
+   footer contact info is not, so reset it. Its email/phone links route the same
+   --footer-link-color chrome slot as the nav links (fallback --color-muted, so
+   an unset footer is unchanged), underlined for the actionable affordance. */
+.site-footer__address {
+  font-style: normal;
+}
+
+.site-footer__address a {
+  color: var(--footer-link-color, var(--color-muted));
+  text-decoration: underline;
+  transition: color var(--transition);
+}
+
+.site-footer__address a:hover {
+  color: var(--color-accent);
 }
 
 /* Cap the footer logo the same way the nav caps it (.nav__logo-image). The

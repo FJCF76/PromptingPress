@@ -55,43 +55,61 @@ $style_attr = pp_chrome_style_attr([
 <footer<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="site-footer" data-pp-component="footer"<?php echo $style_attr; ?>>
     <div class="container site-footer__inner">
 
-        <?php if ($logo || $blurb !== '') : ?>
-            <div class="site-footer__brand">
-                <?php if ($logo) : ?>
-                    <a class="site-footer__logo" href="<?php echo esc_url(pp_site_url()); ?>">
-                        <?php if ($logo['type'] === 'image') : ?>
-                            <img
-                                src="<?php echo esc_url($logo['url']); ?>"
-                                alt="<?php echo esc_attr($logo['alt']); ?>"
-                                class="site-footer__logo-image"
-                            >
-                        <?php else : ?>
-                            <?php echo esc_html($logo['text']); ?>
-                        <?php endif; ?>
-                    </a>
-                <?php endif; ?>
+        <?php // The three columns (brand · nav · contact) live in one grid track
+              // container so the copyright/bottom bar can sit on its own row below
+              // (issue 427). Every DIRECT child of .site-footer__columns must be a
+              // real column: the desktop layout is grid-auto-flow:column, so it
+              // makes exactly one equal track PER present child — a stray non-column
+              // child would become a phantom column. The nav column always renders,
+              // so this container is never empty. ?>
+        <div class="site-footer__columns">
 
-                <?php if ($blurb !== '') : ?>
-                    <p class="site-footer__blurb"><?php echo nl2br(esc_html($blurb)); ?></p>
-                <?php endif; ?>
-            </div>
-        <?php endif; ?>
+            <?php if ($logo || $blurb !== '') : ?>
+                <div class="site-footer__brand">
+                    <?php if ($logo) : ?>
+                        <a class="site-footer__logo" href="<?php echo esc_url(pp_site_url()); ?>">
+                            <?php if ($logo['type'] === 'image') : ?>
+                                <img
+                                    src="<?php echo esc_url($logo['url']); ?>"
+                                    alt="<?php echo esc_attr($logo['alt']); ?>"
+                                    class="site-footer__logo-image"
+                                >
+                            <?php else : ?>
+                                <?php echo esc_html($logo['text']); ?>
+                            <?php endif; ?>
+                        </a>
+                    <?php endif; ?>
 
-        <div class="site-footer__nav">
-            <?php if ($menu_label !== '') : ?>
-                <h2 class="site-footer__heading"><?php echo esc_html($menu_label); ?></h2>
+                    <?php if ($blurb !== '') : ?>
+                        <p class="site-footer__blurb"><?php echo nl2br(esc_html($blurb)); ?></p>
+                    <?php endif; ?>
+                </div>
             <?php endif; ?>
-            <?php pp_nav_menu($location); ?>
-        </div>
 
-        <?php if ($contact !== '') : ?>
-            <div class="site-footer__contact">
-                <?php if ($contact_label !== '') : ?>
-                    <h2 class="site-footer__heading"><?php echo esc_html($contact_label); ?></h2>
+            <?php // A real <nav> landmark carrying an aria-label distinguishes the
+                  // footer nav from the header's "Main navigation" for AT users
+                  // (issue 427). The class is unchanged, so the footer-link CSS
+                  // (.site-footer__nav ul li a) still applies. ?>
+            <nav class="site-footer__nav" aria-label="Footer navigation">
+                <?php if ($menu_label !== '') : ?>
+                    <h2 class="site-footer__heading"><?php echo esc_html($menu_label); ?></h2>
                 <?php endif; ?>
-                <?php echo nl2br(esc_html($contact)); ?>
-            </div>
-        <?php endif; ?>
+                <?php pp_nav_menu($location); ?>
+            </nav>
+
+            <?php if ($contact !== '') : ?>
+                <div class="site-footer__contact">
+                    <?php if ($contact_label !== '') : ?>
+                        <h2 class="site-footer__heading"><?php echo esc_html($contact_label); ?></h2>
+                    <?php endif; ?>
+                    <?php // The contact block is real contact info, so it lives in an
+                          // <address> and its email/phone become actionable links
+                          // (issue 427; see pp_footer_linkify_contact for the contract). ?>
+                    <address class="site-footer__address"><?php echo pp_footer_linkify_contact($contact); ?></address>
+                </div>
+            <?php endif; ?>
+
+        </div>
 
         <?php if (!$has_bottom_bar) : ?>
         <p class="site-footer__copyright">

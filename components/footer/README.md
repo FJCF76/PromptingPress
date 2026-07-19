@@ -24,7 +24,7 @@ so in practice only `location` is ever set.
 | `text`       | string | No | — | Footer text color (blurb/contact/copyright). Set via `pp_footer_text` → `--footer-text` |
 | `link_color` | string | No | — | Footer nav-link color. Set via `pp_footer_link_color` → `--footer-link-color` |
 | `blurb`      | string | No | — | Brand/description line under the logo. Set via `pp_footer_blurb` |
-| `contact`    | string | No | — | Contact/secondary text block. Set via `pp_footer_contact` |
+| `contact`    | string | No | — | Contact/secondary text block. Set via `pp_footer_contact`. Rendered inside an `<address>`; email addresses become `mailto:` links and international phone numbers (leading `+`) become `tel:` links (#427). Stays free text — non-matching text passes through unchanged |
 | `copyright`  | string | No | — | Copyright line. Set via `pp_footer_copyright`; empty = the default `© <year> <site title>. All rights reserved.` |
 | `menu_label`    | string | No | — | Optional heading above the footer nav menu (#335). Set via `pp_footer_menu_label`; empty = unlabelled |
 | `contact_label` | string | No | — | Optional heading above the contact block (#335). Set via `pp_footer_contact_label`; only rendered when `contact` is set |
@@ -88,3 +88,20 @@ Background: `var(--footer-bg, --color-surface)`. Text: `var(--footer-text, inher
 color: `var(--footer-link-color, --color-muted)`. Border top: `1px solid --color-border`. The
 `--footer-*` custom properties are emitted inline by the template from the `pp_footer_*` site
 options; unset, every rule falls back to its original value.
+
+### Layout and semantics (#427)
+
+The brand · nav · contact columns live in a `.site-footer__columns` grid. On desktop
+(`min-width: 1024px`) it is `grid-auto-flow: column` with `grid-auto-columns: minmax(0, 1fr)`,
+so it makes exactly one equal top-aligned column per **present** column and a sparse footer
+degrades cleanly (no empty tracks). On mobile it collapses to a single-column stack in DOM
+order (brand → nav → contact). The copyright line (or, when `pp_footer_note` is set, the
+delimited bottom bar of #335) sits on its own row below the columns.
+
+The footer menu is a real `<nav aria-label="Footer navigation">` landmark, distinct from the
+header's `Main navigation`. Column headings use one consistent level (`h2.site-footer__heading`);
+an unset label leaves a headless-but-styled column rather than injecting default text, keeping
+the option contract byte-identical.
+
+`.site-footer__social` is a reserved, styled landing slot for the social-icon row (#382). No
+markup emits it yet — #382 adds the row and its option into this designed home.
