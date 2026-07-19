@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.4.6] — 2026-07-20 — the "no raw hex" guard stops tripping on issue references written in CSS comments (#289)
+
+**The check that keeps hardcoded hex colors out of `components.css` used to flag a GitHub issue reference like `(#226)` written inside a `/* ... */` comment, because `#226` reads as a three-digit hex string. That forced an awkward "write `issue 226`, never `(#226)`" convention in CSS comments and had already broken two builds. Now both the local test guard and the CI check strip `/* ... */` comments before scanning, so a comment can cite `(#226)` freely while a real hardcoded color in a declaration (`color: #226;` or `color: #ff0000;`) still fails exactly as before. The two guards now run the same code, so a comment that passes locally can't fail CI or the reverse.**
+
+The rule itself is unchanged: component CSS must use CSS variables from `base.css`, never raw hex color values. Only the false positive on comment text is fixed. The local `tests/InvariantTest.php` guard and the CI `ai-ready` workflow now both call a single shared checker, `scripts/check-raw-hex.php`, which blanks comments (preserving line numbers and without fusing tokens across a comment boundary) and then applies the same hex pattern as before. The comment stripping is deliberately lexical, not a full CSS parser, so a `/* ... */` byte sequence inside a CSS string literal is also treated as a comment; such text is not a hardcoded color value, so exempting it does not weaken the guard.
+
+### Fixed
+- A GitHub issue reference inside a `/* ... */` comment in `assets/css/components.css` (for example `/* fixes overflow (#226) */`) no longer trips the raw-hex guard, in both the local PHPUnit test and the CI `ai-ready` check. A genuine raw hex color in a declaration still fails both. The two guards share one implementation (`scripts/check-raw-hex.php`) so they can never disagree (#289).
+
+### Tests
+- New `tests/RawHexGuardTest.php` proves both directions: real hex (`#ff0000`, `#226`) is detected, comment-context issue refs (single-line, multi-line, trailing) pass, a real hex on a line that also carries a comment is still caught, two-digit refs like `#24` stay below the pattern, line numbers stay accurate across multi-line comments and CRLF input, a comment never fuses tokens across its boundary, and the CLI exits 1 on real hex / 0 on a comment-only ref / 2 on a missing file. `tests/InvariantTest.php` now exercises the shared checker against the real `components.css` (#289).
+
 ## [v1.4.5] — 2026-07-19 — stacked section bands are now vertically symmetric, so pages stop looking top-cramped and bottom-heavy (#430)
 
 **Every section-level band that followed another band used to render with a tight ~32px top and a much larger ~77px bottom on desktop — a lopsided block. On pages where backgrounds alternate (a dark stats band, an inverted CTA, a tinted section — the normal marketing pattern), the heading hugged the top edge while a large empty gap sat under the last element. Now a band's top padding equals its bottom padding: every stacked band reads as a centered block at every breakpoint, with no per-section `--*-padding-*` tuning. This is the companion retune to v1.4.4's shared spacing model.**
