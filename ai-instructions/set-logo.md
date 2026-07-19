@@ -153,12 +153,25 @@ wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_hea
 
 ---
 
+## Favicon / app icon (`site_icon`)
+
+The browser-tab favicon and app/OS icon are set through the same `update_site_option` safe surface, using WordPress core's own `site_icon` option (#414). Like `pp_logo_id`, the value is a **Media Library image attachment ID**, never a URL, and it is validated by the same image-attachment rule. Once set, WordPress core's `wp_site_icon()` hook emits the `<link rel="icon">` and apple-touch-icon tags in `wp_head` automatically — there is no favicon slot to compose and no template edit to make.
+
+```bash
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"site_icon","value":"142"}'
+```
+
+Setting it through this action renders the attachment as-is: the Customizer's square-crop step does not run on a direct option write, so pass a roughly **square source, ideally >=512px**, for a clean icon across the tab, home-screen, and app-icon sizes. Any image is accepted (no hard square/size rejection); a non-image attachment, a URL, or a bogus ID is rejected at preview/execute exactly like `pp_logo_id`. `site_icon` is independent of `pp_logo_id`: the favicon and the header/footer logo are separate assets set by separate keys.
+
+---
+
 ## Whitelisted logo + header + footer options
 
 | Key | Value | Notes |
 |-----|-------|-------|
 | `pp_logo_id` | Media Library attachment ID (integer) | Must be an image. Never a URL. |
 | `pp_logo_alt` | string | Optional. Defaults to the attachment's alt metadata, then the site title. |
+| `site_icon` | Media Library attachment ID (integer) | Optional (#414). Must be an image. Never a URL. WP core favicon / app icon; rendered as-is on a direct write (no auto-crop), so supply a square source (ideally >=512px). Renders via `wp_site_icon` in `wp_head`. |
 | `pp_header_bg` | CSS color **or** gradient | Optional. Header background (`--header-bg`). The primary dark/gradient-header control. |
 | `pp_header_text` | CSS color | Optional. Header text color (`--header-text`) — logo wordmark and mobile toggle. |
 | `pp_header_link_color` | CSS color | Optional. Header nav-link color (`--header-link-color`). |
