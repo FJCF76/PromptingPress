@@ -1921,14 +1921,26 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    fill regardless of source order, producing invisible or wrong-colored
    buttons (issue 111 — confirmed empirically: outline and ghost render with
    button text the same color as the button background). Same root cause and
-   fix pattern already applied to hero's equivalent rule above. */
+   fix pattern already applied to hero's equivalent rule above.
+
+   Route fill through --cta-button-bg / --cta-button-hover-bg, border through
+   --cta-button-border / --cta-button-hover-border (issue 420). This rule is the
+   composed primary button's actual cascade winner for the background-color/
+   border-color LONGHANDS ([0,5,0] beats the slot block `.cta__button:not(...)`
+   [0,4,0] AND the premium `main .btn:not(...)` [0,4,1]), so a bare accent here
+   silently defeated the flat-button slots the premium layer (issue 412) already
+   routed — the fill survived accent even with gradient/bevel/ink flattened.
+   The accent chain is the FALLBACK, so an unset button is byte-identical. The
+   border honors its own --cta-button-border slot when set (matching the sibling
+   `.cta__button` block and the premium winner); when that slot is unset it FOLLOWS
+   the fill (var(--cta-button-bg, ...)) so a flat button keeps no accent ring. */
 .cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  background-color: var(--cta-accent, var(--color-accent));
-  border-color: var(--cta-accent, var(--color-accent));
+  background-color: var(--cta-button-bg, var(--cta-accent, var(--color-accent)));
+  border-color: var(--cta-button-border, var(--cta-button-bg, var(--cta-accent, var(--color-accent))));
 }
 .cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  background-color: var(--cta-accent-hover, var(--color-accent-hover));
-  border-color: var(--cta-accent-hover, var(--color-accent-hover));
+  background-color: var(--cta-button-hover-bg, var(--cta-accent-hover, var(--color-accent-hover)));
+  border-color: var(--cta-button-hover-border, var(--cta-button-hover-bg, var(--cta-accent-hover, var(--color-accent-hover))));
 }
 
 /* CTA button (single button): per-instance bg/border/color override,

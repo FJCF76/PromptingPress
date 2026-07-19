@@ -790,17 +790,27 @@ class ComponentPropsTest extends TestCase
     public function testCtaButtonVariantsAllRouteThroughOverrideSlotsInCss(): void
     {
         $css = file_get_contents(dirname(__DIR__) . '/assets/css/components.css');
+        // Strip /* */ comments first so the count reflects real CONSUMPTIONS, not comment
+        // mentions of the token (issue 420 added a comment that names the slot, which a
+        // raw-file substr_count would have wrongly tallied).
+        $css = preg_replace('#/\*.*?\*/#s', '', $css);
         // Count real CONSUMPTIONS (`var(--cta-button-bg`), not comment mentions.
-        // 4 in the cta block — the primary-shape rule plus outline/secondary/ghost, one
-        // per variant (#111) — PLUS 2 in the premium primary-fill cascade winners (the
-        // "premium CTA treatment" and "elevation correction" `main .btn:not(...)` rules),
-        // where issue 412 routes the gradient background through the slot so a flat
-        // primary button is reachable on the DEFAULT variant.
+        // 4 in the `.cta__button` block — the primary-shape rule plus outline/secondary/
+        // ghost, one per variant (#111) — PLUS 2 in the premium primary-fill cascade
+        // winners (the "premium CTA treatment" and "elevation correction"
+        // `main .btn:not(...)` rules), where issue 412 routes the gradient background
+        // through the slot so a flat primary button is reachable on the DEFAULT variant —
+        // PLUS 2 on the `.cta .btn:not(...)` rest rule (issue 420): its fill, and the fill
+        // slot nested as the FALLBACK inside its border (`var(--cta-button-border,
+        // var(--cta-button-bg, ...))`) so the border follows the fill when the border slot
+        // is unset. `.cta .btn` is the [0,5,0] longhand winner that outranked BOTH of the
+        // above layers for background-color/border-color and silently re-killed the slot.
         $this->assertSame(
-            6,
+            8,
             substr_count($css, 'var(--cta-button-bg'),
-            'var(--cta-button-bg) must be consumed by the 4 cta-block variant rules plus '
-            . 'the 2 premium primary-fill winners (issue 412).'
+            'var(--cta-button-bg) must be consumed by the 4 cta-block variant rules, the 2 '
+            . 'premium primary-fill winners (issue 412), and the .cta .btn rest rule twice '
+            . '(fill + the fill nested in its border fallback, issue 420).'
         );
     }
 

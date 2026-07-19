@@ -290,6 +290,128 @@ describe('CSS lint: premium primary-button fill routes through --cta-button-bg (
     });
 });
 
+/**
+ * Primary-button FILL also honors the slot through the background-COLOR longhand (#420).
+ *
+ * The #412 guard above covers the `background`/`background-image` layer-defeat but
+ * EXCLUDES `background-color` (it targets the premium `main .btn` gradient shorthand).
+ * A different, HIGHER-specificity rule — `.cta .btn:not(...)` [0,5,0] — sets the fill via
+ * the `background-color` LONGHAND and outranks BOTH the slot block `.cta__button:not(...)`
+ * [0,4,0] and the premium winner `main .btn:not(...)` [0,4,1]. A bare accent there silently
+ * re-killed --cta-button-bg for the composed primary button (the #412 trust class survived
+ * because that layer routes `background`, not `background-color`). This guard closes the
+ * property gap: every CTA-context primary-fill rule that sets `background-color` MUST route
+ * through --cta-button-bg (rest) / --cta-button-hover-bg (hover).
+ *
+ * Scope note: `.hero .btn:not(...)` sets `background-color` too but routes the SEPARATE
+ * --hero-accent slot (hero is its own component context), so it is deliberately NOT matched.
+ */
+describe('CSS lint: primary-button background-color routes through --cta-button-bg (#420)', () => {
+    const css = stripComments(COMPONENTS_CSS);
+    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+
+    // CTA-context composed-primary-fill surfaces that route through --cta-button-bg.
+    // `.hero .btn` routes --hero-accent (a different slot) and must NOT match.
+    // The `main .btn:not(...)` premium winner sets `background` (shorthand), never the
+    // `background-color` longhand, so it contributes ZERO to the bgColorDecls scan today
+    // (the #412 guard owns that layer). It is kept in the matcher as a forward-guard: if a
+    // future edit adds a `background-color` longhand to that winner, this guard requires it
+    // to route the slot too — the property gap #420 slipped through must not reopen.
+    function targetsCtaPrimaryFill(selector) {
+        return selector.split(',').some(sel => {
+            const s = sel.trim();
+            return /(^|\s)\.cta\s+\.btn:not\(\.btn--outline\)/.test(s)
+                || /(^|\s)\.cta__button:not\(\.btn--outline\)/.test(s)
+                || /(^|\s)main\s+\.btn:not\(\.btn--outline\)/.test(s);
+        });
+    }
+
+    // background-COLOR longhand only (the gap the #412 scanner leaves open).
+    function bgColorDecls(body) {
+        return (body.match(/(?<![-a-z])background-color\s*:[^;}]+/gi) || []).map(d => d.trim());
+    }
+
+    const surfaceRules = [];
+    let m;
+    while ((m = ruleRe.exec(css)) !== null) {
+        if (!targetsCtaPrimaryFill(m[1])) continue;
+        const decls = bgColorDecls(m[2]);
+        if (decls.length) surfaceRules.push({ selector: m[1].replace(/\s+/g, ' ').trim(), decls });
+    }
+
+    // Guard against a vacuous pass: rest + hover for BOTH `.cta .btn` and `.cta__button`.
+    test('finds the CTA primary-fill rules that set a background-color', () => {
+        expect(surfaceRules.length).toBeGreaterThanOrEqual(4);
+    });
+
+    test('every CTA primary-fill background-color routes through --cta-button-bg / --cta-button-hover-bg', () => {
+        const offenders = [];
+        surfaceRules.forEach(r => {
+            const isHover = /:hover\b/.test(r.selector);
+            const slot = isHover ? '--cta-button-hover-bg' : '--cta-button-bg';
+            r.decls.forEach(d => {
+                if (!new RegExp('background-color\\s*:\\s*var\\(\\s*' + slot + '\\b').test(d)) {
+                    offenders.push(`${r.selector} { ${d} }`);
+                }
+            });
+        });
+        expect(offenders).toEqual([]);
+    });
+
+    // Detection proof: a bare accent background-color on the surface must be CAUGHT, a
+    // slot-routed one must PASS, and a `.hero .btn` accent must be IGNORED (different slot).
+    test('detector flags a bare accent background-color, passes a slot-routed one, ignores hero', () => {
+        const bad = '.cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) { background-color: var(--cta-accent, blue); }';
+        const good = '.cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) { background-color: var(--cta-button-bg, var(--cta-accent, blue)); }';
+        const hero = '.hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) { background-color: var(--hero-accent, blue); }';
+        const scan = (fixture) => {
+            const rr = /([^{}]+)\{([^{}]*)\}/g;
+            let mm, out = [];
+            while ((mm = rr.exec(fixture)) !== null) {
+                if (!targetsCtaPrimaryFill(mm[1])) continue;
+                bgColorDecls(mm[2]).forEach(d => {
+                    if (!/background-color\s*:\s*var\(\s*--cta-button-bg\b/.test(d)) out.push(d);
+                });
+            }
+            return out;
+        };
+        expect(scan(bad).length).toBe(1);
+        expect(scan(good).length).toBe(0);
+        expect(scan(hero).length).toBe(0); // hero never enters the scan
+    });
+
+    // Behavioral pin BOTH ways on the exact declarations: slot set → var() resolves the
+    // slot (slot wins); slot unset → the byte-identical prior accent fallback chain.
+    // Border honors --cta-button-border / --cta-button-hover-border when set (the answered
+    // #420 review decision, Option B), then FOLLOWS the fill slot, then the accent chain —
+    // so a flat button (only --cta-button-bg set) keeps no accent ring, while an explicit
+    // border slot is respected on the composed primary button.
+    function bodyOf(selectorNeedle) {
+        const rr = /([^{}]+)\{([^{}]*)\}/g;
+        let mm;
+        while ((mm = rr.exec(css)) !== null) {
+            if (mm[1].replace(/\s+/g, ' ').trim() === selectorNeedle) return mm[2];
+        }
+        return null;
+    }
+    const REST_SEL = '.cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)';
+    const HOVER_SEL = '.cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover';
+
+    test('rest rule: fill routes through --cta-button-bg, border through --cta-button-border then the fill, accent chain as fallback', () => {
+        const body = bodyOf(REST_SEL);
+        expect(body).not.toBeNull();
+        expect(body).toMatch(/background-color:\s*var\(--cta-button-bg,\s*var\(--cta-accent,\s*var\(--color-accent\)\)\)/);
+        expect(body).toMatch(/border-color:\s*var\(--cta-button-border,\s*var\(--cta-button-bg,\s*var\(--cta-accent,\s*var\(--color-accent\)\)\)\)/);
+    });
+
+    test('hover rule: fill routes through --cta-button-hover-bg, border through --cta-button-hover-border then the fill, accent-hover chain as fallback', () => {
+        const body = bodyOf(HOVER_SEL);
+        expect(body).not.toBeNull();
+        expect(body).toMatch(/background-color:\s*var\(--cta-button-hover-bg,\s*var\(--cta-accent-hover,\s*var\(--color-accent-hover\)\)\)/);
+        expect(body).toMatch(/border-color:\s*var\(--cta-button-hover-border,\s*var\(--cta-button-hover-bg,\s*var\(--cta-accent-hover,\s*var\(--color-accent-hover\)\)\)\)/);
+    });
+});
+
 describe('CSS lint: grid--steps only declared inside the COMPONENT: grid block (#56)', () => {
     // Regression guard: before #56, `.grid--steps .grid__item` and
     // `.grid--steps .pp-step-number` were each declared a SECOND time,
