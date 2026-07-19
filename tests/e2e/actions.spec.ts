@@ -259,7 +259,17 @@ test.describe('Preflight fail-closed JSON result (#227)', () => {
     const json = parseCliJson(stdout, 'preflight (unminted token)');
     expect(json.ok).toBe(false);
     expect(typeof json.error).toBe('string');
-    expect(json.error as string).toContain('Could not record PREFLIGHT state');
+    // #409 replaced the temp-file run-state store with the options-table store and
+    // split the old blanket "Could not record PREFLIGHT state" message into distinct
+    // causes (not-found / expired / foreign / corrupt) via pp_operate_run_status().
+    // A syntactically valid UUID that was never minted classifies as `not_found`, so
+    // the operator must see the NOT-FOUND message class specifically — pin that
+    // distinct cause, not merely "some error". Asserting the not-found opener plus its
+    // "never minted" detail keeps this from silently passing on the wrong class (e.g. a
+    // regression that mis-reports an unminted token as expired/foreign/corrupt, or
+    // reverts to the pre-#409 blanket text).
+    expect(json.error as string).toContain('No run state found for run token');
+    expect(json.error as string).toContain('never minted on this install');
     // The failure payload still carries the computed checks for diagnosis.
     expect(Array.isArray(json.checks)).toBe(true);
 
@@ -267,7 +277,7 @@ test.describe('Preflight fail-closed JSON result (#227)', () => {
     expect(stdout).not.toContain('"ok": true');
 
     // Human-readable detail and the recovery hint go to stderr.
-    expect(stderr).toContain('Could not record PREFLIGHT state');
+    expect(stderr).toContain('No run state found for run token');
     expect(stderr).toContain('wp pp operate inspect');
   });
 
