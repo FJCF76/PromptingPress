@@ -60,7 +60,7 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Contact/secondary text block, e.g. an address or email (issue 300). Set via the pp_footer_contact site option. Plain text; newlines render as line breaks."
+      "description": "Contact/secondary text block, e.g. an address or email (issue 300). Set via the pp_footer_contact site option. Plain text; newlines render as line breaks. Rendered inside an <address> element; recognizable email addresses become mailto: links and international phone numbers (an explicit leading +) become tel: links (issue 427). The value stays free text — text that matches neither passes through unchanged."
     },
     "copyright": {
       "type": "string",

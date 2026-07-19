@@ -246,7 +246,12 @@ class FooterChromeTest extends TestCase
         $this->assertStringContainsString('site-footer__contact', $html);
         // Multi-line contact renders line breaks (nl2br).
         $this->assertStringContainsString('San Francisco', $html);
-        $this->assertMatchesRegularExpression('/hello@example\.com<br\s*\/?>/', $html);
+        // The email is now an actionable mailto: link (issue 427), still followed
+        // by the nl2br line break before the next line.
+        $this->assertMatchesRegularExpression(
+            '/<a href="mailto:hello@example\.com">hello@example\.com<\/a><br\s*\/?>/',
+            $html
+        );
         // Configurable copyright replaces the default verbatim.
         $this->assertStringContainsString('Custom line 2026.', $html);
         $this->assertStringNotContainsString('All rights reserved', $html);
@@ -569,5 +574,223 @@ class FooterChromeTest extends TestCase
                 "templates/base.php must read the {$opt} site option and pass it to the footer."
             );
         }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  Footer BASELINE (issue 427): nav landmark, consistent headings, column
+    //  grid + mobile stack, actionable <address> contact (email/phone links),
+    //  graceful sparse-config degradation, and the #382 social landing slot.
+    //  Additive to #300/#335; every option contract unchanged, unset output
+    //  still emits nothing option-driven.
+    // ══════════════════════════════════════════════════════════════════════
+
+    // ── Semantics: nav landmark + heading level ─────────────────────────────
+
+    public function testFooterNavIsAnAriaLabelledLandmark(): void
+    {
+        // The footer menu must be a real <nav> carrying an aria-label, distinct
+        // from the header nav's "Main navigation", so AT users can tell them apart.
+        $html = $this->renderFooter(['location' => 'footer']);
+        $this->assertMatchesRegularExpression(
+            '/<nav class="site-footer__nav" aria-label="Footer navigation">/',
+            $html
+        );
+        // Header/footer labels must not collide.
+        $this->assertStringNotContainsString('aria-label="Main navigation"', $html);
+    }
+
+    public function testColumnHeadingsUseOneConsistentLevel(): void
+    {
+        // Both the menu heading and the contact heading render at the SAME level
+        // and class (h2.site-footer__heading) — no mixed hierarchy.
+        $html = $this->renderFooter([
+            'location'      => 'footer',
+            'menu_label'    => 'Legal',
+            'contact'       => 'hi@example.com',
+            'contact_label' => 'Contact',
+        ]);
+        $this->assertSame(
+            2,
+            preg_match_all('/<h2 class="site-footer__heading">/', $html),
+            'both column headings must be h2.site-footer__heading'
+        );
+        // No other heading level is used for the columns.
+        $this->assertDoesNotMatchRegularExpression('/<h[13-6][^>]*class="site-footer__heading"/', $html);
+    }
+
+    // ── Layout: column grid wrapper + graceful sparse degradation ───────────
+
+    public function testColumnsWrapperGroupsBrandNavContact(): void
+    {
+        $html = $this->renderFooter([
+            'location' => 'footer',
+            'blurb'    => 'Brand line.',
+            'contact'  => 'hi@example.com',
+        ]);
+        $this->assertStringContainsString('site-footer__columns', $html);
+        // DOM order inside the grid reads brand -> nav -> contact.
+        $brand   = strpos($html, 'site-footer__brand');
+        $nav     = strpos($html, 'site-footer__nav');
+        $contact = strpos($html, 'site-footer__contact');
+        $this->assertNotFalse($brand);
+        $this->assertLessThan($nav, $brand, 'brand column comes before the nav column');
+        $this->assertLessThan($contact, $nav, 'nav column comes before the contact column');
+    }
+
+    public function testSparseFooterHasNoEmptyStructuralColumns(): void
+    {
+        // Minimal config: no brand, no contact. The nav column is the only one,
+        // and there must be no empty brand/contact column left behind.
+        $html = $this->renderFooter(['location' => 'footer']);
+        $this->assertStringContainsString('site-footer__columns', $html);
+        $this->assertStringContainsString('site-footer__nav', $html);
+        $this->assertStringNotContainsString('site-footer__brand', $html);
+        $this->assertStringNotContainsString('site-footer__contact', $html);
+        // No empty column div/element with only whitespace inside.
+        $this->assertDoesNotMatchRegularExpression('/<div class="site-footer__brand">\s*<\/div>/', $html);
+        $this->assertDoesNotMatchRegularExpression('/<div class="site-footer__contact">\s*<\/div>/', $html);
+    }
+
+    public function testColumnsWrapperIsNeverEmpty(): void
+    {
+        // The wrapper is unconditional, so it must always contain the always-present
+        // nav column — never an empty grid container.
+        $html = $this->renderFooter(['location' => 'footer']);
+        $this->assertDoesNotMatchRegularExpression('/<div class="site-footer__columns">\s*<\/div>/', $html);
+    }
+
+    // ── Actionable contact: <address> + conservative email/phone auto-link ──
+
+    public function testContactRendersInsideAddress(): void
+    {
+        $html = $this->renderFooter(['location' => 'footer', 'contact' => 'Say hi.']);
+        $this->assertMatchesRegularExpression('/<address class="site-footer__address">/', $html);
+        $this->assertStringContainsString('</address>', $html);
+    }
+
+    public function testContactEmailBecomesMailtoLink(): void
+    {
+        $html = $this->renderFooter(['location' => 'footer', 'contact' => 'Email hello@example.com today']);
+        $this->assertStringContainsString('<a href="mailto:hello@example.com">hello@example.com</a>', $html);
+        // Surrounding plain text is untouched.
+        $this->assertStringContainsString('Email ', $html);
+        $this->assertStringContainsString(' today', $html);
+    }
+
+    public function testContactInternationalPhoneBecomesTelLink(): void
+    {
+        $html = $this->renderFooter(['location' => 'footer', 'contact' => 'Call +1 (555) 123-4567']);
+        // The tel: target is normalized to "+" + digits; the display keeps its formatting.
+        $this->assertStringContainsString('<a href="tel:+15551234567">+1 (555) 123-4567</a>', $html);
+    }
+
+    public function testContactDomesticNumbersAndTextPassThroughUntouched(): void
+    {
+        // Conservative parser: without a leading "+", a phone-shaped string is NOT
+        // linked, so order numbers, postcodes, and dates never get mangled.
+        foreach ([
+            '555-123-4567',          // domestic phone, no +
+            'Order 100002345',       // order number
+            'San Francisco CA 94103',// city + zip
+            'Open Mon-Fri 9-5',      // hours
+        ] as $text) {
+            $html = $this->renderFooter(['location' => 'footer', 'contact' => $text]);
+            $this->assertStringNotContainsString('<a href="tel:', $html, "must not link: {$text}");
+            $this->assertStringNotContainsString('<a href="mailto:', $html, "must not link: {$text}");
+        }
+    }
+
+    public function testPlainContactIsByteIdenticalToPre427Rendering(): void
+    {
+        // Text with no email/phone must render exactly as before (esc_html + nl2br),
+        // just inside the new <address> wrapper.
+        $contact = "123 Market St\nSuite 400";
+        $html = $this->renderFooter(['location' => 'footer', 'contact' => $contact]);
+        $inner = pp_footer_linkify_contact($contact);
+        $this->assertSame(nl2br(esc_html($contact)), $inner, 'plain contact must equal the pre-427 escaping');
+        $this->assertStringContainsString('<address class="site-footer__address">' . $inner . '</address>', $html);
+    }
+
+    public function testContactLinkifyIsConservativeAtBoundariesAndNewlines(): void
+    {
+        // A "+"-number glued to an identifier is NOT a phone (left boundary).
+        $html = $this->renderFooter(['location' => 'footer', 'contact' => 'SKU+1234567 in stock']);
+        $this->assertStringNotContainsString('<a href="tel:', $html);
+
+        // A number immediately followed by letters is NOT a phone (right boundary).
+        $html = $this->renderFooter(['location' => 'footer', 'contact' => 'ref +1234567abc']);
+        $this->assertStringNotContainsString('<a href="tel:', $html);
+
+        // The phone separators exclude newlines, so digits split across two address
+        // lines are never fused into one tel: link.
+        $this->assertStringNotContainsString('<a href="tel:', pp_footer_linkify_contact("+1\n5551234"));
+
+        // Positive control: a clean international number still links.
+        $ok = pp_footer_linkify_contact('Call +1 (555) 123-4567 today');
+        $this->assertStringContainsString('<a href="tel:+15551234567">+1 (555) 123-4567</a>', $ok);
+    }
+
+    public function testContactLinkifyEscapesBeforeLinking(): void
+    {
+        // Escaping runs FIRST, so injected markup can never be reintroduced, and an
+        // adjacent HTML-special char cannot bleed into a link.
+        $html = $this->renderFooter([
+            'location' => 'footer',
+            'contact'  => '<b>x</b> hello@example.com & more',
+        ]);
+        $this->assertStringNotContainsString('<b>x</b>', $html);
+        $this->assertStringContainsString('&lt;b&gt;', $html);
+        $this->assertStringContainsString('&amp; more', $html);
+        // The email still links cleanly around the escaped neighbours.
+        $this->assertStringContainsString('<a href="mailto:hello@example.com">hello@example.com</a>', $html);
+    }
+
+    // ── CSS: column grid mechanism, address reset, #382 landing slot ────────
+
+    public function testFooterColumnsUseAGridMechanism(): void
+    {
+        // Mobile base: a grid (single-column stack). Desktop: the auto-flow column
+        // mechanism that makes one equal track per present column.
+        $base = $this->cssRuleBlock('.site-footer__columns');
+        $this->assertNotNull($base);
+        $this->assertMatchesRegularExpression('/display:\s*grid/', $base);
+
+        $css = $this->css();
+        $this->assertMatchesRegularExpression(
+            '/@media \(min-width: 1024px\)\s*\{\s*\.site-footer__columns\s*\{[^}]*grid-auto-flow:\s*column/s',
+            $css,
+            'desktop columns must use grid-auto-flow: column'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.site-footer__columns\s*\{[^}]*grid-auto-columns:\s*minmax\(0,\s*1fr\)/s',
+            $css,
+            'columns must be equal minmax(0, 1fr) tracks'
+        );
+    }
+
+    public function testFooterAddressResetsItalicAndRoutesLinkColor(): void
+    {
+        $addr = $this->cssRuleBlock('.site-footer__address');
+        $this->assertNotNull($addr);
+        $this->assertMatchesRegularExpression('/font-style:\s*normal/', $addr);
+
+        $link = $this->cssRuleBlock('.site-footer__address a');
+        $this->assertNotNull($link);
+        $this->assertMatchesRegularExpression(
+            '/color:\s*var\(--footer-link-color,\s*var\(--color-muted\)\)/',
+            $link
+        );
+    }
+
+    public function testSocialLandingSlotExistsForIssue382(): void
+    {
+        // The #382 social-icon row is NOT built here, but its designed home must
+        // exist so #382 lands cleanly. This is the pinned landing slot.
+        $block = $this->cssRuleBlock('.site-footer__social');
+        $this->assertNotNull($block, '.site-footer__social landing slot must exist for #382');
+        $this->assertMatchesRegularExpression('/display:\s*flex/', $block);
+        // The footer must NOT already emit the social markup (that is #382).
+        $html = $this->renderFooter(['location' => 'footer', 'blurb' => 'x', 'contact' => 'x']);
+        $this->assertStringNotContainsString('site-footer__social', $html);
     }
 }

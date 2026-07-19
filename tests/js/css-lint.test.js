@@ -221,6 +221,80 @@ describe('CSS lint: mobile nav menu is an out-of-flow panel (#426)', () => {
     });
 });
 
+/**
+ * Footer baseline layout + #382 landing slot (#427).
+ *
+ * The footer went from three loosely floating flex blocks to a deliberate column
+ * grid: `.site-footer__columns` is a grid that, at desktop (>=1024px), uses
+ * `grid-auto-flow: column` + `grid-auto-columns: minmax(0, 1fr)` so it makes
+ * exactly one equal top-aligned track per PRESENT column (a sparse footer degrades
+ * without phantom empty tracks). These static pins lock that MECHANISM so a refactor
+ * that drops the grid (or the auto-flow-column degradation) fails here, not just in a
+ * nightly E2E. They also pin the reserved `.site-footer__social` landing slot for the
+ * #382 social-icon row (built later, into this designed home) and the actionable
+ * `<address>` contact styling (italic reset + link color routed through the chrome slot).
+ */
+describe('CSS lint: footer column grid + #382 landing slot (#427)', () => {
+  const stripped = stripComments(COMPONENTS_CSS);
+
+  function ruleBody(selector) {
+    const re = new RegExp(
+      '(?:^|[}{])\\s*' + selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{([^}]*)\\}',
+    );
+    const m = re.exec(stripped);
+    return m ? m[1] : null;
+  }
+
+  // The `.site-footer__columns` rule declared inside a `@media (min-width: 1024px)`
+  // block, brace-matched. Returns null when no such rule exists (vacuous-pass guard).
+  function desktopColumnsBody() {
+    const opener = /@media\s*\(min-width:\s*1024px\)\s*\{/g;
+    let m;
+    while ((m = opener.exec(stripped)) !== null) {
+      let depth = 1;
+      let i = opener.lastIndex;
+      while (i < stripped.length && depth > 0) {
+        if (stripped[i] === '{') depth++;
+        else if (stripped[i] === '}') depth--;
+        i++;
+      }
+      const block = stripped.slice(opener.lastIndex, i - 1);
+      const rule = /(?:^|[}{])\s*\.site-footer__columns\s*\{([^}]*)\}/.exec(block);
+      if (rule) return rule[1];
+    }
+    return null;
+  }
+
+  test('.site-footer__columns is a grid (the stack/column mechanism)', () => {
+    const body = ruleBody('.site-footer__columns');
+    expect(body).not.toBeNull();
+    expect(body).toMatch(/display\s*:\s*grid/);
+  });
+
+  test('desktop columns use grid-auto-flow: column with equal minmax(0,1fr) tracks, tops aligned', () => {
+    const body = desktopColumnsBody();
+    expect(body).not.toBeNull();
+    expect(body).toMatch(/grid-auto-flow\s*:\s*column/);
+    expect(body).toMatch(/grid-auto-columns\s*:\s*minmax\(0,\s*1fr\)/);
+    expect(body).toMatch(/align-items\s*:\s*start/);
+  });
+
+  test('the #382 social landing slot exists and is a flex row', () => {
+    const body = ruleBody('.site-footer__social');
+    expect(body).not.toBeNull();
+    expect(body).toMatch(/display\s*:\s*flex/);
+  });
+
+  test('the contact <address> resets italic and routes --footer-link-color (no slot-defeating literal)', () => {
+    const addr = ruleBody('.site-footer__address');
+    expect(addr).not.toBeNull();
+    expect(addr).toMatch(/font-style\s*:\s*normal/);
+    const link = ruleBody('.site-footer__address a');
+    expect(link).not.toBeNull();
+    expect(link).toMatch(/color\s*:\s*var\(--footer-link-color,\s*var\(--color-muted\)\)/);
+  });
+});
+
 describe('CSS lint: no modern CSS features', () => {
     const MODERN_FEATURES = [
         // color-mix() intentionally allowed — used for token-adaptive button shadows/focus rings.
