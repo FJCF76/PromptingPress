@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.4.15] — 2026-07-20 — a `split` hero with no image no longer reserves an empty half-band (#440)
+
+**A `hero` with `layout: "split"` but no image and no `proof` used to keep the two-column split grid, squeezing the headline into the left half with dead whitespace across the rest of the band. That is a common authoring state — split chosen before media is imported, or an image prop dropped in an edit. Now that state degrades to the single-column `left` layout so the text uses the full content width and no empty column is reserved, and `wp pp check page` surfaces a `hero_split_no_media` advisory so the author knows to add media (or switch layouts). A `split` hero with an image, or with `proof` filling the second column, renders exactly as before.**
+
+The degradation is render-time only: the stored `layout` value is untouched, so importing an image later restores the split with no re-authoring. A resolvable `image_id` now counts as the split's image even when `image_url` is empty (the renderer resolves the attachment), so an id-only split renders its image instead of an empty column. The warning is deliberately advisory, not a hard failure, because the media may arrive in a following step; it rides the existing composition-smell surface, not a new channel.
+
+### Fixed
+- A `hero` with `layout: "split"` and no image and no `proof` now renders as the single-column `left` layout (text at full content width) instead of reserving an empty right column. Splits with an image (`image_url` or a resolvable `image_id`) or with `proof` are unchanged and render byte-identically. A split whose only image is an `image_id` now renders that attachment rather than leaving the second column empty (#440).
+
+### Added
+- A `hero_split_no_media` composition-smell warning: `wp pp check page` (and the shared advisory surface) flags a `split` hero that has no image and no `proof` — the state that degrades to a single column — so authors are nudged to add media or pick `centered`/`left`. Advisory only; it never blocks a write (#440).
+
+### Docs
+- `components/hero/schema.json`, `AI_CONTEXT.md`, `lib/ai-context.php`, and `ai-instructions/website-building.md` now state that a `split` hero needs an image or `proof` and otherwise degrades to `left`, so the AI stops offering an image-less `split` as a fix for an unbalanced hero (#440).
+
+### Tests
+- New PHPUnit coverage pins the three acceptance states (`split` + image unchanged, `split` + `proof` unchanged, `split` + neither → `hero--left` fallback with no image wrap or surface), the `image_id`-only and non-numeric-`image_id` cases, and the degradation dropping split-only geometry attributes. `tests/GuardrailsTest.php` pins that `hero_split_no_media` fires for a media-less split and stays silent when an image, `image_id`, or `proof` is present, including the non-numeric-`image_id` alignment with the renderer. `tests/e2e/style-render.spec.ts` adds the computed-geometry test that would have caught the bug: at 1280px the degraded hero's `.hero__inner` has no reserved second grid track (#440).
+
 ## [v1.4.14] — 2026-07-20 — supporting text can carry a link, and every text prop now states whether it accepts HTML (#439)
 
 **Text props had an inconsistent, undocumented markup contract. `section.body` and `faq.answer` accepted HTML, but `cta.text`, `grid.items[].text`, and `testimonials.items[].quote` escaped it — so a link written into a CTA body or a card rendered as visible `<a href=...>` source on the page, while the same content in a section body worked. Nothing in the schemas said which prop did which. Now there is one predictable rule: those three supporting-text props accept a bounded inline HTML subset (`a`, `strong`, `em`, `br`), short label-class props (titles, eyebrows, button text, stat labels) stay plain text, and every text prop's schema description states its contract in plain words.**
