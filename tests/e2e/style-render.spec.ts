@@ -4670,6 +4670,148 @@ test.describe('#437 inverted link contrast (rendered)', () => {
   }
 });
 
+test.describe('#461 bg-image band accent contrast (rendered)', () => {
+  let pageId = 0;
+
+  test.afterEach(async () => {
+    if (pageId) {
+      try {
+        deletePage(pageId);
+      } catch {
+        /* already cleaned */
+      }
+      pageId = 0;
+    }
+  });
+
+  // A bg-image band lays a dark rgba(0,0,0,.55) overlay over an ARBITRARY image. The
+  // WORST case for a light-tinted foreground is the overlay over a pure-WHITE image
+  // (effective bg rgb(115,115,115)), where the contrast ceiling is 4.74:1 — so #461's
+  // default accent (--color-accent-on-overlay #fafbff, 4.59:1) is near-white by
+  // necessity. We seed each band with a WHITE background-image fixture. The overlay is
+  // a SEPARATE absolutely-positioned element (a sibling of the link, NOT an ancestor),
+  // so the link's own/ancestor background never carries the scrim: we read the rendered
+  // overlay's real rgba() and composite it over white(255) analytically — that IS the
+  // worst-case rendered composite, and it exercises each component's real overlay recipe.
+  const WHITE_PNG =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAFklEQVQImWP8//8/AwMDEwMDAwMDAwAkBgMBmjCi+wAAAABJRU5ErkJggg==';
+
+  const bands = () => [
+    {
+      component: 'section',
+      props: {
+        id: 'pp-ov-sec',
+        background_image: WHITE_PNG,
+        title: 'Overlay section',
+        body: '<p>Body copy with an inline <a href="/somewhere">text link</a> on the image band.</p>',
+      },
+    },
+    {
+      component: 'cta',
+      props: {
+        id: 'pp-ov-cta',
+        background_image: WHITE_PNG,
+        title: 'Overlay cta',
+        text: 'Read our <a href="/terms">terms</a> before you sign up.',
+        button_text: 'Go',
+        button_url: '/signup',
+      },
+    },
+    {
+      component: 'stats',
+      props: {
+        id: 'pp-ov-stats',
+        background_image: WHITE_PNG,
+        title: 'Overlay stats',
+        items: [{ number: '42', label: 'Metric' }],
+      },
+    },
+  ];
+
+  // Each accent surface + the overlay element whose rendered rgba() sits behind it.
+  const SURFACES = [
+    { name: 'section link', accent: '.section--has-bg-image .section__content a', overlay: '.section--has-bg-image .section__overlay' },
+    { name: 'cta body link', accent: '.cta--has-bg-image .cta__body a', overlay: '.cta--has-bg-image .cta__overlay' },
+    { name: 'stats number', accent: '.stats--has-bg-image .stats__number', overlay: '.stats--has-bg-image .stats__overlay' },
+  ];
+
+  test('all three bg-image accent surfaces clear AA (4.5:1) over the overlay-over-white worst case @375 + @1280', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 461 overlay accent contrast');
+    setComposition(pageId, bands());
+
+    for (const width of [375, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      for (const s of SURFACES) {
+        await expect(page.locator(s.accent).first()).toBeVisible({ timeout: 10000 });
+
+        const res = await page.evaluate(
+          ({ accentSel, overlaySel }) => {
+            const parseRgb = (str: string): number[] => (str.match(/[\d.]+/g) || []).map(Number);
+            const lum = (rgb: number[]): number => {
+              const f = (v: number) => {
+                v /= 255;
+                return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+              };
+              return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]);
+            };
+            const el = document.querySelector(accentSel);
+            const ov = document.querySelector(overlaySel);
+            if (!el || !ov) return { found: false, fg: [] as number[], comp: [] as number[], alpha: -1, ratio: 0 };
+            const fg = parseRgb(getComputedStyle(el).color);
+            const o = parseRgb(getComputedStyle(ov).backgroundColor); // rgba(r,g,b,a)
+            const alpha = o.length >= 4 ? o[3] : 1;
+            // Composite the rendered overlay over a pure-white image (the worst case).
+            const comp = [0, 1, 2].map((i) => alpha * (o[i] ?? 0) + (1 - alpha) * 255);
+            const L1 = lum(fg);
+            const L2 = lum(comp);
+            const ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+            return { found: true, fg, comp, alpha, ratio };
+          },
+          { accentSel: s.accent, overlaySel: s.overlay },
+        );
+
+        expect(res.found, `${s.name} or its overlay not found @${width}`).toBe(true);
+        // The overlay must actually be a translucent scrim (guards a vacuous pass if a
+        // refactor made the overlay opaque or dropped its alpha).
+        expect(res.alpha, `${s.name} @${width}: overlay alpha ${res.alpha} is not the expected translucent scrim`).toBeGreaterThan(0);
+        expect(res.alpha).toBeLessThan(1);
+        expect(
+          res.ratio,
+          `${s.name} @${width}: fg=${JSON.stringify(res.fg)} overlay-over-white=${JSON.stringify(res.comp)} ratio=${res.ratio?.toFixed(2)} (need >= 4.5)`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
+  test('a per-instance slot wins over the on-overlay default on every band @375 + @1280', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 461 overlay slot wins');
+    const SLOT = '#00e5ff'; // vivid cyan no token uses — a leak or clobber is obvious
+    const b = bands();
+    // Attach the per-instance style slot that each band's accent rule reads first.
+    (b[0].props as Record<string, unknown>).__pp_style = { '--section-accent': SLOT };
+    (b[1].props as Record<string, unknown>).__pp_style = { '--cta-body-color': SLOT };
+    (b[2].props as Record<string, unknown>).__pp_style = { '--stats-number-color': SLOT };
+    setComposition(pageId, b);
+
+    for (const width of [375, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      for (const s of SURFACES) {
+        await expect(page.locator(s.accent).first()).toBeVisible({ timeout: 10000 });
+        const color = await page.evaluate((sel) => getComputedStyle(document.querySelector(sel)!).color, s.accent);
+        expect(color, `${s.name} @${width}: per-instance slot must win over the on-overlay default`).toBe('rgb(0, 229, 255)');
+      }
+    }
+  });
+});
+
 /*
  * #439 — a link in cta.text renders as a real anchor, not escaped source.
  *

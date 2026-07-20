@@ -27,6 +27,8 @@
   --color-surface-accent:   #e8ecfe;  /* color: Accent-washed backgrounds, eyebrows */
   --color-accent-on-inverted:       #9dafee;  /* color: Link/accent on the inverted (dark) band — light accent tint, 8.33:1 on --color-bg-inverted (--color-accent's 3.23:1 fails AA there) */
   --color-accent-on-inverted-hover: #c1cdfc;  /* color: Hover state for on-inverted links — brighter tint, 11.4:1 on --color-bg-inverted */
+  --color-accent-on-overlay:        #fafbff;  /* color: Link/accent on a bg-image band (dark rgba(0,0,0,.55) overlay over an ARBITRARY image). The name is the ROLE, not the hue: the worst case is the overlay over a pure-WHITE image (effective bg rgb(115,115,115)), whose contrast CEILING for any foreground is 4.74:1, so a near-white value is the only one that clears AA (4.5:1). #fafbff = 4.59:1 there. on-inverted (#9dafee) is tuned to the solid inverted bg, only ~2.2:1 here (#437 flagged a fixed tint can't be trusted over an arbitrary image). */
+  --color-accent-on-overlay-hover:  #ffffff;  /* color: Hover state for on-overlay links — pure white, 4.74:1 (the ceiling) over the worst-case overlay-over-white composite */
 
   /* Spacing — the layout scale */
   --space-xs:  0.25rem;   /* length: 4px */

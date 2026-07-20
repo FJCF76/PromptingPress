@@ -711,9 +711,9 @@ class ApplyTest extends TestCase
         $this->assertTrue($result['ok']);
         $this->assertEquals('update_design_token', $result['apply']);
         $this->assertEquals('design', $result['domain']);
-        // 1 base change + 6 derived accent family tokens auto-updated (#437 added
-        // --color-accent-on-inverted + --color-accent-on-inverted-hover)
-        $this->assertCount(7, $result['changes']);
+        // 1 base change + 8 derived accent family tokens auto-updated (#437 added
+        // --color-accent-on-inverted + -hover; #461 added --color-accent-on-overlay + -hover)
+        $this->assertCount(9, $result['changes']);
         $this->assertEquals('#3157f4', $result['changes'][0]['from']);
         $this->assertEquals('#b45309', $result['changes'][0]['to']);
 
@@ -726,6 +726,8 @@ class ApplyTest extends TestCase
         $this->assertArrayHasKey('--color-surface-accent', $overrides);
         $this->assertArrayHasKey('--color-accent-on-inverted', $overrides);
         $this->assertArrayHasKey('--color-accent-on-inverted-hover', $overrides);
+        $this->assertArrayHasKey('--color-accent-on-overlay', $overrides);
+        $this->assertArrayHasKey('--color-accent-on-overlay-hover', $overrides);
     }
 
     public function testAccentFamilyDerivation(): void
@@ -784,6 +786,50 @@ class ApplyTest extends TestCase
             'A divergent on-inverted override must surface in the #386 masking machinery');
     }
 
+    public function testOnOverlayAccentIsRegisteredDerivedColor(): void
+    {
+        // #461: the on-overlay accent roles (links/numbers on a bg-image band, which
+        // sits on a dark rgba(0,0,0,.55) overlay over an ARBITRARY image) must be
+        // REGISTERED derived colors, exactly like the #437 on-inverted pair, so
+        // (a) a retheme's new accent auto-produces matching on-overlay tints, and
+        // (b) a pinned on-overlay override that diverges surfaces in the #386
+        // masked-derived / stale-warning machinery like every other derived token.
+
+        // Registered in the --color-accent family (the divergence-detection surface).
+        $family = pp_token_families()['--color-accent'];
+        $this->assertArrayHasKey('--color-accent-on-overlay', $family);
+        $this->assertArrayHasKey('--color-accent-on-overlay-hover', $family);
+
+        // The shipped default derives to the exact base.css literals (#fafbff / #ffffff):
+        // near-white by necessity — the overlay-over-white worst case has a 4.74:1
+        // contrast ceiling, so only a near-white value clears WCAG AA (4.5:1) there.
+        $defaultDerived = pp_derive_family_tokens('--color-accent', '#3157f4');
+        $this->assertEquals('#fafbff', $defaultDerived['--color-accent-on-overlay'],
+            'on-overlay default is the near-white value that clears AA over the worst-case overlay composite');
+        $this->assertEquals('#ffffff', $defaultDerived['--color-accent-on-overlay-hover'],
+            'on-overlay hover is pure white (the 4.74:1 ceiling)');
+
+        // Auto-derived as a near-white accent tint when the base changes (unpinned):
+        // every channel brighter than the base accent, hover brighter still.
+        $derived = pp_derive_family_tokens('--color-accent', '#7a4f2e');
+        $this->assertArrayHasKey('--color-accent-on-overlay', $derived);
+        $this->assertArrayHasKey('--color-accent-on-overlay-hover', $derived);
+        $base = _pp_hex_to_rgb('#7a4f2e');
+        $onOv = _pp_hex_to_rgb($derived['--color-accent-on-overlay']);
+        $onOvHover = _pp_hex_to_rgb($derived['--color-accent-on-overlay-hover']);
+        $this->assertGreaterThan($base[0], $onOv[0], 'on-overlay is a near-white tint');
+        $this->assertGreaterThanOrEqual($onOv[0], $onOvHover[0], 'hover is at least as bright');
+        // Near-white: every channel is high regardless of the base accent hue.
+        $this->assertGreaterThan(240, min($onOv), 'on-overlay is near-white on every channel');
+
+        // Participates in divergence detection: a pinned on-overlay override that
+        // no longer matches what the new base derives is reported as masking (#386).
+        pp_set_token_override('--color-accent-on-overlay', '#123456');
+        $masking = pp_masked_derived_overrides('--color-accent', '#7a4f2e');
+        $this->assertContains('--color-accent-on-overlay', array_column($masking, 'token'),
+            'A divergent on-overlay override must surface in the #386 masking machinery');
+    }
+
     public function testTextFamilyDerivation(): void
     {
         $result = pp_execute_apply('update_design_token', ['token' => '--color-text', 'value' => '#1a1208']);
@@ -828,9 +874,9 @@ class ApplyTest extends TestCase
         // Changes should NOT include --color-accent-strong (it was skipped)
         $changed_tokens = array_column($result['changes'], 'token');
         $this->assertNotContains('--color-accent-strong', $changed_tokens);
-        // But should include the other 5 derived + 1 base = 6 changes (#437 grew
-        // the accent family from 4 to 6 derived tokens)
-        $this->assertCount(6, $result['changes']);
+        // But should include the other 7 derived + 1 base = 8 changes (#437 grew
+        // the accent family from 4 to 6 derived tokens; #461 grew it to 8)
+        $this->assertCount(8, $result['changes']);
     }
 
     public function testDivergentDerivedOverrideReturnsStaleWarnings(): void
@@ -1115,14 +1161,14 @@ class ApplyTest extends TestCase
 
     public function testResetAllDesignTokensClearsAll(): void
     {
-        // Setting --color-accent also auto-derives 6 family tokens (#437 grew the
-        // accent family from 4 to 6): 7 total + 1 for --color-bg = 8
+        // Setting --color-accent also auto-derives 8 family tokens (#437 grew the
+        // accent family from 4 to 6; #461 grew it to 8): 9 total + 1 for --color-bg = 10
         pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309']);
         pp_execute_apply('update_design_token', ['token' => '--color-bg', 'value' => '#000000']);
 
         $result = pp_execute_apply('reset_all_design_tokens', []);
         $this->assertTrue($result['ok']);
-        $this->assertCount(8, $result['changes']);
+        $this->assertCount(10, $result['changes']);
         $this->assertSame([], pp_get_token_overrides());
     }
 

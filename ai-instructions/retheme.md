@@ -53,6 +53,23 @@ leave it unpinned; a pinned on-inverted override that diverges from that derivat
 surfaced by the same `stale_warnings` / `masked_derived_override` machinery as every
 other derived token (see below), so you are told when a base change may not reach it.
 
+**Surface-paired accent (the bg-image band).** A section/cta/stats band WITH a
+`background_image` lays a dark `rgba(0,0,0,.55)` overlay over an ARBITRARY image, so its
+accent (section/cta links, stats numbers) routes through a SEPARATE role,
+`--color-accent-on-overlay` (default `#fafbff`), with `--color-accent-on-overlay-hover`
+(default `#ffffff`) for hover. This is NOT the same as `--color-accent-on-inverted`:
+on-inverted is tuned to the SOLID `--color-bg-inverted`, but the overlay sits over an
+unknown image, so its worst case is the overlay composited over a pure-WHITE image
+(effective bg ≈ `rgb(115,115,115)`). **Pairing contract:** the default must be ≥ 4.5:1
+against that worst-case composite, not against any single image. Because the overlay over
+white has a hard contrast CEILING of 4.74:1 for any foreground, the only values that clear
+AA there are near-white — so `--color-accent-on-overlay` is intentionally near-white; the
+name describes the ROLE (accent on an overlay surface), not the hue, and the link's
+affordance comes from its underline. The programmatic path auto-derives it (a near-white
+accent tint) when you change `--color-accent` and leave it unpinned; a pinned override
+that diverges is surfaced by the same `stale_warnings` / `masked_derived_override`
+machinery as every other derived token.
+
 Example retheme — warm neutral:
 ```css
 --color-bg:           #fefefe;
@@ -214,4 +231,4 @@ Or from PHP: `pp_execute_apply('update_design_token', ['token' => '--color-accen
 
 The apply layer validates token names, enforces type-specific value constraints, and verifies the write via database read-back. Use this path when rethemeing programmatically (e.g. from an AI interface).
 
-**Token family derivation:** When you change `--color-accent`, six derived tokens (`--color-accent-hover`, `--color-accent-strong`, `--color-border-accent`, `--color-surface-accent`, `--color-accent-on-inverted`, `--color-accent-on-inverted-hover`) are auto-filled if they have no existing override. Changing `--color-text` auto-derives `--color-text-secondary`. **A base-token change never touches an existing derived override** — a deliberately pinned derived value survives. That is safe for pins, but it means a base change can succeed (`ok:true`) yet have no visible effect where a stale derived override still wins (e.g. you set `--color-accent` blue but an old orange `--color-accent-strong` keeps the CTA orange). To make that visible, the apply returns a `stale_warnings` entry for any preserved derived override that **diverges** from the value the new base would derive, naming the masking token so you can decide whether to update it. A coherent override (one that already equals the derivable value) is not flagged. The same divergence is reported at INSPECT as a `masked_derived_override` token smell (see `token_smells` in `wp pp operate inspect`), so you catch it before making a change, not only after. This issue makes the state visible; it never recomputes or clobbers your derived overrides.
+**Token family derivation:** When you change `--color-accent`, eight derived tokens (`--color-accent-hover`, `--color-accent-strong`, `--color-border-accent`, `--color-surface-accent`, `--color-accent-on-inverted`, `--color-accent-on-inverted-hover`, `--color-accent-on-overlay`, `--color-accent-on-overlay-hover`) are auto-filled if they have no existing override. Changing `--color-text` auto-derives `--color-text-secondary`. **A base-token change never touches an existing derived override** — a deliberately pinned derived value survives. That is safe for pins, but it means a base change can succeed (`ok:true`) yet have no visible effect where a stale derived override still wins (e.g. you set `--color-accent` blue but an old orange `--color-accent-strong` keeps the CTA orange). To make that visible, the apply returns a `stale_warnings` entry for any preserved derived override that **diverges** from the value the new base would derive, naming the masking token so you can decide whether to update it. A coherent override (one that already equals the derivable value) is not flagged. The same divergence is reported at INSPECT as a `masked_derived_override` token smell (see `token_smells` in `wp pp operate inspect`), so you catch it before making a change, not only after. This issue makes the state visible; it never recomputes or clobbers your derived overrides.
