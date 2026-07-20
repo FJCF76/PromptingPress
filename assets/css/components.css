@@ -13,19 +13,18 @@
    .btn is the shared base; variants .btn--secondary / .btn--outline / .btn--ghost
    (primary = bare .btn) are selected per-instance via the `button_variant` prop.
    The --btn-* color tokens (--btn-bg / --btn-text / --btn-border-color / --btn-shadow)
-   are registered design tokens in base.css and are the DEFAULTS of this bare .btn rule.
-   Each value equals the historical hard-coded fallback, so an unset button renders
-   byte-identically (the var() fallbacks below are those historical defaults; the
-   registered token values now supply them). They are baseline defaults for the shared
-   primitive, NOT a site-wide restyle knob: on a composed page every primary button is
-   inside <main>, where the premium `main .btn:not(...)` cascade (higher specificity)
-   wins and routes fill/border/ink/shadow through --cta-button-* / --cta-accent /
-   --hero-accent / --color-bg, not --btn-*. So --btn-* govern the primitive layer the
-   premium cascade sits on top of; to restyle composed buttons use --color-accent or the
-   per-component slots (see ai-instructions/retheme.md and style-component.md). These
-   tokens are NOT exposed as component style_slots: per-instance button color stays on
-   component-scoped rules (e.g. .cta .btn), so a section's __pp_style cannot leak into
-   nested buttons.
+   are registered design tokens in base.css and are the site-wide GLOBAL button surface.
+   The premium `main .btn:not(...)` primary cascade and the `.cta .btn` / `.hero .btn`
+   primary rules route their fill/border/ink/shadow fallbacks through --btn-* (#458), so
+   setting --btn-bg / --btn-text / --btn-border-color / --btn-shadow at :root restyles
+   EVERY composed primary button. --btn-bg / --btn-border-color / --btn-shadow register as
+   `initial` (unset), so each consuming rule resolves its own literal until the token is
+   set and an unset button is byte-identical; --btn-text keeps a concrete --color-bg
+   default (its value equals the universal ink literal). Per-component slots
+   (--cta-button-* / --cta-accent / --hero-accent) still win over the global tokens when
+   set — --btn-* sits between those slots and the literal fallback. These tokens are NOT
+   exposed as component style_slots: per-instance button color stays on component-scoped
+   rules (e.g. .cta .btn), so a section's __pp_style cannot leak into nested buttons.
    ========================================================================== */
 
 .btn {
@@ -795,8 +794,12 @@
    from the primary (a `.hero .btn` background here outranks `.btn--outline`'s
    transparent and would otherwise flatten both CTAs into identical filled buttons). */
 .hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  background-color: var(--hero-accent, var(--color-accent));
-  border-color: var(--hero-accent, var(--color-accent));
+  /* Global button surface routed under the hero slot (#458): --hero-accent still wins when
+     set; unset, fill falls to --btn-bg then --color-accent (byte-identical). Border honors
+     its own --btn-border-color knob, else FOLLOWS the fill (--btn-bg) so a recolored button
+     keeps a matching ring, else --color-accent. */
+  background-color: var(--hero-accent, var(--btn-bg, var(--color-accent)));
+  border-color: var(--hero-accent, var(--btn-border-color, var(--btn-bg, var(--color-accent))));
 }
 .hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   background-color: var(--hero-accent-hover, var(--color-accent-hover));
@@ -2038,8 +2041,13 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    `.cta__button` block and the premium winner); when that slot is unset it FOLLOWS
    the fill (var(--cta-button-bg, ...)) so a flat button keeps no accent ring. */
 .cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  background-color: var(--cta-button-bg, var(--cta-accent, var(--color-accent)));
-  border-color: var(--cta-button-border, var(--cta-button-bg, var(--cta-accent, var(--color-accent))));
+  /* Global button surface routed under the cta slots (#458): component slots (--cta-button-*
+     / --cta-accent) still win; unset, fill falls to --btn-bg then --color-accent
+     (byte-identical). Border honors --cta-button-border, then its own --btn-border-color knob,
+     else FOLLOWS the fill chain (so a flat --cta-button-bg OR a global --btn-bg keeps no accent
+     ring, issue 420 preserved). */
+  background-color: var(--cta-button-bg, var(--cta-accent, var(--btn-bg, var(--color-accent))));
+  border-color: var(--cta-button-border, var(--btn-border-color, var(--cta-button-bg, var(--cta-accent, var(--btn-bg, var(--color-accent))))));
 }
 .cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   background-color: var(--cta-button-hover-bg, var(--cta-accent-hover, var(--color-accent-hover)));
@@ -3480,7 +3488,13 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
   box-shadow: var(--cta-button-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
     0 10px 24px color-mix(in srgb, var(--color-accent-strong) 16%, transparent));
-  color: var(--cta-button-color, var(--color-bg));
+  /* NOTE (#458): border-color/background/box-shadow above are SUPERSEDED by the
+     identical-specificity "True final cascade" block below (source order wins). Only `color`
+     is the live winner for a composed primary, routed through the global --btn-text knob
+     (--cta-button-color still wins when set; unset falls to --color-bg, byte-identical). The
+     live fill/border/shadow are routed through --btn-bg/--btn-border-color/--btn-shadow in
+     that later block. */
+  color: var(--cta-button-color, var(--btn-text, var(--color-bg)));
 }
 
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
@@ -3530,12 +3544,19 @@ main .btn--ghost {
    `main` is a type selector), so without the :not() it would win by source order
    and re-fill the transparent variants — the secondary-CTA contrast bug. */
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  border-color: var(--cta-button-border, var(--cta-accent, var(--color-accent-strong)));
-  background: var(--cta-button-bg,
-    linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%));
-  box-shadow: var(--cta-button-shadow,
+  /* Live fill/border/shadow winner for EVERY composed primary (incl. the generic
+     .section__panel-cta, which has no cta/hero ancestor). Global button surface routed here
+     (#458): component slots (--cta-button-* / --cta-accent) still win; unset, each falls
+     through --btn-* to today's literal (gradient / --color-accent-strong / bevel), so an
+     unset premium button is byte-identical. Border is INDEPENDENT of the fill here (matches
+     the existing accent-strong-vs-gradient treatment), so it routes --btn-border-color but
+     does NOT follow --btn-bg. */
+  border-color: var(--cta-button-border, var(--cta-accent, var(--btn-border-color, var(--color-accent-strong))));
+  background: var(--cta-button-bg, var(--btn-bg,
+    linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%)));
+  box-shadow: var(--cta-button-shadow, var(--btn-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    0 10px 22px color-mix(in srgb, var(--color-accent-strong) 14%, transparent));
+    0 10px 22px color-mix(in srgb, var(--color-accent-strong) 14%, transparent)));
 }
 
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {

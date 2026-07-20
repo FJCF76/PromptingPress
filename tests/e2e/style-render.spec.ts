@@ -3435,6 +3435,233 @@ test.describe('#441 global button tokens are byte-identical unset (real WP)', ()
 });
 
 /**
+ * #458 — the global button surface is a REAL one-knob.
+ *
+ * #441 registered `--btn-*` but on a composed page the premium `main .btn` primary cascade
+ * (and the `.cta` / `.hero` primary rules) routed fill/border/ink/shadow through `--cta-*` /
+ * `--hero-*` / `--color-*` literals, NOT `--btn-*` — so setting `--btn-bg` at `:root` did
+ * nothing to a composed button (the token was discoverable but inert). #458 reroutes every
+ * composed-primary cascade winner through `--btn-*`, which now register as `initial` (unset)
+ * so the fallback chains still bottom out at today's literal when the token is unset. So a SET
+ * `--btn-*` restyles the section-panel CTA, the CTA-block button, and the hero button
+ * site-wide, while an UNSET one is byte-identical and per-component slots still win.
+ *
+ * Proven three ways:
+ *   (a) UNSET is byte-identical — each routed property equals the exact literal its chain
+ *       bottoms out at, resolved through a throwaway probe element so the assertion compares
+ *       against the BROWSER's resolution of the historical literal (accent gradient,
+ *       `--color-accent-strong`, the premium bevel), not a brittle hardcoded hex. At 1280 AND
+ *       375 (the #86/#349 lesson: a mobile media query can hide a desktop-only regression).
+ *   (b) SET restyles every composed primary — including the generic `.section__panel-cta`
+ *       (governed ONLY by the premium block) and the box-shadow: the two surfaces the
+ *       docs-only alternative would have left inert are the proof this reroute mattered.
+ *   (c) a per-component `--cta-button-bg` still beats the global `--btn-bg`.
+ */
+test.describe('#458 the global button surface is a real one-knob (real WP)', () => {
+  let pageId = 0;
+
+  test.afterEach(async () => {
+    if (pageId) {
+      deletePage(pageId);
+      pageId = 0;
+    }
+  });
+
+  // hero (primary + secondary-as-primary) + cta block + text-panel section on ONE page, so a
+  // single render exercises all four composed-primary contexts. Component order is fixed:
+  // hero = index 0, cta = index 1, section = index 2 (used by the precedence test).
+  function buildOneKnobPage(): number {
+    const id = createPage('E2E btn one-knob #458');
+    setComposition(id, [
+      {
+        component: 'hero',
+        props: {
+          id: 'btn458-hero',
+          title: 'Ship faster',
+          cta_text: 'Primary',
+          cta_url: '/start',
+          cta2_text: 'Secondary',
+          cta2_url: '/learn',
+          cta2_variant: 'primary', // matches the [0,6,0] ink rule that routes through --btn-text
+        },
+      },
+      {
+        component: 'cta',
+        props: { id: 'btn458-cta', title: 'Join us', button_text: 'Sign up', button_url: '/join' },
+      },
+      {
+        component: 'section',
+        props: {
+          id: 'btn458-section',
+          title: 'Details',
+          layout: 'text-panel', // required for the panel (and its .section__panel-cta) to render
+          panel_heading: 'Panel',
+          panel_cta_text: 'Learn more',
+          panel_cta_url: '/more',
+        },
+      },
+    ]);
+    return id;
+  }
+
+  // The four composed-primary selectors. The hero primary is `.hero__cta` WITHOUT the
+  // --secondary modifier (both share `.hero__cta`).
+  const SEL = {
+    cta: '.cta__button',
+    heroPrimary: '.hero__cta:not(.hero__cta--secondary)',
+    heroSecondary: '.hero__cta--secondary',
+    section: '.section__panel-cta',
+  };
+
+  for (const width of [1280, 375]) {
+    test(`unset --btn-* keep every composed primary byte-identical (${width}px) @smoke`, async ({
+      page,
+    }) => {
+      pageId = buildOneKnobPage();
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator(SEL.section)).toBeVisible({ timeout: 10000 });
+
+      const got = await page.evaluate((sel) => {
+        // Resolve a CSS value expression to its computed string via a throwaway element that
+        // inherits :root's tokens — so "byte-identical" compares the button against the
+        // browser's OWN resolution of the historical literal, not a hardcoded theme hex.
+        const resolve = (prop: string, value: string) => {
+          const el = document.createElement('div');
+          el.style.setProperty(prop, value);
+          document.body.appendChild(el);
+          const out = getComputedStyle(el).getPropertyValue(prop);
+          el.remove();
+          return out;
+        };
+        const read = (s: string) => {
+          const cs = getComputedStyle(document.querySelector(s) as Element);
+          return {
+            bgColor: cs.backgroundColor,
+            bgImage: cs.backgroundImage,
+            border: cs.borderTopColor,
+            ink: cs.color,
+            shadow: cs.boxShadow,
+          };
+        };
+        return {
+          cta: read(sel.cta),
+          heroPrimary: read(sel.heroPrimary),
+          heroSecondary: read(sel.heroSecondary),
+          section: read(sel.section),
+          accentFill: resolve('background-color', 'var(--color-accent)'),
+          accentBorder: resolve('border-top-color', 'var(--color-accent)'),
+          accentStrongBorder: resolve('border-top-color', 'var(--color-accent-strong)'),
+          bgInk: resolve('color', 'var(--color-bg)'),
+          premiumFill: resolve(
+            'background-image',
+            'linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%)',
+          ),
+          premiumShadow: resolve(
+            'box-shadow',
+            'inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 10px 22px color-mix(in srgb, var(--color-accent-strong) 14%, transparent)',
+          ),
+        };
+      }, SEL);
+
+      // INK — every composed primary bottoms out at --color-bg (the premium first-block color
+      // winner routed through --btn-text; the hero secondary via its own [0,6,0] rule).
+      expect(got.cta.ink).toBe(got.bgInk);
+      expect(got.heroPrimary.ink).toBe(got.bgInk);
+      expect(got.heroSecondary.ink).toBe(got.bgInk);
+      expect(got.section.ink).toBe(got.bgInk);
+
+      // FILL + BORDER for the .cta/.hero [0,5,0] winners bottom out at --color-accent.
+      expect(got.cta.bgColor).toBe(got.accentFill);
+      expect(got.cta.border).toBe(got.accentBorder);
+      expect(got.heroPrimary.bgColor).toBe(got.accentFill);
+      expect(got.heroPrimary.border).toBe(got.accentBorder);
+
+      // SECTION-PANEL primary is governed ONLY by the premium block: fill = the accent
+      // gradient (background-IMAGE), border = --color-accent-strong, shadow = premium bevel.
+      expect(got.section.bgImage).toBe(got.premiumFill);
+      expect(got.section.border).toBe(got.accentStrongBorder);
+      expect(got.section.shadow).toBe(got.premiumShadow);
+    });
+  }
+
+  test('setting --btn-* at :root restyles every composed primary incl. section-panel + shadow @smoke', async ({
+    page,
+  }) => {
+    pageId = buildOneKnobPage();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator(SEL.section)).toBeVisible({ timeout: 10000 });
+
+    // Sentinel values no theme token resolves to, so a match proves the global knob reached.
+    // Appended after the theme sheet, so this :root wins the cascade (same-specificity, later).
+    // `.btn` transitions color/background/border/shadow over 150ms, so kill transitions in the
+    // same tag — otherwise getComputedStyle reads an intermediate frame of the token change.
+    await page.addStyleTag({
+      content:
+        '*,*::before,*::after{transition:none !important;animation:none !important;}' +
+        ':root{--btn-bg:rgb(1,2,3);--btn-text:rgb(4,5,6);--btn-border-color:rgb(7,8,9);' +
+        '--btn-shadow:0px 0px 0px 5px rgb(10,11,12);}',
+    });
+
+    const got = await page.evaluate((sel) => {
+      const read = (s: string) => {
+        const cs = getComputedStyle(document.querySelector(s) as Element);
+        return {
+          bgColor: cs.backgroundColor,
+          bgImage: cs.backgroundImage,
+          border: cs.borderTopColor,
+          ink: cs.color,
+          shadow: cs.boxShadow,
+        };
+      };
+      return { cta: read(sel.cta), heroPrimary: read(sel.heroPrimary), section: read(sel.section) };
+    }, SEL);
+
+    // INK follows --btn-text on every composed primary.
+    expect(got.cta.ink).toBe('rgb(4, 5, 6)');
+    expect(got.heroPrimary.ink).toBe('rgb(4, 5, 6)');
+    expect(got.section.ink).toBe('rgb(4, 5, 6)');
+
+    // FILL follows --btn-bg. Setting a solid turns the shorthand from a gradient(image) into a
+    // color, so the computed background-COLOR carries the knob.
+    expect(got.cta.bgColor).toBe('rgb(1, 2, 3)');
+    expect(got.heroPrimary.bgColor).toBe('rgb(1, 2, 3)');
+    expect(got.section.bgColor).toBe('rgb(1, 2, 3)');
+
+    // The section-panel primary — the surface the docs-only alternative left inert. Its BORDER
+    // and SHADOW (premium-block winners) now track the global tokens too.
+    expect(got.section.border).toBe('rgb(7, 8, 9)');
+    expect(got.section.shadow).toContain('rgb(10, 11, 12)');
+  });
+
+  test('a per-component --cta-button-bg still beats the global --btn-bg @smoke', async ({
+    page,
+  }) => {
+    pageId = buildOneKnobPage();
+
+    // Style ONLY the cta component's own fill slot (index 1), then set a conflicting global
+    // --btn-bg. The per-component slot must win on that button (slot precedence preserved).
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    const res = await styleComponent(page, pageId, { '--cta-button-bg': 'rgb(20,30,40)' }, undefined, 1);
+    expect(res.success).toBeTruthy();
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator(SEL.cta)).toBeVisible({ timeout: 10000 });
+    await page.addStyleTag({
+      content: '*,*::before,*::after{transition:none !important;}:root{--btn-bg:rgb(1,2,3);}',
+    });
+
+    const ctaFill = await page
+      .locator(SEL.cta)
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    // --cta-button-bg (component slot) wins over the global --btn-bg.
+    expect(ctaFill).toBe('rgb(20, 30, 40)');
+  });
+});
+
+/**
  * Computed-rhythm proof for the shared section-band spacing model (issue 431).
  *
  * The band-level components used to hard-code their own vertical-padding literals

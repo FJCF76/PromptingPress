@@ -568,11 +568,14 @@ describe('CSS lint: primary-button background-color routes through --cta-button-
     const REST_SEL = '.cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)';
     const HOVER_SEL = '.cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover';
 
-    test('rest rule: fill routes through --cta-button-bg, border through --cta-button-border then the fill, accent chain as fallback', () => {
+    test('rest rule: fill routes through --cta-button-bg then the global --btn-bg, border through --cta-button-border / --btn-border-color then the fill, accent chain as fallback', () => {
         const body = bodyOf(REST_SEL);
         expect(body).not.toBeNull();
-        expect(body).toMatch(/background-color:\s*var\(--cta-button-bg,\s*var\(--cta-accent,\s*var\(--color-accent\)\)\)/);
-        expect(body).toMatch(/border-color:\s*var\(--cta-button-border,\s*var\(--cta-button-bg,\s*var\(--cta-accent,\s*var\(--color-accent\)\)\)\)/);
+        // #458: the global --btn-bg / --btn-border-color knobs sit between the per-component
+        // slots and the --color-accent literal. Border still FOLLOWS the fill chain (so a flat
+        // --cta-button-bg OR a global --btn-bg keeps no accent ring, issue 420 preserved).
+        expect(body).toMatch(/background-color:\s*var\(--cta-button-bg,\s*var\(--cta-accent,\s*var\(--btn-bg,\s*var\(--color-accent\)\)\)\)/);
+        expect(body).toMatch(/border-color:\s*var\(--cta-button-border,\s*var\(--btn-border-color,\s*var\(--cta-button-bg,\s*var\(--cta-accent,\s*var\(--btn-bg,\s*var\(--color-accent\)\)\)\)\)\)/);
     });
 
     test('hover rule: fill routes through --cta-button-hover-bg, border through --cta-button-hover-border then the fill, accent-hover chain as fallback', () => {
@@ -2624,13 +2627,21 @@ describe('CSS lint: #441 global button token contract (consumed ⊆ registered�
         expect(orphans).toEqual([]);
     });
 
-    test('the four global button color tokens are registered with their historical defaults', () => {
+    test('the global button surface tokens are registered as unset-by-default knobs (#458)', () => {
+        // #458 rerouted the premium/.cta/.hero primary-button cascade through --btn-*. For a
+        // SET token to override those rules while an UNSET one stays byte-identical, the token
+        // must fall through — so --btn-bg / --btn-border-color / --btn-shadow register as
+        // `initial` (each consuming rule then resolves its own literal until the token is set).
+        // This supersedes #441's concrete registration, which assumed the premium cascade was
+        // NOT rerouted. --btn-text keeps its concrete default because its value already equals
+        // the universal ink literal every button rule falls back to, so it is byte-identical
+        // AND overridable without flipping to `initial`.
         const root = firstRootBlock(BASE_CSS);
-        expect(root).toMatch(/--btn-bg:\s*var\(--color-accent\)/);
+        expect(root).toMatch(/--btn-bg:\s*initial/);
         // The intentional inversion coupling: button ink defaults to the PAGE background.
         expect(root).toMatch(/--btn-text:\s*var\(--color-bg\)/);
-        expect(root).toMatch(/--btn-border-color:\s*var\(--color-accent\)/);
-        expect(root).toMatch(/--btn-shadow:\s*none/);
+        expect(root).toMatch(/--btn-border-color:\s*initial/);
+        expect(root).toMatch(/--btn-shadow:\s*initial/);
     });
 
     test('the registered button color tokens carry their annotated type comment', () => {

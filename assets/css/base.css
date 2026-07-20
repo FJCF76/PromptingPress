@@ -49,16 +49,23 @@
   --btn-padding-x: var(--space-lg);  /* length: Button horizontal padding */
   --btn-radius: 4px;                 /* length: Button corner radius — the authorable button shape; override to pill a CTA (e.g. 100px) without rounding cards, which follow --radius */
 
-  /* Button color — registered DEFAULTS of the shared bare .btn primitive (the button
-     analog of --btn-radius). Each value equals the historical hard-coded fallback, so an
-     unset button is byte-identical. NOT a site-wide restyle knob: on a composed page every
-     primary button is inside <main>, where the premium `main .btn` cascade wins and routes
-     fill/border/ink through --cta-* / --hero-* / --color-bg, not --btn-*. See the .btn rule
-     in components.css and ai-instructions/retheme.md. */
-  --btn-bg:           var(--color-accent);  /* color: Fill for the bare .btn primitive */
-  --btn-text:         var(--color-bg);      /* color: Button label ink. Defaults to the PAGE BACKGROUND token, not a text token — buttons invert: a light page yields light text on the accent fill. Change --color-bg and button text follows unless pinned here. */
-  --btn-border-color: var(--color-accent);  /* color: Button border — matches the fill by default so the primary button reads as a solid shape */
-  --btn-shadow:       none;                 /* shadow: Button elevation — none by default (flat); set to a shadow preset (e.g. --shadow-md) to lift buttons */
+  /* Button color — the GLOBAL button surface (the color analog of --btn-radius). Three of
+     the four are left `initial` (unset) so every consuming rule falls through to its own
+     literal and an unset button is byte-identical; SET any of these at :root (via
+     update_design_token) to restyle EVERY composed primary button site-wide — including the
+     premium `main .btn` primary, which reaches them through these tokens (#458). Per-component
+     slots (--cta-button-* / --cta-accent / --hero-accent) still win when set; --btn-* sits
+     between those slots and the literal fallback. --btn-text keeps a concrete default because
+     its value already equals the universal ink literal (--color-bg) every button rule falls
+     back to, so it stays discoverable AND overridable. Effective unset defaults differ by
+     rule: --btn-bg = --color-accent on the bare .btn / accent gradient on the composed
+     primary; --btn-border-color = --color-accent (bare/.cta/.hero) / --color-accent-strong
+     (premium); --btn-shadow = none (bare) / premium bevel (composed primary). See the .btn and
+     `main .btn` rules in components.css and ai-instructions/retheme.md. */
+  --btn-bg:           initial;         /* color: Global button fill. Unset = each rule's own default (bare .btn: --color-accent; composed primary: the accent gradient). Set to recolor every button fill. */
+  --btn-text:         var(--color-bg); /* color: Button label ink. Defaults to the PAGE BACKGROUND token, not a text token — buttons invert: a light page yields light text on the accent fill. Change --color-bg and button text follows unless pinned here. */
+  --btn-border-color: initial;         /* color: Global button border. Unset = each rule's own default (--color-accent, or --color-accent-strong on the premium primary). Set to recolor every button border. */
+  --btn-shadow:       initial;         /* shadow: Global button elevation. Unset = each rule's own default (bare .btn flat; composed primary keeps its premium bevel). Set a shadow preset (e.g. --shadow-md) or none to change every button's elevation. */
 
   /* Shape & motion */
   --radius:     0.375rem;   /* length: 6px — increase for rounder corners */
