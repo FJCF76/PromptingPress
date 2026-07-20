@@ -12,10 +12,20 @@
    SHARED: Button
    .btn is the shared base; variants .btn--secondary / .btn--outline / .btn--ghost
    (primary = bare .btn) are selected per-instance via the `button_variant` prop.
-   The --btn-* tokens default to the historical hard-coded values, so an unset
-   button renders byte-identically. They are NOT exposed as component style_slots:
-   per-instance button color stays on component-scoped rules (e.g. .cta .btn), so
-   a section's __pp_style cannot leak into nested buttons.
+   The --btn-* color tokens (--btn-bg / --btn-text / --btn-border-color / --btn-shadow)
+   are registered design tokens in base.css and are the DEFAULTS of this bare .btn rule.
+   Each value equals the historical hard-coded fallback, so an unset button renders
+   byte-identically (the var() fallbacks below are those historical defaults; the
+   registered token values now supply them). They are baseline defaults for the shared
+   primitive, NOT a site-wide restyle knob: on a composed page every primary button is
+   inside <main>, where the premium `main .btn:not(...)` cascade (higher specificity)
+   wins and routes fill/border/ink/shadow through --cta-button-* / --cta-accent /
+   --hero-accent / --color-bg, not --btn-*. So --btn-* govern the primitive layer the
+   premium cascade sits on top of; to restyle composed buttons use --color-accent or the
+   per-component slots (see ai-instructions/retheme.md and style-component.md). These
+   tokens are NOT exposed as component style_slots: per-instance button color stays on
+   component-scoped rules (e.g. .cta .btn), so a section's __pp_style cannot leak into
+   nested buttons.
    ========================================================================== */
 
 .btn {

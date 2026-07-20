@@ -3371,6 +3371,70 @@ test.describe('#369 --btn-radius rendered proof (real WP)', () => {
 });
 
 /**
+ * #441 — registering the global button color tokens is byte-identical when unset.
+ *
+ * `--btn-bg` / `--btn-text` / `--btn-border-color` / `--btn-shadow` are now registered
+ * design tokens (base.css first :root block) so the AI can discover the shared `.btn`
+ * primitive's defaults. Each is registered AT its historical hard-coded fallback value,
+ * so an unset button must render exactly as before. The static css-lint test pins the
+ * registered VALUES == the historical fallbacks; this render pin proves the CASCADE
+ * agrees at the ONE composed-page site where a `--btn-*` token actually wins.
+ *
+ * On a composed page every primary button is inside `<main>`, where the premium
+ * `main .btn:not(...)` cascade ([0,4,1]) governs fill/border/ink/shadow through
+ * `--cta-*` / `--color-bg`, NOT `--btn-*` (which is why #441 does NOT claim a site-wide
+ * button knob — see ai-instructions/retheme.md). The hero SECONDARY cta, rendered as the
+ * PRIMARY variant, is the exception: its ink rule
+ * `.hero .hero__cta-group .hero__cta--secondary:not(...)×3` ([0,6,0]) OUTRANKS the
+ * premium rule and routes color through `var(--hero-cta2-color, var(--btn-text, var(--color-bg)))`.
+ * So `--btn-text` is the live fallback there, and registering `--btn-text: var(--color-bg)`
+ * must keep that ink at the historical `--color-bg` (#fcfdff). A wrong registration value
+ * would move THIS pixel, so the assertion is load-bearing, not a tautology.
+ */
+test.describe('#441 global button tokens are byte-identical unset (real WP)', () => {
+  let pageId = 0;
+
+  test.afterEach(async () => {
+    if (pageId) {
+      deletePage(pageId);
+      pageId = 0;
+    }
+  });
+
+  test('an unset --btn-text renders the hero secondary CTA ink at its historical --color-bg @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E btn-text unset is byte-identical');
+    setComposition(pageId, [
+      {
+        component: 'hero',
+        props: {
+          id: 'btn441-hero',
+          title: 'Ship faster',
+          cta_text: 'Primary action',
+          cta_url: '/start',
+          cta2_text: 'Secondary action',
+          cta2_url: '/learn',
+          // PRIMARY variant so the secondary cta matches the [0,6,0] ink rule that
+          // routes through --btn-text (the outline default would take a different rule).
+          cta2_variant: 'primary',
+        },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const cta2 = page.locator('.hero__cta--secondary');
+    await expect(cta2).toBeVisible({ timeout: 10000 });
+
+    const ink = await cta2.evaluate((el) => getComputedStyle(el).color);
+    // --color-bg #fcfdff — the historical fallback --btn-text now resolves to. Unchanged.
+    expect(ink).toBe('rgb(252, 253, 255)');
+  });
+});
+
+/**
  * Computed-rhythm proof for the shared section-band spacing model (issue 431).
  *
  * The band-level components used to hard-code their own vertical-padding literals

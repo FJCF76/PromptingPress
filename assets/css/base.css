@@ -49,6 +49,17 @@
   --btn-padding-x: var(--space-lg);  /* length: Button horizontal padding */
   --btn-radius: 4px;                 /* length: Button corner radius — the authorable button shape; override to pill a CTA (e.g. 100px) without rounding cards, which follow --radius */
 
+  /* Button color — registered DEFAULTS of the shared bare .btn primitive (the button
+     analog of --btn-radius). Each value equals the historical hard-coded fallback, so an
+     unset button is byte-identical. NOT a site-wide restyle knob: on a composed page every
+     primary button is inside <main>, where the premium `main .btn` cascade wins and routes
+     fill/border/ink through --cta-* / --hero-* / --color-bg, not --btn-*. See the .btn rule
+     in components.css and ai-instructions/retheme.md. */
+  --btn-bg:           var(--color-accent);  /* color: Fill for the bare .btn primitive */
+  --btn-text:         var(--color-bg);      /* color: Button label ink. Defaults to the PAGE BACKGROUND token, not a text token — buttons invert: a light page yields light text on the accent fill. Change --color-bg and button text follows unless pinned here. */
+  --btn-border-color: var(--color-accent);  /* color: Button border — matches the fill by default so the primary button reads as a solid shape */
+  --btn-shadow:       none;                 /* shadow: Button elevation — none by default (flat); set to a shadow preset (e.g. --shadow-md) to lift buttons */
+
   /* Shape & motion */
   --radius:     0.375rem;   /* length: 6px — increase for rounder corners */
   --max-width:  72rem;      /* length: 1152px — content column max width */
