@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.4.12] — 2026-07-20 — the heading of a text-panel on a dark band is legible again (#424)
+
+**A `section` with `theme: inverted` (or a background image) renders a light panel box on the dark band. The panel's list items were dark and readable, but its heading came out light-on-light and effectively invisible. The dark-band styling colors every heading in the section with the band's light title color, and that rule outranked the panel's own text color — so the heading, but not the list below it, took the wrong color. The panel is a self-contained light surface with its own text color, so its heading now stays with the panel and reads in the panel's dark text, while the main on-band section title stays light exactly as before.**
+
+The panel heading and the on-band section title are now independently controllable: the panel heading follows the panel's own `--section-panel-text` (set it, and only the heading and panel body move), and the band title follows `--section-title-color` (set it, and only the title moves). Neither bleeds into the other. The same fix applies to a text-panel placed on a background-image section, which is the identical dark-surface case. Default light-band output is unchanged.
+
+### Fixed
+- The heading of a `layout: text-panel` panel on an inverted or background-image `section` now renders in the panel's own text color (`--section-panel-text`, dark by default on the light panel) instead of inheriting the dark band's light title color, so it is legible on the light panel. The on-band section title still uses `--section-title-color`, and the two color slots stay independently authorable — setting one no longer affects the other (#424).
+
+### Tests
+- `tests/e2e/style-render.spec.ts` adds a text-panel legibility suite that proves, at 375px and 1280px, the panel heading computes the panel's dark text (matching the panel list items and clearing WCAG AA against the light panel) while the on-band title stays light — for both an inverted band and a background-image band — plus slot-independence: an explicit `--section-panel-text` moves the panel heading and items together while leaving the band title, and an explicit `--section-title-color` moves only the band title. `tests/js/css-lint.test.js` pins that both dark-band heading rules (`.pp-section--inverted` and `.section--has-bg-image`) carve `.section__panel-heading` out of their bare `h2,h3` branches, and that the panel heading routes color through `--section-panel-text` (#424).
+
 ## [v1.4.11] — 2026-07-20 — links on inverted (dark) bands now meet WCAG AA by default (#437)
 
 **The default accent color is tuned for light surfaces, where it clears the WCAG AA contrast bar. On the dark "inverted" band it did not: a link in an inverted section or embed rendered at about 3.2:1 against the dark background, below the 4.5:1 minimum for body text, and inverted stats numbers looked dim for the same reason. The theme now carries a surface-paired accent — a lighter accent tint used only on inverted bands, where it measures about 8.3:1. Links in inverted sections and embeds, and inverted stats numbers, pick it up automatically. Links that sit on the light cards inside an inverted band (grid cards, FAQ panels) keep the normal accent, which is already AA on those light surfaces, so nothing there changes.**

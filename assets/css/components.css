@@ -1178,9 +1178,16 @@
   --section-text-theme-color: var(--color-bg);
 }
 
+/* The text-panel is a self-contained LIGHT surface sitting on the dark band, with
+   its own --section-panel-text authority (see the .section__panel comment block).
+   Its heading is an <h3.section__panel-heading> whose own rule (0,1,0) routes color
+   through --section-panel-text, but a bare `h3` here (0,1,1) outranks it and paints
+   the panel heading in the band's light title color — light-on-light, invisible on
+   the panel. Carve the panel heading out so the panel slot wins inside the panel
+   while --section-title-color keeps governing the on-band title. (#424) */
 .pp-section--inverted .section__title,
-.pp-section--inverted h2,
-.pp-section--inverted h3 {
+.pp-section--inverted h2:not(.section__panel-heading),
+.pp-section--inverted h3:not(.section__panel-heading) {
   color: var(--section-title-color, var(--color-bg));
 }
 
@@ -1223,9 +1230,13 @@
   z-index: 1;
 }
 
+/* Same self-contained-panel carve-out as the inverted band above: a bg-image
+   section is a dark surface (overlay), so its bare `h2,h3` rule (0,1,1) would
+   clobber the light panel's own --section-panel-text heading authority (0,1,0)
+   and render the panel heading invisible on the light panel. (#424) */
 .section--has-bg-image .section__title,
-.section--has-bg-image h2,
-.section--has-bg-image h3 {
+.section--has-bg-image h2:not(.section__panel-heading),
+.section--has-bg-image h3:not(.section__panel-heading) {
   color: var(--section-title-color, var(--color-bg));
 }
 

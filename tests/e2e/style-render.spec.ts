@@ -4020,3 +4020,192 @@ test.describe('#437 inverted link contrast (rendered)', () => {
     });
   }
 });
+
+/*
+ * #424 — inverted text-panel heading legibility (rendered proof).
+ *
+ * A `theme: inverted` + `layout: text-panel` section renders a LIGHT panel box on the
+ * dark band. The panel heading is `<h3 class="section__panel-heading">`, whose own rule
+ * routes color through --section-panel-text (the panel's dark text). But the inverted
+ * band's `h3` rule (0,1,1) outranked it and painted the panel heading in the band's
+ * LIGHT title color — light-on-light, invisible on the light panel, while the panel LIST
+ * items (not headings) stayed dark and legible. The css-lint pin proves the carve-out
+ * selector shape; only getComputedStyle after the full cascade proves the browser
+ * actually renders the panel heading in the panel's dark text at BOTH breakpoints, and
+ * that the two color slots stay independently authorable.
+ */
+test.describe('#424 inverted text-panel heading legibility (rendered)', () => {
+  let pageId = 0;
+
+  test.afterEach(async () => {
+    if (pageId) {
+      try {
+        deletePage(pageId);
+      } catch {
+        /* already cleaned */
+      }
+      pageId = 0;
+    }
+  });
+
+  // One inverted text-panel section: an on-band title plus a panel with a heading and
+  // list items. Reused by every case below (styled variants restyle component 0).
+  const invertedTextPanel = (extra: Record<string, unknown> = {}) => [
+    {
+      component: 'section',
+      props: {
+        id: 'pp-sec01',
+        theme: 'inverted',
+        layout: 'text-panel',
+        title: 'Included in every plan',
+        panel_heading: 'Included, no exceptions',
+        panel_items: ['First perk', 'Second perk', 'Third perk'],
+        ...extra,
+      },
+    },
+  ];
+
+  // Computed `color` of the first match of a selector, as the browser resolves it.
+  const colorOf = (page: any, selector: string) =>
+    page.locator(selector).first().evaluate((el: Element) => getComputedStyle(el).color);
+
+  // WCAG relative-luminance contrast of an element's text color against its first
+  // painted (opaque) ancestor background — the light panel surface here.
+  const contrastOf = (page: any, selector: string) =>
+    page.evaluate((sel: string) => {
+      const parseRgb = (s: string): number[] => (s.match(/[\d.]+/g) || []).map(Number);
+      const lum = (rgb: number[]): number => {
+        const f = (v: number) => {
+          v /= 255;
+          return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+        };
+        return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]);
+      };
+      const el = document.querySelector(sel);
+      if (!el) return 0;
+      const fg = parseRgb(getComputedStyle(el).color);
+      let node: Element | null = el;
+      let bg: number[] | null = null;
+      while (node) {
+        const p = parseRgb(getComputedStyle(node).backgroundColor);
+        if (p.length >= 3 && (p.length < 4 || p[3] > 0.5)) {
+          bg = p;
+          break;
+        }
+        node = node.parentElement;
+      }
+      if (!bg) bg = [255, 255, 255];
+      const L1 = lum(fg);
+      const L2 = lum(bg);
+      return (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+    }, selector);
+
+  // The regression itself: panel heading must render the panel's dark text (same color
+  // as the panel list items) and NOT the light on-band title color, at both breakpoints.
+  test('panel heading takes panel dark text, band title stays light @375 + @1280', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 424 base');
+    setComposition(pageId, invertedTextPanel());
+
+    for (const width of [375, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      await expect(page.locator('.section__panel-heading')).toBeVisible({ timeout: 10000 });
+
+      const heading = await colorOf(page, '.section__panel-heading');
+      const item = await colorOf(page, '.section__panel-item');
+      const title = await colorOf(page, '.pp-section--inverted .section__title');
+      const ratio = await contrastOf(page, '.section__panel-heading');
+
+      // Heading routes through the SAME panel slot as the list items (both dark).
+      expect(heading, `@${width}: panel heading ${heading} != panel item ${item}`).toBe(item);
+      // Heading is NOT the light on-band title color (the exact pre-fix bug).
+      expect(heading, `@${width}: panel heading ${heading} must differ from band title ${title}`).not.toBe(title);
+      // And it is actually legible on the light panel.
+      expect(ratio, `@${width}: panel heading contrast ${ratio.toFixed(2)} on the light panel`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  // Slot independence, half 1: an explicit --section-panel-text moves the panel heading
+  // and must NOT bleed into the on-band title.
+  test('--section-panel-text moves the panel heading only @375 + @1280', async ({ page }) => {
+    pageId = createPage('E2E 424 panel-text slot');
+    setComposition(pageId, invertedTextPanel());
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // A vivid color no theme token resolves to, so a leak is unmistakable.
+    const res = await styleComponent(page, pageId, { '--section-panel-text': '#ff0080' });
+    expect(res.success).toBe(true);
+
+    for (const width of [375, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('.section__panel-heading')).toBeVisible({ timeout: 10000 });
+
+      const heading = await colorOf(page, '.section__panel-heading');
+      const item = await colorOf(page, '.section__panel-item');
+      const title = await colorOf(page, '.pp-section--inverted .section__title');
+      expect(heading, `@${width}: panel heading should honor --section-panel-text`).toBe('rgb(255, 0, 128)');
+      // The heading must move WITH the rest of the panel (the slot is the panel's,
+      // not a heading-only override), so the list items track it too.
+      expect(item, `@${width}: panel items should track the same --section-panel-text`).toBe('rgb(255, 0, 128)');
+      expect(title, `@${width}: --section-panel-text must not bleed into the band title`).not.toBe('rgb(255, 0, 128)');
+    }
+  });
+
+  // The parallel dark surface: a text-panel on a background-image section. The
+  // .section--has-bg-image class is added whenever background_image is set
+  // (independent of theme/layout), so its bare h2,h3 rule defeated the panel slot
+  // exactly like the inverted band. The image itself need not load — the class,
+  // overlay, and the panel's own opaque light surface are what drive the cascade.
+  test('bg-image text-panel: panel heading takes panel dark text, band title stays light @375 + @1280', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 424 bg-image');
+    setComposition(pageId, invertedTextPanel({ theme: 'default', background_image: '/pp-424-probe.jpg' }));
+
+    for (const width of [375, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      await expect(page.locator('.section--has-bg-image .section__panel-heading')).toBeVisible({ timeout: 10000 });
+
+      const heading = await colorOf(page, '.section--has-bg-image .section__panel-heading');
+      const item = await colorOf(page, '.section--has-bg-image .section__panel-item');
+      const title = await colorOf(page, '.section--has-bg-image .section__title');
+      const ratio = await contrastOf(page, '.section--has-bg-image .section__panel-heading');
+
+      expect(heading, `@${width}: bg-image panel heading ${heading} != panel item ${item}`).toBe(item);
+      expect(heading, `@${width}: bg-image panel heading ${heading} must differ from band title ${title}`).not.toBe(title);
+      expect(ratio, `@${width}: bg-image panel heading contrast ${ratio.toFixed(2)} on the light panel`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  // Slot independence, half 2: an explicit --section-title-color moves the on-band title
+  // and must NOT reach into the self-contained panel heading.
+  test('--section-title-color moves the band title only @375 + @1280', async ({ page }) => {
+    pageId = createPage('E2E 424 title-color slot');
+    setComposition(pageId, invertedTextPanel());
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    const res = await styleComponent(page, pageId, { '--section-title-color': '#00e5ff' });
+    expect(res.success).toBe(true);
+
+    for (const width of [375, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('.section__panel-heading')).toBeVisible({ timeout: 10000 });
+
+      const title = await colorOf(page, '.pp-section--inverted .section__title');
+      const heading = await colorOf(page, '.section__panel-heading');
+      expect(title, `@${width}: band title should honor --section-title-color`).toBe('rgb(0, 229, 255)');
+      expect(heading, `@${width}: --section-title-color must not reach the panel heading`).not.toBe('rgb(0, 229, 255)');
+    }
+  });
+});
