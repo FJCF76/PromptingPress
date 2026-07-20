@@ -1280,7 +1280,14 @@
      renders at the h2 base size (base.css); the desktop clamp is routed through
      the same slot below. Fallback keeps unset output byte-identical. */
   font-size: var(--faq-heading-size, var(--pp-band-heading-size));
-  margin-bottom: var(--space-lg);
+  /* Header rhythm: the gap below the heading (before the accordion list). faq
+     renders no subheading, so this is the faq analogue of #343's title->subheading
+     slot. Route the heading's own bottom margin through a slot so faq's header
+     rhythm is slot-driven like section/grid; the desktop and mobile premium rules
+     below route the same slot. No header-scoping needed: the heading is an <h2>,
+     not the header's last child, so base.css's `p:last-child` reset never reached
+     it. Today's literal stays the fallback — unset output byte-identical (issue 352). */
+  margin-bottom: var(--faq-heading-margin-bottom, var(--space-lg));
   color: var(--faq-heading-color, var(--faq-heading-theme-color, var(--color-text)));
 }
 
@@ -3091,7 +3098,8 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      rule below) at [0,2,1], outranking the base [0,1,0] rules and silently ignoring
      a declared --section-title-margin-bottom / --grid-heading-margin-bottom. Route
      each through its slot with 1.65rem as the fallback so unset output is unchanged.
-     faq stays a bare literal (no faq heading-margin slot in issue 343's scope).
+     faq now routes the same way through --faq-heading-margin-bottom (issue 352);
+     faq was left a bare literal in issue 343's scope and is completed here.
 
      issue 436 note: the font-size fallback here is now the shared --pp-band-heading-size
      instead of this rule's old per-rule clamp(2.25rem, 3vw, 2.62rem). Because that
@@ -3119,7 +3127,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   main > .faq .faq__heading {
     color: var(--faq-heading-color, var(--faq-heading-theme-color, var(--color-text)));
     font-size: var(--faq-heading-size, var(--pp-band-heading-size));
-    margin-bottom: 1.65rem;
+    margin-bottom: var(--faq-heading-margin-bottom, 1.65rem);
   }
 
   main > .section .section__content,
@@ -3204,7 +3212,8 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
   /* margin-bottom split per-selector so each component's heading-margin slot
      reaches the title at this breakpoint too (issue 343); fallbacks preserve
-     today's 1.25rem. faq keeps the bare literal (out of issue 343's scope). */
+     today's 1.25rem. faq now routes the same way (issue 352); it was left a bare
+     literal in issue 343's scope and is completed here. */
   main > .grid .grid__heading {
     margin-bottom: var(--grid-heading-margin-bottom, 1.25rem);
   }
@@ -3214,7 +3223,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   }
 
   main > .faq .faq__heading {
-    margin-bottom: 1.25rem;
+    margin-bottom: var(--faq-heading-margin-bottom, 1.25rem);
   }
 
   main > .section .section__content,

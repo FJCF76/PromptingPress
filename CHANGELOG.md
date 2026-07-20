@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.4.17] — 2026-07-20 — the `faq` header rhythm is now fully authorable (#352)
+
+**The gap below a `faq` heading was the one band-heading rhythm the site-building AI could not touch. Every other header-bearing band (`section`, `grid`, `testimonials`) already routed its heading's bottom margin through a style slot; `faq` alone kept a bare literal, so "tighten this FAQ header" was inexpressible. A new `--faq-heading-margin-bottom` slot closes that gap. Set it to pull the accordion list closer to the heading or push it further away; leave it unset and the band renders exactly as before.**
+
+`faq` renders no subheading, so the slot governs the space between the heading and the accordion list. It follows the `--<component>-heading-margin-bottom` pattern established for `section` and `grid`, and it is length-typed and validated by the shared style engine. The slot is wired at all three places the heading's bottom margin is declared (the base rule plus the desktop and mobile premium-typography rules), each keeping today's literal as the fallback, so an unset `faq` heading computes the same margin it always has (26.4px desktop, 20px mobile). `faq` now has 18 style slots; the theme total is 212.
+
+### Added
+- `--faq-heading-margin-bottom` (length, default `var(--space-lg)`) style slot on the `faq` component, settable via `style_component` or a composition `style` block. It controls the space below the FAQ heading, before the accordion list, so the header rhythm is fully slot-driven like the other band components. Unset, the heading keeps its current bottom margin at every breakpoint (#352).
+
+### Tests
+- `tests/e2e/style-render.spec.ts` adds rendered proof: a set `--faq-heading-margin-bottom` wins on the `.faq__heading` at 375px and 1280px (both premium-typography breakpoints), while an unset `faq` heading computes the unchanged literal (26.4px desktop, 20px mobile). The schema entry and the routing of all three CSS declarations through the slot are enforced by the keystone `StyleSlotContractTest` (#352).
+
 ## [v1.4.16] — 2026-07-20 — a `stats` band can now be a contained, rounded metrics card (#383)
 
 **The `stats` component rendered only as a full-width band. It exposed color, padding, and typography slots but no way to round its corners or cap its width, so the common marketing treatment of a contained, rounded metrics card (a rounded navy panel inset from the page edges) was inexpressible. Two new style slots fix that: `--stats-radius` rounds the band and `--stats-max-width` caps and centers it. Set both and the band becomes a card; leave them unset and the band renders exactly as before.**
