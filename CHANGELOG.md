@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.4.9] — 2026-07-20 — a compact or spacious hero placed after another band renders even top and bottom padding on mobile again (#434)
+
+**A hero carrying `spacing: compact` or `spacing: spacious` is supposed to read as a centered block: the same padding on top as on the bottom. That held on desktop, but on phones (viewports up to 767px) it broke whenever the hero followed another band. The top edge got shaved down to the normal between-band rhythm while the bottom kept the full spacing value, so a spacious hero rendered about 54px on top and 112px on the bottom — visibly bottom-heavy. Now the explicit spacing override wins both edges at every breakpoint, exactly as it always did on desktop, so a spaced hero is symmetric no matter where it sits on the page.**
+
+The desktop stylesheet already restated the spacing override at higher specificity so it beat the between-band rhythm; the mobile stylesheet never did, so the generic mobile rhythm rule won the top edge alone. The fix mirrors the desktop restatement into the mobile breakpoint, setting both edges to the mobile spacing tier (compact stays 32px, spacious stays 112px). Nothing about how you configure pages changed: only a `compact`/`spacious` hero placed after another band on mobile is affected, and only its top edge moves — up, to match its own bottom.
+
+### Fixed
+- On mobile (≤767px), a hero with `spacing: compact` or `spacing: spacious` placed after another band-level component now renders equal top and bottom padding instead of a shaved top edge, matching desktop behavior and the symmetric intent of the spacing override (#434).
+
+### Tests
+- `tests/e2e/style-render.spec.ts` adds a rendered-symmetry case for a spaced hero in the adjacent (after-another-band) position, asserting exact per-breakpoint padding values (compact 32px, spacious 112px at 375px / 160px at 1280px) so a "both edges wrong" regression can't pass on symmetry alone. `tests/js/css-lint.test.js` pins the mobile spacing restatement inside the `max-width:767px` block, after the adjacent-rhythm rule, on the correct per-breakpoint tier (#434).
+
 ## [v1.4.8] — 2026-07-20 — the last three band components join the shared spacing contract, so table, logos, and embed bands stop rendering lopsided (#438)
 
 **Three band-level components — the data `table`, the `logos` strip, and the `embed` block — were the last holdouts that hardcoded their own 64px vertical padding instead of consuming the theme's shared band rhythm. So while every other band rendered as a symmetric, centered block, a table/logos/embed placed after another band rendered top-heavy (about 77px on top, 64px on the bottom at desktop) — the exact lopsided shape v1.4.5 removed everywhere else. They were also the only bands an AI couldn't tune through the documented `--*-padding-*` slots, because they had none. Now all nine band components share one spacing model and one styling surface: table, logos, and embed render symmetric padding by default, gain authorable padding and heading-color style slots, and are covered by the same structural and rendered-rhythm test suites as the other six, so this exclusion can't quietly return.**
