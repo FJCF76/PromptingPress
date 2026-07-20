@@ -675,6 +675,17 @@
   color: var(--hero-text, var(--color-bg));
 }
 
+/* .hero--cover lays the same --overlay-bg scrim (via .hero__overlay) over an arbitrary
+   image as the section/cta/stats bg-image bands. The accented title substring paints
+   its OWN color (0,1,0) and does NOT inherit the near-white .hero--cover .hero__title
+   above, so it renders bare --color-accent at 1.16:1 over the overlay. Route the default
+   through the overlay accent role (#463) so the guarantee is uniform across all overlay
+   bands; the per-instance --hero-title-accent-color slot still wins. Scoped to
+   .hero--cover — the plain (non-overlay) hero variants keep bare accent. */
+.hero--cover .hero__title-accent {
+  color: var(--hero-title-accent-color, var(--color-accent-on-overlay));
+}
+
 .hero--cover .hero__subtitle {
   color: var(--hero-subtitle-color, var(--color-bg));
   opacity: 0.85;
@@ -1270,6 +1281,25 @@
 
 .section--has-bg-image a:hover {
   color: var(--section-accent-hover, var(--color-accent-on-overlay-hover));
+}
+
+/* The accented title substring paints its OWN color (0,1,0) and does NOT inherit
+   the near-white .section--has-bg-image .section__title above, so on the dark
+   overlay-over-image band it renders bare --color-accent at 1.16:1 (fails even the
+   3:1 large-text bar). Route the default through the overlay accent role (#463,
+   the same fix #461 gave links/numbers); the per-instance --section-title-accent-color
+   slot still wins. on-inverted is tuned to the solid inverted bg, not this overlay. */
+.section--has-bg-image .section__title-accent {
+  color: var(--section-title-accent-color, var(--color-accent-on-overlay));
+}
+
+/* Body list markers on the overlay band: a non-disc body_marker paints its glyph
+   from --pp-list-marker-color, whose default is bare --color-accent (1.16:1 here).
+   Re-map the default to the overlay accent role (#463); the --section-body-marker-color
+   slot still wins. Panel markers stay bare accent — a bg-image section's panel is a
+   self-contained LIGHT surface (#424), not on the overlay. */
+.section--has-bg-image .section__content {
+  --pp-list-marker-color: var(--section-body-marker-color, var(--color-accent-on-overlay));
 }
 
 /* ==========================================================================
@@ -2250,6 +2280,15 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   color: var(--cta-body-color, var(--color-accent-on-overlay-hover));
 }
 
+/* The accented title substring paints its OWN color (0,1,0) and does NOT inherit
+   the near-white .cta--has-bg-image .cta__title above, so on the dark overlay-over-
+   image band it renders bare --color-accent at 1.16:1. Route the default through the
+   overlay accent role (#463, mirroring the cta body-link fix from #461); the
+   per-instance --cta-title-accent-color slot still wins. */
+.cta--has-bg-image .cta__title-accent {
+  color: var(--cta-title-accent-color, var(--color-accent-on-overlay));
+}
+
 
 /* ==========================================================================
    COMPONENT: footer
@@ -2591,6 +2630,15 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 .stats--has-bg-image .stats__label {
   color: var(--stats-label-color, var(--color-bg));
   opacity: 0.85;
+}
+
+/* The accented heading substring paints its OWN color (0,1,0) and does NOT inherit
+   the near-white .stats--has-bg-image .stats__heading above, so on the dark overlay-
+   over-image band it renders bare --color-accent at 1.16:1. Route the default through
+   the overlay accent role (#463, mirroring the stats-number fix from #461); the
+   per-instance --stats-title-accent-color slot still wins. */
+.stats--has-bg-image .stats__heading-accent {
+  color: var(--stats-title-accent-color, var(--color-accent-on-overlay));
 }
 
 /* ==========================================================================
