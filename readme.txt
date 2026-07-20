@@ -2,7 +2,7 @@
 Contributors: fjcf76
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 1.4.20
+Stable tag: 1.5.0
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -19,6 +19,10 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 4. Activate the theme.
 
 == Changelog ==
+
+= 1.5.0 =
+* Default-quality release: one fluid band heading scale at every viewport (no more body-size mobile headings), all nine bands on the shared symmetric rhythm with truthful slot contracts, WCAG AA links and legible panels on dark bands, an honest muted theme value (legacy dark renders identically forever), a documented inline-markup contract for supporting text, and graceful single-column degradation for image-less split heroes
+* Verified by re-running the audit's rendered evidence pass on a seeded ten-band default page at mobile, tablet, and desktop viewports
 
 = 1.4.0 =
 * Operator-trust release: run-token state is durable across containerized WP-CLI invocations (options-table store, bounded locking, honest errors); shipped CSS carries no page-specific demo selectors (lint-enforced) and flat primary buttons are reachable through the documented button slots; validation failures always return the standard error envelope; masked design-token changes warn and surface as an inspect smell; the site icon/favicon is settable through the typed action path
