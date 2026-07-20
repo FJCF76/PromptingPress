@@ -806,6 +806,51 @@ test.describe('Safe-surface rendered proof', () => {
     expect(fontSize).toBe('41px');
   });
 
+  // Header-rhythm axis (#352): faq's heading->list gap is authorable via
+  // --faq-heading-margin-bottom, the faq analogue of #343's section/grid
+  // title->subheading slot (faq renders no subheading, so the slot governs the gap
+  // before the accordion list). faq re-declares this margin in THREE places — the
+  // base rule plus the desktop (>=768px) and mobile (<768px) premium rules — so a
+  // single-viewport pin could pass while the other breakpoint's literal still
+  // clobbered the slot (the #86/#349 mobile-hid-it lesson). Assert at 1280 (desktop
+  // rule, 1.65rem fallback) AND 375 (mobile rule, 1.25rem fallback). Two faq
+  // instances in one render prove both halves: index 0 SETS the slot and must win at
+  // both breakpoints; index 1 leaves it UNSET and must compute today's literal
+  // (26.4px desktop / 20px mobile) — the byte-identical-unset guard.
+  test('#352 faq honors --faq-heading-margin-bottom at both breakpoints, unset unchanged @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E FAQ Heading Margin Slot');
+    setComposition(pageId, [
+      { component: 'faq', props: { id: 'pp-faq01', title: 'Set gap', items: [{ question: 'Q?', answer: 'A.' }] } },
+      { component: 'faq', props: { id: 'pp-faq02', title: 'Unset gap', items: [{ question: 'Q?', answer: 'A.' }] } },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // A pixel value no token resolves to, so a premium-rule clobber is unmistakable.
+    const res = await styleComponent(page, pageId, { '--faq-heading-margin-bottom': '48px' }, undefined, 0);
+    expect(res.success).toBe(true);
+
+    const marginBottom = (id: string) =>
+      page.locator(`#${id} .faq__heading`).evaluate((el) => getComputedStyle(el).marginBottom);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('#pp-faq01 .faq__heading')).toBeVisible({ timeout: 10000 });
+
+      // Set slot wins at BOTH breakpoints (mobile is the case that ships broken when a
+      // media-query literal is left un-routed through the slot).
+      expect(await marginBottom('pp-faq01')).toBe('48px');
+
+      // Unset output byte-identical to today: 1.65rem (26.4px) desktop, 1.25rem (20px)
+      // mobile. No default changed.
+      expect(await marginBottom('pp-faq02')).toBe(width >= 768 ? '26.4px' : '20px');
+    }
+  });
+
   // Card-border axis (#226/#292): the featured first card (#226) AND cards 2..N (#292)
   // each had their own bypass, fixed separately — so assert BOTH boxes render the slot.
   test('#305 grid cards honor --grid-card-border on featured AND non-featured cards @smoke', async ({

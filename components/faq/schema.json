@@ -61,6 +61,7 @@
       "--faq-heading-size": { "type": "length", "default": "1.875rem", "description": "Section heading font size" },
       "--faq-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading text color" },
       "--faq-heading-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading, if set" },
+      "--faq-heading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space below the FAQ heading, before the accordion list (header rhythm). Lower it to tighten the header, raise it for more separation." },
       "--faq-question-color": { "type": "color", "default": "var(--color-text)", "description": "Question (summary) text color" },
       "--faq-answer-color": { "type": "color", "default": "var(--color-muted)", "description": "Answer text color" },
       "--faq-border-color": { "type": "color", "default": "var(--color-border)", "description": "Accordion item border color" },
