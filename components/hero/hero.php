@@ -66,11 +66,27 @@ if (!in_array($vertical_align, $allowed_vertical_aligns, true)) {
     $vertical_align = 'center';
 }
 
+$proof_markup        = trim((string) $proof);
+
+// Graceful degradation (#440): the "split" layout only makes sense when the
+// second column has something to show — an image or the proof surface.
+// pp_render_responsive_image() resolves an attachment from image_id even when
+// image_url is empty, so a resolvable image_id counts as media here (and the
+// image branch below renders it). When a split hero has neither image nor
+// proof, the two-column grid would reserve an empty half-band, so fall back to
+// the single-column "left" layout: text renders at full content width. This is
+// render-time only — the stored layout prop is unchanged (no schema change).
+// !empty($image_url) matches the original image-branch truthy gate byte-for-byte
+// (an empty string and the falsy "0" both count as "no image", as before).
+$has_split_media  = (!empty($image_url) || $image_id > 0);
+$effective_layout = ($layout === 'split' && !$has_split_media && $proof_markup === '')
+    ? 'left'
+    : $layout;
+
 $spacing_attr        = $spacing !== 'default' ? ' data-pp-spacing="' . esc_attr($spacing) . '"' : '';
 $width_attr          = $width !== 'default' ? ' data-pp-width="' . esc_attr($width) . '"' : '';
-$split_ratio_attr    = ($layout === 'split' && $split_ratio !== '50-50') ? ' data-pp-split-ratio="' . esc_attr($split_ratio) . '"' : '';
-$vertical_align_attr = (in_array($layout, ['cover', 'split'], true) && $vertical_align !== 'center') ? ' data-pp-vertical-align="' . esc_attr($vertical_align) . '"' : '';
-$proof_markup        = trim((string) $proof);
+$split_ratio_attr    = ($effective_layout === 'split' && $split_ratio !== '50-50') ? ' data-pp-split-ratio="' . esc_attr($split_ratio) . '"' : '';
+$vertical_align_attr = (in_array($effective_layout, ['cover', 'split'], true) && $vertical_align !== 'center') ? ' data-pp-vertical-align="' . esc_attr($vertical_align) . '"' : '';
 
 // Style slot overrides (per-instance visual customization).
 $slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'hero');
@@ -85,7 +101,7 @@ if ($layout === 'cover' && $image_url) {
 }
 $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"' : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="hero hero--<?php echo esc_attr($layout); ?>" data-pp-component="hero"<?php echo $spacing_attr; ?><?php echo $width_attr; ?><?php echo $split_ratio_attr; ?><?php echo $vertical_align_attr; ?><?php echo $style_attr; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="hero hero--<?php echo esc_attr($effective_layout); ?>" data-pp-component="hero"<?php echo $spacing_attr; ?><?php echo $width_attr; ?><?php echo $split_ratio_attr; ?><?php echo $vertical_align_attr; ?><?php echo $style_attr; ?>>
     <?php if ($layout === 'cover') : ?>
         <div class="hero__overlay" aria-hidden="true"></div>
     <?php endif; ?>
@@ -114,16 +130,16 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                     </div>
                 <?php endif; ?>
 
-                <?php if ($proof_markup && $layout !== 'split') : ?>
+                <?php if ($proof_markup && $effective_layout !== 'split') : ?>
                     <div class="hero__proof"><?php echo wp_kses_post($proof_markup); ?></div>
                 <?php endif; ?>
             </div>
 
-            <?php if ($layout === 'split' && $proof_markup) : ?>
+            <?php if ($effective_layout === 'split' && $proof_markup) : ?>
                 <div class="hero__surface" aria-label="Product workflow surface">
                     <?php echo wp_kses_post($proof_markup); ?>
                 </div>
-            <?php elseif ($layout === 'split' && $image_url) : ?>
+            <?php elseif ($effective_layout === 'split' && $has_split_media) : ?>
                 <div class="hero__image-wrap">
                     <?php echo pp_render_responsive_image($image_url, $image_alt, 'hero__image', 'eager', $image_id); ?>
                 </div>
