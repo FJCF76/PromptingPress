@@ -139,7 +139,7 @@ renders the header or footer twice, and the write is rejected with the error cod
 **Two consistent axes — `layout` (structure) and `theme` (color/tone).** There is no `variant` prop anywhere; the name is retired. A write carrying `props.variant` is rejected as `unknown_prop` on every write path (`create_page`, `update_composition`, `add_component`, `update_component`) — v1 accepts no alias, only `layout`/`theme` (#388). (Restoring a pre-rename snapshot still decodes a stored `variant` to `layout`/`theme` on the read/restore path; the rejection is write-time only.) Structure is always `layout`, color/tone is always `theme`, and they never overload one key:
 
 - **`layout`** (structural, changes DOM/rendering) is used by the components that have more than one structure: `hero` (`left`, `centered`, `split`, `cover`), `section` (`text-only`, `image-left`, `image-right`, `centered`, `text-panel`), `grid` (`cards`, `steps`), `cta` (`full-width`, `inline`), `testimonials` (`grid`, `stack`).
-- **`theme`** (color/tone preset, `default` | `dark` | `inverted`) is used by the section-level components that carry a background tone: `section`, `stats`, `logos`, `embed`, `grid`, `cta`, `testimonials`, `faq`.
+- **`theme`** (color/tone preset, `default` | `muted` | `inverted`) is used by the section-level components that carry a background tone: `section`, `stats`, `logos`, `embed`, `grid`, `cta`, `testimonials`, `faq`. `muted` is a light tinted surface band (`--color-surface`) with framing borders; for a genuinely **dark** band use `inverted`. (The legacy value `dark` still renders — it is a deprecated alias of `muted`, i.e. a LIGHT band — but do not use it on new pages: its name mispredicts its output.)
 - `hero` has no `theme` prop — its color comes entirely from style slots (`--hero-bg`, etc.).
 - Components with a single structure (`stats`, `logos`, `embed`) expose only `theme`, not `layout`.
 - `style_component` / recipes / style slots remain the final visual authority over any `theme` or default CSS.
@@ -436,7 +436,7 @@ Pages using the **Composition** template store their layout in `_pp_composition`
 [
   { "component": "hero", "props": { "id": "top", "title": "Welcome", "layout": "cover", "image_url": "/path/to/bg.jpg" }, "style": { "--hero-padding-top": "8rem", "--hero-bg": "#1a1a2e" } },
   { "component": "section", "props": { "id": "about", "body": "<p>Content here.</p>", "layout": "text-only" } },
-  { "component": "stats", "props": { "theme": "dark", "items": [{ "number": "50+", "label": "Clients" }] } },
+  { "component": "stats", "props": { "theme": "muted", "items": [{ "number": "50+", "label": "Clients" }] } },
   { "component": "cta", "props": { "title": "Go", "button_text": "Click", "button_url": "/", "theme": "inverted" } }
 ]
 ```
