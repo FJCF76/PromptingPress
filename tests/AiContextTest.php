@@ -77,6 +77,24 @@ class AiContextTest extends TestCase
         $this->assertStringContainsString('## Design Tokens', $prompt);
     }
 
+    public function testSystemPromptStatesLiteralOnlySlotTypesRejectVar(): void
+    {
+        // #377 — the runtime chat prompt must state the var() negative for the
+        // literal-only slot types, not only for `position`. The chat AI was
+        // misled by the color analogy into setting a length slot to a var()
+        // reference and getting rejected; the prompt now names which types
+        // accept var() and that length/number/duration/position/ratio are literal-only.
+        $prompt = pp_ai_system_prompt();
+        $this->assertStringContainsString(
+            'Only the `color`, `gradient`, `shadow`, and `font-family` types accept a `var()` reference',
+            $prompt
+        );
+        $this->assertStringContainsString(
+            'the `length`, `number`, `duration`, `position`, and `ratio` types are literal-only',
+            $prompt
+        );
+    }
+
     // ── Schema Condensing ─────────────────────────────────────────────────
 
     public function testCondenseSchemaWithRequiredAndOptional(): void
