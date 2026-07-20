@@ -20,7 +20,7 @@ Each item in `items`:
 
 | Key         | Type   | Required | Default | Description |
 |-------------|--------|----------|---------|-------------|
-| `quote`     | string | Yes      | —       | The testimonial text. Plain text — escaped, no HTML. |
+| `quote`     | string | Yes      | —       | The testimonial text. Inline HTML allowed: a, strong, em, br. |
 | `author`    | string | No       | `''`    | Name of the person quoted |
 | `role`      | string | No       | `''`    | The author's job title |
 | `company`   | string | No       | `''`    | The author's company or organization |

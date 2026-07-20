@@ -25,7 +25,7 @@ Each item in `items`:
 |-------------|--------|----------|----------------|-------------|
 | `number`    | string | No*      | —              | Step number label, e.g. `'1'`. *Required when `layout` is `'steps'`. |
 | `title`     | string | No       | `''`           | Card heading (h3) |
-| `text`      | string | No       | `''`           | Card body text |
+| `text`      | string | No       | `''`           | Card body text. Inline HTML allowed: a, strong, em, br. |
 | `bullets`   | array  | No       | —              | Checklist lines rendered below `text`, each prefixed with a check mark. Plain text only. |
 | `text_role` | enum   | No       | —              | Typography role for the card text: `mono` / `meta` / `label` / `kicker`. `meta`/`kicker` set a preset text color; an explicit `--grid-item-text-color` slot overrides it at all breakpoints. |
 | `image_url` | string | No       | `''`           | Card image URL |
