@@ -3614,6 +3614,25 @@ main .btn {
     padding-top: var(--embed-padding-top, var(--pp-band-padding-adjacent-top));
   }
 
+  /* An explicit data-pp-spacing override (only hero emits it) must govern BOTH
+     edges symmetrically at mobile, exactly as the desktop restatement does (the
+     min-width:768px block by the base spacing rules). Without this restatement the
+     generic adjacent rule above [0,2,1] out-orders the base [data-pp-spacing] rules
+     [0,2,0] and shaves ONLY the top edge of a spaced hero placed after another band,
+     leaving top=band-rhythm / bottom=spacing value — a compact/spacious hero reads
+     bottom-heavy instead of centered (issue 434). Same [0,2,1] specificity as the
+     adjacent rule, placed after it so source order wins both edges. Values mirror the
+     mobile BASE rules (compact --space-lg, spacious --space-2xl), NOT the larger
+     desktop tier, so mobile spacing is unchanged except the top edge is restored. */
+  main > [data-pp-component][data-pp-spacing="compact"] {
+    padding-top: var(--space-lg);
+    padding-bottom: var(--space-lg);
+  }
+  main > [data-pp-component][data-pp-spacing="spacious"] {
+    padding-top: var(--space-2xl);
+    padding-bottom: var(--space-2xl);
+  }
+
   /* Own mobile padding, routed through the padding slots so a declared
      --*-padding-top/bottom takes effect at mobile too (issue 302). faq now routes
      through --faq-padding-top/bottom too (issue 304). Fallbacks route through the
