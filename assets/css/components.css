@@ -1189,7 +1189,14 @@
 }
 
 .pp-section--inverted a {
-  color: var(--section-accent, var(--color-accent));
+  /* On the dark band the light-surface accent fails WCAG AA (3.23:1), so links
+     fall back to the on-inverted accent role (issue 437). An explicit
+     --section-accent slot still wins. */
+  color: var(--section-accent, var(--color-accent-on-inverted));
+}
+
+.pp-section--inverted a:hover {
+  color: var(--section-accent-hover, var(--color-accent-on-inverted-hover));
 }
 
 /* Section with background image. The dark overlay below makes this a dark surface,
@@ -2127,6 +2134,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   color: var(--cta-body-color, var(--color-bg));
   opacity: 0.85;
 }
+/* No .cta--inverted a link remap (issue 437): cta__body is esc_html, so an inverted
+   cta renders no body-link `a` — the only anchor is the CTA button, whose color is
+   owned by the premium `main .btn` cascade, not a link-color role. Adding a link
+   remap here would be dead CSS and, per the #61 dark-surface-slot contract, would
+   force a speculative --cta-link-color slot for a link that cannot exist. */
 
 /* CTA with background image */
 /* Same dark-overlay surface as .section--has-bg-image — same theme text default
@@ -2447,7 +2459,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 .stats--inverted .stats__number {
-  color: var(--stats-number-color, var(--color-accent));
+  /* Accent-colored large text on the dark band: the light-surface accent is only
+     3.23:1 here (dim). Route the fallback through the on-inverted accent role so
+     the default clears the 3:1 large-text bar (8.33:1); an explicit
+     --stats-number-color slot still wins (issue 437). */
+  color: var(--stats-number-color, var(--color-accent-on-inverted));
 }
 
 .stats--inverted .stats__label {
@@ -2613,7 +2629,12 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 .embed--inverted a {
-  color: var(--color-accent);
+  /* Dark-band body link → on-inverted accent role for AA (issue 437). */
+  color: var(--color-accent-on-inverted);
+}
+
+.embed--inverted a:hover {
+  color: var(--color-accent-on-inverted-hover);
 }
 
 /* ==========================================================================
@@ -2840,6 +2861,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 .testimonials--inverted.testimonials--stack .testimonials__author {
   color: var(--testimonials-author-color, var(--color-bg));
 }
+/* No inverted testimonials link remap (issue 437): the quote is esc_html plain text
+   and testimonials declares no link/anchor prop in either layout, so no body-link
+   `a` is ever rendered — there is no dark-band link surface to bring to AA here. */
 
 /* ==========================================================================
    SHARED: Adjacent-Sibling Rhythm

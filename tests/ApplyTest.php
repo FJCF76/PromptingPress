@@ -711,8 +711,9 @@ class ApplyTest extends TestCase
         $this->assertTrue($result['ok']);
         $this->assertEquals('update_design_token', $result['apply']);
         $this->assertEquals('design', $result['domain']);
-        // 1 base change + 4 derived accent family tokens auto-updated
-        $this->assertCount(5, $result['changes']);
+        // 1 base change + 6 derived accent family tokens auto-updated (#437 added
+        // --color-accent-on-inverted + --color-accent-on-inverted-hover)
+        $this->assertCount(7, $result['changes']);
         $this->assertEquals('#3157f4', $result['changes'][0]['from']);
         $this->assertEquals('#b45309', $result['changes'][0]['to']);
 
@@ -723,6 +724,8 @@ class ApplyTest extends TestCase
         $this->assertArrayHasKey('--color-accent-strong', $overrides);
         $this->assertArrayHasKey('--color-border-accent', $overrides);
         $this->assertArrayHasKey('--color-surface-accent', $overrides);
+        $this->assertArrayHasKey('--color-accent-on-inverted', $overrides);
+        $this->assertArrayHasKey('--color-accent-on-inverted-hover', $overrides);
     }
 
     public function testAccentFamilyDerivation(): void
@@ -748,6 +751,37 @@ class ApplyTest extends TestCase
 
         // Surface-accent should be very light
         $this->assertGreaterThan(200, $surface[0], 'Surface-accent should be very light');
+    }
+
+    public function testOnInvertedAccentIsRegisteredDerivedColor(): void
+    {
+        // #437: the on-inverted accent roles must be REGISTERED derived colors so
+        // (a) a retheme's new accent auto-produces matching on-inverted tints, and
+        // (b) a pinned on-inverted override that diverges surfaces in the #386
+        // masked-derived / stale-warning machinery like every other derived token.
+
+        // Registered in the --color-accent family (the divergence-detection surface).
+        $family = pp_token_families()['--color-accent'];
+        $this->assertArrayHasKey('--color-accent-on-inverted', $family);
+        $this->assertArrayHasKey('--color-accent-on-inverted-hover', $family);
+
+        // Auto-derived as a lightened accent tint when the base changes (unpinned).
+        $derived = pp_derive_family_tokens('--color-accent', '#7a4f2e');
+        $this->assertArrayHasKey('--color-accent-on-inverted', $derived);
+        $this->assertArrayHasKey('--color-accent-on-inverted-hover', $derived);
+        // "Lightened toward white" — each channel brighter than the base accent.
+        $base = _pp_hex_to_rgb('#7a4f2e');
+        $onInv = _pp_hex_to_rgb($derived['--color-accent-on-inverted']);
+        $onInvHover = _pp_hex_to_rgb($derived['--color-accent-on-inverted-hover']);
+        $this->assertGreaterThan($base[0], $onInv[0], 'on-inverted is a light tint');
+        $this->assertGreaterThan($onInv[0], $onInvHover[0], 'hover is brighter still');
+
+        // Participates in divergence detection: a pinned on-inverted override that
+        // no longer matches what the new base derives is reported as masking (#386).
+        pp_set_token_override('--color-accent-on-inverted', '#123456');
+        $masking = pp_masked_derived_overrides('--color-accent', '#7a4f2e');
+        $this->assertContains('--color-accent-on-inverted', array_column($masking, 'token'),
+            'A divergent on-inverted override must surface in the #386 masking machinery');
     }
 
     public function testTextFamilyDerivation(): void
@@ -794,8 +828,9 @@ class ApplyTest extends TestCase
         // Changes should NOT include --color-accent-strong (it was skipped)
         $changed_tokens = array_column($result['changes'], 'token');
         $this->assertNotContains('--color-accent-strong', $changed_tokens);
-        // But should include the other 3 derived + 1 base = 4 changes
-        $this->assertCount(4, $result['changes']);
+        // But should include the other 5 derived + 1 base = 6 changes (#437 grew
+        // the accent family from 4 to 6 derived tokens)
+        $this->assertCount(6, $result['changes']);
     }
 
     public function testDivergentDerivedOverrideReturnsStaleWarnings(): void
@@ -1080,13 +1115,14 @@ class ApplyTest extends TestCase
 
     public function testResetAllDesignTokensClearsAll(): void
     {
-        // Setting --color-accent also auto-derives 4 family tokens (5 total + 1 for --color-bg = 6)
+        // Setting --color-accent also auto-derives 6 family tokens (#437 grew the
+        // accent family from 4 to 6): 7 total + 1 for --color-bg = 8
         pp_execute_apply('update_design_token', ['token' => '--color-accent', 'value' => '#b45309']);
         pp_execute_apply('update_design_token', ['token' => '--color-bg', 'value' => '#000000']);
 
         $result = pp_execute_apply('reset_all_design_tokens', []);
         $this->assertTrue($result['ok']);
-        $this->assertCount(6, $result['changes']);
+        $this->assertCount(8, $result['changes']);
         $this->assertSame([], pp_get_token_overrides());
     }
 

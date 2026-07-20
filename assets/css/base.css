@@ -25,6 +25,8 @@
   --color-accent-strong:    #2744b7;  /* color: Button gradient dark stop, strong accent borders */
   --color-border-accent:    #9dafee;  /* color: Accent-tinted borders for featured elements */
   --color-surface-accent:   #e8ecfe;  /* color: Accent-washed backgrounds, eyebrows */
+  --color-accent-on-inverted:       #9dafee;  /* color: Link/accent on the inverted (dark) band — light accent tint, 8.33:1 on --color-bg-inverted (--color-accent's 3.23:1 fails AA there) */
+  --color-accent-on-inverted-hover: #c1cdfc;  /* color: Hover state for on-inverted links — brighter tint, 11.4:1 on --color-bg-inverted */
 
   /* Spacing — the layout scale */
   --space-xs:  0.25rem;   /* length: 4px */

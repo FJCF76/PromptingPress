@@ -2386,3 +2386,68 @@ describe('CSS lint: no ID selectors in shipped stylesheets (#412)', () => {
             .toEqual(['#home-hero .btn']);
     });
 });
+
+describe('CSS lint: inverted dark-band links route through the on-inverted accent role (#437)', () => {
+    // The light-surface accent (--color-accent) measures only 3.23:1 on the dark
+    // inverted band and fails WCAG AA for body text. Every inverted variant whose
+    // links sit DIRECTLY on the dark band must remap `a` color to the
+    // --color-accent-on-inverted role (hover → --color-accent-on-inverted-hover).
+    //
+    // Deliberately NOT enumerated here:
+    //  - Light card/panel inverted variants (grid, faq, testimonials-grid) keep their
+    //    light `.grid__item`/`.faq__item`/`.testimonials__item` background, so links
+    //    there stay on --color-accent (already AA on a light card). Routing them
+    //    through the light on-inverted tint would drop them to ~2:1. The
+    //    rendered-contrast E2E covers those directly.
+    //  - cta and testimonials render NO body-link `a` at all: cta__body and the
+    //    testimonials quote are esc_html, and neither declares a link/anchor prop.
+    //    The only inverted-cta anchor is the CTA button, owned by the premium
+    //    `main .btn` cascade. There is no dark-band link surface to remap on either.
+    const css = stripComments(COMPONENTS_CSS);
+
+    // The dark-band inverted variants that actually render body-link markup
+    // (wp_kses_post body/content): the link color routes through the on-inverted role
+    // (hover → on-inverted-hover). Buttons (.btn) are never affected — the premium
+    // `main .btn` cascade out-orders these (0,1,1) rules.
+    const DARK_BAND_LINK_VARIANTS = [
+        '.pp-section--inverted a',
+        '.embed--inverted a',
+    ];
+
+    function ruleBody(selector) {
+        const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // `a\s*\{` so the color rule is matched, never the sibling `a:hover {`.
+        const m = css.match(new RegExp(esc + '\\s*\\{([^}]*)\\}'));
+        return m ? m[1] : null;
+    }
+
+    DARK_BAND_LINK_VARIANTS.forEach(selector => {
+        test(`${selector} remaps link color to --color-accent-on-inverted`, () => {
+            const body = ruleBody(selector);
+            expect(body).not.toBeNull();
+            expect(body).toMatch(/color:\s*var\([^;]*--color-accent-on-inverted\b/);
+            // Must NOT fall back to the bare light-surface accent as the default.
+            expect(body).not.toMatch(/var\(\s*--color-accent\s*[,)]/);
+        });
+
+        test(`${selector} defines a hover routed through --color-accent-on-inverted-hover`, () => {
+            const hoverBody = ruleBody(`${selector}:hover`);
+            expect(hoverBody).not.toBeNull();
+            expect(hoverBody).toMatch(/--color-accent-on-inverted-hover\b/);
+        });
+    });
+
+    test('inverted stats numbers route the fallback through --color-accent-on-inverted', () => {
+        const esc = '.stats--inverted .stats__number'.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const m = css.match(new RegExp(esc + '\\s*\\{([^}]*)\\}'));
+        expect(m).not.toBeNull();
+        // Slot still wins; the DEFAULT (fallback) is the on-inverted role, not the
+        // failing --color-accent.
+        expect(m[1]).toMatch(/var\(\s*--stats-number-color\s*,\s*var\([^;]*--color-accent-on-inverted\b/);
+    });
+
+    test('the on-inverted accent tokens are defined in base.css :root', () => {
+        expect(BASE_CSS).toMatch(/--color-accent-on-inverted:\s*#[0-9a-fA-F]{6}/);
+        expect(BASE_CSS).toMatch(/--color-accent-on-inverted-hover:\s*#[0-9a-fA-F]{6}/);
+    });
+});

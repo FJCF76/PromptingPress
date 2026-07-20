@@ -2052,6 +2052,14 @@ function pp_token_families(): array {
             '--color-accent-strong'  => ['mix' => 'black', 'ratio' => 0.30],
             '--color-border-accent'  => ['mix' => 'white', 'ratio' => 0.55],
             '--color-surface-accent' => ['mix' => 'white', 'ratio' => 0.88],
+            // On-inverted accent roles (#437): the light-surface accent fails AA on
+            // the dark inverted band (3.23:1), so links there route through a
+            // lightened accent tint instead. Derived by mixing accent toward white
+            // so a retheme's new accent auto-produces a matching on-inverted tint;
+            // registered here so a pinned override that DIVERGES surfaces in the
+            // #386 stale-warning / masked-derived machinery like any other derived.
+            '--color-accent-on-inverted'       => ['mix' => 'white', 'ratio' => 0.55],
+            '--color-accent-on-inverted-hover' => ['mix' => 'white', 'ratio' => 0.70],
         ],
         '--color-text' => [
             '--color-text-secondary' => ['mix' => 'white', 'ratio' => 0.20],
