@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.4.16] — 2026-07-20 — a `stats` band can now be a contained, rounded metrics card (#383)
+
+**The `stats` component rendered only as a full-width band. It exposed color, padding, and typography slots but no way to round its corners or cap its width, so the common marketing treatment of a contained, rounded metrics card (a rounded navy panel inset from the page edges) was inexpressible. Two new style slots fix that: `--stats-radius` rounds the band and `--stats-max-width` caps and centers it. Set both and the band becomes a card; leave them unset and the band renders exactly as before.**
+
+Both slots follow the namespaced `*-radius` pattern the hero, section, and cta bands already use, and both are length-typed and validated by the shared style engine. Their defaults are inert: `--stats-radius` defaults to `0` and `--stats-max-width` to `none`, and the centering `margin-inline: auto` collapses to zero at full width, so an unset `stats` band is byte-identical to the previous full-bleed render. To widen a capped band back out, set `--stats-max-width` to `100%`.
+
+### Added
+- `--stats-radius` (length, default `0`) and `--stats-max-width` (length, default `none`) style slots on the `stats` component, settable via `style_component` or a composition `style` block. Together they turn a full-width stats band into a contained, rounded metrics card: `--stats-max-width` caps the band and centers it with automatic side margins, and `--stats-radius` rounds its background. Unset, the band spans full width with square corners unchanged (#383).
+
+### Docs
+- `ai-instructions/style-component.md` documents the two new slots and how to combine them for a contained card (and that `--stats-max-width: 100%` is how to remove the cap, since the type has no `none` input). `AI_CONTEXT.md` and `README.md` now report 211 style slots (stats: 12) (#383).
+
+### Tests
+- `tests/e2e/style-render.spec.ts` adds rendered-proof coverage: `--stats-radius` reaches the band at 375px and 1280px, `--stats-max-width` caps and centers the band at 1280px with equal side gutters, an unset band computes `border-radius: 0px` / `max-width: none` at full width, and a 640px cap never overflows at 375px. `tests/js/css-lint.test.js` pins that both declarations route through their slots with the exact `0` / `none` fallbacks. The schema entries are auto-picked up by the keystone `StyleSlotContractTest` (#383).
+
 ## [v1.4.15] — 2026-07-20 — a `split` hero with no image no longer reserves an empty half-band (#440)
 
 **A `hero` with `layout: "split"` but no image and no `proof` used to keep the two-column split grid, squeezing the headline into the left half with dead whitespace across the rest of the band. That is a common authoring state — split chosen before media is imported, or an image prop dropped in an edit. Now that state degrades to the single-column `left` layout so the text uses the full content width and no empty column is reserved, and `wp pp check page` surfaces a `hero_split_no_media` advisory so the author knows to add media (or switch layouts). A `split` hero with an image, or with `proof` filling the second column, renders exactly as before.**
