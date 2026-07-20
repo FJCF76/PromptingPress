@@ -78,7 +78,9 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                 ?>
                     <figure class="testimonials__item">
                         <blockquote class="testimonials__quote">
-                            <p><?php echo esc_html($quote); ?></p>
+                            <?php // Inline-HTML supporting-text prop (#439): a/strong/em/br
+                                  // allowed and sanitized; block/script tags stripped. ?>
+                            <p><?php echo pp_kses_inline($quote); ?></p>
                         </blockquote>
                         <?php if ($author || $meta || $image_url) : ?>
                             <figcaption class="testimonials__attribution">

@@ -10,7 +10,7 @@ Call-to-action block. Place at the bottom of a page or between sections to drive
 | `title`       | string | Yes      | —              | CTA headline |
 | `title_accent`| string | No       | `''`           | Exact substring of `title` to render in an accent color |
 | `eyebrow`     | string | No       | `''`           | Short kicker/label rendered as a pill above the title |
-| `text`        | string | No       | `''`           | Supporting body text |
+| `text`        | string | No       | `''`           | Supporting body text. Inline HTML allowed: a, strong, em, br. |
 | `button_text` | string | Yes      | —              | Button label |
 | `button_url`  | string | Yes      | —              | Button URL |
 | `layout`     | enum   | No       | `'full-width'` | Structural layout: `full-width` / `inline` |

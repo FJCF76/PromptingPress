@@ -277,6 +277,71 @@ if (!function_exists('wp_kses_post')) {
     }
 }
 
+/**
+ * Behavioral wp_kses() stub for the allowlist-sanitization tests (#439).
+ *
+ * The real wp_kses is WordPress core and is the PRODUCTION security boundary; the
+ * authoritative protocol/XSS proof for pp_kses_inline lives in the E2E suite that
+ * renders on a real WordPress. This stub exists so the PHPUnit render tests can
+ * exercise the allowlist SHAPE without WordPress: it honors the ($content,
+ * $allowed_html) tag/attr map — allowed tags survive (keeping only allowed attrs),
+ * every other tag is stripped (delimiters removed, inner text kept, matching core),
+ * and href/src values on dangerous protocols (javascript:/vbscript:/data:) are
+ * dropped. It deliberately does NOT normalize entities, so genuinely plain text
+ * round-trips byte-identically for the "plain text unchanged" assertions. It is a
+ * test aid, not a reimplementation of core's sanitizer.
+ */
+if (!function_exists('wp_kses')) {
+    function wp_kses(string $content, $allowed_html, $allowed_protocols = []): string {
+        if (!is_array($allowed_html)) {
+            return '';
+        }
+        $allowed = [];
+        foreach ($allowed_html as $tag => $attrs) {
+            $allowed[strtolower($tag)] = is_array($attrs) ? array_change_key_case($attrs, CASE_LOWER) : [];
+        }
+        return preg_replace_callback(
+            '/<(\/?)([a-zA-Z0-9]+)((?:[^>"\']|"[^"]*"|\'[^\']*\')*)\/?>/',
+            static function (array $m) use ($allowed): string {
+                $isClose = $m[1] === '/';
+                $tag     = strtolower($m[2]);
+                if (!array_key_exists($tag, $allowed)) {
+                    return ''; // disallowed tag: strip delimiters, keep surrounding text
+                }
+                if ($isClose) {
+                    return '</' . $tag . '>';
+                }
+                if ($tag === 'br') {
+                    return '<br />';
+                }
+                $out = '<' . $tag;
+                if (preg_match_all(
+                    '/([a-zA-Z0-9\-:]+)(?:\s*=\s*"([^"]*)"|\s*=\s*\'([^\']*)\')?/',
+                    $m[3],
+                    $attrMatches,
+                    PREG_SET_ORDER
+                )) {
+                    foreach ($attrMatches as $a) {
+                        $name = strtolower($a[1] ?? '');
+                        if ($name === '' || empty($allowed[$tag][$name])) {
+                            continue; // attr not on the allowlist for this tag
+                        }
+                        $hasVal = array_key_exists(2, $a) || array_key_exists(3, $a);
+                        $val    = $a[2] ?? $a[3] ?? '';
+                        if (in_array($name, ['href', 'src'], true) && $hasVal
+                            && preg_match('/^\s*(javascript|vbscript|data)\s*:/i', $val)) {
+                            continue; // drop dangerous-protocol URL (attr removed entirely)
+                        }
+                        $out .= $hasVal ? ' ' . $name . '="' . $val . '"' : ' ' . $name;
+                    }
+                }
+                return $out . '>';
+            },
+            $content
+        ) ?? '';
+    }
+}
+
 if (!function_exists('wp_strip_all_tags')) {
     function wp_strip_all_tags(string $text): string {
         return strip_tags($text);

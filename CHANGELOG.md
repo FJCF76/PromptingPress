@@ -4,6 +4,26 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.4.14] — 2026-07-20 — supporting text can carry a link, and every text prop now states whether it accepts HTML (#439)
+
+**Text props had an inconsistent, undocumented markup contract. `section.body` and `faq.answer` accepted HTML, but `cta.text`, `grid.items[].text`, and `testimonials.items[].quote` escaped it — so a link written into a CTA body or a card rendered as visible `<a href=...>` source on the page, while the same content in a section body worked. Nothing in the schemas said which prop did which. Now there is one predictable rule: those three supporting-text props accept a bounded inline HTML subset (`a`, `strong`, `em`, `br`), short label-class props (titles, eyebrows, button text, stat labels) stay plain text, and every text prop's schema description states its contract in plain words.**
+
+A link or light emphasis in supporting copy is normal marketing content, so those props now sanitize it through a shared allowlist (`pp_kses_inline`) instead of escaping it. The allowlist is deny-by-default: block elements (`<p>`, `<ul>`, `<h2>`), `<script>`, event handlers, and `javascript:` URLs are always stripped, whoever authored the content. Because an inverted CTA or a stacked testimonial can now carry a real link on the dark band, those links are colored for WCAG AA contrast at the same time (matching the dark-band link treatment shipped in #437).
+
+**Behavior change:** on existing pages, a `cta.text` / `grid.items[].text` / `testimonials.items[].quote` value that already contains raw markup (e.g. an `<a>` tag) now renders that markup instead of showing it as escaped source. This is the intended fix. Content that was previously written as escaped entities (`&lt;a&gt;`) stays literal text — it is not reactivated.
+
+### Changed
+- `cta.text`, `grid.items[].text`, and `testimonials.items[].quote` now accept an inline HTML subset (`a`, `strong`, `em`, `br`) via the shared `pp_kses_inline()` helper, sanitized with an explicit allowlist. A link in supporting copy renders as a working anchor instead of escaped source. All other text props (titles, eyebrows, button text, `stats.items[].label`, and every URL) stay plain-text escaped, unchanged (#439).
+
+### Fixed
+- An inverted (dark-band) CTA body link and an inverted stacked-testimonial quote link now meet WCAG AA contrast: they route through the on-inverted accent role instead of the light-surface accent that measures only 3.23:1 on the dark band. Links inside light cards (grid cards, the testimonials grid layout) keep the standard accent, which is already AA on the light card (#439).
+
+### Docs
+- `ai-instructions/composition.md` now documents the text content model once: a table of which props are Rich HTML, Inline HTML, or Plain text. Every affected schema `description` (across `cta`, `grid`, `testimonials`, `stats`, `section`, `faq`) states its markup contract explicitly. `ai-instructions/add-component.md` and `docs/AI_IMPLEMENTATION_RECIPES.md` list `pp_kses_inline` alongside `esc_html` / `wp_kses_post` (#439).
+
+### Tests
+- New PHPUnit coverage (`tests/TextPropMarkupContractTest.php`) pins the contract per prop: allowlisted tags survive, `<script>`/block tags are stripped, plain text is unchanged, non-string input coerces safely, pre-escaped content stays literal, and plain-text props still escape byte-identically — including the case that would have caught this bug, a link in `cta.text` that must not render as escaped source. A doc-contract test enumerates every text prop and fails if a description drops its markup statement. `tests/e2e/style-render.spec.ts` proves a seeded CTA link renders as a clickable anchor with no literal `<a` in the band text, and extends the dark-band contrast suite to the CTA and stacked-testimonial link surfaces (>= 4.5:1 at 375 and 1280 px). `tests/js/css-lint.test.js` pins the two new dark-band link remaps (#439).
+
 ## [v1.4.13] — 2026-07-20 — the surface-tint band theme is now named `muted`, and the name matches what it renders (#442)
 
 **The band `theme` value that paints a light surface-tinted band was named `dark` — a misnomer, because it renders a near-white `--color-surface` band, not a dark one. Anyone (or any AI) who asked for a "dark band" and reached for the obvious value got a pale tint; the genuinely dark band is `inverted`. On top of that, the eight band components disagreed with each other about what the value meant, so the answer depended on which schema was read last. The value is renamed to `muted` across all eight components with one identical description, and `inverted` is documented as the dark band. Pages authored before this release keep rendering exactly as they did: the old `dark` value is still accepted and renders byte-identically as a deprecated alias of `muted`.**

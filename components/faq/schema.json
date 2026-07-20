@@ -38,8 +38,8 @@
       "required": true,
       "description": "Array of FAQ items. Each item: { question: string, answer: string (HTML allowed) }.",
       "items": {
-        "question": { "type": "string", "required": true },
-        "answer":   { "type": "string", "required": true }
+        "question": { "type": "string", "required": true, "description": "The question text shown in the accordion summary. Plain text — HTML is escaped." },
+        "answer":   { "type": "string", "required": true, "description": "The answer body. Rich HTML (sanitized via wp_kses_post): block-level markup, lists, and links are allowed." }
       }
     }
   },

@@ -92,6 +92,65 @@ function pp_footer_linkify_contact(string $contact): string {
 }
 
 /**
+ * Sanitizes a supporting-text prop to a BOUNDED INLINE-HTML subset (#439).
+ *
+ * The theme's text-content props fall into three contracts, and this helper owns
+ * the middle one:
+ *   - Rich HTML   — section.body / faq.answer, sanitized by wp_kses_post (block
+ *                   elements, lists, headings: the section's main prose surface).
+ *   - Inline HTML — supporting-text props (cta.text, grid.items[].text,
+ *                   testimonials.items[].quote): a link + light emphasis is normal
+ *                   marketing copy, but a block element is not. THIS helper.
+ *   - Plain text  — short label-class props (stats.items[].label, titles,
+ *                   eyebrows, button texts) and every URL: esc_html, no markup.
+ *
+ * Contract for the inline subset — the ONLY tags/attrs allowed:
+ *   a (href, title) · strong · em · br
+ * Everything else (script, style, iframe, on* handlers, class/style attrs, block
+ * elements like p/div/ul/h2) is STRIPPED by wp_kses. There is no unescaped output
+ * path: the return value is always allowlist-sanitized HTML, safe to echo raw.
+ *
+ * SECURITY (LLM-authored content flows through here):
+ *   - Fail-safe allowlist via wp_kses with an EXPLICIT tag/attr map — a deny-by-
+ *     default posture, not a blocklist. A tag we forgot to list is stripped, not
+ *     passed. `a` carries href+title only; rel/target are intentionally omitted so
+ *     links stay same-tab (adding target later would REQUIRE rel="noopener").
+ *   - href protocol safety is inherited from wp_kses, which runs every URL attr
+ *     through wp_allowed_protocols() (http, https, mailto, tel, relative, anchors)
+ *     and drops javascript:/vbscript:/data: and their obfuscated variants.
+ *   - Non-string input (null / number / array from a malformed JSON payload)
+ *     coerces to '' rather than tripping a type error — matches pp_theme_class's
+ *     defensive coercion.
+ *
+ * NOTE ON "plain text unchanged": markup-free copy round-trips unchanged, but
+ * wp_kses normalizes entities exactly as WordPress does elsewhere (a bare `&`
+ * becomes `&amp;`). That is correct HTML output, not a defect; the plain-text
+ * CONTRACT (escape-and-say-so) is reserved for the label-class props that keep
+ * esc_html.
+ *
+ * @param mixed $content  Raw prop value (any type; coerced defensively).
+ * @return string  Allowlist-sanitized inline HTML, safe to echo without escaping.
+ */
+function pp_kses_inline($content): string {
+    if (!is_string($content) || $content === '') {
+        return '';
+    }
+    // Explicit, deny-by-default allowlist. Only these tags survive; on the `a`
+    // tag only href/title survive. wp_kses strips everything else, including the
+    // contents-bearing danger tags (script/style) and all block elements.
+    $allowed = [
+        'a'      => [
+            'href'  => true,
+            'title' => true,
+        ],
+        'strong' => [],
+        'em'     => [],
+        'br'     => [],
+    ];
+    return wp_kses($content, $allowed);
+}
+
+/**
  * Builds the tonal `theme` modifier class for a band-level component (#442).
  *
  * The public `theme` enum is `default | muted | inverted`:

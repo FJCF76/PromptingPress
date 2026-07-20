@@ -1974,19 +1974,27 @@ class ComponentPropsTest extends TestCase
         $this->assertStringContainsString('alt="A photo"', $html);
     }
 
-    public function testTestimonialsEscapesQuoteAndAttribution(): void
+    public function testTestimonialsQuoteSanitizesInlineAndAttributionEscapes(): void
     {
+        // #439: the quote is now an inline-HTML surface (a/strong/em/br) — dangerous
+        // tags are STRIPPED (not rendered, not shown as escaped source) and the
+        // allowlisted subset survives. Attribution (author/role/company) stays
+        // plain-text esc_html.
         $html = $this->render('testimonials', $this->testimonialsProps([
             'items' => [[
-                'quote' => '<script>alert(1)</script>',
+                'quote' => 'Danger <script>alert(1)</script> but <em>ok</em>',
                 'author' => '<img src=x onerror=alert(1)>',
                 'role' => '<b>bold</b>',
             ]],
         ]));
-        $this->assertStringNotContainsString('<script>alert(1)</script>', $html);
+        // Quote: script stripped, allowlisted emphasis survives, no active markup.
+        $this->assertStringNotContainsString('<script', $html);
+        $this->assertStringContainsString('<em>ok</em>', $html);
+        // Attribution: still escaped to literal source, never active markup.
         $this->assertStringNotContainsString('<img src=x onerror=alert(1)>', $html);
+        $this->assertStringContainsString('&lt;img src=x onerror=alert(1)&gt;', $html);
         $this->assertStringNotContainsString('<b>bold</b>', $html);
-        $this->assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $html);
+        $this->assertStringContainsString('&lt;b&gt;bold&lt;/b&gt;', $html);
     }
 
     public function testTestimonialsEmptyStateRendersWhenNoItems(): void

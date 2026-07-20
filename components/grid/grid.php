@@ -173,7 +173,10 @@ $style_attr = $grid_style_parts ? ' style="' . implode('; ', $grid_style_parts) 
                             <?php endif; ?>
 
                             <?php if ($item_text) : ?>
-                                <p class="grid__item-text<?php echo esc_attr($text_role_class); ?>"><?php echo esc_html($item_text); ?></p>
+                                <?php // Inline-HTML supporting-text prop (#439): a/strong/em/br
+                                      // allowed and sanitized; block/script tags stripped. The
+                                      // link sits inside the LIGHT card, so it keeps --color-accent. ?>
+                                <p class="grid__item-text<?php echo esc_attr($text_role_class); ?>"><?php echo pp_kses_inline($item_text); ?></p>
                             <?php endif; ?>
 
                             <?php if (!empty($bullets)) : ?>

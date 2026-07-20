@@ -42,7 +42,7 @@
     "body": {
       "type": "string",
       "required": true,
-      "description": "HTML body content. Passed through wp_kses_post()."
+      "description": "The section's main prose surface. Rich HTML (sanitized via wp_kses_post): block-level markup, lists, headings, and links are allowed."
     },
     "image_url": {
       "type": "string",
