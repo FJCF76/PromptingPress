@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.4.11] — 2026-07-20 — links on inverted (dark) bands now meet WCAG AA by default (#437)
+
+**The default accent color is tuned for light surfaces, where it clears the WCAG AA contrast bar. On the dark "inverted" band it did not: a link in an inverted section or embed rendered at about 3.2:1 against the dark background, below the 4.5:1 minimum for body text, and inverted stats numbers looked dim for the same reason. The theme now carries a surface-paired accent — a lighter accent tint used only on inverted bands, where it measures about 8.3:1. Links in inverted sections and embeds, and inverted stats numbers, pick it up automatically. Links that sit on the light cards inside an inverted band (grid cards, FAQ panels) keep the normal accent, which is already AA on those light surfaces, so nothing there changes.**
+
+The new color is a derived token, `--color-accent-on-inverted` (plus a brighter `--color-accent-on-inverted-hover`), computed from `--color-accent` the same way the other accent-family tints are. Change your accent and the on-inverted tint re-derives with it; pin it to a custom value and, like every other derived token, you get a divergence warning if a later accent change would no longer reach it. Existing per-band color slots still win when set, and default light-band output is byte-identical.
+
+### Fixed
+- Body links inside inverted `section` and `embed` bands, and the accent-colored numbers in an inverted `stats` band, now route through a light on-inverted accent tint that meets WCAG AA against the dark band background (4.5:1 for text, well above the 3:1 large-text bar for the stats numbers) instead of the light-surface accent that measured only 3.23:1 there. Links on the light cards of an inverted grid, FAQ, or testimonials band are unchanged — the accent is already AA on those light surfaces (#437).
+
+### Added
+- `--color-accent-on-inverted` and `--color-accent-on-inverted-hover` design tokens: a surface-paired accent for the dark inverted band, auto-derived from `--color-accent` and participating in the derived-token divergence warnings. Retheme contract: if you change `--color-accent` or `--color-bg-inverted`, keep `--color-accent-on-inverted` at ≥ 4.5:1 on the inverted background (#437).
+
+### Docs
+- `ai-instructions/retheme.md` documents the surface-paired accent and its ≥ 4.5:1 pairing contract; the auto-derived accent-family count (four → six) is updated in `retheme.md` and `AI_CONTEXT.md` (#437).
+
+### Tests
+- `tests/e2e/style-render.spec.ts` seeds a body link in every inverted band that renders one and asserts the computed WCAG contrast against the link's real rendered background at 375px and 1280px: dark-band links (section, embed) clear 4.5:1, inverted stats numbers clear 3:1, and light-card links (grid, FAQ) stay on the accent and remain AA. `tests/js/css-lint.test.js` pins that each dark-band inverted variant routes its link color through the on-inverted role, and `tests/ApplyTest.php` proves the two new tokens are registered derived colors that auto-derive from `--color-accent` and surface in the masked-derived-override machinery (#437).
+
 ## [v1.4.10] — 2026-07-20 — a band placed right after an FAQ picks up the normal between-band spacing again (#432)
 
 **Every band-level component that follows another band gets a tighter, tuned top edge so stacked sections read as evenly spaced blocks. One placement quietly missed out: a band placed immediately after an FAQ. The FAQ component emits an invisible FAQPage structured-data `<script>` tag for search engines, and it was being written just after the FAQ section rather than inside it. That stray tag sat between the FAQ and the next band, and the between-band spacing rule only reaches a band whose immediate previous neighbor is another band — so the band after an FAQ fell back to its own larger top padding. The script now lives inside the FAQ section, so the FAQ is once again the next band's immediate neighbor and the spacing rule applies. Search-engine output is unchanged: the same FAQ rich-result markup is still emitted, just one line earlier in the document, which Google reads identically.**
