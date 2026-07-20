@@ -515,6 +515,34 @@ function pp_validate_composition_smells(array $composition): array {
             ];
         }
 
+        // Hero split without media (#440). A split hero with no second-column
+        // ingredient (no image and no proof) has nothing to put opposite the
+        // text, so the renderer degrades it to the single-column "left" layout
+        // (components/hero/hero.php). That is safe, not broken — but the split
+        // layout was almost certainly chosen with media in mind, so surface an
+        // advisory. Deliberately a warning, never a hard error: the media may be
+        // imported in a following step (image_url/image_id or proof can arrive
+        // next). image_id counts as media even without image_url because the
+        // renderer resolves the attachment.
+        // Predicate mirrors the renderer's degradation test in hero.php: no image
+        // (empty url, matching the renderer's truthy gate) AND no resolvable image_id
+        // ((int) cast, matching hero.php:24 so a non-numeric id is "no media" in both
+        // places) AND no proof. Kept in lock-step so the warning fires exactly when
+        // the renderer degrades.
+        if (
+            $component === 'hero'
+            && $hero_layout === 'split'
+            && empty($image_url)
+            && (int) ($props['image_id'] ?? 0) <= 0
+            && trim((string) ($props['proof'] ?? '')) === ''
+        ) {
+            $warnings[] = [
+                'type' => 'hero_split_no_media',
+                'message' => 'Hero layout "split" has no image or proof content, so it has no second column and renders as a single-column layout. Add image_url/image_id or proof to use the split, or set layout to "centered" or "left".',
+                'index' => $i,
+            ];
+        }
+
         // Track consecutive text-only sections (no image, no visual anchor)
         $layout = $props['layout'] ?? 'text-only';
         if ($component === 'section' && in_array($layout, ['text-only', 'centered'], true) && empty($image_url) && empty($props['background_image'] ?? '')) {

@@ -557,6 +557,57 @@ test.describe('Safe-surface rendered proof', () => {
     expect(borderWidth).toBe('7px');
   });
 
+  // #440: a `split` hero with no image and no proof has nothing for the second
+  // column. The bug reserved an empty right half-band by keeping the two-column
+  // split grid; the fix degrades the hero to the single-column `left` layout so
+  // no empty column is reserved and the text is not squeezed into the left half.
+  //
+  // This is the computed-geometry test that would have caught the bug. The visible
+  // defect is the reserved second column, which at >=1024px shows up as a real
+  // second track in `.hero__inner`'s `grid-template-columns`. A raw content-width
+  // ratio is NOT a clean signal here: the theme caps `.hero__content` at a 56rem
+  // readability measure and, in `left`, sizes it to its content (align-items:
+  // flex-start), so the degraded content is intentionally narrower than the band.
+  // The unambiguous geometry is the track count: two tracks = reserved empty
+  // column (bug), <=1 track = single-column (fixed).
+  test('#440 image-less split hero reserves no empty second column (degrades to single column)', async ({ page }) => {
+    pageId = createPage('E2E Hero Split No Media');
+    setComposition(pageId, [
+      {
+        component: 'hero',
+        props: {
+          id: 'pp-hero01',
+          layout: 'split',
+          title: 'A deliberately long hero headline that would be squeezed in a half-band column',
+          subtitle: 'Split was chosen before media was imported.',
+        },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const hero = page.locator('.hero');
+    await expect(hero).toBeVisible({ timeout: 10000 });
+    // Degraded to the single-column layout: the split class must be gone.
+    await expect(hero).toHaveClass(/hero--left/);
+
+    const geom = await page.evaluate(() => {
+      const inner = document.querySelector('.hero__inner') as HTMLElement;
+      const cs = getComputedStyle(inner);
+      const cols = cs.gridTemplateColumns; // e.g. "none" or "570px 480px"
+      return {
+        display: cs.display,
+        gridTemplateColumns: cols,
+        trackCount: cols === 'none' ? 0 : cols.trim().split(/\s+/).length,
+      };
+    });
+
+    // No reserved second column: at 1280w the broken split renders `.hero__inner`
+    // as a two-track grid; the degraded single-column layout has at most one track.
+    expect(geom.trackCount).toBeLessThanOrEqual(1);
+  });
+
   // #225: the eyebrow is a pill, not a band. Each layout is its own test so a failure
   // names the layout that regressed. `left`/`split` flush the pill to the content's
   // leading edge; `centered`/`cover` center it, matching how those layouts already

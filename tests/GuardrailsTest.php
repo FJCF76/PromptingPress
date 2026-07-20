@@ -645,6 +645,58 @@ class GuardrailsTest extends TestCase
         $this->assertSame([], pp_validate_composition_smells($composition));
     }
 
+    // ── Hero split without media (#440) ───────────────────────────────────
+
+    public function testSmellsHeroSplitNoMediaTriggersWarning(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['layout' => 'split', 'title' => 'Test']],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+
+        $this->assertCount(1, $warnings);
+        $this->assertEquals('hero_split_no_media', $warnings[0]['type']);
+        $this->assertEquals(0, $warnings[0]['index']);
+    }
+
+    public function testSmellsHeroSplitWithImageUrlDoesNotTrigger(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['layout' => 'split', 'image_url' => '/img/test.jpg']],
+        ];
+        $this->assertSame([], pp_validate_composition_smells($composition));
+    }
+
+    public function testSmellsHeroSplitWithImageIdDoesNotTrigger(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['layout' => 'split', 'image_id' => 42]],
+        ];
+        $this->assertSame([], pp_validate_composition_smells($composition));
+    }
+
+    public function testSmellsHeroSplitWithProofDoesNotTrigger(): void
+    {
+        $composition = [
+            ['component' => 'hero', 'props' => ['layout' => 'split', 'proof' => '<p>Trusted by 500+</p>']],
+        ];
+        $this->assertSame([], pp_validate_composition_smells($composition));
+    }
+
+    public function testSmellsHeroSplitNonNumericImageIdTriggersWarning(): void
+    {
+        // A non-numeric image_id is not a resolvable attachment. The renderer
+        // ((int) cast) treats it as no media and degrades, so the validator's
+        // predicate must agree and warn — not stay silent on empty()-truthiness.
+        $composition = [
+            ['component' => 'hero', 'props' => ['layout' => 'split', 'image_id' => 'abc']],
+        ];
+        $warnings = pp_validate_composition_smells($composition);
+
+        $this->assertCount(1, $warnings);
+        $this->assertEquals('hero_split_no_media', $warnings[0]['type']);
+    }
+
     public function testSmellsMixedWarnings(): void
     {
         $composition = [

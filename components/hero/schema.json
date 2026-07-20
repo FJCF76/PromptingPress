@@ -74,7 +74,7 @@
       "values": ["left", "centered", "split", "cover"],
       "required": false,
       "default": "centered",
-      "description": "Structural layout. 'centered' centers all content. 'left' aligns content left. 'split' places text left and image right at lg+. 'cover' uses image_url as a full-width background image with dark overlay and white text. (Color/tone is controlled by style slots, not this prop.)"
+      "description": "Structural layout. 'centered' centers all content. 'left' aligns content left. 'split' places text left and image right at lg+; if a 'split' hero has neither an image (image_url/image_id) nor proof, there is nothing for the second column, so it degrades to the single-column 'left' layout (text at full content width) — add an image or proof to get the two-column split. 'cover' uses image_url as a full-width background image with dark overlay and white text. (Color/tone is controlled by style slots, not this prop.)"
     },
     "image_url": {
       "type": "string",

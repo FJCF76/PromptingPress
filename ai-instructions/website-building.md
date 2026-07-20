@@ -85,5 +85,5 @@ At 1280px+ viewport width, verify:
 
 Hero's `width` and `spacing` props are structural knobs, not fixes for a page that feels cramped, memo-like, or visually weak (issue 51). Reaching for `width: narrow` or `spacing: compact` repeatedly across a page is a symptom, not a solution — it produces a composition that is structurally valid but visually worse. If a page feels wrong:
 - Prefer a `hero`/`section` `layout` or `theme` change, an image, or a different component (grid, stats) to break up rhythm — not a narrower/tighter version of the same layout.
-- A `hero` with `layout: left` needs a balancing image; without one, use `centered` or `split`.
+- A `hero` with `layout: left` needs a balancing image; without one, use `centered`, or `split` **with** an image or `proof` (a `split` with no image and no proof has no second column and degrades back to the single-column `left` layout, so it does not fix the imbalance on its own).
 - Three or more consecutive components with `width: narrow`, or three or more with `spacing: compact`, will surface as a `consecutive_narrow_width`/`consecutive_compact_spacing` composition smell in `wp pp check page` — treat that as a signal to change the component or its content, not to suppress the warning by varying the count.
