@@ -1706,6 +1706,87 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
             expect(d).toMatch(new RegExp('var\\(\\s*' + slot + '\\s*,\\s*var\\(\\s*--pp-band-padding-adjacent-top\\s*\\)'));
         });
     });
+
+    // An explicit data-pp-spacing override (hero only) must win BOTH edges at EVERY
+    // breakpoint (#434). The desktop restatement `main > [data-pp-component]
+    // [data-pp-spacing="…"]` [0,2,1] out-orders the desktop adjacent rule; before #434
+    // the mobile @media block had no such restatement, so the generic mobile adjacent
+    // rule [0,2,1] shaved a spaced hero's top edge alone (top=band rhythm / bottom=
+    // spacing value) when the hero followed another band. The fix mirrors the desktop
+    // restatement into the mobile block.
+    //
+    // This pin is breakpoint- AND source-order-aware, not just "a rule with this selector
+    // exists somewhere" (which two duplicated DESKTOP bodies would satisfy). It asserts,
+    // per breakpoint media block: (1) the restatement lives INSIDE that block, (2) at
+    // mobile it appears AFTER the generic adjacent rule so source order wins both edges,
+    // (3) both edges resolve to the SAME token (symmetry), and (4) the token is the tier
+    // intended for that breakpoint. Tier is asserted by token NAME, not px value, so a
+    // retune of the --space-* scale in base.css doesn't churn this pin — only a deliberate
+    // mis-mapping (e.g. mobile spacious regressing to the desktop --space-3xl tier) fails.
+    function mediaBlocks(css, queryRe) {
+        const stripped = stripComments(css);
+        const opener = new RegExp('@media\\s*\\(' + queryRe + '\\)\\s*\\{', 'g');
+        const blocks = [];
+        let m;
+        while ((m = opener.exec(stripped)) !== null) {
+            let depth = 1;
+            let i = opener.lastIndex;
+            while (i < stripped.length && depth > 0) {
+                if (stripped[i] === '{') depth++;
+                else if (stripped[i] === '}') depth--;
+                i++;
+            }
+            blocks.push(stripped.slice(opener.lastIndex, i - 1));
+        }
+        return blocks;
+    }
+    // Returns the body of the restatement rule for `spacing` inside `block`, or null.
+    function spacingRuleBody(block, spacing) {
+        const re = new RegExp(
+            '(?:^|[}{;])\\s*main\\s*>\\s*\\[data-pp-component\\]\\[data-pp-spacing="' +
+            spacing + '"\\]\\s*\\{([^}]*)\\}'
+        );
+        const m = re.exec(block);
+        return m ? m[1] : null;
+    }
+    function assertSymmetricTier(body, selectorLabel, expectedToken) {
+        expect(body, `${selectorLabel} restatement missing`).not.toBeNull();
+        const top = body.match(/padding-top\s*:\s*var\(\s*(--space-[a-z0-9]+)\s*\)/);
+        const bot = body.match(/padding-bottom\s*:\s*var\(\s*(--space-[a-z0-9]+)\s*\)/);
+        expect(top, `${selectorLabel} must set padding-top to a --space-* token`).not.toBeNull();
+        expect(bot, `${selectorLabel} must set padding-bottom to a --space-* token`).not.toBeNull();
+        // Symmetry: both edges resolve to the same scale step (never shaved).
+        expect(top[1], `${selectorLabel} not symmetric: top=${top[1]} bottom=${bot[1]}`).toBe(bot[1]);
+        // Tier: the token intended for this breakpoint.
+        expect(top[1], `${selectorLabel} on wrong tier`).toBe(expectedToken);
+    }
+
+    test('#434 mobile block restates data-pp-spacing AFTER the adjacent rule, both edges, correct tier', () => {
+        // The one max-width:767px block that carries the restatement.
+        const mobile = mediaBlocks(COMPONENTS_CSS, 'max-width:\\s*767px').find(b => spacingRuleBody(b, 'compact') !== null);
+        expect(mobile, 'expected a max-width:767px block containing the spacing restatement').toBeTruthy();
+        // Source order: the generic adjacent rule must precede BOTH restatements so the
+        // equal-specificity [0,2,1] restatements win padding-top on a spaced adjacent hero.
+        const adjIdx = mobile.indexOf('[data-pp-component] + [data-pp-component]');
+        const compactIdx = mobile.search(/main\s*>\s*\[data-pp-component\]\[data-pp-spacing="compact"\]/);
+        const spaciousIdx = mobile.search(/main\s*>\s*\[data-pp-component\]\[data-pp-spacing="spacious"\]/);
+        expect(adjIdx, 'mobile generic adjacent rule missing').toBeGreaterThanOrEqual(0);
+        expect(compactIdx, 'mobile compact restatement must follow the adjacent rule').toBeGreaterThan(adjIdx);
+        expect(spaciousIdx, 'mobile spacious restatement must follow the adjacent rule').toBeGreaterThan(adjIdx);
+        // Mobile tier: compact=--space-lg, spacious=--space-2xl (NOT the desktop --space-3xl).
+        assertSymmetricTier(spacingRuleBody(mobile, 'compact'), 'mobile compact', '--space-lg');
+        assertSymmetricTier(spacingRuleBody(mobile, 'spacious'), 'mobile spacious', '--space-2xl');
+    });
+
+    test('#434 desktop restatement still present, both edges, correct tier', () => {
+        // The min-width:768px block that carries the restatement (unchanged by #434, pinned
+        // so a mobile-focused edit can't silently drop the desktop side it mirrors).
+        const desktop = mediaBlocks(COMPONENTS_CSS, 'min-width:\\s*768px').find(b => spacingRuleBody(b, 'compact') !== null);
+        expect(desktop, 'expected a min-width:768px block containing the spacing restatement').toBeTruthy();
+        // Desktop tier: compact=--space-lg, spacious=--space-3xl (the larger open-air tier).
+        assertSymmetricTier(spacingRuleBody(desktop, 'compact'), 'desktop compact', '--space-lg');
+        assertSymmetricTier(spacingRuleBody(desktop, 'spacious'), 'desktop spacious', '--space-3xl');
+    });
 });
 
 /**

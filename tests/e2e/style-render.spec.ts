@@ -3323,9 +3323,9 @@ test.describe('Shared section-band rhythm (#431)', () => {
   // --space-3xl desktop). Only hero.php emits data-pp-spacing, and a hero normally
   // leads the page, so each spacing variant is seeded as the SOLE component (own
   // position) — that isolates the data-pp-spacing rule from the generic
-  // adjacent-sibling band rhythm. (A data-pp-spacing hero placed AFTER another band
-  // hits a pre-existing mobile-only interaction where the adjacent rule shaves the
-  // top; that narrow corner is unchanged by issue 430 and out of its scope.)
+  // adjacent-sibling band rhythm. (The AFTER-another-band corner — where the mobile
+  // adjacent rule used to shave only the top edge — is issue 434's fix and is proven
+  // by the adjacent-position test immediately below.)
   test('#430 data-pp-spacing compact/spacious stay symmetric at 1280 and 375', async ({
     page,
   }) => {
@@ -3348,6 +3348,58 @@ test.describe('Shared section-band rhythm (#431)', () => {
         });
         expect(top && top !== '0px', `${spacing} top vacuous @${width}: ${top}`).toBe(true);
         expect(top, `${spacing} not symmetric @${width}: top=${top} bottom=${bottom}`).toBe(bottom);
+      }
+    }
+  });
+
+  // Issue 434: the narrow corner the test above isolates AWAY. A data-pp-spacing hero
+  // placed AFTER another band used to be shaved on mobile only: the generic mobile
+  // adjacent rule `main > [data-pp-component] + [data-pp-component]` [0,2,1] out-ordered
+  // the base [data-pp-spacing] rules [0,2,0] and won padding-top alone, so a spacious
+  // hero measured top=53.6px (band rhythm) / bottom=112px (--space-2xl) — bottom-heavy,
+  // not centered. Desktop was already correct (its min-width:768px restatement out-orders
+  // the desktop adjacent rule). The fix adds the mirror-image mobile restatement so an
+  // explicit spacing override wins BOTH edges at every breakpoint.
+  //
+  // A leading section puts the spaced hero in the adjacent (second) position — the exact
+  // shape the sole-component test above cannot reach. Assertions are EXACT expected values
+  // per breakpoint, not just top===bottom: a "both edges wrong" regression (e.g. both
+  // collapsing to the band rhythm) would satisfy symmetry alone, so symmetry is necessary
+  // but not sufficient. compact = --space-lg (32px) at both breakpoints; spacious =
+  // --space-2xl (112px) mobile / --space-3xl (160px) desktop.
+  const SPACING_ADJ_EXPECTED: Record<string, Record<number, string>> = {
+    compact: { 375: '32px', 1280: '32px' },
+    spacious: { 375: '112px', 1280: '160px' },
+  };
+  test('#434 data-pp-spacing hero AFTER another band stays symmetric + exact at 1280 and 375', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Spacing Attr Adjacent Symmetry');
+
+    for (const spacing of ['compact', 'spacious']) {
+      // Section leads; the spaced hero renders SECOND (adjacent position) so the mobile
+      // adjacent rule is in play against the data-pp-spacing override.
+      setComposition(pageId, [
+        { component: 'section', props: { id: 'pp-sec-lead', title: 'Lead', body: 'Lead band.' } },
+        { component: 'hero', props: { id: 'pp-hero-adj', title: 'Spacing', spacing } },
+      ]);
+
+      for (const width of [1280, 375]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`/?page_id=${pageId}`);
+        const hero = page.locator('#pp-hero-adj');
+        await expect(hero).toBeVisible({ timeout: 10000 });
+
+        const { top, bottom } = await hero.evaluate((el: Element) => {
+          const cs = getComputedStyle(el);
+          return { top: cs.paddingTop, bottom: cs.paddingBottom };
+        });
+        const expected = SPACING_ADJ_EXPECTED[spacing][width];
+        // Symmetric AND at the explicit override value — the top edge is no longer shaved
+        // to the adjacent band rhythm (the pre-fix mobile bug).
+        expect(top, `adjacent ${spacing} not symmetric @${width}: top=${top} bottom=${bottom}`).toBe(bottom);
+        expect(top, `adjacent ${spacing} top not at override value @${width}: ${top}`).toBe(expected);
+        expect(bottom, `adjacent ${spacing} bottom not at override value @${width}: ${bottom}`).toBe(expected);
       }
     }
   });
