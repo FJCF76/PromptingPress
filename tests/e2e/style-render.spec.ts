@@ -2275,6 +2275,160 @@ test.describe('Safe-surface rendered proof', () => {
 });
 
 /**
+ * #383 — stats contained rounded metrics card, rendered proof.
+ *
+ * The static StyleSlotContractTest proves `--stats-radius` / `--stats-max-width`
+ * are CONSUMED as var() on a length-compatible property; only a real browser proves
+ * they WIN once the cascade resolves (the #302 dead-slot class the issue calls out).
+ * These pins assert: (1) unset renders full-bleed + square, byte-identical to pre-383;
+ * (2) the radius reaches the rendered band at 375 AND 1280; (3) max-width caps and
+ * centers the band at 1280 and never overflows at 375.
+ */
+test.describe('#383 stats contained rounded card renders', () => {
+  let pageId: number;
+
+  test.afterEach(async () => {
+    if (pageId) {
+      try {
+        deletePage(pageId);
+      } catch {
+        /* already cleaned */
+      }
+      pageId = 0;
+    }
+  });
+
+  test('#383 unset stats band is full-bleed and square (byte-identical) @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Stats Card Defaults');
+    setComposition(pageId, [
+      {
+        component: 'stats',
+        props: { id: 'pp-stats01', items: [{ number: '98%', label: 'Uptime' }] },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const band = page.locator('.stats');
+    await expect(band).toBeVisible({ timeout: 10000 });
+
+    // Defaults are inert: max-width: none, border-radius: 0 — the pre-383 render.
+    const metrics = await band.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return {
+        radius: cs.borderTopLeftRadius,
+        maxWidth: cs.maxWidth,
+        docScroll: document.documentElement.scrollWidth,
+        docClient: document.documentElement.clientWidth,
+      };
+    });
+    expect(metrics.radius).toBe('0px');
+    expect(metrics.maxWidth).toBe('none');
+    // No horizontal overflow at the default full-bleed width.
+    expect(metrics.docScroll).toBeLessThanOrEqual(metrics.docClient + 1);
+  });
+
+  test('#383 --stats-radius rounds the band at 375 and 1280 @smoke', async ({ page }) => {
+    pageId = createPage('E2E Stats Card Radius');
+    setComposition(pageId, [
+      {
+        component: 'stats',
+        props: { id: 'pp-stats01', items: [{ number: '98%', label: 'Uptime' }] },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await styleComponent(page, pageId, { '--stats-radius': '24px' });
+    expect(res.success).toBe(true);
+
+    for (const width of [375, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      const band = page.locator('.stats');
+      await expect(band).toBeVisible({ timeout: 10000 });
+      const radius = await band.evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
+      expect(radius).toBe('24px');
+    }
+  });
+
+  test('#383 --stats-max-width caps and centers the band at 1280 @smoke', async ({ page }) => {
+    pageId = createPage('E2E Stats Card Max Width');
+    setComposition(pageId, [
+      {
+        component: 'stats',
+        props: { id: 'pp-stats01', items: [{ number: '98%', label: 'Uptime' }] },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await styleComponent(page, pageId, { '--stats-max-width': '640px' });
+    expect(res.success).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    const band = page.locator('.stats');
+    await expect(band).toBeVisible({ timeout: 10000 });
+
+    const geo = await band.evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      return {
+        maxWidth: getComputedStyle(el).maxWidth,
+        width: rect.width,
+        left: rect.left,
+        right: document.documentElement.clientWidth - rect.right,
+      };
+    });
+    // The slot reaches the band, the band is capped to 640, and auto side-margins
+    // center it (equal gutters within a rounding tolerance) — a contained card, not
+    // a full-bleed band pinned to the left edge.
+    expect(geo.maxWidth).toBe('640px');
+    expect(geo.width).toBeLessThanOrEqual(641);
+    expect(geo.width).toBeGreaterThan(600);
+    expect(Math.abs(geo.left - geo.right)).toBeLessThanOrEqual(2);
+    expect(geo.left).toBeGreaterThan(100); // real gutters exist (not left-pinned)
+  });
+
+  test('#383 --stats-max-width never overflows at 375 @smoke', async ({ page }) => {
+    pageId = createPage('E2E Stats Card Max Width Mobile');
+    setComposition(pageId, [
+      {
+        component: 'stats',
+        props: {
+          id: 'pp-stats01',
+          items: [
+            { number: '98%', label: 'Uptime' },
+            { number: '+30', label: 'Years' },
+          ],
+        },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    // 640px cap is wider than the 375px viewport, so the band must fall back to the
+    // viewport width with no horizontal scroll (acceptance: no overflow at 375px).
+    const res = await styleComponent(page, pageId, { '--stats-max-width': '640px' });
+    expect(res.success).toBe(true);
+
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    const band = page.locator('.stats');
+    await expect(band).toBeVisible({ timeout: 10000 });
+
+    const overflow = await page.evaluate(() => ({
+      scroll: document.documentElement.scrollWidth,
+      client: document.documentElement.clientWidth,
+    }));
+    expect(overflow.scroll).toBeLessThanOrEqual(overflow.client + 1);
+  });
+});
+
+/**
  * #333 — header/footer chrome, rendered proof.
  *
  * The header and footer are template-owned chrome, so their styling surface is the

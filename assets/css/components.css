@@ -2410,6 +2410,14 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   padding-top: var(--stats-padding-top, var(--pp-band-padding));
   padding-bottom: var(--stats-padding-bottom, var(--pp-band-padding));
   background: var(--stats-bg, transparent);
+  /* Contained rounded metrics card (issue 383). max-width caps the band and the
+     auto side-margins center it; the radius rounds the band's own background box.
+     Defaults ('none' / '0') are inert — with max-width: none the block fills its
+     container, so margin-inline: auto computes to 0, and an unset band renders
+     byte-identically to the pre-383 full-bleed. */
+  max-width: var(--stats-max-width, none);
+  margin-inline: auto;
+  border-radius: var(--stats-radius, 0);
 }
 
 .stats__heading {
