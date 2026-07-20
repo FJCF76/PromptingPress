@@ -98,8 +98,8 @@
     "variant_classes": ["grid--steps", "grid--dark", "grid--inverted", "grid--uniform", "grid--image-icon"],
     "tokens": ["--space-xl", "--space-2xl", "--space-3xl", "--color-bg", "--color-surface", "--color-border", "--color-bg-inverted"],
     "style_slots": {
-      "--grid-padding-top": { "type": "length", "default": "var(--space-xl)", "description": "Top padding of the grid section" },
-      "--grid-padding-bottom": { "type": "length", "default": "var(--space-xl)", "description": "Bottom padding of the grid section" },
+      "--grid-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
+      "--grid-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
       "--grid-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
       "--grid-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Heading text color" },
       "--grid-heading-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading, if set" },

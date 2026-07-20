@@ -48,8 +48,8 @@
     "variant_classes": [],
     "tokens": ["--space-xl", "--space-2xl", "--color-border", "--color-surface"],
     "style_slots": {
-      "--faq-padding-top": { "type": "length", "default": "var(--space-xl)", "description": "Top padding of the FAQ section" },
-      "--faq-padding-bottom": { "type": "length", "default": "var(--space-xl)", "description": "Bottom padding of the FAQ section" },
+      "--faq-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
+      "--faq-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
       "--faq-bg": { "type": "gradient", "default": "var(--color-surface)", "description": "Section background color or gradient" },
       "--faq-item-bg": { "type": "gradient", "default": "var(--color-bg)", "description": "Individual accordion item background color or gradient" },
       "--faq-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color" },

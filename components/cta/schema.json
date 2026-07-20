@@ -75,8 +75,8 @@
     "variant_classes": ["cta--full-width", "cta--inline", "cta--dark", "cta--inverted"],
     "tokens": ["--space-xl", "--space-2xl", "--space-3xl", "--color-surface", "--color-bg-inverted", "--color-accent", "--overlay-bg"],
     "style_slots": {
-      "--cta-padding-top": { "type": "length", "default": "var(--space-xl)", "description": "Top padding of the CTA section" },
-      "--cta-padding-bottom": { "type": "length", "default": "var(--space-xl)", "description": "Bottom padding of the CTA section" },
+      "--cta-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
+      "--cta-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
       "--cta-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
       "--cta-text": { "type": "color", "default": "var(--color-text)", "description": "Title text color" },
       "--cta-title-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the title, if set" },

@@ -3581,7 +3581,7 @@ class ActionsTest extends TestCase
 
     public function testSuggestAlternativeForPaddingLength(): void
     {
-        $suggestion = _pp_suggest_alternative_value('length', 'Top padding of the grid section', 'var(--space-xl)');
+        $suggestion = _pp_suggest_alternative_value('length', 'Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override.', 'var(--pp-band-padding)');
         $this->assertStringContainsString('"0"', $suggestion);
     }
 

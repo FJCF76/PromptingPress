@@ -116,4 +116,107 @@ class SchemaThemeConsistencyTest extends TestCase
             $this->assertStringContainsString('inverted', $theme['description']);
         }
     }
+
+    /**
+     * Schema contract: the band padding slots must state ONE truthful default
+     * everywhere. This is the test that would have caught the #446 drift, where
+     * six older band schemas (section, grid, cta, stats, faq, testimonials) still
+     * declared `"default": "var(--space-xl)"` on their `--*-padding-top/bottom`
+     * slots even though the CSS has routed those slots through
+     * `var(--pp-band-padding)` since #431 — while the three #438 schemas (table,
+     * logos, embed) already declared the truthful `var(--pp-band-padding)`. The
+     * `default` field is descriptive metadata the AI reads to predict unset output
+     * (never emitted as CSS — see pp_render_style_vars(), which reads only a slot's
+     * `type`), so a stale default teaches the AI wrong geometry for every band.
+     *
+     * The band set is hardcoded rather than derived from CSS on purpose: these
+     * nine are the canonical bands that route padding through the shared
+     * `--pp-band-padding` rhythm. `hero` ALSO has `--hero-padding-top/bottom`
+     * slots, but its CSS falls back to `var(--space-xl)` / `var(--space-2xl)`
+     * (NOT the band rhythm), so its `var(--space-xl)` default is truthful and it
+     * is deliberately excluded — the drift class this test guards is band-only.
+     */
+    public function testBandPaddingSlotDefaultsAreUniformAndTruthful(): void
+    {
+        // The canonical band components: their `--*-padding-top/bottom` slots
+        // route through `--pp-band-padding`. `hero` is NOT a band here (see docblock).
+        // Intentional delta from the 8-member $bandComponents in
+        // testThemeEnumAdvertisesMutedNotDark() above: `table` has no `theme` prop
+        // (so it is absent from the #442 theme list) but DOES route padding through
+        // the band rhythm, so it belongs here. Do not "sync" the two lists.
+        $bandComponents = ['section', 'grid', 'cta', 'stats', 'faq', 'testimonials', 'table', 'logos', 'embed'];
+        $schemas        = $this->loadSchemas();
+
+        $expected = 'var(--pp-band-padding)';
+
+        // family suffix (`padding-top` | `padding-bottom`) => [component => default]
+        $families = [];
+        foreach ($bandComponents as $component) {
+            $this->assertArrayHasKey($component, $schemas, "missing schema for '{$component}'");
+            $slots = $schemas[$component]['styling']['style_slots'] ?? null;
+            $this->assertIsArray($slots, "'{$component}' has no style_slots");
+
+            $found = 0;
+            foreach ($slots as $slotName => $slotDef) {
+                if (!preg_match('/-(padding-(?:top|bottom))$/', $slotName, $m)) {
+                    continue;
+                }
+                $this->assertArrayHasKey('default', $slotDef, "'{$component}' slot '{$slotName}' has no default");
+                $families[$m[1]][$component] = $slotDef['default'];
+                $found++;
+            }
+            // Every band declares exactly a top and a bottom band-padding slot.
+            $this->assertSame(2, $found, "'{$component}' must declare exactly one padding-top and one padding-bottom band slot");
+        }
+
+        $this->assertArrayHasKey('padding-top', $families, 'no band padding-top slots found');
+        $this->assertArrayHasKey('padding-bottom', $families, 'no band padding-bottom slots found');
+
+        foreach ($families as $family => $componentToDefault) {
+            $uniqueDefaults = array_unique(array_values($componentToDefault), SORT_REGULAR);
+            $this->assertCount(
+                1,
+                $uniqueDefaults,
+                sprintf(
+                    "Band slot family '%s' has divergent `default` values across components (%s). "
+                    . "Every band's padding default must be the same, truthful `%s` — the shared "
+                    . "rhythm the CSS actually routes through since #431/#438 (#446).",
+                    $family,
+                    implode(', ', array_map(
+                        static fn ($c, $d) => "{$c}={$d}",
+                        array_keys($componentToDefault),
+                        array_values($componentToDefault)
+                    )),
+                    $expected
+                )
+            );
+            $this->assertSame(
+                $expected,
+                $uniqueDefaults[0],
+                sprintf(
+                    "Band slot family '%s' default is '%s' but must be the truthful '%s' (#446). "
+                    . "The CSS routes these slots through the shared band rhythm; declaring "
+                    . "`var(--space-xl)` teaches the AI the wrong unset geometry.",
+                    $family,
+                    $uniqueDefaults[0],
+                    $expected
+                )
+            );
+        }
+
+        // Guard the exclusion: hero must NOT silently adopt the band default on
+        // EITHER edge — if it ever does, either hero became a band (update this list)
+        // or someone mis-edited it (including a one-sided top-only/bottom-only edit).
+        // Its truthful default is the space-scale token.
+        $heroSlots = $schemas['hero']['styling']['style_slots'] ?? [];
+        foreach (['--hero-padding-top', '--hero-padding-bottom'] as $heroSlot) {
+            $this->assertNotSame(
+                $expected,
+                $heroSlots[$heroSlot]['default'] ?? null,
+                "hero is not a band (its CSS falls back to var(--space-xl)/var(--space-2xl)); "
+                . "if hero now routes through --pp-band-padding, add it to \$bandComponents (#446). "
+                . "Offending slot: {$heroSlot}."
+            );
+        }
+    }
 }

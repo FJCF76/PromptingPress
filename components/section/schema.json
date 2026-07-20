@@ -144,8 +144,8 @@
     "variant_classes": ["section--text-only", "section--image-left", "section--image-right", "section--centered", "section--text-panel", "pp-section--dark", "pp-section--inverted"],
     "tokens": ["--space-xl", "--space-2xl", "--space-3xl", "--color-bg", "--color-bg-inverted", "--overlay-bg"],
     "style_slots": {
-      "--section-padding-top": { "type": "length", "default": "var(--space-xl)", "description": "Top padding of the section" },
-      "--section-padding-bottom": { "type": "length", "default": "var(--space-xl)", "description": "Bottom padding of the section" },
+      "--section-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
+      "--section-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
       "--section-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
       "--section-text": { "type": "color", "default": "var(--color-text)", "description": "Content text color" },
       "--section-accent": { "type": "color", "default": "var(--color-accent)", "description": "Link color" },

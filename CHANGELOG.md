@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.4.18] — 2026-07-20 — every band schema now states the same truthful padding default (#446)
+
+**The six older band schemas (`section`, `grid`, `cta`, `stats`, `faq`, `testimonials`) still advertised `"default": "var(--space-xl)"` on their `--*-padding-top/bottom` slots, but the CSS has routed those slots through the shared `--pp-band-padding` rhythm since #431 — so the default the site-building AI read (~64px) disagreed with what actually renders (the fluid symmetric band rhythm). The three slots minted by #438 (`table`, `logos`, `embed`) already stated the truthful `var(--pp-band-padding)`, so the band family contradicted itself about the same fact. All nine band schemas now state the same, truthful default, and a test keeps the padding-slot family consistent so it cannot drift apart again.**
+
+This is a metadata-only change to schema `default` fields (descriptive text the AI reads to predict unset output). It is not a styling change: the `default` field is never emitted as CSS — `pp_render_style_vars()` reads only a slot's `type` and emits only explicitly-set overrides — so an unset band renders byte-identically to before, falling through the stylesheet's own `var(--x-padding-top, var(--pp-band-padding))` chain. The six schemas' padding slot entries (default plus description) are now byte-identical to the #438 three. `hero` is deliberately left alone: its CSS falls back to `var(--space-xl)`/`var(--space-2xl)`, not the band rhythm, so its `var(--space-xl)` default is truthful and it is not a band.
+
+### Fixed
+- `components/{section,grid,cta,stats,faq,testimonials}/schema.json` — the `--*-padding-top/bottom` style slots now declare `"default": "var(--pp-band-padding)"` with the shared band-rhythm description, matching the already-truthful `table`/`logos`/`embed` schemas (#438). The stale `var(--space-xl)` default no longer teaches the AI the wrong geometry for these bands. Zero rendered-output difference (#446).
+
+### Tests
+- `tests/SchemaThemeConsistencyTest.php` adds `testBandPaddingSlotDefaultsAreUniformAndTruthful`, which asserts that all nine band components' `--*-padding-top/bottom` slot `default` fields are uniform and equal `var(--pp-band-padding)`, and guards that `hero` (a non-band) does not adopt the band default on either edge. The test fails if any band diverges again. `tests/ActionsTest.php` refreshes the illustrative slot description in the `_pp_suggest_alternative_value` padding example to the current band wording (#446).
+
 ## [v1.4.17] — 2026-07-20 — the `faq` header rhythm is now fully authorable (#352)
 
 **The gap below a `faq` heading was the one band-heading rhythm the site-building AI could not touch. Every other header-bearing band (`section`, `grid`, `testimonials`) already routed its heading's bottom margin through a style slot; `faq` alone kept a bare literal, so "tighten this FAQ header" was inexpressible. A new `--faq-heading-margin-bottom` slot closes that gap. Set it to pull the accordion list closer to the heading or push it further away; leave it unset and the band renders exactly as before.**
