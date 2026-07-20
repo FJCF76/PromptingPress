@@ -10,7 +10,7 @@ FAQ accordion using native HTML `<details>`/`<summary>` elements. No JavaScript 
 | `title`        | string | No       | `'Frequently Asked Questions'`   | Section heading |
 | `title_accent` | string | No       | `''`                             | Exact substring of `title` to render in an accent color |
 | `eyebrow`      | string | No       | `''`                             | Short kicker/label rendered as a pill above the title |
-| `theme`        | enum   | No       | `'default'`                      | Background tone: `default`, `dark`, or `inverted` |
+| `theme`        | enum   | No       | `'default'`                      | Background tone: `default`, `muted` (light tinted surface band), or `inverted` (genuinely dark band) |
 | `items`        | array  | Yes      | —                                | Array of `{ question, answer }` objects |
 
 Each item in `items`:

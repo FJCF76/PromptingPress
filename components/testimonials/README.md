@@ -13,7 +13,7 @@ Customer quotes with attribution, for social-proof sections. Use this instead of
 | `subheading`    | string | No       | `''`    | Supporting line below the title |
 | `heading_align` | enum   | No       | `start` | `start` or `center` |
 | `layout`       | enum   | No       | `grid`  | Layout: `grid` (card grid) or `stack` (single centered column) |
-| `theme`         | enum   | No       | `default` | Background color: `default` / `dark` / `inverted` |
+| `theme`         | enum   | No       | `default` | Background color: `default` / `muted` (light tinted surface band) / `inverted` (genuinely dark band) |
 | `items`         | array  | Yes      | —       | Array of testimonial objects |
 
 Each item in `items`:
