@@ -1732,7 +1732,21 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
  *      so a rename breaks these pins loudly instead of silently no-op'ing.
  */
 describe('CSS lint: section-level bands share one rhythm definition (#431)', () => {
-    const BAND_COMPONENTS = ['section', 'grid', 'cta', 'stats', 'faq', 'testimonials'];
+    // Nine bands (issue 438 folded table/logos/embed into the contract). Each entry
+    // carries its root class AND slot prefix because table's class (.table-section)
+    // and slot prefix (--table-section) differ from the component name — a naive
+    // `--${comp}-` derivation would assert against a nonexistent `.table` selector.
+    const BAND_COMPONENTS = [
+        { comp: 'section', cls: '.section', slot: '--section' },
+        { comp: 'grid', cls: '.grid', slot: '--grid' },
+        { comp: 'cta', cls: '.cta', slot: '--cta' },
+        { comp: 'stats', cls: '.stats', slot: '--stats' },
+        { comp: 'faq', cls: '.faq', slot: '--faq' },
+        { comp: 'testimonials', cls: '.testimonials', slot: '--testimonials' },
+        { comp: 'table', cls: '.table-section', slot: '--table-section' },
+        { comp: 'logos', cls: '.logos', slot: '--logos' },
+        { comp: 'embed', cls: '.embed', slot: '--embed' },
+    ];
 
     // Brace-matched extraction of every rule whose selector is EXACTLY `selector`
     // (whitespace-normalized), across all media contexts. Same technique as the
@@ -1761,16 +1775,16 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
 
     // 1. Own padding: every padding-top/bottom on each band's root routes through
     //    the component slot AND falls back to the shared --pp-band-padding.
-    test.each(BAND_COMPONENTS)('%s own padding routes through its slot to var(--pp-band-padding)', (comp) => {
-        const bodies = bodiesForExactSelector('.' + comp);
+    test.each(BAND_COMPONENTS)('$comp own padding routes through its slot to var(--pp-band-padding)', ({ cls, slot }) => {
+        const bodies = bodiesForExactSelector(cls);
         ['padding-top', 'padding-bottom'].forEach(prop => {
-            const slot = `--${comp}-${prop === 'padding-top' ? 'padding-top' : 'padding-bottom'}`;
+            const slotName = `${slot}-${prop}`;
             const decls = bodies.flatMap(b => b.match(new RegExp(prop + '\\s*:[^;}]+', 'g')) || []);
             // At least the base rule declares each edge — a drift to a different
             // selector can't make this vacuously pass.
             expect(decls.length).toBeGreaterThanOrEqual(1);
             decls.forEach(d => {
-                expect(d).toMatch(new RegExp(prop + '\\s*:\\s*var\\(\\s*' + slot + '\\s*,\\s*var\\(\\s*--pp-band-padding\\s*\\)'));
+                expect(d).toMatch(new RegExp(prop + '\\s*:\\s*var\\(\\s*' + slotName + '\\s*,\\s*var\\(\\s*--pp-band-padding\\s*\\)'));
             });
         });
     });
@@ -1778,13 +1792,13 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
     // 2. Adjacent-top: every band (testimonials included) routes its adjacent-top
     //    edge through the slot to the shared --pp-band-padding-adjacent-top, at both
     //    breakpoints. The dead --testimonials-padding-top slot is resurrected here.
-    test.each(BAND_COMPONENTS)('adjacent %s routes top-padding to var(--pp-band-padding-adjacent-top) at both breakpoints', (comp) => {
-        const bodies = bodiesForExactSelector('main > [data-pp-component] + .' + comp);
+    test.each(BAND_COMPONENTS)('adjacent $comp routes top-padding to var(--pp-band-padding-adjacent-top) at both breakpoints', ({ cls, slot }) => {
+        const bodies = bodiesForExactSelector('main > [data-pp-component] + ' + cls);
         const decls = bodies.flatMap(b => b.match(/padding-top\s*:[^;}]+/g) || []);
         // Desktop + mobile adjacent rules both exist.
         expect(decls.length).toBeGreaterThanOrEqual(2);
         decls.forEach(d => {
-            expect(d).toMatch(new RegExp('padding-top\\s*:\\s*var\\(\\s*--' + comp + '-padding-top\\s*,\\s*var\\(\\s*--pp-band-padding-adjacent-top\\s*\\)'));
+            expect(d).toMatch(new RegExp('padding-top\\s*:\\s*var\\(\\s*' + slot + '-padding-top\\s*,\\s*var\\(\\s*--pp-band-padding-adjacent-top\\s*\\)'));
         });
     });
 
@@ -1798,9 +1812,10 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
         expect(stripped).not.toContain('3.35rem');
     });
 
-    // 3b. The generic adjacent catch-all (components with no padding slot: hero,
-    //     table, logos, embed) also consumes the shared adjacent-top, not a literal,
-    //     so nothing routes rhythm outside the one definition.
+    // 3b. The generic adjacent catch-all (the only slot-less band left is hero, after
+    //     issue 438 gave table/logos/embed their own padding slots) also consumes the
+    //     shared adjacent-top, not a literal, so nothing routes rhythm outside the one
+    //     definition.
     test('the generic adjacent-sibling rule routes through --pp-band-padding-adjacent-top', () => {
         const bodies = bodiesForExactSelector('main > [data-pp-component] + [data-pp-component]');
         expect(bodies.length).toBeGreaterThanOrEqual(2); // desktop + mobile
@@ -1960,6 +1975,105 @@ describe('CSS lint: band-level headings share one responsive scale (#436)', () =
         expect(stripped).not.toMatch(/clamp\(\s*2\.25rem\s*,\s*3vw\s*,\s*2\.62rem\s*\)/);
         expect(stripped).not.toMatch(/font-size\s*:\s*var\(\s*--[a-z-]+-(?:title|heading)-size\s*,\s*1\.875rem\s*\)/);
         expect(stripped).not.toMatch(/font-size\s*:\s*var\(\s*--section-title-size\s*,\s*2\.25rem\s*\)/);
+    });
+});
+
+/**
+ * Schema/token truthfulness pin (#438). Every global token a component schema
+ * lists in `styling.tokens` must actually be CONSUMED as `var(--token …)`
+ * somewhere in the theme CSS — otherwise the schema documents a styling surface
+ * the renderer never reads. The #438 audit found logos already truthful (it lists
+ * --space-2xl/3xl, consumed by the shared data-pp-spacing rules, not its own
+ * block), so the check is a GLOBAL consumption scan across components/base/
+ * utilities CSS, not block-scoped. A schema that adds a token no rule reads, or a
+ * CSS edit that drops the last consumer of a listed token, fails here loudly.
+ */
+describe('CSS lint: schema styling.tokens resolve to a consumed var (#438)', () => {
+    const ALL_CSS = stripComments(COMPONENTS_CSS) + '\n' +
+        stripComments(BASE_CSS) + '\n' + stripComments(UTILITIES_CSS);
+
+    // Auto-discover every component schema so a new component is covered without
+    // touching this list (same posture as StyleSlotContractTest discovery).
+    const componentsDir = path.resolve(__dirname, '../../components');
+    const schemaTokens = [];
+    fs.readdirSync(componentsDir, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .forEach(d => {
+            const schemaPath = path.join(componentsDir, d.name, 'schema.json');
+            if (!fs.existsSync(schemaPath)) return;
+            const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'));
+            const tokens = schema.styling?.tokens || [];
+            tokens.forEach(token => schemaTokens.push({ component: d.name, token }));
+        });
+
+    // Fail-closed floor: if discovery breaks (moved dir, renamed schemas), the
+    // per-token loop would pass vacuously over an empty list.
+    test('discovery finds schema tokens to check', () => {
+        expect(schemaTokens.length).toBeGreaterThanOrEqual(10);
+    });
+
+    test.each(schemaTokens)('$component token $token is consumed as var(--…) in the theme CSS', ({ token }) => {
+        // Every token is a custom property; assert it appears in a var() consumption
+        // (var(--token) or var(--token, fallback)) somewhere in the theme CSS.
+        const re = new RegExp('var\\(\\s*' + token.replace(/[-]/g, '\\$&') + '\\s*[,)]');
+        expect(ALL_CSS).toMatch(re);
+    });
+});
+
+/**
+ * Band heading-color slot routing pin (#438). table/logos/embed gained a
+ * --<comp>-heading-color slot. The keystone StyleSlotContractTest only proves the
+ * slot is consumed SOMEWHERE in the component block (satisfied by the base rule),
+ * and the #61 dark-surface guard's variant whitelist excludes logos/embed — so a
+ * revert of the INVERTED-variant heading color to a hardcoded literal would leave
+ * every other test green while silently killing the slot on the inverted variant.
+ * This pins both the base rule (fallback var(--color-text), the h2 default, so unset
+ * output is unchanged) AND the inverted-variant rules (fallback var(--color-bg)).
+ */
+describe('CSS lint: band heading-color slots route through the slot (#438)', () => {
+    // Brace-matched extraction of every rule whose selector is EXACTLY `selector`.
+    // Same technique as the #431 suite; the `[{};,]` prefix isolates the base
+    // `.logos__heading` rule from the descendant `.logos--inverted .logos__heading`.
+    function bodiesForExactSelector(selector) {
+        const css = stripComments(COMPONENTS_CSS).replace(/\s+/g, ' ');
+        const re = new RegExp(
+            '[{};,]\\s*' + selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{',
+            'g'
+        );
+        const bodies = [];
+        let match;
+        while ((match = re.exec(css)) !== null) {
+            let i = re.lastIndex;
+            let depth = 1;
+            const start = i;
+            while (i < css.length && depth > 0) {
+                if (css[i] === '{') depth++;
+                else if (css[i] === '}') depth--;
+                i++;
+            }
+            bodies.push(css.slice(start, i - 1));
+        }
+        return bodies;
+    }
+
+    // selector, its heading-color slot, and the fallback that preserves unset output.
+    const HEADING_COLOR_RULES = [
+        { selector: '.table-section__heading', slot: '--table-section-heading-color', fallback: '--color-text' },
+        { selector: '.logos__heading', slot: '--logos-heading-color', fallback: '--color-text' },
+        { selector: '.embed__heading', slot: '--embed-heading-color', fallback: '--color-text' },
+        { selector: '.logos--inverted .logos__heading', slot: '--logos-heading-color', fallback: '--color-bg' },
+        { selector: '.embed--inverted .embed__heading', slot: '--embed-heading-color', fallback: '--color-bg' },
+    ];
+
+    test.each(HEADING_COLOR_RULES)('$selector routes color through $slot to var($fallback)', ({ selector, slot, fallback }) => {
+        const bodies = bodiesForExactSelector(selector);
+        expect(bodies.length, `no exact rule for ${selector}`).toBeGreaterThanOrEqual(1);
+        const colorDecls = bodies.flatMap(b => b.match(/color\s*:[^;}]+/g) || [])
+            .filter(d => /^\s*color\s*:/.test(d)); // exclude background-color etc.
+        expect(colorDecls.length, `${selector} declares no color`).toBeGreaterThanOrEqual(1);
+        colorDecls.forEach(d => {
+            expect(d).toMatch(new RegExp('color\\s*:\\s*var\\(\\s*' + slot + '\\s*,\\s*var\\(\\s*' + fallback + '\\s*\\)'));
+        });
     });
 });
 

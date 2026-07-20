@@ -3083,13 +3083,14 @@ test.describe('#369 --btn-radius rendered proof (real WP)', () => {
 /**
  * Computed-rhythm proof for the shared section-band spacing model (issue 431).
  *
- * The six band-level components (section, grid, cta, stats, faq, testimonials)
- * used to hard-code their own vertical-padding literals per component per media
- * block, so they disagreed: stats/testimonials sat at 64px while section/grid/faq
- * were 76.8px on desktop, cta stayed 68px on mobile, and testimonials was missing
- * from BOTH adjacent-sibling routing lists (its --testimonials-padding-top slot was
- * dead on the adjacent-top edge). This suite proves, at the rendered level, that all
- * six now consume ONE shared rhythm definition (--pp-band-padding for a band's own
+ * The band-level components used to hard-code their own vertical-padding literals
+ * per component per media block, so they disagreed: stats/testimonials sat at 64px
+ * while section/grid/faq were 76.8px on desktop, cta stayed 68px on mobile, and
+ * testimonials was missing from BOTH adjacent-sibling routing lists (its
+ * --testimonials-padding-top slot was dead on the adjacent-top edge). Issue 438
+ * folded the last three holdouts (table, logos, embed) into the same contract, so
+ * this suite now measures all NINE bands. It proves, at the rendered level, that all
+ * nine consume ONE shared rhythm definition (--pp-band-padding for a band's own
  * edges, --pp-band-padding-adjacent-top for a band that follows another band):
  *
  *   - every band reports identical unset padding-top AND padding-bottom (both
@@ -3108,7 +3109,15 @@ test.describe('#369 --btn-radius rendered proof (real WP)', () => {
 test.describe('Shared section-band rhythm (#431)', () => {
   let pageId: number;
 
-  const BANDS = ['section', 'grid', 'cta', 'stats', 'faq', 'testimonials'] as const;
+  // Nine bands: issue 438 folded table/logos/embed into the shared rhythm contract.
+  const BANDS = ['section', 'grid', 'cta', 'stats', 'table', 'testimonials', 'logos', 'embed', 'faq'] as const;
+
+  // Band -> root class. All map 1:1 EXCEPT table, whose root class is .table-section.
+  const BAND_CLASS: Record<string, string> = {
+    section: 'section', grid: 'grid', cta: 'cta', stats: 'stats',
+    table: 'table-section', testimonials: 'testimonials', logos: 'logos',
+    embed: 'embed', faq: 'faq',
+  };
 
   // Hero first so all six bands render in the adjacent-sibling position (their
   // top edges are then the same tier and directly comparable). Minimal valid
@@ -3130,12 +3139,15 @@ test.describe('Shared section-band rhythm (#431)', () => {
     { component: 'grid', props: { id: 'pp-grid01', title: 'Grid', items: [{ title: 'One', text: 'A' }] } },
     { component: 'cta', props: { id: 'pp-cta01', title: 'CTA', button_text: 'Go', button_url: '/go' } },
     { component: 'stats', props: { id: 'pp-stats01', items: [{ number: '10', label: 'Ten' }] } },
+    { component: 'table', props: { id: 'pp-tbl01', title: 'Table', headers: ['A', 'B'], rows: [['1', '2']] } },
     { component: 'testimonials', props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] } },
+    { component: 'logos', props: { id: 'pp-logo01', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'Logo' }] } },
+    { component: 'embed', props: { id: 'pp-emb01', title: 'Embed', content: 'https://example.com/video' } },
     { component: 'faq', props: { id: 'pp-faq01', items: [{ question: 'Q?', answer: 'A.' }] } },
   ];
 
   async function bandPadding(page: any, band: string) {
-    return page.locator(`main > .${band === 'stats' ? 'stats' : band}`).evaluate((el: Element) => {
+    return page.locator(`main > .${BAND_CLASS[band]}`).evaluate((el: Element) => {
       const cs = getComputedStyle(el);
       return { top: cs.paddingTop, bottom: cs.paddingBottom };
     });
@@ -3154,7 +3166,7 @@ test.describe('Shared section-band rhythm (#431)', () => {
 
   // Core scenario: every band agrees on unset padding at BOTH breakpoints. This is
   // the heart of #431 — one spacing model, no per-component drift, testimonials in.
-  test('#431 all six bands report identical unset padding-top and padding-bottom at 1280 and 375 @smoke', async ({
+  test('#431 all nine bands report identical unset padding-top and padding-bottom at 1280 and 375 @smoke', async ({
     page,
   }) => {
     pageId = createPage('E2E Shared Band Rhythm Equality');
@@ -3163,7 +3175,7 @@ test.describe('Shared section-band rhythm (#431)', () => {
     for (const width of [1280, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('main > .testimonials')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('main > .faq')).toBeVisible({ timeout: 10000 });
 
       const measured: Record<string, { top: string; bottom: string }> = {};
       for (const band of BANDS) {
@@ -3177,7 +3189,7 @@ test.describe('Shared section-band rhythm (#431)', () => {
       expect(tops.every((t) => t && t !== '0px'), `tops @${width}: ${JSON.stringify(measured)}`).toBe(true);
       expect(bottoms.every((b) => b && b !== '0px'), `bottoms @${width}: ${JSON.stringify(measured)}`).toBe(true);
 
-      // The invariant: all six share one top tier and one bottom tier. Compare
+      // The invariant: all nine share one top tier and one bottom tier. Compare
       // component-to-component (not to a hardcoded px) so #430 can retune freely.
       expect(new Set(tops).size, `padding-top drift @${width}: ${JSON.stringify(measured)}`).toBe(1);
       expect(new Set(bottoms).size, `padding-bottom drift @${width}: ${JSON.stringify(measured)}`).toBe(1);
@@ -3235,7 +3247,10 @@ test.describe('Shared section-band rhythm (#431)', () => {
       { component: 'grid', props: { id: 'pp-grid01', title: 'Grid', items: [{ title: 'One', text: 'A' }] } },
       { component: 'cta', props: { id: 'pp-cta01', title: 'CTA', button_text: 'Go', button_url: '/go' } },
       { component: 'stats', props: { id: 'pp-stats01', items: [{ number: '10', label: 'Ten' }] } },
+      { component: 'table', props: { id: 'pp-tbl01', title: 'Table', headers: ['A', 'B'], rows: [['1', '2']] } },
       { component: 'testimonials', props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] } },
+      { component: 'logos', props: { id: 'pp-logo01', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'Logo' }] } },
+      { component: 'embed', props: { id: 'pp-emb01', title: 'Embed', content: 'https://example.com/video' } },
       { component: 'faq', props: { id: 'pp-faq01', items: [{ question: 'Q?', answer: 'A.' }] } },
     ];
     setComposition(pageId, bandLed);
@@ -3257,8 +3272,8 @@ test.describe('Shared section-band rhythm (#431)', () => {
     expect(first.bottom, 'first band own-bottom did not follow --pp-band-padding').toBe('5px');
 
     // Every band's own bottom follows --pp-band-padding; every ADJACENT band's top
-    // follows --pp-band-padding-adjacent-top. Proves both shared props drive all six.
-    for (const band of ['grid', 'cta', 'stats', 'testimonials', 'faq']) {
+    // follows --pp-band-padding-adjacent-top. Proves both shared props drive all nine.
+    for (const band of ['grid', 'cta', 'stats', 'table', 'testimonials', 'logos', 'embed', 'faq']) {
       const { top, bottom } = await bandPadding(page, band);
       expect(bottom, `${band} own-bottom did not follow --pp-band-padding`).toBe('5px');
       expect(top, `${band} adjacent-top did not follow --pp-band-padding-adjacent-top`).toBe('7px');
@@ -3290,7 +3305,7 @@ test.describe('Shared section-band rhythm (#431)', () => {
     for (const width of [1280, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('main > .testimonials')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('main > .faq')).toBeVisible({ timeout: 10000 });
 
       for (const band of BANDS) {
         const { top, bottom } = await bandPadding(page, band);
@@ -3411,6 +3426,47 @@ test.describe('Shared section-band rhythm (#431)', () => {
       expect(paddingTop, `adjacent-top slot override @${width}`).toBe('5px');
     }
   });
+
+  // Issue 438: the three newly-minted band padding slots must each win on the
+  // ADJACENT-top edge (the trickiest cascade case) at both breakpoints, exactly
+  // like cta above. A section leads so the target renders in the adjacent position;
+  // a distinct px per component (no token resolves to it) catches a fallback leak
+  // or a cross-wired slot name. This is the render-level proof that the slot the
+  // schema declares reaches the DOM through pp_render_style_vars.
+  const NEW_BAND_SLOTS = [
+    { comp: 'table', sel: '.table-section', slot: '--table-section-padding-top', px: '5px',
+      props: { id: 'pp-tbl01', title: 'Table', headers: ['A', 'B'], rows: [['1', '2']] } },
+    { comp: 'logos', sel: '.logos', slot: '--logos-padding-top', px: '6px',
+      props: { id: 'pp-logo01', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'Logo' }] } },
+    { comp: 'embed', sel: '.embed', slot: '--embed-padding-top', px: '7px',
+      props: { id: 'pp-emb01', title: 'Embed', content: 'https://example.com/video' } },
+  ];
+
+  for (const { comp, sel, slot, px, props } of NEW_BAND_SLOTS) {
+    test(`#438 ${slot} wins on an adjacent ${comp} band at 1280 and 375`, async ({ page }) => {
+      pageId = createPage(`E2E Adjacent Slot ${comp}`);
+      setComposition(pageId, [
+        { component: 'section', props: { id: 'pp-sec01', body: '<p>Body.</p>' } },
+        { component: comp, props },
+      ]);
+
+      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+      // component_index 1 = the target band (index 0 is the leading section).
+      const res = await styleComponent(page, pageId, { [slot]: px }, undefined, 1);
+      expect(res.success, `${slot} set: ${JSON.stringify(res)}`).toBe(true);
+
+      for (const width of [1280, 375]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`/?page_id=${pageId}`);
+        const band = page.locator(`main > ${sel}`);
+        await expect(band).toBeVisible({ timeout: 10000 });
+        const paddingTop = await band.evaluate((el) => getComputedStyle(el).paddingTop);
+        expect(paddingTop, `${slot} adjacent-top override @${width}`).toBe(px);
+      }
+    });
+  }
 });
 
 test.describe('Band heading scale (#436)', () => {

@@ -36,7 +36,10 @@
     "variant_classes": [],
     "tokens": ["--space-xl", "--space-2xl", "--color-border", "--color-surface"],
     "style_slots": {
-      "--table-section-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Section heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop); set an explicit length to override." }
+      "--table-section-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
+      "--table-section-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
+      "--table-section-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Section heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop); set an explicit length to override." },
+      "--table-section-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading color. Defaults to the theme text color; set an explicit color to override." }
     }
   },
   "safe_to_edit": ["table.php", "../../assets/css/components.css (COMPONENT: table section)"],
