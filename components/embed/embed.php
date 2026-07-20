@@ -19,12 +19,8 @@ $title   = $props['title']   ?? '';
 $content = $props['content'] ?? '';
 $theme = $props['theme'] ?? 'default';
 
-$allowed_themes = ['default', 'dark', 'inverted'];
-if (!in_array($theme, $allowed_themes, true)) {
-    $theme = 'default';
-}
-
-$theme_class = $theme !== 'default' ? ' embed--' . $theme : '';
+// theme coercion + the deprecated 'dark' -> 'muted' alias live in pp_theme_class() (#442).
+$theme_class = pp_theme_class($theme, 'embed');
 
 $slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'embed');
 $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';

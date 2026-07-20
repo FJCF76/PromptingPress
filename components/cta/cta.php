@@ -32,12 +32,8 @@ if (!in_array($button_variant, $allowed_button_variants, true)) {
 // primary is the bare .btn; other variants add a .btn--{variant} modifier.
 $button_variant_class = $button_variant !== 'primary' ? ' btn--' . $button_variant : '';
 
-$allowed_themes = ['default', 'dark', 'inverted'];
-if (!in_array($theme, $allowed_themes, true)) {
-    $theme = 'default';
-}
-
-$theme_class    = $theme !== 'default' ? ' cta--' . $theme : '';
+// theme coercion + the deprecated 'dark' -> 'muted' alias live in pp_theme_class() (#442).
+$theme_class    = pp_theme_class($theme, 'cta');
 $bg_image_class = $background_image ? ' cta--has-bg-image' : '';
 
 // Style slot overrides (per-instance visual customization).

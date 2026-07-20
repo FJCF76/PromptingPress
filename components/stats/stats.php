@@ -16,12 +16,8 @@ $theme            = $props['theme']            ?? 'default';
 $items            = $props['items']            ?? [];
 $background_image = $props['background_image'] ?? '';
 
-$allowed_themes = ['default', 'dark', 'inverted'];
-if (!in_array($theme, $allowed_themes, true)) {
-    $theme = 'default';
-}
-
-$theme_class    = $theme !== 'default' ? ' stats--' . $theme : '';
+// theme coercion + the deprecated 'dark' -> 'muted' alias live in pp_theme_class() (#442).
+$theme_class    = pp_theme_class($theme, 'stats');
 $bg_image_class = $background_image ? ' stats--has-bg-image' : '';
 
 // Style slot overrides (per-instance visual customization).

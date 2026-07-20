@@ -186,6 +186,21 @@
 
         if (field.type === 'enum' && field.values) {
             h += '<select id="' + id + '" data-comp="' + compIdx + '" data-field="' + field.name + '">';
+            // A stored value that is no longer advertised (e.g. the deprecated
+            // theme value "dark", which the renderer still accepts as an alias of
+            // "muted", #442) is prepended as its own option so opening + re-saving
+            // an existing band round-trips it losslessly instead of silently
+            // snapping the <select> to its first option and mutating stored state.
+            // Guard the injection to a safe identifier charset: every real enum
+            // value is a lowercase slug, so legacy values still round-trip, but a
+            // malformed stored value is never reflected into the value="" attribute
+            // (esc() is text-safe but does not escape the double-quote used to close
+            // the attribute). A rejected value simply falls back to the default, which
+            // is no worse than the pre-#442 drop behavior.
+            var storedVal = (field.value === undefined || field.value === null) ? '' : String(field.value);
+            if (storedVal !== '' && field.values.indexOf(field.value) === -1 && /^[a-z0-9_-]+$/i.test(storedVal)) {
+                h += '<option value="' + esc(storedVal) + '" selected>' + esc(storedVal) + ' (legacy)</option>';
+            }
             field.values.forEach(function (v) {
                 var sel = v === field.value ? ' selected' : '';
                 h += '<option value="' + esc(v) + '"' + sel + '>' + esc(v) + '</option>';

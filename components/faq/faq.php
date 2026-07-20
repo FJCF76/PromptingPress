@@ -19,11 +19,8 @@ $items = $props['items'] ?? [];
 // default surface rather than emitting an unstyled `faq--<garbage>` class
 // (mirrors section.php / grid.php — composition validation does not check
 // enum values, so the render is the actual contract).
-$allowed_themes = ['default', 'dark', 'inverted'];
-if (!in_array($theme, $allowed_themes, true)) {
-    $theme = 'default';
-}
-$theme_class = $theme !== 'default' ? ' faq--' . $theme : '';
+// theme coercion + the deprecated 'dark' -> 'muted' alias live in pp_theme_class() (#442).
+$theme_class = pp_theme_class($theme, 'faq');
 
 // Style slot overrides (per-instance visual customization).
 $slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'faq');

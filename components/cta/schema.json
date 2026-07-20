@@ -51,10 +51,10 @@
     },
     "theme": {
       "type": "enum",
-      "values": ["default", "dark", "inverted"],
+      "values": ["default", "muted", "inverted"],
       "required": false,
       "default": "default",
-      "description": "Color theme. 'default' = surface/page background. 'dark' = dark surface. 'inverted' = inverted background for strong contrast. Combines with layout for structure + color."
+      "description": "Background color/tone for this band. 'default' = the band's own default background (no tone override). 'muted' = light tinted surface band (renders the --color-surface background with framing top and bottom borders). 'inverted' = inverted dark background for strong contrast; use 'inverted' for a genuinely dark band."
     },
     "background_image": {
       "type": "string",
