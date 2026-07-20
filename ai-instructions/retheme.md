@@ -128,6 +128,38 @@ image corners. It does not control button corners: buttons have their own
 alone. Setting `--radius` to a huge value to "pill buttons" is the wrong lever —
 it rounds every card and panel too, and no longer reaches the button at all.
 
+### The global button color tokens (defaults for the shared `.btn` primitive)
+
+The shared `.btn` base rule carries four registered color tokens, the button analog of
+`--btn-radius`. They are the DEFAULTS of the bare `.btn` primitive, set via
+`update_design_token`. Because each value equals the historical hard-coded fallback, an
+unset button renders byte-identically to before they existed.
+
+| Token | Default | Role on the base `.btn` |
+|-------|---------|-------------------------|
+| `--btn-bg` | `var(--color-accent)` | Fill |
+| `--btn-text` | `var(--color-bg)` | Label ink |
+| `--btn-border-color` | `var(--color-accent)` | Border (matches fill by default) |
+| `--btn-shadow` | `none` | Elevation (set a `--shadow-*` preset to lift) |
+
+**The `--btn-text` → `--color-bg` inversion coupling.** Button text defaults to the PAGE
+BACKGROUND token, not to `--color-text`. Buttons invert on purpose: the accent fill is
+dark relative to a light page, so the label uses the light page-background color to read
+on top of it. This coupling is the base `.btn` rule's literal fallback
+(`color: var(--btn-text, var(--color-bg))`), so changing `--color-bg` also moves the
+base button's ink unless you pin `--btn-text`. When you set a custom `--btn-bg`, check
+`--btn-text` still contrasts against it (≥ 4.5:1).
+
+> **These are baseline defaults, NOT a site-wide button-restyle knob.** On a composed
+> page every primary button renders inside `<main>`, where the premium `main .btn`
+> cascade (a higher-specificity rule) governs fill, border, ink, and shadow and routes
+> them through the per-component `--cta-button-*` / `--cta-accent` / `--hero-accent`
+> slots — NOT through `--btn-*`. So setting `--btn-bg` or `--btn-text` at `:root` does
+> not restyle the buttons on a normal page. To recolor buttons site-wide, change
+> `--color-accent` (every button fill bottoms out there) or the per-component slots
+> documented in `style-component.md`. The `--btn-*` tokens set the shared primitive's
+> defaults — the layer the premium cascade and per-instance slots sit on top of.
+
 ---
 
 ## Step 5 — Verify no raw hex remains in components.css

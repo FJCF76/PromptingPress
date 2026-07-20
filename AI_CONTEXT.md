@@ -366,7 +366,8 @@ Derived:    --color-text-secondary, --color-accent-strong, --color-border-accent
 Spacing:    --space-xs, --space-sm, --space-md, --space-lg, --space-xl, --space-2xl, --space-3xl
 Typography: --font-body, --font-heading, --font-weight-heading, --line-height-body, --line-height-heading,
             --font-mono
-Button:     --btn-padding-y, --btn-padding-x, --btn-radius
+Button:     --btn-padding-y, --btn-padding-x, --btn-radius,
+            --btn-bg, --btn-text, --btn-border-color, --btn-shadow
 Shape:      --radius, --max-width, --measure-body, --measure-body-wide, --measure-centered,
             --transition, --overlay-bg
 Elevation:  --shadow-none, --shadow-sm, --shadow-md, --shadow-lg

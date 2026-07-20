@@ -283,6 +283,17 @@ bevel and drop shadow on BOTH rest and hover (the `*-hover-*` slots override the
 state). Unset, all of these fall back to the premium look byte-identically -- they add the
 flat-button capability, not a new default.
 
+> **Per-instance vs site-wide.** The `--cta-button-*` slots above restyle ONE
+> component's button. The global `--btn-bg` / `--btn-text` / `--btn-border-color` /
+> `--btn-shadow` tokens (base.css, set via `update_design_token`) are the DEFAULTS of
+> the shared bare `.btn` primitive and the `--btn-text` → `--color-bg` inversion
+> coupling — not a site-wide button knob. On a composed page every primary button
+> renders inside `<main>`, where the premium `main .btn` cascade wins and routes
+> fill/border/ink/shadow through the `--cta-*` / `--hero-*` slots (or `--color-bg`),
+> NOT through `--btn-*`. So to recolor buttons on a page, use `--color-accent`
+> (every button fill bottoms out there) or the per-component slots above — the
+> `--btn-*` tokens are the primitive layer those sit on top of.
+
 **3. Tag a grid card's text with a typography role (an item field).**
 `text_role` lives on each item inside the grid's `items` array, not as a top-level
 prop. Patch the whole `items` array via `update_component` (a prop shallow-merge
