@@ -72,8 +72,8 @@
     "variant_classes": ["testimonials--stack", "testimonials--dark", "testimonials--inverted"],
     "tokens": ["--space-xl", "--space-2xl", "--space-3xl", "--color-bg", "--color-surface", "--color-border", "--color-bg-inverted"],
     "style_slots": {
-      "--testimonials-padding-top": { "type": "length", "default": "var(--space-xl)", "description": "Top padding of the section" },
-      "--testimonials-padding-bottom": { "type": "length", "default": "var(--space-xl)", "description": "Bottom padding of the section" },
+      "--testimonials-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
+      "--testimonials-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
       "--testimonials-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
       "--testimonials-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop); set an explicit length to override." },
       "--testimonials-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Heading text color" },
