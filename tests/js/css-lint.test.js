@@ -1716,6 +1716,29 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
         });
     });
 
+    // ---- Stats contained-card slots (issue 383) ----
+    // The band's radius + max-width must route through the slots with byte-identical
+    // unset fallbacks ('0' / 'none'), so an unset stats band stays full-bleed with
+    // square corners exactly as before 383. The rendered proof lives in style-render.spec.ts.
+    test('.stats radius + max-width route through --stats-radius / --stats-max-width', () => {
+        const bodies = bodiesForExactSelector('.stats');
+        expect(bodies.length).toBeGreaterThanOrEqual(1);
+        const radiusBodies = bodies.filter(b => /border-radius\s*:/.test(b));
+        const widthBodies = bodies.filter(b => /max-width\s*:/.test(b));
+        expect(radiusBodies.length).toBeGreaterThanOrEqual(1);
+        expect(widthBodies.length).toBeGreaterThanOrEqual(1);
+        radiusBodies.forEach(body => {
+            (body.match(/border-radius\s*:[^;}]+/g) || []).forEach(d => {
+                expect(d).toMatch(/border-radius\s*:\s*var\(\s*--stats-radius\s*,\s*0\s*\)/);
+            });
+        });
+        widthBodies.forEach(body => {
+            (body.match(/max-width\s*:[^;}]+/g) || []).forEach(d => {
+                expect(d).toMatch(/max-width\s*:\s*var\(\s*--stats-max-width\s*,\s*none\s*\)/);
+            });
+        });
+    });
+
     // ---- Own section/grid/cta padding (desktop + mobile) ----
     test('every .section padding declaration routes through --section-padding-*', () => {
         assertPropRoutesThroughSlot('.section', 'padding-top', '--section-padding-top', 2);

@@ -106,6 +106,15 @@ or a single-layer `box-shadow` (2-4 px/rem lengths plus an rgb/rgba/hsl/hsla col
 cta, and testimonials (card) components each expose namespaced `*-border-color`,
 `*-border-width`, `*-radius`, and `*-shadow` slots.
 
+The `stats` band exposes two of these framing slots — `--stats-radius` (length,
+default `0`) and `--stats-max-width` (length, default `none`) — for a **contained,
+rounded metrics card** (#383). Set both together: `--stats-max-width` caps the band
+and centers it with auto side margins, and `--stats-radius` rounds the band's
+background. Unset, the band spans full width with square corners exactly as before.
+To "remove" the max-width, set `100%` (the type has no `none` input) — the slot's
+`none` default is the built-in full-bleed. Stats does not expose `*-border-*` or
+`*-shadow` slots.
+
 The grid's **featured first-card treatment** (accent top bar, texture stripe, blue
 glow on card 1 of a cards-layout grid) is slot-controllable (#293):
 `--grid-card-bar-color`/`--grid-card-bar-height` pin one top bar on EVERY card

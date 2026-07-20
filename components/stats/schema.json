@@ -57,7 +57,9 @@
       "--stats-number-color": { "type": "color", "default": "var(--color-accent)", "description": "Stat number (large metric value) text color" },
       "--stats-number-size": { "type": "length", "default": "2.5rem", "description": "Stat number (large metric value) font size" },
       "--stats-label-color": { "type": "color", "default": "var(--color-muted)", "description": "Stat label text color" },
-      "--stats-bg-position": { "type": "position", "default": "center", "description": "background_image focal point" }
+      "--stats-bg-position": { "type": "position", "default": "center", "description": "background_image focal point" },
+      "--stats-radius": { "type": "length", "default": "0", "description": "Border radius of the stats band. Pair with --stats-max-width for a contained, rounded metrics card." },
+      "--stats-max-width": { "type": "length", "default": "none", "description": "Maximum width of the stats band. When set, the band is capped to this width and centered (auto side margins), producing a contained card; the default 'none' spans full width unchanged." }
     }
   },
   "safe_to_edit": ["stats.php", "../../assets/css/components.css (COMPONENT: stats section)"],
