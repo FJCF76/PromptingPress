@@ -54,8 +54,10 @@ surfaced by the same `stale_warnings` / `masked_derived_override` machinery as e
 other derived token (see below), so you are told when a base change may not reach it.
 
 **Surface-paired accent (the bg-image band).** A section/cta/stats band WITH a
-`background_image` lays a dark `rgba(0,0,0,.55)` overlay over an ARBITRARY image, so its
-accent (section/cta links, stats numbers) routes through a SEPARATE role,
+`background_image` — and a hero with `cover` layout + `image_url` — lays a dark
+`rgba(0,0,0,.55)` overlay over an ARBITRARY image, so EVERY accent surface on that band
+(section/cta links, stats numbers, the `title_accent` substring on all four, and section
+body list markers) routes through a SEPARATE role,
 `--color-accent-on-overlay` (default `#fafbff`), with `--color-accent-on-overlay-hover`
 (default `#ffffff`) for hover. This is NOT the same as `--color-accent-on-inverted`:
 on-inverted is tuned to the SOLID `--color-bg-inverted`, but the overlay sits over an
