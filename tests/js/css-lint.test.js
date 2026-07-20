@@ -787,6 +787,76 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
     });
 });
 
+describe('CSS lint: dark-band heading rules carve out the self-contained panel heading (#424)', () => {
+    // A text-panel is a light surface on a DARK band (inverted, or bg-image overlay).
+    // Its heading is `<h3 class="section__panel-heading">`, whose own rule (0,1,0)
+    // routes color through --section-panel-text. The dark-band heading rules paint
+    // ALL headings via a bare `h2,h3` selector (0,1,1) that outranks the panel rule,
+    // so the panel heading rendered in the band's LIGHT title color — light-on-light,
+    // invisible on the light panel (#424). The fix scopes each bare heading branch
+    // with :not(.section__panel-heading) so the panel's slot wins inside the panel.
+    //
+    // Asserting "the :not appears somewhere" is not enough: if a band rule kept a bare
+    // `h3` branch (no exclusion), the panel heading would regress while the suite stayed
+    // green. So for each dark-band variant, pin that EVERY heading-element branch that
+    // is not the shared `.section__title` carries the exclusion.
+    const stripped = stripComments(COMPONENTS_CSS);
+
+    const rules = [];
+    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+    let m;
+    while ((m = ruleRe.exec(stripped)) !== null) {
+        rules.push({ selector: m[1].trim(), body: m[2] });
+    }
+
+    // The two dark-band variants whose bare heading rule defeats the panel slot.
+    const DARK_BAND_VARIANTS = ['.pp-section--inverted', '.section--has-bg-image'];
+
+    DARK_BAND_VARIANTS.forEach((variant) => {
+        // The heading-color rule for this variant sets `color: var(--section-title-color, ...)`
+        // and targets the variant's headings. Find every rule that both scopes the variant
+        // and colours a heading through the title slot.
+        const headingRules = rules.filter((r) =>
+            r.selector.includes(variant) &&
+            /\bh[23]\b/.test(r.selector) &&
+            /color\s*:\s*var\(--section-title-color/.test(r.body)
+        );
+
+        test(`${variant} has a heading-color rule (guard is not vacuous)`, () => {
+            expect(headingRules.length).toBeGreaterThan(0);
+        });
+
+        // Every comma-part of that rule that targets a bare `h2`/`h3` element (i.e. not the
+        // `.section__title` class branch) must exclude `.section__panel-heading`.
+        test(`${variant} excludes .section__panel-heading from every bare h2/h3 branch`, () => {
+            const offenders = [];
+            headingRules.forEach((r) => {
+                r.selector.split(',').forEach((part) => {
+                    const p = part.trim();
+                    // Only heading-element branches are the trap; the `.section__title`
+                    // class branch legitimately has no bare element to carve out.
+                    if (!/\bh[23]\b/.test(p)) return;
+                    if (!/:not\(\.section__panel-heading\)/.test(p)) {
+                        offenders.push(p);
+                    }
+                });
+            });
+            expect(offenders).toEqual([]);
+        });
+    });
+
+    // The other half of the contract: the panel heading's OWN rule must route color
+    // through the panel slot, so once the band rule is carved out the panel heading
+    // resolves to the panel's (dark) text authority rather than an inherited light band.
+    test('.section__panel-heading colors through --section-panel-text', () => {
+        const rule = rules.find((r) =>
+            r.selector.split(',').some((s) => s.trim() === '.section__panel-heading')
+        );
+        expect(rule).toBeDefined();
+        expect(rule.body).toMatch(/color\s*:\s*var\(--section-panel-text\b/);
+    });
+});
+
 /**
  * Featured grid card honors the --grid-card-border style slot (#226).
  *
