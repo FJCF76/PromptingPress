@@ -2725,3 +2725,66 @@ describe('CSS lint: bg-image band accent routes through --color-accent-on-overla
         expect(BASE_CSS).toMatch(/--color-accent-on-overlay-hover:[^;]*;\s*\/\*\s*color:/);
     });
 });
+
+describe('CSS lint: bg-image band title-accent + markers route through --color-accent-on-overlay (#463)', () => {
+    // #461 routed the default LINK/NUMBER on the three bg-image bands through the overlay
+    // accent role. #463 closes the remaining bare-accent surfaces on those same overlay
+    // bands: the accented title substring (which paints its OWN color and does NOT inherit
+    // the near-white band title, so it hit --color-accent at 1.16:1), the section body list
+    // markers, and .hero--cover's title-accent (same --overlay-bg scrim idiom). Each default
+    // routes through --color-accent-on-overlay — NOT the bare accent (the 1.16:1 bug) and NOT
+    // --color-accent-on-inverted (tuned to the solid inverted bg). Per-instance slots still win.
+    const stripped = stripComments(COMPONENTS_CSS);
+    const rules = [];
+    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+    let m;
+    while ((m = ruleRe.exec(stripped)) !== null) {
+        rules.push({ selector: m[1].trim(), body: m[2] });
+    }
+    const rulesFor = (sel) => rules.filter(r => r.selector.split(',').some(s => s.trim() === sel));
+
+    // The four accented title substrings on overlay bands. Each carries its own `color`
+    // rule that must route slot → overlay role.
+    const TITLE_ROUTES = [
+        { sel: '.section--has-bg-image .section__title-accent', slot: '--section-title-accent-color' },
+        { sel: '.cta--has-bg-image .cta__title-accent', slot: '--cta-title-accent-color' },
+        { sel: '.stats--has-bg-image .stats__heading-accent', slot: '--stats-title-accent-color' },
+        { sel: '.hero--cover .hero__title-accent', slot: '--hero-title-accent-color' },
+    ];
+
+    TITLE_ROUTES.forEach(({ sel, slot }) => {
+        test(`${sel} routes through ${slot} then --color-accent-on-overlay`, () => {
+            const matches = rulesFor(sel);
+            expect(matches.length).toBeGreaterThan(0);
+            const re = new RegExp(
+                'color\\s*:\\s*var\\(\\s*' + slot.replace(/[-]/g, '\\-') +
+                '\\s*,\\s*var\\(\\s*\\-\\-color\\-accent\\-on\\-overlay\\s*\\)\\s*\\)'
+            );
+            expect(matches.some(r => re.test(r.body))).toBe(true);
+        });
+
+        // Regression guard: must NOT fall back to bare --color-accent or the inverted role.
+        test(`${sel} does not fall back to bare --color-accent or on-inverted`, () => {
+            const matches = rulesFor(sel);
+            expect(matches.length).toBeGreaterThan(0);
+            const rule = matches.find(r => /color\s*:/.test(r.body));
+            expect(rule).toBeDefined();
+            expect(rule.body).not.toMatch(/var\(\s*--color-accent\s*\)/);
+            expect(rule.body).not.toMatch(/--color-accent-on-inverted/);
+        });
+    });
+
+    // Section body list markers on the overlay band: --pp-list-marker-color is re-mapped
+    // to the overlay role. The selector also carries the near-white color rule, so find the
+    // declaration that actually assigns the marker variable.
+    test('.section--has-bg-image .section__content re-maps --pp-list-marker-color to the overlay role', () => {
+        const rule = rulesFor('.section--has-bg-image .section__content')
+            .find(r => /--pp-list-marker-color\s*:/.test(r.body));
+        expect(rule).toBeDefined();
+        expect(rule.body).toMatch(
+            /--pp-list-marker-color\s*:\s*var\(\s*--section-body-marker-color\s*,\s*var\(\s*--color-accent-on-overlay\s*\)\s*\)/
+        );
+        // Regression guard: the marker default must not be the bare accent (1.16:1) here.
+        expect(rule.body).not.toMatch(/--pp-list-marker-color\s*:\s*var\(\s*--section-body-marker-color\s*,\s*var\(\s*--color-accent\s*\)\s*\)/);
+    });
+});

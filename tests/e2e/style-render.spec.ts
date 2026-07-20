@@ -4812,6 +4812,169 @@ test.describe('#461 bg-image band accent contrast (rendered)', () => {
   });
 });
 
+test.describe('#463 bg-image band title-accent + markers contrast (rendered)', () => {
+  let pageId = 0;
+
+  test.afterEach(async () => {
+    if (pageId) {
+      try {
+        deletePage(pageId);
+      } catch {
+        /* already cleaned */
+      }
+      pageId = 0;
+    }
+  });
+
+  // #461 fixed links/numbers on the three bg-image bands. #463 closes the remaining
+  // bare-accent surfaces on the same dark overlay-over-image bands: the accented title
+  // substring (which paints its OWN color and does NOT inherit the near-white band
+  // title, so it hit --color-accent at 1.16:1), the section body list markers, and
+  // .hero--cover's title-accent (same --overlay-bg scrim idiom). Same worst-case method
+  // as #461: seed a WHITE background-image, read the rendered overlay's real rgba() and
+  // composite it over white(255) — the worst case for a light-tinted foreground.
+  const WHITE_PNG =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAFklEQVQImWP8//8/AwMDEwMDAwMDAwAkBgMBmjCi+wAAAABJRU5ErkJggg==';
+
+  const bands = () => [
+    {
+      component: 'section',
+      props: {
+        id: 'pp-ov463-sec',
+        background_image: WHITE_PNG,
+        title: 'Overlay accent heading',
+        title_accent: 'accent',
+        body_marker: 'check',
+        body: '<p>Body copy on the image band.</p><ul><li>First point</li><li>Second point</li></ul>',
+      },
+    },
+    {
+      component: 'cta',
+      props: {
+        id: 'pp-ov463-cta',
+        background_image: WHITE_PNG,
+        title: 'Overlay accent cta',
+        title_accent: 'accent',
+        text: 'Sign up before the deadline.',
+        button_text: 'Go',
+        button_url: '/signup',
+      },
+    },
+    {
+      component: 'stats',
+      props: {
+        id: 'pp-ov463-stats',
+        background_image: WHITE_PNG,
+        title: 'Overlay accent stats',
+        title_accent: 'accent',
+        items: [{ number: '42', label: 'Metric' }],
+      },
+    },
+    {
+      component: 'hero',
+      props: {
+        id: 'pp-ov463-hero',
+        layout: 'cover',
+        image_url: WHITE_PNG,
+        title: 'Overlay accent hero',
+        title_accent: 'accent',
+      },
+    },
+  ];
+
+  // Each accent surface: the selector, an optional ::before pseudo (list marker glyph),
+  // the per-instance slot the rule reads first, and the overlay whose rgba() sits behind it.
+  const SURFACES = [
+    { name: 'section title-accent', accent: '.section--has-bg-image .section__title-accent', pseudo: '', slot: '--section-title-accent-color', overlay: '.section--has-bg-image .section__overlay' },
+    { name: 'section list marker', accent: '.section--has-bg-image .section__content--marker-check > ul > li', pseudo: '::before', slot: '--section-body-marker-color', overlay: '.section--has-bg-image .section__overlay' },
+    { name: 'cta title-accent', accent: '.cta--has-bg-image .cta__title-accent', pseudo: '', slot: '--cta-title-accent-color', overlay: '.cta--has-bg-image .cta__overlay' },
+    { name: 'stats heading-accent', accent: '.stats--has-bg-image .stats__heading-accent', pseudo: '', slot: '--stats-title-accent-color', overlay: '.stats--has-bg-image .stats__overlay' },
+    { name: 'hero cover title-accent', accent: '.hero--cover .hero__title-accent', pseudo: '', slot: '--hero-title-accent-color', overlay: '.hero--cover .hero__overlay' },
+  ];
+
+  test('every bg-image title-accent + marker clears AA (4.5:1) over the overlay-over-white worst case @375 + @1280', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 463 overlay accent-span contrast');
+    setComposition(pageId, bands());
+
+    for (const width of [375, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      for (const s of SURFACES) {
+        await expect(page.locator(s.accent).first()).toBeVisible({ timeout: 10000 });
+
+        const res = await page.evaluate(
+          ({ accentSel, pseudo, overlaySel }) => {
+            const parseRgb = (str: string): number[] => (str.match(/[\d.]+/g) || []).map(Number);
+            const lum = (rgb: number[]): number => {
+              const f = (v: number) => {
+                v /= 255;
+                return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+              };
+              return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]);
+            };
+            const el = document.querySelector(accentSel);
+            const ov = document.querySelector(overlaySel);
+            if (!el || !ov) return { found: false, fg: [] as number[], comp: [] as number[], alpha: -1, ratio: 0 };
+            const fg = parseRgb(getComputedStyle(el, pseudo || undefined).color);
+            const o = parseRgb(getComputedStyle(ov).backgroundColor); // rgba(r,g,b,a)
+            const alpha = o.length >= 4 ? o[3] : 1;
+            const comp = [0, 1, 2].map((i) => alpha * (o[i] ?? 0) + (1 - alpha) * 255);
+            const L1 = lum(fg);
+            const L2 = lum(comp);
+            const ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+            return { found: true, fg, comp, alpha, ratio };
+          },
+          { accentSel: s.accent, pseudo: s.pseudo, overlaySel: s.overlay },
+        );
+
+        expect(res.found, `${s.name} or its overlay not found @${width}`).toBe(true);
+        // The overlay must actually be a translucent scrim (guards a vacuous pass).
+        expect(res.alpha, `${s.name} @${width}: overlay alpha ${res.alpha} is not the expected translucent scrim`).toBeGreaterThan(0);
+        expect(res.alpha).toBeLessThan(1);
+        expect(
+          res.ratio,
+          `${s.name} @${width}: fg=${JSON.stringify(res.fg)} overlay-over-white=${JSON.stringify(res.comp)} ratio=${res.ratio?.toFixed(2)} (need >= 4.5)`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
+  test('a per-instance slot wins over the on-overlay default on every accent surface @375 + @1280', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 463 overlay accent-span slot wins');
+    const SLOT = '#00e5ff'; // vivid cyan no token uses — a leak or clobber is obvious
+    const b = bands();
+    // Attach the per-instance style slot each surface's rule reads first. section band
+    // carries both its title-accent and its body-marker slot.
+    (b[0].props as Record<string, unknown>).__pp_style = {
+      '--section-title-accent-color': SLOT,
+      '--section-body-marker-color': SLOT,
+    };
+    (b[1].props as Record<string, unknown>).__pp_style = { '--cta-title-accent-color': SLOT };
+    (b[2].props as Record<string, unknown>).__pp_style = { '--stats-title-accent-color': SLOT };
+    (b[3].props as Record<string, unknown>).__pp_style = { '--hero-title-accent-color': SLOT };
+    setComposition(pageId, b);
+
+    for (const width of [375, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      for (const s of SURFACES) {
+        await expect(page.locator(s.accent).first()).toBeVisible({ timeout: 10000 });
+        const color = await page.evaluate(
+          ({ sel, pseudo }) => getComputedStyle(document.querySelector(sel)!, pseudo || undefined).color,
+          { sel: s.accent, pseudo: s.pseudo },
+        );
+        expect(color, `${s.name} @${width}: per-instance slot must win over the on-overlay default`).toBe('rgb(0, 229, 255)');
+      }
+    }
+  });
+});
+
 /*
  * #439 — a link in cta.text renders as a real anchor, not escaped source.
  *
