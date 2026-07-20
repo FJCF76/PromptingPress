@@ -2670,3 +2670,58 @@ describe('CSS lint: #441 global button token contract (consumed ⊆ registered�
         expect(okOrphans).toEqual([]);
     });
 });
+
+describe('CSS lint: bg-image band accent routes through --color-accent-on-overlay (#461)', () => {
+    // A bg-image band lays a dark rgba(0,0,0,.55) overlay over an ARBITRARY image.
+    // The light-surface accent (--color-accent) is only 1.16:1 over the overlay-over-
+    // white worst case and fails WCAG AA. #461 routes the default accent on ALL THREE
+    // bg-image variants (section link, cta body link, stats number) through the overlay
+    // accent role — NOT --color-accent-on-inverted (tuned to the solid inverted bg, not
+    // the arbitrary-image overlay). The per-instance slot must still win. These pins
+    // guard against a regression back to the bare accent OR to the inverted role.
+    const stripped = stripComments(COMPONENTS_CSS);
+    const rules = [];
+    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+    let m;
+    while ((m = ruleRe.exec(stripped)) !== null) {
+        rules.push({ selector: m[1].trim(), body: m[2] });
+    }
+    const ruleFor = (sel) => rules.find(r => r.selector.split(',').some(s => s.trim() === sel));
+
+    // Each entry: selector, the slot it must route through, and the overlay role fallback.
+    const ROUTES = [
+        { sel: '.section--has-bg-image a', slot: '--section-accent', role: '--color-accent-on-overlay' },
+        { sel: '.section--has-bg-image a:hover', slot: '--section-accent-hover', role: '--color-accent-on-overlay-hover' },
+        { sel: '.cta--has-bg-image .cta__body a', slot: '--cta-body-color', role: '--color-accent-on-overlay' },
+        { sel: '.cta--has-bg-image .cta__body a:hover', slot: '--cta-body-color', role: '--color-accent-on-overlay-hover' },
+        { sel: '.stats--has-bg-image .stats__number', slot: '--stats-number-color', role: '--color-accent-on-overlay' },
+    ];
+
+    ROUTES.forEach(({ sel, slot, role }) => {
+        test(`${sel} routes through ${slot} then ${role}`, () => {
+            const rule = ruleFor(sel);
+            expect(rule).toBeDefined();
+            const re = new RegExp(
+                'color\\s*:\\s*var\\(\\s*' + slot.replace(/[-]/g, '\\-') +
+                '\\s*,\\s*var\\(\\s*' + role.replace(/[-]/g, '\\-') + '\\s*\\)\\s*\\)'
+            );
+            expect(rule.body).toMatch(re);
+        });
+
+        // Regression guard: the bg-image accent must NOT fall back to the bare accent
+        // (the 1.16:1 bug) or the on-inverted role (wrong surface).
+        test(`${sel} does not fall back to bare --color-accent or on-inverted`, () => {
+            const rule = ruleFor(sel);
+            expect(rule).toBeDefined();
+            expect(rule.body).not.toMatch(/var\(\s*--color-accent\s*\)/);
+            expect(rule.body).not.toMatch(/--color-accent-on-inverted/);
+        });
+    });
+
+    // The overlay tokens must be declared in base.css with a type comment so the AI
+    // token validator can reason about them, exactly like the on-inverted pair.
+    test('base.css declares the overlay accent tokens with color type comments', () => {
+        expect(BASE_CSS).toMatch(/--color-accent-on-overlay:[^;]*;\s*\/\*\s*color:/);
+        expect(BASE_CSS).toMatch(/--color-accent-on-overlay-hover:[^;]*;\s*\/\*\s*color:/);
+    });
+});

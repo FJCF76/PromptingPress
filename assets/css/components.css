@@ -1258,8 +1258,18 @@
   color: var(--section-text, var(--color-bg));
 }
 
+/* The dark overlay makes this a dark surface over an arbitrary image, so the
+   light-surface accent (--color-accent) is only 1.16:1 over the overlay-over-white
+   worst case and fails WCAG AA. Route the default through the overlay accent role
+   (#461); an explicit --section-accent slot still wins. Mirrors the inverted-band
+   pattern above, but with the overlay role (on-inverted is tuned to the solid
+   inverted bg, not the arbitrary-image overlay). */
 .section--has-bg-image a {
-  color: var(--section-accent, var(--color-accent));
+  color: var(--section-accent, var(--color-accent-on-overlay));
+}
+
+.section--has-bg-image a:hover {
+  color: var(--section-accent-hover, var(--color-accent-on-overlay-hover));
 }
 
 /* ==========================================================================
@@ -2225,6 +2235,21 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   opacity: 0.85;
 }
 
+/* A cta__body link sits DIRECTLY on the dark overlay-over-image band. The light-
+   surface accent fails WCAG AA there, so its default routes through the overlay
+   accent role (#461), mirroring the .cta--inverted .cta__body a rule above but with
+   the overlay role (not on-inverted, which is tuned to the solid inverted bg). Reads
+   through the existing --cta-body-color slot first so the #61/#86 dark-surface-slot
+   contract holds; unset, it falls back to the AA on-overlay tint. Scoped to .cta__body
+   so the premium CTA button (owned by the main .btn cascade) is untouched. */
+.cta--has-bg-image .cta__body a {
+  color: var(--cta-body-color, var(--color-accent-on-overlay));
+}
+
+.cta--has-bg-image .cta__body a:hover {
+  color: var(--cta-body-color, var(--color-accent-on-overlay-hover));
+}
+
 
 /* ==========================================================================
    COMPONENT: footer
@@ -2556,7 +2581,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 .stats--has-bg-image .stats__number {
-  color: var(--stats-number-color, var(--color-accent));
+  /* Accent-colored number on the dark overlay-over-image band: the light-surface
+     accent is only 1.16:1 over the overlay-over-white worst case. Route the default
+     through the overlay accent role (#461, ≥4.5:1); an explicit --stats-number-color
+     slot still wins. on-inverted is tuned to the solid inverted bg, not this overlay. */
+  color: var(--stats-number-color, var(--color-accent-on-overlay));
 }
 
 .stats--has-bg-image .stats__label {

@@ -2060,6 +2060,15 @@ function pp_token_families(): array {
             // #386 stale-warning / masked-derived machinery like any other derived.
             '--color-accent-on-inverted'       => ['mix' => 'white', 'ratio' => 0.55],
             '--color-accent-on-inverted-hover' => ['mix' => 'white', 'ratio' => 0.70],
+            // On-overlay accent roles (#461): links/numbers on a bg-image band sit on a
+            // dark rgba(0,0,0,.55) overlay over an ARBITRARY image. The worst case is the
+            // overlay over pure white (rgb(115,115,115)), where the contrast ceiling for
+            // ANY foreground is 4.74:1 — so the default is mechanically near-white to clear
+            // AA (4.5:1). Derived by mixing accent almost fully toward white so a retheme's
+            // new accent still resolves to a near-white on-overlay tint; registered here so
+            // a pinned override that DIVERGES surfaces in the #386 machinery like on-inverted.
+            '--color-accent-on-overlay'        => ['mix' => 'white', 'ratio' => 0.976],
+            '--color-accent-on-overlay-hover'  => ['mix' => 'white', 'ratio' => 1.0],
         ],
         '--color-text' => [
             '--color-text-secondary' => ['mix' => 'white', 'ratio' => 0.20],
