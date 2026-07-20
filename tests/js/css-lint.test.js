@@ -2469,10 +2469,17 @@ describe('CSS lint: inverted dark-band links route through the on-inverted accen
     //    there stay on --color-accent (already AA on a light card). Routing them
     //    through the light on-inverted tint would drop them to ~2:1. The
     //    rendered-contrast E2E covers those directly.
-    //  - cta and testimonials render NO body-link `a` at all: cta__body and the
-    //    testimonials quote are esc_html, and neither declares a link/anchor prop.
-    //    The only inverted-cta anchor is the CTA button, owned by the premium
-    //    `main .btn` cascade. There is no dark-band link surface to remap on either.
+    //  - grid cards and the testimonials GRID layout keep their light card even on
+    //    the inverted band, so their body links stay on --color-accent (AA on the
+    //    light card). Routing them through the on-inverted tint would drop them to
+    //    ~2:1. The rendered-contrast E2E covers those directly.
+    //
+    // Since #439, cta.text and testimonials.quote render an inline-HTML subset
+    // (a/strong/em/br), so both CAN now carry a real body link. Where that link
+    // sits DIRECTLY on the dark band it must be remapped: cta__body always sits on
+    // the band, and the testimonials quote sits on the band in the STACK layout
+    // (transparent card). The CTA button (.cta__button) is untouched — the remap is
+    // scoped to .cta__body, and the premium `main .btn` cascade out-orders it anyway.
     const css = stripComments(COMPONENTS_CSS);
 
     // The dark-band inverted variants that actually render body-link markup
@@ -2482,6 +2489,9 @@ describe('CSS lint: inverted dark-band links route through the on-inverted accen
     const DARK_BAND_LINK_VARIANTS = [
         '.pp-section--inverted a',
         '.embed--inverted a',
+        // #439: inline-HTML supporting-text surfaces that sit directly on the dark band.
+        '.cta--inverted .cta__body a',
+        '.testimonials--inverted.testimonials--stack .testimonials__quote a',
     ];
 
     function ruleBody(selector) {

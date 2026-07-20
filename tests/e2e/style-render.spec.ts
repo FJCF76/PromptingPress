@@ -3865,10 +3865,12 @@ test.describe('Band heading scale (#436)', () => {
  *   - Inverted stats numbers (large accent text on the dark band) clear the 3:1
  *     large-text bar with the new default.
  *
- * Not seedable, documented: cta (cta__body is esc_html; the only anchor is the CTA
- * button, owned by the premium `main .btn` cascade) and testimonials (quote is
- * plain esc_html, no anchor in either grid or stack layout). Their structural
- * remaps are pinned by tests/js/css-lint.test.js instead.
+ * Since #439, cta.text and testimonials.quote render an inline-HTML subset, so a
+ * body link CAN now exist on them: the cta body link and the testimonials STACK
+ * quote link both sit on the dark band and are seeded here (contrast >= 4.5). The
+ * grid item-text link and the testimonials GRID quote stay on light cards (accent
+ * unchanged) — the grid item-text case is seeded as 'staysAccent'. Structural
+ * remaps are additionally pinned by tests/js/css-lint.test.js.
  */
 test.describe('#437 inverted link contrast (rendered)', () => {
   let pageId = 0;
@@ -3996,6 +3998,72 @@ test.describe('#437 inverted link contrast (rendered)', () => {
       mode: 'contrast',
       minRatio: 3.0,
     },
+    {
+      // #439: cta.text became an inline-HTML surface, so an inverted CTA can carry
+      // a real body link sitting directly on the dark band. It must reach AA.
+      name: 'cta body link on the dark band → on-inverted (AA)',
+      composition: [
+        {
+          component: 'cta',
+          props: {
+            id: 'pp-cta01',
+            theme: 'inverted',
+            title: 'Inverted cta',
+            text: 'Read our <a href="/terms">terms</a> before you sign up.',
+            button_text: 'Get started',
+            button_url: '/signup',
+          },
+        },
+      ],
+      linkSelector: '.cta--inverted .cta__body a',
+      mode: 'contrast',
+      minRatio: 4.5,
+    },
+    {
+      // #439: testimonials.quote became an inline-HTML surface. In the STACK layout
+      // the quote sits directly on the dark band (transparent card), so its link
+      // must reach AA. (The GRID layout keeps a light card — covered below.)
+      name: 'testimonials stack quote link on the dark band → on-inverted (AA)',
+      composition: [
+        {
+          component: 'testimonials',
+          props: {
+            id: 'pp-tst01',
+            theme: 'inverted',
+            layout: 'stack',
+            title: 'Inverted stack',
+            items: [
+              { quote: 'A great <a href="/case">case study</a> to read.', author: 'Ana' },
+            ],
+          },
+        },
+      ],
+      linkSelector: '.testimonials--inverted.testimonials--stack .testimonials__quote a',
+      mode: 'contrast',
+      minRatio: 4.5,
+    },
+    {
+      // #439: grid.items[].text became an inline-HTML surface, but the card stays a
+      // LIGHT surface even on the inverted band, so its link must STAY on
+      // --color-accent (already AA on the light card) — not be remapped to the dark
+      // on-inverted tint (which would drop to ~2:1 on the light card).
+      name: 'grid item-text link stays on --color-accent (light card, AA)',
+      composition: [
+        {
+          component: 'grid',
+          props: {
+            id: 'pp-grid02',
+            theme: 'inverted',
+            title: 'Inverted grid text',
+            items: [
+              { title: 'Card', text: 'See the <a href="/docs">docs</a> for details.' },
+            ],
+          },
+        },
+      ],
+      linkSelector: '.grid--inverted .grid__item-text a',
+      mode: 'staysAccent',
+    },
   ];
 
   for (const c of cases) {
@@ -4059,6 +4127,62 @@ test.describe('#437 inverted link contrast (rendered)', () => {
       }
     });
   }
+});
+
+/*
+ * #439 — a link in cta.text renders as a real anchor, not escaped source.
+ *
+ * Before #439 cta.text was esc_html, so `<a href=...>` written by the AI rendered
+ * as visible source code in the CTA band. This proves the upgraded prop now emits a
+ * working anchor and that no literal `<a` characters survive in the band's text.
+ */
+test.describe('#439 cta body link renders as an anchor (rendered)', () => {
+  let pageId = 0;
+
+  test.afterEach(async () => {
+    if (pageId) {
+      try {
+        deletePage(pageId);
+      } catch {
+        /* already cleaned */
+      }
+      pageId = 0;
+    }
+  });
+
+  test('seeded cta link is clickable, and script/javascript: payloads are stripped on real WP', async ({ page }) => {
+    pageId = createPage('E2E 439 cta link');
+    setComposition(pageId, [
+      {
+        component: 'cta',
+        props: {
+          id: 'pp-cta439',
+          title: 'Sign up',
+          // A legitimate link, plus hostile payloads that WordPress core wp_kses
+          // (the production sanitizer, not the unit-test stub) must neutralize.
+          text: 'Read our <a href="/terms">terms</a> first. <a href="javascript:alert(1)">x</a><script>alert(2)</script>',
+          button_text: 'Get started',
+          button_url: '/signup',
+        },
+      },
+    ]);
+    await page.goto(`/?page_id=${pageId}`);
+
+    const anchor = page.locator('#pp-cta439 .cta__body a').first();
+    await expect(anchor).toBeVisible({ timeout: 10000 });
+    await expect(anchor).toHaveAttribute('href', '/terms');
+    await expect(anchor).toHaveText('terms');
+
+    // The band's visible text must NOT contain the literal escaped-source `<a`.
+    const bandText = await page.locator('#pp-cta439 .cta__body').textContent();
+    expect(bandText ?? '').not.toContain('<a');
+
+    // Real-WP sanitization proof: no executable script tag and no javascript: URL
+    // survive in the rendered band markup.
+    const bandHtml = await page.locator('#pp-cta439 .cta__body').innerHTML();
+    expect(bandHtml.toLowerCase()).not.toContain('<script');
+    expect(bandHtml.toLowerCase()).not.toContain('javascript:');
+  });
 });
 
 /*

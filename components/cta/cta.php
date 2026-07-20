@@ -68,7 +68,10 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                 <?php endif; ?>
 
                 <?php if ($text) : ?>
-                    <p class="cta__body"><?php echo esc_html($text); ?></p>
+                    <?php // Inline-HTML supporting-text prop (#439): a link + light
+                          // emphasis (a/strong/em/br) is allowed and sanitized via
+                          // pp_kses_inline; block/script tags are stripped. ?>
+                    <p class="cta__body"><?php echo pp_kses_inline($text); ?></p>
                 <?php endif; ?>
             </div>
             <?php endif; ?>

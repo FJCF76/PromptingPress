@@ -2151,11 +2151,22 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   color: var(--cta-body-color, var(--color-bg));
   opacity: 0.85;
 }
-/* No .cta--inverted a link remap (issue 437): cta__body is esc_html, so an inverted
-   cta renders no body-link `a` — the only anchor is the CTA button, whose color is
-   owned by the premium `main .btn` cascade, not a link-color role. Adding a link
-   remap here would be dead CSS and, per the #61 dark-surface-slot contract, would
-   force a speculative --cta-link-color slot for a link that cannot exist. */
+/* cta__body became an inline-HTML surface in #439 (a/strong/em/br), so an inverted
+   CTA can now carry a real body link sitting DIRECTLY on the dark band. The light-
+   surface accent (--color-accent) is only 3.23:1 there and fails WCAG AA, so the
+   link's default routes through the on-inverted accent role (#437). It reads through
+   the existing --cta-body-color slot first so the #61/#86 dark-surface-slot contract
+   holds (an author fixes this instance's link colour via the safe --cta-body-color
+   surface, no late-cascade patch); unset, it falls back to the AA on-inverted tint.
+   Scoped to .cta__body so the premium CTA button (.cta__button, owned by the
+   `main .btn` cascade) is untouched. */
+.cta--inverted .cta__body a {
+  color: var(--cta-body-color, var(--color-accent-on-inverted));
+}
+
+.cta--inverted .cta__body a:hover {
+  color: var(--cta-body-color, var(--color-accent-on-inverted-hover));
+}
 
 /* CTA with background image */
 /* Same dark-overlay surface as .section--has-bg-image — same theme text default
@@ -2878,9 +2889,20 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 .testimonials--inverted.testimonials--stack .testimonials__author {
   color: var(--testimonials-author-color, var(--color-bg));
 }
-/* No inverted testimonials link remap (issue 437): the quote is esc_html plain text
-   and testimonials declares no link/anchor prop in either layout, so no body-link
-   `a` is ever rendered — there is no dark-band link surface to bring to AA here. */
+/* The quote became an inline-HTML surface in #439 (a/strong/em/br). In the STACK
+   layout on an inverted band the quote sits DIRECTLY on the dark band (the card bg
+   is transparent above), so a body link there fails WCAG AA on --color-accent
+   (3.23:1); route it through the on-inverted accent role (issue 437's pattern).
+   The GRID layout keeps its LIGHT .testimonials__item card, where the link stays on
+   --color-accent (already AA on the light card) — hence this remap is scoped to the
+   stack variant only. */
+.testimonials--inverted.testimonials--stack .testimonials__quote a {
+  color: var(--color-accent-on-inverted);
+}
+
+.testimonials--inverted.testimonials--stack .testimonials__quote a:hover {
+  color: var(--color-accent-on-inverted-hover);
+}
 
 /* ==========================================================================
    SHARED: Adjacent-Sibling Rhythm

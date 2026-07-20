@@ -12,7 +12,7 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional section heading above the stats row."
+      "description": "Optional section heading above the stats row. Plain text — HTML is escaped."
     },
     "title_accent": {
       "type": "string",
@@ -38,8 +38,8 @@
       "required": true,
       "description": "Array of stat items. Each: { number: string, label: string }.",
       "items": {
-        "number": { "type": "string", "required": true,  "description": "The metric value, e.g. '+30' or '100+'." },
-        "label":  { "type": "string", "required": true,  "description": "The metric label, e.g. 'Years of experience'." }
+        "number": { "type": "string", "required": true,  "description": "The metric value, e.g. '+30' or '100+'. Plain text — HTML is escaped." },
+        "label":  { "type": "string", "required": true,  "description": "The metric label, e.g. 'Years of experience'. Plain text — HTML is escaped." }
       }
     }
   },

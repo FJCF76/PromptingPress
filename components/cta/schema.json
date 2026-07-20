@@ -12,7 +12,7 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional CTA headline. Omit (along with text) to render a standalone button row with no heading element — the sanctioned heading-less button pattern (issue 294). id/anchor and all style slots still apply."
+      "description": "Optional CTA headline. Omit (along with text) to render a standalone button row with no heading element — the sanctioned heading-less button pattern (issue 294). id/anchor and all style slots still apply. Plain text — HTML is escaped."
     },
     "title_accent": {
       "type": "string",
@@ -24,18 +24,18 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional short kicker/label rendered as a pill above the title."
+      "description": "Optional short kicker/label rendered as a pill above the title. Plain text — HTML is escaped."
     },
     "text": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Supporting body text below the title."
+      "description": "Supporting body text below the title. Inline HTML allowed: a, strong, em, br."
     },
     "button_text": {
       "type": "string",
       "required": true,
-      "description": "Button label."
+      "description": "Button label. Plain text — HTML is escaped."
     },
     "button_url": {
       "type": "string",
