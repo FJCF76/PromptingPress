@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.4.8] — 2026-07-20 — the last three band components join the shared spacing contract, so table, logos, and embed bands stop rendering lopsided (#438)
+
+**Three band-level components — the data `table`, the `logos` strip, and the `embed` block — were the last holdouts that hardcoded their own 64px vertical padding instead of consuming the theme's shared band rhythm. So while every other band rendered as a symmetric, centered block, a table/logos/embed placed after another band rendered top-heavy (about 77px on top, 64px on the bottom at desktop) — the exact lopsided shape v1.4.5 removed everywhere else. They were also the only bands an AI couldn't tune through the documented `--*-padding-*` slots, because they had none. Now all nine band components share one spacing model and one styling surface: table, logos, and embed render symmetric padding by default, gain authorable padding and heading-color style slots, and are covered by the same structural and rendered-rhythm test suites as the other six, so this exclusion can't quietly return.**
+
+This is a deliberate change to unstyled output, the same trade v1.4.4/v1.4.5 made for the other six bands: the default vertical padding of an unstyled table, logos, or embed band grows from a flat 64px to the shared symmetric tier (roughly 68–80px on desktop, ~54px on mobile), so these bands line up with their neighbors instead of sitting shorter and off-balance. Nothing about how you configure pages changed — the new slots are all optional and default to the shared rhythm. Table, logos, and embed now expose `--table-section-padding-top/bottom`, `--logos-padding-top/bottom`, and `--embed-padding-top/bottom` to set a band's own edges, each of which also governs the band's adjacent-top edge, plus `--table-section-heading-color`, `--logos-heading-color`, and `--embed-heading-color` to recolor the band heading. (The table component's slots follow its root class `.table-section`, matching the `--table-section-heading-size` slot the component already shipped.) Unset, every one of these resolves to exactly the previous color and to the shared rhythm, so a page that sets none of them changes only in the deliberate padding retune above.
+
+### Fixed
+- The `table`, `logos`, and `embed` bands now take their default vertical rhythm from the shared band-padding definition instead of a hardcoded 64px literal, so an unstyled table/logos/embed placed after another band renders equal top and bottom padding at every breakpoint instead of the old top-heavy shape. All nine band components now share one spacing model (#438).
+
+### Added
+- Authorable `--table-section-padding-top/bottom`, `--logos-padding-top/bottom`, and `--embed-padding-top/bottom` style slots, so the vertical padding of the table, logos, and embed bands can be set per instance (own edges and adjacent-top edge) like the other six band components. Authorable `--table-section-heading-color`, `--logos-heading-color`, and `--embed-heading-color` slots recolor each band's heading, defaulting to the theme text color (and to the inverted-background text color on the `dark`/`inverted` variants) so unset output is unchanged. Total per-instance style slots: 209 across 10 components (#438).
+
+### Docs
+- `AI_CONTEXT.md` and `README.md` updated to the new 209-slot / 10-component totals (#438).
+
+### Tests
+- `tests/js/css-lint.test.js` widens the shared-band-rhythm structural suite from six to nine components (own-edge and adjacent-top routing for table, logos, embed), adds a schema-token truthfulness pin (every token a schema documents resolves to a consumed CSS variable), and pins the base and inverted-variant heading-color routing for the three components. `tests/e2e/style-render.spec.ts` widens the computed symmetry and cross-component equality suites to all nine bands at 1280 and 375, and adds render proof that `--table-section-padding-top`, `--logos-padding-top`, and `--embed-padding-top` each win on the adjacent-top edge at both breakpoints (#438).
+
 ## [v1.4.7] — 2026-07-20 — band headings share one responsive scale, so section/grid/CTA titles stop collapsing to body size on mobile (#436)
 
 **Below 768px the theme had no working default size for band headings: section, grid, and CTA titles rendered at 16px — exactly body size — on every default page, and CTA titles were body-sized at every breakpoint. The `font-size: var(--slot, inherit)` pattern behind those headings had no base value, so with no per-page override the heading silently inherited body text and the visual hierarchy vanished on phones. Now every band title (section, grid, cta, faq, stats, table, testimonials, logos, embed) draws its default size from one shared, fluid scale defined once in `base.css`, so headings scale down on small screens but never collapse into body copy, and headings at the same structural level render as peers.**
