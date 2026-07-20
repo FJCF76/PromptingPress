@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.5.3] — 2026-07-20 — the rest of the accent on a background-image band is readable now too: highlighted title words and list bullets clear WCAG AA over any image (#463)
+
+**v1.5.2 (#461) fixed the default link and stat number on a background-image band, but the other accent-colored things on the same dark scrim were left on the light-surface brand accent — only 1.16:1 over a bright photo, effectively invisible. The highlighted word inside a band heading (`title_accent`), the check/dash/arrow bullets in a section body list, and a full-cover hero's highlighted title word all now route their default through the same `--color-accent-on-overlay` role, so they stay legible no matter what image sits underneath. Set a per-instance color slot and it still wins, exactly as before, and a plain (non-image) band is untouched.**
+
+The accented substring inside a heading paints its own color, so it never inherited the near-white heading color the band already sets — it kept painting brand-blue straight onto the scrim at 1.16:1, failing even the 3:1 large-text bar. The same was true of a non-disc body list marker and of a `cover`-layout hero's title accent, which sits on the identical `--overlay-bg` scrim over an arbitrary image. All of these now fall back to `--color-accent-on-overlay` (near-white, ≥ 4.5:1 against the scrim-over-white worst case) introduced in #461, so no new color ships and the whole guarantee is uniform across every overlay band. Panel list markers stay on the bare accent because a background-image section's panel is a self-contained light surface, not on the scrim.
+
+### Fixed
+- The `title_accent` highlighted word on a `.section--has-bg-image`, `.cta--has-bg-image`, or `.stats--has-bg-image` band, and on a full-cover hero (`.hero--cover`), now routes its default through `--color-accent-on-overlay` instead of the light-surface `--color-accent`, so it clears WCAG AA over any background image rather than failing at 1.16:1. Section body list markers (check/dash/arrow) on an image band get the same readable default. Per-instance `--section-title-accent-color` / `--cta-title-accent-color` / `--stats-title-accent-color` / `--hero-title-accent-color` and `--section-body-marker-color` slots still win, and plain non-image bands render byte-identically (#463).
+
+### Docs
+- `ai-instructions/retheme.md` now states that every accent surface on a background-image band — links, stat numbers, the `title_accent` substring, and section body list markers — routes through `--color-accent-on-overlay`, and that a full-cover hero shares the same overlay-accent guarantee (#463).
+
+### Tests
+- The rendered Playwright E2E (`tests/e2e/style-render.spec.ts`) extends #461's contrast spec to the three title-accent spans, the section list marker glyph, and the hero-cover title accent, proving each clears 4.5:1 against the rendered scrim-over-white composite at 375px and 1280px and that a per-instance slot still wins. css-lint pins lock the routing on every surface and guard against a regression back to the bare accent or the inverted role (#463).
+
 ## [v1.5.2] — 2026-07-20 — links and stat numbers on background-image bands are readable again: a new overlay accent role clears WCAG AA over any image (#461)
 
 **A section, CTA, or stats band with a `background_image` lays a dark scrim over an arbitrary photo, and its default link (or stat number) used the light-surface brand accent — only 1.16:1 over the scrim when the photo is bright, effectively invisible and far below the WCAG AA 4.5:1 bar. Those bands now route their default accent through a new `--color-accent-on-overlay` role that is guaranteed readable no matter what image sits underneath. Set a per-instance color slot and it still wins, exactly as before.**
