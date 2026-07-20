@@ -26,6 +26,48 @@ Pass the same `run_id` to `preflight`, then to `execute`/`reset`, then to `resto
 
 ---
 
+## `wp pp operate inspect` — the INSPECT output
+
+`inspect` is the read-only INSPECT step of the operating loop: one call returns the whole operating picture and mints the run token. It never mutates the site (it does write a run-state row, the same as any `inspect` — see the run token above).
+
+```bash
+wp pp operate inspect
+wp pp operate inspect --post_id=42
+```
+
+**Options**
+
+- `--post_id=<id>` — include page-specific composition smells (and a page-level composition integrity check) for this post. Without it, the page-scoped fields (`smells`, `composition_decode_error`) stay at their empty/`null` defaults.
+
+**Output** — the operating picture as pretty JSON. Every top-level field `pp_inspect_site()` returns (`lib/operate.php`), plus the `run_id` the CLI appends (`PP_Operate_Command::inspect`, `lib/cli.php`):
+
+| Field | Shape | What it is |
+|---|---|---|
+| `target` | `{site_url, wp_root, theme_path, environment}` | The canonical mutation target, auto-resolved from WordPress state (`pp_get_target`). A field is `null` when it can't be resolved. |
+| `pages` | array of `{id, title, status, url}` | Every page using the Composition template (`composition.php`), any status, title-sorted (`pp_composition_pages`). |
+| `drift` | `{has_drift, modified, added, deleted}` (`error` added when the theme dir is unreadable) | Theme-file drift vs the deployment manifest (`pp_check_drift`). No manifest baseline ⇒ `has_drift:false` with empty arrays (it never creates one). |
+| `preflight` | `{ok, checks[]}` | A **site-grain** preflight snapshot computed with no planned files and no post (`pp_preflight`). This is advisory situational awareness — the gate that actually unlocks a mutation is `wp pp apply preflight --run-id=…`, not this. |
+| `tokens` | map of `--token` ⇒ `{value, type}` | Design tokens parsed from `base.css :root {}`, with the type from each token's structured comment (`pp_design_tokens`). |
+| `conflicts` | array of `{selector, component}` | WordPress Custom CSS selectors that target PP component classes (`pp_check_custom_css_conflicts`). Report-only; `[]` when there are none. |
+| `smells` | array of `{type, message, index}` | Page composition smells for `--post_id` (`pp_validate_composition_smells`): hero/layout/wall-of-text advisories, plus `template_owned_component` / `duplicate_component_id` on a page whose stored composition predates those rules. `[]` when no `--post_id` is given, the page's composition is empty, or the page is corrupt (a corrupt page is reported via `composition_decode_error`, not here). |
+| `token_smells` | array of `{type, base_token, token, current, expected, message}` | Masked derived-family overrides (#386, `pp_detect_masked_derived_smells`): a derived override (e.g. `--color-accent-strong`) that diverges from what its base (`--color-accent`) currently derives, so a base change won't show where the override applies. Always computed (site-scoped, independent of `--post_id`); `[]` on a coherently themed site. |
+| `composition_decode_error` | `null` \| `"decode_error"` \| `"unexpected_shape"` | Page composition **integrity** for `--post_id` (#144). Always present in the output; only ever non-`null` when `--post_id` names a page whose stored `_pp_composition` is corrupt rather than genuinely empty (see below). |
+| `run_id` | UUID v4 string | The run token this `inspect` minted, appended by the CLI. Pass it as `--run-id` to every mutating subcommand. |
+
+### `composition_decode_error` in detail (#144)
+
+A page with no composition and a page with a *corrupted* composition both look empty to a naive reader — the same `smells: []`. `composition_decode_error` tells them apart so an agent relying on INSPECT before a mutation is warned about data corruption instead of treating a broken row as a clean, blank page. It is set from the state-classifying decoder `pp_get_composition_result()` (`lib/wp.php`), the single owner of composition decode + classification:
+
+| Value | Meaning | When |
+|---|---|---|
+| `null` | No integrity problem. | No `--post_id`; or the page's `_pp_composition` is absent/blank (a genuinely empty page); or it decodes to a valid JSON list (a real composition). |
+| `"decode_error"` | The stored `_pp_composition` is present but **not decodable JSON** (truncated write, encoding bug, malformed UTF-8). | `--post_id` given and the raw row fails `json_decode`. |
+| `"unexpected_shape"` | The stored value **decodes but is not a list** — a JSON object or scalar, a non-string scalar meta, or an already-decoded non-list array. | `--post_id` given and the decoded value isn't a sequential-keyed list. |
+
+When it is non-`null`, `smells` is `[]` (the corrupt row can't be walked for smells) — read the integrity field, not the empty smell list, to decide the page is broken. The rendering paths are unaffected: `pp_get_composition()` still degrades any corrupt or non-list row to `[]`, so templates never fatal on a bad row; only these read/validate surfaces surface the distinction. `wp pp check page`, `wp pp validate site`, and `wp pp validate page` report the same integrity error rather than "no composition."
+
+---
+
 ## Subcommand summary
 
 | Subcommand | Mutates? | `--run-id` | Needs prior PREFLIGHT | Purpose |

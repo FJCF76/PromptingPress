@@ -119,6 +119,51 @@ describe('docs lint: the token-count guard is not decoration', () => {
     });
 });
 
+// The inspect field reference in docs/reference-apply-cli.md must name every
+// top-level field pp_inspect_site() returns (#216). The doc drifted once already:
+// #144 added composition_decode_error and it lived only in AI_CONTEXT.md until #216
+// backfilled the CLI reference. This pin extracts the keys from the source of truth
+// (the return array in lib/operate.php, plus the run_id the CLI appends in lib/cli.php)
+// so ADDING a field to inspect fails this test until the reference documents it —
+// the reference can't silently rot when the output shape grows.
+const OPERATE_PHP = read('lib/operate.php');
+const CLI_PHP = read('lib/cli.php');
+const APPLY_CLI_DOC = read('docs/reference-apply-cli.md');
+
+// Capture the `return [ ... ];` block inside pp_inspect_site() and pull the quoted
+// top-level keys (each line is `'key' => ...`). Anchored to the function so an
+// unrelated array literal elsewhere in the file can't leak keys in.
+const inspectReturnKeys = () => {
+    const fn = OPERATE_PHP.match(/function pp_inspect_site[\s\S]*?\n {4}return \[\n([\s\S]*?)\n {4}\];/);
+    if (!fn) return [];
+    return [...fn[1].matchAll(/^ {8}'([a-z_]+)'\s*=>/gm)].map((m) => m[1]);
+};
+
+// run_id is appended by the CLI command, not by pp_inspect_site(). Only count it
+// when the append line is actually present, so this stays tied to the code.
+const cliAppendsRunId = /\$result\['run_id'\]\s*=/.test(CLI_PHP);
+
+describe('docs lint: inspect field reference documents every pp_inspect_site() key (#216)', () => {
+    const keys = inspectReturnKeys();
+    const allKeys = cliAppendsRunId ? [...keys, 'run_id'] : keys;
+
+    test('the key extraction is not a no-op', () => {
+        // If the source shape or the regex changes so nothing is extracted, fail
+        // loudly instead of passing vacuously. These four must always be present.
+        expect(keys).toContain('target');
+        expect(keys).toContain('composition_decode_error');
+        expect(keys).toContain('token_smells');
+        expect(cliAppendsRunId).toBe(true);
+    });
+
+    test.each(allKeys.map((k) => [k]))(
+        'reference-apply-cli.md documents the `%s` inspect field',
+        (key) => {
+            expect(APPLY_CLI_DOC).toContain('`' + key + '`');
+        },
+    );
+});
+
 describe('docs lint: no stale #83 quarantine claim', () => {
     // #83 was resolved 2026-07-07 and the broken-media E2E is de-quarantined.
     // Scoped to a quarantine claim naming an issue, so a future legitimate

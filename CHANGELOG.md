@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.5.4] — 2026-07-20 — the full `wp pp operate inspect` field reference lands in the CLI docs, including `composition_decode_error` (#216)
+
+**`docs/reference-apply-cli.md` described `wp pp operate inspect` but only documented the appended `run_id` — the rest of the inspect JSON contract was undocumented in the CLI reference, and the corruption-vs-empty signal `composition_decode_error` (added in #144) lived only in `AI_CONTEXT.md`. The inspect section now carries a complete field table: every top-level field `pp_inspect_site()` returns (`target`, `pages`, `drift`, `preflight`, `tokens`, `conflicts`, `smells`, `token_smells`, `composition_decode_error`) plus the CLI-appended `run_id`, each with its shape and meaning, and a dedicated table for `composition_decode_error`'s `decode_error` / `unexpected_shape` / `null` cases. Documentation only — no output shape or behavior changed.**
+
+An agent inspecting a page before a mutation could not learn from the CLI reference how to tell a genuinely blank page apart from a corrupted one, or what the other inspect fields mean, without reading the source. The new reference enumerates the contract against `pp_inspect_site()` in `lib/operate.php` (the source of truth), so `composition_decode_error` is documented alongside `smells` with the precise rule: a corrupt row surfaces `decode_error` or `unexpected_shape` (never a misleading empty smell list), while an absent, blank, or valid page reads `null`. A doc-drift test pins the reference to the code, so adding a field to inspect now fails CI until the reference documents it.
+
+### Docs
+- `docs/reference-apply-cli.md` gains a `wp pp operate inspect` section with a full field-reference table for every top-level `pp_inspect_site()` field (`lib/operate.php`) plus the CLI-appended `run_id`, and a detail table documenting `composition_decode_error`'s `decode_error` / `unexpected_shape` / `null` semantics against the `pp_get_composition_result()` decode contract (`lib/wp.php`) (#216).
+
+### Tests
+- A doc-drift pin in `tests/js/docs-lint.test.js` extracts the top-level keys from `pp_inspect_site()`'s return array (plus the `run_id` the CLI appends in `lib/cli.php`) and asserts `docs/reference-apply-cli.md` names each one, with a no-op guard so a broken extraction fails loudly instead of passing vacuously — the reference can no longer silently rot when the inspect output shape grows (#216).
+
 ## [v1.5.3] — 2026-07-20 — the rest of the accent on a background-image band is readable now too: highlighted title words and list bullets clear WCAG AA over any image (#463)
 
 **v1.5.2 (#461) fixed the default link and stat number on a background-image band, but the other accent-colored things on the same dark scrim were left on the light-surface brand accent — only 1.16:1 over a bright photo, effectively invisible. The highlighted word inside a band heading (`title_accent`), the check/dash/arrow bullets in a section body list, and a full-cover hero's highlighted title word all now route their default through the same `--color-accent-on-overlay` role, so they stay legible no matter what image sits underneath. Set a per-instance color slot and it still wins, exactly as before, and a plain (non-image) band is untouched.**
