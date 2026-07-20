@@ -2331,4 +2331,36 @@ class ComponentPropsTest extends TestCase
         $html = $this->render('faq', ['title' => 'FAQ', 'items' => []]);
         $this->assertStringNotContainsString('application/ld+json', $html);
     }
+
+    public function testFaqComponentPlacesJsonLdInsideSection(): void
+    {
+        // #432: the JSON-LD <script> must render INSIDE the faq <section>, not as
+        // a trailing sibling after </section>. A script emitted after </section>
+        // becomes the previous element sibling of the next band, so the
+        // `main > [data-pp-component] + .band` adjacent-sibling rhythm misses that
+        // band. Assert the script tag appears BEFORE the closing </section>.
+        $html = $this->render('faq', $this->faqProps());
+
+        $scriptPos = strpos($html, '<script type="application/ld+json">');
+        $closePos  = strrpos($html, '</section>');
+        $this->assertNotFalse($scriptPos, 'faq must emit the JSON-LD script when items are present.');
+        $this->assertNotFalse($closePos, 'faq must render a closing </section>.');
+        $this->assertLessThan(
+            $closePos,
+            $scriptPos,
+            'JSON-LD <script> must be inside the <section> (before </section>), not a trailing sibling.'
+        );
+
+        // The section is the LAST element: nothing follows </section> except
+        // trailing whitespace, so no non-component sibling can break the `+` rhythm.
+        $this->assertSame('', trim(substr($html, $closePos + strlen('</section>'))),
+            'Nothing may follow </section> — a trailing node breaks adjacent-sibling rhythm (#432).');
+
+        // Schema content is unchanged by the move.
+        preg_match('#<script type="application/ld\+json">(.*)</script>#s', $html, $m);
+        $schema = json_decode($m[1], true);
+        $this->assertSame('FAQPage', $schema['@type']);
+        $this->assertSame('Q?', $schema['mainEntity'][0]['name']);
+        $this->assertSame('A.', $schema['mainEntity'][0]['acceptedAnswer']['text']);
+    }
 }

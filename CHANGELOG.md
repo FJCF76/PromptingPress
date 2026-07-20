@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.4.10] — 2026-07-20 — a band placed right after an FAQ picks up the normal between-band spacing again (#432)
+
+**Every band-level component that follows another band gets a tighter, tuned top edge so stacked sections read as evenly spaced blocks. One placement quietly missed out: a band placed immediately after an FAQ. The FAQ component emits an invisible FAQPage structured-data `<script>` tag for search engines, and it was being written just after the FAQ section rather than inside it. That stray tag sat between the FAQ and the next band, and the between-band spacing rule only reaches a band whose immediate previous neighbor is another band — so the band after an FAQ fell back to its own larger top padding. The script now lives inside the FAQ section, so the FAQ is once again the next band's immediate neighbor and the spacing rule applies. Search-engine output is unchanged: the same FAQ rich-result markup is still emitted, just one line earlier in the document, which Google reads identically.**
+
+The structured-data script is metadata that is valid anywhere in the page body, so moving it inside the FAQ section has no SEO cost and no visible effect of its own. The spacing difference was masked on current default pages because the between-band top tier is presently pinned equal to a band's own top tier, so the two resolved to the same value — but the selector was still missing the band, so any future retune of the between-band tier, or any per-band top-padding override on the band after an FAQ, would have silently taken the wrong path. This restores the correct path.
+
+### Fixed
+- The FAQPage JSON-LD `<script>` now renders inside the FAQ `<section>` instead of as a trailing sibling after it, so a band-level component placed immediately after an FAQ receives the shared adjacent-top rhythm (and honors its own `--*-padding-top` override on that edge) exactly like a band placed after any other band (#432).
+
+### Tests
+- `tests/ComponentPropsTest.php` asserts the rendered FAQ places its JSON-LD script before `</section>` with nothing following the section, and that the schema payload is unchanged. `tests/e2e/style-render.spec.ts` adds a band-after-FAQ suite that un-pins the two shared spacing tiers and proves the band after an FAQ resolves the adjacent-top tier at 1280px (its own tier on mobile), and confirms the script is no longer an element sibling of the following band. The obsolete "keep faq last" workaround comments in the #430/#431/#436 suites were removed (#432).
+
 ## [v1.4.9] — 2026-07-20 — a compact or spacious hero placed after another band renders even top and bottom padding on mobile again (#434)
 
 **A hero carrying `spacing: compact` or `spacing: spacious` is supposed to read as a centered block: the same padding on top as on the bottom. That held on desktop, but on phones (viewports up to 767px) it broke whenever the hero followed another band. The top edge got shaved down to the normal between-band rhythm while the bottom kept the full spacing value, so a spacious hero rendered about 54px on top and 112px on the bottom — visibly bottom-heavy. Now the explicit spacing override wins both edges at every breakpoint, exactly as it always did on desktop, so a spaced hero is symmetric no matter where it sits on the page.**
