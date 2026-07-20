@@ -3804,3 +3804,219 @@ test.describe('Band heading scale (#436)', () => {
     expect(new Set(sizes).size, `band heading drift on webfiable shape @375: ${JSON.stringify(sizes)}`).toBe(1);
   });
 });
+
+/**
+ * #437 — inverted-band link contrast (rendered proof).
+ *
+ * The default light-surface accent (--color-accent #3157f4) measures only 3.23:1
+ * on the dark inverted band (--color-bg-inverted #0f172a) and fails WCAG AA for
+ * body text. This suite seeds a real link in every inverted variant that can render
+ * one and asserts the COMPUTED contrast of the link against its actual rendered
+ * background — the stronger, surface-aware check the css-lint structural test can't
+ * make. Two truths must both hold, at 375 (mobile) and 1280 (desktop):
+ *
+ *   - Dark-band body links (section body, embed content) route through
+ *     --color-accent-on-inverted (#9dafee, ~8.3:1) → AA (>= 4.5:1).
+ *   - Light-card links (grid card link, faq answer on the light .faq__item) STAY on
+ *     --color-accent (unchanged) → still AA on the light card (~4.7:1). A naive
+ *     "remap every inverted variant" would have dropped these to ~2:1; this proves
+ *     the surface-aware scope did not touch them.
+ *
+ *   - Inverted stats numbers (large accent text on the dark band) clear the 3:1
+ *     large-text bar with the new default.
+ *
+ * Not seedable, documented: cta (cta__body is esc_html; the only anchor is the CTA
+ * button, owned by the premium `main .btn` cascade) and testimonials (quote is
+ * plain esc_html, no anchor in either grid or stack layout). Their structural
+ * remaps are pinned by tests/js/css-lint.test.js instead.
+ */
+test.describe('#437 inverted link contrast (rendered)', () => {
+  let pageId = 0;
+
+  test.afterEach(async () => {
+    if (pageId) {
+      try {
+        deletePage(pageId);
+      } catch {
+        /* already cleaned */
+      }
+      pageId = 0;
+    }
+  });
+
+  // Two assertion modes:
+  //  - 'contrast': compute the WCAG ratio against the link's rendered background and
+  //    require >= minRatio. Used where the surface is a solid painted color the probe
+  //    can read (the dark band; faq's solid light panel).
+  //  - 'staysAccent': assert the link keeps the light-surface accent (rgb(49,87,244)),
+  //    proving the surface-aware scope did NOT remap it. Used for grid, whose card
+  //    background is a subtle GRADIENT (main > .grid:not(.grid--steps) .grid__item) —
+  //    its computed background-color is transparent, so a color-vs-background probe
+  //    can't see the light card and would misread the dark band behind it. Accent on
+  //    the light card is a documented-AA pairing (~4.7:1); the regression risk this
+  //    guards is the link being remapped to the light on-inverted tint (~2:1), which a
+  //    color-identity check catches exactly.
+  type Case = {
+    name: string;
+    composition: unknown[];
+    linkSelector: string;
+    mode: 'contrast' | 'staysAccent';
+    minRatio?: number;
+    openDetails?: boolean;
+  };
+  const ACCENT_RGB = [49, 87, 244]; // --color-accent #3157f4, default palette
+
+  const cases: Case[] = [
+    {
+      name: 'section body link on the dark band → on-inverted (AA)',
+      composition: [
+        {
+          component: 'section',
+          props: {
+            id: 'pp-sec01',
+            theme: 'inverted',
+            title: 'Inverted section',
+            body: '<p>Body copy with an inline <a href="/somewhere">text link</a> to prove contrast.</p>',
+          },
+        },
+      ],
+      linkSelector: '.pp-section--inverted .section__content a',
+      mode: 'contrast',
+      minRatio: 4.5,
+    },
+    {
+      name: 'embed content link on the dark band → on-inverted (AA)',
+      composition: [
+        {
+          component: 'embed',
+          props: {
+            id: 'pp-embed01',
+            theme: 'inverted',
+            heading: 'Inverted embed',
+            content: '<p>Embedded copy with an <a href="/somewhere">embed link</a>.</p>',
+          },
+        },
+      ],
+      linkSelector: '.embed--inverted a',
+      mode: 'contrast',
+      minRatio: 4.5,
+    },
+    {
+      name: 'grid card link stays on --color-accent (light card, AA)',
+      composition: [
+        {
+          component: 'grid',
+          props: {
+            id: 'pp-grid01',
+            theme: 'inverted',
+            title: 'Inverted grid',
+            items: [
+              { title: 'Card', text: 'Card body', link_url: '/somewhere', link_text: 'card link' },
+            ],
+          },
+        },
+      ],
+      linkSelector: '.grid--inverted .grid__item-link',
+      mode: 'staysAccent',
+    },
+    {
+      name: 'faq answer link stays on --color-accent (light panel, AA)',
+      composition: [
+        {
+          component: 'faq',
+          props: {
+            id: 'pp-faq01',
+            theme: 'inverted',
+            title: 'Inverted faq',
+            items: [
+              { question: 'Question?', answer: '<p>Answer with a <a href="/somewhere">faq link</a>.</p>' },
+            ],
+          },
+        },
+      ],
+      linkSelector: '.faq--inverted .faq__answer a',
+      mode: 'contrast',
+      minRatio: 4.5,
+      openDetails: true,
+    },
+    {
+      name: 'stats number on the dark band clears the 3:1 large-text bar',
+      composition: [
+        {
+          component: 'stats',
+          props: {
+            id: 'pp-stats01',
+            theme: 'inverted',
+            title: 'Inverted stats',
+            items: [{ number: '42', label: 'Metric' }],
+          },
+        },
+      ],
+      linkSelector: '.stats--inverted .stats__number',
+      mode: 'contrast',
+      minRatio: 3.0,
+    },
+  ];
+
+  for (const c of cases) {
+    test(`${c.name} @375 + @1280`, async ({ page }) => {
+      pageId = createPage(`E2E 437 ${c.name}`);
+      setComposition(pageId, c.composition);
+
+      for (const width of [375, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`/?page_id=${pageId}`);
+        if (c.openDetails) {
+          await page.locator('.faq__item').first().evaluate((el: HTMLDetailsElement) => {
+            el.open = true;
+          });
+        }
+        await expect(page.locator(c.linkSelector).first()).toBeVisible({ timeout: 10000 });
+        // WCAG relative-luminance contrast of the link's computed text color against
+        // its EFFECTIVE background — walk ancestors past transparent links/wrappers to
+        // the first painted surface (the dark band or the light card).
+        const res = await page.evaluate((selector) => {
+          const parseRgb = (s: string): number[] => (s.match(/[\d.]+/g) || []).map(Number);
+          const lum = (rgb: number[]): number => {
+            const f = (v: number) => {
+              v /= 255;
+              return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+            };
+            return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]);
+          };
+          const el = document.querySelector(selector);
+          if (!el) return { found: false, fg: [] as number[], bg: [] as number[], ratio: 0 };
+          const fg = parseRgb(getComputedStyle(el).color);
+          let node: Element | null = el;
+          let bg: number[] | null = null;
+          while (node) {
+            const p = parseRgb(getComputedStyle(node).backgroundColor);
+            // Opaque enough to be the painted surface (alpha undefined => opaque).
+            if (p.length >= 3 && (p.length < 4 || p[3] > 0.5)) {
+              bg = p;
+              break;
+            }
+            node = node.parentElement;
+          }
+          if (!bg) bg = [255, 255, 255];
+          const L1 = lum(fg);
+          const L2 = lum(bg);
+          const ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+          return { found: true, fg, bg, ratio };
+        }, c.linkSelector);
+        expect(res.found, `${c.linkSelector} not found @${width}`).toBe(true);
+        if (c.mode === 'staysAccent') {
+          expect(
+            res.fg,
+            `${c.name} @${width}: link color ${JSON.stringify(res.fg)} was remapped off --color-accent ${JSON.stringify(ACCENT_RGB)} (light-card link must stay accent)`,
+          ).toEqual(ACCENT_RGB);
+        } else {
+          expect(
+            res.ratio,
+            `${c.name} @${width}: fg=${JSON.stringify(res.fg)} bg=${JSON.stringify(res.bg)} ratio=${res.ratio?.toFixed(2)} (need >= ${c.minRatio})`,
+          ).toBeGreaterThanOrEqual(c.minRatio as number);
+        }
+      }
+    });
+  }
+});
