@@ -128,37 +128,44 @@ image corners. It does not control button corners: buttons have their own
 alone. Setting `--radius` to a huge value to "pill buttons" is the wrong lever —
 it rounds every card and panel too, and no longer reaches the button at all.
 
-### The global button color tokens (defaults for the shared `.btn` primitive)
+### The global button color tokens (the site-wide button surface)
 
-The shared `.btn` base rule carries four registered color tokens, the button analog of
-`--btn-radius`. They are the DEFAULTS of the bare `.btn` primitive, set via
-`update_design_token`. Because each value equals the historical hard-coded fallback, an
-unset button renders byte-identically to before they existed.
+The shared button system carries four registered color tokens, the button analog of
+`--btn-radius`, set via `update_design_token`. They are a REAL site-wide restyle knob: the
+premium `main .btn` primary cascade (and the `.cta`/`.hero` primary rules) route their
+fill, border, ink, and shadow fallbacks through these tokens (#458), so setting one at
+`:root` restyles EVERY composed primary button — the section-panel CTA, the CTA-block
+button, and the hero button alike. Three of the four register as `initial` (unset), so each
+consuming rule resolves its own literal until you set the token; an unset button therefore
+renders byte-identically to today.
 
-| Token | Default | Role on the base `.btn` |
-|-------|---------|-------------------------|
-| `--btn-bg` | `var(--color-accent)` | Fill |
-| `--btn-text` | `var(--color-bg)` | Label ink |
-| `--btn-border-color` | `var(--color-accent)` | Border (matches fill by default) |
-| `--btn-shadow` | `none` | Elevation (set a `--shadow-*` preset to lift) |
+| Token | Set it to… | Reaches | Effective default when unset |
+|-------|-----------|---------|------------------------------|
+| `--btn-bg` | recolor every button fill | bare `.btn`, `.cta`/`.hero` primary, premium `main .btn` primary | `--color-accent` (bare) / accent gradient (composed primary) |
+| `--btn-text` | recolor every button label ink | every button ink rule | `var(--color-bg)` (registered, the inversion coupling below) |
+| `--btn-border-color` | recolor every button border | bare `.btn`, `.cta`/`.hero`, premium primary | `--color-accent` (bare/`.cta`/`.hero`) / `--color-accent-strong` (premium) |
+| `--btn-shadow` | change every button's elevation (a `--shadow-*` preset, or `none` to flatten) | bare `.btn`, premium primary | `none` (bare) / premium bevel (composed primary) |
+
+**Per-component slots still win.** `--btn-*` sits BETWEEN the per-component slots
+(`--cta-button-*`, `--cta-accent`, `--hero-accent`) and the literal fallback. A component
+that sets its own slot keeps overriding the global token, so a site-wide `--btn-bg` recolors
+every button that has not been individually restyled. (Resting state only — hover keeps its
+own `--*-hover-*` slots and its accent-derived default; set those to control hover.)
+
+**Fill and border are independent knobs.** `--btn-bg` recolors the fill; `--btn-border-color`
+recolors the border. On `.cta`/`.hero` primaries an unset border follows the fill (so a
+recolored `--btn-bg` alone keeps a matching ring), but the plain `main .btn` primary (e.g.
+the section-panel CTA) keeps its own `--color-accent-strong` border until you set
+`--btn-border-color` — matching the bare `.btn` primitive, where fill and border are separate.
+Set both when recoloring buttons site-wide so every context stays consistent.
 
 **The `--btn-text` → `--color-bg` inversion coupling.** Button text defaults to the PAGE
 BACKGROUND token, not to `--color-text`. Buttons invert on purpose: the accent fill is
 dark relative to a light page, so the label uses the light page-background color to read
-on top of it. This coupling is the base `.btn` rule's literal fallback
-(`color: var(--btn-text, var(--color-bg))`), so changing `--color-bg` also moves the
-base button's ink unless you pin `--btn-text`. When you set a custom `--btn-bg`, check
-`--btn-text` still contrasts against it (≥ 4.5:1).
-
-> **These are baseline defaults, NOT a site-wide button-restyle knob.** On a composed
-> page every primary button renders inside `<main>`, where the premium `main .btn`
-> cascade (a higher-specificity rule) governs fill, border, ink, and shadow and routes
-> them through the per-component `--cta-button-*` / `--cta-accent` / `--hero-accent`
-> slots — NOT through `--btn-*`. So setting `--btn-bg` or `--btn-text` at `:root` does
-> not restyle the buttons on a normal page. To recolor buttons site-wide, change
-> `--color-accent` (every button fill bottoms out there) or the per-component slots
-> documented in `style-component.md`. The `--btn-*` tokens set the shared primitive's
-> defaults — the layer the premium cascade and per-instance slots sit on top of.
+on top of it. This coupling is the ink rule's literal fallback
+(`color: var(--cta-button-color, var(--btn-text, var(--color-bg)))`), so changing
+`--color-bg` also moves button ink unless you pin `--btn-text`. When you set a custom
+`--btn-bg`, check `--btn-text` still contrasts against it (≥ 4.5:1).
 
 ---
 

@@ -128,13 +128,16 @@ class ActionsTest extends TestCase
         $this->assertSame('color', $tokens['--btn-border-color']['type']);
         $this->assertSame('shadow', $tokens['--btn-shadow']['type']);
 
-        // Registered values equal the historical fallbacks, so unset buttons render
-        // byte-identically. --btn-text's default is the PAGE background token — the
-        // intentional inversion coupling (#441).
-        $this->assertSame('var(--color-accent)', $tokens['--btn-bg']['value']);
+        // #458 rerouted the premium/.cta/.hero primary-button cascade through --btn-*, so the
+        // fill/border/shadow tokens register as `initial` (unset-by-default knobs): each
+        // consuming rule resolves its own literal until the token is set, keeping unset output
+        // byte-identical while a SET token restyles every composed primary. --btn-text keeps
+        // its concrete default (its value equals the universal ink literal, the intentional
+        // --color-bg inversion coupling), so it stays discoverable AND overridable.
+        $this->assertSame('initial', $tokens['--btn-bg']['value']);
         $this->assertSame('var(--color-bg)', $tokens['--btn-text']['value']);
-        $this->assertSame('var(--color-accent)', $tokens['--btn-border-color']['value']);
-        $this->assertSame('none', $tokens['--btn-shadow']['value']);
+        $this->assertSame('initial', $tokens['--btn-border-color']['value']);
+        $this->assertSame('initial', $tokens['--btn-shadow']['value']);
     }
 
     public function testPpSiteOptionRejectsUnwhitelistedKey(): void
