@@ -106,6 +106,37 @@ class ActionsTest extends TestCase
         $this->assertArrayHasKey('--font-body', $tokens);
     }
 
+    /**
+     * #441: the global button color surface is part of the public token contract.
+     * Registering the four tokens in base.css's first :root block exposes them
+     * through pp_design_tokens() (and therefore to the AI via lib/ai-context.php)
+     * with the correct annotated types, so a rethemer can discover the one-knob
+     * button surface instead of falling back to per-component --cta-button-* rescues.
+     */
+    public function testPpDesignTokensExposesGlobalButtonSurface(): void
+    {
+        $tokens = pp_design_tokens();
+
+        $this->assertArrayHasKey('--btn-bg', $tokens);
+        $this->assertArrayHasKey('--btn-text', $tokens);
+        $this->assertArrayHasKey('--btn-border-color', $tokens);
+        $this->assertArrayHasKey('--btn-shadow', $tokens);
+
+        // Types are derived from the annotated /* type: ... */ comments.
+        $this->assertSame('color', $tokens['--btn-bg']['type']);
+        $this->assertSame('color', $tokens['--btn-text']['type']);
+        $this->assertSame('color', $tokens['--btn-border-color']['type']);
+        $this->assertSame('shadow', $tokens['--btn-shadow']['type']);
+
+        // Registered values equal the historical fallbacks, so unset buttons render
+        // byte-identically. --btn-text's default is the PAGE background token — the
+        // intentional inversion coupling (#441).
+        $this->assertSame('var(--color-accent)', $tokens['--btn-bg']['value']);
+        $this->assertSame('var(--color-bg)', $tokens['--btn-text']['value']);
+        $this->assertSame('var(--color-accent)', $tokens['--btn-border-color']['value']);
+        $this->assertSame('none', $tokens['--btn-shadow']['value']);
+    }
+
     public function testPpSiteOptionRejectsUnwhitelistedKey(): void
     {
         $result = pp_site_option('admin_email');

@@ -2554,3 +2554,108 @@ describe('CSS lint: inverted dark-band links route through the on-inverted accen
         expect(BASE_CSS).toMatch(/--color-accent-on-inverted-hover:\s*#[0-9a-fA-F]{6}/);
     });
 });
+
+/**
+ * Token contract: the global button surface must not drift (#441).
+ *
+ * The `--btn-*` tokens are consumed by the base `.btn` rules and the CTA/hero
+ * fallback chains, but for a long time only `--btn-padding-*` / `--btn-radius`
+ * were REGISTERED in base.css's first `:root` block — the block that
+ * `pp_design_tokens()` parses and that the AI reads as the authorable token
+ * registry (lib/wp.php:608, lib/ai-context.php:152). A consumed-but-unregistered
+ * token is contract drift in the discoverable direction: the color surface exists
+ * and works, but no AI or rethemer can find it, so they fall back to per-component
+ * `--cta-button-*` rescues.
+ *
+ * This guard binds the two sets together: EVERY `--btn-*` custom property consumed
+ * anywhere in the theme CSS must be either (a) registered in the FIRST `:root`
+ * token block of base.css (the public token contract) or (b) `--pp-`-prefixed (the
+ * internal-token convention, issue 431). A future `.btn` refactor that introduces
+ * a new `--btn-foo` without registering or `--pp-`-prefixing it fails here, at
+ * lint time, instead of silently leaving the contract behind.
+ *
+ * `registeredTokensFromFirstRoot` mirrors the PHP parser's scope exactly: the
+ * regex `/:root\s*\{([^}]+)\}/` in pp_design_tokens() matches the FIRST `:root`
+ * block up to the first `}`, so the later `--pp-band-*` :root block (deliberately
+ * internal) is out of scope for both the parser and this test.
+ */
+describe('CSS lint: #441 global button token contract (consumed ⊆ registered∪--pp-)', () => {
+    // Mirror pp_design_tokens(): the first `:root { ... }` block, up to its first `}`.
+    // Comments are NOT stripped first — the PHP parser also runs against the raw
+    // block — but a `}` never appears inside a token comment, so the boundary holds.
+    function firstRootBlock(css) {
+        const m = css.match(/:root\s*\{([^}]+)\}/);
+        return m ? m[1] : '';
+    }
+
+    // Custom-property NAMES declared in a block: `--foo:` (a declaration, not a var() use).
+    function declaredNames(block) {
+        const names = new Set();
+        const re = /(--[\w-]+)\s*:/g;
+        let m;
+        while ((m = re.exec(block)) !== null) names.add(m[1]);
+        return names;
+    }
+
+    // Every `--btn-*` custom property NAME that appears in real CSS (comments stripped),
+    // whether as a declaration or inside a var() reference.
+    function consumedBtnNames(...cssSources) {
+        const names = new Set();
+        for (const css of cssSources) {
+            const re = /--btn-[\w-]+/g;
+            let m;
+            while ((m = re.exec(stripComments(css))) !== null) names.add(m[0]);
+        }
+        return names;
+    }
+
+    const registered = declaredNames(firstRootBlock(BASE_CSS));
+    const consumed = consumedBtnNames(BASE_CSS, COMPONENTS_CSS, UTILITIES_CSS);
+
+    test('the first :root block is found and non-trivial (guards against a vacuous pass)', () => {
+        expect(registered.size).toBeGreaterThan(10);
+        expect(consumed.size).toBeGreaterThan(0);
+    });
+
+    test('every consumed --btn-* token is registered in the first :root block or --pp--prefixed', () => {
+        const orphans = [...consumed].filter(
+            name => !registered.has(name) && !name.startsWith('--pp-'),
+        );
+        expect(orphans).toEqual([]);
+    });
+
+    test('the four global button color tokens are registered with their historical defaults', () => {
+        const root = firstRootBlock(BASE_CSS);
+        expect(root).toMatch(/--btn-bg:\s*var\(--color-accent\)/);
+        // The intentional inversion coupling: button ink defaults to the PAGE background.
+        expect(root).toMatch(/--btn-text:\s*var\(--color-bg\)/);
+        expect(root).toMatch(/--btn-border-color:\s*var\(--color-accent\)/);
+        expect(root).toMatch(/--btn-shadow:\s*none/);
+    });
+
+    test('the registered button color tokens carry their annotated type comment', () => {
+        // pp_design_tokens() derives each token's type from a `/* type: ... */` comment;
+        // without it the token exposes a null type and the AI cannot validate authored values.
+        expect(BASE_CSS).toMatch(/--btn-bg:[^;]*;\s*\/\*\s*color:/);
+        expect(BASE_CSS).toMatch(/--btn-text:[^;]*;\s*\/\*\s*color:/);
+        expect(BASE_CSS).toMatch(/--btn-border-color:[^;]*;\s*\/\*\s*color:/);
+        expect(BASE_CSS).toMatch(/--btn-shadow:[^;]*;\s*\/\*\s*shadow:/);
+    });
+
+    // Detection proof: the contract check must CATCH an unregistered --btn-* and PASS
+    // a registered one, so a parser drift can't make the scan silently vacuous.
+    test('detector flags an unregistered --btn-* and passes a registered/--pp- one', () => {
+        const root = ':root { --btn-bg: var(--color-accent); }';
+        const reg = declaredNames(firstRootBlock(root));
+
+        // An orphan consumed token (used in a rule, never registered) is caught.
+        const withOrphan = consumedBtnNames('.btn { color: var(--btn-unregistered, red); }');
+        const orphans = [...withOrphan].filter(n => !reg.has(n) && !n.startsWith('--pp-'));
+        expect(orphans).toEqual(['--btn-unregistered']);
+
+        // A registered token and a --pp--prefixed token both pass.
+        const okConsumed = consumedBtnNames('.btn { background: var(--btn-bg); padding: var(--pp-btn-x); }');
+        const okOrphans = [...okConsumed].filter(n => !reg.has(n) && !n.startsWith('--pp-'));
+        expect(okOrphans).toEqual([]);
+    });
+});
