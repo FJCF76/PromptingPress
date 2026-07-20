@@ -361,7 +361,8 @@ To change a token: use `pp_execute_apply('update_design_token', ['token' => '...
 ```
 Colors:     --color-bg, --color-surface, --color-text, --color-muted,
             --color-border, --color-accent, --color-accent-hover, --color-bg-inverted
-Derived:    --color-text-secondary, --color-accent-strong, --color-border-accent, --color-surface-accent
+Derived:    --color-text-secondary, --color-accent-strong, --color-border-accent, --color-surface-accent,
+            --color-accent-on-inverted, --color-accent-on-inverted-hover
 Spacing:    --space-xs, --space-sm, --space-md, --space-lg, --space-xl, --space-2xl, --space-3xl
 Typography: --font-body, --font-heading, --font-weight-heading, --line-height-body, --line-height-heading,
             --font-mono
@@ -377,7 +378,7 @@ Text roles: --text-kicker-color, --text-kicker-size, --text-kicker-weight, --tex
 > Source of truth: the `:root` block in `assets/css/base.css`, parsed by `pp_design_tokens()`.
 > Every token above is overridable via `update_design_token`. Regenerate this list from `base.css` rather than editing it by hand — `--breakpoint-*` live in a comment and are **not** overridable.
 
-**Token families:** Changing a base token (`--color-accent` or `--color-text`) auto-derives related tokens (hover, strong, border-accent, surface-accent, text-secondary) when they have no existing override. Existing overrides are always preserved — a base change never touches them (#386). Because a preserved override keeps winning in the rendered CSS, a base change can succeed (`ok:true`) yet not be visible where that override applies. To surface this, the apply returns a `stale_warnings` entry for any preserved derived override that DIVERGES from the value the new base would derive (equal-to-derivable overrides are coherent and not flagged), and the same condition is reported at INSPECT as a `masked_derived_override` token smell. `pp_masked_derived_overrides()` is the one shared engine behind both surfaces.
+**Token families:** Changing a base token (`--color-accent` or `--color-text`) auto-derives related tokens (hover, strong, border-accent, surface-accent, on-inverted + on-inverted-hover, text-secondary) when they have no existing override. Existing overrides are always preserved — a base change never touches them (#386). Because a preserved override keeps winning in the rendered CSS, a base change can succeed (`ok:true`) yet not be visible where that override applies. To surface this, the apply returns a `stale_warnings` entry for any preserved derived override that DIVERGES from the value the new base would derive (equal-to-derivable overrides are coherent and not flagged), and the same condition is reported at INSPECT as a `masked_derived_override` token smell. `pp_masked_derived_overrides()` is the one shared engine behind both surfaces.
 
 Token overrides survive theme updates — `base.css` is overwritten on update, but overrides persist in the database. See `ai-instructions/retheme.md` for the full retheme workflow.
 
