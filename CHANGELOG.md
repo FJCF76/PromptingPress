@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.5.2] — 2026-07-20 — links and stat numbers on background-image bands are readable again: a new overlay accent role clears WCAG AA over any image (#461)
+
+**A section, CTA, or stats band with a `background_image` lays a dark scrim over an arbitrary photo, and its default link (or stat number) used the light-surface brand accent — only 1.16:1 over the scrim when the photo is bright, effectively invisible and far below the WCAG AA 4.5:1 bar. Those bands now route their default accent through a new `--color-accent-on-overlay` role that is guaranteed readable no matter what image sits underneath. Set a per-instance color slot and it still wins, exactly as before.**
+
+The overlay sits over an unknown image, so the role's default is chosen against the worst case: the scrim composited over a pure-white image (an effective background near `rgb(115,115,115)`). Contrast there tops out at 4.74:1 for any color, so the only values that clear AA are near-white — `--color-accent-on-overlay` ships at `#fafbff` (4.59:1), with `--color-accent-on-overlay-hover` at pure white. The name describes the role, not the hue: a link on a photo band is carried by its underline, and near-white is the sole choice that stays legible over a bright image. This is a separate role from the inverted-band `--color-accent-on-inverted` (#437), which is tuned to the solid dark inverted background and only reaches ~2.2:1 over the arbitrary-image scrim. The new role joins the accent token family, so rethemeing `--color-accent` auto-derives a matching on-overlay tint and a pinned override that diverges is flagged by the same stale-warning machinery as every other derived token (#386).
+
+### Fixed
+- Default links on a `.section--has-bg-image` band and default numbers on a `.stats--has-bg-image` band now route through `--color-accent-on-overlay` instead of the light-surface `--color-accent`, so they clear WCAG AA over any background image rather than failing at 1.16:1. A CTA band with a `background_image` gains the same guarantee: a link written into the CTA body now has an explicit readable default where it previously fell back to the unreadable light accent. Per-instance `--section-accent` / `--stats-number-color` / `--cta-body-color` slots still win on all three bands (#461).
+
+### Docs
+- `ai-instructions/retheme.md` documents the overlay accent role and its pairing contract (the default must stay ≥ 4.5:1 against the scrim-over-white worst case, which is why it is intentionally near-white), and both it and `AI_CONTEXT.md` now list all eight auto-derived accent-family tokens (#461).
+
+### Tests
+- A rendered Playwright E2E (`tests/e2e/style-render.spec.ts`) seeds all three background-image bands with a white image fixture at 375px and 1280px and proves each accent surface clears 4.5:1 against the rendered scrim-over-white composite, and that a per-instance color slot still wins. css-lint pins lock the routing on every band (and guard against a regression back to the bare accent or the inverted role), and a `pp_token_families()` test pins the new roles as registered, auto-derived, divergence-tracked family members (#461).
+
 ## [v1.5.1] — 2026-07-20 — the global button tokens become a real one-knob: `--btn-bg` / `--btn-text` at `:root` now restyle every composed button (#458)
 
 **Setting `--btn-bg`, `--btn-text`, `--btn-border-color`, or `--btn-shadow` at `:root` now recolors every primary button on a composed page — the section-panel CTA, the CTA-block button, and the hero button together. #441 registered these four global button tokens so the AI could discover them, but on a real page the premium `main .btn` cascade and the `.cta` / `.hero` button rules routed their fill, border, ink, and shadow through per-component slots, not through `--btn-*`, so the "global button" knob was discoverable yet nearly inert. It is now a genuine site-wide knob: change one token and every button follows, while a button that a component already restyled keeps its own look.**
