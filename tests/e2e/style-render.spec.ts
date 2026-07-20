@@ -3123,16 +3123,12 @@ test.describe('Shared section-band rhythm (#431)', () => {
   // top edges are then the same tier and directly comparable). Minimal valid
   // props per component so each renders as a direct child of <main>.
   //
-  // faq is placed LAST on purpose. faq.php echoes a FAQPage JSON-LD <script> as a
-  // SIBLING right after its </section> (lib/wp.php pp_render_faq_schema), so any
-  // band rendered immediately after a faq has that <script> as its previous element
-  // sibling and the `main > [data-pp-component] + .band` combinator misses it —
-  // that band falls back to its own (larger) top padding. That is a pre-existing
-  // adjacent-rhythm bug in a DIFFERENT mechanism (the `+` combinator vs faq's
-  // interleaved script), not the rhythm-definition drift #431 fixes; it is tracked
-  // separately. Keeping faq last means every MEASURED band has a clean band as its
-  // previous sibling, so this suite proves the #431 deliverable (one shared rhythm,
-  // all six consuming it, testimonials resurrected) without tripping that bug.
+  // faq is last here only for stable band ordering — its position is no longer
+  // load-bearing. faq.php once echoed its FAQPage JSON-LD <script> as a trailing
+  // SIBLING after </section>, which made the script the previous element sibling
+  // of the next band and defeated the `main > [data-pp-component] + .band`
+  // combinator. #432 moved the <script> INSIDE the faq <section>, so a band after
+  // a faq now gets correct adjacency (proven by the dedicated #432 suite below).
   const STACK = [
     { component: 'hero', props: { id: 'pp-hero01', title: 'Lead' } },
     { component: 'section', props: { id: 'pp-sec01', body: '<p>Section body.</p>' } },
@@ -3236,8 +3232,8 @@ test.describe('Shared section-band rhythm (#431)', () => {
   // A band leads the stack (no hero) so the first band renders in the OWN-padding
   // position: its top comes from --pp-band-padding, not --pp-band-padding-adjacent-top.
   // The two shared props get DISTINCT override values so the own tier (5px) and the
-  // adjacent tier (7px) are told apart. faq stays last (its JSON-LD script, see the
-  // STACK note above, would break the `+` adjacency of anything after it).
+  // adjacent tier (7px) are told apart. faq stays last for stable ordering; since
+  // #432 moved its JSON-LD script inside the section, its position no longer matters.
   test('#431 :root overrides of both shared props move every band edge (own top+bottom, adjacent top)', async ({
     page,
   }) => {
@@ -3294,8 +3290,8 @@ test.describe('Shared section-band rhythm (#431)', () => {
 
   // Core scenario: every band that follows another band is vertically symmetric.
   // Hero leads so all six bands render in the adjacent-top position (the edge the
-  // old 32px tier used to shave). faq stays last (its trailing JSON-LD <script>
-  // breaks the `+` adjacency of any band after it — pre-existing bug 432).
+  // old 32px tier used to shave). faq stays last for stable ordering; #432 moved
+  // its JSON-LD <script> inside the section, so its position is no longer special.
   test('#430 every stacked band is vertically symmetric (top === bottom) at 1280 and 375 @smoke', async ({
     page,
   }) => {
@@ -3407,8 +3403,8 @@ test.describe('Shared section-band rhythm (#431)', () => {
   // The measured webfiable.com defect sequence (issue 430 body): hero → stats →
   // grid → cta → grid → section → cta, alternating inverted/plain backgrounds.
   // Every band after the hero used to render 32px top / 76.8px bottom. After the
-  // fix none may: each is symmetric, and NO band shows the old shape. No faq in
-  // this sequence, so bug 432 cannot interfere.
+  // fix none may: each is symmetric, and NO band shows the old shape. (No faq in
+  // this sequence; since #432 a faq no longer interferes with a following band.)
   test('#430 webfiable-shaped stack shows no 32/77 band; every band symmetric @smoke', async ({
     page,
   }) => {
@@ -3521,6 +3517,108 @@ test.describe('Shared section-band rhythm (#431)', () => {
   }
 });
 
+/*
+ * Band-after-faq adjacent rhythm (issue 432).
+ *
+ * faq.php used to echo its FAQPage JSON-LD <script> as a trailing SIBLING right
+ * after </section> (lib/wp.php pp_render_faq_schema). In the rendered DOM that
+ * put a non-component <script> between the faq <section> and the next band:
+ *
+ *   <section class="faq" data-pp-component="faq">…</section>
+ *   <script type="application/ld+json">{…FAQPage…}</script>   <-- interloper
+ *   <section class="testimonials" data-pp-component="testimonials">…</section>
+ *
+ * The desktop adjacent rhythm uses the IMMEDIATE-sibling combinator
+ * (`main > [data-pp-component] + .testimonials`). With the <script> as the
+ * previous element sibling, that `+` missed the band after the faq, so it fell
+ * back to its OWN top tier (--pp-band-padding) instead of the adjacent tier
+ * (--pp-band-padding-adjacent-top). #430 pins those two tiers equal, which
+ * MASKED the defect at the rendered level — so the discriminating probe below
+ * un-pins them at :root (own=5px, adjacent=7px) and asserts the band after the
+ * faq lands on the ADJACENT tier (7px) at desktop. Pre-fix that band read 5px
+ * (the own tier, via the missed combinator); post-fix the <script> lives inside
+ * the faq section, the faq is again the band's immediate component sibling, and
+ * the `+` resolves to 7px.
+ *
+ * NOTE on why a slot override alone would NOT prove this: a per-instance
+ * --testimonials-padding-top wins via the BASE rule too
+ * (`.testimonials { padding-top: var(--testimonials-padding-top, …) }`), so it
+ * renders identically whether or not the adjacent combinator matched — it can't
+ * tell the two code paths apart. Splitting the two shared tiers is the only probe
+ * that isolates the combinator. Both breakpoints carry an immediate-sibling
+ * adjacent rule (desktop at min-width:768px, mobile at max-width:767px), so the
+ * band after a faq resolves the adjacent tier (7px) at 1280 AND 375 — pre-fix it
+ * read 5px (the own tier) at both, since the `+` missed the band at both.
+ */
+test.describe('Band-after-faq adjacent rhythm (#432)', () => {
+  let pageId: number;
+
+  test.afterEach(async () => {
+    if (pageId) {
+      try {
+        deletePage(pageId);
+      } catch {
+        /* already cleaned */
+      }
+      pageId = 0;
+    }
+  });
+
+  test('#432 band after a faq resolves the adjacent-top tier at 1280 and 375 @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Band After FAQ Adjacency');
+    // hero leads so the faq is itself in the adjacent position; testimonials
+    // follows the faq — the exact band the trailing <script> used to orphan.
+    setComposition(pageId, [
+      { component: 'hero', props: { id: 'pp-hero01', title: 'Lead' } },
+      { component: 'faq', props: { id: 'pp-faq01', items: [{ question: 'Q?', answer: 'A.' }] } },
+      { component: 'testimonials', props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] } },
+    ]);
+
+    // Sanity: the JSON-LD really renders, and it is NOT an element sibling of the
+    // testimonials band (it lives inside the faq section post-#432). If the script
+    // were still a trailing sibling, this immediate-sibling probe would find it.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('main > .testimonials')).toBeVisible({ timeout: 10000 });
+
+    const jsonLdPresent = await page.locator('script[type="application/ld+json"]').count();
+    expect(jsonLdPresent, 'FAQPage JSON-LD must still render').toBeGreaterThan(0);
+    const scriptBeforeBand = await page
+      .locator('main > .faq + script[type="application/ld+json"]')
+      .count();
+    expect(scriptBeforeBand, 'JSON-LD must not sit between the faq and the next band (#432)').toBe(0);
+
+    // Un-pin the two shared tiers so the adjacent tier (7px) is distinguishable
+    // from the own tier (5px). Appended after the theme sheet to win the :root cascade.
+    await page.addStyleTag({
+      content: ':root { --pp-band-padding: 5px; --pp-band-padding-adjacent-top: 7px; }',
+    });
+
+    // Desktop: the band after the faq must land on the ADJACENT tier — this is the
+    // combinator match #432 restores (pre-fix it read 5px, the own tier).
+    const topDesktop = await page
+      .locator('main > .testimonials')
+      .evaluate((el) => getComputedStyle(el).paddingTop);
+    expect(topDesktop, 'band after faq must use the adjacent-top tier at 1280').toBe('7px');
+
+    // Mobile carries its own immediate-sibling adjacent rule (max-width:767px), so
+    // the band after the faq must ALSO resolve the adjacent tier here — same
+    // combinator, same #432 dependency. Pre-fix this read 5px (the own tier).
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('main > .testimonials')).toBeVisible({ timeout: 10000 });
+    await page.addStyleTag({
+      content: ':root { --pp-band-padding: 5px; --pp-band-padding-adjacent-top: 7px; }',
+    });
+    const topMobile = await page
+      .locator('main > .testimonials')
+      .evaluate((el) => getComputedStyle(el).paddingTop);
+    expect(topMobile, 'band after faq must use the adjacent-top tier at 375').toBe('7px');
+  });
+});
+
 test.describe('Band heading scale (#436)', () => {
   let pageId: number;
 
@@ -3540,11 +3638,10 @@ test.describe('Band heading scale (#436)', () => {
     { band: 'faq', sel: '.faq__heading', slot: '--faq-heading-size' },
   ];
 
-  // Hero first so every band renders in-flow; faq LAST because its trailing
-  // JSON-LD <script> breaks the `+` adjacency of a following band (pre-existing
-  // bug 432). Adjacency does not affect font-size, but keeping faq last matches
-  // the #430/#431 stacks and avoids the quirk entirely. Each band carries a
-  // `title` so its <h2> renders.
+  // Hero first so every band renders in-flow; faq last for stable ordering to
+  // match the #430/#431 stacks (since #432 its trailing JSON-LD <script> lives
+  // inside the section, so its position is no longer special). Adjacency does not
+  // affect font-size anyway. Each band carries a `title` so its <h2> renders.
   const STACK = [
     { component: 'hero', props: { id: 'pp-hero01', title: 'Lead' } },
     { component: 'section', props: { id: 'pp-sec01', title: 'Section', body: '<p>Body.</p>' } },

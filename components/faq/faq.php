@@ -62,5 +62,16 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
         <?php endif; ?>
 
     </div>
+
+    <?php
+    // FAQPage JSON-LD lives INSIDE the <section>, not after it (#432). A
+    // <script> is metadata content valid anywhere in the body flow, and Google
+    // reads ld+json from anywhere in the DOM, so SEO is unaffected. Emitting it
+    // as a trailing SIBLING of </section> made the script the previous element
+    // sibling of the next band, so `main > [data-pp-component] + .band` missed
+    // that band and it fell back to its own (larger) top padding. Keeping the
+    // script inside the section restores the faq as the following band's
+    // immediate component sibling.
+    echo pp_render_faq_schema($items);
+    ?>
 </section>
-<?php echo pp_render_faq_schema($items); ?>
