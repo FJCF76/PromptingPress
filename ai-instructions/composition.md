@@ -54,6 +54,24 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 | embed   | content                                 | title, theme                                            |
 | testimonials | items[] {quote}                    | title, title_accent, eyebrow, subheading, heading_align, layout, theme |
 
+## Text content model: which props accept HTML
+
+Every text prop has ONE of three markup contracts, and each schema `description`
+states which. Read the description; do not generalize a link from one prop to the
+next. The rule (#439):
+
+| Contract | Props | What you may write |
+|----------|-------|--------------------|
+| **Rich HTML** (`wp_kses_post`) | `section.body`, `faq.items[].answer` | Block markup: paragraphs, lists, headings, links, `strong`/`em`. These are the main prose surfaces. |
+| **Inline HTML** (`a, strong, em, br`) | `cta.text`, `grid.items[].text`, `testimonials.items[].quote` | Supporting copy with a link or light emphasis, e.g. `Read our <a href="/terms">terms</a>.` No block elements — `<p>`, `<ul>`, `<h2>` are stripped. |
+| **Plain text** (escaped) | Titles, eyebrows, subheadings, `button_text`, `stats.items[].label`, `stats.items[].number`, `grid.items[].title`, `testimonials.items[].author`, `faq.items[].question`, and all URLs | Text only. Any `<...>` renders as visible characters, not markup. |
+
+Both HTML contracts are allowlist-sanitized: `script`, `style`, `iframe`, event
+handlers (`onclick`), and `javascript:` URLs are always stripped, whoever authored
+the content. A link in a supporting-text prop is normal marketing copy — write it
+as real HTML (`<a href="...">`), not as escaped source, and never put a link in a
+plain-text prop (it will show as literal `<a href=...>` text on the page).
+
 ### cta: standalone button (heading-less)
 
 `cta.title` is optional. Omit `title` (and `text`) to render just the button row with no heading element — the sanctioned way to place a standalone button, e.g. a centered "closing" button after a steps or feature section. `button_text` and `button_url` are still required, and `id`, `layout`, `theme`, and all style slots keep working.

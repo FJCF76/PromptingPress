@@ -58,10 +58,11 @@ $link  = $props['link']  ?? '';
 
 **Rules:**
 - Declare all `$props` variables at the top with `??` defaults
-- Use `esc_html()` for all text output
+- Use `esc_html()` for plain-text output (titles, labels, button text)
 - Use `esc_url()` for all URLs
 - Use `esc_attr()` for all HTML attributes
-- Use `wp_kses_post()` for HTML content
+- Use `wp_kses_post()` for rich HTML content (the main prose surface: body/answer)
+- Use `pp_kses_inline()` for supporting-text props that allow a link + light emphasis (a, strong, em, br) but no block elements (#439)
 - Do NOT call WordPress functions directly — use `pp_*` wrappers from `lib/wp.php`
 - Do NOT call other components from within a component
 
@@ -222,5 +223,5 @@ Add a row to the Component index table in `AI_CONTEXT.md`:
 - [ ] CSS section added to `assets/css/components.css`
 - [ ] No raw hex values in the new CSS section
 - [ ] No direct WordPress function calls in the PHP file
-- [ ] All text output uses `esc_html()` or `wp_kses_post()`
+- [ ] All text output uses `esc_html()` (plain), `pp_kses_inline()` (inline subset), or `wp_kses_post()` (rich), per the prop's documented contract
 - [ ] `AI_CONTEXT.md` component index updated
