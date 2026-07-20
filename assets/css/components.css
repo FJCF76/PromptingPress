@@ -1838,16 +1838,25 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    ========================================================================== */
 
 .table-section {
-  padding-top: var(--space-xl);
-  padding-bottom: var(--space-xl);
+  /* Band padding joins the shared symmetric rhythm (issue 438): route each edge
+     through the component's own slot, falling back to --pp-band-padding so this
+     band agrees with every other band's own edges at every breakpoint instead of
+     hardcoding var(--space-xl) (64px), which rendered it 76.8/64 asymmetric when
+     adjacent. The adjacent-top edge routes through --pp-band-padding-adjacent-top
+     in the shared cascade below. */
+  padding-top: var(--table-section-padding-top, var(--pp-band-padding));
+  padding-bottom: var(--table-section-padding-bottom, var(--pp-band-padding));
 }
 
 .table-section__heading {
   /* Band heading joins the shared responsive scale (issue 436): route font-size
      through the component's own size slot, falling back to --pp-band-heading-size
      so this heading agrees with every other band title at every viewport instead
-     of inheriting the flat h2 element rule (30px). */
+     of inheriting the flat h2 element rule (30px). The color slot (issue 438)
+     completes the minimal band-heading surface, falling back to the h2 default
+     var(--color-text) so unset output is unchanged. */
   font-size: var(--table-section-heading-size, var(--pp-band-heading-size));
+  color: var(--table-section-heading-color, var(--color-text));
   margin-bottom: var(--space-lg);
 }
 
@@ -2485,13 +2494,16 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    ========================================================================== */
 
 .logos {
-  padding-top: var(--space-xl);
-  padding-bottom: var(--space-xl);
+  /* Band padding joins the shared symmetric rhythm (issue 438); see .table-section. */
+  padding-top: var(--logos-padding-top, var(--pp-band-padding));
+  padding-bottom: var(--logos-padding-bottom, var(--pp-band-padding));
 }
 
 .logos__heading {
-  /* Band heading joins the shared responsive scale (issue 436). */
+  /* Band heading joins the shared responsive scale (issue 436); color slot (issue
+     438) falls back to the h2 default var(--color-text) so unset output is unchanged. */
   font-size: var(--logos-heading-size, var(--pp-band-heading-size));
+  color: var(--logos-heading-color, var(--color-text));
   margin-bottom: var(--space-lg);
 }
 
@@ -2546,7 +2558,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 .logos--inverted .logos__heading {
-  color: var(--color-bg);
+  /* Route the inverted heading through the same slot (issue 438) so an explicit
+     --logos-heading-color still wins here; unset falls back to var(--color-bg). */
+  color: var(--logos-heading-color, var(--color-bg));
 }
 
 .logos--inverted .logos__label {
@@ -2560,13 +2574,16 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    ========================================================================== */
 
 .embed {
-  padding-top: var(--space-xl);
-  padding-bottom: var(--space-xl);
+  /* Band padding joins the shared symmetric rhythm (issue 438); see .table-section. */
+  padding-top: var(--embed-padding-top, var(--pp-band-padding));
+  padding-bottom: var(--embed-padding-bottom, var(--pp-band-padding));
 }
 
 .embed__heading {
-  /* Band heading joins the shared responsive scale (issue 436). */
+  /* Band heading joins the shared responsive scale (issue 436); color slot (issue
+     438) falls back to the h2 default var(--color-text) so unset output is unchanged. */
   font-size: var(--embed-heading-size, var(--pp-band-heading-size));
+  color: var(--embed-heading-color, var(--color-text));
   margin-bottom: var(--space-lg);
 }
 
@@ -2586,7 +2603,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 .embed--inverted .embed__heading {
-  color: var(--color-bg);
+  /* Route the inverted heading through the same slot (issue 438); unset falls back
+     to var(--color-bg). */
+  color: var(--embed-heading-color, var(--color-bg));
 }
 
 .embed--inverted .embed__content {
@@ -2830,8 +2849,10 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    Routes through the shared --pp-band-padding-adjacent-top, which is pinned to
    --pp-band-padding (issue 430), so this adjacent top equals the band's own
    edges (symmetric) instead of a tighter tier. This generic catch-all also
-   covers components with no padding slot (hero, table, logos, embed), keeping
-   them on the one shared rhythm definition instead of a bare literal (issue 431).
+   covers components with no padding slot (hero) — table/logos/embed now carry
+   their own padding slots (issue 438) and route their adjacent-top edge through
+   the per-component rules in the cascade below, so only hero falls through here;
+   either way every band consumes the one shared rhythm definition (issue 431).
    ========================================================================== */
 
 @media (min-width: 768px) {
@@ -3479,6 +3500,18 @@ main .btn:focus-visible {
   main > [data-pp-component] + .testimonials {
     padding-top: var(--testimonials-padding-top, var(--pp-band-padding-adjacent-top));
   }
+  /* table/logos/embed join the per-component adjacent-top routing (issue 438) so
+     their adjacent-top edge tracks the same shared tier AND an explicit
+     --<comp>-padding-top wins on that edge too, not just their own base edges. */
+  main > [data-pp-component] + .table-section {
+    padding-top: var(--table-section-padding-top, var(--pp-band-padding-adjacent-top));
+  }
+  main > [data-pp-component] + .logos {
+    padding-top: var(--logos-padding-top, var(--pp-band-padding-adjacent-top));
+  }
+  main > [data-pp-component] + .embed {
+    padding-top: var(--embed-padding-top, var(--pp-band-padding-adjacent-top));
+  }
 }
 
 /* Own section padding, routed through each component's padding slots (issue 302).
@@ -3569,6 +3602,16 @@ main .btn {
   }
   main > [data-pp-component] + .testimonials {
     padding-top: var(--testimonials-padding-top, var(--pp-band-padding-adjacent-top));
+  }
+  /* table/logos/embed adjacent-top on mobile too (issue 438). */
+  main > [data-pp-component] + .table-section {
+    padding-top: var(--table-section-padding-top, var(--pp-band-padding-adjacent-top));
+  }
+  main > [data-pp-component] + .logos {
+    padding-top: var(--logos-padding-top, var(--pp-band-padding-adjacent-top));
+  }
+  main > [data-pp-component] + .embed {
+    padding-top: var(--embed-padding-top, var(--pp-band-padding-adjacent-top));
   }
 
   /* Own mobile padding, routed through the padding slots so a declared
