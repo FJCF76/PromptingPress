@@ -87,6 +87,22 @@ Check that `current` values reflect your changes and the `active_recipe` shows c
 | `position` | `center`, `top left`, `20% 80%` | `_pp_validate_position()` |
 | `ratio` | `auto`, `1`, `16/9` | `_pp_validate_ratio()` |
 
+> **Which types accept `var()`, and which are literal-only.** A `var()` reference is
+> accepted only by these types, each in a bounded way: `color` (a single reference
+> to a registered **color**-typed token, e.g. `var(--color-accent)`), `gradient`
+> (that same single color-token reference, as its plain-color half — **never**
+> `var()` *inside* a `linear-gradient()`/`radial-gradient()`, and never a "gradient
+> token"), `shadow` (only the fixed presets `var(--shadow-none|sm|md|lg)`, never
+> an arbitrary token), and `font-family` (a font token such as `var(--font-mono)`).
+> Every other type — `length`, `number`, `duration`, `position`,
+> and `ratio` — is **literal-only**: `var()` is rejected in every form, bare or
+> nested. Look up the token's current value (`inspect-composition`, or the
+> design-token registry) and pass that literal value. Passing a literal **freezes**
+> it: a `length`/`number`/`duration`/`position`/`ratio` slot cannot FOLLOW a token
+> the way a `color` slot can, so if the token changes later, the literal you passed
+> does not. A bare `var(--space-lg)` in a `length` slot is rejected — not only
+> `var()` nested inside `clamp()`/`calc()`.
+
 The `color` type (#230) accepts hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`, the CSS color
 keywords `transparent` and `currentColor` (case-insensitive), or a **single bare
 reference to a registered color-typed design token** — `var(--color-accent)` exactly.
@@ -197,6 +213,34 @@ slot leaves the eyebrow byte-identically uppercase.
 > (`button_variant`: primary/secondary/outline/ghost) and a grid item's typography
 > role (`text_role`: mono/meta/label/kicker) are set with `update_component` (props),
 > not `style_component`. `style_component` only accepts schema-declared style slots.
+
+---
+
+## Fusing adjacent components into one colored band
+
+By default every band-level component (`section`, `grid`, `cta`, `stats`, `faq`,
+`testimonials`, `table`, `logos`, `embed`) renders **symmetric, non-zero** vertical
+padding from the shared `--pp-band-padding` rhythm, and a band placed after another
+band takes that same value on its top edge. So two stacked bands that share a
+background already read as one color with a comfortable gap between them — you do not
+need to touch spacing for that.
+
+To make two adjacent same-background bands read as **one continuous, seamless band**
+(no internal gap), collapse the space between them deliberately:
+
+1. Give both components the same background (`--<upper>-bg` and `--<lower>-bg`).
+2. Zero the two **facing** paddings: `--<upper>-padding-bottom: 0` on the upper
+   component and `--<lower>-padding-top: 0` on the lower one. A band's own
+   `--*-padding-top` slot governs its adjacent-top edge too, so this is all it takes;
+   the default bottom padding stays non-zero until you override it.
+3. Zero the bottom margin on the **last element of the upper component** — for a
+   `section` whose title is its last visible element, `--section-title-margin-bottom: 0`.
+
+Step 3 is the one that is easy to miss. Once the upper band's bottom padding is zero,
+its trailing element's bottom margin is no longer held inside the band: it escapes the
+zero-padding edge and opens a gap between the two backgrounds that shows the page
+background as a thin seam of the wrong color (a real dogfood hit a ~26px white seam
+between two navy bands this exact way). Zeroing that margin closes the seam.
 
 ---
 
@@ -325,4 +369,4 @@ properties and a `.btn--outline` button; the grid card text carries `.text-kicke
 - Do not edit `assets/css/components.css` to change per-instance appearance -- use style slots
 - Do not add inline styles in component PHP files -- the style system handles this
 - Do not set style slots that aren't declared in the component's schema.json
-- Do not use `var()` inside `clamp()` or `calc()` expressions -- this is blocked for security
+- Do not put `var()` in a `length` slot (or `number`/`duration`/`position`/`ratio`) at all -- these types are literal-only. That includes a bare `var(--space-lg)` **and** `var()` nested inside `clamp()`/`calc()` (the nested form is additionally blocked for security). Look up the token's value and pass it literally -- see "Which types accept `var()`" above the recipes table

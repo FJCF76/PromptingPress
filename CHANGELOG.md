@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.4.20] — 2026-07-20 — the styling docs finally say which slot types accept `var()`, and how to fuse two same-background bands (#377)
+
+**`ai-instructions/style-component.md` documented `var()` only for the `color` type and only ever warned against `var()` *nested* inside `clamp()`/`calc()`, so the site-building AI reasonably inferred a bare `var(--space-lg)` was fine in a length slot — and got rejected. The slot-type table now states the negative outright: only `color`, `gradient`, `shadow`, and `font-family` accept a `var()` reference, each in a bounded way, and `length`, `number`, `duration`, `position`, and `ratio` are literal-only. The "don't nest `var()`" bullet no longer reads as permission for the bare form. A new spacing heuristic explains how to make two adjacent same-background components read as one seamless colored band, and names the margin-collapse seam that bites when you forget the last step.**
+
+Documentation only — no validator or rendering behavior changed. The engine has always rejected `var()` in `length`/`number`/`duration`/`position`/`ratio` slots (`_pp_validate_length()` and friends in `lib/apply.php`); the docs simply never said so, and the lone length-adjacent `var()` note pointed the wrong way. The same explicit rule is now also in the runtime chat prompt (`lib/ai-context.php`), which had the identical gap. The adjacency heuristic is written for today's symmetric `--pp-band-padding` rhythm (bands ship non-zero, symmetric vertical padding by default), so fusing two bands is a deliberate act: match the backgrounds, zero the facing paddings, and zero the trailing element's bottom margin — otherwise that margin escapes the zero-padding edge and shows the page background as a thin seam.
+
+### Docs
+- `ai-instructions/style-component.md` adds an explicit "which types accept `var()`" note beside the slot-type table (`color`/`gradient`/`shadow`/`font-family` accept it in bounded forms; `length`/`number`/`duration`/`position`/`ratio` are literal-only), rewrites the `clamp()`/`calc()` bullet so it can no longer be read as permitting a bare `var()`, and adds a "Fusing adjacent components into one colored band" section that names the margin-collapse seam failure mode. `lib/ai-context.php`'s runtime style-slot rules gain the same literal-only statement (#377).
+
+### Tests
+- `tests/AiContextTest.php` adds `testSystemPromptStatesLiteralOnlySlotTypesRejectVar`, pinning that the assembled chat system prompt names which types accept `var()` and states that `length`/`number`/`duration`/`position`/`ratio` are literal-only, so the guidance cannot silently regress (#377).
+
 ## [v1.4.19] — 2026-07-20 — the global button color tokens join the documented token contract (#441)
 
 **The shared `.btn` primitive reads four color custom properties — `--btn-bg`, `--btn-text`, `--btn-border-color`, `--btn-shadow` — but only `--btn-padding-*` and `--btn-radius` were registered in `base.css`'s first `:root` token block. The four color tokens were consumed everywhere and documented nowhere: not in the token registry `pp_design_tokens()` parses, not in `ai-instructions/`, not in `AI_CONTEXT.md`. That is contract drift in the discoverable direction — the real button surface and the documented one were different sets — so the site-building AI could not find the `.btn` primitive's color defaults and fell back to per-component `--cta-button-*` rescues. The four tokens are now registered (so they surface through `pp_design_tokens()` to the AI), documented with their true reach, and bound to the CSS by a test so the sets cannot drift apart again.**
