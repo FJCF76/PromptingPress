@@ -329,14 +329,14 @@ flat-button capability, not a new default.
 
 > **Per-instance vs site-wide.** The `--cta-button-*` slots above restyle ONE
 > component's button. The global `--btn-bg` / `--btn-text` / `--btn-border-color` /
-> `--btn-shadow` tokens (base.css, set via `update_design_token`) are the DEFAULTS of
-> the shared bare `.btn` primitive and the `--btn-text` → `--color-bg` inversion
-> coupling — not a site-wide button knob. On a composed page every primary button
-> renders inside `<main>`, where the premium `main .btn` cascade wins and routes
-> fill/border/ink/shadow through the `--cta-*` / `--hero-*` slots (or `--color-bg`),
-> NOT through `--btn-*`. So to recolor buttons on a page, use `--color-accent`
-> (every button fill bottoms out there) or the per-component slots above — the
-> `--btn-*` tokens are the primitive layer those sit on top of.
+> `--btn-shadow` tokens (base.css, set via `update_design_token`) restyle EVERY composed
+> primary button at once: the premium `main .btn` primary cascade routes its
+> fill/border/ink/shadow fallbacks through them (#458), so setting `--btn-bg` at `:root`
+> recolors the section-panel CTA, the CTA-block button, and the hero button together.
+> These `--cta-button-*` per-instance slots still win where set — `--btn-*` sits between
+> them and the literal, so a site-wide `--btn-bg` recolors only the buttons a component
+> has not individually restyled. See `ai-instructions/retheme.md` for the full global
+> button surface.
 
 **3. Tag a grid card's text with a typography role (an item field).**
 `text_role` lives on each item inside the grid's `items` array, not as a top-level
