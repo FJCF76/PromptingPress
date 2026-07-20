@@ -284,6 +284,46 @@ test.describe('Safe-surface rendered proof', () => {
     expect(color).toBe('rgb(255, 0, 128)');
   });
 
+  // #442: the `theme` enum value must PREDICT the rendered band background. The static
+  // schema/helper tests prove the class mapping; only getComputedStyle proves the CSS
+  // cascade actually paints it. Seed one band per theme value and assert the computed
+  // background-color matches the documented meaning:
+  //   default  -> transparent (page background shows through)
+  //   muted    -> --color-surface (#f4f7fb) — the LIGHT tinted band
+  //   dark     -> IDENTICAL to muted (deprecated alias; existing pages unchanged)
+  //   inverted -> --color-bg-inverted (#0f172a) — the genuinely dark band
+  test('#442 theme values render the documented band background', async ({ page }) => {
+    pageId = createPage('E2E Theme Band Backgrounds');
+    setComposition(pageId, [
+      { component: 'grid', props: { id: 'pp-theme-default', theme: 'default', items: [{ title: 'D', text: 'x' }] } },
+      { component: 'grid', props: { id: 'pp-theme-muted', theme: 'muted', items: [{ title: 'M', text: 'x' }] } },
+      { component: 'grid', props: { id: 'pp-theme-dark', theme: 'dark', items: [{ title: 'K', text: 'x' }] } },
+      { component: 'grid', props: { id: 'pp-theme-inverted', theme: 'inverted', items: [{ title: 'I', text: 'x' }] } },
+    ]);
+
+    await page.goto(`/?page_id=${pageId}`);
+
+    const bg = async (sel: string) => {
+      const el = page.locator(sel);
+      await expect(el).toBeVisible({ timeout: 10000 });
+      return el.evaluate((n) => getComputedStyle(n).backgroundColor);
+    };
+
+    const SURFACE = 'rgb(244, 247, 251)'; // --color-surface #f4f7fb
+    const INVERTED = 'rgb(15, 23, 42)';   // --color-bg-inverted #0f172a
+    const TRANSPARENT = 'rgba(0, 0, 0, 0)';
+
+    expect(await bg('#pp-theme-default')).toBe(TRANSPARENT);
+    const muted = await bg('#pp-theme-muted');
+    const dark = await bg('#pp-theme-dark');
+    expect(muted).toBe(SURFACE);
+    // The whole point of #442: `muted` is a LIGHT band, not dark.
+    expect(muted).not.toBe(INVERTED);
+    // The deprecated `dark` alias renders byte-identically to `muted`.
+    expect(dark).toBe(muted);
+    expect(await bg('#pp-theme-inverted')).toBe(INVERTED);
+  });
+
   // #349: an explicit per-instance --grid-item-text-color must win over a text_role
   // color preset (.text-meta / .text-kicker) at BOTH breakpoints. The bug was a
   // breakpoint split: the role utility (utilities.css, enqueued after components.css)

@@ -107,18 +107,14 @@ if ($layout === 'text-panel') {
     $layout = 'text-only';
 }
 
-$allowed_themes = ['default', 'dark', 'inverted'];
-if (!in_array($theme, $allowed_themes, true)) {
-    $theme = 'default';
-}
-
 $allowed_heading_aligns = ['start', 'center'];
 if (!in_array($heading_align, $allowed_heading_aligns, true)) {
     $heading_align = 'start';
 }
 $header_align_class = $heading_align === 'center' ? ' section__header--center' : '';
 
-$theme_class = $theme !== 'default' ? ' pp-section--' . $theme : '';
+// theme coercion + the deprecated 'dark' -> 'muted' alias live in pp_theme_class() (#442).
+$theme_class = pp_theme_class($theme, 'pp-section');
 $bg_image_class = $background_image ? ' section--has-bg-image' : '';
 
 // Style slot overrides (per-instance visual customization).

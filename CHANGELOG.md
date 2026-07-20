@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.4.13] — 2026-07-20 — the surface-tint band theme is now named `muted`, and the name matches what it renders (#442)
+
+**The band `theme` value that paints a light surface-tinted band was named `dark` — a misnomer, because it renders a near-white `--color-surface` band, not a dark one. Anyone (or any AI) who asked for a "dark band" and reached for the obvious value got a pale tint; the genuinely dark band is `inverted`. On top of that, the eight band components disagreed with each other about what the value meant, so the answer depended on which schema was read last. The value is renamed to `muted` across all eight components with one identical description, and `inverted` is documented as the dark band. Pages authored before this release keep rendering exactly as they did: the old `dark` value is still accepted and renders byte-identically as a deprecated alias of `muted`.**
+
+The rename lives where it matters — the component schemas (the authoring contract the AI reads) and a single shared renderer helper, `pp_theme_class()`, so the eight components can never drift apart again. New-page guidance offers only `muted`, with a note to use `inverted` when you actually want a dark band. Stored `dark` values are never migrated or flagged: they render the same light band forever, preflight and validation leave them alone, and the composition editor preserves a legacy `dark` value on re-save instead of quietly snapping it back to the default.
+
+### Changed
+- The `theme` enum on all eight band components (`cta`, `section`, `faq`, `grid`, `embed`, `logos`, `stats`, `testimonials`) now advertises `default | muted | inverted` with a single byte-identical description across all eight. `muted` is the light `--color-surface` tinted band with framing borders (the treatment previously mis-named `dark`); `inverted` is the genuinely dark band (#442).
+
+### Fixed
+- The misnamed `dark` theme value no longer misleads authors into a light band when they wanted a dark one. It is retained as a deprecated renderer-level alias of `muted` so every existing page renders byte-identically, but it is no longer offered for new pages. The composition editor now keeps a stored legacy `dark` value selected on re-save instead of silently resetting it to `default` (#442).
+
+### Docs
+- `AI_CONTEXT.md`, `ai-instructions/composition.md`, `ai-instructions/website-building.md`, `ai-instructions/style-component.md`, and `README.md` now offer `muted` (not `dark`) for new pages and carry a "for a dark band use `inverted`" warning (#442).
+
+### Tests
+- A schema-consistency test fails if any two components that share an enum (same value set) describe it differently — the exact drift that let `theme`'s value be documented three ways. PHPUnit pins the shared `pp_theme_class()` helper and the render layer: `muted` and legacy `dark` both emit the surface-band class byte-identically, `inverted` stays inverted, and invalid values coerce to the default. A vitest test proves the editor round-trips a legacy `dark` value and refuses to reflect a malformed one. `tests/e2e/style-render.spec.ts` asserts the computed band background per theme value matches its documented meaning (#442).
+
 ## [v1.4.12] — 2026-07-20 — the heading of a text-panel on a dark band is legible again (#424)
 
 **A `section` with `theme: inverted` (or a background image) renders a light panel box on the dark band. The panel's list items were dark and readable, but its heading came out light-on-light and effectively invisible. The dark-band styling colors every heading in the section with the band's light title color, and that rule outranked the panel's own text color — so the heading, but not the list below it, took the wrong color. The panel is a self-contained light surface with its own text color, so its heading now stays with the panel and reads in the panel's dark text, while the main on-band section title stays light exactly as before.**

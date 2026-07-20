@@ -69,12 +69,14 @@ Controls per-section background color/tone for visual rhythm on marketing pages.
 | Value      | Effect                                                      |
 |------------|-------------------------------------------------------------|
 | `default`  | Page background (`--color-bg`). No class added. Default.   |
-| `dark`     | Surface background (`--color-surface`). Subtle differentiation. |
-| `inverted` | Inverted background (`--color-bg-inverted`). Strong contrast. |
+| `muted`    | Light tinted surface band (`--color-surface`) with framing borders. Subtle differentiation. |
+| `inverted` | Inverted **dark** background (`--color-bg-inverted`). Strong contrast — use this for a genuinely dark band. |
+
+> `muted` is a LIGHT band, not a dark one. For a dark band use `inverted`. The legacy value `dark` still renders (it is a deprecated alias of `muted`, i.e. also LIGHT), but do not use it on new pages — its name mispredicts its output.
 
 Example — alternating section rhythm:
 ```json
-{ "component": "section", "props": { "body": "<p>...</p>", "theme": "dark" } },
+{ "component": "section", "props": { "body": "<p>...</p>", "theme": "muted" } },
 { "component": "section", "props": { "body": "<p>...</p>", "theme": "inverted" } }
 ```
 

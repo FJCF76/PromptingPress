@@ -30,11 +30,6 @@ if (!in_array($card_emphasis, $allowed_card_emphasis, true)) {
     $card_emphasis = 'featured';
 }
 
-$allowed_themes = ['default', 'dark', 'inverted'];
-if (!in_array($theme, $allowed_themes, true)) {
-    $theme = 'default';
-}
-
 $allowed_heading_aligns = ['start', 'center'];
 if (!in_array($heading_align, $allowed_heading_aligns, true)) {
     $heading_align = 'start';
@@ -43,7 +38,7 @@ if (!in_array($heading_align, $allowed_heading_aligns, true)) {
 // Explicit desktop column-count override (issue 379). Write-time validation
 // (pp_validate_composition_errors) already rejects out-of-range/non-integer
 // values, so this is a defensive coercion for raw-written state (mirroring the
-// layout/theme/card_emphasis in_array guards above): only an integer 1-4 emits
+// layout/card_emphasis in_array guards above; theme via pp_theme_class, #442): only an integer 1-4 emits
 // the data-pp-columns attribute the CSS reads; anything else falls through to
 // the auto-by-count grain, so unset output stays byte-identical.
 // $is_steps is computed below; forward-declare the steps check here so a forced
@@ -62,7 +57,8 @@ $header_align_class = $heading_align === 'center' ? ' grid__header--center' : ''
 
 $is_steps      = $layout === 'steps';
 $layout_class  = $is_steps ? ' grid--steps' : '';
-$theme_class   = $theme !== 'default' ? ' grid--' . $theme : '';
+// theme coercion + the deprecated 'dark' -> 'muted' alias live in pp_theme_class() (#442).
+$theme_class   = pp_theme_class($theme, 'grid');
 // 'uniform' opts the first card out of the featured emphasis so every card
 // renders identically (issue 226). Default 'featured' emits no class, keeping
 // existing pages byte-identical. The featured CSS selectors carry a

@@ -207,6 +207,14 @@ slot leaves the eyebrow byte-identically uppercase.
 | cta | `accent-framed` | Accent border with rounded corners |
 | testimonials | `dark-showcase` | Dark background with light cards |
 
+> **`dark-*` recipes vs. the `theme` prop — do not confuse them.** These `dark-*`
+> recipes DO paint a genuinely dark background (via style slots). The band-level
+> `theme` prop is different: its tinted value is `muted` (a LIGHT `--color-surface`
+> band with borders), and a `theme: "inverted"` band is the dark one. The legacy
+> `theme: "dark"` value is a deprecated alias of `muted` and also renders LIGHT — do
+> not reach for it expecting darkness. For a dark band, set `theme: "inverted"` or use
+> a `dark-*` recipe; never `theme: "dark"`.
+
 ---
 
 ## Worked example -- shadows, button variants, and text roles (v0.12.0)

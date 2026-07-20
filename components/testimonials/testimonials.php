@@ -23,11 +23,6 @@ if (!in_array($layout, $allowed_layouts, true)) {
     $layout = 'grid';
 }
 
-$allowed_themes = ['default', 'dark', 'inverted'];
-if (!in_array($theme, $allowed_themes, true)) {
-    $theme = 'default';
-}
-
 $allowed_heading_aligns = ['start', 'center'];
 if (!in_array($heading_align, $allowed_heading_aligns, true)) {
     $heading_align = 'start';
@@ -36,7 +31,8 @@ $header_align_class = $heading_align === 'center' ? ' testimonials__header--cent
 
 $is_stack      = $layout === 'stack';
 $layout_class  = $is_stack ? ' testimonials--stack' : '';
-$theme_class   = $theme !== 'default' ? ' testimonials--' . $theme : '';
+// theme coercion + the deprecated 'dark' -> 'muted' alias live in pp_theme_class() (#442).
+$theme_class   = pp_theme_class($theme, 'testimonials');
 
 // Style slot overrides (per-instance visual customization).
 $slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'testimonials');

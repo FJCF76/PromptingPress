@@ -1392,6 +1392,45 @@ class ComponentPropsTest extends TestCase
         $this->assertStringContainsString('class="faq"', $html);
     }
 
+    // ── #442: theme `muted` migration + deprecated `dark` alias (render layer) ──
+    // The canonical value `muted` and the deprecated legacy value `dark` must BOTH
+    // emit the legacy `--dark` surface-band class, so pages authored before the
+    // rename render byte-identically forever while new pages use `muted`. Proven
+    // at the render layer (not just the helper) so the template wiring is pinned.
+
+    public function testFaqMutedThemeEmitsLegacyDarkClass(): void
+    {
+        $html = $this->render('faq', $this->faqProps(['theme' => 'muted']));
+        $this->assertStringContainsString('class="faq faq--dark"', $html);
+    }
+
+    public function testFaqMutedAndLegacyDarkRenderByteIdentically(): void
+    {
+        $muted = $this->render('faq', $this->faqProps(['theme' => 'muted']));
+        $dark  = $this->render('faq', $this->faqProps(['theme' => 'dark']));
+        $this->assertSame($dark, $muted, 'muted must render byte-identically to the legacy dark alias');
+    }
+
+    public function testGridMutedThemeEmitsLegacyDarkClass(): void
+    {
+        $muted = $this->render('grid', ['theme' => 'muted', 'items' => [['title' => 'One', 'text' => 'a']]]);
+        $dark  = $this->render('grid', ['theme' => 'dark', 'items' => [['title' => 'One', 'text' => 'a']]]);
+        $this->assertStringContainsString('grid--dark', $muted);
+        $this->assertSame($dark, $muted);
+    }
+
+    public function testCtaMutedEmitsDarkAndInvertedStaysInverted(): void
+    {
+        $base     = ['title' => 'Go', 'button_text' => 'Click', 'button_url' => '/'];
+        $muted    = $this->render('cta', $base + ['theme' => 'muted']);
+        $dark     = $this->render('cta', $base + ['theme' => 'dark']);
+        $inverted = $this->render('cta', $base + ['theme' => 'inverted']);
+        $this->assertStringContainsString('cta--dark', $muted);
+        $this->assertSame($dark, $muted, 'cta muted must equal the legacy dark alias');
+        $this->assertStringContainsString('cta--inverted', $inverted);
+        $this->assertStringNotContainsString('cta--dark', $inverted);
+    }
+
     public function testStatsRendersAllFourSlots(): void
     {
         $overrides = [

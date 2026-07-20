@@ -11,7 +11,7 @@ This is the only sanctioned way to introduce arbitrary plugin-rendered content i
 | `id`      | string | No       | `''`    | HTML id for anchor linking |
 | `title`   | string | No       | `''`    | Optional heading above the embedded content |
 | `content` | string | Yes      | —       | WP shortcode or pre-rendered HTML |
-| `theme`   | enum   | No       | `default` | Background color/tone: `default` (page background), `dark` (surface background with borders), `inverted` (inverted background for strong contrast) |
+| `theme`   | enum   | No       | `default` | Background color/tone: `default` (page background), `muted` (light tinted surface band with borders; deprecated alias `dark`), `inverted` (inverted dark background for strong contrast) |
 
 ## Usage
 

@@ -14,7 +14,7 @@ Call-to-action block. Place at the bottom of a page or between sections to drive
 | `button_text` | string | Yes      | —              | Button label |
 | `button_url`  | string | Yes      | —              | Button URL |
 | `layout`     | enum   | No       | `'full-width'` | Structural layout: `full-width` / `inline` |
-| `theme`       | enum   | No       | `'default'`    | Background color: `default` / `dark` / `inverted` (independent of `layout`) |
+| `theme`       | enum   | No       | `'default'`    | Background color: `default` / `muted` (light tinted surface band) / `inverted` (genuinely dark band) (independent of `layout`) |
 | `background_image` | string | No | `''`           | Optional background image URL with dark overlay for text readability |
 | `button_variant` | enum | No      | `'primary'`    | Button style: `primary` / `secondary` / `outline` / `ghost` |
 

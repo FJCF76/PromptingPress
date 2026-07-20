@@ -90,3 +90,43 @@ function pp_footer_linkify_contact(string $contact): string {
 
     return nl2br($linked);
 }
+
+/**
+ * Builds the tonal `theme` modifier class for a band-level component (#442).
+ *
+ * The public `theme` enum is `default | muted | inverted`:
+ *   - `default`  — no tone override; the band keeps its own default background.
+ *   - `muted`    — the light tinted surface band: `--color-surface` (#f4f7fb, a
+ *                  pale near-white) with framing top/bottom borders.
+ *   - `inverted` — the genuinely dark band: `--color-bg-inverted` (#0f172a).
+ *
+ * `dark` is a DEPRECATED renderer-level ALIAS for `muted`, kept forever so every
+ * page authored before the rename renders byte-identically. The tinted band still
+ * ships under the LEGACY `--dark` CSS class name (renaming the class would change
+ * the emitted HTML of the installed base), so BOTH `muted` and the legacy `dark`
+ * resolve to the same `{prefix}--dark` class. Schemas advertise only `muted`; the
+ * renderer accepts both. Value name `dark` was a misnomer — it renders a LIGHT
+ * band — which is exactly why the enum migrated; `inverted` is the dark band.
+ *
+ * Any value outside the accepted set (including non-string / empty / unknown input
+ * arriving from a JSON payload) coerces to `default`, matching the historical
+ * per-component accept-and-coerce behavior for the non-strict `theme` prop.
+ *
+ * @param mixed  $theme  The raw `theme` prop value (any type; coerced defensively).
+ * @param string $prefix The component's BEM block prefix (e.g. 'cta', 'pp-section').
+ * @return string A leading-space class fragment (e.g. ' cta--dark'), or '' for the
+ *                default theme so `class="cta<?php echo $theme_class; ?>"` stays clean.
+ */
+function pp_theme_class($theme, string $prefix): string {
+    $accepted = ['default', 'muted', 'dark', 'inverted'];
+    if (!is_string($theme) || !in_array($theme, $accepted, true)) {
+        $theme = 'default';
+    }
+    if ($theme === 'default') {
+        return '';
+    }
+    // `muted` is the canonical value; `dark` is its deprecated alias. Both share the
+    // legacy `--dark` CSS class so existing pages render byte-identically forever.
+    $slug = ($theme === 'muted') ? 'dark' : $theme;
+    return ' ' . $prefix . '--' . $slug;
+}

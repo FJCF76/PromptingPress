@@ -8,7 +8,7 @@ A flex-wrap image grid. Use for client logo strips (items without labels) or ico
 |---------|--------|----------|---------|-------------|
 | `id`    | string | No       | `''`    | HTML id for anchor linking |
 | `title` | string | No       | `''`    | Optional heading above the grid |
-| `theme`   | enum | No       | `default` | Background color/tone: `default` (page background), `dark` (surface background with borders), `inverted` (inverted background for strong contrast) |
+| `theme`   | enum | No       | `default` | Background color/tone: `default` (page background), `muted` (light tinted surface band with borders; deprecated alias `dark`), `inverted` (inverted dark background for strong contrast) |
 | `items` | array  | Yes      | —       | Array of image items |
 
 Each item:

@@ -1760,7 +1760,13 @@
   }
 }
 
-/* Grid theme variants */
+/* Grid theme variants.
+   NOTE (#442): the `--dark` modifier class is a MISNOMER kept for back-compat — it
+   paints the LIGHT `--color-surface` tinted band, not a dark one. The public theme
+   enum renamed this value to `muted`; the renderer maps BOTH `muted` and the
+   deprecated `dark` to this same `--dark` class (see pp_theme_class() in
+   lib/helpers.php) so existing pages render byte-identically. The genuinely dark
+   band is `--inverted`. Every band component's `--dark` variant follows this pattern. */
 .grid--dark {
   background: var(--grid-bg, var(--color-surface));
   border-top: 1px solid var(--color-border);
