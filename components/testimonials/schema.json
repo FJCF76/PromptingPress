@@ -75,6 +75,7 @@
       "--testimonials-padding-top": { "type": "length", "default": "var(--space-xl)", "description": "Top padding of the section" },
       "--testimonials-padding-bottom": { "type": "length", "default": "var(--space-xl)", "description": "Bottom padding of the section" },
       "--testimonials-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
+      "--testimonials-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop); set an explicit length to override." },
       "--testimonials-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Heading text color" },
       "--testimonials-heading-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading, if set" },
       "--testimonials-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color" },

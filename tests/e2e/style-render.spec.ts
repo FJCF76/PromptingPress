@@ -3412,3 +3412,190 @@ test.describe('Shared section-band rhythm (#431)', () => {
     }
   });
 });
+
+test.describe('Band heading scale (#436)', () => {
+  let pageId: number;
+
+  // Every band-level heading is an <h2> that shares ONE responsive scale
+  // (--pp-band-heading-size) as the fallback of its own size slot. Before #436
+  // section/grid/cta collapsed to 16px body size on mobile (cta at every
+  // viewport) and the rest disagreed. Selector + size slot per band.
+  const HEADINGS: { band: string; sel: string; slot: string }[] = [
+    { band: 'section', sel: '.section__title', slot: '--section-title-size' },
+    { band: 'grid', sel: '.grid__heading', slot: '--grid-heading-size' },
+    { band: 'cta', sel: '.cta__title', slot: '--cta-title-size' },
+    { band: 'stats', sel: '.stats__heading', slot: '--stats-title-size' },
+    { band: 'table', sel: '.table-section__heading', slot: '--table-section-heading-size' },
+    { band: 'testimonials', sel: '.testimonials__heading', slot: '--testimonials-heading-size' },
+    { band: 'logos', sel: '.logos__heading', slot: '--logos-heading-size' },
+    { band: 'embed', sel: '.embed__heading', slot: '--embed-heading-size' },
+    { band: 'faq', sel: '.faq__heading', slot: '--faq-heading-size' },
+  ];
+
+  // Hero first so every band renders in-flow; faq LAST because its trailing
+  // JSON-LD <script> breaks the `+` adjacency of a following band (pre-existing
+  // bug 432). Adjacency does not affect font-size, but keeping faq last matches
+  // the #430/#431 stacks and avoids the quirk entirely. Each band carries a
+  // `title` so its <h2> renders.
+  const STACK = [
+    { component: 'hero', props: { id: 'pp-hero01', title: 'Lead' } },
+    { component: 'section', props: { id: 'pp-sec01', title: 'Section', body: '<p>Body.</p>' } },
+    { component: 'grid', props: { id: 'pp-grid01', title: 'Grid', items: [{ title: 'One', text: 'A' }] } },
+    { component: 'cta', props: { id: 'pp-cta01', title: 'CTA', button_text: 'Go', button_url: '/go' } },
+    { component: 'stats', props: { id: 'pp-stats01', title: 'Stats', items: [{ number: '10', label: 'Ten' }] } },
+    { component: 'table', props: { id: 'pp-tbl01', title: 'Table', headers: ['A', 'B'], rows: [['1', '2']] } },
+    { component: 'testimonials', props: { id: 'pp-tst01', title: 'Testimonials', items: [{ quote: 'It works.', author: 'A' }] } },
+    { component: 'logos', props: { id: 'pp-logo01', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'Logo' }] } },
+    { component: 'embed', props: { id: 'pp-emb01', title: 'Embed', content: 'https://example.com/video' } },
+    { component: 'faq', props: { id: 'pp-faq01', title: 'FAQ', items: [{ question: 'Q?', answer: 'A.' }] } },
+  ];
+
+  async function headingMetrics(page: any, sel: string) {
+    return page.locator(`main ${sel}`).first().evaluate((el: Element) => {
+      const cs = getComputedStyle(el);
+      return { tag: el.tagName, size: parseFloat(cs.fontSize) };
+    });
+  }
+
+  test.afterEach(async () => {
+    if (pageId) {
+      try {
+        deletePage(pageId);
+      } catch {
+        /* already cleaned */
+      }
+      pageId = 0;
+    }
+  });
+
+  // Core scenario: every band <h2> shares one computed size per breakpoint, never
+  // collapses to body size, and clears the 1.5rem mobile floor. The regression pin
+  // (no band h2 equals the body font-size at any tested viewport) lives here.
+  test('#436 all band headings share one size per breakpoint, never body-size, >=1.5rem @375 @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Band Heading Scale Equality');
+    setComposition(pageId, STACK);
+
+    for (const width of [375, 768, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('main .faq__heading').first()).toBeVisible({ timeout: 10000 });
+
+      const bodySize = await page.evaluate(() =>
+        parseFloat(getComputedStyle(document.body).fontSize),
+      );
+      const measured: Record<string, number> = {};
+      for (const { band, sel } of HEADINGS) {
+        const m = await headingMetrics(page, sel);
+        expect(m.tag, `${band} heading is not an <h2> @${width}`).toBe('H2');
+        measured[band] = m.size;
+        // The regression that shipped the bug: a band h2 computing at body size.
+        expect(m.size, `${band} h2 collapsed to body size @${width}: ${JSON.stringify(measured)}`).not.toBe(bodySize);
+        // Mobile floor: never below 1.5rem (24px at the 16px root).
+        if (width === 375) {
+          expect(m.size, `${band} below 1.5rem floor @375: ${m.size}`).toBeGreaterThanOrEqual(24);
+        }
+      }
+      // Cross-component equality: all band h2s are peers at this breakpoint (they
+      // all resolve the same --pp-band-heading-size clamp when unset).
+      const sizes = HEADINGS.map((h) => measured[h.band]);
+      expect(new Set(sizes).size, `band heading size drift @${width}: ${JSON.stringify(measured)}`).toBe(1);
+    }
+  });
+
+  // Slot contract preserved AND every newly-minted slot works end-to-end: the
+  // existing slot (--cta-title-size) plus ALL FOUR slots first introduced by #436
+  // (--table-section-heading-size, --logos-heading-size, --embed-heading-size,
+  // --testimonials-heading-size) must each validate (styleComponent success) and
+  // win over the shared scale at mobile AND desktop. This is the only render-level
+  // proof that the fresh pp_render_style_vars wiring in table/logos/embed.php uses
+  // the correct component-name string — a typo there would validate but never
+  // reach the DOM. Pixel values no scale step resolves to, so a fallback leak is
+  // unmistakable.
+  test('#436 existing and all newly-minted heading slots override the shared scale at 375 and 1280', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Band Heading Slot Override');
+    setComposition(pageId, [
+      { component: 'cta', props: { id: 'pp-cta01', title: 'CTA', button_text: 'Go', button_url: '/go' } },
+      { component: 'table', props: { id: 'pp-tbl01', title: 'Table', headers: ['A', 'B'], rows: [['1', '2']] } },
+      { component: 'logos', props: { id: 'pp-logo01', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'Logo' }] } },
+      { component: 'embed', props: { id: 'pp-emb01', title: 'Embed', content: 'https://example.com/video' } },
+      { component: 'testimonials', props: { id: 'pp-tst01', title: 'Testimonials', items: [{ quote: 'It works.', author: 'A' }] } },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // index 0 = cta (existing slot); 1..4 = the slots minted in #436. Distinct px
+    // per component so a cross-wired value would be caught.
+    const overrides = [
+      { idx: 0, slot: '--cta-title-size', px: '60px', sel: '.cta__title' },
+      { idx: 1, slot: '--table-section-heading-size', px: '61px', sel: '.table-section__heading' },
+      { idx: 2, slot: '--logos-heading-size', px: '62px', sel: '.logos__heading' },
+      { idx: 3, slot: '--embed-heading-size', px: '63px', sel: '.embed__heading' },
+      { idx: 4, slot: '--testimonials-heading-size', px: '64px', sel: '.testimonials__heading' },
+    ];
+    for (const o of overrides) {
+      const r = await styleComponent(page, pageId, { [o.slot]: o.px }, undefined, o.idx);
+      expect(r.success, `${o.slot} set: ${JSON.stringify(r)}`).toBe(true);
+    }
+
+    for (const width of [375, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      for (const o of overrides) {
+        const h = page.locator(`main ${o.sel}`).first();
+        await expect(h).toBeVisible({ timeout: 10000 });
+        expect(await h.evaluate((el) => getComputedStyle(el).fontSize), `${o.slot} @${width}`).toBe(o.px);
+      }
+    }
+  });
+
+  // Live-shape check (acceptance criterion): the measured webfiable.com defect
+  // sequence (hero -> stats -> grid -> cta -> grid -> section -> cta) renders a
+  // DISTINGUISHABLE heading hierarchy at 375w — every band h2 clearly larger than
+  // body text and all peers equal, instead of the old 16px collapse where the
+  // section and both CTA titles were indistinguishable from body copy. No faq in
+  // this sequence, so bug 432 cannot interfere.
+  test('#436 webfiable-shaped stack renders distinguishable band headings at 375 @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Band Heading Webfiable Shape');
+    setComposition(pageId, [
+      { component: 'hero', props: { id: 'pp-hero01', title: 'Lead' } },
+      { component: 'stats', props: { id: 'pp-stats01', theme: 'dark', title: 'Stats', items: [{ number: '10', label: 'Ten' }] } },
+      { component: 'grid', props: { id: 'pp-grid01', title: 'Grid', items: [{ title: 'One', text: 'A' }] } },
+      { component: 'cta', props: { id: 'pp-cta01', theme: 'dark', title: 'CTA', button_text: 'Go', button_url: '/go' } },
+      { component: 'grid', props: { id: 'pp-grid02', title: 'Grid Two', items: [{ title: 'Two', text: 'B' }] } },
+      { component: 'section', props: { id: 'pp-sec01', title: 'Section', body: '<p>Section body.</p>' } },
+      { component: 'cta', props: { id: 'pp-cta02', theme: 'dark', title: 'Closing', button_text: 'Go', button_url: '/go' } },
+    ]);
+
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('#pp-cta02 .cta__title')).toBeVisible({ timeout: 10000 });
+
+    const bodySize = await page.evaluate(() => parseFloat(getComputedStyle(document.body).fontSize));
+    // The band titles that used to collapse to 16px on this exact sequence.
+    const titleSelectors = [
+      '#pp-stats01 .stats__heading',
+      '#pp-grid01 .grid__heading',
+      '#pp-cta01 .cta__title',
+      '#pp-grid02 .grid__heading',
+      '#pp-sec01 .section__title',
+      '#pp-cta02 .cta__title',
+    ];
+    const sizes: number[] = [];
+    for (const sel of titleSelectors) {
+      const size = await page.locator(sel).evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+      // Distinguishable from body copy (the bug rendered these AT body size).
+      expect(size, `${sel} not distinguishable from body @375: ${size}`).toBeGreaterThan(bodySize);
+      expect(size, `${sel} below 1.5rem floor @375: ${size}`).toBeGreaterThanOrEqual(24);
+      sizes.push(size);
+    }
+    // Peers: all band h2s at the same structural level share one step.
+    expect(new Set(sizes).size, `band heading drift on webfiable shape @375: ${JSON.stringify(sizes)}`).toBe(1);
+  });
+});

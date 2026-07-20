@@ -497,17 +497,58 @@ class AiContextTest extends TestCase
         $this->assertStringContainsString('Recipes:', $prompt);
     }
 
-    public function testSystemPromptOmitsStyleSlotsForUnstyled(): void
+    public function testSystemPromptOmitsStyleSlotsForComponentsWithNoSlots(): void
     {
-        // faq gained style slots in #100 — it's no longer an "unstyled" example
-        // (see testSystemPromptIncludesStyleSlotsForFaq below).
+        // faq gained style slots in #100, and table/logos/embed gained the shared
+        // band-heading size slot in #436, so no band/content component in the
+        // catalog is "unstyled" anymore (embed used to be the example here). This
+        // guard is now dynamic: any component whose schema declares zero style
+        // slots must still omit the "Style slots:" line in the prompt. It passes
+        // vacuously today (every listed component has >= 1 slot) but re-arms the
+        // moment a slotless component is added.
+        $prompt = pp_ai_system_prompt();
+        $this->assertNotEmpty($prompt);
+        $lines = explode("\n", $prompt);
+        foreach (pp_get_registered_components() as $name => $schema) {
+            if (count($schema['styling']['style_slots'] ?? []) > 0) {
+                continue;
+            }
+            foreach ($lines as $i => $line) {
+                if (str_contains($line, "**{$name}**")) {
+                    $next = $lines[$i + 1] ?? '';
+                    $this->assertStringNotContainsString(
+                        'Style slots:',
+                        $next,
+                        "Component {$name} declares no style slots but the prompt lists them."
+                    );
+                }
+            }
+        }
+    }
+
+    public function testSystemPromptIncludesHeadingSizeSlotForNewlyStyledBands(): void
+    {
+        // #436 regression pin: table/logos/embed each gained the shared band-heading
+        // size slot, so the AI-facing prompt must now surface it the same way it does
+        // faq's slots (see testSystemPromptIncludesStyleSlotsForFaq below).
         $prompt = pp_ai_system_prompt();
         $lines = explode("\n", $prompt);
-        foreach ($lines as $i => $line) {
-            if (str_contains($line, '**embed**')) {
-                $next = $lines[$i + 1] ?? '';
-                $this->assertStringNotContainsString('Style slots:', $next);
+        $expected = [
+            'embed' => '--embed-heading-size',
+            'logos' => '--logos-heading-size',
+            'table' => '--table-section-heading-size',
+        ];
+        foreach ($expected as $name => $slot) {
+            $found = false;
+            foreach ($lines as $i => $line) {
+                if (str_contains($line, "**{$name}**")) {
+                    $next = $lines[$i + 1] ?? '';
+                    $this->assertStringContainsString('Style slots:', $next);
+                    $this->assertStringContainsString($slot, $next);
+                    $found = true;
+                }
             }
+            $this->assertTrue($found, "Expected {$name} in the system prompt.");
         }
     }
 

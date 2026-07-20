@@ -96,10 +96,25 @@
    Hero opts OUT of this shared rhythm on purpose: it carries its own larger,
    already-symmetric page-opening rhythm (--space-xl / --space-2xl, 64/112px)
    via the --hero-padding-* slots, so it is not retuned here.
+
+   Band heading scale — the typography analog of the rhythm above (issue 436).
+   Every band title (section, grid, cta, faq, stats, table, testimonials, logos,
+   embed) routes its font-size fallback through --pp-band-heading-size, so the
+   default heading step is defined ONCE and fluid at EVERY viewport instead of
+   collapsing to body size below 768px (the old `font-size: var(--slot, inherit)`
+   trap) or drifting per component. The clamp runs from a ~28px mobile floor
+   (never body-size) to the ~42px ceiling of the prior desktop-only clamp; at
+   1280px it resolves to ~38.4px, matching the previous desktop output for
+   section/grid/faq. Internal like the rhythm props (not authored via
+   update_design_token, kept out of the first :root token block); a whole-site
+   heading-scale retune changes only this line. Hero keeps its own larger clamp
+   (out of scope). Per-component --*-title-size / --*-heading-size slots still
+   win at every breakpoint — this is only the fallback.
    ========================================================================== */
 :root {
   --pp-band-padding:              clamp(4.25rem, 6vw, 5rem);
   --pp-band-padding-adjacent-top: var(--pp-band-padding);
+  --pp-band-heading-size:         clamp(1.75rem, 1.48rem + 1.15vw, 2.62rem);
 }
 
 @media (max-width: 767px) {

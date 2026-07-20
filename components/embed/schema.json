@@ -30,7 +30,10 @@
   "styling": {
     "root_class": "embed",
     "variant_classes": ["embed--dark", "embed--inverted"],
-    "tokens": ["--space-xl", "--space-2xl", "--space-3xl", "--color-bg", "--color-bg-inverted"]
+    "tokens": ["--space-xl", "--space-2xl", "--space-3xl", "--color-bg", "--color-bg-inverted"],
+    "style_slots": {
+      "--embed-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Section heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop); set an explicit length to override." }
+    }
   },
   "safe_to_edit": ["embed.php", "../../assets/css/components.css (COMPONENT: embed section)"],
   "do_not_touch": ["schema.json without updating AI_CONTEXT.md"]

@@ -973,7 +973,7 @@
 }
 
 .section__title {
-  font-size: var(--section-title-size, inherit);
+  font-size: var(--section-title-size, var(--pp-band-heading-size));
   color: var(--section-title-color, var(--section-title-theme-color, var(--color-text)));
   /* Top-side header rhythm (title -> subheading gap). issue 336 made the subheading's
      BOTTOM margin authorable; this routes the title's own bottom margin through a
@@ -1261,7 +1261,7 @@
      widths below the desktop premium typography breakpoint, where the heading
      renders at the h2 base size (base.css); the desktop clamp is routed through
      the same slot below. Fallback keeps unset output byte-identical. */
-  font-size: var(--faq-heading-size, 1.875rem);
+  font-size: var(--faq-heading-size, var(--pp-band-heading-size));
   margin-bottom: var(--space-lg);
   color: var(--faq-heading-color, var(--faq-heading-theme-color, var(--color-text)));
 }
@@ -1406,7 +1406,7 @@
 
 .grid__heading {
   color: var(--grid-heading-color, var(--grid-heading-theme-color, var(--color-text)));
-  font-size: var(--grid-heading-size, inherit);
+  font-size: var(--grid-heading-size, var(--pp-band-heading-size));
   max-width: var(--grid-heading-max-width, 40rem);
   /* Top-side header rhythm (heading -> subheading gap), mirror of the issue 336
      subheading BOTTOM slot on the adjacent property (issue 343). The heading is
@@ -1843,6 +1843,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 .table-section__heading {
+  /* Band heading joins the shared responsive scale (issue 436): route font-size
+     through the component's own size slot, falling back to --pp-band-heading-size
+     so this heading agrees with every other band title at every viewport instead
+     of inheriting the flat h2 element rule (30px). */
+  font-size: var(--table-section-heading-size, var(--pp-band-heading-size));
   margin-bottom: var(--space-lg);
 }
 
@@ -1946,7 +1951,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 .cta__title {
-  font-size: var(--cta-title-size, inherit);
+  font-size: var(--cta-title-size, var(--pp-band-heading-size));
   color: var(--cta-text, inherit);
   max-width: var(--cta-content-width, 40rem);
   margin-bottom: var(--space-xs);
@@ -2362,7 +2367,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   /* Route the heading size through the slot (issue 304). stats has no premium
      typography rule, so the fallback is the h2 base size (base.css) — unset
      output is byte-identical, and an operator can now tune the scale. */
-  font-size: var(--stats-title-size, 1.875rem);
+  font-size: var(--stats-title-size, var(--pp-band-heading-size));
   margin-bottom: var(--space-lg);
   /* Center the heading BOX, not just its text (issue 367 — same class as issue 354).
      The shared cap rule gives this h2 max-width: var(--cta-content-width, 40rem);
@@ -2485,6 +2490,8 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 .logos__heading {
+  /* Band heading joins the shared responsive scale (issue 436). */
+  font-size: var(--logos-heading-size, var(--pp-band-heading-size));
   margin-bottom: var(--space-lg);
 }
 
@@ -2558,6 +2565,8 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 .embed__heading {
+  /* Band heading joins the shared responsive scale (issue 436). */
+  font-size: var(--embed-heading-size, var(--pp-band-heading-size));
   margin-bottom: var(--space-lg);
 }
 
@@ -2622,6 +2631,8 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 .testimonials__heading {
+  /* Band heading joins the shared responsive scale (issue 436). */
+  font-size: var(--testimonials-heading-size, var(--pp-band-heading-size));
   color: var(--testimonials-heading-color, var(--color-text));
   max-width: 40rem;
   /* Top-side header rhythm (heading -> subheading gap), mirror of the issue 336
@@ -2838,7 +2849,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    ========================================================================== */
 
 .section--text-only .section__title {
-  font-size: var(--section-title-size, 2.25rem);
+  font-size: var(--section-title-size, var(--pp-band-heading-size));
 }
 
 .section--text-only .section__content {
@@ -2975,30 +2986,47 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      to live in the shared rule above as a bare clamp(), outranking the base
      .section__title / .grid__heading rules ([0,1,0]) and silently ignoring a
      declared --section-title-size / --grid-heading-size. Route each through its
-     size slot with the clamp() as the fallback so unset output is unchanged. faq
-     now routes through --faq-heading-size too (issue 304).
+     size slot so a set slot still wins at this [0,2,1] specificity. faq routes
+     through --faq-heading-size too (issue 304). The fallback is now the shared
+     --pp-band-heading-size (issue 436) instead of a per-rule clamp(): the shared
+     clamp is already fluid at every viewport, so this desktop rule and the base
+     rule resolve to the same value when the slot is unset (~38.4px at 1280px,
+     matching the prior desktop clamp) — the rule stays only to keep the slot
+     winning at desktop specificity, not to redefine the size.
 
      margin-bottom joins the split for section/grid (issue 343): this premium rule
      hardcoded the title -> subheading gap (1.65rem here, 1.25rem in the max-width
      rule below) at [0,2,1], outranking the base [0,1,0] rules and silently ignoring
      a declared --section-title-margin-bottom / --grid-heading-margin-bottom. Route
      each through its slot with 1.65rem as the fallback so unset output is unchanged.
-     faq stays a bare literal (no faq heading-margin slot in issue 343's scope). */
+     faq stays a bare literal (no faq heading-margin slot in issue 343's scope).
+
+     issue 436 note: the font-size fallback here is now the shared --pp-band-heading-size
+     instead of this rule's old per-rule clamp(2.25rem, 3vw, 2.62rem). Because that
+     shared value is itself a fluid clamp, this desktop rule and the base rule resolve
+     to the SAME size when the slot is unset — so this rule exists only to keep a set
+     slot winning at this [0,2,1] specificity, not to redefine the size. Unset output
+     is preserved at the 1280px desktop anchor (~38.4px) and at the >=1400px ceiling
+     (2.62rem), but it is NOT byte-identical across the whole old desktop range: the
+     old clamp was floored flat at 36px for ~768-1071px, whereas the shared fluid
+     clamp ramps from ~32.5px at 768px up to 36px near 1071px. That ~3.5px tablet-band
+     softening is the deliberate cost of unifying section/grid/faq onto one fluid scale
+     (issue 436) and is called out in the CHANGELOG. */
   main > .grid .grid__heading {
     color: var(--grid-heading-color, var(--grid-heading-theme-color, var(--color-text)));
-    font-size: var(--grid-heading-size, clamp(2.25rem, 3vw, 2.62rem));
+    font-size: var(--grid-heading-size, var(--pp-band-heading-size));
     margin-bottom: var(--grid-heading-margin-bottom, 1.65rem);
   }
 
   main > .section .section__title {
     color: var(--section-title-color, var(--section-title-theme-color, var(--color-text)));
-    font-size: var(--section-title-size, clamp(2.25rem, 3vw, 2.62rem));
+    font-size: var(--section-title-size, var(--pp-band-heading-size));
     margin-bottom: var(--section-title-margin-bottom, 1.65rem);
   }
 
   main > .faq .faq__heading {
     color: var(--faq-heading-color, var(--faq-heading-theme-color, var(--color-text)));
-    font-size: var(--faq-heading-size, clamp(2.25rem, 3vw, 2.62rem));
+    font-size: var(--faq-heading-size, var(--pp-band-heading-size));
     margin-bottom: 1.65rem;
   }
 

@@ -21,8 +21,10 @@ if (!in_array($theme, $allowed_themes, true)) {
 
 $theme_class = $theme !== 'default' ? ' logos--' . $theme : '';
 
+$slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'logos');
+$style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="logos<?php echo esc_attr($theme_class); ?>" data-pp-component="logos">
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="logos<?php echo esc_attr($theme_class); ?>" data-pp-component="logos"<?php echo $style_attr; ?>>
     <div class="container">
 
         <?php if ($title) : ?>
