@@ -328,8 +328,8 @@ describe('CSS lint: style slot fallback patterns', () => {
         });
     });
 
-    test('hero/section/grid/cta schemas declare 145 style slots (subset of the total)', () => {
-        expect(allSlots.length).toBe(145);
+    test('hero/section/grid/cta schemas declare 147 style slots (subset of the total)', () => {
+        expect(allSlots.length).toBe(147);
     });
 
     allSlots.forEach(({ component, slotName }) => {
@@ -1788,6 +1788,43 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
                 expect(d).toMatch(/max-width\s*:\s*var\(\s*--section-body-width\s*,\s*40rem\s*\)/);
             });
         });
+    });
+
+    // ---- Section body type slots (issue 470) ----
+    // font-size / font-weight for the section body must route through
+    // --section-body-size / --section-body-weight at EVERY declaration site: the
+    // base .section__content rule (in-block, keystone consumption) plus the desktop
+    // premium (main > .section .section__content[, ... p]) and mobile rules. A bare
+    // literal at any site would defeat the slot (the #302/#305 dead-slot class).
+    // The base .section__content rule (in-block, keystone consumption).
+    test('base .section__content routes font-size/weight through the body slots', () => {
+        assertPropRoutesThroughSlot('.section__content', 'font-size', '--section-body-size', 1);
+        assertPropRoutesThroughSlot('.section__content', 'font-weight', '--section-body-weight', 1);
+    });
+
+    // Both breakpoints declare the section body via the grouped
+    // `main > .section .section__content, main > .section .section__content p` list.
+    // The `p` selector is the one that terminates each rule (the bare container
+    // selector only ever appears mid-list, never immediately before `{`), and it
+    // shares the rule body with the container, so pinning it covers both. Presence 2
+    // = desktop premium block + mobile block.
+    test('section body premium + mobile rules route font-size through --section-body-size', () => {
+        assertPropRoutesThroughSlot('main > .section .section__content p', 'font-size', '--section-body-size', 2);
+    });
+
+    test('section body premium + mobile rules route font-weight through --section-body-weight', () => {
+        assertPropRoutesThroughSlot('main > .section .section__content p', 'font-weight', '--section-body-weight', 2);
+    });
+
+    // The mobile size fallback must CHAIN through --cta-body-size (byte-identical to
+    // the pre-split shared rule): unset section body still follows a set --cta-body-size.
+    test('mobile section body size chains through the historical cta-body-size fallback', () => {
+        const bodies = bodiesForExactSelector('main > .section .section__content p');
+        const sizeDecls = bodies
+            .flatMap(b => b.match(/font-size\s*:[^;}]+/g) || [])
+            .filter(d => /--section-body-size/.test(d));
+        // At least the mobile rule uses the chained fallback.
+        expect(sizeDecls.some(d => /var\(\s*--section-body-size\s*,\s*var\(\s*--cta-body-size\s*,\s*1rem\s*\)\s*\)/.test(d))).toBe(true);
     });
 
     // ---- Stats contained-card slots (issue 383) ----
