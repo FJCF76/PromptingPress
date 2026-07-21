@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.5.9] — 2026-07-22 — a split hero can now stretch its media to the headline's height, so one asset balances any headline length (#477)
+
+**A `split` hero puts the headline in the left column and media in the right, but the media only offered `top` / `center` / `bottom` alignment at a fixed size — so a 4–5 line headline left a small card floating below center beside a huge headline, and the only fix was hand-authoring a taller asset per page. `vertical_align` now takes a fourth value, `stretch`: the media column fills the content column's height (equal-height columns) and the image sizes to that box with `object-fit: cover`. One asset balances any headline length. Set `vertical_align: "stretch"` on a split hero; the existing `top` / `center` / `bottom` output is byte-identical.**
+
+This extends the existing `vertical_align` enum — no new prop, no new style slot. On a split hero, `stretch` makes both grid tracks equal the row height (which the taller content column defines), and the media track fills it. The crop idiom is `cover`, the same default the hero's background-image and aspect-ratio paths already use; there is no separate fit control, so a stretched image crops to the box. The value is scoped to the exact `stretch` attribute, so the three existing alignment cases are untouched, and all of it lives in the desktop (`≥1024px`) block, so the stacked mobile split is unchanged. On the `cover` layout `stretch` renders like `center`.
+
+### Added
+- `stretch` value on the hero `vertical_align` enum. On a `split` layout it makes the media column track the content column's height (equal-height columns) with `object-fit: cover`; on `cover` it renders like `center`. Documented in the hero schema, README, and `AI_CONTEXT.md` (#477).
+
+### Tests
+- PHPUnit: `HeroCompositionTest` adds enum-acceptance + attribute-emission cases — `stretch` survives validation and emits `data-pp-vertical-align="stretch"` on split and cover, and is ignored on non-split/non-cover layouts. A Playwright E2E renders two split heroes with the same tall multi-line headline and the same wide, short image at 1280: the `stretch` hero's media wrap tracks the content column height (ratio ~1.0), while the default `center` hero's fixed-aspect card stays well under the issue's measured 69–80% ceiling — proving the fix changed the geometry (#477).
+
 ## [v1.5.8] — 2026-07-21 — a section's body text size and weight are now style slots, so you can set a deliberate type step (#470)
 
 **The `section` component's body copy took whatever the built-in body scale gave it — there was no way to ask for a compact utility band at, say, 15px/600, an emphasis paragraph, or dense spec text through the documented style surface. There are now two style slots, `--section-body-size` (length) and `--section-body-weight` (number), that the body/content text consumes at every breakpoint. Set them for a deliberate size/weight step; leave them unset and every section renders byte-identically to before. Naming follows the existing `--cta-body-size` idiom.**
