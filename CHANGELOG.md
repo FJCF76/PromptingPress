@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.5.5] — 2026-07-21 — a Spanish (or any non-ASCII) meta description sets and renders correctly now: accents and em-dashes stop turning into literal `u00e1` (#471)
+
+**Setting a page's `meta_description` or `seo_title` to text with accents, ñ, or an em-dash through `update_seo_meta` corrupted every non-ASCII character: `prueba áéíóú ñ —guion` was stored and rendered as `prueba u00e1u00e9u00edu00f3u00fa u00f1 u2014guion`. A non-English site could not set a correct meta description, the exact job the action exists for. The stored value and the rendered `<meta name="description">` now carry the real UTF-8 text, and `seo_title` overrides the `<title>` with its real characters too. Pages already saved with the mangled text heal the moment their SEO metadata is set again.**
+
+The action JSON-encoded the metadata before writing it, and WordPress's meta layer then stripped the backslashes off the resulting `\uXXXX` escapes, leaving `á` as the literal `u00e1`. The write now stores the metadata as raw UTF-8 and shields it from that stripping pass, the same storage approach the composition (page content) path has always used, so accents, ñ, em-dashes, CJK, emoji, quotes, and backslashes all round-trip byte-for-byte. Nothing else about the action changed: patch semantics, the length caps, canonical-URL validation, and clearing a field with `""` all behave exactly as before.
+
+### Fixed
+- `update_seo_meta` (and `pp_update_seo_meta()`) now store `meta_description` and `seo_title` as raw UTF-8, so non-ASCII text is preserved end-to-end instead of being mangled into literal `uXXXX` sequences in the stored `_pp_seo_meta` and in the rendered `<meta name="description">` / `<title>` tags. Values that were already corrupted are plain (wrong) strings that read back without error and heal on the next write; no migration is needed (#471).
+
+### Tests
+- New PHPUnit round-trip regressions assert byte-identical read-back for Spanish accents, the em-dash, CJK, a non-BMP emoji, double quotes, a literal backslash, and a literal `á`-looking string, plus a patch-merge case and rendered-tag checks for both the meta description and the `seo_title` override. A Playwright E2E drives the real `wp pp action execute update_seo_meta` path on WordPress and asserts the rendered `<head>` shows the correct UTF-8. The PHPUnit harness now models WordPress's unslash-on-write so this class of corruption can no longer pass the suite silently (#471).
+
 ## [v1.5.4] — 2026-07-20 — the full `wp pp operate inspect` field reference lands in the CLI docs, including `composition_decode_error` (#216)
 
 **`docs/reference-apply-cli.md` described `wp pp operate inspect` but only documented the appended `run_id` — the rest of the inspect JSON contract was undocumented in the CLI reference, and the corruption-vs-empty signal `composition_decode_error` (added in #144) lived only in `AI_CONTEXT.md`. The inspect section now carries a complete field table: every top-level field `pp_inspect_site()` returns (`target`, `pages`, `drift`, `preflight`, `tokens`, `conflicts`, `smells`, `token_smells`, `composition_decode_error`) plus the CLI-appended `run_id`, each with its shape and meaning, and a dedicated table for `composition_decode_error`'s `decode_error` / `unexpected_shape` / `null` cases. Documentation only — no output shape or behavior changed.**
