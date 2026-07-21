@@ -363,7 +363,13 @@ if (!function_exists('get_post_meta')) {
 
 if (!function_exists('update_post_meta')) {
     function update_post_meta(int $post_id, string $key, $value): bool {
-        $GLOBALS['_pp_test_store']['post_meta'][$post_id][$key] = $value;
+        // Real WordPress unslashes the meta value before storing (it expects
+        // SLASHED input from the historical magic-quotes contract). Model that
+        // here so tests exercise the true store round-trip: code that forgets
+        // to wp_slash() a wp_json_encode()'d payload loses its backslashes,
+        // exactly as in production (#471). Paired with the wp_slash() stub
+        // below, a correctly wp_slash()'d write is a net no-op.
+        $GLOBALS['_pp_test_store']['post_meta'][$post_id][$key] = wp_unslash($value);
         return true;
     }
 }
@@ -637,10 +643,15 @@ if (!function_exists('wp_unslash')) {
 }
 
 if (!function_exists('wp_slash')) {
-    // No-op: real WP adds slashes then update_post_meta strips them.
-    // Our stubs don't strip, so wp_slash must be transparent.
+    // Real WP adds slashes (before ', ", \, NUL) and recurses into arrays.
+    // Model it faithfully so it forms an exact inverse pair with the wp_unslash
+    // stub: a wp_slash()'d value survives update_post_meta()'s unslash pass
+    // byte-for-byte, while an unslashed wp_json_encode() payload does not (#471).
     function wp_slash($value) {
-        return $value;
+        if (is_array($value)) {
+            return array_map('wp_slash', $value);
+        }
+        return is_string($value) ? addslashes($value) : $value;
     }
 }
 

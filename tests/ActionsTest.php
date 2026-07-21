@@ -1508,6 +1508,99 @@ class ActionsTest extends TestCase
         $this->assertSame('https://example.com/default', pp_seo_canonical_url_override('https://example.com/default', null));
     }
 
+    // ── #471: non-ASCII / special-char round-trip through the store ─────────
+    // These read the meta straight back after a write and assert byte-identical
+    // values. Before the wp_slash()+JSON_UNESCAPED_UNICODE fix, update_post_meta
+    // unslashed the \uXXXX escapes wp_json_encode() emitted, so "á" was stored
+    // as the literal "u00e1". The harness (tests/bootstrap.php) now models WP's
+    // unslash-on-write, so a missing wp_slash() would resurface the corruption.
+
+    public function testUpdateSeoMetaPreservesSpanishAccentsAndEmDash(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        $value = 'prueba áéíóú ñ —guion';
+        pp_execute_action('update_seo_meta', ['post_id' => $id, 'meta' => ['meta_description' => $value]]);
+        $this->assertSame($value, pp_get_seo_meta($id)['meta_description']);
+    }
+
+    public function testUpdateSeoMetaPreservesNonBmpEmoji(): void
+    {
+        // Non-BMP (4-byte UTF-8) must survive too — the composition path already
+        // stores raw UTF-8 the same way, and WP's meta table is utf8mb4.
+        $id = pp_create_page('Page', 'draft');
+        $value = 'Launch day 🚀🎉 — vámonos';
+        pp_execute_action('update_seo_meta', ['post_id' => $id, 'meta' => ['meta_description' => $value]]);
+        $this->assertSame($value, pp_get_seo_meta($id)['meta_description']);
+    }
+
+    public function testUpdateSeoMetaPreservesNonAsciiInSeoTitle(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        $value = 'Título en Español — 日本語';
+        pp_execute_action('update_seo_meta', ['post_id' => $id, 'meta' => ['seo_title' => $value]]);
+        $this->assertSame($value, pp_get_seo_meta($id)['seo_title']);
+    }
+
+    public function testUpdateSeoMetaPreservesDoubleQuotes(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        $value = 'She said "hola" to everyone';
+        pp_execute_action('update_seo_meta', ['post_id' => $id, 'meta' => ['meta_description' => $value]]);
+        $this->assertSame($value, pp_get_seo_meta($id)['meta_description']);
+    }
+
+    public function testUpdateSeoMetaPreservesLiteralBackslash(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        $value = 'path C:\\Users\\ñoño and a trailing \\';
+        pp_execute_action('update_seo_meta', ['post_id' => $id, 'meta' => ['meta_description' => $value]]);
+        $this->assertSame($value, pp_get_seo_meta($id)['meta_description']);
+    }
+
+    public function testUpdateSeoMetaPreservesLiteralUnicodeEscapeString(): void
+    {
+        // A user who literally types the six characters á must get them
+        // back verbatim — not have them collapse to "á" or "u00e1".
+        $id = pp_create_page('Page', 'draft');
+        $value = 'literal escape: \\u00e1 stays as-is';
+        pp_execute_action('update_seo_meta', ['post_id' => $id, 'meta' => ['meta_description' => $value]]);
+        $this->assertSame($value, pp_get_seo_meta($id)['meta_description']);
+    }
+
+    public function testUpdateSeoMetaNonAsciiPatchDoesNotCorruptExistingKey(): void
+    {
+        // The stored JSON is re-read and merged on every patch; a non-ASCII
+        // value written first must survive a later patch to a different key.
+        $id = pp_create_page('Page', 'draft');
+        pp_execute_action('update_seo_meta', ['post_id' => $id, 'meta' => ['meta_description' => 'café ñandú —']]);
+        pp_execute_action('update_seo_meta', ['post_id' => $id, 'meta' => ['seo_title' => 'Título']]);
+        $meta = pp_get_seo_meta($id);
+        $this->assertSame('café ñandú —', $meta['meta_description']);
+        $this->assertSame('Título', $meta['seo_title']);
+    }
+
+    public function testSeoMetaDescriptionTagRendersNonAsciiCorrectly(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        pp_update_seo_meta($id, ['meta_description' => 'prueba áéíóú ñ —guion']);
+        $GLOBALS['_pp_test_store']['is_singular'] = true;
+        $GLOBALS['_pp_test_store']['queried_object_id'] = $id;
+        ob_start();
+        pp_seo_meta_description_tag();
+        $html = ob_get_clean();
+        $this->assertStringContainsString('content="prueba áéíóú ñ —guion"', $html);
+        $this->assertStringNotContainsString('u00e1', $html);
+    }
+
+    public function testSeoDocumentTitleOverrideReturnsNonAsciiVerbatim(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        pp_update_seo_meta($id, ['seo_title' => 'Título en Español — 日本語']);
+        $GLOBALS['_pp_test_store']['is_singular'] = true;
+        $GLOBALS['_pp_test_store']['queried_object_id'] = $id;
+        $this->assertSame('Título en Español — 日本語', pp_seo_document_title_override(''));
+    }
+
     // ── Action: publish_page ──────────────────────────────────────────────
 
     public function testPublishPageExecute(): void

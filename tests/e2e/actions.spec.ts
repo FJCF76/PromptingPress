@@ -137,6 +137,41 @@ test.describe('Action Layer CLI', () => {
     await expect(hero).toBeVisible({ timeout: 10000 });
     await expect(page.locator('.hero__title').first()).toContainText('Seed Hero');
   });
+
+  test('update_seo_meta renders non-ASCII meta description as UTF-8 (#471)', async ({ page }) => {
+    const description = 'prueba áéíóú ñ —guion';
+    const runId = ppOperateInspect();
+
+    // 1. Create + publish a page so it renders on the front end.
+    ppPreflight(runId);
+    const createResult = ppAction('create_page', {
+      title: 'E2E SEO Meta Test',
+      composition: [{ component: 'hero', props: { title: 'Seed Hero' } }],
+    }, runId);
+    expect(createResult.ok).toBe(true);
+    pageId = (createResult.target as any).post_id;
+
+    // 2. Set the Spanish meta description through the real action path — the
+    //    exact repro from #471, via WP-CLI with no JSON tooling in between.
+    ppPreflight(runId, pageId);
+    const seoResult = ppAction('update_seo_meta', {
+      post_id: pageId,
+      meta: { meta_description: description },
+    }, runId);
+    expect(seoResult.ok).toBe(true);
+
+    const pubResult = ppAction('publish_page', { post_id: pageId }, runId);
+    expect(pubResult.ok).toBe(true);
+
+    // 3. The rendered <head> must carry the correct UTF-8 text, not the
+    //    "u00e1"-mangled escapes that #471 stored.
+    await page.goto(`/?page_id=${pageId}`);
+    const content = await page
+      .locator('head meta[name="description"]')
+      .getAttribute('content');
+    expect(content).toBe(description);
+    expect(content).not.toContain('u00e1');
+  });
 });
 
 /**

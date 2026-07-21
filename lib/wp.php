@@ -2777,7 +2777,17 @@ function pp_update_seo_meta(int $post_id, array $meta) {
     }
 
     $updated = array_merge(pp_get_seo_meta($post_id), $meta);
-    update_post_meta($post_id, '_pp_seo_meta', wp_json_encode($updated));
+    // JSON_UNESCAPED_UNICODE stores non-ASCII (accents, em-dash) as raw UTF-8
+    // instead of \uXXXX escapes — without it, update_post_meta()'s unslash pass
+    // stripped the backslash and turned "á" into a literal "u00e1" (#471).
+    // wp_slash() then protects the escapes that are still present in any JSON
+    // string (\" and \\) from that same unslash pass. Same store idiom as the
+    // composition path (see the _pp_composition write in pp_apply_composition()).
+    update_post_meta(
+        $post_id,
+        '_pp_seo_meta',
+        wp_slash(wp_json_encode($updated, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
+    );
     return true;
 }
 
