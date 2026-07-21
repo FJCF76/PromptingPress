@@ -247,7 +247,7 @@ class SchemaValidationTest extends TestCase
         $expected = [
             'hero'    => 41,
             'section' => 36,
-            'grid'    => 36,
+            'grid'    => 37,
             'cta'     => 31,
         ];
 
@@ -964,8 +964,9 @@ class SchemaValidationTest extends TestCase
             '--grid-featured-texture-color' => '#123456',
             '--grid-featured-shadow'        => 'none',
             '--grid-step-color'             => '#123456',
+            '--grid-step-text-color'        => '#654321',
         ]));
-        $this->assertTrue($result, 'The #293 featured/bar slots and --grid-step-color must be accepted per card.');
+        $this->assertTrue($result, 'The #293 featured/bar slots and the steps badge fill/text slots must be accepted per card.');
     }
 
     public function testGridLevelStyleStillAcceptsContainerScopedSlot(): void
@@ -1064,6 +1065,7 @@ class SchemaValidationTest extends TestCase
                 '--grid-item-text-align', '--grid-item-icon-size',
                 '--grid-item-title-size', '--grid-item-title-color', '--grid-item-text-color',
                 '--grid-bullet-color', '--grid-link-color', '--grid-step-color',
+                '--grid-step-text-color',
             ],
             array_keys($scopes['eligible']),
             'The item_eligible card-scoped set drifted from issue 323.'

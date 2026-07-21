@@ -1792,7 +1792,7 @@
   margin-bottom: var(--space-md);
   border-radius: 50%;
   background: var(--grid-step-color, var(--color-accent));
-  color: var(--color-bg);
+  color: var(--grid-step-text-color, var(--color-bg));
   font-size: 1.25rem;
   font-weight: 700;
   line-height: 1;
