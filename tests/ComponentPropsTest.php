@@ -1909,6 +1909,19 @@ class ComponentPropsTest extends TestCase
         $this->assertSame('color', $slots['--grid-bullet-color']['type']);
     }
 
+    public function testGridSchemaDeclaresStepTextColorSlot(): void
+    {
+        // #473: the step numeral color is its own slot (default var(--color-bg) so
+        // unset is byte-identical), separate from --grid-step-color (the fill), so a
+        // light-fill steps badge can pair a light fill with ink numerals.
+        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/grid/schema.json'), true);
+        $slots = $schema['styling']['style_slots'];
+        $this->assertArrayHasKey('--grid-step-text-color', $slots);
+        $this->assertSame('color', $slots['--grid-step-text-color']['type']);
+        $this->assertSame('var(--color-bg)', $slots['--grid-step-text-color']['default']);
+        $this->assertTrue($slots['--grid-step-text-color']['item_eligible'], 'The numeral color is consumed on the .pp-step-number child of .grid__item, so it is card-scoped like --grid-step-color.');
+    }
+
     // ── Testimonials component (#1) ─────────────────────────────────────
 
     private function testimonialsProps(array $extra = []): array

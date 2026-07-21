@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.5.7] — 2026-07-21 — a light-fill steps badge can now get ink numerals: the step number color is its own style slot (#473)
+
+**The numbered `grid` steps badge fills through a slot (`--grid-step-color`), but its numeral color was hard-coded to `var(--color-bg)`. On a light accent (say a lime brand green), the badge filled correctly while the numeral stayed light and dropped to about 1.9:1 contrast, with no way to make it ink. There is now a `--grid-step-text-color` (color) style slot that the numeral consumes, defaulting to `var(--color-bg)` so an unset badge renders byte-identically. A steps block can now pair a light fill with ink numerals, the same fill+ink control the CTA button already exposes through `--cta-button-bg` / `--cta-button-color`.**
+
+The slot is card-scoped (item-eligible), mirroring its `--grid-step-color` fill sibling: the numeral renders on the `.pp-step-number` child of each step card, so the color is settable grid-wide or per card. Nothing else about the steps layout changed — the badge fill, sizing, and the desktop connector line are untouched, and an unset numeral resolves through exactly the same `var(--color-bg)` it always did.
+
+### Added
+- `--grid-step-text-color` (color, default `var(--color-bg)`, item-eligible) on the `grid` component. The steps badge numeral consumes `var(--grid-step-text-color, var(--color-bg))`, so a light-fill badge can carry ink numerals; unset output is byte-identical. Documented in the grid schema, `ai-instructions/composition.md`, and `AI_CONTEXT.md` (#473).
+
+### Changed
+- The `--grid-step-color` slot description now names the numeral color as a separate slot instead of stating the numeral always renders in `--color-bg` (#473).
+
+### Tests
+- PHPUnit: `ComponentPropsTest` pins the schema declaration (type `color`, default `var(--color-bg)`, item-eligible); `SchemaValidationTest` adds the slot to the item-eligible pin and the per-card acceptance case, and its grid slot count (36→37) and schema-derived doc-count sync (212→213) move with it. The keystone `StyleSlotContractTest` auto-discovers the slot and proves the CSS consumes it. A css-lint routing guard (#473) requires every numeral `color` declaration to route through the slot and carries a detector self-test so a regex regression can't pass vacuously. A Playwright E2E renders an ink numeral on a light lime fill at 1280 and 375, and asserts an unset badge is byte-identical to an explicit `var(--color-bg)` (#473).
+
 ## [v1.5.6] — 2026-07-21 — heading letter-spacing is now a design token, so a brand can set its own heading tracking (#467)
 
 **Heading tracking was the one heading typography value you couldn't reach: `--font-heading`, `--font-weight-heading`, and `--line-height-heading` were tokens, but `letter-spacing` was hard-coded to `-0.03em` on the shared `h1–h6` rule. A brand adopting a different display face that needs looser or tighter tracking (say `-0.01em`) had no way to set it without editing the parent theme. There is now a `--letter-spacing-heading` token (length, default `-0.03em`) that the `h1–h6` rule consumes, so `update_design_token` can set heading tracking site-wide. An unset site renders byte-identically — the computed tracking on every heading is unchanged.**

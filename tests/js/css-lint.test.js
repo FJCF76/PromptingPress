@@ -328,8 +328,8 @@ describe('CSS lint: style slot fallback patterns', () => {
         });
     });
 
-    test('hero/section/grid/cta schemas declare 144 style slots (subset of the total)', () => {
-        expect(allSlots.length).toBe(144);
+    test('hero/section/grid/cta schemas declare 145 style slots (subset of the total)', () => {
+        expect(allSlots.length).toBe(145);
     });
 
     allSlots.forEach(({ component, slotName }) => {
@@ -612,6 +612,77 @@ describe('CSS lint: grid--steps only declared inside the COMPONENT: grid block (
             expect(totalCount).toBe(inBlockCount);
         }
     );
+});
+
+describe('CSS lint: grid steps numeral color routes through --grid-step-text-color (#473)', () => {
+    // Regression guard for the #302/#305 dead-slot class. Before #473 the steps
+    // badge numeral was `color: var(--color-bg)` — hardcoded, no slot — so a
+    // light-fill badge (a lime --grid-step-color) could not get ink numerals and
+    // dropped to ~1.9:1 contrast. #473 added --grid-step-text-color (default
+    // var(--color-bg), so unset is byte-identical). This pin proves every `color`
+    // declaration on the numeral (the base rule and any responsive variant) routes
+    // through the slot, so a future bare `color: var(--color-bg)` cannot silently
+    // re-kill it. The fill (`background`) is pinned to --grid-step-color for symmetry.
+    const stripped = stripComments(COMPONENTS_CSS);
+    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+
+    // Every innermost rule whose selector targets the numeral badge.
+    function numeralRules() {
+        const out = [];
+        let m;
+        while ((m = ruleRe.exec(stripped)) !== null) {
+            const sel = m[1].replace(/\s+/g, ' ').trim();
+            if (/\.grid--steps\s+\.pp-step-number$/.test(sel)) out.push({ sel, body: m[2] });
+        }
+        return out;
+    }
+
+    test('finds the numeral badge rule(s)', () => {
+        // Base rule + the <=767px responsive variant = at least one that sets color.
+        expect(numeralRules().length).toBeGreaterThanOrEqual(1);
+    });
+
+    test('every numeral `color` declaration routes through var(--grid-step-text-color …)', () => {
+        const offenders = [];
+        numeralRules().forEach(({ sel, body }) => {
+            (body.match(/(?<![-a-z])color\s*:[^;}]+/gi) || []).forEach((d) => {
+                if (!/color\s*:\s*var\(\s*--grid-step-text-color\b/.test(d.trim())) {
+                    offenders.push(`${sel} { ${d.trim()} }`);
+                }
+            });
+        });
+        expect(offenders).toEqual([]);
+    });
+
+    test('numeral fill stays routed through var(--grid-step-color …)', () => {
+        const offenders = [];
+        numeralRules().forEach(({ sel, body }) => {
+            (body.match(/(?<![-a-z])background(?:-color)?\s*:[^;}]+/gi) || []).forEach((d) => {
+                if (!/background(?:-color)?\s*:\s*var\(\s*--grid-step-color\b/.test(d.trim())) {
+                    offenders.push(`${sel} { ${d.trim()} }`);
+                }
+            });
+        });
+        expect(offenders).toEqual([]);
+    });
+
+    // Detection proof: a bare `color: var(--color-bg)` must be CAUGHT and a
+    // slot-routed one must PASS, so a parser regression can't make the scan vacuous.
+    test('detector flags a bare numeral color but passes a slot-routed one', () => {
+        const scan = (fixture) => {
+            const rr = /([^{}]+)\{([^{}]*)\}/g;
+            let mm; const out = [];
+            while ((mm = rr.exec(fixture)) !== null) {
+                if (!/\.grid--steps\s+\.pp-step-number\s*$/.test(mm[1].replace(/\s+/g, ' ').trim())) continue;
+                (mm[2].match(/(?<![-a-z])color\s*:[^;}]+/gi) || []).forEach((d) => {
+                    if (!/color\s*:\s*var\(\s*--grid-step-text-color\b/.test(d.trim())) out.push(d);
+                });
+            }
+            return out;
+        };
+        expect(scan('.grid--steps .pp-step-number { color: var(--color-bg); }').length).toBe(1);
+        expect(scan('.grid--steps .pp-step-number { color: var(--grid-step-text-color, var(--color-bg)); }').length).toBe(0);
+    });
 });
 
 describe('CSS lint: theme variants survive the desktop typography cascade (#222)', () => {

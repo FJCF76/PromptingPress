@@ -388,6 +388,73 @@ test.describe('Safe-surface rendered proof', () => {
     }
   });
 
+  // #473: the steps badge NUMERAL color is authorable via --grid-step-text-color,
+  // separate from --grid-step-color (the fill). Before #473 the numeral was a
+  // hardcoded `color: var(--color-bg)`, so a light fill (the issue's lime badge)
+  // forced a low-contrast light numeral with no way to set ink. The default is
+  // var(--color-bg), so an UNSET card must render byte-identically to an EXPLICIT
+  // var(--color-bg). Three step cards prove both halves in one render:
+  //   card 0 — per-card light lime fill (--grid-step-color) + per-card ink
+  //            --grid-step-text-color: the issue's exact case. Numeral must be ink,
+  //            badge fill must be the lime (proves the two slots are independent).
+  //            Both slots are item-eligible, so they ride on the card's own `style`.
+  //   card 1 — UNSET numeral: must render byte-identically to card 2.
+  //   card 2 — explicit --grid-step-text-color: var(--color-bg): the resolved default.
+  // The numeral has NO breakpoint-specific color rule (only size changes at <=767px),
+  // but per the #86/#349 mobile-hid-it lesson we still assert at 1280 AND 375.
+  test('#473 steps badge numeral honors --grid-step-text-color; unset is byte-identical @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Grid Step Numeral Color Slot');
+    const INK = '#101010'; // ink numeral for the light-fill badge
+    const LIME = '#93c22a'; // the issue's light brand-green fill
+    setComposition(pageId, [
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-grid01',
+          title: 'How it works',
+          layout: 'steps',
+          items: [
+            { title: 'Ink on lime', number: '1', style: { '--grid-step-color': LIME, '--grid-step-text-color': INK } },
+            { title: 'Unset', number: '2' },
+            { title: 'Explicit default', number: '3', style: { '--grid-step-text-color': 'var(--color-bg)' } },
+          ],
+        },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    const numeral = (i: number) => page.locator('.grid__item').nth(i).locator('.pp-step-number');
+    const numeralColor = (i: number) =>
+      numeral(i).evaluate((el) => getComputedStyle(el).color);
+    const numeralFill = (i: number) =>
+      numeral(i).evaluate((el) => getComputedStyle(el).backgroundColor);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('.pp-step-number')).toHaveCount(3, { timeout: 10000 });
+
+      // The set slot reaches the numeral at BOTH breakpoints — the issue's case.
+      expect(await numeralColor(0)).toBe('rgb(16, 16, 16)'); // ink numeral
+      // The fill slot is independent of the numeral slot — the per-card
+      // --grid-step-color keeps the badge lime.
+      expect(await numeralFill(0)).toBe('rgb(147, 194, 42)');
+
+      // Unset numeral renders byte-identically to an explicit var(--color-bg):
+      // #473 changed NO default. (Compared to the resolved default, not a literal,
+      // so this holds whatever theme --color-bg resolves to.)
+      const unset = await numeralColor(1);
+      const explicitDefault = await numeralColor(2);
+      expect(unset).toBe(explicitDefault);
+      // And the default is NOT the ink slot value — the slot genuinely changed card 0.
+      expect(unset).not.toBe('rgb(16, 16, 16)');
+    }
+  });
+
   // #357: grid card content alignment is authorable via the `align`-typed
   // --grid-item-text-align slot. Default `left` is byte-identical to today; `center`
   // and `right` must actually MOVE the glyphs, not merely set a declaration. The
