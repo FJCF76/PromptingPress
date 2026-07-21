@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.5.6] — 2026-07-21 — heading letter-spacing is now a design token, so a brand can set its own heading tracking (#467)
+
+**Heading tracking was the one heading typography value you couldn't reach: `--font-heading`, `--font-weight-heading`, and `--line-height-heading` were tokens, but `letter-spacing` was hard-coded to `-0.03em` on the shared `h1–h6` rule. A brand adopting a different display face that needs looser or tighter tracking (say `-0.01em`) had no way to set it without editing the parent theme. There is now a `--letter-spacing-heading` token (length, default `-0.03em`) that the `h1–h6` rule consumes, so `update_design_token` can set heading tracking site-wide. An unset site renders byte-identically — the computed tracking on every heading is unchanged.**
+
+Because heading tracking is naturally negative, the shared `length` validator now accepts negative values (an optional leading minus on a simple length, and signed operands inside `calc()`/`clamp()`), which it previously rejected for every length token. This models the CSS `<length>` grammar correctly — `letter-spacing`, margins, and `text-indent` legitimately go negative — so a value like `-0.01em` validates through the write path. The validators were always grammar guards, not per-property semantic guards, so a value that is inert for a given property (a negative radius, say) still simply drops per CSS; the trust posture is unchanged. `"-"` alone, a double minus, and any injection characters stay rejected.
+
+### Added
+- `--letter-spacing-heading` (length, default `-0.03em`) registered in `assets/css/base.css`, joining `pp_design_tokens()` and the `update_design_token` write path. The shared `h1–h6` rule consumes `var(--letter-spacing-heading)` instead of a literal, so setting the token retracks every heading at once; unset output is byte-identical. Documented in the AI token reference (`AI_CONTEXT.md`) (#467).
+
+### Changed
+- The shared length validator (`_pp_validate_length`) now accepts grammar-valid negative lengths: a single leading minus on a simple length (e.g. `-0.01em`, `-.5rem`) and signed operands inside `calc()`/`clamp()`. This widens every `length` token, not just heading tracking; injection guards and the calc/clamp positive-pattern are untouched (#467).
+
+### Tests
+- PHPUnit: a `pp_design_tokens()` assertion that `--letter-spacing-heading` is exposed as a `length` with default `-0.03em`; a css-source pin that the `h1–h6` rule routes through the token and no bare `letter-spacing: -0.03em` remains; and validator coverage for the signed grammar — `-0.03em` / `-.5rem` / `-2px` and a signed `calc()` term accept, `"-"` alone / `--0.03em` / `-em` reject, plus an end-to-end `update_design_token` accept of `-0.01em`. A Playwright E2E asserts the default tracking renders on a band heading (`ratio ~ -0.03`) and that a real `:root` token override changes it, at 1280 and 375 (#467).
+
 ## [v1.5.5] — 2026-07-21 — a Spanish (or any non-ASCII) meta description sets and renders correctly now: accents and em-dashes stop turning into literal `u00e1` (#471)
 
 **Setting a page's `meta_description` or `seo_title` to text with accents, ñ, or an em-dash through `update_seo_meta` corrupted every non-ASCII character: `prueba áéíóú ñ —guion` was stored and rendered as `prueba u00e1u00e9u00edu00f3u00fa u00f1 u2014guion`. A non-English site could not set a correct meta description, the exact job the action exists for. The stored value and the rendered `<meta name="description">` now carry the real UTF-8 text, and `seo_title` overrides the `<title>` with its real characters too. Pages already saved with the mangled text heal the moment their SEO metadata is set again.**

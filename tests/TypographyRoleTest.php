@@ -54,6 +54,36 @@ class TypographyRoleTest extends TestCase
         );
     }
 
+    // ── Heading letter-spacing token (#467) ────────────────────────────────
+
+    public function testBaseCssDeclaresHeadingLetterSpacingToken(): void
+    {
+        $base = file_get_contents($this->themeRoot . '/assets/css/base.css');
+        $this->assertStringContainsString(
+            '--letter-spacing-heading',
+            $base,
+            'base.css must declare --letter-spacing-heading so a brand can set heading tracking.'
+        );
+    }
+
+    public function testHeadingRuleRoutesLetterSpacingThroughToken(): void
+    {
+        // The shared h1-h6 rule must consume the token, not a literal — otherwise the
+        // token exists but nothing reads it. Pins that letter-spacing routes through
+        // var(--letter-spacing-heading) and no bare `letter-spacing: -0.03em` remains.
+        $base = file_get_contents($this->themeRoot . '/assets/css/base.css');
+        $this->assertMatchesRegularExpression(
+            '/letter-spacing:\s*var\(--letter-spacing-heading\)/',
+            $base,
+            'the h1-h6 rule should consume var(--letter-spacing-heading), not a literal.'
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/letter-spacing:\s*-0\.03em/',
+            $base,
+            'no heading rule should hard-code letter-spacing: -0.03em once the token exists.'
+        );
+    }
+
     // ── Utility classes ───────────────────────────────────────────────────
 
     public function testUtilitiesDeclareRoleClasses(): void
