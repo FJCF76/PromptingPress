@@ -744,6 +744,101 @@ test.describe('Safe-surface rendered proof', () => {
     expect(geom.trackCount).toBeLessThanOrEqual(1);
   });
 
+  // #477: a split hero with vertical_align="stretch" must make the media column
+  // track the CONTENT column's height, so one fixed asset balances a tall
+  // headline instead of floating as "a small card beside a huge headline." The
+  // measured failure on the real site was media at 69-80% of a 4-5 line
+  // headline's height; the fix should bring it to ~100%.
+  //
+  // This is the computed-geometry test that would have caught the gap and proves
+  // the fix. Two split heroes render in ONE composition, both with the SAME tall
+  // multi-line headline and the SAME wide, short image (a 40x8 data URI, so the
+  // NON-stretch media renders far shorter than the headline column — the "before"
+  // state). Hero 0 uses vertical_align="stretch", hero 1 uses the default
+  // "center". The signal is the ratio media-wrap-height / content-column-height:
+  //   stretch -> ~1.0 (equal-height columns, the fix)
+  //   center  -> well under 0.9 (the fixed-aspect card is much shorter — the bug)
+  // The image-wrap is the grid ITEM, so under align-items:stretch it fills the
+  // row height regardless of whether the image itself loaded; a broken image
+  // would still stretch, so the pin measures the CAPABILITY, not image decode.
+  //
+  // Split is a desktop (>=1024px) two-column grid; all vertical_align CSS lives
+  // in a min-width:1024px block, so this asserts at 1280. Below 1024px the split
+  // stacks and stretch is a no-op — mobile is unaffected and not regressed.
+  test('#477 split hero vertical_align=stretch makes media track the content column height @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Hero Split Stretch Media');
+    // Wide + short so the natural (non-stretch) media is much shorter than a tall
+    // headline column, reproducing the issue's "small card beside a huge headline".
+    const WIDE_SHORT_PNG =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAICAIAAAAEMCoMAAAAGElEQVR42mMIqDgxIIhh1OJRi0ctphYCAPUY9BAC1F1zAAAAAElFTkSuQmCC';
+    // A deliberately long headline: .hero--split .hero__title caps at max-width:12ch,
+    // so this wraps to 4-5 lines and makes the content column genuinely tall.
+    const TALL_HEADLINE = 'A deliberately long split hero headline that wraps to several lines';
+    setComposition(pageId, [
+      {
+        component: 'hero',
+        props: {
+          id: 'pp-hero-stretch',
+          layout: 'split',
+          title: TALL_HEADLINE,
+          subtitle: 'Media should fill this column, not float below center.',
+          image_url: WIDE_SHORT_PNG,
+          image_alt: 'stretch media',
+          vertical_align: 'stretch',
+        },
+      },
+      {
+        component: 'hero',
+        props: {
+          id: 'pp-hero-center',
+          layout: 'split',
+          title: TALL_HEADLINE,
+          subtitle: 'Media should fill this column, not float below center.',
+          image_url: WIDE_SHORT_PNG,
+          image_alt: 'center media',
+          // default vertical_align (center) — the "before" fixed-aspect card.
+        },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    await expect(page.locator('#pp-hero-stretch .hero__image-wrap')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('#pp-hero-center .hero__image-wrap')).toBeVisible({ timeout: 10000 });
+
+    // Ratio of media-wrap height to content-column height for one hero.
+    const ratio = (heroId: string) =>
+      page.locator(`#${heroId}`).evaluate((hero) => {
+        const wrap = hero.querySelector('.hero__image-wrap') as HTMLElement;
+        const content = hero.querySelector('.hero__content') as HTMLElement;
+        const wh = wrap.getBoundingClientRect().height;
+        const ch = content.getBoundingClientRect().height;
+        return { wrapHeight: wh, contentHeight: ch, ratio: ch > 0 ? wh / ch : -1 };
+      });
+
+    const stretch = await ratio('pp-hero-stretch');
+    const center = await ratio('pp-hero-center');
+
+    // Sanity: the headline column is genuinely tall (multi-line), so the ratio is
+    // a meaningful signal — a short content column would make both ratios ~1 and
+    // the pin vacuous. The wide-short image guarantees the content column wins.
+    expect(stretch.contentHeight).toBeGreaterThan(200);
+    expect(center.contentHeight).toBeGreaterThan(200);
+
+    // The fix: stretched media fills the content column's height (equal-height
+    // columns). Allow a small tolerance for sub-pixel grid rounding.
+    expect(stretch.ratio).toBeGreaterThan(0.98);
+    expect(stretch.ratio).toBeLessThan(1.02);
+
+    // The bug state (default center): the fixed-aspect card is much shorter than
+    // the headline — well under the issue's measured 69-80% ceiling. This proves
+    // stretch genuinely changed the geometry rather than every split stretching.
+    expect(center.ratio).toBeLessThan(0.9);
+  });
+
   // #225: the eyebrow is a pill, not a band. Each layout is its own test so a failure
   // names the layout that regressed. `left`/`split` flush the pill to the content's
   // leading edge; `centered`/`cover` center it, matching how those layouts already

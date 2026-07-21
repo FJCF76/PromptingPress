@@ -61,7 +61,11 @@ $allowed_split_ratios = ['50-50', '60-40', '40-60'];
 if (!in_array($split_ratio, $allowed_split_ratios, true)) {
     $split_ratio = '50-50';
 }
-$allowed_vertical_aligns = ['top', 'center', 'bottom'];
+// 'stretch' is split-oriented (#477): the media item fills the split row's
+// height so one asset balances any headline length. It is accepted for the
+// shared enum; only the split layout gives it CSS meaning (see components.css).
+// On cover it renders as 'center' (no rule), which is harmless.
+$allowed_vertical_aligns = ['top', 'center', 'bottom', 'stretch'];
 if (!in_array($vertical_align, $allowed_vertical_aligns, true)) {
     $vertical_align = 'center';
 }

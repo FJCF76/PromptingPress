@@ -24,7 +24,7 @@ Full-width hero section with headline, optional subtitle, optional CTA button, a
 | `spacing`       | enum   | No       | `'default'`  | Vertical padding: `default` / `compact` / `spacious` |
 | `width`         | enum   | No       | `'default'`  | Content width: `default` / `narrow` (56rem) / `full` |
 | `split_ratio`   | enum   | No       | `'50-50'`    | Column ratio for `split` layout: `50-50` / `60-40` / `40-60` |
-| `vertical_align`| enum   | No       | `'center'`   | Vertical content alignment for `cover`/`split` layouts: `top` / `center` / `bottom` |
+| `vertical_align`| enum   | No       | `'center'`   | Vertical content alignment for `cover`/`split` layouts: `top` / `center` / `bottom` / `stretch`. `stretch` (split only) makes the media column fill the content column's height — one asset balances any headline length; on `cover` it renders like `center` |
 | `proof`         | string | No       | `''`         | HTML string for trust signals (logos, ratings), rendered after the CTA group |
 
 ## Layouts

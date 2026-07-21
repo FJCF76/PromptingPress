@@ -117,10 +117,10 @@
     },
     "vertical_align": {
       "type": "enum",
-      "values": ["top", "center", "bottom"],
+      "values": ["top", "center", "bottom", "stretch"],
       "required": false,
       "default": "center",
-      "description": "Vertical alignment of content within the hero. Applies to cover and split layouts only. Ignored on centered/left layouts. Ignored below 1024px."
+      "description": "Vertical alignment of content within the hero. Applies to cover and split layouts only. Ignored on centered/left layouts. Ignored below 1024px. 'stretch' is for the split layout: the media column fills the content column's height (equal-height columns) and the image sizes to that box with object-fit: cover, so one asset balances any headline length instead of a fixed-aspect card that dwarfs a tall headline. On the cover layout 'stretch' renders like 'center'."
     },
     "proof": {
       "type": "string",
