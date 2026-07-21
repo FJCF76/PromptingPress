@@ -143,6 +143,48 @@ class HeroCompositionTest extends TestCase
         $this->assertStringNotContainsString('data-pp-vertical-align', $html);
     }
 
+    // #477: 'stretch' is a valid vertical_align value on the split layout — it
+    // makes the media column fill the content column's height. The attribute
+    // must survive validation (not fall back to 'center') and be emitted.
+    // Carries an image so the split keeps its two columns; a media-less split
+    // degrades to "left", which is not in the vertical-align set (#440).
+    public function testVerticalAlignStretchOnSplitOutputsAttribute(): void
+    {
+        $html = $this->render([
+            'title' => 'Test',
+            'layout' => 'split',
+            'image_url' => 'https://example.com/wp-content/uploads/2026/07/split.png',
+            'vertical_align' => 'stretch',
+        ]);
+        $this->assertStringContainsString('data-pp-vertical-align="stretch"', $html);
+    }
+
+    // #477: 'stretch' is accepted on cover too (shared enum), where it emits
+    // the attribute but has no CSS rule, so it renders like 'center'. This pins
+    // that the enum accepts it rather than falling back to the 'center' default
+    // (which would drop the attribute, as testVerticalAlignInvalidFallsBackToDefault shows).
+    public function testVerticalAlignStretchOnCoverOutputsAttribute(): void
+    {
+        $html = $this->render([
+            'title' => 'Test',
+            'layout' => 'cover',
+            'vertical_align' => 'stretch',
+        ]);
+        $this->assertStringContainsString('data-pp-vertical-align="stretch"', $html);
+    }
+
+    // #477: 'stretch' is ignored on non-cover/non-split variants, exactly like
+    // top/center/bottom — the attribute is scoped to the two layouts that use it.
+    public function testVerticalAlignStretchIgnoredOnLeftVariant(): void
+    {
+        $html = $this->render([
+            'title' => 'Test',
+            'layout' => 'left',
+            'vertical_align' => 'stretch',
+        ]);
+        $this->assertStringNotContainsString('data-pp-vertical-align', $html);
+    }
+
     // ── Proof Slot ────────────────────────────────────────────────────────
 
     public function testProofNonEmptyRendersDiv(): void

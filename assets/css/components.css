@@ -922,6 +922,28 @@
   .hero--split[data-pp-vertical-align="bottom"] .hero__inner {
     align-items: end;
   }
+
+  /* stretch (#477): make the split media track the content column's height so
+     one asset balances any headline length, instead of a fixed-aspect card
+     that dwarfs a 4-5 line headline. align-items:stretch sizes BOTH grid
+     tracks to the row height, which the taller (content) column defines; the
+     image-wrap track then fills it and the image sizes to that box. Scoped to
+     the exact "stretch" attribute value, so top/center/bottom are untouched.
+     With height:100% here and the base width:100%, both dimensions are definite,
+     so any --hero-image-aspect-ratio is ignored by the CSS sizing algorithm and
+     the image fills the box (no aspect-ratio re-declaration needed, which also
+     keeps the --hero-image-aspect-ratio slot un-bypassed). object-fit:cover is
+     already the .hero__image default — the component's established crop idiom on
+     the bg-image and aspect-ratio paths. */
+  .hero--split[data-pp-vertical-align="stretch"] .hero__inner {
+    align-items: stretch;
+  }
+  .hero--split[data-pp-vertical-align="stretch"] .hero__image-wrap {
+    height: 100%;
+  }
+  .hero--split[data-pp-vertical-align="stretch"] .hero__image {
+    height: 100%;
+  }
 }
 
 /* Proof slot: trust signals after CTA.
