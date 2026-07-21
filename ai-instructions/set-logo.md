@@ -126,6 +126,7 @@ wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_foo
 
 - `pp_footer_menu_label` / `pp_footer_contact_label` render a heading above the footer nav menu and the contact block. Empty = no heading (the unlabelled columns of #300). The contact heading only shows when `pp_footer_contact` is also set.
 - `pp_footer_note` is the bottom-bar trigger: when NON-EMPTY, the copyright moves out of the main flow into its own delimited band (a top border) and the note renders opposite it. Empty leaves the copyright inline exactly as #300 did. Newlines become line breaks.
+- A SECOND footer menu column (#469) renders when you assign a menu to the `footer_secondary` theme location (`assign_menu_location` / `set_menu`, e.g. a distinct Legal column of Aviso legal / Privacidad / Cookies links). `pp_footer_secondary_label` is its optional heading (empty = a headless column, same rule as `pp_footer_menu_label`). With no menu assigned to `footer_secondary`, the footer is byte-identical to the single-menu layout.
 - `pp_footer_logo_id` overrides the footer logo only (an image attachment ID, never a URL — same rule as `pp_logo_id`). Because `pp_logo_id` feeds both the light header and the dark footer, a dark brand mark is invisible on a dark footer; set a light variant here while `pp_logo_id` stays the header logo. Unset falls back to `pp_logo_id`. Requires `pp_footer_show_logo` on to appear.
 
 ---
@@ -185,6 +186,7 @@ Setting it through this action renders the attachment as-is: the Customizer's sq
 | `pp_footer_menu_label` | string | Optional (#335). Heading above the footer nav menu. Empty = unlabelled. |
 | `pp_footer_contact_label` | string | Optional (#335). Heading above the contact block (only when `pp_footer_contact` is set). |
 | `pp_footer_note` | string | Optional (#335). Secondary line; when set, moves the copyright into a delimited bottom bar and renders opposite it. |
+| `pp_footer_secondary_label` | string | Optional (#469). Heading above the SECOND footer menu column. Empty = a headless column. Only rendered when a menu is assigned to the `footer_secondary` theme location. |
 | `pp_footer_logo_id` | Media Library attachment ID (integer) | Optional (#335). Must be an image. Never a URL. Footer logo override; unset falls back to `pp_logo_id`. |
 
 ---
