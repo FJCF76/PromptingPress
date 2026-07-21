@@ -394,9 +394,10 @@ test.describe('Safe-surface rendered proof', () => {
   // forced a low-contrast light numeral with no way to set ink. The default is
   // var(--color-bg), so an UNSET card must render byte-identically to an EXPLICIT
   // var(--color-bg). Three step cards prove both halves in one render:
-  //   card 0 — light lime fill (grid-level --grid-step-color) + per-card ink
+  //   card 0 — per-card light lime fill (--grid-step-color) + per-card ink
   //            --grid-step-text-color: the issue's exact case. Numeral must be ink,
   //            badge fill must be the lime (proves the two slots are independent).
+  //            Both slots are item-eligible, so they ride on the card's own `style`.
   //   card 1 — UNSET numeral: must render byte-identically to card 2.
   //   card 2 — explicit --grid-step-text-color: var(--color-bg): the resolved default.
   // The numeral has NO breakpoint-specific color rule (only size changes at <=767px),
@@ -414,9 +415,8 @@ test.describe('Safe-surface rendered proof', () => {
           id: 'pp-grid01',
           title: 'How it works',
           layout: 'steps',
-          style: { '--grid-step-color': LIME },
           items: [
-            { title: 'Ink on lime', number: '1', style: { '--grid-step-text-color': INK } },
+            { title: 'Ink on lime', number: '1', style: { '--grid-step-color': LIME, '--grid-step-text-color': INK } },
             { title: 'Unset', number: '2' },
             { title: 'Explicit default', number: '3', style: { '--grid-step-text-color': 'var(--color-bg)' } },
           ],
@@ -440,7 +440,8 @@ test.describe('Safe-surface rendered proof', () => {
 
       // The set slot reaches the numeral at BOTH breakpoints — the issue's case.
       expect(await numeralColor(0)).toBe('rgb(16, 16, 16)'); // ink numeral
-      // The fill slot is independent of the numeral slot — badge stays lime.
+      // The fill slot is independent of the numeral slot — the per-card
+      // --grid-step-color keeps the badge lime.
       expect(await numeralFill(0)).toBe('rgb(147, 194, 42)');
 
       // Unset numeral renders byte-identically to an explicit var(--color-bg):
