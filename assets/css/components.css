@@ -1028,6 +1028,17 @@
 .section__content {
   color: var(--section-text, var(--section-text-theme-color, var(--color-text)));
   max-width: var(--section-body-width, 42rem);
+  /* Body type slots (issue 470): the section body text has no font-size/weight of
+     its own here — the `main > .section .section__content` premium/mobile rules
+     (further down this file) set it at every breakpoint, and those (0,2,1) rules
+     outrank this base (0,1,0) at ALL viewport widths. `inherit` is therefore
+     byte-identical to declaring nothing (unchanged output, incl. the 767-768px
+     sub-pixel gap between the two media queries), while giving the slot-contract
+     keystone an in-block consumption. Mirrors .cta__body's base (var(--cta-body-size,
+     inherit)). Setting either slot routes through the premium/mobile rules, which
+     read the SAME slot with today's literal as the fallback. */
+  font-size: var(--section-body-size, inherit);
+  font-weight: var(--section-body-weight, inherit);
   /* Body list-marker colour (issue 339): read by the shared marker rules only
      when the operator opts into a non-disc body_marker; inert otherwise. */
   --pp-list-marker-color: var(--section-body-marker-color, var(--color-accent));
@@ -3228,8 +3239,8 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   main > .section .section__content,
   main > .section .section__content p {
     color: var(--section-text, var(--section-text-theme-color, var(--color-text-secondary)));
-    font-size: 1.065rem;
-    font-weight: 430;
+    font-size: var(--section-body-size, 1.065rem);
+    font-weight: var(--section-body-weight, 430);
     line-height: 1.76;
   }
 
@@ -3321,8 +3332,19 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
     margin-bottom: var(--faq-heading-margin-bottom, 1.25rem);
   }
 
+  /* Section body split out of the shared mobile type rule (issue 470) so its own
+     --section-body-size / --section-body-weight slots reach it here. The size
+     fallback CHAINS through var(--cta-body-size, 1rem) — the exact value the
+     shared rule used before the split — so an unset section body is byte-identical
+     at this breakpoint, including the historical case where a composition set
+     --cta-body-size (section body still follows it when its own slot is unset). */
   main > .section .section__content,
-  main > .section .section__content p,
+  main > .section .section__content p {
+    font-size: var(--section-body-size, var(--cta-body-size, 1rem));
+    font-weight: var(--section-body-weight, 430);
+    line-height: 1.65;
+  }
+
   main > .grid .grid__item-text,
   main > .faq .faq__answer,
   main > .cta .cta__body {

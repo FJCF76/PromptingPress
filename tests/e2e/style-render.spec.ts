@@ -1459,6 +1459,70 @@ test.describe('Safe-surface rendered proof', () => {
     expect(widths.rendered).toBeGreaterThan(640);
   });
 
+  // #470: the section body text size + weight are authorable via --section-body-size
+  // (length) and --section-body-weight (number). Before #470 the body font-size/weight
+  // was baked as literals in the desktop premium and mobile rules, so a deliberate
+  // type step (compact utility band, emphasis paragraph) was unreachable. The slots
+  // must reach the rendered body at BOTH breakpoints (the #86/#349 mobile-hid-it
+  // lesson), and an UNSET section must render byte-identically to today: weight 430 at
+  // both, size 1.065rem (desktop) / 1rem (mobile) resolved against the page's own root.
+  // Two sections prove both halves in one render: section 0 SET, section 1 UNSET.
+  test('#470 section body honors --section-body-size / --section-body-weight at both breakpoints; unset byte-identical @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Section Body Type Slots');
+    setComposition(pageId, [
+      {
+        component: 'section',
+        props: { id: 'pp-sec01', title: 'Set body type', body: '<p>Deliberate size and weight.</p>' },
+      },
+      {
+        component: 'section',
+        props: { id: 'pp-sec02', title: 'Default body type', body: '<p>Unchanged defaults.</p>' },
+      },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // Distinctive, unambiguous values: 22px is no theme literal, 850 is no default weight.
+    const res = await styleComponent(
+      page,
+      pageId,
+      { '--section-body-size': '22px', '--section-body-weight': '850' },
+      undefined,
+      0,
+    );
+    expect(res.success).toBe(true);
+
+    const bodyType = (i: number) =>
+      page.locator('.section__content').nth(i).locator('p').first().evaluate((el) => {
+        const cs = getComputedStyle(el);
+        const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize);
+        return { fontSize: cs.fontSize, fontWeight: cs.fontWeight, rootPx };
+      });
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('.section__content')).toHaveCount(2, { timeout: 10000 });
+
+      // Set slot reaches the body at BOTH breakpoints — the issue's case.
+      const set = await bodyType(0);
+      expect(set.fontSize).toBe('22px');
+      expect(set.fontWeight).toBe('850');
+
+      // Unset renders byte-identically to today: weight 430 at both breakpoints,
+      // size 1.065rem (desktop) / 1rem (mobile) resolved against the page's own root
+      // font-size — the exact historical literal, and NOT the set section's value.
+      const unset = await bodyType(1);
+      expect(unset.fontWeight).toBe('430');
+      const remFactor = width >= 768 ? 1.065 : 1;
+      expect(unset.fontSize).toBe(`${remFactor * unset.rootPx}px`);
+      expect(unset.fontSize).not.toBe('22px');
+    }
+  });
+
   /**
    * #332 — WP core's global stylesheet ships attribute-SUBSTRING selectors:
    *

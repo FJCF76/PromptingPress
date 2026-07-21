@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.5.8] — 2026-07-21 — a section's body text size and weight are now style slots, so you can set a deliberate type step (#470)
+
+**The `section` component's body copy took whatever the built-in body scale gave it — there was no way to ask for a compact utility band at, say, 15px/600, an emphasis paragraph, or dense spec text through the documented style surface. There are now two style slots, `--section-body-size` (length) and `--section-body-weight` (number), that the body/content text consumes at every breakpoint. Set them for a deliberate size/weight step; leave them unset and every section renders byte-identically to before. Naming follows the existing `--cta-body-size` idiom.**
+
+This is a slot-parity change only, in the same class as the CTA body-size and hero title-weight slots that already exist — no new component, no restyled defaults (#336 precedent: make it expressible, don't retune). The slots are routed through every place the section body font-size/weight is declared: the base `.section__content` rule and both the desktop and mobile typography rules. The mobile size fallback chains through `var(--cta-body-size, 1rem)`, the exact value that rule used before, so unset output is unchanged even when a composition also sets `--cta-body-size`. The separator/glyph half of the original brand-band report is tracked separately and is not part of this change.
+
+### Added
+- `--section-body-size` (length) and `--section-body-weight` (number) style slots on the `section` component. The body/content text consumes `var(--section-body-size, …)` / `var(--section-body-weight, …)` at the base rule and at both the desktop premium and mobile typography rules, with today's literals as the fallbacks, so an unset section is byte-identical. Surfaced through `pp_get_style_slots()` and the schema `style_slots`; the AI slot reference is schema-derived, so both appear automatically (#470).
+
+### Tests
+- PHPUnit: `SchemaValidationTest` moves the section slot count (36→38) and the schema-derived doc-count sync (213→215). The keystone `StyleSlotContractTest` auto-discovers both slots and proves the CSS consumes each on a type-compatible property. css-lint routing guards require every section body `font-size`/`font-weight` declaration to route through the slot at the base rule and both media rules, plus a pin that the mobile size fallback chains through `--cta-body-size`. A Playwright E2E renders a section whose body is set to 22px/850 at 1280 and 375 and asserts an unset section stays weight 430 at the historical rem size (#470).
+
+### Docs
+- `AI_CONTEXT.md` and `README.md` style-slot totals move 213→215, and the `AI_CONTEXT.md` per-component breakdown reorders (`section (38)` now above `grid (37)`) (#470).
+
 ## [v1.5.7] — 2026-07-21 — a light-fill steps badge can now get ink numerals: the step number color is its own style slot (#473)
 
 **The numbered `grid` steps badge fills through a slot (`--grid-step-color`), but its numeral color was hard-coded to `var(--color-bg)`. On a light accent (say a lime brand green), the badge filled correctly while the numeral stayed light and dropped to about 1.9:1 contrast, with no way to make it ink. There is now a `--grid-step-text-color` (color) style slot that the numeral consumes, defaulting to `var(--color-bg)` so an unset badge renders byte-identically. A steps block can now pair a light fill with ink numerals, the same fill+ink control the CTA button already exposes through `--cta-button-bg` / `--cta-button-color`.**

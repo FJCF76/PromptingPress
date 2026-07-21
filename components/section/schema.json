@@ -162,6 +162,8 @@
       "--section-subheading-margin-bottom": { "type": "length", "default": "var(--space-md)", "description": "Space between the subheading and the content below it" },
       "--section-title-margin-bottom": { "type": "length", "default": "var(--space-md)", "description": "Space between the title and the subheading below it" },
       "--section-body-width": { "type": "length", "default": "42rem", "description": "Max width of the content column" },
+      "--section-body-size": { "type": "length", "default": "inherit", "description": "Body text font size" },
+      "--section-body-weight": { "type": "number", "default": "inherit", "description": "Body text font weight" },
       "--section-border-color": { "type": "color", "default": "transparent", "description": "Top and bottom border color" },
       "--section-border-width": { "type": "length", "default": "0", "description": "Top and bottom border width" },
       "--section-radius": { "type": "length", "default": "0", "description": "Border radius" },
