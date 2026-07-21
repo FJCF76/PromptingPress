@@ -76,6 +76,13 @@ if (!function_exists('pp_base_template')) {
     'contact_label' => (string) get_option('pp_footer_contact_label', ''),
     'note'          => (string) get_option('pp_footer_note', ''),
     'logo_id'       => (string) get_option('pp_footer_logo_id', ''),
+    // Second footer menu column (issue 469). secondary_location is a FIXED theme
+    // location slug, not 'location' — the NavReadinessTest drift guard matches only
+    // the FIRST 'location' => key of this call, so this extra key does not register
+    // footer_secondary as a template-owned "renders on every page" location (it
+    // renders only when a menu is assigned). secondary_label is its optional heading.
+    'secondary_location' => 'footer_secondary',
+    'secondary_label'    => (string) get_option('pp_footer_secondary_label', ''),
 ]); ?>
 
 <?php wp_footer(); ?>

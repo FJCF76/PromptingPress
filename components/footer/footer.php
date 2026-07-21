@@ -28,6 +28,17 @@ $menu_label    = trim((string) ($props['menu_label']    ?? ''));
 $contact_label = trim((string) ($props['contact_label'] ?? ''));
 $note          = trim((string) ($props['note']          ?? ''));
 
+// Optional SECOND footer menu column (issue 469). It renders only when a menu is
+// actually assigned to the secondary theme location — an unset location leaves the
+// footer byte-identical to the single-menu layout. The heading follows the same
+// headless-when-unset rule as $menu_label. Gating on has_nav_menu() (not just a
+// non-empty location) is what keeps a stray non-column child out of the grid:
+// .site-footer__columns is grid-auto-flow:column, so every present child becomes a
+// track — an empty secondary <nav> would be a phantom column.
+$secondary_location = trim((string) ($props['secondary_location'] ?? ''));
+$secondary_label    = trim((string) ($props['secondary_label']    ?? ''));
+$has_secondary      = $secondary_location !== '' && has_nav_menu($secondary_location);
+
 // A non-empty note is the trigger for the delimited bottom bar: the copyright
 // moves out of the main flow into its own band and renders opposite the note.
 // Empty note = copyright stays inline exactly where issue 300 put it.
@@ -96,6 +107,24 @@ $style_attr = pp_chrome_style_attr([
                 <?php endif; ?>
                 <?php pp_nav_menu($location); ?>
             </nav>
+<?php
+            // The optional second menu column (issue 469). Same landmark treatment as the
+            // primary footer nav, but a distinct aria-label so AT users can tell the two
+            // footer menus apart. Renders ONLY when a menu is assigned to $secondary_location.
+            // The if/endif tags below sit at COLUMN 0 on purpose: PHP swallows the single
+            // newline after each PHP close tag, so an unrendered column emits ZERO extra
+            // template whitespace and the unset footer stays byte-identical to the pre-469
+            // single-menu layout (the #469 contract). Do not indent these tags.
+?>
+<?php if ($has_secondary) : ?>
+
+            <nav class="site-footer__nav" aria-label="Footer secondary navigation">
+                <?php if ($secondary_label !== '') : ?>
+                    <h2 class="site-footer__heading"><?php echo esc_html($secondary_label); ?></h2>
+                <?php endif; ?>
+                <?php pp_nav_menu($secondary_location); ?>
+            </nav>
+<?php endif; ?>
 
             <?php if ($contact !== '') : ?>
                 <div class="site-footer__contact">
