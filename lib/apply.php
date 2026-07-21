@@ -317,8 +317,9 @@ function _pp_check_token_reference_cycle(string $token, string $value) {
 
 /**
  * Validates a CSS length value.
- * Accepts: numeric value with unit (rem, px, em, %, vw, vh), unitless 0,
- * clamp() expressions, and calc() expressions.
+ * Accepts: numeric value with unit (rem, px, em, %, vw, vh) including a single
+ * leading minus for negative lengths (letter-spacing/margins/text-indent go
+ * negative), unitless 0, clamp() expressions, and calc() expressions.
  *
  * clamp/calc use positive-pattern matching: only numeric literals, units,
  * percentage, comma, parentheses, and arithmetic operators are allowed.
@@ -336,8 +337,12 @@ function _pp_validate_length(string $value): bool {
     if ($value === '0') {
         return true;
     }
-    // Simple length: number + unit.
-    if (preg_match('/^[\d.]+\s*(rem|px|em|%|vw|vh)$/', $value)) {
+    // Simple length: optional leading minus, number + unit. Negative lengths are
+    // valid CSS <length> (letter-spacing, margins, text-indent go negative), so the
+    // grammar accepts a single leading '-'; the injection guards and the calc/clamp
+    // positive-pattern below are unchanged. Semantically-inert cases (negative radius,
+    // padding) simply drop per CSS — this is a grammar guard, not a per-property check.
+    if (preg_match('/^-?[\d.]+\s*(rem|px|em|%|vw|vh)$/', $value)) {
         return true;
     }
     // clamp() or calc(): positive-pattern — only allow safe characters inside.

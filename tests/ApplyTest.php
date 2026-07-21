@@ -569,6 +569,64 @@ class ApplyTest extends TestCase
         $this->assertTrue(_pp_validate_length('calc(.5rem + 1rem)'));
     }
 
+    // ── Length validator: signed (negative) lengths (#467) ─────────────────
+    //
+    // Heading tracking is inherently negative (default -0.03em; a brand may want
+    // -0.01em), so the `length` grammar accepts a single leading minus on simple
+    // lengths and signed operands inside calc/clamp. Grammar-only: "-" alone and a
+    // double minus stay rejected, and the injection/positive-pattern guards are intact.
+
+    public function testLengthAcceptsNegativeEm(): void
+    {
+        // The token's own default value must validate through the write path.
+        $this->assertTrue(_pp_validate_length('-0.03em'));
+    }
+
+    public function testLengthAcceptsNegativeRemLeadingDot(): void
+    {
+        // "-.5rem"-style negatives (no leading zero) must validate too.
+        $this->assertTrue(_pp_validate_length('-.5rem'));
+    }
+
+    public function testLengthAcceptsNegativePx(): void
+    {
+        $this->assertTrue(_pp_validate_length('-2px'));
+    }
+
+    public function testLengthUpdateTokenAcceptsNegativeHeadingTracking(): void
+    {
+        // #467 end-to-end write path: the operator's brand value reaches the token.
+        $result = pp_validate_apply(
+            'update_design_token',
+            ['token' => '--letter-spacing-heading', 'value' => '-0.01em']
+        );
+        $this->assertTrue($result);
+    }
+
+    public function testLengthRejectsBareMinus(): void
+    {
+        // A lone "-" has no numeric operand — must stay rejected.
+        $this->assertFalse(_pp_validate_length('-'));
+    }
+
+    public function testLengthRejectsDoubleMinus(): void
+    {
+        // Only a SINGLE leading minus is grammar; "--0.03em" is not a length.
+        $this->assertFalse(_pp_validate_length('--0.03em'));
+    }
+
+    public function testLengthRejectsMinusUnitNoOperand(): void
+    {
+        // "-em" is a bare unit with no operand behind the sign.
+        $this->assertFalse(_pp_validate_length('-em'));
+    }
+
+    public function testLengthAcceptsNegativeTermInCalc(): void
+    {
+        // A signed operand inside calc() stays valid (real operand behind the unit).
+        $this->assertTrue(_pp_validate_length('calc(-0.01em + 2px)'));
+    }
+
     public function testLengthAcceptsWhitespaceAfterOpeningParen(): void
     {
         // "calc( 1rem + 2rem)" — valid CSS with a space right after the
@@ -1924,6 +1982,17 @@ class ApplyTest extends TestCase
         $this->assertArrayHasKey('--line-height-heading', $tokens);
         $this->assertSame('number', $tokens['--line-height-heading']['type']);
         $this->assertSame('1.2', $tokens['--line-height-heading']['value']);
+    }
+
+    public function testNewTokensLetterSpacingHeadingExists(): void
+    {
+        // #467: heading tracking is tokenized so a brand can set its own letter-spacing.
+        // Registered in base.css's first :root block as a `length` token so it joins
+        // pp_design_tokens() and the update_design_token write path like its siblings.
+        $tokens = pp_design_tokens();
+        $this->assertArrayHasKey('--letter-spacing-heading', $tokens);
+        $this->assertSame('length', $tokens['--letter-spacing-heading']['type']);
+        $this->assertSame('-0.03em', $tokens['--letter-spacing-heading']['value']);
     }
 
     public function testNewTokensBtnPaddingYExists(): void

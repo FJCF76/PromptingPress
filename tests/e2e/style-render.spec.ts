@@ -525,6 +525,75 @@ test.describe('Safe-surface rendered proof', () => {
     }
   });
 
+  // #467: heading letter-spacing is tokenized (--letter-spacing-heading, default
+  // -0.03em). The static TypographyRoleTest proves the h1-h6 rule routes through the
+  // token; only getComputedStyle proves the browser renders it once the cascade applies,
+  // and that a :root override (the operator's real write path via update_design_token,
+  // injected as an inline :root block after pp-base) actually changes heading tracking.
+  //
+  // A section renders its title as a real <h2 class="section__title">, and no component
+  // rule sets its own letter-spacing, so the shared base rule governs it. Assert at 1280
+  // AND 375 (the #86/#349 mobile-hid-it lesson) using the RATIO letter-spacing/font-size,
+  // which is font-size-independent (em tracking is relative to the element's own size):
+  //   unset  -> ratio ~ -0.03 (byte-identical default)
+  //   set     -> ratio ~ the override, and the computed value actually changed.
+  test('#467 headings honor --letter-spacing-heading; unset is byte-identical at both breakpoints @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Heading Letter Spacing Token');
+    setComposition(pageId, [
+      { component: 'section', props: { id: 'pp-sec01', title: 'Heading tracking', body: '<p>Body copy.</p>' } },
+    ]);
+
+    // Ensure a clean :root (no stray token override from another run).
+    execSync('npx wp-env run cli wp option delete pp_token_overrides', {
+      cwd: process.cwd(),
+      stdio: 'ignore',
+    });
+
+    const trackingRatio = () =>
+      page.locator('main .section__title').first().evaluate((el) => {
+        const cs = getComputedStyle(el);
+        const font = parseFloat(cs.fontSize);
+        const ls = parseFloat(cs.letterSpacing); // computed to px; "normal" -> NaN
+        return { font, ls, ratio: ls / font };
+      });
+
+    try {
+      // 1) UNSET: the default -0.03em renders on the heading at both breakpoints.
+      for (const width of [1280, 375]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`/?page_id=${pageId}`);
+        await expect(page.locator('main .section__title')).toBeVisible({ timeout: 10000 });
+        const unset = await trackingRatio();
+        expect(unset.font).toBeGreaterThan(0);
+        expect(unset.ls).toBeLessThan(0); // negative tracking, not "normal"
+        expect(Math.abs(unset.ratio - -0.03)).toBeLessThan(0.005);
+      }
+
+      // 2) A :root override through the real design-token store changes heading tracking.
+      // 0.25em is positive and distinctive, so a clobber or a dead token is unmistakable.
+      execSync(
+        `npx wp-env run cli wp option update pp_token_overrides '{"--letter-spacing-heading":"0.25em"}' --format=json`,
+        { cwd: process.cwd(), stdio: 'ignore' },
+      );
+
+      for (const width of [1280, 375]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`/?page_id=${pageId}`);
+        await expect(page.locator('main .section__title')).toBeVisible({ timeout: 10000 });
+        const set = await trackingRatio();
+        expect(set.ls).toBeGreaterThan(0); // flipped from negative — the override took
+        expect(Math.abs(set.ratio - 0.25)).toBeLessThan(0.005);
+      }
+    } finally {
+      execSync('npx wp-env run cli wp option delete pp_token_overrides', {
+        cwd: process.cwd(),
+        stdio: 'ignore',
+      });
+    }
+  });
+
   // #24: a hero-surface slot must reach the rendered inner shell (.hero__surface only
   // renders for the split variant with proof markup).
   test('#24 hero surface honors --hero-surface-border-width', async ({ page }) => {
