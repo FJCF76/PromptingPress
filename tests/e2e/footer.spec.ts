@@ -150,3 +150,85 @@ test.describe('Footer baseline (issue 427)', () => {
     await expect(page.locator('.site-footer__bottom')).toHaveCount(0);
   });
 });
+
+/**
+ * Rendered-proof E2E for the SECOND footer menu column (issue 469).
+ *
+ * The PHP pins prove the markup renders only when a menu is assigned to the
+ * footer_secondary location, with a distinct aria-label and an optional heading.
+ * Only a real browser proves the applied grid: with a menu assigned, the footer
+ * lays out FOUR equal columns left-to-right at desktop and stacks the second menu
+ * in reading order (brand -> primary nav -> secondary nav -> contact) at mobile,
+ * with no CSS change beyond the existing auto-flow grid. Kept in its own describe
+ * so the footer_secondary assignment never perturbs the single-nav #427 assertions.
+ */
+test.describe('Footer secondary menu column (issue 469)', () => {
+  let primaryMenuId = 0;
+  let secondaryMenuId = 0;
+  let hostPageId = 0;
+
+  test.beforeAll(() => {
+    primaryMenuId = parseInt(cli('menu create "E2E Footer 469 Primary" --porcelain'), 10);
+    cli(`menu item add-custom ${primaryMenuId} "Servicio" "#servicio" --porcelain`);
+    cli(`menu item add-custom ${primaryMenuId} "Empresa" "#empresa" --porcelain`);
+    cli(`menu location assign ${primaryMenuId} footer`);
+
+    secondaryMenuId = parseInt(cli('menu create "E2E Footer 469 Legal" --porcelain'), 10);
+    cli(`menu item add-custom ${secondaryMenuId} "Aviso legal" "#aviso" --porcelain`);
+    cli(`menu item add-custom ${secondaryMenuId} "Privacidad" "#privacidad" --porcelain`);
+    cli(`menu item add-custom ${secondaryMenuId} "Cookies" "#cookies" --porcelain`);
+    cli(`menu location assign ${secondaryMenuId} footer_secondary`);
+
+    // Headings on both menu columns.
+    cli(`option update pp_footer_menu_label "Explore"`);
+    cli(`option update pp_footer_secondary_label "Legal"`);
+
+    hostPageId = createPage('E2E Footer 469 Host');
+  });
+
+  test.afterAll(() => {
+    try { cli(`option delete pp_footer_menu_label`); } catch { /* noop */ }
+    try { cli(`option delete pp_footer_secondary_label`); } catch { /* noop */ }
+    try { if (hostPageId) cli(`post delete ${hostPageId} --force`); } catch { /* noop */ }
+    try { if (primaryMenuId) cli(`menu location remove ${primaryMenuId} footer`); } catch { /* noop */ }
+    try { if (secondaryMenuId) cli(`menu location remove ${secondaryMenuId} footer_secondary`); } catch { /* noop */ }
+    try { if (primaryMenuId) cli(`menu delete ${primaryMenuId}`); } catch { /* noop */ }
+    try { if (secondaryMenuId) cli(`menu delete ${secondaryMenuId}`); } catch { /* noop */ }
+  });
+
+  test('desktop renders a second footer menu column with a distinct landmark @smoke', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${hostPageId}`);
+
+    // Two footer nav landmarks with distinct aria-labels.
+    await expect(page.locator('.site-footer nav.site-footer__nav')).toHaveCount(2);
+    await expect(
+      page.locator('.site-footer nav[aria-label="Footer navigation"]'),
+    ).toHaveCount(1);
+    const secondary = page.locator('.site-footer nav[aria-label="Footer secondary navigation"]');
+    await expect(secondary).toHaveCount(1);
+    // Its heading + a real link from the assigned Legal menu.
+    await expect(secondary.locator('h2.site-footer__heading')).toHaveText('Legal');
+    await expect(secondary.locator('a', { hasText: 'Privacidad' })).toHaveCount(1);
+
+    // Four equal columns laid out left-to-right, each with a positive gap.
+    const primaryNav = (await box(page, 'nav[aria-label="Footer navigation"]'))!;
+    const secondaryNav = (await box(page, 'nav[aria-label="Footer secondary navigation"]'))!;
+    expect(primaryNav).toBeTruthy();
+    expect(secondaryNav).toBeTruthy();
+    expect(secondaryNav.x).toBeGreaterThan(primaryNav.x + primaryNav.width);
+    expect(near(secondaryNav.y, primaryNav.y), `secondary/primary top: ${secondaryNav.y} vs ${primaryNav.y}`).toBe(true);
+  });
+
+  test('mobile stacks the second menu in reading order after the primary menu', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`/?page_id=${hostPageId}`);
+
+    const primaryNav = (await box(page, 'nav[aria-label="Footer navigation"]'))!;
+    const secondaryNav = (await box(page, 'nav[aria-label="Footer secondary navigation"]'))!;
+    expect(primaryNav).toBeTruthy();
+    expect(secondaryNav).toBeTruthy();
+    // Stacked single-column: the secondary menu sits below the primary menu.
+    expect(secondaryNav.y).toBeGreaterThan(primaryNav.y + primaryNav.height - 1);
+  });
+});

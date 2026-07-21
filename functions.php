@@ -7,7 +7,7 @@
  */
 
 // ── Theme version (single source of truth — keep in sync with style.css) ──
-define('PP_VERSION', '1.5.9');
+define('PP_VERSION', '1.5.10');
 
 // ── Load lib files ─────────────────────────────────────────────────────────
 require_once get_template_directory() . '/lib/wp.php';
@@ -53,8 +53,13 @@ add_action('after_setup_theme', function () {
     ]);
 
     register_nav_menus([
-        'primary' => __('Primary Navigation', 'promptingpress'),
-        'footer'  => __('Footer Navigation', 'promptingpress'),
+        'primary'          => __('Primary Navigation', 'promptingpress'),
+        'footer'           => __('Footer Navigation', 'promptingpress'),
+        // Optional second footer menu column (issue 469). Renders only when a
+        // menu is assigned here; an unassigned location leaves the footer
+        // byte-identical to the single-menu layout. Named generically
+        // (footer_secondary) — a "Legal" column is one use, not the capability.
+        'footer_secondary' => __('Footer Secondary Navigation', 'promptingpress'),
     ]);
 });
 

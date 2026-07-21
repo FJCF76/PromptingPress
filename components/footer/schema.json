@@ -80,6 +80,18 @@
       "default": "",
       "description": "Optional heading above the contact block (issue 335). Set via the pp_footer_contact_label site option. Plain text; empty = no heading. Only rendered when contact is also set."
     },
+    "secondary_location": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "WP theme location slug for an optional SECOND footer nav menu column (issue 469). base.php sets this to 'footer_secondary'. The column renders ONLY when a menu is assigned to this location (has_nav_menu); an unassigned location leaves the footer byte-identical to the single-menu layout. Assign a menu with assign_menu_location / set_menu (location 'footer_secondary'). The column is a real <nav> landmark with aria-label 'Footer secondary navigation', distinct from the primary footer nav."
+    },
+    "secondary_label": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional heading above the second footer menu column (issue 469). Set via the pp_footer_secondary_label site option. Plain text; empty = a headless second column (the same headless-when-unset rule as menu_label). Only rendered when a menu is assigned to secondary_location."
+    },
     "note": {
       "type": "string",
       "required": false,

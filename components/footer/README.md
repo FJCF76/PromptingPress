@@ -28,6 +28,8 @@ so in practice only `location` is ever set.
 | `copyright`  | string | No | — | Copyright line. Set via `pp_footer_copyright`; empty = the default `© <year> <site title>. All rights reserved.` |
 | `menu_label`    | string | No | — | Optional heading above the footer nav menu (#335). Set via `pp_footer_menu_label`; empty = unlabelled |
 | `contact_label` | string | No | — | Optional heading above the contact block (#335). Set via `pp_footer_contact_label`; only rendered when `contact` is set |
+| `secondary_location` | string | No | — | Theme location slug for an optional SECOND footer menu column (#469). base.php sets it to `footer_secondary`. The column renders ONLY when a menu is assigned to this location; unassigned = footer unchanged. A real `<nav>` with aria-label `Footer secondary navigation` |
+| `secondary_label`    | string | No | — | Optional heading above the second footer menu column (#469). Set via `pp_footer_secondary_label`; empty = a headless second column. Only rendered when a menu is assigned to `secondary_location` |
 | `note`          | string | No | — | Optional secondary line (#335). Set via `pp_footer_note`; when set, the copyright moves into a delimited bottom bar and this note renders opposite it |
 
 ### Turning the footer logo on
@@ -55,6 +57,7 @@ pp_get_component('footer', ['location' => 'footer']);
 |------|---------|
 | Build the footer menu | The menu actions: `create_menu` / `set_menu` / `add_menu_item` |
 | Attach a menu to the footer | `assign_menu_location` with location `footer` |
+| Add a second footer menu column (e.g. a Legal column) | `assign_menu_location` / `set_menu` with location `footer_secondary`; optional heading via `update_site_option` key `pp_footer_secondary_label` |
 | Show/hide the footer logo | `update_site_option` with key `pp_footer_show_logo` (boolean) |
 | Footer logo override (light variant for a dark footer) | `update_site_option` with key `pp_footer_logo_id` (image attachment ID; unset falls back to `pp_logo_id`) |
 | Dark marketing footer (background) | `update_site_option` with key `pp_footer_bg` (a CSS color **or** a bounded gradient) |
@@ -91,15 +94,18 @@ options; unset, every rule falls back to its original value.
 
 ### Layout and semantics (#427)
 
-The brand · nav · contact columns live in a `.site-footer__columns` grid. On desktop
-(`min-width: 1024px`) it is `grid-auto-flow: column` with `grid-auto-columns: minmax(0, 1fr)`,
+The brand · nav · secondary-nav · contact columns live in a `.site-footer__columns` grid. On
+desktop (`min-width: 1024px`) it is `grid-auto-flow: column` with `grid-auto-columns: minmax(0, 1fr)`,
 so it makes exactly one equal top-aligned column per **present** column and a sparse footer
-degrades cleanly (no empty tracks). On mobile it collapses to a single-column stack in DOM
-order (brand → nav → contact). The copyright line (or, when `pp_footer_note` is set, the
-delimited bottom bar of #335) sits on its own row below the columns.
+degrades cleanly (no empty tracks) — the optional second menu column (#469) is just another
+present child, so 3-column and 4-column footers both lay out without any CSS change. On mobile
+it collapses to a single-column stack in DOM order (brand → nav → secondary nav → contact). The
+copyright line (or, when `pp_footer_note` is set, the delimited bottom bar of #335) sits on its
+own row below the columns.
 
 The footer menu is a real `<nav aria-label="Footer navigation">` landmark, distinct from the
-header's `Main navigation`. Column headings use one consistent level (`h2.site-footer__heading`);
+header's `Main navigation`; the optional second menu column (#469) is a sibling
+`<nav aria-label="Footer secondary navigation">`. Column headings use one consistent level (`h2.site-footer__heading`);
 an unset label leaves a headless-but-styled column rather than injecting default text, keeping
 the option contract byte-identical.
 

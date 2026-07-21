@@ -2332,6 +2332,11 @@ function pp_allowed_site_options(): array {
         //     empty leaves the copyright inline exactly as issue 300 did.
         'pp_footer_menu_label'    => 'string',
         'pp_footer_contact_label' => 'string',
+        // Optional heading above the SECOND footer menu column (issue 469).
+        // Generic name — the "Legal" column is one use of the second location
+        // (footer_secondary), not the capability itself. Empty = a headless
+        // second column (the same headless-when-unset rule as pp_footer_menu_label).
+        'pp_footer_secondary_label' => 'string',
         'pp_footer_note'          => 'string',
         // Footer logo OVERRIDE (issue 335). pp_logo_id feeds both the (light)
         // header and the (dark) footer, so a dark-on-transparent brand mark is

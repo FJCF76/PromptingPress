@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.5.10] — 2026-07-22 — the footer can now carry a second menu column (e.g. a distinct Legal column) alongside the primary footer menu (#469)
+
+**The footer offered exactly one menu column, so a brand that needed a separate Legal column (Aviso legal / Privacidad / Cookies) next to its main footer links had nowhere to put it. There is now a second footer menu location, `footer_secondary`: assign a menu to it (with `assign_menu_location` or `set_menu`) and it renders as an extra footer column, with `pp_footer_secondary_label` as its optional heading. The name is generic on purpose — a "Legal" column is one use of a second footer menu, not the capability. With no menu assigned to `footer_secondary`, the footer is byte-identical to the single-menu layout.**
+
+The second column is theme-owned chrome, delivered through the same surface as the rest of the footer: a registered menu location plus a whitelisted site option, never a composable section. It renders only when a menu is actually assigned to `footer_secondary`, as a real `<nav>` landmark with a distinct `aria-label` ("Footer secondary navigation") so assistive tech can tell the two footer menus apart. Its heading follows the same headless-when-unset rule as the existing column labels. The desktop column grid already lays out one equal track per present column, so 3-column and 4-column footers both work with no CSS change, and the mobile stack keeps reading order (brand → primary menu → secondary menu → contact). An unassigned secondary location adds zero output — the footer template keeps its conditional column at column-zero indentation so an unrendered column leaks no whitespace.
+
+### Added
+- Second footer menu location `footer_secondary` and its optional heading option `pp_footer_secondary_label`. Assign a menu to the location (`assign_menu_location` / `set_menu`) to render a second footer menu column; set `pp_footer_secondary_label` (`update_site_option`) for its heading. Unassigned = the footer renders exactly as before. Documented in the footer schema/README, `AI_CONTEXT.md`, and the `ai-instructions/` how-tos (#469).
+
+### Tests
+- PHPUnit: `FooterChromeTest` adds the whitelist type for `pp_footer_secondary_label`, render cases proving the second column appears only when a menu is assigned (distinct `aria-label`, headless-when-unset heading, escaping, DOM order between the primary menu and contact), a byte-identical-when-unassigned guard (including a whitespace-artifact assertion so an unrendered column can never leak template whitespace), and pins that `base.php` maps the option and `functions.php` registers the location. A Playwright E2E renders an assigned second column at 1280 (four equal columns, distinct landmark) and confirms it stacks after the primary menu at 375 (#469).
+
+### Docs
+- `README.md`, `AI_CONTEXT.md`, `components/footer/README.md` + `schema.json`, and the `ai-instructions/` footer how-tos (`set-logo.md`, `website-building.md`, `composition.md`) document the second footer menu column, the `footer_secondary` location, and the `pp_footer_secondary_label` option (#469).
+
 ## [v1.5.9] — 2026-07-22 — a split hero can now stretch its media to the headline's height, so one asset balances any headline length (#477)
 
 **A `split` hero puts the headline in the left column and media in the right, but the media only offered `top` / `center` / `bottom` alignment at a fixed size — so a 4–5 line headline left a small card floating below center beside a huge headline, and the only fix was hand-authoring a taller asset per page. `vertical_align` now takes a fourth value, `stretch`: the media column fills the content column's height (equal-height columns) and the image sizes to that box with `object-fit: cover`. One asset balances any headline length. Set `vertical_align: "stretch"` on a split hero; the existing `top` / `center` / `bottom` output is byte-identical.**

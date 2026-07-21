@@ -793,4 +793,188 @@ class FooterChromeTest extends TestCase
         $html = $this->renderFooter(['location' => 'footer', 'blurb' => 'x', 'contact' => 'x']);
         $this->assertStringNotContainsString('site-footer__social', $html);
     }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  Second footer menu column (issue 469). A generic second footer nav
+    //  location (footer_secondary) with its own optional heading option
+    //  (pp_footer_secondary_label). The "Legal" column is one use of this,
+    //  not the capability. Renders ONLY when a menu is assigned to the
+    //  location; legacy single-menu footers stay byte-identical when unset.
+    // ══════════════════════════════════════════════════════════════════════
+
+    /** Assigns a (stub) menu to a theme location so has_nav_menu() reports it present. */
+    private function assignMenuLocation(string $location, int $menuId = 9): void
+    {
+        $GLOBALS['_pp_test_store']['nav_menu_locations'][$location] = $menuId;
+    }
+
+    public function testAllowedSiteOptionsIncludesSecondaryLabel(): void
+    {
+        $allowed = pp_allowed_site_options();
+        $this->assertSame('string', $allowed['pp_footer_secondary_label']);
+    }
+
+    public function testSecondaryLabelAcceptsFreeText(): void
+    {
+        $this->assertTrue(pp_validate_site_option_value('pp_footer_secondary_label', 'Legal'));
+        $this->assertTrue(pp_validate_site_option_value('pp_footer_secondary_label', ''));
+    }
+
+    public function testSecondaryColumnRendersOnlyWhenMenuAssigned(): void
+    {
+        // No menu assigned to the secondary location → no second nav column.
+        $without = $this->renderFooter([
+            'location'           => 'footer',
+            'secondary_location' => 'footer_secondary',
+            'secondary_label'    => 'Legal',
+        ]);
+        $this->assertSame(
+            1,
+            preg_match_all('/class="site-footer__nav"/', $without),
+            'with no menu assigned to footer_secondary, only the primary footer nav renders'
+        );
+        $this->assertStringNotContainsString('Footer secondary navigation', $without);
+
+        // Assign a menu → the second nav column renders.
+        $this->assignMenuLocation('footer_secondary');
+        $with = $this->renderFooter([
+            'location'           => 'footer',
+            'secondary_location' => 'footer_secondary',
+            'secondary_label'    => 'Legal',
+        ]);
+        $this->assertSame(
+            2,
+            preg_match_all('/class="site-footer__nav"/', $with),
+            'an assigned footer_secondary menu adds a second footer nav column'
+        );
+    }
+
+    public function testSecondaryColumnHasDistinctAriaLabel(): void
+    {
+        $this->assignMenuLocation('footer_secondary');
+        $html = $this->renderFooter([
+            'location'           => 'footer',
+            'secondary_location' => 'footer_secondary',
+        ]);
+        // Both navs are landmarks; their labels must differ so AT users can tell
+        // the two footer menus apart.
+        $this->assertMatchesRegularExpression(
+            '/<nav class="site-footer__nav" aria-label="Footer navigation">/',
+            $html
+        );
+        $this->assertMatchesRegularExpression(
+            '/<nav class="site-footer__nav" aria-label="Footer secondary navigation">/',
+            $html
+        );
+    }
+
+    public function testSecondaryColumnIsHeadlessWhenLabelUnset(): void
+    {
+        // Menu assigned but no label → the column renders, but with no heading
+        // (the same headless-when-unset rule as the primary menu column).
+        $this->assignMenuLocation('footer_secondary');
+        $html = $this->renderFooter([
+            'location'           => 'footer',
+            'secondary_location' => 'footer_secondary',
+        ]);
+        $this->assertStringContainsString('Footer secondary navigation', $html);
+        $this->assertStringNotContainsString('site-footer__heading', $html);
+    }
+
+    public function testSecondaryColumnHeadingRendersWhenLabelSet(): void
+    {
+        $this->assignMenuLocation('footer_secondary');
+        $html = $this->renderFooter([
+            'location'           => 'footer',
+            'secondary_location' => 'footer_secondary',
+            'secondary_label'    => 'Legal',
+        ]);
+        $this->assertMatchesRegularExpression(
+            '/<nav class="site-footer__nav" aria-label="Footer secondary navigation">\s*<h2 class="site-footer__heading">Legal<\/h2>/',
+            $html
+        );
+    }
+
+    public function testSecondaryLabelIsEscaped(): void
+    {
+        $this->assignMenuLocation('footer_secondary');
+        $html = $this->renderFooter([
+            'location'           => 'footer',
+            'secondary_location' => 'footer_secondary',
+            'secondary_label'    => '<script>alert(1)</script>',
+        ]);
+        $this->assertStringNotContainsString('<script>alert(1)</script>', $html);
+        $this->assertStringContainsString('&lt;script&gt;', $html);
+    }
+
+    public function testUnassignedSecondaryLocationIsByteIdenticalToLegacyFooter(): void
+    {
+        // Passing secondary_location (as base.php always does) with no menu assigned
+        // must be byte-for-byte identical to omitting it entirely.
+        $legacy = $this->renderFooter(['location' => 'footer']);
+        $withSecondary = $this->renderFooter([
+            'location'           => 'footer',
+            'secondary_location' => 'footer_secondary',
+            'secondary_label'    => 'Legal',
+        ]);
+        $this->assertSame($legacy, $withSecondary);
+
+        // Guard against the whitespace-drift class the new-vs-new comparison above
+        // cannot see (both branches share footer.php): an unrendered secondary column
+        // must leak NO extra template whitespace. The single-menu footer never emits a
+        // whitespace-only line wider than the 12-space column indent; the buggy first
+        // cut of #469 emitted a 24-space orphan line here. A whitespace-only line of
+        // 13+ chars is that artifact — the if/endif must stay at column 0.
+        $this->assertDoesNotMatchRegularExpression(
+            '/^[ \t]{13,}$/m',
+            $withSecondary,
+            'An unassigned secondary footer column must not leak template whitespace '
+            . '(keep the footer_secondary if/endif at column 0 in footer.php).'
+        );
+    }
+
+    public function testSecondaryColumnDomOrderIsBetweenNavAndContact(): void
+    {
+        $this->assignMenuLocation('footer_secondary');
+        $html = $this->renderFooter([
+            'location'           => 'footer',
+            'secondary_location' => 'footer_secondary',
+            'secondary_label'    => 'Legal',
+            'contact'            => 'hi@example.com',
+            'contact_label'      => 'Contact',
+        ]);
+        $primaryNav = strpos($html, 'aria-label="Footer navigation"');
+        $secondNav  = strpos($html, 'aria-label="Footer secondary navigation"');
+        $contact    = strpos($html, 'site-footer__contact');
+        $this->assertNotFalse($primaryNav);
+        $this->assertNotFalse($secondNav);
+        $this->assertNotFalse($contact);
+        $this->assertLessThan($secondNav, $primaryNav, 'secondary nav follows the primary nav');
+        $this->assertLessThan($contact, $secondNav, 'secondary nav precedes the contact column');
+    }
+
+    public function testBaseTemplateMapsSecondaryFooterOptions(): void
+    {
+        $base = file_get_contents($this->themeRoot . '/templates/base.php');
+        $this->assertStringContainsString(
+            "get_option('pp_footer_secondary_label'",
+            $base,
+            'base.php must read the pp_footer_secondary_label site option and pass it to the footer.'
+        );
+        $this->assertStringContainsString(
+            "'secondary_location' => 'footer_secondary'",
+            $base,
+            'base.php must pass the fixed footer_secondary location slug to the footer.'
+        );
+    }
+
+    public function testFunctionsRegistersSecondaryFooterLocation(): void
+    {
+        $functions = file_get_contents($this->themeRoot . '/functions.php');
+        $this->assertMatchesRegularExpression(
+            "/register_nav_menus\(.*'footer_secondary'\s*=>/s",
+            $functions,
+            'functions.php must register the footer_secondary theme location so assign_menu_location / set_menu accept it.'
+        );
+    }
 }

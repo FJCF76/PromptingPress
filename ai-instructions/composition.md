@@ -490,7 +490,7 @@ To configure the chrome, use these surfaces instead:
 |------|---------|
 | Set the site logo | The `pp_logo_id` site option (`update_site_option`). Must be an image attachment id. |
 | Build a nav or footer menu | The menu actions: `create_menu` / `set_menu` / `add_menu_item` |
-| Attach a menu to the header or footer | `assign_menu_location` with location `primary` or `footer` |
+| Attach a menu to the header or footer | `assign_menu_location` with location `primary`, `footer`, or `footer_secondary` (an optional second footer menu column; heading = `pp_footer_secondary_label`) |
 
 Run `wp pp apply preflight` to see chrome readiness warnings (`nav_readiness`):
 unassigned locations, empty menus, and a `pp_logo_id` that isn't an image.
