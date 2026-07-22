@@ -257,8 +257,12 @@ test.describe('Footer social-icon row (issue 382)', () => {
     socialMenuId = parseInt(cli('menu create "E2E Footer 382" --porcelain'), 10);
     cli(`menu item add-custom ${socialMenuId} "Home" "#home" --porcelain`);
     cli(`menu location assign ${socialMenuId} footer`);
-    // wp-cli reads the JSON value from stdin so quotes/brackets survive intact.
-    execSync(`npx wp-env run cli wp option update pp_footer_social --format=json`, {
+    // Store the RAW JSON string exactly as pp_update_site_option would (the footer
+    // reads it back with get_option and json_decodes it). wp-cli reads the value
+    // from stdin so the quotes/brackets survive intact; do NOT pass --format=json,
+    // which would decode the JSON and store a serialized PHP array instead of the
+    // string the render path expects.
+    execSync(`npx wp-env run cli wp option update pp_footer_social`, {
       cwd: process.cwd(),
       input: SOCIAL_JSON,
       encoding: 'utf-8',
