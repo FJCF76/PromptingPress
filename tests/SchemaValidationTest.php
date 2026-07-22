@@ -710,6 +710,140 @@ class SchemaValidationTest extends TestCase
         ];
     }
 
+    // ── section content requirement: body is optional, but SOME content is ──
+    //    required (issue 488). `body.required` is gone; the schema-level
+    //    content_requirement.any_of gate accepts body / body_items / panel
+    //    content and rejects a fully-empty section. This is the exact case that
+    //    was previously unauthorable (a body_items-only trust strip).
+
+    /**
+     * @dataProvider validSectionContentProvider
+     */
+    public function testSectionAcceptsAnyRenderableContent(string $label, array $props): void
+    {
+        $result = pp_validate_composition([['component' => 'section', 'props' => $props]]);
+        $this->assertTrue($result, "{$label} must validate (has renderable content).");
+    }
+
+    public static function validSectionContentProvider(): array
+    {
+        return [
+            'body only'                => ['body only', ['body' => '<p>Hi</p>']],
+            'body_items only (NEW)'    => ['body_items only', ['body_items' => ['No credit card', 'Cancel anytime']]],
+            'body_items only inverted' => ['body_items only inverted', ['theme' => 'inverted', 'body_items' => ['SOC 2']]],
+            'panel_heading only'       => ['panel_heading only', ['layout' => 'text-panel', 'panel_heading' => 'Plan']],
+            'panel_body only'          => ['panel_body only', ['layout' => 'text-panel', 'panel_body' => 'Details']],
+            'panel_items only'         => ['panel_items only', ['layout' => 'text-panel', 'panel_items' => ['One']]],
+            'panel CTA only'           => ['panel CTA only', ['layout' => 'text-panel', 'panel_cta_text' => 'Go', 'panel_cta_url' => 'https://example.com']],
+            'body + items'             => ['body + items', ['body' => '<p>Hi</p>', 'body_items' => ['x']]],
+            'empty-string body + items (the old workaround) still valid'
+                                       => ['empty body + items', ['body' => '', 'body_items' => ['x']]],
+        ];
+    }
+
+    /**
+     * @dataProvider emptySectionProvider
+     */
+    public function testFullyEmptySectionIsRejectedHonestly(string $label, array $props): void
+    {
+        $result = pp_validate_composition([['component' => 'section', 'props' => $props]]);
+        $this->assertInstanceOf(\WP_Error::class, $result, "{$label} must be rejected (no renderable content).");
+        $this->assertSame('invalid_composition', $result->get_error_code());
+        $this->assertStringContainsString('at least one of', $result->get_error_message());
+    }
+
+    public static function emptySectionProvider(): array
+    {
+        return [
+            'no props at all'          => ['no props', []],
+            'empty-string body only'   => ['empty body', ['body' => '']],
+            'whitespace-only body'     => ['whitespace body', ['body' => "   \n\t "]],
+            'empty body_items array'   => ['empty items array', ['body_items' => []]],
+            'title only (no content)'  => ['title only', ['title' => 'A heading with nothing beneath it']],
+            'eyebrow + subheading only' => ['header only', ['eyebrow' => 'NEW', 'subheading' => 'Just a header']],
+        ];
+    }
+
+    /**
+     * The content gate is deliberately loose ("did the author put content
+     * here?"), NOT a type check. A malformed-but-present content prop (a
+     * non-array body_items) therefore SATISFIES the content gate and falls
+     * through to its dedicated bounded-array type check, so the precise
+     * invalid_prop_value error wins rather than being masked by a generic
+     * "no content" message.
+     */
+    public function testMalformedContentPropSurfacesTypeErrorNotMissingContent(): void
+    {
+        $result = pp_validate_composition([
+            ['component' => 'section', 'props' => ['body_items' => 'not an array']],
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_prop_value', $result->get_error_code(),
+            'a present-but-malformed body_items must surface its type error, not "no content".');
+        $this->assertStringContainsString('body_items', $result->get_error_message());
+    }
+
+    /**
+     * Section 14.1 authoring-path mandate: the body_items-only band — the exact
+     * shape #488 reports as unauthorable — must succeed through the REAL
+     * create_page authoring surface (pp_validate_action → pp_normalize_composition
+     * → pp_validate_composition), not just the bare validator. A fully-empty
+     * section must still be rejected through that same surface.
+     */
+    public function testBodyItemsOnlyBandAuthorsThroughCreatePage(): void
+    {
+        $ok = pp_validate_action('create_page', [
+            'title'       => 'Trust strip page',
+            'composition' => [
+                ['component' => 'section', 'props' => [
+                    'theme'      => 'inverted',
+                    'body_items' => ['SOC 2 Type II', '99.99% uptime', 'GDPR compliant'],
+                ]],
+            ],
+        ]);
+        $this->assertTrue($ok, 'a body_items-only section must author cleanly via create_page (no body:"" placeholder).');
+    }
+
+    public function testFullyEmptySectionRejectedThroughCreatePage(): void
+    {
+        $result = pp_validate_action('create_page', [
+            'title'       => 'Empty band page',
+            'composition' => [
+                ['component' => 'section', 'props' => ['title' => 'Heading, no content']],
+            ],
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $result,
+            'a section with no body/body_items/panel content must be rejected at the authoring surface.');
+        $this->assertSame('invalid_composition', $result->get_error_code());
+    }
+
+    /**
+     * update_composition is the other authoring surface (the in-admin editor
+     * routes through it). A body_items-only band must validate there too.
+     */
+    public function testBodyItemsOnlyBandValidatesThroughUpdateComposition(): void
+    {
+        $GLOBALS['_pp_test_store'] = [
+            'post_meta' => [], 'posts' => [42 => ['post_type' => 'page']],
+            'options' => [], 'next_id' => 100, 'custom_css' => '',
+        ];
+        $result = pp_validate_action('update_composition', [
+            'post_id'     => 42,
+            'composition' => [
+                ['component' => 'section', 'props' => ['body_items' => ['Cancel anytime']]],
+            ],
+        ]);
+        // The precondition gate may reject a composition-less page before semantic
+        // validation; what we assert is that the CONTENT rule itself does not fire
+        // — the body_items-only band is not a "missing content" rejection.
+        if (is_wp_error($result)) {
+            $this->assertNotSame('invalid_composition', $result->get_error_code(),
+                'body_items-only band must not be rejected as missing content by update_composition.');
+        } else {
+            $this->assertTrue($result);
+        }
+    }
+
     /**
      * The bounded string-array check is OPT-IN (only props declaring
      * item_type:"string"). It must NOT ripple to section.panel_items, whose
@@ -1791,14 +1925,23 @@ class SchemaValidationTest extends TestCase
 
     /**
      * Component-library invariant: a composable component always requires
-     * something of the author.
+     * something of the author, so a bare `{"component": "x"}` (no `props` key)
+     * is INVALID.
      *
-     * A component with no required prop can be declared as a bare
-     * `{"component": "x"}` — no `props` key at all — and still validate. Such a
-     * component renders empty (the #87 empty-section smell exists to catch that),
-     * and it is the one composition shape the accordion round-trip cannot
-     * preserve: `serializeAccordionData()` re-emits `props: {}`, so the editor's
-     * serialization-invariant gate locks the accordion.
+     * If bare-with-no-props validated, the component renders empty (the #87
+     * empty-section smell exists to catch that), and it is the one composition
+     * shape the accordion round-trip cannot preserve: `serializeAccordionData()`
+     * re-emits `props: {}`, so the editor's serialization-invariant gate locks
+     * the accordion.
+     *
+     * TWO mechanisms uphold this invariant, and a component may use either:
+     *   1. A `required: true` prop (hero.title, grid.items, ...) — the required-
+     *      props loop rejects the bare shape.
+     *   2. A schema-level `content_requirement.any_of` (section, since #488) —
+     *      the content gate rejects the bare shape when none of the listed
+     *      content props is present. section.body became optional in #488, so
+     *      section relies on this second mechanism; a body_items-only or
+     *      panel-only band is authorable while a fully-empty section is not.
      *
      * Until #223, `nav` and `footer` were the only zero-required-prop components,
      * which is exactly why `[{"component":"footer"}]` was the fixture for the
@@ -1812,22 +1955,33 @@ class SchemaValidationTest extends TestCase
      * in `composer test` (a required CI check) rather than hiding in the E2E
      * suite, which does not run on pull requests.
      */
-    public function testEveryComposableComponentDeclaresARequiredProp(): void
+    public function testEveryComposableComponentRejectsTheBareNoPropsShape(): void
     {
         foreach (pp_composable_components() as $name => $schema) {
-            $required = array_filter(
+            $has_required_prop = !empty(array_filter(
                 $schema['props'] ?? [],
                 fn($def) => !empty($def['required'])
+            ));
+            $has_content_requirement = !empty($schema['content_requirement']['any_of']);
+
+            $this->assertTrue(
+                $has_required_prop || $has_content_requirement,
+                "Composable component '{$name}' declares neither a required prop nor a "
+                . 'content_requirement. A composition that omits its `props` key would then be '
+                . "VALID and would drift on the accordion round-trip, so '{$name}' renders empty "
+                . 'and the editor locks the accordion. Give it a required prop or a '
+                . 'content_requirement, or make it template-owned. If this is deliberate, Test 9 '
+                . 'in tests/e2e/composition-editor.spec.ts must be revisited: it assumes a '
+                . 'drifting composition is always invalid and therefore unsaveable.'
             );
 
-            $this->assertNotEmpty(
-                $required,
-                "Composable component '{$name}' declares no required prop. A composition that "
-                . 'omits its `props` key would then be VALID and would drift on the accordion '
-                . "round-trip, so '{$name}' renders empty and the editor locks the accordion. "
-                . 'Give it a required prop, or make it template-owned. If this is deliberate, '
-                . 'Test 9 in tests/e2e/composition-editor.spec.ts must be revisited: it assumes '
-                . 'a drifting composition is always invalid and therefore unsaveable.'
+            // Verify the invariant end-to-end: the bare shape must actually be
+            // rejected by the shared validator, not merely "declared" rejectable.
+            $result = pp_validate_composition([['component' => $name]]);
+            $this->assertInstanceOf(
+                \WP_Error::class,
+                $result,
+                "Bare `{\"component\": \"{$name}\"}` (no props) must be rejected by the validator."
             );
         }
     }

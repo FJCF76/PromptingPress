@@ -270,7 +270,18 @@ function pp_ai_condense_schema(array $schema): string {
         }
     }
 
-    return implode(', ', $parts);
+    $condensed = implode(', ', $parts);
+
+    // Content requirement (#488): when a component makes every prop optional but
+    // still requires SOME content (section, since body became optional), the
+    // per-prop `?` markers alone would tell the AI a fully-empty component is
+    // valid. Surface the schema-level content_requirement so the condensed
+    // catalog stays coherent with the write-time validator and composition.md.
+    if (!empty($schema['content_requirement']['any_of']) && is_array($schema['content_requirement']['any_of'])) {
+        $condensed .= ' [needs one of: ' . implode(', ', $schema['content_requirement']['any_of']) . ']';
+    }
+
+    return $condensed;
 }
 
 /**

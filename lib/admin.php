@@ -440,6 +440,59 @@ function pp_validate_composition_errors(array $items): array {
             }
         }
 
+        // Content requirement (issue 488). A component MAY declare a schema-level
+        // `content_requirement.any_of`: the write is rejected unless AT LEAST ONE
+        // listed content source is present-and-non-empty. This replaces a blunt
+        // `body.required` on section so a body_items-only "trust strip" or a
+        // panel-only band is authorable through the same write path, while a
+        // fully-empty section is still rejected honestly. Generic + schema-driven
+        // (the same shape as the issue 379/380/475 rules below — no per-component
+        // branch, no second validator); restore_composition (#233) reports it via
+        // _pp_composition_findings() but never blocks on it, same as every rule here.
+        //
+        // "Present-and-non-empty" is deliberately LOOSE (trimmed non-empty string,
+        // or non-empty array): it answers "did the author put content here?", not
+        // "is this prop well-typed?". A malformed-but-present content prop (e.g. a
+        // non-array body_items) therefore SATISFIES the content gate and falls
+        // through to its dedicated type check below, so the precise error wins
+        // rather than being masked by a generic "no content" message.
+        if (!empty($schema['content_requirement']['any_of'])
+            && is_array($schema['content_requirement']['any_of'])
+        ) {
+            $content_props = (isset($item['props']) && is_array($item['props'])) ? $item['props'] : [];
+            $has_content   = false;
+            foreach ($schema['content_requirement']['any_of'] as $content_prop) {
+                if (!array_key_exists($content_prop, $content_props)) {
+                    continue;
+                }
+                $value = $content_props[$content_prop];
+                if (is_string($value)) {
+                    if (trim($value) !== '') {
+                        $has_content = true;
+                        break;
+                    }
+                } elseif (is_array($value)) {
+                    if ($value !== []) {
+                        $has_content = true;
+                        break;
+                    }
+                } elseif ($value !== null && $value !== false) {
+                    $has_content = true;
+                    break;
+                }
+            }
+            if (!$has_content) {
+                $message = isset($schema['content_requirement']['message'])
+                    ? (string) $schema['content_requirement']['message']
+                    : 'has no renderable content';
+                $errors[] = new WP_Error(
+                    'invalid_composition',
+                    sprintf('Component "%s" %s.', $name, $message)
+                );
+                continue;
+            }
+        }
+
         // Reject unknown prop keys (issue 147). The action layer shallow-merges
         // caller-supplied props and writes: update_component / add_component /
         // update_composition / create_page all validate through here, so a single
