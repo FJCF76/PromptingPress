@@ -455,8 +455,10 @@ test.describe('Safe-surface rendered proof', () => {
     }
   });
 
-  // #475: section.body_items renders a centered row of short items with a
-  // CSS-generated `li + li::before` middot separator. The separator color routes
+  // #475: section.body_items renders a row of short items with a CSS-generated
+  // `li::before` middot separator (on EVERY item since #489's hanging-separator
+  // clip; the 2nd item read below is a mid-line item whose separator is visible).
+  // The separator color routes
   // through --section-separator-color (default --color-muted); on the inverted band
   // the default follows the light on-inverted text like sibling text (--color-muted
   // is remapped to --color-bg there). PHP/CSS pins prove the routing declarations;
@@ -482,7 +484,8 @@ test.describe('Safe-surface rendered proof', () => {
       { component: 'section', props: { id: 'pp-sec-brand', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] }, style: { '--section-body-size': '15px', '--section-body-weight': '600', '--section-separator-color': LIME } },
     ]);
 
-    // The 2nd <li> carries the `li + li::before` separator; read its ::before color.
+    // The 2nd <li> is a mid-line item; its ::before separator is visible (not
+    // clipped). Read its ::before color.
     const sepColor = (id: string) =>
       page.locator(`#${id} .section__inline-item`).nth(1).evaluate((el) => getComputedStyle(el, '::before').color);
     const itemColor = (id: string) =>
@@ -565,6 +568,142 @@ test.describe('Safe-surface rendered proof', () => {
     await page.goto(`/?page_id=${pageId}`);
     await expect(page.locator('#pp-sec-wrap .section__inline-item')).toHaveCount(6, { timeout: 10000 });
     expect(await lineCount()).toBeGreaterThan(1); // wraps to multiple centered rows at mobile
+  });
+
+  // #489: before this fix the separator was a `li + li::before` glyph, so a
+  // wrapped line whose leading item was not the row's first item still painted a
+  // middot — a stray "·" dangling in the left margin at the start of every wrapped
+  // line (the live prod mobile-homepage defect). The fix is a hanging-separator
+  // clip: the separator is on EVERY item's `::before`, each item is pulled left by
+  // exactly the separator's occupied width, and the row `overflow: hidden` clips
+  // whatever lands left of its content box. So on the FIRST item of every visual
+  // line — the row's first item AND the first item of each wrapped line — the
+  // separator falls entirely outside the box and is never painted; the item text
+  // lands exactly at the content edge. A mid-line item keeps its visible "·".
+  //
+  // Computed-style alone can't prove a glyph isn't painted, so this asserts the
+  // GEOMETRY that makes the clip exact and total: (1) the per-item left pull equals
+  // the `::before`'s occupied width (box width + right margin) to the pixel, so the
+  // separator lands exactly at the content edge and no item text is clipped; (2)
+  // every line-leading item's border box hangs left of the ul content box by that
+  // pull, i.e. its separator sits wholly inside the clipped region; (3) the row is
+  // overflow:hidden. Verified at 320/375/768 with a fixture that actually wraps to
+  // multiple lines at mobile. Screenshots of the stressed wrapped state are captured
+  // as CI artifacts. The single-line case stays block-centered (checked separately).
+  test('#489 body_items separator never dangles at the start of a wrapped line @smoke', async ({
+    page,
+  }, testInfo) => {
+    pageId = createPage('E2E Section Inline Items Clip');
+    setComposition(pageId, [
+      // A strip long enough to wrap to 2-3 lines at mobile widths. body is present
+      // (a body_items-only band is a separate concern, #488) so this exercises only
+      // the separator clip.
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec-clip',
+          body: '<p>Body.</p>',
+          body_items: [
+            'Recuperación incluida',
+            'Copias diarias',
+            'Sin permanencia',
+            'Soporte en español',
+            '99,9% de disponibilidad',
+          ],
+        },
+      },
+      // A short strip that fits one line even at 320 — proves the non-wrapping row
+      // is still centered as a block (the common desktop trust-strip look).
+      {
+        component: 'section',
+        props: { id: 'pp-sec-oneline', body: '<p>Body.</p>', body_items: ['Rápido', 'Seguro', 'Fiable'] },
+      },
+    ]);
+
+    // Geometry of one row: computed pull, the ::before's occupied width, the ul's
+    // content-left, and each item's border-box left grouped into visual lines.
+    // NB: the section id is on the <section>; the row is the descendant
+    // <ul class="section__inline-items">. Target the ul, not the section.
+    const geom = (rowId: string) =>
+      page.locator(`#${rowId} .section__inline-items`).evaluate((ul: HTMLElement) => {
+        const cs = getComputedStyle(ul);
+        const first = ul.querySelector('li') as HTMLElement;
+        const before = getComputedStyle(first, '::before');
+        const items = Array.from(ul.querySelectorAll('li')) as HTMLElement[];
+        const ulRect = ul.getBoundingClientRect();
+        return {
+          overflow: cs.overflowX,
+          pull: parseFloat(getComputedStyle(first).marginLeft), // negative
+          beWidth: parseFloat(before.width),
+          beMarginRight: parseFloat(before.marginRight),
+          ulContentLeft: ulRect.left + parseFloat(cs.paddingLeft),
+          ulCenter: (ulRect.left + ulRect.right) / 2,
+          parentCenter: (() => {
+            const p = ul.parentElement as HTMLElement;
+            const pr = p.getBoundingClientRect();
+            const pcs = getComputedStyle(p);
+            return (pr.left + parseFloat(pcs.paddingLeft) + pr.right - parseFloat(pcs.paddingRight)) / 2;
+          })(),
+          rows: items.map((li) => {
+            const r = li.getBoundingClientRect();
+            return { left: r.left, top: Math.round(r.top) };
+          }),
+        };
+      });
+
+    for (const width of [768, 375, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('#pp-sec-clip .section__inline-item')).toHaveCount(5, { timeout: 10000 });
+
+      const g = await geom('pp-sec-clip');
+
+      // (3) the clip surface is active.
+      expect(g.overflow).toBe('hidden');
+
+      // (1) the pull equals the separator's occupied width to the pixel: the
+      // separator lands exactly at the content edge — no dangling sliver, no clipped
+      // item text.
+      const occupied = g.beWidth + g.beMarginRight;
+      expect(g.pull).toBeLessThan(0);
+      expect(Math.abs(-g.pull - occupied)).toBeLessThanOrEqual(0.5);
+
+      // (2) group items into visual lines by rounded top; the leading item of EVERY
+      // line hangs left of the ul content box by exactly the pull (its ::before is
+      // inside the clipped region), while non-leading items sit at/right of the
+      // content edge (their ::before is painted between two items).
+      const byTop = new Map<number, { left: number }[]>();
+      for (const it of g.rows) {
+        const arr = byTop.get(it.top) ?? [];
+        arr.push(it);
+        byTop.set(it.top, arr);
+      }
+      for (const [, lineItems] of byTop) {
+        const leader = lineItems.reduce((a, b) => (a.left < b.left ? a : b));
+        // leader hangs into the clip zone: left ≈ ulContentLeft - |pull|
+        expect(Math.abs(leader.left - (g.ulContentLeft + g.pull))).toBeLessThanOrEqual(1.5);
+        // every other item on the line starts at/after the content edge (separator visible)
+        for (const it of lineItems) {
+          if (it === leader) continue;
+          expect(it.left).toBeGreaterThan(g.ulContentLeft - 0.5);
+        }
+      }
+
+      // At mobile the strip must actually wrap — otherwise this test never exercises
+      // the leading-separator edge it exists to guard.
+      if (width <= 375) {
+        expect(byTop.size).toBeGreaterThan(1);
+      }
+
+      // The short strip fits one line and stays centered as a block.
+      const one = await geom('pp-sec-oneline');
+      expect(Math.abs(one.ulCenter - one.parentCenter)).toBeLessThanOrEqual(1.5);
+
+      await testInfo.attach(`inline-clip-${width}`, {
+        body: await page.locator('#pp-sec-clip').screenshot(),
+        contentType: 'image/png',
+      });
+    }
   });
 
   // #357: grid card content alignment is authorable via the `align`-typed

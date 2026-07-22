@@ -686,7 +686,8 @@ describe('CSS lint: grid steps numeral color routes through --grid-step-text-col
 });
 
 describe('CSS lint: inline-items separator color routes through --section-separator-color (#475)', () => {
-    // The body_items middot separator is a `li + li::before` pseudo-element whose
+    // The body_items middot separator is a `li::before` pseudo-element (on EVERY
+    // item since #489's hanging-separator clip; line-leading ones are clipped) whose
     // color MUST route through the --section-separator-color slot at every
     // declaration site (the base rule + the bg-image overlay re-route), so a future
     // bare `color: var(--color-muted)` cannot silently re-kill the slot. The base
@@ -701,7 +702,7 @@ describe('CSS lint: inline-items separator color routes through --section-separa
         let m;
         while ((m = ruleRe.exec(stripped)) !== null) {
             const sel = m[1].replace(/\s+/g, ' ').trim();
-            if (/\.section__inline-items li \+ li::before$/.test(sel)) out.push({ sel, body: m[2] });
+            if (/\.section__inline-items li::before$/.test(sel)) out.push({ sel, body: m[2] });
         }
         return out;
     }
@@ -730,15 +731,15 @@ describe('CSS lint: inline-items separator color routes through --section-separa
             const rr = /([^{}]+)\{([^{}]*)\}/g;
             let mm; const out = [];
             while ((mm = rr.exec(fixture)) !== null) {
-                if (!/\.section__inline-items li \+ li::before\s*$/.test(mm[1].replace(/\s+/g, ' ').trim())) continue;
+                if (!/\.section__inline-items li::before\s*$/.test(mm[1].replace(/\s+/g, ' ').trim())) continue;
                 (mm[2].match(/(?<![-a-z])color\s*:[^;}]+/gi) || []).forEach((d) => {
                     if (!/color\s*:\s*var\(\s*--section-separator-color\b/.test(d.trim())) out.push(d);
                 });
             }
             return out;
         };
-        expect(scan('.section__inline-items li + li::before { color: var(--color-muted); }').length).toBe(1);
-        expect(scan('.section__inline-items li + li::before { color: var(--section-separator-color, var(--color-muted)); }').length).toBe(0);
+        expect(scan('.section__inline-items li::before { color: var(--color-muted); }').length).toBe(1);
+        expect(scan('.section__inline-items li::before { color: var(--section-separator-color, var(--color-muted)); }').length).toBe(0);
     });
 });
 
