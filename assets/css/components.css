@@ -2395,18 +2395,38 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   gap: var(--space-sm);
 }
 
-/* Issue 382 landing slot (issue 427). The social-icon row (issue 382) is NOT
-   built here, but the layout reserves its designed home: a horizontal, wrapping
-   row that will sit under the brand blurb. Issue 382 adds the markup + the
-   pp_footer_social option; this rule is the pinned slot it drops into so that
-   feature never has to retrofit footer layout. No footer markup emits
-   .site-footer__social yet — keep this until issue 382 lands. */
+/* Social-icon row (issue 382), landing in the slot reserved by issue 427: a
+   horizontal, wrapping row under the brand blurb. The row is a <ul>, so the
+   list chrome is reset here. Each icon link routes its color through the footer
+   link slot (--footer-link-color, muted fallback) exactly like the nav links,
+   so the row follows pp_footer_link_color and an unset footer is unchanged; the
+   inline SVG inherits that color via fill:currentColor. */
 .site-footer__social {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-sm);
   margin-top: var(--space-sm);
+  padding: 0;
+  list-style: none;
+}
+
+.site-footer__social-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--footer-link-color, var(--color-muted));
+  transition: color var(--transition);
+}
+
+.site-footer__social-link:hover {
+  color: var(--color-accent);
+}
+
+.site-footer__social-icon {
+  display: block;
+  width: 1.25rem;
+  height: 1.25rem;
 }
 
 .site-footer__blurb {
