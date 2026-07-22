@@ -472,6 +472,135 @@ function _pp_summarize_component(array $item, ?array $inspect_target = null): st
     return $summary;
 }
 
+// ── Adjacent Same-Background Hint (#378) ───────────────────────────────────
+
+/**
+ * Sanitizes a background value for display INSIDE the chat system prompt.
+ *
+ * Collapses internal whitespace/newlines (a stored value could carry them via
+ * snapshot restore or an out-of-band write, and a raw newline would fabricate a
+ * spurious context line) and caps length so one pathological value can't bloat
+ * the prompt. This is prompt hygiene, not a security boundary — the value is
+ * never emitted into HTML/CSS here, only into the model's own context.
+ *
+ * @param string $value  Raw style-slot value.
+ * @return string  Single-line, length-capped display string.
+ */
+function _pp_bg_annotation_value(string $value): string {
+    $clean = trim((string) preg_replace('/\s+/', ' ', $value));
+    if (mb_strlen($clean) > 40) {
+        $clean = mb_substr($clean, 0, 37) . '...';
+    }
+    return $clean;
+}
+
+/**
+ * Resolves a component's effective background to a comparison identity for the
+ * adjacency hint (#378). Uses only the inputs the chat context already serializes
+ * — the per-instance `--{component}-bg` style override and the band-level `theme`
+ * prop — with no rendering or CSS parsing (#378 is explicitly not full visual
+ * modeling, and #377 owns the human-facing fusing heuristic).
+ *
+ * Returns an identity for a band that paints a definite, non-default flat
+ * background, or null when it inherits the page/body background (so a pair is never
+ * annotated on a default match). Resolution order (first match wins):
+ *
+ *   1. Image-backed band (section/cta/stats `background_image`, or a hero `cover`
+ *      layout with `image_url`) -> null. The visible band is the image, not a flat
+ *      color; "shares background <color>" would be a false fusing hint. Checked
+ *      first so an image beats a co-set `--*-bg` slot unambiguously.
+ *   2. Per-instance `--{component}-bg` override -> its literal value (what actually
+ *      paints among flat backgrounds). A `transparent` or empty override reveals the
+ *      inherited background, so it resolves to null like the default.
+ *   3. `theme` prop bucket, component-independent so section vs grid compare equal:
+ *      `inverted` -> the dark inverted band; `muted` (and its deprecated `dark`
+ *      alias, #442, which renders the SAME light `--dark` surface) -> muted surface.
+ *   4. Otherwise (default/absent/unknown theme) -> null (inherited body background).
+ *
+ * @param array $item  One composition item (defensively typed).
+ * @return array{id:string,label:string}|null  Identity + display label, or null.
+ */
+function _pp_resolve_component_bg(array $item): ?array {
+    $name  = is_string($item['component'] ?? null) ? $item['component'] : '';
+    $props = is_array($item['props'] ?? null) ? $item['props'] : [];
+    $style = is_array($item['style'] ?? null) ? $item['style'] : [];
+
+    // 1. Image-backed bands are not flat-color bands.
+    $bg_image = $props['background_image'] ?? '';
+    $is_hero_cover = $name === 'hero'
+        && ($props['layout'] ?? '') === 'cover'
+        && is_string($props['image_url'] ?? null)
+        && trim($props['image_url']) !== '';
+    if ((is_string($bg_image) && trim($bg_image) !== '') || $is_hero_cover) {
+        return null;
+    }
+
+    // 2. Per-instance background override wins among flat backgrounds.
+    $override = $style["--{$name}-bg"] ?? null;
+    if (is_string($override)) {
+        $val = trim($override);
+        if ($val !== '' && strtolower($val) !== 'transparent') {
+            // Whitespace-normalize the id so two equal gradients compare equal.
+            $norm = strtolower((string) preg_replace('/\s+/', ' ', $val));
+            return ['id' => "bg:{$norm}", 'label' => _pp_bg_annotation_value($val)];
+        }
+    }
+
+    // 3. Theme bucket.
+    $theme = is_string($props['theme'] ?? null) ? $props['theme'] : '';
+    if ($theme === 'inverted') {
+        return ['id' => 'theme:inverted', 'label' => 'the inverted theme (dark band)'];
+    }
+    // #442: `dark` is a deprecated alias of `muted`; both render the same light band.
+    // The accepted alias set here mirrors pp_theme_class() in lib/helpers.php (which
+    // collapses muted/dark to the same `--dark` class) — if that alias set ever
+    // changes (alias removed, new theme added), update both sites in lockstep.
+    if ($theme === 'muted' || $theme === 'dark') {
+        return ['id' => 'theme:muted', 'label' => 'the muted theme (light surface band)'];
+    }
+
+    // 4. Default / inherited body background.
+    return null;
+}
+
+/**
+ * Builds the adjacency-hint lines for a page composition (#378): one line per
+ * consecutive component pair whose resolved backgrounds are the same non-default
+ * value, so the chat AI gets the "two touching same-color bands" relationship as a
+ * structural fact instead of inference. Vocabulary tracks the #377 band-fusing
+ * heuristic in ai-instructions/style-component.md ("facing paddings/margins").
+ *
+ * @param array $composition  Ordered composition items.
+ * @return string[]  Annotation lines (no leading indent/newline), empty when none.
+ */
+function _pp_adjacent_background_annotations(array $composition): array {
+    $lines = [];
+    $count = count($composition);
+    for ($i = 0; $i < $count - 1; $i++) {
+        $a = is_array($composition[$i] ?? null) ? $composition[$i] : null;
+        $b = is_array($composition[$i + 1] ?? null) ? $composition[$i + 1] : null;
+        if ($a === null || $b === null) {
+            continue;
+        }
+        $bg_a = _pp_resolve_component_bg($a);
+        $bg_b = _pp_resolve_component_bg($b);
+        if ($bg_a === null || $bg_b === null || $bg_a['id'] !== $bg_b['id']) {
+            continue;
+        }
+        $name_a = is_string($a['component'] ?? null) ? $a['component'] : 'component';
+        $name_b = is_string($b['component'] ?? null) ? $b['component'] : 'component';
+        $lines[] = sprintf(
+            '[%d] %s and [%d] %s share background %s (adjacent — facing paddings/margins control the visible seam)',
+            $i,
+            $name_a,
+            $i + 1,
+            $name_b,
+            $bg_a['label']
+        );
+    }
+    return $lines;
+}
+
 // ── Message Formatting ─────────────────────────────────────────────────────
 
 /**
@@ -511,6 +640,18 @@ function pp_ai_format_messages(string $system, array $conversation, ?int $page_i
                     $target = ($inspect_data && isset($inspect_data[$idx])) ? $inspect_data[$idx] : null;
                     $summary = _pp_summarize_component($item, $target);
                     $system_content .= "  [{$idx}] {$summary}\n";
+                }
+
+                // Adjacent same-background hint (#378): flag consecutive bands whose
+                // resolved backgrounds match so the AI treats the "two touching
+                // colored bands" case as a structural fact, not an inference (#377
+                // owns the fusing heuristic these lines point at).
+                $adjacency = _pp_adjacent_background_annotations($page_ctx['composition']);
+                if ($adjacency) {
+                    $system_content .= "Adjacent bands sharing a background (fuse candidates — zero the facing paddings/margins to close the seam):\n";
+                    foreach ($adjacency as $line) {
+                        $system_content .= "  {$line}\n";
+                    }
                 }
             }
 

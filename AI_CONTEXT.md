@@ -646,7 +646,7 @@ Assembled by `pp_ai_system_prompt()`:
 - Pre-proposal verification checklist (target correct component, confirm slot exists, confirm value is representable)
 - Response format instructions (conversational vs structured proposal)
 
-When page context is included, each component's summary shows: active recipe, overridden style slots with current values, and editable field names per component type.
+When page context is included, each component's summary shows: active recipe, overridden style slots with current values, and editable field names per component type. After the component index, an adjacency hint (#378) lists any consecutive component pair whose **resolved** background matches (per-instance `--{component}-bg` override, else the `theme` bucket — `inverted`, or `muted`/`dark` alias; image-backed and default/inherited bands are skipped), so the "two touching same-color bands" case is a structural fact instead of an inference. It points at the #377 band-fusing heuristic (zero the facing paddings/margins to close the seam); it is context-only and changes no action, prop, or validator.
 
 ### Proposal flow
 
