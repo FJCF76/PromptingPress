@@ -2005,6 +2005,165 @@ class ActionsTest extends TestCase
         $this->assertArrayNotHasKey('image_url', $comp[0]['props']);
     }
 
+    // ── #154: schema-driven image-URL prop allowlist ──────────────────────
+
+    /**
+     * The media-validated prop set is derived from the schemas, not a hardcoded
+     * array. Pins current coverage: adding a `format: image_url` prop with a NEW
+     * NAME to any schema changes this set and trips the assertion, forcing a
+     * conscious review that the new prop really should be media-validated —
+     * instead of a hand-maintained list in lib/actions.php silently drifting.
+     */
+    public function testSchemaImageUrlPropsDerivedFromSchemas(): void
+    {
+        $this->assertSame(
+            ['background_image', 'image_url'],
+            _pp_schema_image_url_props(),
+            'Derived image-URL prop set drifted. If you added a new format:image_url '
+            . 'prop NAME, update this baseline and confirm it must be media-validated.'
+        );
+    }
+
+    /**
+     * Drift-catcher (#154), forgotten-annotation axis. A prop that IS an image URL
+     * but forgets `"format": "image_url"` would silently bypass media validation.
+     * Two nets:
+     *   (a) convention pin — every prop literally named `image_url` or
+     *       `background_image`, at top level or in an items[] item schema, MUST
+     *       carry the format (a new component reusing the canonical name can't
+     *       forget it);
+     *   (b) description net — any string prop whose description reads as a media
+     *       image URL (and isn't an *_id / *_alt / link prop) MUST carry it too,
+     *       catching a differently-NAMED future image prop (avatar_url, poster_url…);
+     *   (c) *_image suffix net — a string prop whose NAME ends in `_image` is
+     *       unambiguously an image (unlike `_url`, which is shared with link
+     *       props like button_url/link_url), so it MUST carry the format too.
+     *
+     * Residual limitation (disclosed, not a regression): a novel image prop named
+     * with an ambiguous `_url` suffix AND a non-image-sounding description (e.g.
+     * "poster_url" described only as "The hero poster.") is caught by none of the
+     * three nets. It is still media-validated the moment its schema declares
+     * format:image_url — and it was equally unvalidated before #154 — so this is a
+     * limit of syntactic drift detection, not a coverage regression.
+     */
+    public function testEveryImageShapedSchemaPropDeclaresImageUrlFormat(): void
+    {
+        $canonicalNames = ['image_url', 'background_image'];
+        // A description clearly denoting a media image URL.
+        $imageDescRe = '/\bimage url\b|\bavatar image\b|\bbackground image url\b|\bphoto url\b/i';
+        // Unambiguous image-name suffix (NOT `_url`, which link props also use).
+        $imageNameRe = '/_image$/';
+        // Props that are URLs but NOT media images, or not URLs at all.
+        $excludeNameRe = '/(_id|_alt|link_url|button_url|cta\d?_url|panel_cta_url)$/';
+
+        $checked = 0;
+        foreach (pp_get_registered_components() as $component => $schema) {
+            if (!isset($schema['props']) || !is_array($schema['props'])) {
+                continue;
+            }
+            // Flatten to (name, def) pairs across top level + one items[] level.
+            $pairs = [];
+            foreach ($schema['props'] as $name => $def) {
+                $pairs[] = [$name, $def, ''];
+                if (is_array($def) && isset($def['items']) && is_array($def['items'])) {
+                    foreach ($def['items'] as $iname => $idef) {
+                        $pairs[] = [$iname, $idef, "{$name}[]."];
+                    }
+                }
+            }
+            foreach ($pairs as [$name, $def, $path]) {
+                if (!is_array($def)) {
+                    continue;
+                }
+                $hasFormat = _pp_prop_def_is_image_url($def);
+                $isString  = ($def['type'] ?? null) === 'string';
+                $desc      = (string) ($def['description'] ?? '');
+                $where     = "{$component}.{$path}{$name}";
+
+                // (a) convention pin
+                if (in_array($name, $canonicalNames, true)) {
+                    $this->assertTrue($hasFormat, "{$where} is a canonical image prop but is missing \"format\": \"image_url\".");
+                    $checked++;
+                    continue;
+                }
+                // (b) description net + (c) *_image suffix net
+                if ($isString && !preg_match($excludeNameRe, $name)
+                    && (preg_match($imageDescRe, $desc) || preg_match($imageNameRe, $name))) {
+                    $this->assertTrue($hasFormat, "{$where} reads as a media image URL (name \"{$name}\", desc \"{$desc}\") but is missing \"format\": \"image_url\".");
+                    $checked++;
+                }
+            }
+        }
+        // Guard the guard: if the enumeration ever finds nothing, the test would
+        // pass vacuously. We know there are 8 image-URL props today.
+        $this->assertGreaterThanOrEqual(8, $checked, 'Image-prop enumeration found too few props — the drift-catcher is not actually running.');
+    }
+
+    /**
+     * Depth guard (#154). The params walker handles image props at top level or
+     * exactly one items[] level. Pin that no schema nests a format:image_url prop
+     * deeper, so a future second-level nesting fails here loudly rather than
+     * silently bypassing validation (the walker would never reach it).
+     */
+    public function testImageUrlPropsNestNoDeeperThanOneItemsLevel(): void
+    {
+        // $itemsLevels = number of items[] array descents to reach $node.
+        // A format:image_url prop at 0 (top-level) or 1 (one items[] level) is
+        // what the params walker handles; 2+ would be silently missed.
+        $findDeep = function ($node, int $itemsLevels, string $path) use (&$findDeep): array {
+            $hits = [];
+            if (!is_array($node)) {
+                return $hits;
+            }
+            if (_pp_prop_def_is_image_url($node) && $itemsLevels > 1) {
+                $hits[] = $path;
+            }
+            if (isset($node['items']) && is_array($node['items'])) {
+                foreach ($node['items'] as $iname => $idef) {
+                    $hits = array_merge($hits, $findDeep($idef, $itemsLevels + 1, "{$path}/items/{$iname}"));
+                }
+            }
+            return $hits;
+        };
+
+        foreach (pp_get_registered_components() as $component => $schema) {
+            if (!isset($schema['props']) || !is_array($schema['props'])) {
+                continue;
+            }
+            foreach ($schema['props'] as $name => $def) {
+                $deep = $findDeep($def, 0, "{$component}/{$name}");
+                $this->assertSame([], $deep, 'Image prop nested deeper than one items[] level: ' . implode(', ', $deep) . '. Update _pp_collect_urls_from_props() to walk that depth.');
+            }
+        }
+    }
+
+    /**
+     * Parity (#154): every image-URL prop across every component — flat and
+     * nested — is still extracted after the switch from the hardcoded list.
+     */
+    public function testExtractUrlsCoversAllExistingImagePropsAcrossComponents(): void
+    {
+        $params = [
+            'composition' => [
+                ['component' => 'hero',         'props' => ['image_url' => 'https://x/hero.jpg']],
+                ['component' => 'cta',          'props' => ['background_image' => 'https://x/cta.jpg']],
+                ['component' => 'stats',        'props' => ['background_image' => 'https://x/stats.jpg']],
+                ['component' => 'section',      'props' => ['image_url' => 'https://x/sec.jpg', 'background_image' => 'https://x/sec-bg.jpg']],
+                ['component' => 'logos',        'props' => ['items' => [['image_url' => 'https://x/logo.jpg']]]],
+                ['component' => 'grid',         'props' => ['items' => [['image_url' => 'https://x/grid.jpg']]]],
+                ['component' => 'testimonials', 'props' => ['items' => [['image_url' => 'https://x/avatar.jpg']]]],
+            ],
+        ];
+        $urls = _pp_extract_urls_from_params($params);
+        sort($urls);
+        $expected = [
+            'https://x/avatar.jpg', 'https://x/cta.jpg', 'https://x/grid.jpg',
+            'https://x/hero.jpg', 'https://x/logo.jpg', 'https://x/sec-bg.jpg',
+            'https://x/sec.jpg', 'https://x/stats.jpg',
+        ];
+        $this->assertSame($expected, $urls);
+    }
+
     public function testPreviewRejectsInvalidMediaUrlIdenticallyToExecute(): void
     {
         // Regression for issue 130: a proposal preview must not show a clean
