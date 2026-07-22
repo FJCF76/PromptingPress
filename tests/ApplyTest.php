@@ -665,6 +665,213 @@ class ApplyTest extends TestCase
         $this->assertFalse(_pp_validate_length('clamp((rem), 1px, 2px)'));
     }
 
+    // ── Length validator: malformed calc()/clamp() + simple-length body (#151) ──
+    //
+    // #151, recorded decision = Option C (targeted cheap fixes: paren balance +
+    // calc top-level comma) + Option 4 (newline /s), PLUS the orchestrator scope
+    // addition: tighten the simple-length number body (one well-formed number —
+    // optional sign per #467, at most one dot, at least one digit, no whitespace
+    // before the unit). No full CSS calc()/clamp() grammar parser is built; the
+    // residual shapes below are DOCUMENTED as accepted (won't-fix). Every value
+    // the #467 signed grammar pinned above still validates unchanged.
+
+    // -- Simple-length number body: now-rejected malformed shapes ---------------
+
+    public function testLengthRejectsUnitWithNoDigit(): void
+    {
+        // ".em" has a unit but no numeric operand at all — the loose "[\d.]+"
+        // body matched a lone "." and accepted it; the tightened body requires
+        // at least one digit.
+        $this->assertFalse(_pp_validate_length('.em'));
+    }
+
+    public function testLengthRejectsMultipleDotsInBody(): void
+    {
+        // "1.2.3rem" has two dots — not a well-formed number. The old "[\d.]+"
+        // body accepted any run of digits and dots.
+        $this->assertFalse(_pp_validate_length('1.2.3rem'));
+    }
+
+    public function testLengthRejectsWhitespaceBeforeUnit(): void
+    {
+        // CSS forbids whitespace between the number and its unit; "1.2 rem" is
+        // invalid. The old "\s*" between body and unit accepted it.
+        $this->assertFalse(_pp_validate_length('1.2 rem'));
+    }
+
+    public function testLengthRejectsLoneDotUnitCombination(): void
+    {
+        // "." alone with a unit (no digits) — rejected for the same "at least one
+        // digit" reason as ".em".
+        $this->assertFalse(_pp_validate_length('.px'));
+    }
+
+    // -- Simple-length number body: valid shapes stay accepted ------------------
+
+    public function testLengthAcceptsAllUnits(): void
+    {
+        foreach (['2.5rem', '10px', '1.5em', '50%', '100vw', '3vh'] as $v) {
+            $this->assertTrue(_pp_validate_length($v), "expected $v to validate");
+        }
+    }
+
+    public function testLengthAcceptsLeadingDotSimple(): void
+    {
+        // ".5rem" (no leading zero) is a well-formed <length> and stays valid.
+        $this->assertTrue(_pp_validate_length('.5rem'));
+    }
+
+    public function testLengthAcceptsIntegerNoDot(): void
+    {
+        $this->assertTrue(_pp_validate_length('16px'));
+    }
+
+    public function testLengthAcceptsZeroWithUnit(): void
+    {
+        // "0px" (zero WITH a unit) still validates via the number body; unitless
+        // "0" is handled by the earlier explicit branch.
+        $this->assertTrue(_pp_validate_length('0px'));
+    }
+
+    // -- calc(): paren balance (Option C) --------------------------------------
+
+    public function testLengthRejectsUnbalancedTrailingParen(): void
+    {
+        // "calc(1))" — the greedy outer extraction leaves a stray ")" in the
+        // body; the paren-balance check rejects it.
+        $this->assertFalse(_pp_validate_length('calc(1))'));
+    }
+
+    public function testLengthRejectsUnbalancedInnerParen(): void
+    {
+        // "calc((1rem + 2rem)" — an unmatched opening paren inside the body.
+        $this->assertFalse(_pp_validate_length('calc((1rem + 2rem)'));
+    }
+
+    public function testLengthAcceptsBalancedNestedParens(): void
+    {
+        // A genuinely balanced nested expression must still validate.
+        $this->assertTrue(_pp_validate_length('calc((100% - 2rem) / 2)'));
+    }
+
+    public function testLengthRejectsImproperlyNestedButCountBalanced(): void
+    {
+        // "calc()1,2()" -> body ")1,2(" is COUNT-balanced ("("=1, ")"=1) but a
+        // ")" precedes its "(". A substr_count-only check would pass this and let
+        // the top-level comma escape the split walker (which would hit negative
+        // depth). The proper-nesting walk rejects it (#151, adversarial finding).
+        $this->assertFalse(_pp_validate_length('calc()1,2()'));
+    }
+
+    public function testLengthRejectsCountBalancedDetachedGroups(): void
+    {
+        // "calc(1)+(2rem)" is count-balanced but structurally two separate
+        // groups, not a nested expression — rejected by the nesting walk.
+        $this->assertFalse(_pp_validate_length('calc(1)+(2rem)'));
+    }
+
+    public function testLengthRejectsLongDigitRunLinearly(): void
+    {
+        // Regression guard for the ReDoS surface an adversarial pass found in the
+        // first-cut `\d+\.?\d*` body: an all-digit run with a bad unit backtracked
+        // O(N^2). The shipped `\d+(?:\.\d*)?` body is linear, so a long input is
+        // rejected effectively instantly (this test would hang under the old body).
+        $this->assertFalse(_pp_validate_length(str_repeat('9', 50000) . 'x'));
+    }
+
+    // -- calc(): top-level comma (Option C); clamp comma form intact -----------
+
+    public function testLengthRejectsCalcWithTopLevelCommas(): void
+    {
+        // calc() never takes comma-separated arguments — "calc(1,2,3)" is
+        // malformed and is rejected.
+        $this->assertFalse(_pp_validate_length('calc(1,2,3)'));
+    }
+
+    public function testLengthRejectsCalcWithSingleComma(): void
+    {
+        // A single top-level comma inside calc() is equally malformed.
+        $this->assertFalse(_pp_validate_length('calc(1rem, 2rem)'));
+    }
+
+    public function testLengthAcceptsClampThreeArgCommaForm(): void
+    {
+        // clamp()'s legitimate 3-argument comma form is left intact — the
+        // calc-only comma rejection must not touch it.
+        $this->assertTrue(_pp_validate_length('clamp(1rem, 2vw, 3rem)'));
+    }
+
+    // -- Newline handling (Option 4, pure correctness win) ---------------------
+
+    public function testLengthAcceptsNewlineInsideCalc(): void
+    {
+        // Legal newline whitespace inside calc() must extract (via the /s
+        // modifier) and validate, not fail the greedy ".+" extraction outright.
+        $this->assertTrue(_pp_validate_length("calc(\n1rem + 2rem)"));
+    }
+
+    public function testLengthAcceptsNewlineInsideClamp(): void
+    {
+        $this->assertTrue(_pp_validate_length("clamp(1rem,\n2vw, 3rem)"));
+    }
+
+    // -- Documented accepted residuals (won't-fix; only drop to a dropped decl) --
+    //
+    // These pin the recorded decision's EXPLICIT scope boundary: bare unitless
+    // operands, doubled operators, and two-operand-no-operator are accepted as
+    // residual. If a future change tightens them, that is a deliberate scope
+    // extension — these tests make the current boundary explicit, not silent.
+
+    public function testLengthAcceptsBareUnitlessCalcResidual(): void
+    {
+        // "calc(1)" — a lone unitless number. Accepted residual (#151).
+        $this->assertTrue(_pp_validate_length('calc(1)'));
+    }
+
+    public function testLengthAcceptsBareUnitlessClampResidual(): void
+    {
+        // "clamp(1,2,3)" — unitless args, but correct clamp arity and commas.
+        // The malformation is the bare numbers, an accepted residual (#151).
+        $this->assertTrue(_pp_validate_length('clamp(1,2,3)'));
+    }
+
+    public function testLengthAcceptsDoubledOperatorResidual(): void
+    {
+        // "calc(1++2rem)" — doubled operator. Accepted residual (#151).
+        $this->assertTrue(_pp_validate_length('calc(1++2rem)'));
+    }
+
+    public function testLengthAcceptsTwoOperandNoOperatorResidual(): void
+    {
+        // "calc(1 1)" — two operands, no operator. Accepted residual (#151).
+        $this->assertTrue(_pp_validate_length('calc(1 1)'));
+    }
+
+    // -- Section 14.1 authoring-path: real surface, one malformed + one valid ---
+
+    public function testLengthAuthoringPathAcceptsValidThroughUpdateToken(): void
+    {
+        // Exercises the real authoring surface (update_design_token ->
+        // _pp_validate_token_value -> _pp_validate_length), not a raw meta write.
+        $result = pp_validate_apply(
+            'update_design_token',
+            ['token' => '--letter-spacing-heading', 'value' => '-0.02em']
+        );
+        $this->assertTrue($result);
+    }
+
+    public function testLengthAuthoringPathRejectsMalformedThroughUpdateToken(): void
+    {
+        // A malformed length (space before unit) is rejected through the same
+        // real surface with the type-specific error code.
+        $result = pp_validate_apply(
+            'update_design_token',
+            ['token' => '--letter-spacing-heading', 'value' => '1.2 rem']
+        );
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_length', $result->get_error_code());
+    }
+
     // ── Type-specific validation: font-family ───────────────────────────────
 
     public function testFontFamilyValidStack(): void

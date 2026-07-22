@@ -321,6 +321,12 @@ function _pp_check_token_reference_cycle(string $token, string $value) {
  * leading minus for negative lengths (letter-spacing/margins/text-indent go
  * negative), unitless 0, clamp() expressions, and calc() expressions.
  *
+ * The simple-length number body is a single well-formed number: at least one
+ * digit, at most one dot, optional leading minus (#467), and the unit directly
+ * attached (no whitespace). This rejects `.em` (no digit), `1.2.3rem` (multiple
+ * dots), and `1.2 rem` (space before the unit) — malformed shapes the older
+ * loose body accepted and persisted as broken CSS (#151).
+ *
  * clamp/calc use positive-pattern matching: only numeric literals, units,
  * percentage, comma, parentheses, and arithmetic operators are allowed.
  * var() references inside clamp/calc are rejected to prevent injection
@@ -330,30 +336,84 @@ function _pp_check_token_reference_cycle(string $token, string $value) {
  * digit or decimal point) — this is a correctness check, not a security
  * boundary: it rejects structurally nonsensical values like calc(px) or
  * calc((rem) + 1px) that would otherwise validate and persist as broken CSS
- * the browser silently drops (#129).
+ * the browser silently drops (#129). Three more cheap correctness checks
+ * (#151, Option C + Option 4): the extraction allows legal newline whitespace
+ * inside the body (`calc(\n1rem + 2rem)`); an unbalanced-paren body (`calc(1))`)
+ * is rejected; and a top-level comma inside calc() (`calc(1,2,3)`) is rejected
+ * while clamp()'s legitimate 3-argument comma form is left intact.
+ *
+ * Explicitly accepted as residual (documented, won't-fix — each only degrades to
+ * a browser-dropped declaration, never injection, thanks to the {};<> guard plus
+ * the char-class whitelist): bare unitless operands (`calc(1)`, `clamp(1,2,3)`),
+ * doubled operators (`calc(1++2rem)`), and two-operand-no-operator (`calc(1 1)`).
+ * A full CSS calc()/clamp() grammar parser is deliberately not built (#151).
  */
 function _pp_validate_length(string $value): bool {
     // Unitless zero.
     if ($value === '0') {
         return true;
     }
-    // Simple length: optional leading minus, number + unit. Negative lengths are
-    // valid CSS <length> (letter-spacing, margins, text-indent go negative), so the
-    // grammar accepts a single leading '-'; the injection guards and the calc/clamp
-    // positive-pattern below are unchanged. Semantically-inert cases (negative radius,
-    // padding) simply drop per CSS — this is a grammar guard, not a per-property check.
-    if (preg_match('/^-?[\d.]+\s*(rem|px|em|%|vw|vh)$/', $value)) {
+    // Simple length: optional leading minus, a single well-formed number, then a
+    // unit directly attached. Negative lengths are valid CSS <length> (letter-spacing,
+    // margins, text-indent go negative), so the grammar accepts a single leading '-'
+    // (#467); the injection guards and the calc/clamp positive-pattern below are
+    // unchanged. Semantically-inert cases (negative radius, padding) simply drop per
+    // CSS — this is a grammar guard, not a per-property check.
+    //
+    // The number body is `\d+(?:\.\d*)?|\.\d+`: at least one digit, at most one dot,
+    // and a leading-dot form (`.5rem`, `-.5rem`). This rejects malformed shapes the
+    // old loose `[\d.]+\s*` body accepted and persisted as broken CSS the browser
+    // drops (#151): a unit with no digit (`.em`), multiple dots (`1.2.3rem`), and
+    // whitespace between the number and the unit (`1.2 rem` — CSS forbids it).
+    // Unitless zero is handled above; `0` with a unit still validates via the number
+    // body. The second digit run sits behind a mandatory `.` (`(?:\.\d*)?`, never an
+    // adjacent `\d+\.?\d*`) so an all-digit input with a bad unit backtracks linearly,
+    // not quadratically — no catastrophic-backtracking surface on an uncapped value.
+    if (preg_match('/^-?(\d+(?:\.\d*)?|\.\d+)(rem|px|em|%|vw|vh)$/', $value)) {
         return true;
     }
     // clamp() or calc(): positive-pattern — only allow safe characters inside.
     // Safe: digits, dots, units (a-z), %, comma, spaces, parentheses, +, -, *, /
     // Reject anything else (including var, url, env, or any function calls).
     if (preg_match('/^(clamp|calc)\(/', $value)) {
-        // Extract contents between outer parens.
-        if (!preg_match('/^(clamp|calc)\((.+)\)$/', $value, $m)) {
+        // Extract contents between outer parens. The /s (dotall) modifier lets
+        // legal newline whitespace inside the expression (`calc(\n1rem + 2rem)`)
+        // extract instead of failing the greedy `.+` outright (#151, Option 4).
+        if (!preg_match('/^(clamp|calc)\((.+)\)$/s', $value, $m)) {
             return false;
         }
+        $fn       = strtolower($m[1]);
         $contents = $m[2];
+        // Paren nesting: verify the body's parens are PROPERLY nested — never a
+        // closing paren before its matching opener, and balanced at the end. The
+        // greedy outer extraction checks neither, so `calc(1))` leaves a stray ')'
+        // and `calc()1,2()` leaves an improperly-nested `)1,2(` (count-balanced,
+        // but a ')' precedes its '('). A count-only check (substr_count) passes the
+        // latter and would let the top-level-comma guard below be bypassed, since a
+        // leading ')' drives the split walker to negative depth and masks the comma.
+        // A single left-to-right depth walk rejects both — every non-nested body is
+        // structurally broken CSS the browser drops (#151, Option C).
+        $depth = 0;
+        $len   = strlen($contents);
+        for ($i = 0; $i < $len; $i++) {
+            if ($contents[$i] === '(') {
+                $depth++;
+            } elseif ($contents[$i] === ')' && --$depth < 0) {
+                return false;
+            }
+        }
+        if ($depth !== 0) {
+            return false;
+        }
+        // calc() takes a single arithmetic expression, never comma-separated
+        // arguments, so any top-level comma inside calc(...) is malformed
+        // (`calc(1,2,3)`) — reject it (#151, Option C). clamp()'s legitimate
+        // 3-argument comma form is left intact; its arity is not further checked
+        // (bare-number args like `clamp(1,2,3)` remain an accepted residual, per
+        // the recorded decision — they only degrade to a dropped declaration).
+        if ($fn === 'calc' && count(_pp_split_top_level_commas($contents)) > 1) {
+            return false;
+        }
         // Positive pattern: only numeric, dot, units, %, comma, whitespace, parens, arithmetic.
         // Every alphabetic sequence must be an allowed unit word exactly
         // (rem, px, em, vw, vh) — this blocks var, env, url, and any other
