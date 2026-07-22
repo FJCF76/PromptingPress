@@ -693,4 +693,240 @@ class AiContextTest extends TestCase
         $this->assertStringContainsString('not accepted', $prompt);
         $this->assertStringContainsString('100%', $prompt);
     }
+
+    // ── Adjacent Same-Background Hint (#378) ───────────────────────────────
+
+    /**
+     * Seeds a page with the given composition and returns the assembled system
+     * message (the chat page context) for adjacency-hint assertions.
+     */
+    private function pageContextFor(int $post_id, array $composition): string
+    {
+        $GLOBALS['_pp_test_store']['posts'][$post_id] = [
+            'post_type'   => 'page',
+            'post_title'  => 'Adjacency Page',
+            'post_status' => 'publish',
+        ];
+        $GLOBALS['_pp_test_store']['post_meta'][$post_id]['_pp_composition'] =
+            wp_json_encode($composition);
+
+        $messages = pp_ai_format_messages('System', [], $post_id);
+        return $messages[0]['content'];
+    }
+
+    public function testAdjacencyAnnotatedForMatchingStyleOverride(): void
+    {
+        $system = $this->pageContextFor(700, [
+            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-bg' => '#092082']],
+            ['component' => 'stats', 'props' => ['title' => 'B'], 'style' => ['--stats-bg' => '#092082']],
+        ]);
+
+        // Exact wording snapshot (guards against silent drift from the #377 vocabulary).
+        $this->assertStringContainsString(
+            '[0] section and [1] stats share background #092082 (adjacent — facing paddings/margins control the visible seam)',
+            $system
+        );
+        $this->assertStringContainsString('Adjacent bands sharing a background', $system);
+    }
+
+    public function testAdjacencyAnnotatedForMatchingThemeProp(): void
+    {
+        $system = $this->pageContextFor(701, [
+            ['component' => 'section', 'props' => ['title' => 'A', 'theme' => 'inverted']],
+            ['component' => 'cta', 'props' => ['title' => 'B', 'theme' => 'inverted']],
+        ]);
+
+        $this->assertStringContainsString(
+            '[0] section and [1] cta share background the inverted theme (dark band) (adjacent — facing paddings/margins control the visible seam)',
+            $system
+        );
+    }
+
+    public function testAdjacencyAnnotatedForMutedDarkAlias(): void
+    {
+        // #442: `dark` is a deprecated alias of `muted`; both render the same light
+        // band, so a muted/dark pair must be treated as sharing a background.
+        $system = $this->pageContextFor(702, [
+            ['component' => 'grid', 'props' => ['title' => 'A', 'theme' => 'muted']],
+            ['component' => 'section', 'props' => ['title' => 'B', 'theme' => 'dark']],
+        ]);
+
+        $this->assertStringContainsString(
+            '[0] grid and [1] section share background the muted theme (light surface band) (adjacent — facing paddings/margins control the visible seam)',
+            $system
+        );
+    }
+
+    public function testAdjacencyNotAnnotatedForDifferingBackgrounds(): void
+    {
+        $system = $this->pageContextFor(703, [
+            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-bg' => '#092082']],
+            ['component' => 'stats', 'props' => ['title' => 'B'], 'style' => ['--stats-bg' => '#ffffff']],
+        ]);
+
+        $this->assertStringNotContainsString('Adjacent bands sharing a background', $system);
+        $this->assertStringNotContainsString('share background', $system);
+    }
+
+    public function testAdjacencyNotAnnotatedForDefaultBackgrounds(): void
+    {
+        // Neither band sets an override or a non-default theme -> both inherit the
+        // body background -> the pair is never annotated (issue skip rule).
+        $system = $this->pageContextFor(704, [
+            ['component' => 'section', 'props' => ['title' => 'A']],
+            ['component' => 'stats', 'props' => ['title' => 'B']],
+        ]);
+
+        $this->assertStringNotContainsString('Adjacent bands sharing a background', $system);
+        $this->assertStringNotContainsString('share background', $system);
+    }
+
+    public function testAdjacencyNotAnnotatedForSingleComponent(): void
+    {
+        $system = $this->pageContextFor(705, [
+            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-bg' => '#092082']],
+        ]);
+
+        $this->assertStringNotContainsString('Adjacent bands sharing a background', $system);
+        $this->assertStringNotContainsString('share background', $system);
+    }
+
+    public function testAdjacencyNotAnnotatedWhenImageBackedEvenWithMatchingBg(): void
+    {
+        // A background_image makes the visible band the image, not the flat color,
+        // so a co-set --*-bg slot must NOT produce a fusing hint.
+        $system = $this->pageContextFor(706, [
+            ['component' => 'section', 'props' => ['title' => 'A', 'background_image' => 'https://ex.test/a.jpg'], 'style' => ['--section-bg' => '#092082']],
+            ['component' => 'stats', 'props' => ['title' => 'B'], 'style' => ['--stats-bg' => '#092082']],
+        ]);
+
+        $this->assertStringNotContainsString('share background', $system);
+    }
+
+    public function testAdjacencyTransparentOverrideTreatedAsDefault(): void
+    {
+        // `transparent` reveals the inherited background, so two transparent bands
+        // resolve to null and are not annotated.
+        $system = $this->pageContextFor(707, [
+            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-bg' => 'transparent']],
+            ['component' => 'stats', 'props' => ['title' => 'B'], 'style' => ['--stats-bg' => 'transparent']],
+        ]);
+
+        $this->assertStringNotContainsString('share background', $system);
+    }
+
+    public function testAdjacencyOnlyMiddlePairAnnotatedInThreeBandRun(): void
+    {
+        // [0] default, [1] and [2] share #092082 -> only the [1]/[2] pair annotated.
+        $system = $this->pageContextFor(708, [
+            ['component' => 'hero', 'props' => ['title' => 'A']],
+            ['component' => 'section', 'props' => ['title' => 'B'], 'style' => ['--section-bg' => '#092082']],
+            ['component' => 'cta', 'props' => ['title' => 'C'], 'style' => ['--cta-bg' => '#092082']],
+        ]);
+
+        $this->assertStringContainsString(
+            '[1] section and [2] cta share background #092082 (adjacent — facing paddings/margins control the visible seam)',
+            $system
+        );
+        $this->assertStringNotContainsString('[0] hero', $this->onlyAdjacencyLines($system));
+    }
+
+    public function testAdjacencyMatchesGradientOverrideIgnoringWhitespaceRunsAndCase(): void
+    {
+        // Same gradient differing only in whitespace RUNS (double vs single space) and
+        // hex case must resolve to the same identity. (Punctuation-level CSS equivalence
+        // like ", " vs "," is intentionally NOT normalized — that would require rendered
+        // -CSS parsing, which #378 puts out of scope; this stays a cheap string hint.)
+        $system = $this->pageContextFor(709, [
+            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-bg' => 'linear-gradient(90deg,  #AA0000,  #00BB00)']],
+            ['component' => 'stats', 'props' => ['title' => 'B'], 'style' => ['--stats-bg' => 'linear-gradient(90deg, #aa0000, #00bb00)']],
+        ]);
+
+        $this->assertStringContainsString('share background', $this->onlyAdjacencyLines($system));
+        // Label preserves the first band's raw form with whitespace runs collapsed and case intact.
+        $this->assertStringContainsString('linear-gradient(90deg, #AA0000, #00BB00)', $system);
+    }
+
+    public function testAdjacencyOverrideBeatsThemeBucket(): void
+    {
+        // Both bands carry theme:inverted AND a matching literal override -> the
+        // override wins, so the annotation reports the literal, not the theme label.
+        $system = $this->pageContextFor(710, [
+            ['component' => 'section', 'props' => ['title' => 'A', 'theme' => 'inverted'], 'style' => ['--section-bg' => '#123456']],
+            ['component' => 'cta', 'props' => ['title' => 'B', 'theme' => 'inverted'], 'style' => ['--cta-bg' => '#123456']],
+        ]);
+
+        $this->assertStringContainsString(
+            '[0] section and [1] cta share background #123456 (adjacent — facing paddings/margins control the visible seam)',
+            $system
+        );
+        $this->assertStringNotContainsString('inverted theme', $this->onlyAdjacencyLines($system));
+    }
+
+    public function testAdjacencyLongOverrideValueIsTruncated(): void
+    {
+        $long = 'linear-gradient(180deg, #111111 0%, #222222 40%, #333333 100%)'; // > 40 chars
+        $system = $this->pageContextFor(711, [
+            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-bg' => $long]],
+            ['component' => 'stats', 'props' => ['title' => 'B'], 'style' => ['--stats-bg' => $long]],
+        ]);
+
+        // Displayed value capped at 37 chars + '...'; the full value never appears.
+        $this->assertStringContainsString(mb_substr($long, 0, 37) . '...', $system);
+        $this->assertStringNotContainsString($long . ' (adjacent', $system);
+    }
+
+    public function testAdjacencyNotAnnotatedForHeroCoverImage(): void
+    {
+        // A hero cover layout with an image_url is image-backed even with a matching
+        // --hero-bg slot -> no fusing hint.
+        $system = $this->pageContextFor(712, [
+            ['component' => 'hero', 'props' => ['title' => 'A', 'layout' => 'cover', 'image_url' => 'https://ex.test/h.jpg'], 'style' => ['--hero-bg' => '#092082']],
+            ['component' => 'section', 'props' => ['title' => 'B'], 'style' => ['--section-bg' => '#092082']],
+        ]);
+
+        $this->assertStringNotContainsString('share background', $system);
+    }
+
+    public function testAdjacencyNotAnnotatedForNonConsecutiveMatch(): void
+    {
+        // [0] and [2] match but a default band at [1] breaks the run -> no annotation.
+        $system = $this->pageContextFor(713, [
+            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-bg' => '#092082']],
+            ['component' => 'grid', 'props' => ['title' => 'B']],
+            ['component' => 'cta', 'props' => ['title' => 'C'], 'style' => ['--cta-bg' => '#092082']],
+        ]);
+
+        $this->assertStringNotContainsString('share background', $system);
+    }
+
+    public function testAdjacencyIsMalformedItemSafe(): void
+    {
+        // A component-less middle item (the realistic malformed case that still flows
+        // through the component-index loop) resolves to null via the is_string guard,
+        // so it breaks the run and never emits a spurious pair or crashes.
+        $system = $this->pageContextFor(714, [
+            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-bg' => '#092082']],
+            ['props' => ['title' => 'orphan']],
+            ['component' => 'cta', 'props' => ['title' => 'C'], 'style' => ['--cta-bg' => '#092082']],
+        ]);
+
+        $this->assertStringNotContainsString('share background', $system);
+    }
+
+    /**
+     * Extracts just the adjacency-hint lines from the system content so a negative
+     * assertion about them can't be fooled by the component index (which also
+     * contains "[0] hero").
+     */
+    private function onlyAdjacencyLines(string $system): string
+    {
+        $out = [];
+        foreach (explode("\n", $system) as $line) {
+            if (strpos($line, 'share background') !== false) {
+                $out[] = $line;
+            }
+        }
+        return implode("\n", $out);
+    }
 }
