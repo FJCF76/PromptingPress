@@ -937,7 +937,7 @@ add_action('wp_ajax_pp_save_composition', function () {
 // ── Admin Page Registration ───────────────────────────────────────────────────
 
 add_action('admin_menu', function () {
-    add_submenu_page(
+    $hook = add_submenu_page(
         null,                          // hidden — no parent menu
         'Edit Composition',
         'Edit Composition',
@@ -945,7 +945,54 @@ add_action('admin_menu', function () {
         'pp-composition',
         'pp_composition_workspace_page'
     );
+    // Redirect a stale/GC'd-post URL BEFORE the page renders (#160). The
+    // load-{hook} action fires in wp-admin/admin.php before admin-header.php
+    // emits any output, so wp_safe_redirect() works here — a redirect from the
+    // render callback below would hit "headers already sent" and silently fail.
+    if ($hook) {
+        add_action('load-' . $hook, 'pp_composition_workspace_load');
+    }
 });
+
+/**
+ * Decides where a composition-editor request should be redirected, if anywhere,
+ * BEFORE the page renders (#160). Pure so it is unit-testable: no output, no
+ * exit, no redirect side effect.
+ *
+ * Returns the Pages-list URL when the requested post is missing (e.g. an
+ * 'auto-draft' hard-deleted by WordPress's ~7-day auto-draft GC — a stale
+ * bookmark) or is not a page, so a bookmarked editor URL lands somewhere useful
+ * instead of a dead end. Returns null when the request should proceed to the
+ * normal render callback (a real page, or no post specified — the callback
+ * reports "No page specified." for the latter).
+ *
+ * @param int $post_id Requested post id (0 when absent).
+ * @return string|null Redirect URL, or null to proceed.
+ */
+function pp_composition_missing_post_redirect_url(int $post_id): ?string {
+    if (!$post_id) {
+        return null; // no post specified — the render callback handles this case
+    }
+    $post = get_post($post_id);
+    if (!$post || $post->post_type !== 'page') {
+        return admin_url('edit.php?post_type=page');
+    }
+    return null;
+}
+
+/**
+ * load-{hook} handler for the composition editor: friendly redirect for a
+ * missing/GC'd post before any output (#160). The thin, untestable glue
+ * (wp_safe_redirect + exit) around the pure decision above.
+ */
+function pp_composition_workspace_load(): void {
+    $post_id  = isset($_GET['post']) ? (int) $_GET['post'] : 0;
+    $redirect = pp_composition_missing_post_redirect_url($post_id);
+    if ($redirect !== null) {
+        wp_safe_redirect($redirect);
+        exit;
+    }
+}
 
 // Add body class for full-width CSS overrides
 add_filter('admin_body_class', function (string $classes): string {
@@ -967,6 +1014,10 @@ function pp_composition_workspace_page(): void {
     $post = get_post($post_id);
 
     if (!$post || $post->post_type !== 'page') {
+        // Unreachable in the normal flow: pp_composition_workspace_load()
+        // (load-{hook}) already redirected a missing/GC'd post to the Pages
+        // list before output (#160). Kept as a defensive net for the case the
+        // load hook never ran; a redirect here would fail (headers already sent).
         wp_die('Page not found.');
     }
 
