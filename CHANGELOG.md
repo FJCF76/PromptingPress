@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.5.11] — 2026-07-22 — the footer can now carry a social-icon row (#382)
+
+**The footer had no surface for social profile links, so the near-universal footer social-icon row was inexpressible and dogfoods had to approximate it with a plain text line. There is now a `pp_footer_social` site option: a JSON list of `{network, url}` entries from a closed set of known networks (x, linkedin, facebook, instagram, youtube, github, tiktok, mastodon), rendered under the brand blurb as accessible inline-SVG icon links whose color follows `pp_footer_link_color`. Set it with `update_site_option`; unknown networks, non-URL values, and non-http(s) schemes are rejected with the standard envelope, and an unset option leaves the footer byte-identical.**
+
+The row is theme-owned chrome, delivered through the same whitelisted site-option surface as the rest of the footer, never a composable section. Its network set is closed and each network ships a minimal single-path SVG glyph inline with the theme, so there are no arbitrary icon URLs, no icon fonts, and no external requests at render. One map (`pp_footer_social_networks()`) is the single source of truth for both which networks validate and which glyph each renders, so an accepted network can never be un-renderable and adding a network later is one additive entry. Each link carries an `aria-label` (the network name) and a decorative `aria-hidden` SVG; the href is escaped with `esc_url` and the link opens the external profile with `rel="noopener noreferrer"`. The row lands in the `.site-footer__social` slot the footer rebuild reserved, inside the brand column, and its conditional markup sits at column-zero indentation so an unset row leaks no template whitespace.
+
+### Added
+- `pp_footer_social` site option (a new `social` slot type): a JSON list of `{network, url}` from a closed network set (x, linkedin, facebook, instagram, youtube, github, tiktok, mastodon), rendered as accessible inline-SVG icon links under the footer brand blurb, color following `pp_footer_link_color`. Set/clear it through `update_site_option`; the value is validated (unknown network, non-URL, non-http(s) scheme, malformed JSON, or over-length all rejected) and canonicalized on write. Snapshot/rollback covers it like every other `pp_footer_*` option. Documented in the footer schema/README, `README.md`, `AI_CONTEXT.md`, and the `ai-instructions/` how-tos (#382).
+
+### Tests
+- PHPUnit: `FooterChromeTest` adds the whitelist type for `pp_footer_social`, the closed-network-map single-source guard, validation cases (valid set accepted and round-tripped, empty clears, unknown network / non-URL / non-http(s) / protocol-relative / malformed-JSON / object-vs-list / missing-key / over-count all rejected, external profile URL not treated as off-site), write-path canonicalization (extra keys stripped, URL trimmed), a snapshot/rollback restore case, render cases (correct hrefs, per-link `aria-label`, decorative `aria-hidden` SVG, brand-column placement, defensive skip of unknown networks, esc_url/esc_attr source contract), and a byte-identical-when-unset guard with a whitespace-artifact assertion. A Playwright E2E renders the icon row at 1280 and 375 with the right links, labels, and decorative glyphs (#382).
+
+### Docs
+- `README.md`, `AI_CONTEXT.md`, `components/footer/README.md` + `schema.json`, and `ai-instructions/website-building.md` document the `pp_footer_social` option, its closed network set, and the accessible icon-row render (#382).
+
 ## [v1.5.10] — 2026-07-22 — the footer can now carry a second menu column (e.g. a distinct Legal column) alongside the primary footer menu (#469)
 
 **The footer offered exactly one menu column, so a brand that needed a separate Legal column (Aviso legal / Privacidad / Cookies) next to its main footer links had nowhere to put it. There is now a second footer menu location, `footer_secondary`: assign a menu to it (with `assign_menu_location` or `set_menu`) and it renders as an extra footer column, with `pp_footer_secondary_label` as its optional heading. The name is generic on purpose — a "Legal" column is one use of a second footer menu, not the capability. With no menu assigned to `footer_secondary`, the footer is byte-identical to the single-menu layout.**
