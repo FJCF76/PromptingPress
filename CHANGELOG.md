@@ -4,6 +4,16 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.6.0] — 2026-07-22 — brand-fidelity release: the v1.6.0 gate is closed (#141)
+
+**This is a gate rollup marker: the seven changes of this release shipped in working versions 1.5.6–1.5.12 below, and this entry carries no new code beyond the five-file version bump and doc freshness. What 1.6.0 marks is the close of the brand-fidelity gate (#141, Part 1.95), opened by a real brand build on v1.5.3 whose spec kept hitting inexpressible defaults. The through-line: precise brand type, color, and layout intent is now reachable through the documented surfaces instead of parent-theme edits. Heading tracking is a real token — `--letter-spacing-heading`, settable to the negative values brands actually use, with the shared length validator learning the signed grammar (#467). Step badges pair fill with authorable ink via `--grid-step-text-color`, so a light badge gets dark numerals (#473). Section body text gained its missing `--section-body-size`/`--section-body-weight` slots (#470). A split hero's media can now track the headline column height with `vertical_align: stretch` — one asset balances any headline length (#477). The footer grew its second menu column (`footer_secondary` + label option) and the social-icon row (`pp_footer_social`, a closed eight-network set with bundled inline SVGs) — both byte-identical when unset (#469, #382). And the in-admin chat's page context now annotates consecutive same-background components with the band-fusing hint, the runtime half of the #377 heuristic (#378).**
+
+This release bumps the version across the five synced files from 1.5.12 to 1.6.0 and updates README.md's project-status strings. Release evidence (recorded on #141): a brand-shaped rendered page at 375 and 1280 — tracking token overriding live, lime step badges with ink numerals, a 15px/600 body strip, stretch heroes measuring content==media height at both 5-line (479px) and 2-line (353px) headlines, and the full four-area footer with secondary Legal column and social row. No behavior changed in this entry itself.
+
+### Docs
+
+- README.md's project-status section now reads v1.6.0 in the release-history range and the "What exists today" heading. readme.txt gains its `= 1.6.0 =` rollup entry.
+
 ## [v1.5.12] — 2026-07-22 — the chat now sees which touching bands share a background (#378)
 
 **The in-admin chat AI used to receive each component's styling on its own, so the common "two touching bands in the same color" case, the one where a stray gap opens a wrong-color seam between them, had to be inferred from the composition. The page context now spells it out: after the component index it lists every consecutive pair whose resolved background matches, with a pointer to zero the facing paddings/margins. The chat gets the adjacency as a fact, not a deduction, so fixing or avoiding a same-color seam is reliable instead of hit-or-miss.**
