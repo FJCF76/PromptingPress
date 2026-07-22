@@ -2,7 +2,7 @@
 Contributors: fjcf76
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 1.5.12
+Stable tag: 1.6.0
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -19,6 +19,10 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 4. Activate the theme.
 
 == Changelog ==
+
+= 1.6.0 =
+* Brand-fidelity release: heading letter-spacing token (signed lengths accepted), step-badge ink slot, section body size/weight slots, split-hero stretch alignment, footer secondary menu column and social-icon row (closed network set, inline SVG), and chat page-context adjacency hints
+* Verified by a brand-shaped rendered evidence page at mobile and desktop viewports
 
 = 1.5.0 =
 * Default-quality release: one fluid band heading scale at every viewport (no more body-size mobile headings), all nine bands on the shared symmetric rhythm with truthful slot contracts, WCAG AA links and legible panels on dark bands, an honest muted theme value (legacy dark renders identically forever), a documented inline-markup contract for supporting text, and graceful single-column degradation for image-less split heroes
