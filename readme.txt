@@ -2,7 +2,7 @@
 Contributors: fjcf76
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 1.6.6
+Stable tag: 1.7.0
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -19,6 +19,10 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 4. Activate the theme.
 
 == Changelog ==
+
+= 1.7.0 =
+* Actions/integrity hardening: snapshot rollback distinguishes absent from explicit-empty site options; the media-URL gate is schema-driven with a fail-closed floor; publish/trash/slug/SEO actions reject auto-draft phantoms (first-save promotion intact) and GC'd editor URLs redirect; the length validator rejects malformed number/paren/comma shapes with documented residuals
+* Verified by full PHP/JS/E2E suites per issue and authoring-path tests through the real action surfaces
 
 = 1.6.0 =
 * Brand-fidelity release: heading letter-spacing token (signed lengths accepted), step-badge ink slot, section body size/weight slots, split-hero stretch alignment, footer secondary menu column and social-icon row (closed network set, inline SVG), and chat page-context adjacency hints
