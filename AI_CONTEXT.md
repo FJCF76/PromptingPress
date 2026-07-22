@@ -192,7 +192,8 @@ Every visual change maps to one surface. Writing to the wrong surface creates sp
 | Site name / tagline | WordPress options | Action: `update_site_option` |
 | Favicon / app icon | WordPress `site_icon` option (Media Library attachment) | Action: `update_site_option` (key `site_icon`, an image attachment ID; core's `wp_site_icon` renders the `<link rel="icon">` tags automatically) |
 | Navigation menus | WP nav menus + `nav_menu_locations` theme mod | Actions: `set_menu` (declarative replace; each item may carry a `children` array for a one-level dropdown submenu), `create_menu`, `add_menu_item`, `assign_menu_location` |
-| Page SEO metadata | `_pp_seo_meta` post meta | Action: `update_seo_meta` (patch semantics) |
+| Page SEO metadata | `_pp_seo_meta` post meta | Action: `update_seo_meta` (patch semantics; keys `meta_description`, `seo_title`, `canonical_url`, and the per-page social-title overrides `og_title` / `twitter_title`) |
+| Open Graph / Twitter social-share meta | `pp_og_*` + `pp_twitter_card` options (site-wide) + `og_title` / `twitter_title` on `_pp_seo_meta` (per page) | Actions: `update_site_option` (keys `pp_og_image` = image attachment ID for og:image/twitter:image, `pp_og_site_name`, `pp_og_default_description` ≤320 chars, `pp_twitter_card` = `summary`\|`summary_large_image`) + `update_seo_meta` (`og_title` / `twitter_title`). Rendered as og:\*/twitter:\* tags in `wp_head`; a tag is emitted only when its resolved value is non-empty |
 | Front-end redirects | `pp_redirects` option | Actions: `create_redirect` (old path → same-site target, 301/302), `remove_redirect`, `list_redirects`. Resolves on a 404 only — pair with `update_page_slug` so a renamed page's old URL keeps working |
 | External images | Media Library | Apply: `import_media` (sideload; returns attachment id + local URL) |
 
@@ -270,12 +271,12 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_set_token_override($token, $value)` | Writes a single token override to the database. |
 | `pp_clear_token_override($token)` | Removes a single token override (reverts to default). |
 | `pp_clear_all_token_overrides()` | Removes all overrides (reverts site to shipped defaults). |
-| `pp_site_option($key)`         | Whitelisted option value (blogname, blogdescription, pp_logo_id, pp_logo_alt, site_icon, pp_footer_show_logo, pp_footer_bg, pp_footer_text, pp_footer_link_color, pp_footer_blurb, pp_footer_contact, pp_footer_copyright, pp_footer_menu_label, pp_footer_contact_label, pp_footer_secondary_label, pp_footer_note, pp_footer_logo_id, pp_footer_social, pp_header_bg, pp_header_text, pp_header_link_color) or WP_Error |
+| `pp_site_option($key)`         | Whitelisted option value (blogname, blogdescription, pp_logo_id, pp_logo_alt, site_icon, pp_footer_show_logo, pp_footer_bg, pp_footer_text, pp_footer_link_color, pp_footer_blurb, pp_footer_contact, pp_footer_copyright, pp_footer_menu_label, pp_footer_contact_label, pp_footer_secondary_label, pp_footer_note, pp_footer_logo_id, pp_footer_social, pp_header_bg, pp_header_text, pp_header_link_color, pp_og_image, pp_og_site_name, pp_og_default_description, pp_twitter_card) or WP_Error |
 | `pp_update_composition($post_id, $composition, $expected_version = null)` | Writes composition array to post meta (handles JSON serialization) and bumps the freshness marker under a per-post lock. Optional `$expected_version` (#13) does a write-time compare-and-swap: if the current version differs it returns a `composition_conflict` WP_Error and writes nothing. Null skips the CAS. Returns true\|WP_Error |
 | `pp_update_page_title($post_id, $title)` | Updates page title. Returns true\|WP_Error |
 | `pp_update_page_slug($post_id, $slug)` | Updates page slug/permalink (#134). Sanitizes via sanitize_title(); WordPress de-duplicates on collision. Returns the actual resulting slug\|WP_Error |
-| `pp_get_seo_meta($post_id)`   | Returns `{meta_description, seo_title, canonical_url}` for a page (empty strings if unset) |
-| `pp_update_seo_meta($post_id, $meta)` | Shallow-merges page-specific SEO metadata (#41). Validates canonical_url as a URL, length-caps meta_description/seo_title. Returns true\|WP_Error |
+| `pp_get_seo_meta($post_id)`   | Returns `{meta_description, seo_title, canonical_url, og_title, twitter_title}` for a page (empty strings if unset) |
+| `pp_update_seo_meta($post_id, $meta)` | Shallow-merges page-specific SEO metadata (#41, #468). Validates canonical_url as a URL, length-caps meta_description (320) and seo_title/og_title/twitter_title (200). Returns true\|WP_Error |
 | `pp_create_page($title, $status, $slug)` | Creates page with Composition template. Optional `$slug` (#134) sets the route up front. Returns post ID\|WP_Error |
 | `pp_publish_page($post_id)`    | Sets post_status to 'publish'. Returns true\|WP_Error |
 | `pp_update_site_option($key, $value)` | Updates whitelisted option. Returns true\|WP_Error |
