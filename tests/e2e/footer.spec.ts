@@ -257,16 +257,13 @@ test.describe('Footer social-icon row (issue 382)', () => {
     socialMenuId = parseInt(cli('menu create "E2E Footer 382" --porcelain'), 10);
     cli(`menu item add-custom ${socialMenuId} "Home" "#home" --porcelain`);
     cli(`menu location assign ${socialMenuId} footer`);
-    // Store the RAW JSON string exactly as pp_update_site_option would (the footer
-    // reads it back with get_option and json_decodes it). wp-cli reads the value
-    // from stdin so the quotes/brackets survive intact; do NOT pass --format=json,
-    // which would decode the JSON and store a serialized PHP array instead of the
-    // string the render path expects.
-    execSync(`npx wp-env run cli wp option update pp_footer_social`, {
-      cwd: process.cwd(),
-      input: SOCIAL_JSON,
-      encoding: 'utf-8',
-    });
+    // Store the RAW JSON string exactly as pp_update_site_option persists it (the
+    // footer reads it back with get_option and json_decodes it). Pass the JSON as a
+    // single-quoted argument (the same arg path the other footer options use) — the
+    // compact JSON has no spaces or single quotes, so single-quoting keeps its double
+    // quotes and brackets intact. Do NOT use `--format=json`, which would DECODE the
+    // JSON and store a serialized PHP array instead of the string the render expects.
+    cli(`option update pp_footer_social '${SOCIAL_JSON}'`);
     socialPageId = createPage('E2E Footer 382 Host');
   });
 
