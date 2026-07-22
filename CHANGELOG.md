@@ -4,7 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [v1.6.2] — 2026-07-22 — a colorable "trust strip" row for sections (#475)
+## [v1.6.3] — 2026-07-22 — rollback restores a never-set site option by deleting it (#291)
+
+**When a multi-step AI edit fails partway and rolls back, site options that had no value before the run are now restored to having no value, instead of being left as an empty string. An option that genuinely held an empty string before the run stays an empty string. The batch snapshot records whether each option existed, not just what it held, so a rollback puts the site back exactly as it was.**
+
+Before this, the rollback snapshot stored only an option's value, so "this option was never set" and "this option was set to an empty string" both looked identical at restore time — a single captured `''`. Today every whitelisted option reads back as `''` when unset and normalizes booleans, so the collapse was harmless in practice, but it was a latent fidelity gap: the moment a site-option surface arrives where an existing-but-empty row means something different from an absent row, a rollback would silently restore the wrong one. The snapshot now captures presence and value as a per-key `{exists, value}` pair. On rollback an absent baseline deletes the option's row, an explicit empty-string baseline writes `''`, and any other value is written back as-is. Capture stays scoped to the option whitelist (an unrelated core option is never read into the snapshot), the restore never re-runs current write-time validation on a trusted pre-run baseline (the #281/#233 rule), and the newest option types added since #281 — the social row, the Open Graph / Twitter defaults, the attachment-ID options — all flow through this one generic path. A pre-#291 value-only snapshot, should one ever be replayed, degrades to the previous behavior rather than erroring.
+
+### Fixed
+- Site-option batch rollback now distinguishes an absent baseline (restored by deleting the option) from an explicit empty-string baseline (restored as `''`), where both previously collapsed to the same empty restore (#291).
+
+### Tests
+- PHPUnit `ActionsTest`: snapshot captures `{exists:false}` for an absent whitelisted option, `{exists:true, value:''}` for an explicit empty row, and the stored value otherwise; a non-whitelisted key is recorded absent-shaped without reading (or string-casting) its value; restore deletes an absent baseline, writes `''` for an explicit-empty baseline, writes a value baseline verbatim, leaves non-whitelisted keys untouched, degrades a legacy value-only snapshot to the #281 rule, and an end-to-end batch rolls an absent `pp_footer_social` back to deleted.
+
 
 **A slim post-hero band of short items with a colored dot between them ("No credit card · Cancel anytime · 30-day guarantee") used to be inexpressible: the only route was separator characters typed into body text, and those cannot be recolored because inline `style` spans are (correctly) stripped by the sanitizer. Sections gain a `body_items` prop — a row of short plain-text items rendered as a single centered row below the body, with a CSS-generated middot separator between each. The separator is a real presentational element, so it takes a color from the new `--section-separator-color` style slot and stays silent to screen readers. The items inherit the section body type, so the same `--section-body-size`/`--section-body-weight` slots that set the body's size and weight also set the strip's, and the original brand band (15px/600 text with a lime dot) is now fully expressible with no parent-theme edits.**
 

@@ -724,8 +724,36 @@ function _pp_snapshot_batch_targets(array $steps): array {
         if ($name === 'update_site_option' && isset($params['key'])) {
             $key = (string) $params['key'];
             if (!array_key_exists($key, $site_options)) {
-                $current = pp_site_option($key);
-                $site_options[$key] = is_wp_error($current) ? '' : $current;
+                // Capture PRESENCE and VALUE separately (#291): an option that was
+                // absent (no DB row) and one that held an explicit '' both used to
+                // collapse to the same captured '' (pp_site_option => (string)
+                // get_option($key, '')), so a rollback could not tell "delete the row"
+                // from "write ''". The per-key ['exists' => bool, 'value' => string]
+                // shape keeps them distinct for _pp_restore_batch_snapshot().
+                //
+                // Capture stays WHITELIST-SCOPED, exactly as pp_site_option() gated it:
+                // only OUR options are ever read into the snapshot. A non-whitelisted
+                // key can still appear here (the snapshotter records every
+                // update_site_option step's key up front, before execute rejects an
+                // unauthorized one), so it is recorded as absent-shaped — never read.
+                // This preserves the read boundary (we never pull an unrelated core
+                // option, e.g. a secret, into the bundle) and avoids (string)-casting
+                // a non-scalar core option like active_plugins (an array). Every
+                // whitelisted option stores a scalar string, so (string) is safe here.
+                if (isset(pp_allowed_site_options()[$key])) {
+                    // Object sentinel: get_option() returns it verbatim only when the
+                    // row is absent, so identity inequality is a reliable presence test
+                    // (no real stored value can equal a fresh object).
+                    $absent = new \stdClass();
+                    $raw    = get_option($key, $absent);
+                    $exists = $raw !== $absent;
+                    $site_options[$key] = [
+                        'exists' => $exists,
+                        'value'  => $exists ? (string) $raw : '',
+                    ];
+                } else {
+                    $site_options[$key] = ['exists' => false, 'value' => ''];
+                }
             }
         }
 
@@ -985,34 +1013,49 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
         pp_update_seo_meta($post_id, $state['seo_meta']);
     }
 
-    foreach ($snapshot['site_options'] as $key => $value) {
+    foreach ($snapshot['site_options'] as $key => $baseline) {
         // Only whitelisted options are ours to touch. The batch snapshotter records
         // every update_site_option step's key up front (before execute rejects an
-        // unauthorized one), so a non-whitelisted key can appear here captured as ''
-        // (pp_site_option returns WP_Error for it). Restoring raw would delete_option()
-        // an unrelated core WP option — pp_update_site_option used to block that via its
-        // whitelist check, so the guard has to stay. Only VALUE validation is bypassed.
+        // unauthorized one), so a non-whitelisted key can appear here — recorded as
+        // absent-shaped. Restoring it would delete_option() an unrelated core WP option,
+        // so the whitelist guard stays and runs BEFORE shape normalization. Only VALUE
+        // validation is bypassed.
         if (!isset(pp_allowed_site_options()[$key])) {
             continue;
         }
+        // Normalize the captured baseline to (exists, value). Two shapes:
+        //   - current (#291): ['exists' => bool, 'value' => string], capturing
+        //     presence separately from value.
+        //   - legacy value-only string: pre-#291 snapshots stored just the value,
+        //     collapsing absent and explicit-'' to ''. The snapshot bundle is
+        //     request-scoped (built at the top of pp_ai_execute_batch, consumed in the
+        //     same request, never persisted), so a legacy-shape bundle cannot actually
+        //     reach here across a version boundary — this branch is defensive, and it
+        //     degrades to the #281 rule (empty => delete, else => write raw) rather
+        //     than erroring.
+        if (is_array($baseline)) {
+            $exists = array_key_exists('exists', $baseline) && $baseline['exists'] === true;
+            $value  = (string) ($baseline['value'] ?? '');
+        } else {
+            $value  = (string) $baseline;
+            $exists = $value !== '';
+        }
         // Restore the captured baseline faithfully, bypassing pp_update_site_option's
         // create-time validator. That validator can reject a legitimate captured
-        // baseline and silently drop the write (issue 281): an unset/empty baseline is
-        // captured as '' (pp_site_option => (string) get_option($key, '')), and ''
-        // fails the attachment_id/bool rules; likewise a once-valid value a newer rule
-        // now rejects (e.g. a pp_logo_id whose attachment was later deleted) would fail
-        // re-validation. Either case would leave the applied value in place instead of
+        // baseline and silently drop the write (issue 281): a '' fails the
+        // attachment_id/bool rules, and a once-valid value a newer rule now rejects
+        // (e.g. a pp_logo_id whose attachment was later deleted) would fail
+        // re-validation — either would leave the applied value in place instead of
         // rolling back. This is the same class as restore_composition (issue 233):
         // a restore is never blocked by current validation rules. A captured baseline
-        // is trusted pre-run state (its keys are already whitelisted — only
-        // update_site_option steps populate this map), so it restores verbatim without
-        // re-validation: an empty capture means "was unset/empty" and is restored by
-        // deleting the option (observably identical to '' via pp_site_option); every
-        // other value is written raw.
-        if ((string) $value === '') {
+        // is trusted pre-run state (its keys are already whitelisted), so it restores
+        // verbatim: an ABSENT baseline is restored by deleting the row, an EXPLICIT ''
+        // baseline is written as '' (distinct outcomes, #291), and every other value
+        // is written raw.
+        if (!$exists) {
             delete_option($key);
         } else {
-            update_option($key, (string) $value);
+            update_option($key, $value);
         }
     }
 

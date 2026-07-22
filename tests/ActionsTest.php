@@ -4027,6 +4027,230 @@ class ActionsTest extends TestCase
         );
     }
 
+    // ── issue 291: snapshot captures PRESENCE separately from VALUE ─────────────
+    // Pre-#291 the batch snapshot stored only the value, so an ABSENT option (no DB
+    // row) and one holding an explicit '' both collapsed to the same captured '' and
+    // a rollback could not tell "delete the row" from "restore ''". The per-key
+    // ['exists' => bool, 'value' => string] shape keeps them distinct.
+
+    public function testSnapshotCapturesAbsentWhitelistedOptionAsNotExists(): void
+    {
+        // pp_og_image (attachment_id) has no row before the run.
+        $this->assertArrayNotHasKey('pp_og_image', $GLOBALS['_pp_test_store']['options']);
+
+        $snapshot = _pp_snapshot_batch_targets([
+            ['type' => 'action', 'name' => 'update_site_option', 'params' => ['key' => 'pp_og_image']],
+        ]);
+
+        $this->assertSame(
+            ['exists' => false, 'value' => ''],
+            $snapshot['site_options']['pp_og_image'],
+            'an absent whitelisted option must capture exists=false'
+        );
+    }
+
+    public function testSnapshotCapturesExplicitEmptyWhitelistedOptionAsExists(): void
+    {
+        // pp_og_site_name (string) has a row holding an explicit '' before the run.
+        $GLOBALS['_pp_test_store']['options']['pp_og_site_name'] = '';
+
+        $snapshot = _pp_snapshot_batch_targets([
+            ['type' => 'action', 'name' => 'update_site_option', 'params' => ['key' => 'pp_og_site_name']],
+        ]);
+
+        $this->assertSame(
+            ['exists' => true, 'value' => ''],
+            $snapshot['site_options']['pp_og_site_name'],
+            'an explicit empty-string row must capture exists=true so it is not deleted on rollback'
+        );
+    }
+
+    public function testSnapshotCapturesWhitelistedValue(): void
+    {
+        $GLOBALS['_pp_test_store']['options']['pp_twitter_card'] = 'summary';
+
+        $snapshot = _pp_snapshot_batch_targets([
+            ['type' => 'action', 'name' => 'update_site_option', 'params' => ['key' => 'pp_twitter_card']],
+        ]);
+
+        $this->assertSame(
+            ['exists' => true, 'value' => 'summary'],
+            $snapshot['site_options']['pp_twitter_card']
+        );
+    }
+
+    public function testSnapshotDoesNotReadNonWhitelistedOptionValue(): void
+    {
+        // active_plugins is a real WP option stored as an ARRAY. The snapshotter
+        // records every update_site_option step's key up front (before execute rejects
+        // an unauthorized one), but capture stays whitelist-scoped: a non-whitelisted
+        // key is recorded absent-shaped WITHOUT reading (and (string)-casting) its
+        // value. This preserves the read boundary and avoids an "Array to string
+        // conversion" on a non-scalar core option.
+        $GLOBALS['_pp_test_store']['options']['active_plugins'] = ['akismet/akismet.php'];
+
+        $snapshot = _pp_snapshot_batch_targets([
+            ['type' => 'action', 'name' => 'update_site_option', 'params' => ['key' => 'active_plugins']],
+        ]);
+
+        $this->assertSame(
+            ['exists' => false, 'value' => ''],
+            $snapshot['site_options']['active_plugins'],
+            'a non-whitelisted key must be recorded absent-shaped, never read'
+        );
+        // The core option itself is untouched by capture.
+        $this->assertSame(['akismet/akismet.php'], $GLOBALS['_pp_test_store']['options']['active_plugins']);
+    }
+
+    public function testRestoreDeletesAbsentBaselineDistinctFromExplicitEmpty(): void
+    {
+        // An ABSENT baseline (exists=false) restores by DELETING the row, even though
+        // the value field is '' — the presence bit, not the value, decides.
+        $GLOBALS['_pp_test_store']['options']['pp_twitter_card'] = 'summary_large_image'; // stray applied value
+
+        $snapshot = [
+            'created_posts'   => [],
+            'posts'           => [],
+            'site_options'    => ['pp_twitter_card' => ['exists' => false, 'value' => '']],
+            'custom_css'      => null,
+            'token_overrides' => null,
+            'font_urls'       => null,
+            'menus'           => null,
+        ];
+
+        $errors = _pp_restore_batch_snapshot($snapshot);
+
+        $this->assertSame([], $errors);
+        $this->assertArrayNotHasKey(
+            'pp_twitter_card',
+            $GLOBALS['_pp_test_store']['options'],
+            'an absent baseline must be restored by deleting the row'
+        );
+    }
+
+    public function testRestoreWritesExplicitEmptyBaselineDistinctFromAbsent(): void
+    {
+        // An EXPLICIT '' baseline (exists=true, value='') restores by WRITING '' — the
+        // row must survive as an empty string, NOT be deleted. This is the exact case
+        // #291 exists to separate from the absent case above.
+        $GLOBALS['_pp_test_store']['options']['pp_og_site_name'] = 'Applied Co'; // stray applied value
+
+        $snapshot = [
+            'created_posts'   => [],
+            'posts'           => [],
+            'site_options'    => ['pp_og_site_name' => ['exists' => true, 'value' => '']],
+            'custom_css'      => null,
+            'token_overrides' => null,
+            'font_urls'       => null,
+            'menus'           => null,
+        ];
+
+        $errors = _pp_restore_batch_snapshot($snapshot);
+
+        $this->assertSame([], $errors);
+        $this->assertArrayHasKey(
+            'pp_og_site_name',
+            $GLOBALS['_pp_test_store']['options'],
+            'an explicit empty baseline must keep the row (write \'\'), not delete it'
+        );
+        $this->assertSame('', $GLOBALS['_pp_test_store']['options']['pp_og_site_name']);
+    }
+
+    public function testRestoreWritesValueBaselineNewShape(): void
+    {
+        // A present, non-empty baseline (attachment-ID option) restores verbatim.
+        $GLOBALS['_pp_test_store']['options']['pp_og_image'] = '99'; // stray applied value
+
+        $snapshot = [
+            'created_posts'   => [],
+            'posts'           => [],
+            'site_options'    => ['pp_og_image' => ['exists' => true, 'value' => '77']],
+            'custom_css'      => null,
+            'token_overrides' => null,
+            'font_urls'       => null,
+            'menus'           => null,
+        ];
+
+        $errors = _pp_restore_batch_snapshot($snapshot);
+
+        $this->assertSame([], $errors);
+        $this->assertSame('77', $GLOBALS['_pp_test_store']['options']['pp_og_image']);
+    }
+
+    public function testRestoreLeavesNonWhitelistedNewShapeUntouched(): void
+    {
+        // The whitelist guard runs BEFORE shape normalization, so even a new-shape
+        // baseline for a non-whitelisted key never mutates an unrelated core option.
+        $GLOBALS['_pp_test_store']['options']['active_plugins'] = 'a:1:{i:0;s:5:"x/x.php";}';
+
+        $snapshot = [
+            'created_posts'   => [],
+            'posts'           => [],
+            'site_options'    => ['active_plugins' => ['exists' => false, 'value' => '']],
+            'custom_css'      => null,
+            'token_overrides' => null,
+            'font_urls'       => null,
+            'menus'           => null,
+        ];
+
+        $errors = _pp_restore_batch_snapshot($snapshot);
+
+        $this->assertSame([], $errors);
+        $this->assertSame('a:1:{i:0;s:5:"x/x.php";}', $GLOBALS['_pp_test_store']['options']['active_plugins']);
+    }
+
+    public function testRestoreDegradesLegacyValueOnlyShape(): void
+    {
+        // Defensive back-compat: a pre-#291 value-only string baseline degrades to the
+        // #281 rule (empty => delete, non-empty => write raw). The snapshot bundle is
+        // request-scoped and never persisted, so this cannot occur in practice, but the
+        // restore path must not error on the old shape.
+        $GLOBALS['_pp_test_store']['options']['pp_twitter_card']  = 'summary';       // will be deleted (legacy '')
+        $GLOBALS['_pp_test_store']['options']['pp_og_default_description'] = 'stray'; // will be overwritten
+
+        $snapshot = [
+            'created_posts'   => [],
+            'posts'           => [],
+            'site_options'    => [
+                'pp_twitter_card'           => '',              // legacy empty => delete
+                'pp_og_default_description' => 'Prior summary', // legacy value  => write raw
+            ],
+            'custom_css'      => null,
+            'token_overrides' => null,
+            'font_urls'       => null,
+            'menus'           => null,
+        ];
+
+        $errors = _pp_restore_batch_snapshot($snapshot);
+
+        $this->assertSame([], $errors);
+        $this->assertArrayNotHasKey('pp_twitter_card', $GLOBALS['_pp_test_store']['options']);
+        $this->assertSame('Prior summary', $GLOBALS['_pp_test_store']['options']['pp_og_default_description']);
+    }
+
+    public function testBatchRestoresAbsentSocialOptionOnLaterFailure(): void
+    {
+        // End-to-end (#382 + #291): pp_footer_social (the structured 'social' list
+        // option) is absent before the run. On rollback the absent baseline deletes the
+        // row — proving the new option types added since #281 flow through the generic
+        // presence-aware snapshot/restore automatically.
+        $this->assertArrayNotHasKey('pp_footer_social', $GLOBALS['_pp_test_store']['options']);
+
+        $social = json_encode([['network' => 'github', 'url' => 'https://github.com/acme']]);
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'update_site_option', 'params' => ['key' => 'pp_footer_social', 'value' => $social]],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+        $this->assertArrayNotHasKey(
+            'pp_footer_social',
+            $GLOBALS['_pp_test_store']['options'],
+            'an absent social-option baseline must be restored by deleting the row'
+        );
+    }
+
     public function testBatchRollsBackCustomCssOnLaterFailure(): void
     {
         $GLOBALS['_pp_test_store']['custom_css'] = '.hero { color: red; }';
