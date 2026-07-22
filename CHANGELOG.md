@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.5.12] — 2026-07-22 — the chat now sees which touching bands share a background (#378)
+
+**The in-admin chat AI used to receive each component's styling on its own, so the common "two touching bands in the same color" case, the one where a stray gap opens a wrong-color seam between them, had to be inferred from the composition. The page context now spells it out: after the component index it lists every consecutive pair whose resolved background matches, with a pointer to zero the facing paddings/margins. The chat gets the adjacency as a fact, not a deduction, so fixing or avoiding a same-color seam is reliable instead of hit-or-miss.**
+
+A component's resolved background is read from the same inputs the context already carries: a per-instance `--<component>-bg` override wins, otherwise the `theme` band (`inverted`, or `muted` and its deprecated `dark` alias). Bands that inherit the default body background, and image-backed bands, are skipped so the hint only fires where two flat colors actually meet. This is the runtime companion to the v1.4.20 documentation of the band-fusing heuristic (#377); it is context-only and changes no action, prop, validator, or composition data. The match is a best-effort string comparison (whitespace runs and hex case are normalized), not a full CSS-equivalence check, so `#fff` and `#ffffff` are treated as different by design.
+
+### Added
+- Chat page context now annotates consecutive components whose resolved background matches, pointing at the facing paddings/margins that control the seam (#378).
+
+### Tests
+- 15 context-assembly tests covering style-override matches, theme-prop matches, the muted/dark alias, override-beats-theme precedence, whitespace/case normalization, and the skip cases (default, differing, image-backed, transparent, non-consecutive, single component, malformed item), plus an exact-wording snapshot.
+
 ## [v1.5.11] — 2026-07-22 — the footer can now carry a social-icon row (#382)
 
 **The footer had no surface for social profile links, so the near-universal footer social-icon row was inexpressible and dogfoods had to approximate it with a plain text line. There is now a `pp_footer_social` site option: a JSON list of `{network, url}` entries from a closed set of known networks (x, linkedin, facebook, instagram, youtube, github, tiktok, mastodon), rendered under the brand blurb as accessible inline-SVG icon links whose color follows `pp_footer_link_color`. Set it with `update_site_option`; unknown networks, non-URL values, and non-http(s) schemes are rejected with the standard envelope, and an unset option leaves the footer byte-identical.**
