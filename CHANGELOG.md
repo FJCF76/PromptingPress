@@ -4,6 +4,22 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.6.6] — 2026-07-22 — `_pp_validate_length()` rejects malformed calc()/clamp() and simple-length shapes it used to persist as broken CSS (#151)
+
+**The design-token/style-slot length validator accepted several malformed values that the browser silently drops: a unit with no digit (`.em`), a number with multiple dots (`1.2.3rem`), whitespace before the unit (`1.2 rem`), an unbalanced or improperly-nested `calc()` body (`calc(1))`, `calc()1,2()`), and comma misuse inside `calc()` (`calc(1,2,3)`). Each one validated and was written to a custom property, then the browser threw the whole declaration away — a broken style the operator or AI thought they had set. The length grammar now rejects these up front. Every well-formed length still validates unchanged: all units, signed/negative lengths (#467), leading-dot numbers, and nested `clamp()`/`calc()` expressions.**
+
+Per the recorded decision on #151 this buys the cheap, concrete correctness wins (targeted checks, Option C) plus the pure newline fix (Option 4) without building a full CSS `calc()`/`clamp()` grammar parser. The simple-length number body was tightened from the loose `[\d.]+\s*` to a single well-formed number (at least one digit, at most one dot, unit directly attached), preserving the #467 signed-length grammar exactly. The `calc()`/`clamp()` branch gained a proper left-to-right paren-nesting check (which subsumes the count-based balance check the decision named and closes a comma-guard bypass an adversarial review found), a top-level-comma rejection scoped to `calc()` (leaving `clamp()`'s legitimate 3-argument comma form intact), and the `/s` (dotall) modifier on the outer extraction so a legal newline inside the expression extracts instead of failing outright. The injection guards (`{};<>` stripping, the alpha-word-must-be-a-unit check, and the character-class whitelist) are untouched — these were never security holes, only correctness gaps that degraded to dropped CSS. A handful of contrived shapes remain accepted as documented residuals (bare unitless operands like `calc(1)`/`clamp(1,2,3)`, doubled operators `calc(1++2rem)`, two-operand-no-operator `calc(1 1)`); they too only degrade to a dropped declaration, never injection.
+
+### Fixed
+- `_pp_validate_length()` (`lib/apply.php`) now rejects malformed simple lengths (`.em`, `1.2.3rem`, `1.2 rem`), improperly-nested or unbalanced `calc()`/`clamp()` bodies (`calc(1))`, `calc()1,2()`, `calc(1)+(2rem)`), and top-level commas inside `calc()` (`calc(1,2,3)`), instead of persisting them as broken CSS the browser drops (#151).
+- The tightened simple-length number body avoids a quadratic-backtracking (ReDoS) shape a first-cut regex introduced; the shipped form is linear on long inputs (#151, adversarial review finding).
+
+### Docs
+- No AI-facing documentation changed: the accepted length grammar is unchanged (only malformed shapes are now rejected), so `ai-instructions/*` and `lib/ai-context.php` remain accurate (#151).
+
+### Tests
+- Added an accept/reject matrix in `tests/ApplyTest.php` covering every named malformed class, every documented valid shape (all units, signed values, leading-dot, nested clamp/calc), the paren-nesting bypass cases, the newline forms, the documented residuals, a linear-time regression guard, and a Section 14.1 authoring-path test through `update_design_token` with one malformed and one valid value (#151).
+
 ## [v1.6.5] — 2026-07-22 — page lifecycle actions reject unsaved auto-draft targets; stale editor URLs redirect instead of dead-ending (#160)
 
 **A page that was started with "Add New Page" but never saved is a hidden `auto-draft` — it is not in the AI's page inventory and WordPress deletes it on its own after about a week. Until now, an action that knew (or guessed) that page's post ID could still publish it, trash it, or set its slug/SEO on it, materializing a phantom page the tools said didn't exist. Publishing, trashing, and slug/SEO edits now reject an `auto-draft` target with a clear error telling the caller to save the page first. Separately, a bookmarked composition-editor URL for a page that WordPress has since garbage-collected now redirects to the Pages list instead of hitting a hard "Page not found." dead end.**
