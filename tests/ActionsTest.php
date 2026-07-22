@@ -1184,6 +1184,99 @@ class ActionsTest extends TestCase
         $this->assertSame('auto-draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
     }
 
+    // ── #160: page lifecycle actions reject unsaved auto-draft targets ──────
+    // The four actions that assume a real, materialized page reject a target
+    // still in 'auto-draft' with the standard ok:false / error_code:auto_draft
+    // envelope, authored through the real pp_execute_action() surface. The two
+    // promote-on-write actions (update_composition, update_page_title) and
+    // restore_page are deliberately NOT gated — pinned elsewhere in this file.
+
+    public function testPublishPageRejectsAutoDraftTarget(): void
+    {
+        $id = pp_create_page('', 'auto-draft');
+        $result = pp_execute_action('publish_page', ['post_id' => $id]);
+        $this->assertFalse($result['ok']);
+        $this->assertSame('auto_draft', $result['error_code']);
+        // Rejected before execute: still a hidden auto-draft, not published.
+        $this->assertSame('auto-draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    public function testTrashPageRejectsAutoDraftTarget(): void
+    {
+        $id = pp_create_page('', 'auto-draft');
+        $result = pp_execute_action('trash_page', ['post_id' => $id]);
+        $this->assertFalse($result['ok']);
+        $this->assertSame('auto_draft', $result['error_code']);
+        $this->assertSame('auto-draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    public function testUpdatePageSlugRejectsAutoDraftTarget(): void
+    {
+        $id = pp_create_page('', 'auto-draft');
+        $result = pp_execute_action('update_page_slug', ['post_id' => $id, 'slug' => 'product']);
+        $this->assertFalse($result['ok']);
+        $this->assertSame('auto_draft', $result['error_code']);
+        // Accepted side effect (#160): a slug write no longer promotes an auto-draft.
+        $this->assertSame('auto-draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    public function testUpdateSeoMetaRejectsAutoDraftTarget(): void
+    {
+        $id = pp_create_page('', 'auto-draft');
+        $result = pp_execute_action('update_seo_meta', [
+            'post_id' => $id,
+            'meta'    => ['meta_description' => 'Should not apply'],
+        ]);
+        $this->assertFalse($result['ok']);
+        $this->assertSame('auto_draft', $result['error_code']);
+        // Accepted side effect (#160): an SEO write no longer promotes an auto-draft.
+        $this->assertSame('auto-draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    public function testPublishPageAllowsRealStatusTargets(): void
+    {
+        // Normal statuses are unaffected by the auto-draft gate.
+        $draft = pp_create_page('Draft Page', 'draft');
+        $this->assertTrue(pp_execute_action('publish_page', ['post_id' => $draft])['ok']);
+        $this->assertSame('publish', $GLOBALS['_pp_test_store']['posts'][$draft]['post_status']);
+
+        $published = pp_create_page('Published Page', 'publish');
+        $this->assertTrue(pp_execute_action('publish_page', ['post_id' => $published])['ok']);
+    }
+
+    public function testTrashPageAllowsRealStatusTarget(): void
+    {
+        $id = pp_create_page('Draft Page', 'draft');
+        $result = pp_execute_action('trash_page', ['post_id' => $id]);
+        $this->assertTrue($result['ok']);
+        $this->assertSame('trash', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    public function testAutoDraftGateLeavesPromoteThenPublishLifecycleIntact(): void
+    {
+        // The #121 promote-on-write path is untouched: writing composition to a
+        // brand-new auto-draft still succeeds and promotes it to 'draft', after
+        // which publish_page (now gated) accepts it as a real page.
+        $id = pp_create_page('', 'auto-draft');
+        $write = pp_execute_action('update_composition', [
+            'post_id'     => $id,
+            'composition' => [['component' => 'hero', 'props' => ['title' => 'Hi']]],
+        ]);
+        $this->assertTrue($write['ok']);
+        $this->assertSame('draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+
+        $publish = pp_execute_action('publish_page', ['post_id' => $id]);
+        $this->assertTrue($publish['ok']);
+        $this->assertSame('publish', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    public function testRejectAutoDraftHelperIsDefensiveOnEmptyId(): void
+    {
+        // Callers run _pp_validate_page_exists() first; the guard must not treat
+        // a 0 id as an auto-draft (get_post(0) yields no post).
+        $this->assertTrue(_pp_reject_auto_draft(0));
+    }
+
     public function testPpUpdateSiteOptionRejectsUnwhitelisted(): void
     {
         $result = pp_update_site_option('admin_email', 'test@example.com');

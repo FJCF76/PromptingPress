@@ -1616,7 +1616,7 @@ pp_register_action('update_page_slug', [
     // Page metadata: needs only that the page EXISTS, not a populated composition (#358).
     'requires_composition' => false,
     'description' => 'Updates a page slug (post_name) / permalink (#134). WordPress de-duplicates the slug internally on collision (suffixing -2, -3, ...) — the result reports the actual slug that was set, which may differ from the one requested.',
-    'semantics'   => 'Replace. Slug is sanitized via sanitize_title() and, on a naming collision with another post, de-duplicated by WordPress core — never silently. The resulting slug is always reported in changes.',
+    'semantics'   => 'Replace. Slug is sanitized via sanitize_title() and, on a naming collision with another post, de-duplicated by WordPress core — never silently. The resulting slug is always reported in changes. Rejects an unsaved auto-draft target (auto_draft): save the page first.',
     'params'      => [
         'post_id' => ['type' => 'int',    'required' => true],
         'slug'    => ['type' => 'string', 'required' => true],
@@ -1625,6 +1625,10 @@ pp_register_action('update_page_slug', [
         $exists = _pp_validate_page_exists($params['post_id']);
         if (is_wp_error($exists)) {
             return $exists;
+        }
+        $not_auto_draft = _pp_reject_auto_draft($params['post_id']);
+        if (is_wp_error($not_auto_draft)) {
+            return $not_auto_draft;
         }
         if (sanitize_title($params['slug']) === '') {
             return new WP_Error('invalid_slug', 'Slug must not be empty after sanitization.');
@@ -1658,7 +1662,7 @@ pp_register_action('update_seo_meta', [
     // Page metadata: needs only that the page EXISTS, not a populated composition (#358).
     'requires_composition' => false,
     'description' => 'Sets page-specific SEO metadata: meta_description, seo_title (overrides the rendered <title> tag), canonical_url, and the per-page social-title overrides og_title and twitter_title (#468). og_title overrides the Open Graph title for this page (falls back to seo_title, then the post title); twitter_title overrides the Twitter-card title (falls back to the og_title chain). Both are optional and capped at 200 chars like seo_title. There is no per-page og_description (the page meta_description already fills og:description, falling back to the site-wide pp_og_default_description) or per-page og_image (set the site-wide pp_og_image via update_site_option). The first-class, safe-surface alternative to hand-patching theme PHP for per-page metadata (#41).',
-    'semantics'   => 'Patch. meta is shallow-merged into existing SEO metadata; unspecified keys are left unchanged. Set a key to "" to clear it. Accepted keys: meta_description, seo_title, canonical_url, og_title, twitter_title.',
+    'semantics'   => 'Patch. meta is shallow-merged into existing SEO metadata; unspecified keys are left unchanged. Set a key to "" to clear it. Accepted keys: meta_description, seo_title, canonical_url, og_title, twitter_title. Rejects an unsaved auto-draft target (auto_draft): save the page first.',
     'params'      => [
         'post_id' => ['type' => 'int',   'required' => true],
         'meta'    => ['type' => 'array', 'required' => true],
@@ -1667,6 +1671,10 @@ pp_register_action('update_seo_meta', [
         $exists = _pp_validate_page_exists($params['post_id']);
         if (is_wp_error($exists)) {
             return $exists;
+        }
+        $not_auto_draft = _pp_reject_auto_draft($params['post_id']);
+        if (is_wp_error($not_auto_draft)) {
+            return $not_auto_draft;
         }
         return _pp_validate_seo_meta($params['meta']);
     },
@@ -1859,7 +1867,7 @@ pp_register_action('publish_page', [
     // Page lifecycle: acts on post_status, needs only that the page EXISTS (#358).
     'requires_composition' => false,
     'description' => 'Publishes a page (sets post_status to publish).',
-    'semantics'   => 'Sets post_status to "publish". Idempotent on already-published pages.',
+    'semantics'   => 'Sets post_status to "publish". Idempotent on already-published pages. Rejects an unsaved auto-draft target (auto_draft): save the page first.',
     'params'      => [
         'post_id' => ['type' => 'int', 'required' => true],
     ],
@@ -1867,6 +1875,10 @@ pp_register_action('publish_page', [
         $exists = _pp_validate_page_exists($params['post_id']);
         if (is_wp_error($exists)) {
             return $exists;
+        }
+        $not_auto_draft = _pp_reject_auto_draft($params['post_id']);
+        if (is_wp_error($not_auto_draft)) {
+            return $not_auto_draft;
         }
         return true;
     },
@@ -2390,7 +2402,7 @@ pp_register_action('trash_page', [
     // unpopulatable through the operate surface (#358).
     'requires_composition' => false,
     'description' => 'Moves a page to the trash (reversible, does not permanently delete). Works on a page created empty (no composition required).',
-    'semantics'   => 'Moves post_status to "trash". Reversible via restore_page.',
+    'semantics'   => 'Moves post_status to "trash". Reversible via restore_page. Rejects an unsaved auto-draft target (auto_draft): an auto-draft is not a real page (WordPress GCs it on its own).',
     'params'      => [
         'post_id' => ['type' => 'int', 'required' => true],
     ],
@@ -2398,6 +2410,10 @@ pp_register_action('trash_page', [
         $exists = _pp_validate_page_exists($params['post_id']);
         if (is_wp_error($exists)) {
             return $exists;
+        }
+        $not_auto_draft = _pp_reject_auto_draft($params['post_id']);
+        if (is_wp_error($not_auto_draft)) {
+            return $not_auto_draft;
         }
         $post = get_post($params['post_id']);
         if ($post->post_status === 'trash') {
@@ -3048,6 +3064,45 @@ function _pp_validate_page_exists(int $post_id) {
     }
     if ($post->post_type !== 'page') {
         return new WP_Error('not_a_page', sprintf('Post %d is not a page (type: %s).', $post_id, $post->post_type));
+    }
+    return true;
+}
+
+/**
+ * Rejects a target whose post_status is still 'auto-draft' (#160).
+ *
+ * An 'auto-draft' is WordPress's hidden, ~7-day-GC'd placeholder for a page
+ * that has never had a meaningful save — pp_composition_pages() (the AI chat's
+ * "## Pages" inventory) excludes it by design, so it is NOT a "real" page an
+ * action should assume exists. This guard is called by the mutating page
+ * actions that assume a materialized page and must NOT create/promote one:
+ * publish_page, trash_page, update_page_slug, update_seo_meta.
+ *
+ * Deliberately NOT folded into _pp_validate_page_exists(): update_composition
+ * and update_page_title are the #121 promote-on-write path — a brand-new page's
+ * first editor save legitimately targets its own auto-draft and is promoted to
+ * 'draft' by pp_execute_action() after a successful write. Gating them here
+ * would break "Add New Page" (see pp_composition_workspace_page / the AJAX save
+ * handlers in lib/admin.php, and the promote pins in tests/ActionsTest.php).
+ *
+ * Callers run _pp_validate_page_exists() first, so a missing/non-page post is
+ * already rejected before this runs; this guard only distinguishes auto-draft
+ * from a real status. Defensive against a null/0 id: only rejects when an
+ * actual post is found.
+ *
+ * @param int $post_id Post ID to check.
+ * @return true|WP_Error  true if not an auto-draft, WP_Error('auto_draft') otherwise.
+ */
+function _pp_reject_auto_draft(int $post_id) {
+    $post = $post_id ? get_post($post_id) : null;
+    if ($post && $post->post_status === 'auto-draft') {
+        return new WP_Error(
+            'auto_draft',
+            sprintf(
+                'Page %d is an unsaved auto-draft, not a real page yet. Add a title or content to save it first.',
+                $post_id
+            )
+        );
     }
     return true;
 }

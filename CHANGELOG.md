@@ -4,6 +4,23 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.6.5] — 2026-07-22 — page lifecycle actions reject unsaved auto-draft targets; stale editor URLs redirect instead of dead-ending (#160)
+
+**A page that was started with "Add New Page" but never saved is a hidden `auto-draft` — it is not in the AI's page inventory and WordPress deletes it on its own after about a week. Until now, an action that knew (or guessed) that page's post ID could still publish it, trash it, or set its slug/SEO on it, materializing a phantom page the tools said didn't exist. Publishing, trashing, and slug/SEO edits now reject an `auto-draft` target with a clear error telling the caller to save the page first. Separately, a bookmarked composition-editor URL for a page that WordPress has since garbage-collected now redirects to the Pages list instead of hitting a hard "Page not found." dead end.**
+
+The status gate lands on exactly the four page actions that assume a real, materialized page and must not create one on the fly: `publish_page`, `trash_page`, `update_page_slug`, and `update_seo_meta`. Each rejects an `auto-draft` target up front with the standard `auto_draft`-coded error envelope, before any write. The two actions that legitimately operate on a brand-new page's own auto-draft — `update_composition` and `update_page_title`, the first-save path that promotes an auto-draft to a real draft — are deliberately untouched, so "Add New Page" and its first save keep working exactly as before. `restore_page` is likewise unchanged: it still restores trashed pages, and `trash` was never gated. One accepted consequence of the gate: a slug or SEO write no longer incidentally promotes an auto-draft to a draft (an undocumented, untested side effect that only ever fired if a client wrote metadata before the page had a title or content) — save the page first, then set its slug or SEO. For the stale-URL case, the redirect runs before the editor page renders, so a garbage-collected bookmark lands somewhere useful rather than dead-ending. Auto-draft cleanup itself depends on WP-Cron firing; the README now documents that so a `DISABLE_WP_CRON` or very-low-traffic install knows abandoned auto-drafts can accumulate (harmless, hidden housekeeping, mirroring WordPress core's own new-post flow).
+
+### Fixed
+- `publish_page`, `trash_page`, `update_page_slug`, and `update_seo_meta` now reject a target whose `post_status` is `auto-draft` with a clear `auto_draft` error, instead of acting on a page the AI's inventory doesn't list (#160). `update_composition` and `update_page_title` (the #121 promote-on-write first-save path) and `restore_page` (trash-gated) are unaffected.
+- A composition-editor URL for a garbage-collected or missing page now redirects to the Pages list before the page renders, instead of a hard `wp_die('Page not found.')` dead end (#160).
+
+### Docs
+- README setup notes now document that abandoned `auto-draft` cleanup relies on WP-Cron, so `DISABLE_WP_CRON` or very-low-traffic installs may accumulate hidden auto-drafts (#160).
+
+### Tests
+- PHPUnit `ActionsTest`: authoring through the real `pp_execute_action()` surface, each of the four gated actions rejects an `auto-draft` target with `ok:false` and `error_code: auto_draft`; the same actions still succeed on `draft` and `publish` targets; `update_composition` and `update_page_title` still promote an auto-draft on save (existing pins hold); `restore_page` still restores a trashed page; and `_pp_reject_auto_draft()` is defensive against a `0` id.
+- PHPUnit `AdminTest`: `pp_composition_missing_post_redirect_url()` returns the Pages-list URL for a missing/GC'd post and for a non-page post, and `null` for a real page and for an absent post id.
+
 ## [v1.6.4] — 2026-07-22 — media-URL validation allowlist is schema-driven, not hardcoded (#154)
 
 **The media-library check that stops the AI from pointing an image prop at a missing or non-image attachment (#124/#153) used to key off a hardcoded `['image_url','background_image']` array in `lib/actions.php`, kept in sync with the component schemas by hand. It now derives that prop set from the schemas themselves: each image-URL prop declares `"format": "image_url"`, and the validator walks the registered component schemas to build its list. A future component that adds a new image prop is media-validated the moment its schema declares the format, with no second allowlist to forget.**
