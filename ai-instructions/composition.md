@@ -361,7 +361,7 @@ All seven heading-bearing components accept `title_accent`: an exact, case-sensi
 
 Every `image_url` field on hero, section, and logos items has a companion `image_id` — a Media Library attachment ID, not a URL. When `image_id` resolves to a real attachment, the image renders responsively via `wp_get_attachment_image()` (real `srcset`/`sizes`, WordPress-generated). When `image_id` is unset or doesn't resolve, the plain `image_url` renders exactly as before — always set `image_url` too, even when you have an `image_id`, as the fallback.
 
-Get an attachment id (and its canonical local URL) via the `import_media` apply — sideloads an external image URL into the media library. Re-importing a source URL that was already imported reuses the existing attachment (result `action: "reused"`) instead of creating a duplicate, so retries and re-runs are safe:
+Get an attachment id (and its canonical local URL) via the `import_media` apply. Give it EITHER a remote `url` OR a server-local `file` (exactly one). Re-importing the same `url` reuses the existing attachment (result `action: "reused"`) instead of creating a duplicate, so retries and re-runs are safe:
 
 ```bash
 # Like every mutating apply, needs a run token + site-scoped preflight first.
@@ -371,6 +371,14 @@ Get an attachment id (and its canonical local URL) via the `import_media` apply 
 wp pp apply execute import_media --run-id=<uuid> --params='{"url":"https://example.com/logo.png","alt":"Client logo"}'
 # => {"attachment_id": 123, "url": "https://yoursite.com/wp-content/uploads/2026/07/logo.png", "action": "import"}
 # A second call with the same url returns the same attachment with "action": "reused".
+
+# Or import a brand-kit asset that lives on the operator machine, not a public
+# URL (logo, favicon, the 1200x630 OG card). `file` is a server-local ABSOLUTE
+# path, read by design (the operator CLI runs with admin rights). The file must
+# be a genuine image (bytes, WP filetype, and extension must agree); the source
+# is copied, so your kit file is never moved or deleted:
+wp pp apply execute import_media --run-id=<uuid> --params='{"file":"/srv/brand/webfiable-og.png","alt":"Social card"}'
+# => {"attachment_id": 124, "url": "https://yoursite.com/wp-content/uploads/2026/07/webfiable-og.png", "action": "import"}
 ```
 
 Then set both fields on the component:
