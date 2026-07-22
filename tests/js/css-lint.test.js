@@ -328,8 +328,8 @@ describe('CSS lint: style slot fallback patterns', () => {
         });
     });
 
-    test('hero/section/grid/cta schemas declare 147 style slots (subset of the total)', () => {
-        expect(allSlots.length).toBe(147);
+    test('hero/section/grid/cta schemas declare 148 style slots (subset of the total)', () => {
+        expect(allSlots.length).toBe(148);
     });
 
     allSlots.forEach(({ component, slotName }) => {
@@ -682,6 +682,63 @@ describe('CSS lint: grid steps numeral color routes through --grid-step-text-col
         };
         expect(scan('.grid--steps .pp-step-number { color: var(--color-bg); }').length).toBe(1);
         expect(scan('.grid--steps .pp-step-number { color: var(--grid-step-text-color, var(--color-bg)); }').length).toBe(0);
+    });
+});
+
+describe('CSS lint: inline-items separator color routes through --section-separator-color (#475)', () => {
+    // The body_items middot separator is a `li + li::before` pseudo-element whose
+    // color MUST route through the --section-separator-color slot at every
+    // declaration site (the base rule + the bg-image overlay re-route), so a future
+    // bare `color: var(--color-muted)` cannot silently re-kill the slot. The base
+    // default is --color-muted; the overlay default is --color-bg (that band does
+    // not remap --color-muted). Both are valid slot-routed fallbacks.
+    const stripped = stripComments(COMPONENTS_CSS);
+    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+
+    // Every innermost rule whose selector targets the separator pseudo-element.
+    function separatorRules() {
+        const out = [];
+        let m;
+        while ((m = ruleRe.exec(stripped)) !== null) {
+            const sel = m[1].replace(/\s+/g, ' ').trim();
+            if (/\.section__inline-items li \+ li::before$/.test(sel)) out.push({ sel, body: m[2] });
+        }
+        return out;
+    }
+
+    test('finds the separator rule(s) — base + overlay', () => {
+        // Base rule + the .section--has-bg-image overlay re-route = at least two.
+        expect(separatorRules().length).toBeGreaterThanOrEqual(2);
+    });
+
+    test('every separator `color` declaration routes through var(--section-separator-color …)', () => {
+        const offenders = [];
+        separatorRules().forEach(({ sel, body }) => {
+            (body.match(/(?<![-a-z])color\s*:[^;}]+/gi) || []).forEach((d) => {
+                if (!/color\s*:\s*var\(\s*--section-separator-color\b/.test(d.trim())) {
+                    offenders.push(`${sel} { ${d.trim()} }`);
+                }
+            });
+        });
+        expect(offenders).toEqual([]);
+    });
+
+    // Detection proof: a bare separator color must be CAUGHT and a slot-routed one
+    // must PASS, so a parser regression can't make the scan vacuous.
+    test('detector flags a bare separator color but passes a slot-routed one', () => {
+        const scan = (fixture) => {
+            const rr = /([^{}]+)\{([^{}]*)\}/g;
+            let mm; const out = [];
+            while ((mm = rr.exec(fixture)) !== null) {
+                if (!/\.section__inline-items li \+ li::before\s*$/.test(mm[1].replace(/\s+/g, ' ').trim())) continue;
+                (mm[2].match(/(?<![-a-z])color\s*:[^;}]+/gi) || []).forEach((d) => {
+                    if (!/color\s*:\s*var\(\s*--section-separator-color\b/.test(d.trim())) out.push(d);
+                });
+            }
+            return out;
+        };
+        expect(scan('.section__inline-items li + li::before { color: var(--color-muted); }').length).toBe(1);
+        expect(scan('.section__inline-items li + li::before { color: var(--section-separator-color, var(--color-muted)); }').length).toBe(0);
     });
 });
 

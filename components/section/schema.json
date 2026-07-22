@@ -137,6 +137,15 @@
       "required": false,
       "default": "disc",
       "description": "List marker for top-level <ul> lists in body. 'disc' (default) leaves body lists exactly as before. 'check' renders a check mark, 'dash' an en dash, 'arrow' a rightwards arrow. Applies only to lists authored as a direct child of the body (nested lists keep their disc). The marker colour is authorable via the --section-body-marker-color style slot (defaults to the site accent). Just a marker choice — not a distinct list type."
+    },
+    "body_items": {
+      "type": "array",
+      "item_type": "string",
+      "max_items": 8,
+      "item_max_length": 80,
+      "required": false,
+      "default": [],
+      "description": "Optional row of short inline text items (a 'trust strip' or meta row) rendered as a single centered flex row below the body, with a CSS-generated middot separator between each item. Each entry is a plain-text string (escaped, no HTML); at most 8 items, each at most 80 characters — a write that exceeds either bound, or carries a non-string entry, is rejected. Renders only when non-empty; when both body and body_items are set the row renders after the body. The items inherit the section body type (--section-body-size / --section-body-weight), so a 15px/600 strip needs no extra typography slots. Colour the separator with the --section-separator-color style slot (defaults to the muted text colour; light on inverted/background-image bands like sibling text). Not for multi-line content — use body or panel_items for that."
     }
   },
   "styling": {
@@ -181,7 +190,8 @@
       "--section-panel-text": { "item_eligible": true, "type": "color", "default": "var(--color-text)", "description": "text-panel layout: text color inside the content panel (heading, body, list, and paired rows) — set a light value for a dark panel. item_eligible: also settable per paired-row via panel_items[].style, where it recolours that single row to emphasise or de-emphasise it against its siblings." },
       "--section-panel-font": { "type": "font-family", "default": "inherit", "description": "text-panel layout: font family of the content panel. Defaults to inherit (the panel uses the page font, unchanged). Set to var(--font-mono) for a monospace panel (spec sheets, config/stat readouts), or any comma-separated font stack." },
       "--section-panel-marker-color": { "type": "color", "default": "var(--color-accent)", "description": "text-panel layout: marker (glyph) color of the panel list when panel_items_marker is check/dash/arrow. Mirrors grid's --grid-bullet-color. Set a light value for a check-list on a dark panel. Ignored while panel_items_marker is 'disc'." },
-      "--section-body-marker-color": { "type": "color", "default": "var(--color-accent)", "description": "Marker (glyph) color of body lists when body_marker is check/dash/arrow. Ignored while body_marker is 'disc'." }
+      "--section-body-marker-color": { "type": "color", "default": "var(--color-accent)", "description": "Marker (glyph) color of body lists when body_marker is check/dash/arrow. Ignored while body_marker is 'disc'." },
+      "--section-separator-color": { "type": "color", "default": "var(--color-muted)", "description": "Colour of the CSS-generated middot separator between body_items entries. Defaults to the muted text colour; on inverted and background-image bands it follows the light on-inverted/on-overlay text colour like sibling text unless set. Ignored when body_items is empty." }
     },
     "recipes": {
       "accent-panel": {

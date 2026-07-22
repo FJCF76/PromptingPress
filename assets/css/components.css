@@ -1100,6 +1100,47 @@
   margin-bottom: 0;
 }
 
+/* Inline-items row (issue 475): a centered single-row band of short items with a
+   CSS-generated separator between them (the "trust strip" pattern — e.g. a slim
+   post-hero band of short items with a colored middot between each). It sits in the
+   section body scope, right after .section__content, and reads the SAME #470 body
+   type slots so the items inherit the section body size/weight (the brand band's
+   15px/600). flex-wrap lets the row wrap to further centered rows at narrow widths,
+   so no mobile-specific rule is needed. Unset (no body_items) emits no markup, so
+   output stays byte-identical. */
+.section__inline-items {
+  list-style: none;
+  margin: var(--space-md) 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--space-xs) var(--space-sm);
+  text-align: center;
+  font-size: var(--section-body-size, inherit);
+  font-weight: var(--section-body-weight, inherit);
+}
+
+.section__inline-item {
+  margin: 0;
+}
+
+/* The separator is a CSS-generated middot before every item except the first, so
+   it is never a content character: it can be slot-colored and stays out of the
+   accessibility tree. The `/ ""` alternative-text empties its a11y name, and the
+   <ul role="list"> keeps list semantics intact. The glyph is FIXED (middot) in this
+   issue. Color routes through --section-separator-color, defaulting to the muted
+   role like sibling text; on the inverted band --color-muted is already remapped to
+   the light on-inverted color (.pp-section--inverted below), so the default follows
+   the sibling text there automatically — no separate inverted rule. The bg-image
+   overlay default is remapped below (mirrors the #461/#463 links/markers). */
+.section__inline-items li + li::before {
+  content: "\00b7" / "";
+  margin-right: var(--space-sm);
+  color: var(--section-separator-color, var(--color-muted));
+}
+
 /* Image variants: side-by-side grid at md+ */
 .section__grid {
   display: flex;
@@ -1333,6 +1374,16 @@
    self-contained LIGHT surface (#424), not on the overlay. */
 .section--has-bg-image .section__content {
   --pp-list-marker-color: var(--section-body-marker-color, var(--color-accent-on-overlay));
+}
+
+/* Inline-items separator on the overlay band (issue 475): unlike the inverted band,
+   .section--has-bg-image does NOT remap --color-muted, so the muted default would
+   stay dark and vanish on the dark overlay. Route the default through the light
+   on-overlay text color like sibling body text (.section--has-bg-image .section__content
+   above resolves to --color-bg); the --section-separator-color slot still wins.
+   Mirrors the inverted band's automatic --color-muted remap. */
+.section--has-bg-image .section__inline-items li + li::before {
+  color: var(--section-separator-color, var(--color-bg));
 }
 
 /* ==========================================================================

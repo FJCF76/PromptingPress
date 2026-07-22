@@ -22,6 +22,19 @@ $layout           = $props['layout']           ?? 'text-only';
 $theme            = $props['theme']            ?? 'default';
 $background_image = $props['background_image'] ?? '';
 
+// Inline-items row (issue 475): an optional centered row of short plain-text
+// items with a CSS-generated, slot-colorable separator between them. Plain
+// strings only (no HTML, esc_html at render); the write-time validator caps the
+// count/length and rejects non-strings, so here we only drop empty strings for a
+// byte-identical unset path. Renders after the body when both are set.
+$body_items = is_array($props['body_items'] ?? null) ? $props['body_items'] : [];
+$body_items = array_values(array_filter(
+    $body_items,
+    static function ($item) {
+        return is_string($item) && $item !== '';
+    }
+));
+
 // text-panel layout: right-hand content panel props (see schema.json).
 $panel_heading      = $props['panel_heading']      ?? '';
 $panel_body         = $props['panel_body']         ?? '';
@@ -129,6 +142,18 @@ if ($background_image) {
 }
 $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"' : '';
 
+// Build the inline-items row once (issue 475) and place it in each layout's body
+// scope, after .section__content. role="list" keeps list semantics while the
+// CSS-generated `li + li::before` separator stays out of the accessibility tree.
+$inline_items_html = '';
+if (!empty($body_items)) {
+    $items_markup = '';
+    foreach ($body_items as $body_item) {
+        $items_markup .= '<li class="section__inline-item">' . esc_html($body_item) . '</li>';
+    }
+    $inline_items_html = '<ul class="section__inline-items" role="list">' . $items_markup . '</ul>';
+}
+
 ?>
 <section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="section section--<?php echo esc_attr($layout); ?><?php echo esc_attr($theme_class); ?><?php echo esc_attr($bg_image_class); ?>" data-pp-component="section"<?php echo $style_attr; ?>>
     <?php if ($background_image) : ?>
@@ -155,6 +180,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                 <div class="section__content<?php echo esc_attr($content_marker_class); ?>">
                     <?php echo wp_kses_post($body); ?>
                 </div>
+                <?php echo $inline_items_html; ?>
             </div>
 
         <?php elseif ($layout === 'text-panel') : ?>
@@ -177,6 +203,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                     <div class="section__content<?php echo esc_attr($content_marker_class); ?>">
                         <?php echo wp_kses_post($body); ?>
                     </div>
+                    <?php echo $inline_items_html; ?>
                 </div>
 
                 <div class="section__panel">
@@ -245,6 +272,7 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                     <div class="section__content<?php echo esc_attr($content_marker_class); ?>">
                         <?php echo wp_kses_post($body); ?>
                     </div>
+                    <?php echo $inline_items_html; ?>
                 </div>
 
                 <?php if ($layout === 'image-right') : ?>

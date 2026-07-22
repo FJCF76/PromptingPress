@@ -455,6 +455,118 @@ test.describe('Safe-surface rendered proof', () => {
     }
   });
 
+  // #475: section.body_items renders a centered row of short items with a
+  // CSS-generated `li + li::before` middot separator. The separator color routes
+  // through --section-separator-color (default --color-muted); on the inverted band
+  // the default follows the light on-inverted text like sibling text (--color-muted
+  // is remapped to --color-bg there). PHP/CSS pins prove the routing declarations;
+  // only getComputedStyle('::before') proves the browser paints the middot the right
+  // color once the cascade applies. The items also inherit the #470 body type slots,
+  // so the brand strip (15px/600 + a lime middot) is fully expressible. Per the
+  // #86/#349 mobile-hid-it lesson, assert at 1280 AND 375.
+  test('#475 body_items separator honors --section-separator-color + inverted routing + brand type @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Section Inline Items Separator');
+    const LIME = '#84cc16'; // rgb(132, 204, 22) — the brand strip's colored middot
+    setComposition(pageId, [
+      // 0: default separator (unset slot) — muted default.
+      { component: 'section', props: { id: 'pp-sec-default', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] } },
+      // 1: explicit var(--color-muted) — must be byte-identical to the unset default.
+      { component: 'section', props: { id: 'pp-sec-explicit', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] }, style: { '--section-separator-color': 'var(--color-muted)' } },
+      // 2: overridden separator color — the slot genuinely changes the middot.
+      { component: 'section', props: { id: 'pp-sec-override', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] }, style: { '--section-separator-color': LIME } },
+      // 3: inverted band, unset separator — routes like sibling text (light).
+      { component: 'section', props: { id: 'pp-sec-inverted', theme: 'inverted', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] } },
+      // 4: the brand strip — 15px/600 body type + a lime middot.
+      { component: 'section', props: { id: 'pp-sec-brand', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] }, style: { '--section-body-size': '15px', '--section-body-weight': '600', '--section-separator-color': LIME } },
+    ]);
+
+    // The 2nd <li> carries the `li + li::before` separator; read its ::before color.
+    const sepColor = (id: string) =>
+      page.locator(`#${id} .section__inline-item`).nth(1).evaluate((el) => getComputedStyle(el, '::before').color);
+    const itemColor = (id: string) =>
+      page.locator(`#${id} .section__inline-item`).nth(1).evaluate((el) => getComputedStyle(el).color);
+    const itemType = (id: string) =>
+      page.locator(`#${id} .section__inline-item`).nth(0).evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { size: cs.fontSize, weight: cs.fontWeight };
+      });
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('.section__inline-items')).toHaveCount(5, { timeout: 10000 });
+
+      // Default separator == explicit var(--color-muted): #475 changed no default.
+      const def = await sepColor('pp-sec-default');
+      const explicit = await sepColor('pp-sec-explicit');
+      expect(def).toBe(explicit);
+
+      // The override slot genuinely repaints the middot lime, and differs from muted.
+      expect(await sepColor('pp-sec-override')).toBe('rgb(132, 204, 22)');
+      expect(await sepColor('pp-sec-override')).not.toBe(def);
+
+      // Inverted routing: the separator follows the light sibling text (both resolve
+      // through the band's remapped --color-muted → --color-bg), and it is NOT the
+      // dark default muted the light bands paint.
+      const invSep = await sepColor('pp-sec-inverted');
+      expect(invSep).toBe(await itemColor('pp-sec-inverted'));
+      expect(invSep).not.toBe(def);
+
+      // Brand strip: the items inherit the #470 body type slots (15px / 600) and the
+      // separator is lime — the full original symptom, expressible with zero new
+      // typography slots.
+      const brand = await itemType('pp-sec-brand');
+      expect(brand.size).toBe('15px');
+      expect(brand.weight).toBe('600');
+      expect(await sepColor('pp-sec-brand')).toBe('rgb(132, 204, 22)');
+    }
+  });
+
+  // #475: the row is a flex-wrap row — its responsive behavior is wrapping to
+  // additional centered rows at narrow widths, with no mobile-specific rule. Prove
+  // the SAME markup lays out on one line at 1280 and wraps to more than one line at
+  // 375 (distinct top offsets = distinct flex lines).
+  test('#475 body_items row wraps at narrow width, single row at desktop', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Section Inline Items Wrap');
+    setComposition(pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec-wrap',
+          body: '<p>Body.</p>',
+          body_items: [
+            'No credit card required',
+            'Cancel anytime',
+            'Thirty day guarantee',
+            'Priority support included',
+            'Unlimited seats',
+            'Ships worldwide',
+          ],
+        },
+      },
+    ]);
+
+    const lineCount = () =>
+      page.locator('#pp-sec-wrap .section__inline-item').evaluateAll((els) => {
+        const tops = new Set(els.map((el) => Math.round(el.getBoundingClientRect().top)));
+        return tops.size;
+      });
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('#pp-sec-wrap .section__inline-item')).toHaveCount(6, { timeout: 10000 });
+    expect(await lineCount()).toBe(1); // all six on one line at desktop
+
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('#pp-sec-wrap .section__inline-item')).toHaveCount(6, { timeout: 10000 });
+    expect(await lineCount()).toBeGreaterThan(1); // wraps to multiple centered rows at mobile
+  });
+
   // #357: grid card content alignment is authorable via the `align`-typed
   // --grid-item-text-align slot. Default `left` is byte-identical to today; `center`
   // and `right` must actually MOVE the glyphs, not merely set a declaration. The
