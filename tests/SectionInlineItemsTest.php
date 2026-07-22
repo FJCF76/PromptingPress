@@ -2,12 +2,19 @@
 /**
  * tests/SectionInlineItemsTest.php
  *
- * Section inline-items row (issue 475): section.body_items renders a centered
- * single-row band of short plain-text items with a CSS-generated, slot-colorable
- * separator between them. The renderer emits `<ul class="section__inline-items"
- * role="list">` only when body_items is non-empty, after .section__content; the
- * separator is a `li + li::before` pseudo-element (never a content character) so it
- * can be slot-colored and stays out of the accessibility tree.
+ * Section inline-items row (issue 475): section.body_items renders a band of short
+ * plain-text items with a CSS-generated, slot-colorable separator between them. The
+ * renderer emits `<ul class="section__inline-items" role="list">` only when
+ * body_items is non-empty, after .section__content; the separator is a `li::before`
+ * pseudo-element (never a content character) so it can be slot-colored and stays out
+ * of the accessibility tree.
+ *
+ * Hanging-separator clip (issue 489): the separator is on EVERY item's `::before`,
+ * each item is pulled left by exactly the separator's occupied width, and the row is
+ * overflow:hidden, so the separator that would otherwise dangle at the start of a
+ * wrapped line is clipped. The row is left-packed and centered as a block (width:
+ * fit-content + auto margins), so a single-line row still reads centered while
+ * wrapped lines pack from the left.
  *
  * Two halves: render pins (assert the emitted HTML) and CSS-content pins (PHPUnit
  * does not execute CSS, so — like SectionBodyListTest/TypographyRoleTest — we assert
@@ -142,7 +149,7 @@ class SectionInlineItemsTest extends TestCase
 
     // ── CSS pins: the row layout, the separator, and slot routing ─────────
 
-    public function testInlineItemsRowIsACenteredWrappingFlexRow(): void
+    public function testInlineItemsRowIsABlockCenteredWrappingFlexRow(): void
     {
         $this->assertMatchesRegularExpression(
             '/\.section__inline-items\s*\{[^}]*display:\s*flex/s',
@@ -154,10 +161,52 @@ class SectionInlineItemsTest extends TestCase
             $this->componentsCss,
             '.section__inline-items must wrap (the responsive default, no mobile rule).'
         );
+        // Left-packed so the hanging-separator clip (#489) can hide line-leading
+        // separators at the box edge — an edge-clip cannot hide them on a per-line-
+        // centered row.
         $this->assertMatchesRegularExpression(
-            '/\.section__inline-items\s*\{[^}]*justify-content:\s*center/s',
+            '/\.section__inline-items\s*\{[^}]*justify-content:\s*flex-start/s',
             $this->componentsCss,
-            '.section__inline-items must be centered.'
+            '.section__inline-items must be left-packed (flex-start) for the #489 clip.'
+        );
+        // Centered as a BLOCK instead: shrink-to-fit width + auto side margins, so a
+        // single-line row still reads centered.
+        $this->assertMatchesRegularExpression(
+            '/\.section__inline-items\s*\{[^}]*width:\s*fit-content/s',
+            $this->componentsCss,
+            '.section__inline-items must shrink-wrap (width: fit-content) to center as a block.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.section__inline-items\s*\{[^}]*margin:\s*var\(--space-md\)\s+auto\s+0/s',
+            $this->componentsCss,
+            '.section__inline-items must use auto side margins to center the shrink-wrapped block.'
+        );
+    }
+
+    public function testHangingSeparatorClipIsWiredForBleedThroughFreeWrapping(): void
+    {
+        // #489: overflow:hidden is the clip surface; each item is pulled left by the
+        // separator's occupied width; the separator is a fixed-width inline-block box
+        // so that pull is an exact token value independent of the glyph's advance.
+        $this->assertMatchesRegularExpression(
+            '/\.section__inline-items\s*\{[^}]*overflow:\s*hidden/s',
+            $this->componentsCss,
+            '.section__inline-items must clip its overflow to hide line-leading separators (#489).'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.section__inline-item\s*\{[^}]*margin:\s*0 0 0 calc\(-1 \* \(var\(--space-sm\) \+ var\(--space-xs\)\)\)/s',
+            $this->componentsCss,
+            '.section__inline-item must be pulled left by the separator occupied width (--space-sm + --space-xs).'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.section__inline-items li::before\s*\{[^}]*display:\s*inline-block[^}]*width:\s*var\(--space-sm\)/s',
+            $this->componentsCss,
+            'the separator must be a fixed-width inline-block box (width: --space-sm) so the pull is exact.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.section__inline-items li::before\s*\{[^}]*margin-right:\s*var\(--space-xs\)/s',
+            $this->componentsCss,
+            'the separator right margin (--space-xs) completes its occupied width.'
         );
     }
 
@@ -182,7 +231,7 @@ class SectionInlineItemsTest extends TestCase
         // Middot glyph via ::before with empty alt-text, so it never becomes a
         // content character and stays out of the accessibility tree.
         $this->assertMatchesRegularExpression(
-            '/\.section__inline-items li \+ li::before\s*\{[^}]*content:\s*"\\\\00b7"\s*\/\s*""/s',
+            '/\.section__inline-items li::before\s*\{[^}]*content:\s*"\\\\00b7"\s*\/\s*""/s',
             $this->componentsCss,
             'the separator must be a CSS-generated middot with empty alt-text (content: "\\00b7" / "").'
         );
@@ -191,7 +240,7 @@ class SectionInlineItemsTest extends TestCase
     public function testSeparatorColorRoutesThroughSlotWithMutedDefault(): void
     {
         $this->assertMatchesRegularExpression(
-            '/\.section__inline-items li \+ li::before\s*\{[^}]*color:\s*var\(--section-separator-color,\s*var\(--color-muted\)\)/s',
+            '/\.section__inline-items li::before\s*\{[^}]*color:\s*var\(--section-separator-color,\s*var\(--color-muted\)\)/s',
             $this->componentsCss,
             'the separator color must route through var(--section-separator-color, var(--color-muted)).'
         );
@@ -202,7 +251,7 @@ class SectionInlineItemsTest extends TestCase
         // .section--has-bg-image does not remap --color-muted, so the separator
         // default is re-routed to the light on-overlay text color like sibling text.
         $this->assertMatchesRegularExpression(
-            '/\.section--has-bg-image \.section__inline-items li \+ li::before\s*\{[^}]*color:\s*var\(--section-separator-color,\s*var\(--color-bg\)\)/s',
+            '/\.section--has-bg-image \.section__inline-items li::before\s*\{[^}]*color:\s*var\(--section-separator-color,\s*var\(--color-bg\)\)/s',
             $this->componentsCss,
             'on the bg-image band the separator default must route through var(--section-separator-color, var(--color-bg)).'
         );

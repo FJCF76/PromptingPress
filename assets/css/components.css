@@ -1100,44 +1100,75 @@
   margin-bottom: 0;
 }
 
-/* Inline-items row (issue 475): a centered single-row band of short items with a
-   CSS-generated separator between them (the "trust strip" pattern — e.g. a slim
-   post-hero band of short items with a colored middot between each). It sits in the
-   section body scope, right after .section__content, and reads the SAME #470 body
-   type slots so the items inherit the section body size/weight (the brand band's
-   15px/600). flex-wrap lets the row wrap to further centered rows at narrow widths,
-   so no mobile-specific rule is needed. Unset (no body_items) emits no markup, so
-   output stays byte-identical. */
+/* Inline-items row (issue 475): a band of short items with a CSS-generated
+   separator between them (the "trust strip" pattern — e.g. a slim post-hero band
+   of short items with a colored middot between each). It sits in the section body
+   scope, right after .section__content, and reads the SAME #470 body type slots so
+   the items inherit the section body size/weight (the brand band's 15px/600).
+   Unset (no body_items) emits no markup, so output stays byte-identical.
+
+   Centering + wrapping (issue 489): the row is a left-packed (justify-content:
+   flex-start) flex row that shrink-wraps its content (width: fit-content) and is
+   centered as a BLOCK via auto side margins. A single-line row therefore reads
+   centered exactly like before; a row that WRAPS fills the available width and its
+   lines pack from the left. Left-packing is required by the hanging-separator clip
+   below — an edge-clip cannot hide a line-leading separator on a per-line-CENTERED
+   row (the separator is not at the box edge), so per-line centering is traded for a
+   correct clip at every width. overflow: hidden is the clip surface; the separator
+   ::before is pulled left of this box on every line-leading item and disappears. */
 .section__inline-items {
   list-style: none;
-  margin: var(--space-md) 0 0;
+  margin: var(--space-md) auto 0;
   padding: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  justify-content: center;
-  gap: var(--space-xs) var(--space-sm);
-  text-align: center;
+  justify-content: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  column-gap: var(--space-md);
+  row-gap: var(--space-xs);
+  overflow: hidden;
   font-size: var(--section-body-size, inherit);
   font-weight: var(--section-body-weight, inherit);
 }
 
+/* Hanging-separator clip (issue 489): each item is pulled left by exactly the
+   separator's occupied width (the ::before's fixed box + its right margin =
+   --space-sm + --space-xs). On a line-leading item — the first item of the row AND
+   the first item of every wrapped line — the ::before then sits entirely left of
+   the ul's content box and is clipped by overflow: hidden, so no middot ever dangles
+   at the start of a line. The item text lands exactly at the content edge. On a
+   mid-line item the ::before sits between two items and is fully visible, giving the
+   symmetric "A · B" separator. The negative margin lives on the ITEM, not the ul:
+   pulling the ul via its own margin would move its clip region with it and clip
+   nothing. */
 .section__inline-item {
-  margin: 0;
+  margin: 0 0 0 calc(-1 * (var(--space-sm) + var(--space-xs)));
+  /* Let a pathological single unbreakable label wrap instead of being clipped by
+     the row's overflow: hidden (base.css only sets overflow-wrap on p/headings, and
+     a flex item's default min-width: auto would otherwise refuse to shrink). */
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
-/* The separator is a CSS-generated middot before every item except the first, so
-   it is never a content character: it can be slot-colored and stays out of the
-   accessibility tree. The `/ ""` alternative-text empties its a11y name, and the
-   <ul role="list"> keeps list semantics intact. The glyph is FIXED (middot) in this
-   issue. Color routes through --section-separator-color, defaulting to the muted
-   role like sibling text; on the inverted band --color-muted is already remapped to
-   the light on-inverted color (.pp-section--inverted below), so the default follows
-   the sibling text there automatically — no separate inverted rule. The bg-image
-   overlay default is remapped below (mirrors the #461/#463 links/markers). */
-.section__inline-items li + li::before {
+/* The separator is a CSS-generated middot before EVERY item (line-leading ones are
+   clipped, see above), so it is never a content character: it can be slot-colored and
+   stays out of the accessibility tree. The `/ ""` alternative-text empties its a11y
+   name, and the <ul role="list"> keeps list semantics intact. The glyph is FIXED
+   (middot) in this issue. It is a fixed-width inline-block box (--space-sm) so the
+   left-pull above is an exact token value independent of the glyph's advance width.
+   Color routes through --section-separator-color, defaulting to the muted role like
+   sibling text; on the inverted band --color-muted is already remapped to the light
+   on-inverted color (.pp-section--inverted below), so the default follows the sibling
+   text there automatically — no separate inverted rule. The bg-image overlay default
+   is remapped below (mirrors the #461/#463 links/markers). */
+.section__inline-items li::before {
   content: "\00b7" / "";
-  margin-right: var(--space-sm);
+  display: inline-block;
+  width: var(--space-sm);
+  text-align: center;
+  margin-right: var(--space-xs);
   color: var(--section-separator-color, var(--color-muted));
 }
 
@@ -1382,7 +1413,7 @@
    on-overlay text color like sibling body text (.section--has-bg-image .section__content
    above resolves to --color-bg); the --section-separator-color slot still wins.
    Mirrors the inverted band's automatic --color-muted remap. */
-.section--has-bg-image .section__inline-items li + li::before {
+.section--has-bg-image .section__inline-items li::before {
   color: var(--section-separator-color, var(--color-bg));
 }
 
