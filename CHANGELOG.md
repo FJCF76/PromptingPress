@@ -4,6 +4,20 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.6.4] — 2026-07-22 — media-URL validation allowlist is schema-driven, not hardcoded (#154)
+
+**The media-library check that stops the AI from pointing an image prop at a missing or non-image attachment (#124/#153) used to key off a hardcoded `['image_url','background_image']` array in `lib/actions.php`, kept in sync with the component schemas by hand. It now derives that prop set from the schemas themselves: each image-URL prop declares `"format": "image_url"`, and the validator walks the registered component schemas to build its list. A future component that adds a new image prop is media-validated the moment its schema declares the format, with no second allowlist to forget.**
+
+Coverage is unchanged today — the eight image-URL props across seven components (hero/section `image_url`, cta/stats/section `background_image`, and the nested `items[].image_url` on logos/grid/testimonials) are exactly what the old hardcoded pair covered, so nothing an author can do behaves differently. What changes is that the two lists can no longer silently drift apart. `_pp_schema_image_url_props()` stays purely schema-derived so a drift-catcher test can pin it; the consumer, `_pp_extract_urls_from_params()`, then merges the historical `['image_url','background_image']` pair back in as a fail-closed floor. That floor is a safety net, not a maintained allowlist: new props still flow from the schema walk, but the media gate can never fall below its pre-#154 coverage if the component registry is ever transiently empty (a broken `components/` directory, or a static cache poisoned by a wrong `get_template_directory()`) — which would otherwise make `_pp_validate_media_urls_in_params()` fail open through its `empty($urls) → true` early-out, the opposite of the fail-closed rule established in #153.
+
+### Fixed
+- The image-URL prop allowlist in `_pp_extract_urls_from_params()` is now derived from each component schema's `"format": "image_url"` annotation instead of a hardcoded array in a second file, so a new image-bearing prop cannot silently ship without the #124/#153 media-existence and image-type checks (#154).
+- The media gate is now fail-closed against an empty component registry: `['image_url','background_image']` is retained as an un-droppable floor so coverage never regresses below the pre-#154 baseline even if schema derivation yields nothing (#154, #153 precedent).
+
+### Tests
+- PHPUnit `ActionsTest`: the derived prop set is pinned to `['background_image','image_url']` (drift-catcher on any new format-annotated name); every canonical-named or image-described or `*_image`-suffixed schema prop must declare `format: image_url` (forgotten-annotation catcher, non-vacuous ≥8-prop guard); no `format: image_url` prop nests deeper than one `items[]` level (depth guard for the walker); and all eight existing image props still extract (parity).
+- PHPUnit `MediaUrlSchemaDrivenTest`: authors through the real `pp_execute_action('update_component')` surface with a synthetic component declaring a novel `poster_url` image prop — a non-image URL is rejected purely because the schema annotation put it in the derived set (no edit to the extractor), a real image passes, and the fail-closed floor still extracts the canonical props when the registry is empty.
+
 ## [v1.6.3] — 2026-07-22 — rollback restores a never-set site option by deleting it (#291)
 
 **When a multi-step AI edit fails partway and rolls back, site options that had no value before the run are now restored to having no value, instead of being left as an empty string. An option that genuinely held an empty string before the run stays an empty string. The batch snapshot records whether each option existed, not just what it held, so a rollback puts the site back exactly as it was.**

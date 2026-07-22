@@ -48,6 +48,7 @@
       "type": "string",
       "required": false,
       "default": "",
+      "format": "image_url",
       "description": "Image URL. Required for image-left and image-right layouts; ignored in text-only."
     },
     "image_alt": {
@@ -80,6 +81,7 @@
       "type": "string",
       "required": false,
       "default": "",
+      "format": "image_url",
       "description": "Optional background image URL. When set, renders as a CSS background-image with a dark overlay for text readability. Combines with any theme. Text automatically uses light colors for contrast."
     },
     "panel_heading": {

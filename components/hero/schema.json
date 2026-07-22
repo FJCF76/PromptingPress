@@ -80,6 +80,7 @@
       "type": "string",
       "required": false,
       "default": "",
+      "format": "image_url",
       "description": "Image URL. Rendered as an inline image in the 'split' layout, or as a CSS background-image in the 'cover' layout."
     },
     "image_alt": {

@@ -479,13 +479,94 @@ function _pp_collect_logo_ids_from_props(array $props, array &$logo_ids): void {
 }
 
 /**
+ * The set of prop names, across every registered component schema, that hold a
+ * media-library image URL — i.e. carry `"format": "image_url"` in their schema
+ * definition. Derived from the schemas (#154) instead of a hand-maintained
+ * `['image_url','background_image']` array, so a new image-bearing prop is
+ * media-validated the moment its schema declares the format — no second
+ * allowlist in this file to drift out of sync with the component schema.json files.
+ *
+ * Both top-level props and one level of nested `items[]` item-props are scanned;
+ * the returned set is applied at both depths by _pp_collect_urls_from_props(),
+ * preserving the historical uniform traversal (the old hardcoded list was also
+ * applied identically at the flat and item levels). The registry it walks is
+ * statically cached (pp_get_registered_components()), so this stays cheap even
+ * though it recomputes per validation call.
+ *
+ * NOTE ON DEPTH: image props today live at top-level or exactly one `items[]`
+ * level; no schema nests them deeper, and the params walker below mirrors that
+ * single-level shape. A structural test pins this invariant, so a future schema
+ * that nests an image prop deeper fails loudly rather than silently bypassing
+ * validation — the same "no silent coverage gap" guarantee #154 adds on the
+ * prop-name axis, extended to the nesting-depth axis.
+ *
+ * @return string[] Unique, sorted image-URL prop names.
+ */
+function _pp_schema_image_url_props(): array {
+    $names = [];
+    foreach (pp_get_registered_components() as $schema) {
+        if (!is_array($schema) || !isset($schema['props']) || !is_array($schema['props'])) {
+            continue;
+        }
+        foreach ($schema['props'] as $prop_name => $prop_def) {
+            if (_pp_prop_def_is_image_url($prop_def)) {
+                $names[$prop_name] = true;
+            }
+            // Nested array-of-object item props live under props.<prop>.items,
+            // a map of item-prop-name => item-prop-def (logos/grid/testimonials).
+            if (is_array($prop_def) && isset($prop_def['items']) && is_array($prop_def['items'])) {
+                foreach ($prop_def['items'] as $item_prop_name => $item_prop_def) {
+                    if (_pp_prop_def_is_image_url($item_prop_def)) {
+                        $names[$item_prop_name] = true;
+                    }
+                }
+            }
+        }
+    }
+    $names = array_keys($names);
+    sort($names);
+    return $names;
+}
+
+/**
+ * True when a schema prop definition declares `"format": "image_url"` — i.e. its
+ * value is a media-library image URL subject to the #124/#153 existence +
+ * image-type checks.
+ *
+ * @param mixed $prop_def
+ */
+function _pp_prop_def_is_image_url($prop_def): bool {
+    return is_array($prop_def)
+        && isset($prop_def['format'])
+        && $prop_def['format'] === 'image_url';
+}
+
+/**
  * Extracts all URL-like string values from action params.
  * Walks props, composition arrays, and items arrays.
  */
 function _pp_extract_urls_from_params(array $params): array {
     $urls = [];
-    // logo_id is an attachment ID, not a URL — excluded from URL extraction.
-    $url_props = ['image_url', 'background_image'];
+    // Schema-driven (#154): the image-URL prop set comes from every registered
+    // component's `format: image_url` declarations, not a hand-maintained array.
+    // logo_id is an attachment ID (no image_url format), so it stays excluded.
+    //
+    // FAIL-CLOSED FLOOR (#154, orchestrator decision 2026-07-22): the media gate
+    // (#124/#153) must never depend on registry availability. If
+    // pp_get_registered_components() is transiently empty (missing components/,
+    // or a static cache poisoned by a wrong get_template_directory()),
+    // _pp_schema_image_url_props() would return [] and _pp_validate_media_urls_in_params()
+    // would fail OPEN via its `empty($urls) → true` early-out — the opposite of the
+    // maintainer's standing fail-closed rule (#153 precedent). The two historically
+    // covered prop names are merged as an un-droppable MINIMUM so coverage can never
+    // regress below the pre-#154 baseline. This floor is a safety net, NOT a
+    // maintained allowlist: new image props still flow from the schema walk, and
+    // _pp_schema_image_url_props() itself stays purely schema-derived so the
+    // drift-catcher baseline pin stays honest.
+    $url_props = array_values(array_unique(array_merge(
+        ['image_url', 'background_image'],
+        _pp_schema_image_url_props()
+    )));
 
     // Direct props (flat)
     if (isset($params['props']) && is_array($params['props'])) {

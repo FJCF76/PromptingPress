@@ -60,6 +60,7 @@
       "type": "string",
       "required": false,
       "default": "",
+      "format": "image_url",
       "description": "Optional background image URL. When set, renders as a CSS background-image with a dark overlay. Text automatically uses light colors for contrast."
     },
     "button_variant": {

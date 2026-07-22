@@ -62,7 +62,7 @@
         "author":    { "type": "string", "required": false, "description": "Name of the person quoted. Plain text — HTML is escaped." },
         "role":      { "type": "string", "required": false, "description": "The author's job title, e.g. 'CEO'." },
         "company":   { "type": "string", "required": false, "description": "The author's company or organization." },
-        "image_url": { "type": "string", "required": false, "description": "Optional avatar image URL." },
+        "image_url": { "type": "string", "required": false, "format": "image_url", "description": "Optional avatar image URL." },
         "image_alt": { "type": "string", "required": false, "default": "", "description": "Alt text for the avatar. Use the author's name; empty string only if image is purely decorative." }
       }
     }
