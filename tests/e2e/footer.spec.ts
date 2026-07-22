@@ -232,3 +232,77 @@ test.describe('Footer secondary menu column (issue 469)', () => {
     expect(secondaryNav.y).toBeGreaterThan(primaryNav.y + primaryNav.height - 1);
   });
 });
+
+/**
+ * Rendered-proof E2E for the footer social-icon row (issue 382).
+ *
+ * The PHP pins prove pp_footer_social validates the closed network set and the
+ * template emits accessible icon links in the reserved .site-footer__social slot.
+ * Only a real browser proves the applied render: at desktop and mobile the row
+ * shows one link per configured network with the correct external href, each link
+ * carries a per-network aria-label, and the glyph is a decorative aria-hidden SVG.
+ * Tagged @smoke so PR CI watches the icon row like the rest of the footer baseline.
+ */
+test.describe('Footer social-icon row (issue 382)', () => {
+  let socialMenuId = 0;
+  let socialPageId = 0;
+
+  const SOCIAL_JSON = JSON.stringify([
+    { network: 'x', url: 'https://x.com/promptingpress' },
+    { network: 'linkedin', url: 'https://linkedin.com/company/promptingpress' },
+    { network: 'github', url: 'https://github.com/promptingpress' },
+  ]);
+
+  test.beforeAll(() => {
+    socialMenuId = parseInt(cli('menu create "E2E Footer 382" --porcelain'), 10);
+    cli(`menu item add-custom ${socialMenuId} "Home" "#home" --porcelain`);
+    cli(`menu location assign ${socialMenuId} footer`);
+    // Store the RAW JSON string exactly as pp_update_site_option persists it (the
+    // footer reads it back with get_option and json_decodes it). Pass the JSON as a
+    // single-quoted argument (the same arg path the other footer options use) — the
+    // compact JSON has no spaces or single quotes, so single-quoting keeps its double
+    // quotes and brackets intact. Do NOT use `--format=json`, which would DECODE the
+    // JSON and store a serialized PHP array instead of the string the render expects.
+    cli(`option update pp_footer_social '${SOCIAL_JSON}'`);
+    socialPageId = createPage('E2E Footer 382 Host');
+  });
+
+  test.afterAll(() => {
+    try { cli(`option delete pp_footer_social`); } catch { /* noop */ }
+    try { if (socialPageId) cli(`post delete ${socialPageId} --force`); } catch { /* noop */ }
+    try { if (socialMenuId) cli(`menu location remove ${socialMenuId} footer`); } catch { /* noop */ }
+    try { if (socialMenuId) cli(`menu delete ${socialMenuId}`); } catch { /* noop */ }
+  });
+
+  async function assertSocialRow(page: any): Promise<void> {
+    const row = page.locator('.site-footer .site-footer__social');
+    await expect(row).toHaveCount(1);
+    const links = page.locator('.site-footer .site-footer__social-link');
+    await expect(links).toHaveCount(3);
+
+    // Each configured network is a clickable link with the correct external href
+    // and a per-link accessible name; the glyph is a decorative aria-hidden SVG.
+    for (const [label, href] of [
+      ['X', 'https://x.com/promptingpress'],
+      ['LinkedIn', 'https://linkedin.com/company/promptingpress'],
+      ['GitHub', 'https://github.com/promptingpress'],
+    ] as const) {
+      const link = page.locator(`.site-footer__social-link[aria-label="${label}"]`);
+      await expect(link).toHaveCount(1);
+      await expect(link).toHaveAttribute('href', href);
+      await expect(link.locator('svg[aria-hidden="true"]')).toHaveCount(1);
+    }
+  }
+
+  test('desktop renders the social icon row with correct links and labels @smoke', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${socialPageId}`);
+    await assertSocialRow(page);
+  });
+
+  test('mobile renders the social icon row with correct links and labels', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`/?page_id=${socialPageId}`);
+    await assertSocialRow(page);
+  });
+});

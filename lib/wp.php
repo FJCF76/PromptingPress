@@ -2346,6 +2346,17 @@ function pp_allowed_site_options(): array {
         // SAME pp_is_image_attachment rule as pp_logo_id. Unset falls back to
         // pp_logo_id via pp_resolve_logo's existing resolution chain.
         'pp_footer_logo_id'       => 'attachment_id',
+        // Footer SOCIAL-ICON row (issue 382). A list-valued option: an ordered set
+        // of {network, url} entries from a CLOSED set of known networks (see
+        // pp_footer_social_networks()), rendered by the footer template as accessible
+        // inline-SVG icon links in the reserved .site-footer__social slot (#427). The
+        // value is a JSON string because a site option stores a single scalar; the
+        // 'social' type is the only structured (non-scalar-semantics) option, so its
+        // validator (below) is the one place that decodes + shape-checks it. Unset/''
+        // = no row (byte-identical footer). External profile URLs, so URL validation
+        // is http(s)-only (NOT the same-site redirect rule). No arbitrary icon URLs
+        // or icon fonts: the network set is fixed and its glyphs ship inline.
+        'pp_footer_social'        => 'social',
         // Header chrome (issue 333). The header/nav is template-owned (issue 223)
         // exactly like the footer, so it declares no style_slots and these site
         // options are its ONLY styling surface. Before this, the header was the one
@@ -2366,6 +2377,169 @@ function pp_allowed_site_options(): array {
  */
 const PP_BOOL_OPTION_TRUE  = ['1', 'true'];
 const PP_BOOL_OPTION_FALSE = ['0', 'false'];
+
+/**
+ * Upper bound on the number of entries a pp_footer_social value may carry.
+ * A footer social row is a short, curated set (a marketing footer shows a
+ * handful of profiles), so a generous cap keeps the stored option and the
+ * rendered row bounded without constraining any real use. Duplicates are
+ * allowed (they simply render in order), so the cap is not tied to the size
+ * of the network set.
+ */
+const PP_FOOTER_SOCIAL_MAX = 12;
+
+/** Max accepted length for a single social profile URL (defensive bound). */
+const PP_FOOTER_SOCIAL_URL_MAXLEN = 2048;
+
+/**
+ * The CLOSED set of social networks the footer can surface (issue 382), and the
+ * single source of truth shared by BOTH the pp_footer_social validator (which
+ * network keys are accepted) and the footer template (which glyph + accessible
+ * label each renders). Keeping validation and rendering keyed off ONE map means
+ * an accepted network can never be un-renderable, and adding a network later is
+ * one additive entry here — no second list to keep in sync.
+ *
+ * Each glyph is a minimal, hand-authored single `<path>` on a 24x24 viewBox
+ * (fill-rule:evenodd handles the marks that need a cut-out). No icon font and no
+ * third-party icon library is vendored, and nothing is fetched at render time —
+ * the SVG ships inline with the theme. `label` is the accessible name used for
+ * the link's aria-label; `path` is the glyph's `d` attribute.
+ *
+ * @return array<string, array{label:string, path:string}>
+ */
+function pp_footer_social_networks(): array {
+    return [
+        'x' => [
+            'label' => 'X',
+            'path'  => 'M18.244 2.25h3.308l-7.227 8.26 8.502 11.24h-6.657l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z',
+        ],
+        'linkedin' => [
+            'label' => 'LinkedIn',
+            'path'  => 'M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z',
+        ],
+        'facebook' => [
+            'label' => 'Facebook',
+            'path'  => 'M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z',
+        ],
+        'instagram' => [
+            'label' => 'Instagram',
+            'path'  => 'M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z',
+        ],
+        'youtube' => [
+            'label' => 'YouTube',
+            'path'  => 'M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z',
+        ],
+        'github' => [
+            'label' => 'GitHub',
+            'path'  => 'M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12z',
+        ],
+        'tiktok' => [
+            'label' => 'TikTok',
+            'path'  => 'M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z',
+        ],
+        'mastodon' => [
+            'label' => 'Mastodon',
+            'path'  => 'M23.268 5.313c-.35-2.578-2.617-4.61-5.304-5.004C17.51.242 15.792 0 11.813 0h-.03c-3.98 0-4.835.242-5.288.309C3.882.692 1.496 2.518.917 5.127.64 6.412.61 7.837.661 9.143c.074 1.874.088 3.745.26 5.611.118 1.24.325 2.47.62 3.68.55 2.237 2.777 4.098 4.96 4.857 2.336.792 4.849.923 7.256.38.265-.061.527-.132.786-.213.585-.184 1.27-.39 1.774-.753a.057.057 0 00.023-.043v-1.809a.052.052 0 00-.02-.041.053.053 0 00-.046-.01 20.282 20.282 0 01-4.709.545c-2.73 0-3.463-1.284-3.674-1.818a5.593 5.593 0 01-.319-1.433.053.053 0 01.066-.054c1.517.363 3.072.546 4.632.546.376 0 .75 0 1.125-.01 1.57-.044 3.224-.124 4.768-.422.038-.008.077-.015.11-.024 2.435-.464 4.753-1.92 4.989-5.604.008-.145.03-1.52.03-1.67.002-.512.167-3.63-.024-5.545zm-3.748 9.195h-2.561V8.29c0-1.309-.55-1.976-1.67-1.976-1.23 0-1.846.79-1.846 2.35v3.403h-2.546V8.663c0-1.56-.617-2.35-1.848-2.35-1.112 0-1.668.668-1.67 1.977v6.218H4.822V8.102c0-1.31.337-2.35 1.011-3.12.696-.77 1.608-1.164 2.74-1.164 1.311 0 2.302.5 2.962 1.498l.638 1.06.638-1.06c.66-.999 1.65-1.498 2.96-1.498 1.13 0 2.043.395 2.74 1.164.675.77 1.012 1.81 1.012 3.12z',
+        ],
+    ];
+}
+
+/**
+ * Validates a pp_footer_social value (issue 382). The value is a JSON string:
+ * an ordered, non-empty list of {network, url} objects. This is the single place
+ * the structured shape is decoded and checked, so an accepted value is always
+ * renderable by the footer template.
+ *
+ * Rules (all must hold, else a descriptive WP_Error):
+ *   - decodes to a JSON array that is a sequential LIST (a JSON object, which
+ *     json_decode turns into an associative PHP array, is rejected);
+ *   - non-empty and at most PP_FOOTER_SOCIAL_MAX entries;
+ *   - each entry is a JSON object (associative array) with STRING `network` and
+ *     `url` members;
+ *   - `network` is a key in the closed pp_footer_social_networks() set;
+ *   - `url` (trimmed) is <= PP_FOOTER_SOCIAL_URL_MAXLEN, is a valid absolute URL
+ *     (filter_var), and its scheme is http or https. These are EXTERNAL profile
+ *     URLs, so the same-site redirect validator is deliberately NOT reused; the
+ *     scheme allowlist blocks javascript:/data:/protocol-relative values.
+ *
+ * The empty string is handled by the caller (it means "clear"), not here.
+ *
+ * @param string $value  Raw JSON string.
+ * @return true|WP_Error
+ */
+function _pp_validate_footer_social(string $value) {
+    $err = static function (string $msg) {
+        return new WP_Error('invalid_option_value', 'Option "pp_footer_social" ' . $msg);
+    };
+
+    $decoded = json_decode($value, true);
+    if (!is_array($decoded) || !pp_is_list($decoded)) {
+        return $err('must be a JSON array of {network, url} entries.');
+    }
+    if ($decoded === []) {
+        return $err('must contain at least one {network, url} entry (use "" to clear).');
+    }
+    if (count($decoded) > PP_FOOTER_SOCIAL_MAX) {
+        return $err(sprintf('may contain at most %d entries.', PP_FOOTER_SOCIAL_MAX));
+    }
+
+    $networks = pp_footer_social_networks();
+    foreach ($decoded as $entry) {
+        // A JSON object decodes to a non-list associative array. A list-shaped
+        // child (e.g. ["x","https://..."]) is not the {network,url} object shape.
+        if (!is_array($entry) || pp_is_list($entry)) {
+            return $err('entries must each be a {network, url} object.');
+        }
+        if (!isset($entry['network'], $entry['url'])
+            || !is_string($entry['network']) || !is_string($entry['url'])) {
+            return $err('each entry needs a string "network" and a string "url".');
+        }
+        if (!isset($networks[$entry['network']])) {
+            return $err(sprintf(
+                'has unknown network "%s". Allowed: %s.',
+                $entry['network'], implode(', ', array_keys($networks))
+            ));
+        }
+        $url = trim($entry['url']);
+        // Reject control characters and raw HTML/attribute-breaking characters up
+        // front (a legitimate URL percent-encodes them). filter_var is lenient
+        // about these, so this guard keeps the STORED value clean; esc_url is still
+        // the production escaping boundary at render (defense in depth).
+        if ($url === '' || strlen($url) > PP_FOOTER_SOCIAL_URL_MAXLEN
+            || preg_match('/[\x00-\x20<>"\'`]/', $url) === 1
+            || filter_var($url, FILTER_VALIDATE_URL) === false) {
+            return $err(sprintf('has an invalid URL for "%s".', $entry['network']));
+        }
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+        if ($scheme !== 'http' && $scheme !== 'https') {
+            return $err(sprintf('URL for "%s" must be an http(s) URL.', $entry['network']));
+        }
+    }
+    return true;
+}
+
+/**
+ * Canonicalizes a validated pp_footer_social value for storage: decode, keep
+ * ONLY {network, url} (url trimmed) per entry in original order, re-encode.
+ * Drops any extra keys and normalizes whitespace so a stored value survives a
+ * round-trip through the validating writer (the snapshot/rollback path). The
+ * caller has already validated $value, so decoding cannot fail here.
+ *
+ * @param string $value  A value already accepted by _pp_validate_footer_social.
+ * @return string        Canonical JSON, or '' if (defensively) re-encoding fails.
+ */
+function pp_normalize_footer_social(string $value): string {
+    $decoded = json_decode($value, true);
+    $canonical = [];
+    foreach ((array) $decoded as $entry) {
+        $canonical[] = [
+            'network' => (string) $entry['network'],
+            'url'     => trim((string) $entry['url']),
+        ];
+    }
+    $json = wp_json_encode($canonical, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    return is_string($json) ? $json : '';
+}
 
 /**
  * Single source of truth for "is $id a Media Library image attachment?".
@@ -2442,6 +2616,16 @@ function pp_validate_site_option_value(string $key, string $value) {
                 $key, $value
             ));
         }
+    }
+    if ($type === 'social') {
+        // Footer social-icon row (issue 382). '' is a valid CLEAR (no row); any
+        // other value is a JSON list of {network, url} entries decoded and
+        // shape-checked by the dedicated validator (the only structured option
+        // type — see _pp_validate_footer_social for the full contract).
+        if (trim($value) === '') {
+            return true;
+        }
+        return _pp_validate_footer_social($value);
     }
     return true;
 }
@@ -2948,6 +3132,10 @@ function pp_update_site_option(string $key, string $value) {
         $value = (string) (int) $value;
     } elseif ($type === 'bool') {
         $value = pp_normalize_bool_option($value);
+    } elseif ($type === 'social') {
+        // '' clears the row; a non-empty value is canonicalized (strip extra
+        // keys / whitespace) so it survives the snapshot/rollback round-trip.
+        $value = trim($value) === '' ? '' : pp_normalize_footer_social($value);
     }
     update_option($key, $value);
     return true;

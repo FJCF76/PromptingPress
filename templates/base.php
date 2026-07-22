@@ -76,6 +76,10 @@ if (!function_exists('pp_base_template')) {
     'contact_label' => (string) get_option('pp_footer_contact_label', ''),
     'note'          => (string) get_option('pp_footer_note', ''),
     'logo_id'       => (string) get_option('pp_footer_logo_id', ''),
+    // Social-icon row (issue 382). JSON list of {network, url}; the footer decodes
+    // it and renders inline-SVG icon links in the reserved .site-footer__social slot.
+    // Empty/unset = no row (byte-identical footer).
+    'social'        => (string) get_option('pp_footer_social', ''),
     // Second footer menu column (issue 469). secondary_location is a FIXED theme
     // location slug, not 'location' — the NavReadinessTest drift guard matches only
     // the FIRST 'location' => key of this call, so this extra key does not register

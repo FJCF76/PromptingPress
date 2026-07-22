@@ -39,6 +39,38 @@ $secondary_location = trim((string) ($props['secondary_location'] ?? ''));
 $secondary_label    = trim((string) ($props['secondary_label']    ?? ''));
 $has_secondary      = $secondary_location !== '' && has_nav_menu($secondary_location);
 
+// Optional social-icon row (issue 382). The value is the JSON pp_footer_social
+// option (a validated list of {network, url}); decode it here into render-ready
+// entries paired with their glyph from the CLOSED pp_footer_social_networks() map.
+// Decoding is defensive (the option validator already guarantees the shape, but
+// a hand-edited DB value must never emit broken markup): a non-list, or an entry
+// whose network is not in the map, is skipped. Empty/unset = no row, which keeps
+// the footer byte-identical to the pre-382 layout.
+$social_networks = function_exists('pp_footer_social_networks') ? pp_footer_social_networks() : [];
+$social_raw      = trim((string) ($props['social'] ?? ''));
+$social_items    = [];
+if ($social_raw !== '') {
+    $social_decoded = json_decode($social_raw, true);
+    if (is_array($social_decoded)) {
+        foreach ($social_decoded as $social_entry) {
+            if (!is_array($social_entry)) {
+                continue;
+            }
+            $net = (string) ($social_entry['network'] ?? '');
+            $url = trim((string) ($social_entry['url'] ?? ''));
+            if ($url === '' || !isset($social_networks[$net])) {
+                continue;
+            }
+            $social_items[] = [
+                'label' => $social_networks[$net]['label'],
+                'path'  => $social_networks[$net]['path'],
+                'url'   => $url,
+            ];
+        }
+    }
+}
+$has_social = $social_items !== [];
+
 // A non-empty note is the trigger for the delimited bottom bar: the copyright
 // moves out of the main flow into its own band and renders opposite the note.
 // Empty note = copyright stays inline exactly where issue 300 put it.
@@ -75,7 +107,14 @@ $style_attr = pp_chrome_style_attr([
               // so this container is never empty. ?>
         <div class="site-footer__columns">
 
-            <?php if ($logo || $blurb !== '') : ?>
+<?php
+// The brand column now also hosts the social-icon row (issue 382): it renders
+// when there is a logo, a blurb, OR a social row. The row's designed home is
+// under the blurb (.site-footer__social, the reserved slot from #427). This
+// comment sits at COLUMN 0 so it emits no extra leading whitespace, keeping the
+// no-brand-column footer byte-identical to the pre-382 layout (#469 discipline).
+?>
+            <?php if ($logo || $blurb !== '' || $has_social) : ?>
                 <div class="site-footer__brand">
                     <?php if ($logo) : ?>
                         <a class="site-footer__logo" href="<?php echo esc_url(pp_site_url()); ?>">
@@ -94,6 +133,27 @@ $style_attr = pp_chrome_style_attr([
                     <?php if ($blurb !== '') : ?>
                         <p class="site-footer__blurb"><?php echo nl2br(esc_html($blurb)); ?></p>
                     <?php endif; ?>
+<?php
+                    // Social-icon row (issue 382). Each entry is an accessible link:
+                    // the <svg> glyph is decorative (aria-hidden) so the link's name
+                    // comes from its aria-label (the network's human label). href is
+                    // esc_url'd and the link carries rel="noopener noreferrer" +
+                    // target="_blank" for an external profile. The if/endif tags sit at
+                    // COLUMN 0 (the #469 whitespace discipline): PHP swallows the newline
+                    // after each close tag, so an absent row leaks ZERO template
+                    // whitespace and the unset footer stays byte-identical.
+?>
+<?php if ($has_social) : ?>
+                    <ul class="site-footer__social">
+                        <?php foreach ($social_items as $social_item) : ?>
+                            <li>
+                                <a class="site-footer__social-link" href="<?php echo esc_url($social_item['url']); ?>" aria-label="<?php echo esc_attr($social_item['label']); ?>" target="_blank" rel="noopener noreferrer">
+                                    <svg class="site-footer__social-icon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" fill-rule="evenodd" aria-hidden="true" focusable="false"><path d="<?php echo esc_attr($social_item['path']); ?>"></path></svg>
+                                </a>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+<?php endif; ?>
                 </div>
             <?php endif; ?>
 

@@ -109,5 +109,10 @@ header's `Main navigation`; the optional second menu column (#469) is a sibling
 an unset label leaves a headless-but-styled column rather than injecting default text, keeping
 the option contract byte-identical.
 
-`.site-footer__social` is a reserved, styled landing slot for the social-icon row (#382). No
-markup emits it yet — #382 adds the row and its option into this designed home.
+`.site-footer__social` is the social-icon row (#382): a horizontal, wrapping row of accessible
+inline-SVG icon links under the brand blurb. Set it with the `pp_footer_social` site option, a
+JSON list of `{network, url}` from a closed set of known networks (x, linkedin, facebook,
+instagram, youtube, github, tiktok, mastodon) whose glyphs ship inline (no icon font, no external
+requests). Each link carries an `aria-label` (the network name) and a decorative `aria-hidden`
+SVG; color follows `pp_footer_link_color`. Unknown networks or non-http(s) URLs are rejected at
+validation; empty/unset leaves the footer byte-identical.

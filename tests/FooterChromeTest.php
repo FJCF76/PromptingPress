@@ -977,4 +977,320 @@ class FooterChromeTest extends TestCase
             'functions.php must register the footer_secondary theme location so assign_menu_location / set_menu accept it.'
         );
     }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  Footer SOCIAL-ICON row (issue 382). pp_footer_social is the only
+    //  structured site option: a JSON list of {network, url} from a CLOSED
+    //  network set, rendered as accessible inline-SVG icon links in the
+    //  reserved .site-footer__social slot (#427). Unknown networks / non-URL
+    //  values are rejected with the standard envelope; unset = byte-identical
+    //  footer. Glyphs ship inline (no icon font, no external requests).
+    // ══════════════════════════════════════════════════════════════════════
+
+    private const SOCIAL_VALID = '[{"network":"x","url":"https://x.com/acme"},{"network":"linkedin","url":"https://linkedin.com/company/acme"}]';
+
+    // ── Whitelist + closed network set ──────────────────────────────────────
+
+    public function testAllowedSiteOptionsIncludesSocialAsStructuredType(): void
+    {
+        $this->assertSame('social', pp_allowed_site_options()['pp_footer_social']);
+    }
+
+    public function testNetworkMapIsTheSingleSourceWithLabelAndGlyph(): void
+    {
+        // Every accepted network MUST have a human label (the accessible name) and
+        // a non-empty single-path glyph — validation and rendering both key off this
+        // one map, so an accepted network can never be un-renderable.
+        $networks = pp_footer_social_networks();
+        $this->assertNotEmpty($networks);
+        foreach (['x', 'linkedin', 'facebook', 'instagram', 'youtube', 'github', 'tiktok', 'mastodon'] as $slug) {
+            $this->assertArrayHasKey($slug, $networks, "network '{$slug}' must be in the closed set");
+            $this->assertNotSame('', trim($networks[$slug]['label']), "network '{$slug}' needs a label");
+            $this->assertNotSame('', trim($networks[$slug]['path']), "network '{$slug}' needs a glyph path");
+        }
+    }
+
+    // ── Validation: accepted shapes ─────────────────────────────────────────
+
+    public function testValidSocialListIsAccepted(): void
+    {
+        $this->assertTrue(pp_validate_site_option_value('pp_footer_social', self::SOCIAL_VALID));
+        // Every closed-set network is individually acceptable.
+        foreach (array_keys(pp_footer_social_networks()) as $slug) {
+            $json = '[{"network":"' . $slug . '","url":"https://example.com/' . $slug . '"}]';
+            $this->assertTrue(
+                pp_validate_site_option_value('pp_footer_social', $json),
+                "network '{$slug}' should be accepted"
+            );
+        }
+    }
+
+    public function testEmptyStringClearsTheRow(): void
+    {
+        // '' is a valid CLEAR (unset the row), distinct from a malformed value.
+        $this->assertTrue(pp_validate_site_option_value('pp_footer_social', ''));
+        $this->assertTrue(pp_validate_site_option_value('pp_footer_social', '   '));
+    }
+
+    public function testExternalProfileUrlIsNotRejectedAsOffSite(): void
+    {
+        // These are EXTERNAL profile URLs — the same-site redirect validator must
+        // NOT be reused. A cross-origin https URL is exactly what's expected.
+        $this->assertTrue(pp_validate_site_option_value(
+            'pp_footer_social',
+            '[{"network":"github","url":"https://github.com/some-org"}]'
+        ));
+    }
+
+    // ── Validation: rejected shapes (standard envelope) ─────────────────────
+
+    public function testUnknownNetworkIsRejected(): void
+    {
+        $result = pp_validate_site_option_value(
+            'pp_footer_social',
+            '[{"network":"myspace","url":"https://myspace.com/acme"}]'
+        );
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_option_value', $result->get_error_code());
+        $this->assertStringContainsString('myspace', $result->get_error_message());
+    }
+
+    public function testNonUrlAndNonHttpSchemesAreRejected(): void
+    {
+        foreach ([
+            '[{"network":"x","url":"not a url"}]',
+            '[{"network":"x","url":"javascript:alert(1)"}]',
+            '[{"network":"x","url":"data:text/html,evil"}]',
+            '[{"network":"x","url":"//x.com/acme"}]',            // protocol-relative
+            '[{"network":"x","url":"ftp://x.com/acme"}]',        // non-http scheme
+            '[{"network":"x","url":""}]',                        // empty url
+        ] as $json) {
+            $this->assertInstanceOf(
+                \WP_Error::class,
+                pp_validate_site_option_value('pp_footer_social', $json),
+                "must reject: {$json}"
+            );
+        }
+    }
+
+    public function testMalformedAndWrongShapeJsonIsRejected(): void
+    {
+        foreach ([
+            'not json at all',
+            '{"network":"x","url":"https://x.com"}',                 // top-level object, not a list
+            '[]',                                                    // empty list
+            '[["x","https://x.com"]]',                               // list-shaped child, not an object
+            '[{"url":"https://x.com/acme"}]',                        // missing network
+            '[{"network":"x"}]',                                     // missing url
+            '[{"network":123,"url":"https://x.com"}]',               // non-string network
+            '[{"network":"x","url":42}]',                            // non-string url
+        ] as $json) {
+            $this->assertInstanceOf(
+                \WP_Error::class,
+                pp_validate_site_option_value('pp_footer_social', $json),
+                "must reject: {$json}"
+            );
+        }
+    }
+
+    public function testTooManyEntriesAreRejected(): void
+    {
+        $entries = array_fill(0, PP_FOOTER_SOCIAL_MAX + 1, '{"network":"x","url":"https://x.com/a"}');
+        $json = '[' . implode(',', $entries) . ']';
+        $result = pp_validate_site_option_value('pp_footer_social', $json);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+    }
+
+    // ── Write path: canonicalize + round-trip; reject leaves nothing stored ──
+
+    public function testWriteStoresCanonicalFormAndRoundTrips(): void
+    {
+        // Extra keys are dropped, url is trimmed, output re-validates (the
+        // snapshot/rollback path re-applies the stored value).
+        $noisy = '[{"network":"x","url":"  https://x.com/acme  ","extra":"drop me"}]';
+        $this->assertTrue(pp_update_site_option('pp_footer_social', $noisy));
+        $stored = get_option('pp_footer_social');
+        $this->assertStringNotContainsString('drop me', $stored, 'extra keys must be stripped');
+        $this->assertStringContainsString('https://x.com/acme', $stored);
+        $this->assertStringNotContainsString('  https', $stored, 'url must be trimmed');
+        $this->assertTrue(
+            pp_validate_site_option_value('pp_footer_social', $stored),
+            'canonical stored value must survive a re-validation round-trip'
+        );
+    }
+
+    public function testEmptyWriteClearsStoredValue(): void
+    {
+        $this->assertTrue(pp_update_site_option('pp_footer_social', self::SOCIAL_VALID));
+        $this->assertNotSame('', get_option('pp_footer_social'));
+        $this->assertTrue(pp_update_site_option('pp_footer_social', ''));
+        $this->assertSame('', (string) get_option('pp_footer_social'));
+    }
+
+    public function testWriteRejectsInvalidAndStoresNothing(): void
+    {
+        $result = pp_update_site_option('pp_footer_social', '[{"network":"nope","url":"https://x.com"}]');
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertArrayNotHasKey('pp_footer_social', $GLOBALS['_pp_test_store']['options']);
+    }
+
+    public function testActionPathValidatesSocial(): void
+    {
+        $ok = pp_execute_action('update_site_option', ['key' => 'pp_footer_social', 'value' => self::SOCIAL_VALID]);
+        $this->assertTrue($ok['ok'], 'valid social list should pass the action');
+        $bad = pp_execute_action('update_site_option', ['key' => 'pp_footer_social', 'value' => '[{"network":"nope","url":"https://x.com"}]']);
+        $this->assertFalse($bad['ok'], 'unknown network should fail the action');
+    }
+
+    // ── Snapshot / rollback covers pp_footer_social like other footer options ─
+
+    public function testSnapshotRollbackRestoresSocialOption(): void
+    {
+        // Baseline SET → change → rollback restores the prior value verbatim.
+        pp_update_site_option('pp_footer_social', self::SOCIAL_VALID);
+        $baseline = get_option('pp_footer_social');
+        $steps = [['name' => 'update_site_option', 'params' => ['key' => 'pp_footer_social', 'value' => self::SOCIAL_VALID]]];
+        $snapshot = _pp_snapshot_batch_targets($steps);
+        pp_update_site_option('pp_footer_social', '[{"network":"github","url":"https://github.com/x"}]');
+        _pp_restore_batch_snapshot($snapshot);
+        $this->assertSame($baseline, (string) get_option('pp_footer_social'), 'rollback must restore the prior social value');
+
+        // Baseline UNSET → set → rollback deletes it back to unset.
+        delete_option('pp_footer_social');
+        $snapshot2 = _pp_snapshot_batch_targets($steps);
+        pp_update_site_option('pp_footer_social', self::SOCIAL_VALID);
+        _pp_restore_batch_snapshot($snapshot2);
+        $this->assertSame('', (string) get_option('pp_footer_social'), 'rollback of an unset baseline must clear the option');
+    }
+
+    // ── Render: the icon row (links, aria, decorative SVG) ──────────────────
+
+    public function testSocialRowRendersAccessibleIconLinks(): void
+    {
+        $html = $this->renderFooter(['location' => 'footer', 'social' => self::SOCIAL_VALID]);
+        $this->assertStringContainsString('site-footer__social', $html);
+        // Exactly two links, with the right hrefs and per-link accessible names.
+        $this->assertSame(2, preg_match_all('/class="site-footer__social-link"/', $html));
+        $this->assertStringContainsString('href="https://x.com/acme"', $html);
+        $this->assertStringContainsString('href="https://linkedin.com/company/acme"', $html);
+        $this->assertStringContainsString('aria-label="X"', $html);
+        $this->assertStringContainsString('aria-label="LinkedIn"', $html);
+        // External-profile hardening.
+        $this->assertStringContainsString('rel="noopener noreferrer"', $html);
+        $this->assertStringContainsString('target="_blank"', $html);
+        // The SVG glyph is decorative — the accessible name comes from the link.
+        $this->assertMatchesRegularExpression('/<svg[^>]*aria-hidden="true"/', $html);
+    }
+
+    public function testSocialRowRendersInsideBrandColumnEvenWithoutLogoOrBlurb(): void
+    {
+        // The row's home is the brand column; a social-only footer must still emit
+        // the brand column (the render condition includes social).
+        $html = $this->renderFooter(['location' => 'footer', 'social' => self::SOCIAL_VALID]);
+        $brand  = strpos($html, 'site-footer__brand');
+        $social = strpos($html, 'site-footer__social');
+        $this->assertNotFalse($brand, 'social-only footer must still render the brand column');
+        $this->assertNotFalse($social);
+        $this->assertLessThan($social, $brand, 'the social row lives inside the brand column');
+    }
+
+    public function testSocialRowSkipsUnknownNetworksDefensively(): void
+    {
+        // A hand-edited DB value whose network is not in the closed map must never
+        // emit broken markup — the render skips it (validation is the gate, the
+        // render is defense in depth).
+        $html = $this->renderFooter([
+            'location' => 'footer',
+            'social'   => '[{"network":"x","url":"https://x.com/acme"},{"network":"ghost","url":"https://ghost.example/x"}]',
+        ]);
+        $this->assertSame(1, preg_match_all('/class="site-footer__social-link"/', $html), 'only the known network renders');
+        $this->assertStringNotContainsString('ghost.example', $html);
+    }
+
+    public function testSocialUrlIsRejectedBeforeItCanReachTheRender(): void
+    {
+        // The primary XSS gate is validation: a URL carrying attribute-breaking
+        // characters is rejected by filter_var before it can ever be stored.
+        $this->assertInstanceOf(
+            \WP_Error::class,
+            pp_validate_site_option_value(
+                'pp_footer_social',
+                '[{"network":"x","url":"https://x.com/\"><script>alert(1)</script>"}]'
+            )
+        );
+    }
+
+    public function testSocialRenderRoutesHrefAndLabelThroughEscapers(): void
+    {
+        // Defense in depth: the template MUST wrap the href in esc_url and the
+        // aria-label in esc_attr (WP core esc_url is the production escaping
+        // boundary; the PHPUnit stub is deliberately naive, so this is a source
+        // contract, not an output assertion).
+        $footer = file_get_contents($this->themeRoot . '/components/footer/footer.php');
+        $this->assertMatchesRegularExpression(
+            "/href=\"<\?php echo esc_url\(\\\$social_item\['url'\]\); \?>\"/",
+            $footer,
+            'the social link href must be routed through esc_url'
+        );
+        $this->assertMatchesRegularExpression(
+            "/aria-label=\"<\?php echo esc_attr\(\\\$social_item\['label'\]\); \?>\"/",
+            $footer,
+            'the social link aria-label must be routed through esc_attr'
+        );
+    }
+
+    // ── Unset footer: byte-identical, no whitespace artifact ────────────────
+
+    public function testUnsetSocialLeavesFooterByteIdentical(): void
+    {
+        // Passing an empty social prop (what base.php passes when pp_footer_social is
+        // unset) must be byte-for-byte identical to omitting it entirely, EVEN when a
+        // brand column is present (blurb set) — the social if/endif must leak no
+        // template whitespace (the #469 discipline: keep it at column 0).
+        $legacy = $this->renderFooter(['location' => 'footer', 'blurb' => 'Brand line.']);
+        $withEmptySocial = $this->renderFooter(['location' => 'footer', 'blurb' => 'Brand line.', 'social' => '']);
+        $this->assertSame($legacy, $withEmptySocial);
+        // No whitespace-only line wider than the normal column indent (the buggy
+        // shape would orphan a deep-indented blank line where the row would go).
+        $this->assertDoesNotMatchRegularExpression(
+            '/^[ \t]{25,}$/m',
+            $withEmptySocial,
+            'an unset social row must not leak template whitespace (keep the if/endif at column 0).'
+        );
+    }
+
+    public function testUnsetFooterEmitsNoSocialMarkup(): void
+    {
+        $html = $this->renderFooter(['location' => 'footer', 'blurb' => 'x', 'contact' => 'x']);
+        $this->assertStringNotContainsString('site-footer__social', $html);
+    }
+
+    // ── base.php mapping + CSS slot contract ────────────────────────────────
+
+    public function testBaseTemplateMapsSocialOption(): void
+    {
+        $base = file_get_contents($this->themeRoot . '/templates/base.php');
+        $this->assertStringContainsString(
+            "get_option('pp_footer_social'",
+            $base,
+            'base.php must read the pp_footer_social site option and pass it to the footer.'
+        );
+    }
+
+    public function testSocialRowCssResetsListAndRoutesLinkColor(): void
+    {
+        // The row is a <ul>, so the list chrome must be reset; the link color routes
+        // through the footer link slot (muted fallback) exactly like the nav links.
+        $slot = $this->cssRuleBlock('.site-footer__social');
+        $this->assertNotNull($slot);
+        $this->assertMatchesRegularExpression('/display:\s*flex/', $slot);
+        $this->assertMatchesRegularExpression('/list-style:\s*none/', $slot);
+
+        $link = $this->cssRuleBlock('.site-footer__social-link');
+        $this->assertNotNull($link);
+        $this->assertMatchesRegularExpression(
+            '/color:\s*var\(--footer-link-color,\s*var\(--color-muted\)\)/',
+            $link
+        );
+    }
 }

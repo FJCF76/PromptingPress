@@ -97,6 +97,12 @@
       "required": false,
       "default": "",
       "description": "Optional secondary line for a delimited bottom bar (issue 335). Set via the pp_footer_note site option. When NON-EMPTY, the copyright moves into its own delimited band (border-top) and this note renders opposite it; empty = the copyright renders inline exactly as issue 300 did. Plain text; newlines render as line breaks."
+    },
+    "social": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional social-icon row (issue 382). Set via the pp_footer_social site option as a JSON string: an ordered list of {network, url} objects, e.g. [{\"network\":\"x\",\"url\":\"https://x.com/acme\"},{\"network\":\"linkedin\",\"url\":\"https://linkedin.com/company/acme\"}]. network must be one of a CLOSED set of known networks (x, linkedin, facebook, instagram, youtube, github, tiktok, mastodon); url must be an http(s) profile URL. Renders under the brand blurb as accessible inline-SVG icon links (aria-label per link, decorative SVG) in the reserved .site-footer__social slot; color follows pp_footer_link_color. Unknown networks, non-URL values, non-http(s) schemes, and malformed JSON are rejected when the option is validated. Empty/unset = no row (footer byte-identical). No arbitrary icon URLs or icon fonts: the network set is fixed and its glyphs ship inline."
     }
   },
   "styling": {
