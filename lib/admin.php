@@ -569,6 +569,90 @@ function pp_validate_composition_errors(array $items): array {
             }
         }
 
+        // Bounded string-array props (issue 475). A prop whose schema declares
+        // `item_type: "string"` MAY also declare `max_items` and/or `item_max_length`
+        // bounds. When it does, a supplied value must be an array of plain strings,
+        // at most `max_items` of them, each at most `item_max_length` characters —
+        // otherwise the write is rejected with the standard envelope instead of the
+        // renderer silently dropping the offending entries (the reported-success-
+        // without-effect class, same rationale as the issue 379 numeric-bounds and
+        // issue 380 strict-enum checks above). Generic + schema-driven: only props
+        // declaring `item_type: "string"` are checked, so the object-or-string
+        // panel_items array (no item_type) is untouched. "Unset" is the key being
+        // absent, null, the empty string, or an empty array — that preserves the
+        // prop's default (an empty row renders nothing). Runs in the shared validator;
+        // restore_composition (#233) reports it via _pp_composition_findings() but
+        // never blocks on it.
+        if (isset($item['props']) && is_array($item['props']) && !empty($schema['props'])) {
+            foreach ($schema['props'] as $prop_name => $prop_def) {
+                if (($prop_def['type'] ?? null) !== 'array'
+                    || ($prop_def['item_type'] ?? null) !== 'string'
+                ) {
+                    continue;
+                }
+                if (!array_key_exists($prop_name, $item['props'])) {
+                    continue;
+                }
+                $value = $item['props'][$prop_name];
+                if ($value === null || $value === '' || $value === []) {
+                    continue; // unset sentinel — keeps the prop's default (empty row)
+                }
+                if (!is_array($value)) {
+                    $errors[] = new WP_Error(
+                        'invalid_prop_value',
+                        sprintf(
+                            'Component "%s" prop "%s" must be an array of strings; got %s.',
+                            $name,
+                            $prop_name,
+                            gettype($value)
+                        )
+                    );
+                    continue 2;
+                }
+                if (isset($prop_def['max_items']) && count($value) > (int) $prop_def['max_items']) {
+                    $errors[] = new WP_Error(
+                        'invalid_prop_value',
+                        sprintf(
+                            'Component "%s" prop "%s" accepts at most %d items; got %d.',
+                            $name,
+                            $prop_name,
+                            (int) $prop_def['max_items'],
+                            count($value)
+                        )
+                    );
+                    continue 2;
+                }
+                $item_max_length = isset($prop_def['item_max_length']) ? (int) $prop_def['item_max_length'] : null;
+                foreach ($value as $entry) {
+                    if (!is_string($entry)) {
+                        $errors[] = new WP_Error(
+                            'invalid_prop_value',
+                            sprintf(
+                                'Component "%s" prop "%s" items must be strings; got %s.',
+                                $name,
+                                $prop_name,
+                                gettype($entry)
+                            )
+                        );
+                        continue 3;
+                    }
+                    if ($item_max_length !== null && mb_strlen($entry) > $item_max_length) {
+                        $errors[] = new WP_Error(
+                            'invalid_prop_value',
+                            sprintf(
+                                'Component "%s" prop "%s" items must be at most %d characters; got %d.',
+                                $name,
+                                $prop_name,
+                                $item_max_length,
+                                mb_strlen($entry)
+                            )
+                        );
+                        continue 3;
+                    }
+                }
+            }
+        }
+
         // Validate optional style key against schema-declared style slots.
         $available_slots = $schema['styling']['style_slots'] ?? [];
         if (isset($item['style']) && is_array($item['style']) && !empty($item['style'])) {

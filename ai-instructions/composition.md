@@ -44,7 +44,7 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 | Name    | Required props                          | Optional props (selection)                              |
 |---------|-----------------------------------------|---------------------------------------------------------|
 | hero    | title                                   | title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, layout, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof |
-| section | body                                    | title, title_accent, eyebrow, subheading, heading_align, layout, theme, image_url, image_id, image_alt, background_image |
+| section | body                                    | title, title_accent, eyebrow, subheading, heading_align, layout, theme, image_url, image_id, image_alt, background_image, body_marker, body_items |
 | faq     | items[] {question, answer}              | title, title_accent, eyebrow, theme, id                 |
 | grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, heading_align, layout, card_emphasis, theme, columns, image_treatment |
 | table   | headers[], rows[][]                     | title, caption                                          |
@@ -187,6 +187,23 @@ A monospace spec panel with paired label/value rows, one row emphasised via a pe
     "body": "<ul><li>Transparent pricing</li><li>Cancel anytime</li></ul>",
     "body_marker": "check"
   }
+}
+```
+
+#### section inline-items row: `body_items`
+
+`body_items` renders a short "trust strip" — a single centered row of brief plain-text items with a CSS-generated middot (`·`) separator between each. Use it for the slim post-hero meta row (e.g. "No credit card · Cancel anytime · 30-day guarantee"), not for multi-line content (use `body` or `panel_items` for that). Each entry is a plain-text string (escaped, no HTML): at most **8 items**, each at most **80 characters** — a write that exceeds either bound, or passes a non-string entry, is rejected with `invalid_prop_value` (nothing persists). The row renders only when non-empty; when both `body` and `body_items` are set, the row renders after the body.
+
+The items inherit the section body type, so the `--section-body-size` / `--section-body-weight` slots (a slim 15px/600 strip needs no extra typography slots). Colour the separator with the `--section-separator-color` style slot (defaults to the muted text colour; it follows the light on-inverted / on-background-image text colour like sibling text on dark bands). The glyph is a fixed middot.
+
+```json
+{
+  "component": "section",
+  "props": {
+    "body": "<p>Everything you need to launch.</p>",
+    "body_items": ["No credit card", "Cancel anytime", "30-day guarantee"]
+  },
+  "style": { "--section-body-size": "15px", "--section-body-weight": "600", "--section-separator-color": "#84cc16" }
 }
 ```
 

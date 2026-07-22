@@ -246,7 +246,7 @@ class SchemaValidationTest extends TestCase
     {
         $expected = [
             'hero'    => 41,
-            'section' => 38,
+            'section' => 39,
             'grid'    => 37,
             'cta'     => 31,
         ];
@@ -642,6 +642,111 @@ class SchemaValidationTest extends TestCase
             'A non-strict enum (layout/theme) with an invalid value must still validate '
             . '(render-time coercion preserved); the #380 strict check must not ripple to it.'
         );
+    }
+
+    // ── Section inline-items row (issue 475) ─────────────────────────────
+    //
+    // section.body_items declares `item_type: "string"` with max_items:8 and
+    // item_max_length:80 in schema.json, so the shared validator's generic
+    // bounded-string-array check accepts only an array of ≤8 strings each ≤80
+    // chars (and the unset sentinel), and rejects everything else with
+    // invalid_prop_value — the write never persists an over-bound row the
+    // renderer would silently truncate. The bounds are read from schema, not
+    // hardcoded per component.
+
+    private function sectionCompositionWithBodyItems($bodyItems): array
+    {
+        $props = ['body' => '<p>Body.</p>'];
+        // '__ABSENT__' omits the key entirely; anything else is supplied verbatim.
+        if ($bodyItems !== '__ABSENT__') {
+            $props['body_items'] = $bodyItems;
+        }
+        return [['component' => 'section', 'props' => $props]];
+    }
+
+    /**
+     * @dataProvider validBodyItemsProvider
+     */
+    public function testSectionBodyItemsAcceptsInBoundArrays($bodyItems): void
+    {
+        $result = pp_validate_composition($this->sectionCompositionWithBodyItems($bodyItems));
+        $this->assertTrue($result, 'body_items=' . var_export($bodyItems, true) . ' must validate.');
+    }
+
+    public static function validBodyItemsProvider(): array
+    {
+        return [
+            'single item'        => [['One']],
+            'max 8 items'        => [['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']],
+            'exactly 80 chars'   => [[str_repeat('x', 80)]],
+            'unset: absent'      => ['__ABSENT__'],
+            'unset: null'        => [null],
+            'unset: empty str'   => [''],
+            'unset: empty array' => [[]],
+        ];
+    }
+
+    /**
+     * @dataProvider invalidBodyItemsProvider
+     */
+    public function testSectionBodyItemsRejectsOutOfBoundOrNonString($bodyItems): void
+    {
+        $result = pp_validate_composition($this->sectionCompositionWithBodyItems($bodyItems));
+        $this->assertInstanceOf(\WP_Error::class, $result, 'body_items=' . var_export($bodyItems, true) . ' must be rejected.');
+        $this->assertSame('invalid_prop_value', $result->get_error_code());
+        // The envelope names the offending prop so the caller/AI can correct it.
+        $this->assertStringContainsString('body_items', $result->get_error_message());
+    }
+
+    public static function invalidBodyItemsProvider(): array
+    {
+        return [
+            'nine items (over max)'  => [['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']],
+            'item over 80 chars'     => [[str_repeat('x', 81)]],
+            'non-string entry (int)' => [['ok', 42]],
+            'non-string entry (arr)' => [[['label' => 'x']]],
+            'scalar not array'       => ['just a string'],
+            'numeric not array'      => [7],
+        ];
+    }
+
+    /**
+     * The bounded string-array check is OPT-IN (only props declaring
+     * item_type:"string"). It must NOT ripple to section.panel_items, whose
+     * entries are strings OR {label,value} objects and which declares no
+     * item_type — a mixed panel_items array must still validate.
+     */
+    public function testBoundedArrayCheckDoesNotRippleToPanelItems(): void
+    {
+        $result = pp_validate_composition([
+            ['component' => 'section', 'props' => [
+                'body'        => '<p>x</p>',
+                'layout'      => 'text-panel',
+                'panel_items' => ['A bullet', ['label' => 'Uptime', 'value' => '99.9%']],
+            ]],
+        ]);
+        $this->assertTrue(
+            $result,
+            'panel_items (string-or-object array, no item_type) must still validate; '
+            . 'the #475 bounded-string-array check must not ripple to it.'
+        );
+    }
+
+    /**
+     * An unknown prop key on section still rejects with unknown_prop even when a
+     * valid body_items is present — the #147 strict-key gate is untouched by #475.
+     */
+    public function testUnknownPropStillStrictAlongsideBodyItems(): void
+    {
+        $result = pp_validate_composition([
+            ['component' => 'section', 'props' => [
+                'body'       => '<p>x</p>',
+                'body_items' => ['One', 'Two'],
+                'not_a_prop' => 'x',
+            ]],
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('unknown_prop', $result->get_error_code());
     }
 
     // ── Featured first-card remnant slots (issue 293) ────────────────────
@@ -1221,6 +1326,14 @@ class SchemaValidationTest extends TestCase
                     && !empty($prop_def['values'])
                 ) {
                     $props[$prop_name] = $prop_def['values'][0];
+                } elseif (
+                    ($prop_def['type'] ?? null) === 'array'
+                    && ($prop_def['item_type'] ?? null) === 'string'
+                ) {
+                    // Bounded string-array prop (issue 475, e.g. section.body_items):
+                    // the placeholder 'x' would be rejected as "not an array". A single
+                    // short string satisfies the count/length bounds.
+                    $props[$prop_name] = ['x'];
                 } else {
                     $props[$prop_name] = 'x';
                 }

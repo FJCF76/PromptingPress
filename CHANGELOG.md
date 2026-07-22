@@ -4,6 +4,25 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.6.2] — 2026-07-22 — a colorable "trust strip" row for sections (#475)
+
+**A slim post-hero band of short items with a colored dot between them ("No credit card · Cancel anytime · 30-day guarantee") used to be inexpressible: the only route was separator characters typed into body text, and those cannot be recolored because inline `style` spans are (correctly) stripped by the sanitizer. Sections gain a `body_items` prop — a row of short plain-text items rendered as a single centered row below the body, with a CSS-generated middot separator between each. The separator is a real presentational element, so it takes a color from the new `--section-separator-color` style slot and stays silent to screen readers. The items inherit the section body type, so the same `--section-body-size`/`--section-body-weight` slots that set the body's size and weight also set the strip's, and the original brand band (15px/600 text with a lime dot) is now fully expressible with no parent-theme edits.**
+
+`body_items` is a list of plain-text strings, escaped at output like every other text field: at most 8 items, each at most 80 characters, and a write that exceeds either bound or passes a non-string entry is rejected up front instead of silently truncated. The row renders only when it has content, after the body when both are set, and the page is byte-identical when it is unset. The separator color defaults to the muted text color and, on the inverted and background-image bands, follows the same light on-dark text color as its sibling text, so a dark band never gets an invisible dot. The row wraps to more centered rows at narrow widths, so it needs no mobile-specific rule. The bounds check is a generic, schema-driven rule in the shared write-time validator, so it holds for every write path (add/update component, update composition, create page) without a second validator.
+
+### Added
+- `section.body_items` — a centered row of up to 8 short plain-text items (≤80 chars each) rendered below the body with a CSS-generated middot separator between each, escaped at output; over-bound or non-string entries are rejected at write time (#475).
+- `--section-separator-color` style slot — colors the `body_items` separator; defaults to the muted text color, and follows the light on-inverted / on-overlay text color on dark and image bands like sibling text (#475).
+
+### Tests
+- PHPUnit `SchemaValidationTest`: `body_items` bounds (≤8 items, ≤80 chars, non-string and non-array rejected, unset sentinels accepted), the generic check not rippling to `panel_items`, and unknown-prop staying strict alongside a valid `body_items`.
+- PHPUnit `SectionInlineItemsTest`: the row renders only when set (byte-identical when unset), `esc_html` on each item, `<li>` count, ordering after the body, rendering across layouts, and CSS pins for the flex row, the body-type-slot inheritance, and the separator routing (base + overlay).
+- E2E `style-render.spec.ts` at 375 + 1280: computed separator color (muted default, slot override, inverted routing), wrap at narrow width, and the brand strip (15px/600 body type + a lime separator) computing correctly.
+- css-lint: every separator `color` declaration routes through `var(--section-separator-color …)` at both declaration sites.
+
+### Docs
+- `ai-instructions/composition.md` (section props row + a `body_items` worked example), `components/section/README.md`, the section `schema.json` prop and slot descriptions, and the `AI_CONTEXT.md` / `README.md` style-slot counts (215 → 216) document the new capability (#475).
+
 ## [v1.6.1] — 2026-07-22 — social-share cards you can actually set (#468)
 
 **Sharing a PromptingPress page used to produce a bare link: the theme emitted zero Open Graph or Twitter tags, and `update_seo_meta` only reached meta description, title, and canonical. There was no way to set a share image or the card text short of editing the parent theme or bolting on an SEO plugin. This release adds a first-class social-meta surface. Four site options declare the defaults — `pp_og_image` (a Media Library image attachment, the same typed rule as the logo), `pp_og_site_name`, `pp_og_default_description`, and `pp_twitter_card` (summary or summary_large_image) — and `update_seo_meta` gains per-page `og_title` and `twitter_title` overrides. The theme renders the full `og:*`/`twitter:*` set in the page head, resolved through page → site → WordPress fallback chains.**

@@ -20,6 +20,7 @@ Generic text + optional image section. Use this for "what is this", "how it work
 | `theme`            | enum   | No       | `'default'`   | Background color/tone: `default` / `muted` (light tinted surface band) / `inverted` (genuinely dark band) |
 | `background_image` | string | No       | `''`          | Optional background image URL with dark overlay for text readability |
 | `body_marker`        | enum   | No       | `'disc'`      | List marker for top-level `<ul>` lists in `body`: `disc` / `check` / `dash` / `arrow`. Colour via the `--section-body-marker-color` slot |
+| `body_items`         | array  | No       | `[]`          | Optional centered row of short plain-text items rendered below the body with a CSS-generated middot separator between each. Max 8 items, each ≤80 chars (over-bound or non-string rejected at write time). Inherits the body type slots; colour the separator via `--section-separator-color` |
 | `panel_items_marker` | enum   | No       | `'disc'`      | text-panel layout: list marker for the string entries of `panel_items`: `disc` / `check` / `dash` / `arrow`. Colour via the `--section-panel-marker-color` slot. Paired rows never show a marker |
 
 ### Content panel (`text-panel` layout)
