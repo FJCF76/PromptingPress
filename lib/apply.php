@@ -1451,14 +1451,37 @@ pp_register_apply('reset_fonts', [
 pp_register_apply('import_media', [
     'domain'      => 'media',
     'target'      => ['type' => 'media'],
-    'description' => 'Sideloads an external image URL into the media library, or reuses the existing attachment if that source URL was already imported. Returns the attachment id and local URL, with action "import" (new) or "reused" (deduped).',
+    'description' => 'Brings an image into the media library and returns its attachment id + local URL. Source is EITHER url (a remote HTTPS image, sideloaded, deduped by source URL) OR file (a server-local absolute path to a brand-kit asset, copied then sideloaded) — provide exactly one. Result action is "import" (new) or, for a repeat url, "reused".',
     'params'      => [
-        'url' => ['type' => 'string', 'required' => true],
-        'alt' => ['type' => 'string', 'required' => false],
+        // Exactly one of url/file is required; mutual exclusion is enforced in
+        // validate (the framework only checks types/individually-required here).
+        'url'  => ['type' => 'string', 'required' => false],
+        'file' => ['type' => 'string', 'required' => false],
+        'alt'  => ['type' => 'string', 'required' => false],
     ],
 
     'validate' => function (array $params) {
-        $url = $params['url'] ?? '';
+        $url  = $params['url']  ?? '';
+        $file = $params['file'] ?? '';
+        $has_url  = is_string($url)  && $url  !== '';
+        $has_file = is_string($file) && $file !== '';
+
+        // url and file are two sources for the same result; requiring exactly
+        // one keeps the envelope unambiguous and avoids "which won?" surprises.
+        if ($has_url && $has_file) {
+            return new WP_Error('invalid_params', 'Provide either a url or a file, not both.');
+        }
+        if (!$has_url && !$has_file) {
+            return new WP_Error('invalid_params', 'Provide a url (remote image) or a file (local absolute path).');
+        }
+
+        // Local-file path (#490): the same run-token gating, preflight, and
+        // journal treatment as the URL path (this is the same apply), with a
+        // filesystem-shaped validation twin. Path resolution happens FIRST.
+        if ($has_file) {
+            return _pp_validate_import_media_file($file);
+        }
+
         if (!filter_var($url, FILTER_VALIDATE_URL)) {
             return new WP_Error('invalid_url', 'Value must be a valid URL.');
         }
@@ -1472,6 +1495,29 @@ pp_register_apply('import_media', [
     },
 
     'preview' => function (array $params) {
+        $file = $params['file'] ?? '';
+        // Local-file preview (#490): resolve symlinks, then verify the bytes are
+        // a genuine image the same way apply() will -- the filesystem twin of the
+        // URL preview's HEAD content-type probe. Only the basename is ever echoed
+        // back; the operator's absolute path is never disclosed.
+        if (is_string($file) && $file !== '') {
+            $real = realpath($file);
+            if ($real === false || !is_file($real) || !is_readable($real)) {
+                return new WP_Error('invalid_file', 'File does not exist or is not readable.');
+            }
+            $verified_mime = _pp_import_media_verify_local_image($real, basename($real));
+            if (is_wp_error($verified_mime)) {
+                return $verified_mime;
+            }
+            return _pp_apply_preview(
+                'import_media', 'media',
+                ['type' => 'media'],
+                [],
+                ['file' => basename($real), 'alt' => $params['alt'] ?? '', 'content_type' => $verified_mime],
+                [['action' => 'import', 'file' => basename($real)]]
+            );
+        }
+
         $url = $params['url'];
         // A HEAD request, not a download -- still routed through WordPress's
         // SSRF-safe fetch path (wp_safe_remote_head validates the URL and
@@ -1494,8 +1540,17 @@ pp_register_apply('import_media', [
     },
 
     'apply' => function (array $params) {
+        $alt  = $params['alt'] ?? '';
+        $file = $params['file'] ?? '';
+
+        // Local-file path (#490): stage a COPY and sideload the copy so the
+        // operator's source file is never consumed. Same attachment-id envelope,
+        // same journalled surface (this is the same apply as the URL path).
+        if (is_string($file) && $file !== '') {
+            return _pp_import_media_apply_local_file($file, $alt);
+        }
+
         $url = $params['url'];
-        $alt = $params['alt'] ?? '';
 
         // Source-URL dedupe (#298). import_media is the sanctioned way an AI
         // operator brings an external image onto the site, and that loop retries
@@ -1563,7 +1618,7 @@ pp_register_apply('import_media', [
 
         $filename = sanitize_file_name(basename((string) parse_url($url, PHP_URL_PATH)));
         $filetype = wp_check_filetype_and_ext($tmp_file, $filename);
-        $allowed_mimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+        $allowed_mimes = _pp_import_media_allowed_mimes();
         if (empty($filetype['type']) || !in_array($filetype['type'], $allowed_mimes, true)) {
             @unlink($tmp_file);
             return _pp_apply_error('import_media', 'media', ['type' => 'media'], 'The downloaded file is not a supported image type (jpg, png, gif, webp).');
@@ -1611,6 +1666,211 @@ function _pp_url_has_allowed_image_extension(string $url): bool {
     $path = (string) parse_url($url, PHP_URL_PATH);
     $ext  = strtolower(pathinfo($path, PATHINFO_EXTENSION));
     return in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true);
+}
+
+/**
+ * The image MIME types import_media accepts, for BOTH the url and file paths.
+ * Deliberately narrower than WordPress's default upload allowlist (which also
+ * permits PDFs, docs, zips): import_media exists to bring IMAGES onto the site.
+ * Single source of truth so the two source paths can never drift apart.
+ */
+function _pp_import_media_allowed_mimes(): array {
+    return ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+}
+
+/**
+ * Checks whether a filesystem path ends in a recognized image extension. Fast
+ * pre-check for import_media's file path — the authoritative content check is
+ * _pp_import_media_verify_local_image() (getimagesize + WP filetype agreement).
+ */
+function _pp_file_has_allowed_image_extension(string $path): bool {
+    $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+    return in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true);
+}
+
+/**
+ * Validation for import_media's local-file source (#490). Resolves symlinks with
+ * realpath() FIRST, then requires the resolved target to exist, be a regular
+ * readable file, carry an allowed image extension, sit within the 10MB cap
+ * (enforced pre-read via a local stat — the URL path enforces the same cap
+ * post-download), and be a GENUINE image (getimagesize + WP filetype agreement,
+ * per the recorded decision). Error messages never echo the operator's path.
+ *
+ * This reads a server-local path BY DESIGN: the operator CLI already runs with
+ * admin rights, so there is no staging-directory ceremony — the caller names
+ * the file and the action journals the media write the loop otherwise had no
+ * record of.
+ *
+ * @return true|WP_Error
+ */
+function _pp_validate_import_media_file(string $file) {
+    // Require an absolute path: a relative path would resolve against an
+    // unpredictable process cwd (CLI vs cron vs web request), so the operator's
+    // intent is only unambiguous when the path is absolute. Symlinks in the path
+    // are followed by realpath() below — every later check sees the real target.
+    if ($file === '' || $file[0] !== '/') {
+        return new WP_Error('invalid_file', 'File must be an absolute path.');
+    }
+    $real = realpath($file);
+    if ($real === false || !is_file($real)) {
+        return new WP_Error('invalid_file', 'File does not exist or is not a regular file.');
+    }
+    if (!is_readable($real)) {
+        return new WP_Error('invalid_file', 'File is not readable.');
+    }
+    if (!_pp_file_has_allowed_image_extension($real)) {
+        return new WP_Error('unsupported_type', 'File must have a supported image extension: jpg, jpeg, png, gif, webp.');
+    }
+    if (filesize($real) > 10 * MB_IN_BYTES) {
+        return new WP_Error('oversized', 'Image exceeds the 10MB size limit.');
+    }
+    // Genuine-image gate, per the recorded decision (validation includes "must
+    // be a GENUINE image — WP filetype check AND getimagesize agreement"). The
+    // file path can afford this at validate time because the bytes are local
+    // (the URL path can only sniff content post-download, in apply).
+    $verified = _pp_import_media_verify_local_image($real, basename($real));
+    if (is_wp_error($verified)) {
+        return $verified;
+    }
+    return true;
+}
+
+/**
+ * Verifies that a local file is a GENUINE image whose actual bytes, WordPress's
+ * filetype detection, and its filename extension all agree (#490). The
+ * filesystem twin of the URL path's post-download wp_check_filetype_and_ext()
+ * gate, hardened with a getimagesize() cross-check so a non-image — or a JPEG
+ * wearing a .png extension — cannot slip through on a trusted-looking name.
+ *
+ * Rejects, in order: bytes that do not decode as an image at all (getimagesize
+ * returns false), a type outside the jpg/png/gif/webp allowlist, a missing or
+ * disallowed WordPress-detected type, or a WP type that disagrees with
+ * getimagesize / a non-empty proper_filename (extension ≠ content). Returns the
+ * agreed image MIME on success. Read-only: never mutates state, never moves the
+ * file.
+ *
+ * @param  string $path      A readable local file (source, or the staged copy).
+ * @param  string $filename  The name whose extension the content must match
+ *                           (the intended image name — NOT a wp_tempnam() ".tmp"
+ *                           staging name, which would fail the extension check).
+ * @return string|WP_Error   The agreed image MIME on success.
+ */
+function _pp_import_media_verify_local_image(string $path, string $filename) {
+    $allowed = _pp_import_media_allowed_mimes();
+
+    $info = @getimagesize($path);
+    if ($info === false || empty($info['mime'])) {
+        return new WP_Error('unsupported_type', 'The file is not a supported image (jpg, png, gif, webp).');
+    }
+    $image_mime = strtolower((string) $info['mime']);
+    if (!in_array($image_mime, $allowed, true)) {
+        return new WP_Error('unsupported_type', 'The file is not a supported image (jpg, png, gif, webp).');
+    }
+
+    // WordPress's own extension-vs-content check. A non-empty proper_filename
+    // means the filename's extension disagrees with the sniffed content (e.g. a
+    // JPEG named logo.png) — reject that mismatch rather than let WP silently
+    // rename it, per the recorded decision.
+    $filetype = wp_check_filetype_and_ext($path, $filename);
+    $wp_type  = is_array($filetype) ? (string) ($filetype['type'] ?? '') : '';
+    if ($wp_type === '' || !in_array($wp_type, $allowed, true)) {
+        return new WP_Error('unsupported_type', 'The file is not a supported image (jpg, png, gif, webp).');
+    }
+    if (strtolower($wp_type) !== $image_mime || !empty($filetype['proper_filename'])) {
+        return new WP_Error('unsupported_type', 'The file extension does not match its actual image type.');
+    }
+
+    return $image_mime;
+}
+
+/**
+ * import_media's local-file apply path (#490): stage a copy of a server-local
+ * image and sideload THE COPY into the media library, returning the same
+ * attachment-id envelope as the URL path so pp_logo_id / site_icon /
+ * pp_og_image consume it identically.
+ *
+ * Why copy first: media_handle_sideload() hands its tmp_name to
+ * wp_handle_sideload(), which MOVES (renames) that file into wp-content/uploads
+ * and unlinks the original. Passing the operator's kit file directly would
+ * therefore CONSUME it. We copy to a wp_tempnam() staging file and sideload the
+ * copy, so the operator's source is never moved, renamed, or deleted.
+ *
+ * validate() already ran the structural gate, but apply() is reachable directly
+ * (batch executor, direct callers), so the path is re-resolved and re-checked
+ * here defensively rather than trusting an earlier gate.
+ */
+function _pp_import_media_apply_local_file(string $file, string $alt): array {
+    $target = ['type' => 'media'];
+
+    // Resolve symlinks BEFORE trusting anything about the path.
+    $real = realpath($file);
+    if ($real === false || !is_file($real) || !is_readable($real)) {
+        return _pp_apply_error('import_media', 'media', $target, 'File does not exist or is not readable.');
+    }
+    if (filesize($real) > 10 * MB_IN_BYTES) {
+        return _pp_apply_error('import_media', 'media', $target, 'Image exceeds the 10MB size limit.');
+    }
+
+    // Guarded like the URL path: these admin-context files aren't autoloaded
+    // outside wp-admin (CLI, AJAX, cron). wp_tempnam() lives in file.php,
+    // media_handle_sideload() in media.php.
+    if (!function_exists('media_handle_sideload')) {
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+    }
+
+    $filename = sanitize_file_name(basename($real));
+
+    // Copy to a staging temp file so the sideload consumes the COPY, never the
+    // operator's source (see the doc-comment above).
+    $tmp = wp_tempnam($filename);
+    if (!$tmp || !@copy($real, $tmp)) {
+        if ($tmp) {
+            @unlink($tmp);
+        }
+        return _pp_apply_error('import_media', 'media', $target, 'Could not stage the file for import.');
+    }
+
+    // Verify the EXACT bytes that will be imported (the staged copy), against
+    // the intended filename. validate() already gated $real, but re-verifying
+    // $tmp here closes any verify→import gap (a source swapped after validate)
+    // and guarantees only a genuine image reaches media_handle_sideload — which
+    // otherwise re-checks against WordPress's much broader default mime
+    // allowlist (pdf/zip/docx/…), not this apply's images-only list.
+    $verify = _pp_import_media_verify_local_image($tmp, $filename);
+    if (is_wp_error($verify)) {
+        @unlink($tmp);
+        return _pp_apply_error('import_media', 'media', $target, $verify->get_error_message());
+    }
+
+    $file_array    = ['name' => $filename, 'tmp_name' => $tmp];
+    $attachment_id = media_handle_sideload($file_array, 0);
+    if (is_wp_error($attachment_id)) {
+        @unlink($tmp);
+        return _pp_apply_error('import_media', 'media', $target, $attachment_id->get_error_message());
+    }
+    // media_handle_sideload moves tmp into uploads on success; if anything left
+    // the staging file behind, clean it up (never leave a temp file around).
+    if (file_exists($tmp)) {
+        @unlink($tmp);
+    }
+
+    if ($alt !== '') {
+        update_post_meta($attachment_id, '_wp_attachment_image_alt', $alt);
+    }
+
+    // No source-URL dedupe here: a local path is not a stable remote identity,
+    // and recording it would disclose the operator's filesystem layout in
+    // post-meta. Each file import is a fresh, journalled attachment.
+    return _pp_apply_result(
+        'import_media', 'media', $target,
+        [[
+            'action'        => 'import',
+            'attachment_id' => $attachment_id,
+            'url'           => wp_get_attachment_url($attachment_id),
+        ]]
+    );
 }
 
 /**

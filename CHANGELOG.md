@@ -4,6 +4,22 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.7.3] — 2026-07-22 — `import_media` can now import a server-local file, not only a remote URL (#490)
+
+**Brand assets — a logo lockup, a favicon, the 1200×630 OG card — normally live on the operator machine or in a brand kit, not at a public URL. `import_media` only accepted a remotely-fetchable `url`, so the one write every `pp_logo_id` / `site_icon` / `pp_og_image` setup depends on was the one write the operating loop had no typed path for: operators fell back to raw `wp media import`, which bypasses preflight, the run token, and the apply journal entirely. `import_media` now also accepts a `file` param — a server-local absolute path — mutually exclusive with `url`. The whole brand-asset flow (import → set the ID) stays inside the typed, journalled, preflighted action layer, and returns the same `{attachment_id, url}` envelope so the site options consume it directly.**
+
+The `file` path is the twin of the URL path: it is the same registered apply, so it inherits identical run-token gating, `uploads_writable` preflight, and apply-journal treatment (the attachment is additive — a batch rollback keeps it, exactly like the URL path). It reads a server-local path by design — the operator CLI already runs with admin rights, so there is no staging-directory ceremony. Validation resolves symlinks with `realpath()` before any check, requires a readable regular file within the 10MB cap, and demands a GENUINE image: `getimagesize()` and WordPress's own filetype check must agree on the MIME, so a non-image named `.png` or a JPEG wearing a `.png` extension is rejected regardless of extension. The operator's source file is never consumed — `media_handle_sideload()` moves its input into uploads, so the apply copies the source to a staging temp file and sideloads the copy, then re-verifies the exact bytes being imported so nothing outside the jpg/png/gif/webp allowlist can reach the sideload. Error envelopes never disclose the operator's path.
+
+### Fixed
+- `import_media` (`lib/apply.php`) now accepts `file` (a server-local absolute path) as an alternative to `url`, mutually exclusive with it, closing the chicken-and-egg where importing a local brand asset required publishing it to a URL first or stepping outside the typed action layer via raw `wp media import` (#490).
+
+### Docs
+- `AI_CONTEXT.md`, `lib/ai-context.php`, `ai-instructions/website-building.md`, `ai-instructions/composition.md`, and `docs/reference-apply-cli.md` now describe the `url`/`file` choice, the server-local-by-design `file` source, the genuine-image + copy-not-consume guarantees, and that `file` feeds `pp_logo_id` / `site_icon` / `pp_og_image` the same way (#490).
+
+### Tests
+- `ApplyTest.php`: valid file import through the real `pp_execute_apply('import_media')` surface (envelope + alt + no source-URL marker); source file not consumed and the sideload receives a staged copy; non-image masquerading as `.png` rejected (getimagesize disagreement); extension/content mismatch rejected; missing / relative / unreadable / oversized paths rejected with the standard envelope; `url`+`file` and neither-set both rejected; UTF-8 filename + alt round-trip; preview verifies without sideloading and discloses no path; and a batch-rollback parity test proving the file import is additive like the URL path (#490).
+- `tests/bootstrap.php`: a `wp_tempnam()` stub so the copy-then-sideload staging path is exercised without real WordPress (#490).
+
 ## [v1.7.2] — 2026-07-22 — a section can be a `body_items`-only trust strip: `body` is now optional (#488)
 
 **A `section` whose whole content is its `body_items` row — a slim "trust strip" like "SOC 2 · 99.99% uptime · GDPR" with no heading and no paragraph — is now a first-class band. `body` was a required prop, so the only way to author such a strip was to pass an empty `body: ""` placeholder purely to satisfy the validator, and the row then paid a body-relative top margin that pushed it below the band's optical centre. Now `body` is optional: author the strip with `body_items` alone, and on a body-less strip the row's top margin drops to zero so the band's own symmetric padding centres it. A section still cannot be empty — it must carry at least one of `body`, `body_items`, or panel content, so a genuinely contentless band is still rejected at write time.**

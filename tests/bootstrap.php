@@ -1121,6 +1121,17 @@ if (!function_exists('wp_check_filetype_and_ext')) {
     }
 }
 
+// import_media's local-file path (#490) copies the source to a wp_tempnam()
+// staging file, then sideloads the copy. The stub returns a real, writable temp
+// path so copy() succeeds and the "source not consumed" assertion is meaningful.
+if (!function_exists('wp_tempnam')) {
+    function wp_tempnam(string $filename = '', string $dir = ''): string {
+        $tmp = tempnam(sys_get_temp_dir(), 'pp_test_tempnam_');
+        $GLOBALS['_pp_test_store']['wp_tempnam_calls'][] = $tmp;
+        return $tmp;
+    }
+}
+
 if (!function_exists('media_handle_sideload')) {
     function media_handle_sideload(array $file_array, int $post_id = 0, $desc = null, array $post_data = []) {
         $GLOBALS['_pp_test_store']['media_sideload_calls'][] = $file_array;

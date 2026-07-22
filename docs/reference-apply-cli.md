@@ -102,7 +102,7 @@ The token-domain applies you'll use with this family:
 | `reset_design_token` | `token` (required) | Clear one token override → product default |
 | `reset_all_design_tokens` | — | Clear all token overrides → product defaults |
 
-(The registry also carries font and media applies — `enqueue_font`, `remove_font`, `reset_fonts`, `import_media` — registered in `lib/apply.php`. This page focuses on the token surface that `execute`/`reset`/`restore` operate on.)
+(The registry also carries font and media applies — `enqueue_font`, `remove_font`, `reset_fonts`, `import_media` — registered in `lib/apply.php`. This page focuses on the token surface that `execute`/`reset`/`restore` operate on. `import_media` takes EITHER a remote `url` OR a server-local absolute `file` — exactly one; the `file` source, #490, lets brand-kit assets that live on the operator machine join the same journalled surface without raw `wp media import`.)
 
 ---
 
