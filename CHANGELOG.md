@@ -4,6 +4,16 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.7.0] — 2026-07-22 — actions/integrity hardening: the v1.7.0 gate is closed (#141)
+
+**This is a gate rollup marker: the four changes of this release shipped in working versions 1.6.3–1.6.6 below, and this entry carries no new code beyond the five-file version bump and doc freshness. What 1.7.0 marks is the close of the actions/integrity hardening gate (#141, Part 1.96) — the mutation and validation trust layer tightened after the brand-fidelity feature run. Batch rollback now restores what was actually there: site-option snapshots capture presence separately from value, so an absent option rolls back to absent and an explicit-empty to empty (#291). The media-URL security gate derives its prop coverage from component schemas via \"format\": \"image_url\" — a new image prop is covered the day its schema declares it — with an un-droppable two-name floor so the gate can never fail open on registry failure (#154). Page actions that assume a materialized page (publish, trash, slug, SEO) reject auto-draft phantoms with a clear envelope while the Add-New-Page first-save promotion path stays intact, and a garbage-collected editor URL redirects instead of dying (#160). And the length validator's grammar closed its malformed-shape holes — no digitless or multi-dot numbers, no whitespace before units, proper paren nesting, no top-level calc commas — with the signed #467 grammar preserved and the accepted residuals documented (#151).**
+
+This release bumps the version across the five synced files from 1.6.6 to 1.7.0 and updates README.md's project-status strings. Release evidence (recorded on #141): full suites green per issue; three of the four issues produced pre-landing decision escalations (fail-closed floor, four-action reject set, walker-vs-count guard) — the gate hardened itself while hardening the theme. No behavior changed in this entry itself.
+
+### Docs
+
+- README.md's project-status section now reads v1.7.0 in the release-history range and the "What exists today" heading. readme.txt gains its `= 1.7.0 =` rollup entry.
+
 ## [v1.6.6] — 2026-07-22 — `_pp_validate_length()` rejects malformed calc()/clamp() and simple-length shapes it used to persist as broken CSS (#151)
 
 **The design-token/style-slot length validator accepted several malformed values that the browser silently drops: a unit with no digit (`.em`), a number with multiple dots (`1.2.3rem`), whitespace before the unit (`1.2 rem`), an unbalanced or improperly-nested `calc()` body (`calc(1))`, `calc()1,2()`), and comma misuse inside `calc()` (`calc(1,2,3)`). Each one validated and was written to a custom property, then the browser threw the whole declaration away — a broken style the operator or AI thought they had set. The length grammar now rejects these up front. Every well-formed length still validates unchanged: all units, signed/negative lengths (#467), leading-dot numbers, and nested `clamp()`/`calc()` expressions.**
