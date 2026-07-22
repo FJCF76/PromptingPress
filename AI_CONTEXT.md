@@ -533,6 +533,8 @@ These are the keys every action returns, not the complete set for every action. 
 | `assign_menu_location` | site | menu_id (req), location (req) | Replace. `location` must be a registered theme location (`primary`, `footer`, `footer_secondary`) |
 | `set_menu` | site | name (req), items (req), location | **Declarative replace** — mirrors `update_composition`. Creates the menu by name if it doesn't exist; clears and replaces ALL its items with the given ordered list (each `{page_id}` or `{url, label}`); optionally assigns a location, all in one call |
 
+**Auto-draft status gate (#160).** `publish_page`, `trash_page`, `update_page_slug`, and `update_seo_meta` reject a target whose `post_status` is still `auto-draft` (WordPress's hidden, self-GC'd "Add New Page" placeholder, which `pp_composition_pages()` already omits from the inventory) with `error_code: auto_draft` — save the page first. `update_composition` and `update_page_title` are exempt: they are the first-save path that promotes an auto-draft to a real `draft` (#121). `restore_page` is unaffected (trash-gated).
+
 ### WP-CLI
 
 ```bash

@@ -13,7 +13,7 @@
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
 [![Tests](https://img.shields.io/badge/Tests-1936+_passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-1.6.4-6366F1?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.6.5-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -335,6 +335,8 @@ AI_RULES.md                Hard coding invariants
 3. Upload the ZIP file and activate PromptingPress
 
 On activation, PromptingPress creates a Home page with the Composition template and assigns it as the static front page.
+
+> ℹ️ **WP-Cron dependency:** "Add New Page" creates a hidden `auto-draft` placeholder that WordPress cleans up (`wp_delete_auto_drafts()`) roughly 7 days later — but only when WP-Cron actually fires, which is driven by site traffic. On an install with `DISABLE_WP_CRON` set, or very low traffic (plausible for an internal admin tool), abandoned auto-drafts can accumulate silently. They stay hidden from the Pages list, so this is harmless housekeeping, not data risk. If it matters for your install, hit `wp-cron.php` from a real system cron. This mirrors WordPress core's own new-post flow.
 
 <details>
 <summary><strong>Developer install (clone the repo)</strong></summary>
