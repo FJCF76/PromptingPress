@@ -2728,6 +2728,263 @@ class ApplyTest extends TestCase
         $this->assertSame('media', $apply['target']['type']);
     }
 
+    // ── import_media local-file path (#490) ──────────────────────────────────
+    // Twin of the URL path: same apply → same run-token gating, preflight, and
+    // journal treatment. These tests exercise the real pp_execute_apply()
+    // surface (validate + apply), not the apply closure directly.
+
+    /** Canonical 1x1 image bytes for a given type (real, getimagesize-decodable). */
+    private function ppImageBytes(string $type = 'png'): string
+    {
+        $map = [
+            // 1x1 transparent PNG
+            'png' => 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+            // 1x1 GIF
+            'gif' => 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+        ];
+        return base64_decode($map[$type] ?? $map['png']);
+    }
+
+    /** Writes a real image file into the auto-cleaned tempDir, returns its path. */
+    private function writeFixtureImage(string $basename, string $type = 'png'): string
+    {
+        $path = $this->tempDir . '/' . $basename;
+        file_put_contents($path, $this->ppImageBytes($type));
+        return $path;
+    }
+
+    /** Writes non-image bytes into the tempDir under $basename, returns its path. */
+    private function writeFixtureText(string $basename, string $contents = 'not an image'): string
+    {
+        $path = $this->tempDir . '/' . $basename;
+        file_put_contents($path, $contents);
+        return $path;
+    }
+
+    public function testImportMediaFileValidatesGenuineImage(): void
+    {
+        $this->resetImportMediaTestStore();
+        // validate() runs the genuine-image gate (per the recorded decision):
+        // getimagesize (real, on the PNG) and the WP filetype check must agree.
+        $GLOBALS['_pp_test_store']['filetype_result'] =
+            ['ext' => 'png', 'type' => 'image/png', 'proper_filename' => false];
+        $path = $this->writeFixtureImage('brand-logo.png');
+        $result = pp_validate_apply('import_media', ['file' => $path]);
+        $this->assertTrue($result);
+    }
+
+    public function testImportMediaFileValidateRejectsMasquerade(): void
+    {
+        // The genuine-image gate lives in validate() too — a text file named
+        // .png is rejected before apply(), not only at apply time.
+        $this->resetImportMediaTestStore();
+        $path = $this->writeFixtureText('masq.png');
+        $result = pp_validate_apply('import_media', ['file' => $path]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('unsupported_type', $result->get_error_code());
+    }
+
+    public function testImportMediaFileExecuteSuccessJournalsEnvelope(): void
+    {
+        $this->resetImportMediaTestStore();
+        // getimagesize (real, on the PNG) and the WP filetype check must agree.
+        $GLOBALS['_pp_test_store']['filetype_result'] =
+            ['ext' => 'png', 'type' => 'image/png', 'proper_filename' => false];
+        $path = $this->writeFixtureImage('brand-logo.png');
+
+        $result = pp_execute_apply('import_media', ['file' => $path, 'alt' => 'Brand logo']);
+        $this->assertTrue($result['ok']);
+        $this->assertSame('media', $result['domain']);
+        $this->assertSame('media', $result['target']['type']);
+        $change = $result['changes'][0];
+        // Same attachment-id envelope as the URL path, so pp_logo_id / site_icon
+        // / pp_og_image consume it identically.
+        $this->assertSame('import', $change['action']);
+        $this->assertArrayHasKey('attachment_id', $change);
+        $this->assertNotEmpty($change['url']);
+        // alt persisted against the new attachment.
+        $meta = $GLOBALS['_pp_test_store']['post_meta'][$change['attachment_id']]['_wp_attachment_image_alt'] ?? null;
+        $this->assertSame('Brand logo', $meta);
+        // A local file has no stable source URL — no dedupe marker is written.
+        $this->assertArrayNotHasKey(
+            '_pp_import_source_url',
+            $GLOBALS['_pp_test_store']['post_meta'][$change['attachment_id']] ?? []
+        );
+    }
+
+    public function testImportMediaFileDoesNotConsumeSource(): void
+    {
+        // media_handle_sideload MOVES its tmp_name into uploads; the apply must
+        // copy the source and sideload the COPY, leaving the operator's kit file
+        // exactly where it was.
+        $this->resetImportMediaTestStore();
+        $GLOBALS['_pp_test_store']['filetype_result'] =
+            ['ext' => 'png', 'type' => 'image/png', 'proper_filename' => false];
+        $path = $this->writeFixtureImage('keep-me.png');
+        $originalBytes = file_get_contents($path);
+
+        $result = pp_execute_apply('import_media', ['file' => $path]);
+        $this->assertTrue($result['ok']);
+        // Source untouched: still present, byte-identical.
+        $this->assertFileExists($path);
+        $this->assertSame($originalBytes, file_get_contents($path));
+        // The sideload received a STAGED copy, not the operator's path.
+        $sideloaded = $GLOBALS['_pp_test_store']['media_sideload_calls'][0];
+        $this->assertNotSame($path, $sideloaded['tmp_name']);
+        $this->assertFileDoesNotExist($sideloaded['tmp_name']); // staging file cleaned up
+    }
+
+    public function testImportMediaFileRejectsNonImageMasqueradingAsPng(): void
+    {
+        // A text file named x.png: getimagesize() returns false regardless of
+        // extension, so it is rejected before any sideload.
+        $this->resetImportMediaTestStore();
+        $path = $this->writeFixtureText('fake.png');
+
+        $result = pp_execute_apply('import_media', ['file' => $path]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not a supported image', $result['error']);
+        $this->assertEmpty($GLOBALS['_pp_test_store']['media_sideload_calls']);
+    }
+
+    public function testImportMediaFileRejectsExtensionContentMismatch(): void
+    {
+        // Real PNG bytes, but WordPress's filetype check disagrees with
+        // getimagesize (e.g. the bytes are actually a JPEG wearing .png):
+        // reject the mismatch, never silently rename.
+        $this->resetImportMediaTestStore();
+        $GLOBALS['_pp_test_store']['filetype_result'] =
+            ['ext' => 'jpg', 'type' => 'image/jpeg', 'proper_filename' => 'fake.jpg'];
+        $path = $this->writeFixtureImage('fake.png');
+
+        $result = pp_execute_apply('import_media', ['file' => $path]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('does not match its actual image type', $result['error']);
+        $this->assertEmpty($GLOBALS['_pp_test_store']['media_sideload_calls']);
+    }
+
+    public function testImportMediaFileRejectsMissingPath(): void
+    {
+        $this->resetImportMediaTestStore();
+        $result = pp_validate_apply('import_media', ['file' => '/no/such/brand-kit/logo.png']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_file', $result->get_error_code());
+        // The standard envelope never discloses the operator's path.
+        $this->assertStringNotContainsString('/no/such/brand-kit', $result->get_error_message());
+    }
+
+    public function testImportMediaFileRejectsRelativePath(): void
+    {
+        // A relative path would resolve against an unpredictable process cwd.
+        $this->resetImportMediaTestStore();
+        $result = pp_validate_apply('import_media', ['file' => 'brand/logo.png']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_file', $result->get_error_code());
+    }
+
+    public function testImportMediaFileRejectsUnreadablePath(): void
+    {
+        if (!function_exists('posix_getuid') || posix_getuid() === 0) {
+            $this->markTestSkipped('root (or no posix) bypasses read permissions');
+        }
+        $this->resetImportMediaTestStore();
+        $path = $this->writeFixtureImage('locked.png');
+        chmod($path, 0000);
+        $result = pp_validate_apply('import_media', ['file' => $path]);
+        chmod($path, 0644); // restore so tearDown can delete it
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_file', $result->get_error_code());
+    }
+
+    public function testImportMediaFileRejectsOversized(): void
+    {
+        $this->resetImportMediaTestStore();
+        $path = $this->tempDir . '/huge.png';
+        // Real PNG header followed by padding to exceed the 10MB cap.
+        file_put_contents($path, $this->ppImageBytes('png') . str_repeat('x', 11 * 1024 * 1024));
+        $result = pp_validate_apply('import_media', ['file' => $path]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('oversized', $result->get_error_code());
+    }
+
+    public function testImportMediaRejectsBothUrlAndFile(): void
+    {
+        $this->resetImportMediaTestStore();
+        $path = $this->writeFixtureImage('logo.png');
+        $result = pp_validate_apply('import_media', [
+            'url'  => 'https://example.com/logo.png',
+            'file' => $path,
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_params', $result->get_error_code());
+    }
+
+    public function testImportMediaRejectsNeitherUrlNorFile(): void
+    {
+        $this->resetImportMediaTestStore();
+        $result = pp_validate_apply('import_media', ['alt' => 'orphan']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_params', $result->get_error_code());
+    }
+
+    public function testImportMediaFileUtf8FilenameRoundTrip(): void
+    {
+        // A UTF-8 filename (and UTF-8 alt) must survive basename/sanitize and
+        // reach the sideload without corrupting the multibyte path or extension.
+        $this->resetImportMediaTestStore();
+        $GLOBALS['_pp_test_store']['filetype_result'] =
+            ['ext' => 'png', 'type' => 'image/png', 'proper_filename' => false];
+        $path = $this->writeFixtureImage('café-läyÔut-Ⅲ.png');
+
+        $result = pp_execute_apply('import_media', ['file' => $path, 'alt' => 'Café façade — Ⅲ']);
+        $this->assertTrue($result['ok']);
+        $sideloaded = $GLOBALS['_pp_test_store']['media_sideload_calls'][0];
+        // Extension preserved through the multibyte basename.
+        $this->assertStringEndsWith('.png', $sideloaded['name']);
+        $this->assertNotEmpty($sideloaded['name']);
+        // UTF-8 alt round-trips byte-for-byte (alt is never sanitized).
+        $altMeta = $GLOBALS['_pp_test_store']['post_meta'][$result['changes'][0]['attachment_id']]['_wp_attachment_image_alt'] ?? null;
+        $this->assertSame('Café façade — Ⅲ', $altMeta);
+    }
+
+    public function testImportMediaFilePreviewVerifiesWithoutSideload(): void
+    {
+        $this->resetImportMediaTestStore();
+        $GLOBALS['_pp_test_store']['filetype_result'] =
+            ['ext' => 'png', 'type' => 'image/png', 'proper_filename' => false];
+        $path = $this->writeFixtureImage('preview-me.png');
+
+        $result = pp_preview_apply('import_media', ['file' => $path, 'alt' => 'Preview']);
+        $this->assertTrue($result['ok']);
+        // Only the basename is echoed back — never the operator's absolute path.
+        $this->assertSame('preview-me.png', $result['after']['file']);
+        $this->assertStringNotContainsString($this->tempDir, json_encode($result));
+        $this->assertEmpty($GLOBALS['_pp_test_store']['media_sideload_calls']);
+    }
+
+    public function testImportMediaFileBatchRollbackIsAdditive(): void
+    {
+        // Journal parity with the URL path: an attachment import_media created is
+        // additive (AI_CONTEXT.md — "never deleted by a rollback"). A batch that
+        // fails a LATER step still keeps the imported attachment.
+        $this->resetImportMediaTestStore();
+        $GLOBALS['_pp_test_store']['filetype_result'] =
+            ['ext' => 'png', 'type' => 'image/png', 'proper_filename' => false];
+        $path = $this->writeFixtureImage('kept-on-rollback.png');
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'apply',  'name' => 'import_media',   'params' => ['file' => $path]],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['rolled_back']);
+        $this->assertTrue($batch['steps'][0]['ok']);
+        $attachmentId = $batch['steps'][0]['changes'][0]['attachment_id'];
+        // The attachment survived the rollback (additive, like the URL path).
+        $this->assertNotNull(get_post($attachmentId));
+    }
+
     // ── _pp_relative_theme_path() tests (issue 127) ─────────────────────────
     //
     // Pure function — Windows-style backslash inputs are asserted directly
