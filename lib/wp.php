@@ -2367,8 +2367,51 @@ function pp_allowed_site_options(): array {
         'pp_header_bg'         => 'gradient',
         'pp_header_text'       => 'color',
         'pp_header_link_color' => 'color',
+        // Open Graph / Twitter social-share defaults (issue 468). The theme
+        // emits NO og:*/twitter:* tags without these — sharing a page produced
+        // no rich card. Site-level defaults for the whole install; per-page
+        // overrides (og_title/twitter_title) live on _pp_seo_meta via
+        // update_seo_meta. Rendered by pp_social_meta_tags() in wp_head.
+        //   - pp_og_image: the social-share image. An image attachment ID (NOT
+        //     a URL), validated by the SAME pp_is_image_attachment rule as
+        //     pp_logo_id / site_icon — the established typed image surface. Feeds
+        //     og:image (+ width/height from attachment metadata, alt from the
+        //     attachment alt) and twitter:image. Unset = those tags are omitted.
+        //   - pp_og_site_name: overrides the og:site_name default
+        //     (get_bloginfo('name')). Free text, same as the other string
+        //     options (no length cap — consistent with pp_footer_blurb et al.).
+        //   - pp_og_default_description: the site-wide fallback social
+        //     description used when a page has no meta_description. Capped at the
+        //     SAME 320 chars as meta_description (see the key-scoped check in
+        //     pp_validate_site_option_value) so the two description surfaces
+        //     can't diverge on length.
+        //   - pp_twitter_card: the Twitter card type. A CLOSED enum
+        //     (summary | summary_large_image) — its own 'twitter_card' type so
+        //     the accepted set lives in exactly one place (PP_TWITTER_CARD_VALUES),
+        //     the same "dedicated validator for a structured/closed option" shape
+        //     as pp_footer_social. Unset renders the summary_large_image default.
+        'pp_og_image'               => 'attachment_id',
+        'pp_og_site_name'           => 'string',
+        'pp_og_default_description' => 'string',
+        'pp_twitter_card'           => 'twitter_card',
     ];
 }
+
+/**
+ * Upper bound on the length of pp_og_default_description, matching
+ * meta_description's cap in _pp_validate_seo_meta() (issue 468). The site-wide
+ * social description falls back INTO the same og:description slot a page's
+ * meta_description fills, so a single shared cap keeps the two from diverging.
+ */
+const PP_OG_DESCRIPTION_MAX = 320;
+
+/**
+ * The CLOSED set of accepted pp_twitter_card values (issue 468), lower-cased.
+ * `summary_large_image` is the default when the option is unset (see
+ * pp_social_meta_tags()); `summary` is the compact card. A strict allowlist so a
+ * typo is rejected rather than silently emitted into <head>.
+ */
+const PP_TWITTER_CARD_VALUES = ['summary', 'summary_large_image'];
 
 /**
  * Canonical string forms accepted for a 'bool' site option, lower-cased.
@@ -2626,6 +2669,30 @@ function pp_validate_site_option_value(string $key, string $value) {
             return true;
         }
         return _pp_validate_footer_social($value);
+    }
+    if ($type === 'twitter_card') {
+        // og/twitter card type (issue 468). '' is a valid CLEAR (renderer uses
+        // the summary_large_image default); any other value must be in the
+        // CLOSED PP_TWITTER_CARD_VALUES set so a typo can't reach <head>.
+        if (trim($value) === '') {
+            return true;
+        }
+        if (!in_array(strtolower(trim($value)), PP_TWITTER_CARD_VALUES, true)) {
+            return new WP_Error('invalid_option_value', sprintf(
+                'Option "%s" must be one of: %s (or empty to clear), got "%s".',
+                $key, implode(', ', PP_TWITTER_CARD_VALUES), $value
+            ));
+        }
+    }
+    // Key-scoped length cap for the site-wide social description (issue 468).
+    // Not a type rule: pp_og_default_description is a plain 'string' option (so
+    // it round-trips like the other text options), but it feeds the SAME
+    // og:description slot as a page's meta_description, so it shares that
+    // surface's 320-char cap rather than inventing a second limit.
+    if ($key === 'pp_og_default_description' && strlen($value) > PP_OG_DESCRIPTION_MAX) {
+        return new WP_Error('invalid_option_value', sprintf(
+            'Option "%s" must be %d characters or fewer.', $key, PP_OG_DESCRIPTION_MAX
+        ));
     }
     return true;
 }
@@ -2906,10 +2973,20 @@ function pp_update_page_slug(int $post_id, string $slug) {
  * Returns page-specific SEO metadata for a post.
  *
  * @param int $post_id  WordPress post ID.
- * @return array{meta_description: string, seo_title: string, canonical_url: string}
+ * @return array{meta_description: string, seo_title: string, canonical_url: string, og_title: string, twitter_title: string}
  */
 function pp_get_seo_meta(int $post_id): array {
-    $defaults = ['meta_description' => '', 'seo_title' => '', 'canonical_url' => ''];
+    // og_title / twitter_title (issue 468) are per-page social-title overrides.
+    // They live here (not in a separate meta key) so they round-trip through the
+    // SAME #471-fixed store as seo_title/meta_description and are captured/
+    // restored by the batch snapshot for free (it snapshots pp_get_seo_meta()).
+    $defaults = [
+        'meta_description' => '',
+        'seo_title'        => '',
+        'canonical_url'    => '',
+        'og_title'         => '',
+        'twitter_title'    => '',
+    ];
     $raw = get_post_meta($post_id, '_pp_seo_meta', true);
     if (!is_string($raw) || $raw === '') {
         return $defaults;
@@ -2929,7 +3006,7 @@ function pp_get_seo_meta(int $post_id): array {
  * @return true|WP_Error
  */
 function _pp_validate_seo_meta(array $meta) {
-    $allowed_keys = ['meta_description', 'seo_title', 'canonical_url'];
+    $allowed_keys = ['meta_description', 'seo_title', 'canonical_url', 'og_title', 'twitter_title'];
     $unknown = array_diff(array_keys($meta), $allowed_keys);
     if (!empty($unknown)) {
         return new WP_Error('invalid_key', 'Unknown SEO meta key(s): ' . implode(', ', $unknown) . '. Allowed: ' . implode(', ', $allowed_keys) . '.');
@@ -2940,8 +3017,12 @@ function _pp_validate_seo_meta(array $meta) {
     if (isset($meta['meta_description']) && strlen($meta['meta_description']) > 320) {
         return new WP_Error('meta_description_too_long', 'meta_description must be 320 characters or fewer.');
     }
-    if (isset($meta['seo_title']) && strlen($meta['seo_title']) > 200) {
-        return new WP_Error('seo_title_too_long', 'seo_title must be 200 characters or fewer.');
+    // og_title / twitter_title share seo_title's 200-char cap (issue 468) — they
+    // are validated exactly like seo_title, the title surface they fall back to.
+    foreach (['seo_title', 'og_title', 'twitter_title'] as $title_key) {
+        if (isset($meta[$title_key]) && strlen($meta[$title_key]) > 200) {
+            return new WP_Error($title_key . '_too_long', $title_key . ' must be 200 characters or fewer.');
+        }
     }
     return true;
 }
@@ -3034,6 +3115,134 @@ function pp_seo_canonical_url_override(string $canonical_url, $post): string {
     }
     $override = pp_get_seo_meta($post->ID)['canonical_url'];
     return $override !== '' ? $override : $canonical_url;
+}
+
+// ── Open Graph / Twitter social-share meta (#468) ────────────────────────────
+// Theme-owned wp_head emitter, beside the seo_title/meta_description/canonical
+// rendering above. Resolves the site-level defaults (pp_og_* options) and the
+// per-page overrides (og_title/twitter_title on _pp_seo_meta) into og:* and
+// twitter:* tags. Two hard rules the whole surface obeys:
+//   1. Emit a tag ONLY when its resolved value is non-empty (no empty-content
+//      tags in <head>).
+//   2. Every value is escaped at the sink — esc_url for URLs, esc_attr for
+//      everything else — because every input is operator-settable and reaches
+//      raw <head> output. A value that escapes to '' (e.g. esc_url() rejecting a
+//      malformed URL) is treated as empty and dropped by rule 1.
+
+/**
+ * Emits one social meta tag, escaped, or nothing when the value is empty.
+ *
+ * Single sink for every og and twitter tag so the escape + no-empty-tag rules
+ * live in exactly one place (a value that can't be escaped to a non-empty
+ * string is never emitted).
+ *
+ * @param string $rel    The attribute name: 'property' (og:*) or 'name' (twitter:*).
+ * @param string $key    The tag key, e.g. 'og:title'. A code constant, never user input.
+ * @param string $value  The raw (unescaped) value.
+ * @param bool   $is_url When true, escape with esc_url() instead of esc_attr().
+ */
+function _pp_emit_social_meta(string $rel, string $key, string $value, bool $is_url = false): void {
+    // A whitespace-only value is treated as empty (the no-empty-tag rule): a
+    // `content="   "` tag is as useless as an empty one.
+    if (trim($value) === '') {
+        return;
+    }
+    $escaped = $is_url ? esc_url($value) : esc_attr($value);
+    if ($escaped === '') {
+        return;
+    }
+    echo '<meta ' . $rel . '="' . $key . '" content="' . $escaped . '">' . "\n";
+}
+
+/**
+ * Outputs the Open Graph + Twitter Card meta tags for the current page (#468).
+ * Hooked to wp_head in functions.php. Singular pages only — the fallback chains
+ * are page-scoped (post title, permalink), so on archive/search/home/404 there
+ * is no single post to describe and the whole block is skipped.
+ *
+ * Fallback chains (page → site → WP):
+ *   - og:title       = og_title → seo_title → post title
+ *   - twitter:title  = twitter_title → (og:title chain)
+ *   - og/twitter:description = meta_description → pp_og_default_description → omit
+ *   - og/twitter:image       = pp_og_image → omit
+ *   - og:site_name   = pp_og_site_name → get_bloginfo('name')
+ *   - og:url = permalink; og:type = website; og:locale = get_locale();
+ *     twitter:card = pp_twitter_card → summary_large_image
+ */
+function pp_social_meta_tags(): void {
+    if (!is_singular()) {
+        return;
+    }
+    $post_id = get_queried_object_id();
+    if (!$post_id) {
+        return;
+    }
+    $meta = pp_get_seo_meta($post_id);
+
+    // Title chains. A whitespace-only value counts as unset so the chain still
+    // falls through (and the no-empty-tag rule holds) rather than emitting blank.
+    $og_title = $meta['og_title'];
+    if (trim($og_title) === '') {
+        $og_title = $meta['seo_title'];
+    }
+    if (trim($og_title) === '') {
+        $og_title = (string) get_the_title($post_id);
+    }
+    $twitter_title = trim($meta['twitter_title']) !== '' ? $meta['twitter_title'] : $og_title;
+
+    // Description chain: page meta_description → site default → omit.
+    $description = $meta['meta_description'];
+    if (trim($description) === '') {
+        $description = (string) get_option('pp_og_default_description', '');
+    }
+
+    // og:site_name: option override → the WP site name.
+    $site_name = (string) get_option('pp_og_site_name', '');
+    if (trim($site_name) === '') {
+        $site_name = (string) get_bloginfo('name');
+    }
+
+    // twitter:card: option → default. Re-validate the stored value against the
+    // closed set (a value that predates a whitelist change can't leak).
+    $card = strtolower((string) get_option('pp_twitter_card', ''));
+    if (!in_array($card, PP_TWITTER_CARD_VALUES, true)) {
+        $card = 'summary_large_image';
+    }
+
+    _pp_emit_social_meta('property', 'og:type', 'website');
+    _pp_emit_social_meta('property', 'og:site_name', $site_name);
+    _pp_emit_social_meta('property', 'og:locale', (string) get_locale());
+    _pp_emit_social_meta('property', 'og:url', (string) get_permalink($post_id), true);
+    _pp_emit_social_meta('property', 'og:title', $og_title);
+    _pp_emit_social_meta('property', 'og:description', $description);
+
+    // Image tags. Re-check the attachment at render time — an ID validated on
+    // write can be deleted/trashed later, and a stale ID must omit the image
+    // tags, not emit a broken URL.
+    $image_id = (int) get_option('pp_og_image', '');
+    if (pp_is_image_attachment($image_id)) {
+        $image_url = wp_get_attachment_image_url($image_id, 'full');
+        if ($image_url) {
+            _pp_emit_social_meta('property', 'og:image', (string) $image_url, true);
+            $image_meta = wp_get_attachment_metadata($image_id);
+            if (is_array($image_meta)) {
+                if (!empty($image_meta['width'])) {
+                    _pp_emit_social_meta('property', 'og:image:width', (string) (int) $image_meta['width']);
+                }
+                if (!empty($image_meta['height'])) {
+                    _pp_emit_social_meta('property', 'og:image:height', (string) (int) $image_meta['height']);
+                }
+            }
+            // Attachment alt only — no title fallback (an empty alt omits the tag).
+            $image_alt = (string) get_post_meta($image_id, '_wp_attachment_image_alt', true);
+            _pp_emit_social_meta('property', 'og:image:alt', $image_alt);
+            _pp_emit_social_meta('name', 'twitter:image', (string) $image_url, true);
+        }
+    }
+
+    _pp_emit_social_meta('name', 'twitter:card', $card);
+    _pp_emit_social_meta('name', 'twitter:title', $twitter_title);
+    _pp_emit_social_meta('name', 'twitter:description', $description);
 }
 
 /**
@@ -3136,6 +3345,10 @@ function pp_update_site_option(string $key, string $value) {
         // '' clears the row; a non-empty value is canonicalized (strip extra
         // keys / whitespace) so it survives the snapshot/rollback round-trip.
         $value = trim($value) === '' ? '' : pp_normalize_footer_social($value);
+    } elseif ($type === 'twitter_card') {
+        // Store the lower-cased canonical form (or '' to clear) so a stored
+        // value always re-validates through the snapshot/rollback path.
+        $value = trim($value) === '' ? '' : strtolower(trim($value));
     }
     update_option($key, $value);
     return true;
