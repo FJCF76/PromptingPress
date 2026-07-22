@@ -94,6 +94,14 @@ if (!function_exists('home_url')) {
     }
 }
 
+// get_locale() stub (#468 og:locale). Overridable via the test store so a test
+// can assert a non-default locale renders; defaults to WP's own default.
+if (!function_exists('get_locale')) {
+    function get_locale(): string {
+        return $GLOBALS['_pp_test_store']['locale'] ?? 'en_US';
+    }
+}
+
 if (!function_exists('get_the_title')) {
     function get_the_title($post = 0): string {
         $id = is_int($post) ? $post : 0;
@@ -1072,8 +1080,12 @@ if (!function_exists('wp_get_attachment_url')) {
 }
 
 if (!function_exists('wp_get_attachment_metadata')) {
-    function wp_get_attachment_metadata(int $attachment_id): array {
-        return ['width' => 1200, 'height' => 800];
+    // Store-aware (#468): a test can pin per-attachment metadata (or a
+    // dimensionless/empty array) via ['attachment_metadata'][$id]; the default
+    // keeps the historical 1200x800 so existing callers are unaffected.
+    function wp_get_attachment_metadata(int $attachment_id) {
+        return $GLOBALS['_pp_test_store']['attachment_metadata'][$attachment_id]
+            ?? ['width' => 1200, 'height' => 800];
     }
 }
 

@@ -1427,7 +1427,13 @@ class ActionsTest extends TestCase
     {
         $id = pp_create_page('Page', 'draft');
         $meta = pp_get_seo_meta($id);
-        $this->assertSame(['meta_description' => '', 'seo_title' => '', 'canonical_url' => ''], $meta);
+        $this->assertSame([
+            'meta_description' => '',
+            'seo_title'        => '',
+            'canonical_url'    => '',
+            'og_title'         => '',
+            'twitter_title'    => '',
+        ], $meta);
     }
 
     public function testSeoMetaDescriptionTagOutputsWhenSet(): void
