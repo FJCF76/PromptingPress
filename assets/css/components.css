@@ -1133,6 +1133,20 @@
   font-weight: var(--section-body-weight, inherit);
 }
 
+/* Body-less strip flush-top (issue 488): the row's top margin is a separation
+   from preceding body copy, so on a body_items-only band (no body copy above it)
+   it zeroes and the band's symmetric padding centres the row. The renderer adds
+   this modifier only when no body copy precedes the row; a band WITH body copy
+   keeps the base var(--space-md) top margin, byte-identical to before. Same
+   specificity as the base rule (0,1,0) and declared immediately after it, so
+   source order wins; the doubled class keeps specificity (0,2,0) above any future
+   equal-specificity rule that might target the base row, and only margin-top is
+   overridden (the auto side margins that centre the fit-content row as a block,
+   and the 0 bottom, are untouched). */
+.section__inline-items.section__inline-items--flush-top {
+  margin-top: 0;
+}
+
 /* Hanging-separator clip (issue 489): each item is pulled left by exactly the
    separator's occupied width (the ::before's fixed box + its right margin =
    --space-sm + --space-xs). On a line-leading item — the first item of the row AND

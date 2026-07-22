@@ -118,6 +118,43 @@ class AiContextTest extends TestCase
         $this->assertEquals('(no props)', pp_ai_condense_schema([]));
     }
 
+    /**
+     * #488: when a component makes every prop optional but declares a
+     * content_requirement, the condensed catalog must surface it so the AI does
+     * not read the all-optional prop list as "a fully-empty component is valid".
+     */
+    public function testCondenseSchemaSurfacesContentRequirement(): void
+    {
+        $schema = [
+            'content_requirement' => ['any_of' => ['body', 'body_items', 'panel_heading']],
+            'props' => [
+                'body'       => ['type' => 'string', 'required' => false],
+                'body_items' => ['type' => 'array', 'required' => false],
+            ],
+        ];
+        $result = pp_ai_condense_schema($schema);
+        $this->assertStringContainsString('body?: string', $result);
+        $this->assertStringContainsString('[needs one of: body, body_items, panel_heading]', $result);
+    }
+
+    /**
+     * The REAL section schema must round-trip through the condenser with its
+     * content requirement visible — pins the ai-context.php ↔ schema.json ↔
+     * composition.md coherence for section specifically (#488).
+     */
+    public function testSectionCatalogEntryShowsContentRequirement(): void
+    {
+        $schema = json_decode(
+            file_get_contents(dirname(__DIR__) . '/components/section/schema.json'),
+            true
+        );
+        $result = pp_ai_condense_schema($schema);
+        $this->assertStringContainsString('body?: string', $result,
+            'section body must condense as optional after #488.');
+        $this->assertStringContainsString('[needs one of:', $result,
+            'section must advertise its content requirement to the AI catalog.');
+    }
+
     // ── Param Formatting ──────────────────────────────────────────────────
 
     public function testFormatParamsProducesCompactString(): void

@@ -706,6 +706,95 @@ test.describe('Safe-surface rendered proof', () => {
     }
   });
 
+  // #488: a body_items-only band (no body copy) is a first-class strip. Its
+  // top margin — a body-relative separation — zeroes so the band's symmetric
+  // padding centers the row, while a strip WITH body copy keeps var(--space-md).
+  // Computed-style pins (0 vs 16px) at both viewports, plus a body-less WRAPPING
+  // strip to prove the #489 hanging-separator clip still holds without a body.
+  test('#488 body-less body_items strip zeroes its top margin and keeps the #489 clip @smoke', async ({
+    page,
+  }, testInfo) => {
+    pageId = createPage('E2E Section Body-less Strip');
+    setComposition(pageId, [
+      // A body-less strip: no body key, body_items only. This is the exact shape
+      // #488 reports as previously unauthorable (it needed a body:"" placeholder).
+      {
+        component: 'section',
+        props: { id: 'pp-sec-bodyless', theme: 'inverted', body_items: ['SOC 2 Type II', '99.99% uptime', 'GDPR compliant'] },
+      },
+      // A strip WITH body copy: keeps the base var(--space-md) top margin.
+      {
+        component: 'section',
+        props: { id: 'pp-sec-withbody', body: '<p>Everything you need to launch.</p>', body_items: ['SOC 2 Type II', '99.99% uptime', 'GDPR compliant'] },
+      },
+      // A body-less strip long enough to wrap at mobile: the #489 clip must still
+      // hide the line-leading separator on every wrapped line even with flush-top.
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec-bodyless-wrap',
+          theme: 'inverted',
+          body_items: ['Recuperación incluida', 'Copias diarias', 'Sin permanencia', 'Soporte en español', '99,9% de disponibilidad'],
+        },
+      },
+    ]);
+
+    const marginTop = (rowId: string) =>
+      page.locator(`#${rowId} .section__inline-items`).evaluate(
+        (ul: HTMLElement) => parseFloat(getComputedStyle(ul).marginTop),
+      );
+
+    const wrapGeom = (rowId: string) =>
+      page.locator(`#${rowId} .section__inline-items`).evaluate((ul: HTMLElement) => {
+        const cs = getComputedStyle(ul);
+        const first = ul.querySelector('li') as HTMLElement;
+        const items = Array.from(ul.querySelectorAll('li')) as HTMLElement[];
+        const ulRect = ul.getBoundingClientRect();
+        return {
+          pull: parseFloat(getComputedStyle(first).marginLeft),
+          ulContentLeft: ulRect.left + parseFloat(cs.paddingLeft),
+          rows: items.map((li) => {
+            const r = li.getBoundingClientRect();
+            return { left: r.left, top: Math.round(r.top) };
+          }),
+        };
+      });
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('#pp-sec-bodyless .section__inline-item')).toHaveCount(3, { timeout: 10000 });
+
+      // Core #488 assertion: body-less strip zeroes its top margin; a strip WITH
+      // body keeps var(--space-md) (16px). Same at every width.
+      expect(await marginTop('pp-sec-bodyless')).toBe(0);
+      expect(await marginTop('pp-sec-withbody')).toBe(16);
+
+      // #489 clip holds on the body-less wrapping strip: the leading item of every
+      // visual line hangs into the clip zone (its ::before is clipped, no dangling
+      // middot at a line start).
+      const g = await wrapGeom('pp-sec-bodyless-wrap');
+      const byTop = new Map<number, { left: number }[]>();
+      for (const it of g.rows) {
+        const arr = byTop.get(it.top) ?? [];
+        arr.push(it);
+        byTop.set(it.top, arr);
+      }
+      for (const [, lineItems] of byTop) {
+        const leader = lineItems.reduce((a, b) => (a.left < b.left ? a : b));
+        expect(Math.abs(leader.left - (g.ulContentLeft + g.pull))).toBeLessThanOrEqual(1.5);
+      }
+      if (width <= 375) {
+        expect(byTop.size).toBeGreaterThan(1);
+      }
+
+      await testInfo.attach(`bodyless-strip-${width}`, {
+        body: await page.locator('#pp-sec-bodyless').screenshot(),
+        contentType: 'image/png',
+      });
+    }
+  });
+
   // #357: grid card content alignment is authorable via the `align`-typed
   // --grid-item-text-align slot. Default `left` is byte-identical to today; `center`
   // and `right` must actually MOVE the glyphs, not merely set a declaration. The

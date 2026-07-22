@@ -12,7 +12,7 @@ Generic text + optional image section. Use this for "what is this", "how it work
 | `eyebrow`          | string | No       | `''`          | Short kicker/label rendered as a pill above the title |
 | `subheading`       | string | No       | `''`          | Supporting line below the title |
 | `heading_align`    | enum   | No       | `'start'`     | Header block alignment: `start` / `center` |
-| `body`             | string | Yes      | —             | HTML body content (wp_kses_post filtered) |
+| `body`             | string | No¹      | `''`          | HTML body content (wp_kses_post filtered). Optional since #488 — omit for a `body_items`-only or panel-only band |
 | `image_url`        | string | No       | `''`          | Image URL (required for image-left / image-right) |
 | `image_id`         | int    | No       | `0`           | Media Library attachment ID for the image. When set and it resolves, renders responsively (`srcset`/`sizes`) via `wp_get_attachment_image()`; falls back to `image_url` otherwise |
 | `image_alt`        | string | No       | `''`          | Image alt text |
@@ -20,8 +20,10 @@ Generic text + optional image section. Use this for "what is this", "how it work
 | `theme`            | enum   | No       | `'default'`   | Background color/tone: `default` / `muted` (light tinted surface band) / `inverted` (genuinely dark band) |
 | `background_image` | string | No       | `''`          | Optional background image URL with dark overlay for text readability |
 | `body_marker`        | enum   | No       | `'disc'`      | List marker for top-level `<ul>` lists in `body`: `disc` / `check` / `dash` / `arrow`. Colour via the `--section-body-marker-color` slot |
-| `body_items`         | array  | No       | `[]`          | Optional centered row of short plain-text items rendered below the body with a CSS-generated middot separator between each. Max 8 items, each ≤80 chars (over-bound or non-string rejected at write time). Inherits the body type slots; colour the separator via `--section-separator-color` |
+| `body_items`         | array  | No       | `[]`          | Optional centered row of short plain-text items rendered below the body with a CSS-generated middot separator between each. Max 8 items, each ≤80 chars (over-bound or non-string rejected at write time). Inherits the body type slots; colour the separator via `--section-separator-color`. When no `body` copy precedes it (a body-less strip), the row's top margin drops to `0` so the band's own symmetric padding centres it |
 | `panel_items_marker` | enum   | No       | `'disc'`      | text-panel layout: list marker for the string entries of `panel_items`: `disc` / `check` / `dash` / `arrow`. Colour via the `--section-panel-marker-color` slot. Paired rows never show a marker |
+
+¹ **Content requirement (#488):** `body` is optional, but a section must carry at least one of `body`, `body_items`, or panel content (`panel_heading` / `panel_body` / `panel_items` / a panel CTA). A fully-empty section is rejected at write time (`invalid_composition`). A `title` alone does not satisfy the requirement.
 
 ### Content panel (`text-panel` layout)
 

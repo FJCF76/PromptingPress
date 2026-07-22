@@ -1,6 +1,10 @@
 {
   "component": "section",
   "description": "Generic text section with an optional image or content panel. Supports five structural layouts: text-only, image-left, image-right, centered, text-panel.",
+  "content_requirement": {
+    "any_of": ["body", "body_items", "panel_heading", "panel_body", "panel_items", "panel_cta_text", "panel_cta_url"],
+    "message": "needs at least one of: body, body_items, or panel content (panel_heading / panel_body / panel_items / a panel CTA)"
+  },
   "props": {
     "id": {
       "type": "string",
@@ -41,8 +45,9 @@
     },
     "body": {
       "type": "string",
-      "required": true,
-      "description": "The section's main prose surface. Rich HTML (sanitized via wp_kses_post): block-level markup, lists, headings, and links are allowed."
+      "required": false,
+      "default": "",
+      "description": "The section's main prose surface. Rich HTML (sanitized via wp_kses_post): block-level markup, lists, headings, and links are allowed. Optional (#488): omit it for a body_items-only 'trust strip' or a panel-only band. The section must still carry SOME renderable content — see content_requirement — so a fully-empty section is rejected."
     },
     "image_url": {
       "type": "string",

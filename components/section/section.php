@@ -145,13 +145,28 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
 // Build the inline-items row once (issue 475) and place it in each layout's body
 // scope, after .section__content. role="list" keeps list semantics while the
 // CSS-generated `li + li::before` separator stays out of the accessibility tree.
+//
+// Flush-top margin (issue 488): the row carries a body-relative top margin
+// (var(--space-md)) only when body copy precedes it. On a body-less strip — the
+// primary #475 "trust strip" use case, now authorable without a `body:""`
+// placeholder (#488) — that margin would push the row below the band's optical
+// centre, so it zeroes when there is no body copy. Keyed on the SAME trimmed-body
+// notion the content requirement uses, not on the empty string, so a whitespace-
+// only body counts as no body. The empty .section__content wrapper still renders
+// (byte-identical markup), but it carries no margin/height, so zeroing the row's
+// top margin is the whole fix. Renders after body copy keep today's spacing.
+// is_string guard first: $body defaults to '' but a raw/legacy/restore snapshot
+// can carry a non-string here (write-time validation doesn't protect those paths),
+// and trim() on a non-string is a fatal in PHP 8 — keep the render defensive.
+$has_body_copy = is_string($body) && trim($body) !== '';
 $inline_items_html = '';
 if (!empty($body_items)) {
     $items_markup = '';
     foreach ($body_items as $body_item) {
         $items_markup .= '<li class="section__inline-item">' . esc_html($body_item) . '</li>';
     }
-    $inline_items_html = '<ul class="section__inline-items" role="list">' . $items_markup . '</ul>';
+    $inline_items_class = 'section__inline-items' . ($has_body_copy ? '' : ' section__inline-items--flush-top');
+    $inline_items_html = '<ul class="' . $inline_items_class . '" role="list">' . $items_markup . '</ul>';
 }
 
 ?>

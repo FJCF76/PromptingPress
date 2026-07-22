@@ -44,7 +44,7 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 | Name    | Required props                          | Optional props (selection)                              |
 |---------|-----------------------------------------|---------------------------------------------------------|
 | hero    | title                                   | title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, layout, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof |
-| section | body                                    | title, title_accent, eyebrow, subheading, heading_align, layout, theme, image_url, image_id, image_alt, background_image, body_marker, body_items |
+| section | one of: body / body_items / panel content | body, title, title_accent, eyebrow, subheading, heading_align, layout, theme, image_url, image_id, image_alt, background_image, body_marker, body_items |
 | faq     | items[] {question, answer}              | title, title_accent, eyebrow, theme, id                 |
 | grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, heading_align, layout, card_emphasis, theme, columns, image_treatment |
 | table   | headers[], rows[][]                     | title, caption                                          |
@@ -196,6 +196,8 @@ A monospace spec panel with paired label/value rows, one row emphasised via a pe
 
 The items inherit the section body type, so the `--section-body-size` / `--section-body-weight` slots (a slim 15px/600 strip needs no extra typography slots). Colour the separator with the `--section-separator-color` style slot (defaults to the muted text colour; it follows the light on-inverted / on-background-image text colour like sibling text on dark bands). The glyph is a fixed middot.
 
+`body` is optional (#488): a strip whose whole content is `body_items` — no heading, no paragraph — is a first-class band, so author it with `body_items` alone and no `body` key. On a body-less strip the row sits vertically centred within the band's own padding (its body-relative top margin drops away automatically), so a symmetric strip needs no manual padding compensation. A section must still carry SOME renderable content: at least one of `body`, `body_items`, or panel content (`panel_heading` / `panel_body` / `panel_items` / a panel CTA). A fully-empty section — no body, no items, no panel — is rejected at write time with `invalid_composition`. (A `title` alone does not satisfy this: a heading needs a `body`, `body_items`, or panel beneath it.)
+
 ```json
 {
   "component": "section",
@@ -204,6 +206,19 @@ The items inherit the section body type, so the `--section-body-size` / `--secti
     "body_items": ["No credit card", "Cancel anytime", "30-day guarantee"]
   },
   "style": { "--section-body-size": "15px", "--section-body-weight": "600", "--section-separator-color": "#84cc16" }
+}
+```
+
+A body-less trust strip (no `body`, centred by the band padding):
+
+```json
+{
+  "component": "section",
+  "props": {
+    "theme": "inverted",
+    "body_items": ["SOC 2 Type II", "99.99% uptime", "GDPR compliant"]
+  },
+  "style": { "--section-body-size": "15px", "--section-body-weight": "600" }
 }
 ```
 

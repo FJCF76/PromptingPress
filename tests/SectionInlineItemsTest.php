@@ -147,6 +147,70 @@ class SectionInlineItemsTest extends TestCase
             'the row must render in the text-panel layout body scope.');
     }
 
+    // ── Flush-top margin on a body-less strip (issue 488) ─────────────────
+
+    public function testBodyLessStripGetsFlushTopModifier(): void
+    {
+        // body_items alone, no body — the primary #475 trust-strip use case, now
+        // authorable without a body:"" placeholder (#488). The row zeroes its
+        // body-relative top margin so the band padding centers it.
+        $html = $this->render('section', [
+            'layout'     => 'text-only',
+            'body_items' => ['SOC 2 Type II', '99.99% uptime'],
+        ]);
+        $this->assertStringContainsString(
+            '<ul class="section__inline-items section__inline-items--flush-top" role="list">',
+            $html,
+            'a body-less strip must carry the --flush-top modifier that zeroes the top margin.'
+        );
+    }
+
+    public function testStripWithBodyDoesNotGetFlushTopModifier(): void
+    {
+        $html = $this->render('section', [
+            'layout'     => 'text-only',
+            'body'       => '<p>Real body copy.</p>',
+            'body_items' => ['Meta'],
+        ]);
+        $this->assertStringContainsString('<ul class="section__inline-items" role="list">', $html,
+            'a strip WITH body copy keeps the base class (var(--space-md) top margin).');
+        $this->assertStringNotContainsString('section__inline-items--flush-top', $html,
+            'a strip following body copy must NOT get the flush-top modifier.');
+    }
+
+    public function testWhitespaceOnlyBodyIsTreatedAsBodyLess(): void
+    {
+        // The flush-top decision is keyed on trimmed body, matching the content
+        // requirement (#488): a whitespace-only body renders nothing, so the row
+        // is still the first visible content and must sit flush.
+        $html = $this->render('section', [
+            'layout'     => 'text-only',
+            'body'       => "   \n\t ",
+            'body_items' => ['Meta'],
+        ]);
+        $this->assertStringContainsString('section__inline-items--flush-top', $html,
+            'a whitespace-only body must be treated as body-less (flush-top applies).');
+    }
+
+    public function testFlushTopModifierZeroesTopMarginInSource(): void
+    {
+        // PHPUnit does not execute CSS; assert the source declares the override.
+        // The computed 0-vs-16px cascade is pinned by the style-render e2e.
+        $this->assertMatchesRegularExpression(
+            '/\.section__inline-items--flush-top\s*\{[^}]*margin-top:\s*0/s',
+            $this->componentsCss,
+            '.section__inline-items--flush-top must zero the top margin.'
+        );
+        // It must be declared AFTER the base rule so equal-specificity source
+        // order wins; a modifier placed before the base would no-op.
+        $basePos  = strpos($this->componentsCss, '.section__inline-items {');
+        $flushPos = strpos($this->componentsCss, '.section__inline-items--flush-top {');
+        $this->assertNotFalse($basePos);
+        $this->assertNotFalse($flushPos);
+        $this->assertGreaterThan($basePos, $flushPos,
+            'the --flush-top override must be declared after the base .section__inline-items rule.');
+    }
+
     // ── CSS pins: the row layout, the separator, and slot routing ─────────
 
     public function testInlineItemsRowIsABlockCenteredWrappingFlexRow(): void

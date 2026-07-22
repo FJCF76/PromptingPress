@@ -4,6 +4,29 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.7.2] — 2026-07-22 — a section can be a `body_items`-only trust strip: `body` is now optional (#488)
+
+**A `section` whose whole content is its `body_items` row — a slim "trust strip" like "SOC 2 · 99.99% uptime · GDPR" with no heading and no paragraph — is now a first-class band. `body` was a required prop, so the only way to author such a strip was to pass an empty `body: ""` placeholder purely to satisfy the validator, and the row then paid a body-relative top margin that pushed it below the band's optical centre. Now `body` is optional: author the strip with `body_items` alone, and on a body-less strip the row's top margin drops to zero so the band's own symmetric padding centres it. A section still cannot be empty — it must carry at least one of `body`, `body_items`, or panel content, so a genuinely contentless band is still rejected at write time.**
+
+`section.body` moved from `required: true` to optional, and the emptiness guarantee is now carried by a schema-level content requirement (`content_requirement.any_of`) enforced in the shared composition validator — the same generic, schema-driven path as the existing numeric-bounds, strict-enum, and bounded-array rules, with no per-component branch and no second validator. A section that authors none of `body` / `body_items` / `panel_heading` / `panel_body` / `panel_items` / a panel CTA is rejected with `invalid_composition`; a `title` alone does not count. The check is loose about type (it asks "did the author put content here?", not "is this well-typed?"), so a present-but-malformed content prop still surfaces its own precise type error instead of a generic "no content" message. The body-less flush-top is keyed on the trimmed body, so a whitespace-only body is treated as body-less too, and the render guards a non-string body against a fatal. The row's separator-clip geometry from #489 is unchanged, and the flush-top was rendered and inspected at 375 and 1280 in a body-less state (pipeline §14.2).
+
+Every composition that authors real body copy renders byte-identically. Body-less strips (including the prior `body: ""` workaround) intentionally shift their row's top margin from `var(--space-md)` to `0` and gain a `section__inline-items--flush-top` class — that vertical re-centering is the second half of the fix.
+
+### Fixed
+- `section.body` is now optional (`components/section/schema.json`): a `body_items`-only or panel-only band no longer needs a `body: ""` placeholder (#488).
+- A body-less `body_items` strip no longer pays a body-relative top margin: `section.php` adds `section__inline-items--flush-top` when no body copy precedes the row, and `assets/css/components.css` zeroes its `margin-top`, so the band's symmetric padding centres it (#488).
+- A section carrying no `body`, `body_items`, or panel content is rejected honestly at write time via the new schema-level `content_requirement.any_of` gate in the shared validator (`lib/admin.php`), so a bare `{"component":"section"}` can no longer validate and drift the editor accordion (#488).
+- The render guards a non-string `body` before `trim()`, so a malformed/legacy/restore-path body cannot fatal the section (#488, adversarial review finding).
+
+### Docs
+- `ai-instructions/composition.md`, `components/section/README.md`, `README.md`, and `AI_CONTEXT.md` now describe `body` as optional and state the "at least one of body / body_items / panel content" requirement; the AI component catalog (`lib/ai-context.php`) surfaces the content requirement so an all-optional prop list doesn't read as "empty is valid" (#488).
+
+### Tests
+- `SchemaValidationTest.php`: a content-requirement matrix (body-only, body_items-only, panel-only, body+items, and the `body: ""` workaround all accept; no-props, empty/whitespace body, empty items array, and title-only reject), a malformed-content-prop test proving the precise type error wins, and — per pipeline §14.1 — a test that authors a `body_items`-only band through the REAL `create_page` / `update_composition` surface (#488).
+- The composable-component invariant test now verifies every composable component rejects the bare no-props shape through either a required prop or a `content_requirement` (#488).
+- `SectionInlineItemsTest.php`: render pins for the `--flush-top` modifier (present body-less, absent with body, present for whitespace-only body) and a CSS source pin; `tests/e2e/style-render.spec.ts` (`@smoke`) asserts the computed top margin is `0` body-less and `16px` after body at 375 and 1280, and that the #489 clip still holds on a body-less wrapping strip (#488).
+- `AiContextTest.php`: pins that the condensed schema surfaces `content_requirement` (#488).
+
 ## [v1.7.1] — 2026-07-22 — section `body_items` separator no longer dangles a middot at the start of wrapped lines (#489)
 
 **The section `body_items` "trust strip" (a centered row of short items with a middot between each) drew its separator as a `li + li::before` glyph — one leading middot before every item except the first. On mobile, where a 4–5 item strip wraps, whichever item began a new line still painted its `::before`, so a stray `·` hung in the left margin at the start of every wrapped line and pulled that line off-center. This was live on the prod mobile homepage. The separator is now a hanging-separator clip: it renders before EVERY item, each item is pulled left by exactly the separator's occupied width, and the row clips its overflow, so any separator that would begin a visual line falls outside the box and is never painted. No middot dangles at any width; a mid-line separator still shows normally.**
