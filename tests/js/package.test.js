@@ -91,6 +91,9 @@ describe('package.sh smoke test', () => {
       'promptingpress/readme.txt',
       'promptingpress/LICENSE',
       'promptingpress/comments.php',
+      // WordPress theme-card image (Appearance -> Themes). A release that
+      // silently drops it leaves the theme with a blank/broken card (#511).
+      'promptingpress/screenshot.png',
     ];
     for (const file of requiredFiles) {
       expect(listing).toContain(file);
