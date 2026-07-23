@@ -4,6 +4,18 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.7.4] — 2026-07-23 — the theme now ships its Appearance → Themes card image (#511)
+
+**Installed under Appearance → Themes, PromptingPress showed a blank theme card: the packaged theme carried no root-level `screenshot.png`, the static image WordPress renders for the theme tile and details view. A theme can seed a flawless homepage and still look broken in the one screen every operator sees first. The distributable ZIP now includes a real `1200×900` `screenshot.png` — a branded capture of the live PromptingPress homepage (the dark hero: "Turn AI-assisted site drafts into maintainable WordPress composition", the run/brief/props panel, the GitHub CTA) — so the card reads as a polished product the moment the theme is installed.**
+
+The image is a genuine homepage render, not a placeholder gradient or checkerboard, so the tile communicates real product quality at a glance. A packaging guard now backs it: the package smoke test asserts `promptingpress/screenshot.png` is present in the built ZIP alongside `style.css`, `index.php`, and the other required files, so a future release cannot silently drop the card image again. This is the WordPress theme-card screenshot only — it is a separate concern from the operational `wp pp screenshot` verify-with-evidence capture, which is unchanged.
+
+### Fixed
+- The packaged theme now includes a root-level `screenshot.png` (`1200×900`, a real branded PromptingPress homepage capture), so Appearance → Themes renders the theme card and details image instead of a blank tile (#511).
+
+### Tests
+- `tests/js/package.test.js`: the required-files assertion now includes `promptingpress/screenshot.png`, so `npm run package` (and CI) fails if the theme-card image is ever dropped from the distributable ZIP (#511).
+
 ## [v1.7.3] — 2026-07-22 — `import_media` can now import a server-local file, not only a remote URL (#490)
 
 **Brand assets — a logo lockup, a favicon, the 1200×630 OG card — normally live on the operator machine or in a brand kit, not at a public URL. `import_media` only accepted a remotely-fetchable `url`, so the one write every `pp_logo_id` / `site_icon` / `pp_og_image` setup depends on was the one write the operating loop had no typed path for: operators fell back to raw `wp media import`, which bypasses preflight, the run token, and the apply journal entirely. `import_media` now also accepts a `file` param — a server-local absolute path — mutually exclusive with `url`. The whole brand-asset flow (import → set the ID) stays inside the typed, journalled, preflighted action layer, and returns the same `{attachment_id, url}` envelope so the site options consume it directly.**
