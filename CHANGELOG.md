@@ -4,6 +4,22 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.7.5] — 2026-07-23 — the default homepage seed is now a curated branded multi-band starter (#512)
+
+**A fresh PromptingPress activation used to seed a three-component homepage (hero, one section, one CTA) that proved the composition system worked but presented the product like a rough default. `pp_default_homepage_composition()` now returns a curated six-band branded starter: a dark split hero with a workflow proof surface, an audience/problem band, a files-vs-WordPress mechanism band, a speed/trust card grid, a maintainability/proof band, and a closing CTA. A new install now opens on a page that reads as a polished branded product, not a placeholder, so a first-time operator immediately understands what PromptingPress is, who it is for, and why structured composition matters.**
+
+The upgrade is composition data only — the branded look (warm-cream surfaces, ink darks, a restrained orange accent) is expressed entirely through VALIDATED per-component style slots and native component features (the hero's own `hero__surface-*` proof classes, a native `text-panel` monospace spec panel, grid cards with checklist bullets, and `body_items` meta strips), never one-off inline HTML, homepage-only shared CSS (#72), or render-time mutation. The whole composition passes `pp_validate_composition()`. Activation still seeds it once through the real composition writer and never overwrites an existing valid static front page, so this changes only future FRESH installs — an already-configured live site keeps its own homepage. Note: on a fresh install the hero's primary button uses outline styling because a filled hero button's accent fill is driven by the global `--color-accent` design token, which a fresh install does not override (tracked separately in #514); the one filled orange button is the closing CTA.
+
+### Changed
+- `pp_default_homepage_composition()` (`lib/wp.php`) now returns a curated six-band branded starter composition (split hero, audience section, mechanism `text-panel`, speed/trust grid, proof section, closing CTA) styled through validated per-component style slots, replacing the minimal three-component seed. It remains the single source of truth for activation seeding and the blank-page fallback (#512).
+
+### Docs
+- `AI_CONTEXT.md`: the `pp_default_homepage_composition()` reference row now describes the multi-band branded starter instead of the old `(hero, section, cta)` shape (#512).
+
+### Tests
+- `tests/SetupTest.php`: added an activation-path test that runs `pp_setup_homepage()` on a fresh state and asserts it creates the published `Home` page, assigns `composition.php`, writes the branded multi-band seed through the composition writer (freshness marker initialized), and sets `show_on_front`/`page_on_front`; plus an idempotent-guard test proving an existing valid static front page is never overwritten (#512).
+- `tests/SchemaValidationTest.php`: the default-homepage guard now asserts the seed is a multi-band composition (hero/grid/cta present, 5+ bands) and that every band's style slots survive the render boundary, so a regression to a thin stub or a silently-dropped style value fails the suite (#512).
+
 ## [v1.7.4] — 2026-07-23 — the theme now ships its Appearance → Themes card image (#511)
 
 **Installed under Appearance → Themes, PromptingPress showed a blank theme card: the packaged theme carried no root-level `screenshot.png`, the static image WordPress renders for the theme tile and details view. A theme can seed a flawless homepage and still look broken in the one screen every operator sees first. The distributable ZIP now includes a real `1200×900` `screenshot.png` — a branded capture of the live PromptingPress homepage (the dark hero: "Turn AI-assisted site drafts into maintainable WordPress composition", the run/brief/props panel, the GitHub CTA) — so the card reads as a polished product the moment the theme is installed.**
