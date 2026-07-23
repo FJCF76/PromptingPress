@@ -2058,6 +2058,51 @@ class SchemaValidationTest extends TestCase
             'pp_default_homepage_composition() must pass pp_validate_composition() — '
             . 'setup.php seeds it without going through the validating write path.'
         );
+
+        // #512: the starter is a curated branded multi-band composition, not a
+        // placeholder. Guard the shape so a future regression to a thin stub
+        // (or an empty/one-band seed) fails here rather than shipping a weak
+        // first-view homepage.
+        $components = array_map(static fn ($c) => $c['component'], $composition);
+        $this->assertGreaterThanOrEqual(
+            5,
+            count($composition),
+            'The starter seed must be a multi-band branded page, not a minimal stub.'
+        );
+        foreach (['hero', 'grid', 'cta'] as $expected) {
+            $this->assertContains(
+                $expected,
+                $components,
+                "The branded starter must include a '$expected' band."
+            );
+        }
+
+        // Every branded band drives its look through VALIDATED per-component
+        // style slots (top-level `style` key), never homepage-only shared CSS
+        // (#72) — so at least the hero and closing CTA carry a style map, and
+        // every style map validates through the shared render engine (a value
+        // the engine would reject renders nothing, silently weakening the page).
+        foreach ($composition as $item) {
+            $style = $item['style'] ?? [];
+            if ($style === []) {
+                continue;
+            }
+            $rendered = pp_render_style_vars($style, $item['component']);
+            $declared = array_filter(
+                array_keys($style),
+                static fn ($k) => $k !== '__recipe'
+            );
+            $rendered_count = $rendered === '' ? 0 : count(explode('; ', $rendered));
+            $this->assertSame(
+                count($declared),
+                $rendered_count,
+                sprintf(
+                    'Every style slot on the "%s" starter band must survive the render '
+                    . 'boundary; a dropped value silently weakens the seeded page.',
+                    $item['component']
+                )
+            );
+        }
     }
 
     public function testNormalizeCompositionStripsEmptyStyle(): void

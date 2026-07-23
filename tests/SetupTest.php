@@ -101,6 +101,89 @@ class SetupTest extends TestCase
         );
     }
 
+    // ── pp_setup_homepage: activation-path provisioning (#512) ──────────────
+
+    /**
+     * Fresh activation must create the branded static front page end-to-end:
+     * a published "Home" page on composition.php, the seed written through the
+     * real composition writer (pp_update_composition — which initializes the
+     * #113 freshness marker), and Reading Settings pointed at it. This exercises
+     * the true activation surface, not a raw meta write (Section 14.1).
+     */
+    public function testSetupHomepageProvisionsBrandedFrontPageOnFreshInstall(): void
+    {
+        // Fresh install: no static front page configured yet.
+        $this->assertNotSame('page', get_option('show_on_front'));
+
+        pp_setup_homepage();
+
+        // Reading Settings now point at a real published page.
+        $this->assertSame('page', get_option('show_on_front'));
+        $front_id = (int) get_option('page_on_front');
+        $this->assertGreaterThan(0, $front_id);
+        $this->assertSame('page', get_post_type($front_id));
+        $this->assertSame('publish', get_post_status($front_id));
+        $this->assertSame('Home', get_post($front_id)->post_title);
+
+        // Composition template assigned explicitly (not left to a save hook).
+        $this->assertSame('composition.php', get_post_meta($front_id, '_wp_page_template', true));
+
+        // The seed was written through pp_update_composition: the freshness
+        // marker (#113) is initialized to version 1, proving the intended
+        // writer ran rather than a bare meta write.
+        $this->assertSame('1', (string) get_post_meta($front_id, '_pp_composition_version', true));
+
+        // The stored composition is the branded multi-band starter, and it
+        // round-trips as schema-valid through the real read path.
+        $stored = pp_get_composition($front_id);
+        $this->assertSame(
+            ['hero', 'section', 'section', 'grid', 'section', 'cta'],
+            array_map(static fn ($c) => $c['component'], $stored),
+            'the seeded front page must be the 6-band branded starter, not a placeholder'
+        );
+        $this->assertGreaterThanOrEqual(5, count($stored), 'starter must be multi-band, not a 3-component stub');
+        $this->assertTrue(
+            pp_validate_composition($stored) === true,
+            'the seeded-and-stored composition must pass pp_validate_composition()'
+        );
+    }
+
+    /**
+     * The idempotent guard must never overwrite an existing valid static front
+     * page: an already-configured live site keeps its own homepage on
+     * re-activation (the fresh-install-vs-existing-site distinction in #512's
+     * acceptance criteria).
+     */
+    public function testSetupHomepageDoesNotOverwriteConfiguredFrontPage(): void
+    {
+        // An existing site: a published page is already the static front page,
+        // carrying its own (non-default) composition.
+        $existing_id = wp_insert_post([
+            'post_type'   => 'page',
+            'post_title'  => 'Existing Home',
+            'post_status' => 'publish',
+        ]);
+        $custom = [['component' => 'hero', 'props' => ['id' => 'kept', 'title' => 'Untouched']]];
+        update_post_meta(
+            $existing_id,
+            '_pp_composition',
+            wp_slash(wp_json_encode($custom, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
+        );
+        update_option('show_on_front', 'page');
+        update_option('page_on_front', $existing_id);
+        $next_id_before = $GLOBALS['_pp_test_store']['next_id'];
+
+        pp_setup_homepage();
+
+        // No new page was created and the pointer is unchanged.
+        $this->assertSame($next_id_before, $GLOBALS['_pp_test_store']['next_id'], 'must not create a second Home page');
+        $this->assertSame($existing_id, (int) get_option('page_on_front'));
+
+        // The existing composition is left exactly as the site had it.
+        $kept = pp_get_composition($existing_id);
+        $this->assertSame('kept', $kept[0]['props']['id'] ?? null, 'an existing valid front page must never be overwritten');
+    }
+
     // ── _pp_is_active_theme_update: hook-shape matrix ───────────────────────
 
     public function testDetectsSingleUpdateShape(): void

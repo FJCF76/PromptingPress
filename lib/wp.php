@@ -3595,31 +3595,228 @@ function pp_comments_template(): void {
  * blank-page fallback. Single source of truth — called by lib/setup.php at
  * activation time and by templates/front-page.php as a render-time safeguard.
  *
+ * A curated branded multi-band starter (issue #512): a dark split hero, an
+ * audience/problem band, a files-vs-WordPress mechanism band (native text-panel
+ * with a monospace spec panel — no inline-HTML), a speed/trust card grid, a
+ * maintainability/proof band, and a closing CTA. The branded look (warm-cream
+ * surfaces, ink darks, restrained orange accent) is expressed entirely through
+ * VALIDATED per-component style slots (top-level `style` key) and native
+ * component props — never homepage-only shared CSS (#72) and never render-time
+ * mutation. The only HTML string is the hero proof surface, which uses the
+ * theme's own `hero__surface-*` classes (theme tokens, no hardcoded colours)
+ * rather than one-off inline styling. Every band is schema-valid; the whole
+ * composition passes pp_validate_composition() (guarded by SchemaValidationTest).
+ *
+ * This is the FRESH-INSTALL starter seed only. Theme activation writes it once
+ * (pp_setup_homepage), guarded to never overwrite an existing valid static
+ * front page — so an already-configured live site keeps its own homepage.
+ *
+ * Palette (all values are literal, slot-valid):
+ *   ink #0A0A12 / #14141F · cream #F2EEE5 / #FBF8F1 · border #E8E2D4
+ *   accent #FF5C2E (hover #C73310)
+ *
  * @return array  Component array ready for wp_json_encode or direct rendering.
  */
 function pp_default_homepage_composition(): array {
     return [
+        // 1 — Branded split hero (dark), proof surface via theme classes.
         ['component' => 'hero', 'props' => [
-            'id'       => 'home-hero',
-            'title'    => 'AI-led WordPress pages that stay workable after the first draft.',
-            'subtitle' => 'PromptingPress is built for real WordPress page workflows where AI can move fast on the first pass without turning revisions, handoff, and maintenance into cleanup debt.',
-            'cta_text' => 'See how it works',
-            'cta_url'  => '/how-promptingpress-works/',
-            'layout'   => 'split',
-            'split_ratio' => '60-40',
-            'proof'    => '<p class="hero__surface-label">Product workflow surface</p><div class="hero__surface-list"><div class="hero__surface-item"><span class="hero__surface-key">Read</span><span class="hero__surface-value">Structured site context</span></div><div class="hero__surface-item"><span class="hero__surface-key">Edit</span><span class="hero__surface-value">Page composition, not builder clutter</span></div><div class="hero__surface-item"><span class="hero__surface-key">Validate</span><span class="hero__surface-value">Screenshot-backed changes before apply</span></div></div>',
+            'id'            => 'home-hero',
+            'eyebrow'       => 'Open-source AI-first WordPress theme',
+            'title'         => 'Turn AI-assisted site drafts into maintainable WordPress composition.',
+            'title_accent'  => 'maintainable',
+            'subtitle'      => 'PromptingPress gives small WordPress teams a bounded page-composition layer. AI drafts sections, humans inspect props and style slots, and every change can be validated and screenshotted before review.',
+            'cta_text'      => 'View theme on GitHub',
+            'cta_url'       => 'https://github.com/FJCF76/PromptingPress',
+            // Both hero CTAs are outline: on the dark hero the filled premium
+            // `.btn` bevel is a fixed blue gradient driven by the GLOBAL
+            // --color-accent/--btn-bg tokens (a fresh install has no token
+            // override), so --hero-accent alone cannot repaint it, and the ghost
+            // variant's text is not reachable by --hero-cta2-color. Outline
+            // clears that gradient and tracks --hero-text (cream), hover-filling
+            // with --hero-accent (orange) — on-brand, restrained hero CTAs. The
+            // one filled orange button stays the closing CTA (--cta-button-bg).
+            'cta_variant'   => 'outline',
+            'cta2_text'     => 'See how it works',
+            'cta2_url'      => '#home-mechanism',
+            'cta2_variant'  => 'outline',
+            'layout'        => 'split',
+            'split_ratio'   => '60-40',
+            'vertical_align' => 'stretch',
+            'proof'         => '<p class="hero__surface-label">Composition workflow</p><div class="hero__surface-list"><div class="hero__surface-item"><span class="hero__surface-key">Read</span><span class="hero__surface-value">Structured site context</span></div><div class="hero__surface-item"><span class="hero__surface-key">Edit</span><span class="hero__surface-value">Bounded props, not builder clutter</span></div><div class="hero__surface-item"><span class="hero__surface-key">Validate</span><span class="hero__surface-value">Screenshot-backed before review</span></div></div>',
+        ], 'style' => [
+            '--hero-bg'                  => 'radial-gradient(circle at 78% 24%, #3A1D1D 0%, #14141F 44%, #0A0A12 100%)',
+            '--hero-text'               => '#F2EEE5',
+            '--hero-subtitle-color'     => '#E8E2D4',
+            '--hero-padding-top'        => '7rem',
+            '--hero-padding-bottom'     => '6rem',
+            '--hero-content-width'      => '64rem',
+            '--hero-title-size'         => 'clamp(2.75rem, 5vw, 4.75rem)',
+            '--hero-accent'             => '#FF5C2E',
+            '--hero-accent-hover'       => '#C73310',
+            '--hero-title-accent-color' => '#FF5C2E',
+            '--hero-eyebrow-color'      => '#FF5C2E',
+            '--hero-eyebrow-bg'         => '#14141F',
+            '--hero-eyebrow-border-color' => 'rgba(255, 92, 46, 0.4)',
+            '--hero-eyebrow-border-width' => '1px',
+            '--hero-radius'             => '0',
+            '--hero-surface-bg'         => '#F2EEE5',
+            '--hero-surface-border-color' => '#E8E2D4',
+            '--hero-surface-radius'     => '4px',
+            '--hero-surface-shadow'     => '0 24px 60px rgba(0, 0, 0, 0.28)',
         ]],
+
+        // 2 — Audience / problem band (warm cream), prose + meta strip.
         ['component' => 'section', 'props' => [
-            'title'  => 'The AI Comprehension Problem',
-            'body'   => '<p>WordPress themes are designed for developers who accumulate knowledge over time. AI can\'t accumulate. Every session, it re-infers the same hidden logic from your code.</p><p>PromptingPress solves this with a thin abstraction layer, typed component schemas, and a single AI_CONTEXT.md that maps the entire site.</p>',
-            'layout' => 'text-only',
+            'id'            => 'home-audience',
+            'eyebrow'       => 'The cost after launch',
+            'title'         => 'AI speeds up the first draft. Teams still own the maintenance.',
+            'title_accent'  => 'own the maintenance',
+            'subheading'    => 'Speed is not the hard part anymore. The next revision is.',
+            'body'          => '<p>An AI page can look done in minutes. Then the team inherits unclear structure, scattered styling, and a page that is hard to inspect the next time a client asks for a change.</p><p>PromptingPress keeps that next edit reviewable: WordPress sections, bounded component props, validated style slots, and screenshots stay in the workflow before anything is treated as done.</p>',
+            'body_items'    => ['First-draft speed', 'Revision debt', 'Handoff clarity', 'Safer edits'],
+            'layout'        => 'text-only',
+        ], 'style' => [
+            '--section-bg'                => '#F2EEE5',
+            '--section-border-color'      => '#E8E2D4',
+            '--section-border-width'      => '1px',
+            '--section-title-size'        => 'clamp(1.9rem, 3vw, 2.9rem)',
+            '--section-title-accent-color' => '#FF5C2E',
+            '--section-body-width'        => '46rem',
+            '--section-eyebrow-color'     => '#FF5C2E',
+            '--section-eyebrow-bg'        => '#FBF8F1',
+            '--section-eyebrow-border-color' => '#E8E2D4',
+            '--section-eyebrow-border-width' => '1px',
+            '--section-separator-color'   => '#FF5C2E',
         ]],
+
+        // 3 — Mechanism band (native text-panel, monospace dark spec panel).
+        ['component' => 'section', 'props' => [
+            'id'            => 'home-mechanism',
+            'eyebrow'       => 'The composition boundary',
+            'title'         => 'Files own the design. WordPress owns the content.',
+            'title_accent'  => 'design',
+            'subheading'    => 'A clear split is what keeps AI work maintainable after handoff.',
+            'body'          => '<p>The repeatable system stays in the theme: templates, components, design tokens, and CSS. The page stays in WordPress as structured composition data an implementer or agent can inspect later.</p><p>Agents get a bounded map of what can change, so edits stay inside a reviewable path.</p>',
+            'layout'        => 'text-panel',
+            'panel_heading' => 'What lives where',
+            'panel_items'   => [
+                ['label' => 'Templates & components', 'value' => 'Theme files'],
+                ['label' => 'Design tokens & CSS',    'value' => 'Theme files'],
+                ['label' => 'Copy & section order',   'value' => 'WordPress'],
+                ['label' => 'Component props & slots', 'value' => 'WordPress'],
+                ['label' => 'Validation & screenshots', 'value' => 'Review path'],
+            ],
+        ], 'style' => [
+            '--section-bg'                => '#FBF8F1',
+            '--section-border-color'      => '#E8E2D4',
+            '--section-border-width'      => '1px',
+            '--section-title-size'        => 'clamp(1.9rem, 3vw, 2.9rem)',
+            '--section-title-accent-color' => '#FF5C2E',
+            '--section-eyebrow-color'     => '#FF5C2E',
+            '--section-eyebrow-bg'        => '#F2EEE5',
+            '--section-eyebrow-border-color' => '#E8E2D4',
+            '--section-eyebrow-border-width' => '1px',
+            '--section-panel-bg'          => '#0A0A12',
+            '--section-panel-text'        => '#F2EEE5',
+            '--section-panel-border-color' => '#14141F',
+            '--section-panel-radius'      => '4px',
+            '--section-panel-font'        => 'var(--font-mono)',
+        ]],
+
+        // 4 — Speed / trust card grid (dark band, uniform peer cards).
+        ['component' => 'grid', 'props' => [
+            'id'            => 'home-adoption',
+            'eyebrow'       => 'Why teams adopt it',
+            'title'         => 'Two reasons: speed and trust.',
+            'title_accent'  => 'speed and trust',
+            'subheading'    => 'Speed gets the first draft moving. Trust keeps the next revision safe to review.',
+            'layout'        => 'cards',
+            'card_emphasis' => 'uniform',
+            'columns'       => 2,
+            'items'         => [
+                ['title' => 'Lightweight by default', 'text' => 'Client sites should not carry a heavy visual-builder runtime just because AI helped write the page.', 'bullets' => ['Plain WordPress, PHP, and CSS', 'No builder lock-in', 'Fast front-end']],
+                ['title' => 'AI-safe structure', 'text' => 'The next agent pass should not have to guess through hidden state.', 'bullets' => ['Components, IDs, props, slots', 'Inspectable page data', 'No hidden logic']],
+                ['title' => 'Readable handoff', 'text' => 'Teams can explain what was built and where the content lives.', 'bullets' => ['A clear section map', 'Content in WordPress', 'No opaque AI artifact']],
+                ['title' => 'Safer revisions', 'text' => 'AI-assisted updates on live sites stay easy to trust.', 'bullets' => ['Preflight checks', 'Screenshots before apply', 'Rollback-aware actions']],
+            ],
+        ], 'style' => [
+            '--grid-bg'                  => '#0A0A12',
+            '--grid-heading-color'       => '#F2EEE5',
+            '--grid-heading-accent-color' => '#FF5C2E',
+            '--grid-heading-size'        => 'clamp(1.9rem, 3vw, 2.9rem)',
+            '--grid-heading-max-width'   => '44rem',
+            '--grid-subheading-color'    => '#E8E2D4',
+            '--grid-eyebrow-color'       => '#FF5C2E',
+            '--grid-eyebrow-bg'          => '#14141F',
+            '--grid-eyebrow-border-color' => '#3A2A1E',
+            '--grid-eyebrow-border-width' => '1px',
+            '--grid-card-bg'             => '#F2EEE5',
+            '--grid-card-border'         => '#E8E2D4',
+            '--grid-card-border-width'   => '1px',
+            '--grid-card-radius'         => '4px',
+            '--grid-card-bar-color'      => '#FF5C2E',
+            '--grid-card-bar-height'     => '3px',
+            '--grid-card-shadow'         => '0 18px 38px rgba(0, 0, 0, 0.18)',
+            '--grid-item-title-color'    => '#0A0A12',
+            '--grid-item-text-color'     => '#3A3A44',
+            '--grid-bullet-color'        => '#FF5C2E',
+        ]],
+
+        // 5 — Maintainability / proof band (warm cream), prose + workflow strip.
+        ['component' => 'section', 'props' => [
+            'id'            => 'home-proof',
+            'eyebrow'       => 'The review path',
+            'title'         => 'AI edits leave evidence, not mystery.',
+            'title_accent'  => 'leave evidence',
+            'subheading'    => 'The first draft only matters if the next change is still inspectable and safe to hand off.',
+            'body'          => '<p>Most AI website workflows optimize for the first page. PromptingPress optimizes for the work after it: the next revision, the client change request, the page expansion, and the post-launch handoff all stay inside a reviewable WordPress composition path.</p><p>The agent can inspect the page, edit bounded props, validate the result, render screenshots, and leave a trail before work is treated as done.</p>',
+            'body_items'    => ['Inspect', 'Edit bounded props', 'Validate', 'Screenshot', 'Roll back'],
+            'layout'        => 'text-only',
+        ], 'style' => [
+            '--section-bg'                => '#F2EEE5',
+            '--section-border-color'      => '#E8E2D4',
+            '--section-border-width'      => '1px',
+            '--section-title-size'        => 'clamp(1.9rem, 3vw, 2.9rem)',
+            '--section-title-accent-color' => '#FF5C2E',
+            '--section-body-width'        => '46rem',
+            '--section-eyebrow-color'     => '#FF5C2E',
+            '--section-eyebrow-bg'        => '#FBF8F1',
+            '--section-eyebrow-border-color' => '#E8E2D4',
+            '--section-eyebrow-border-width' => '1px',
+            '--section-separator-color'   => '#FF5C2E',
+        ]],
+
+        // 6 — Closing CTA (dark), branded orange button.
         ['component' => 'cta', 'props' => [
-            'title'       => 'Ready to build your AI-ready site?',
-            'text'        => 'Start with the theme, fill in AI_CONTEXT.md, and let your AI tool do the rest.',
-            'button_text' => 'Get Started on GitHub',
-            'button_url'  => 'https://github.com/FJCF76/PromptingPress',
-            'layout'      => 'full-width',
+            'id'            => 'home-cta',
+            'eyebrow'       => 'Get started',
+            'title'         => 'Get the open-source PromptingPress theme.',
+            'title_accent'  => 'PromptingPress',
+            'text'          => 'PromptingPress is on GitHub for WordPress teams that want an AI-first theme built around inspectable composition, bounded edits, validation, and review evidence.',
+            'button_text'   => 'View theme on GitHub',
+            'button_url'    => 'https://github.com/FJCF76/PromptingPress',
+            'button_variant' => 'primary',
+            'layout'        => 'full-width',
+        ], 'style' => [
+            '--cta-bg'                  => '#0A0A12',
+            '--cta-text'                => '#F2EEE5',
+            '--cta-body-color'          => '#E8E2D4',
+            '--cta-padding-top'         => '5.5rem',
+            '--cta-padding-bottom'      => '5.5rem',
+            '--cta-content-width'       => '48rem',
+            '--cta-title-size'          => 'clamp(2rem, 3vw, 3.1rem)',
+            '--cta-title-accent-color'  => '#FF5C2E',
+            '--cta-accent'              => '#FF5C2E',
+            '--cta-accent-hover'        => '#C73310',
+            '--cta-button-bg'           => '#FF5C2E',
+            '--cta-button-color'        => '#0A0A12',
+            '--cta-button-hover-bg'     => '#C73310',
+            '--cta-button-hover-color'  => '#F2EEE5',
+            '--cta-eyebrow-color'       => '#FF5C2E',
+            '--cta-eyebrow-bg'          => '#14141F',
+            '--cta-eyebrow-border-color' => '#3A2A1E',
+            '--cta-eyebrow-border-width' => '1px',
         ]],
     ];
 }
