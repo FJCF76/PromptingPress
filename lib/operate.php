@@ -241,6 +241,9 @@ function pp_classify_findings(array $checks): array {
         $by_class[$class][] = [
             'check'            => $check['check'] ?? '',
             'pass'             => (bool) ($check['pass'] ?? false),
+            // Tri-state capability sub-state (#497), e.g. screenshot readiness
+            // 'unavailable' vs 'broken'. Null for findings that carry no sub-state.
+            'state'            => $check['state'] ?? null,
             'acknowledgeable'  => (bool) ($check['acknowledgeable'] ?? false),
             'acknowledged'     => (bool) ($check['acknowledged'] ?? false),
             // Surface the operator's recorded rationale in the read surface — it
@@ -659,22 +662,31 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
     // The operating loop forbids native VERIFIED without screenshots, so surface capture
     // readiness BEFORE mutation. A missing browser is a capability warning, not a gate:
     // typed mutations may still proceed; the run just cannot claim native VERIFIED.
+    // Read-only capability check: no probe here (preflight must not launch a browser).
+    // The tri-state `state` (#497) still renders distinctly: `unavailable` (not
+    // configured) and `broken` (configured but the binary is missing) are separate
+    // capability findings, while `available` is healthy. `wp pp screenshot doctor`
+    // upgrades `available` to a capture-verified verdict and turns a probe failure into
+    // `broken` — this surface reports the cheap, non-exec verdict.
     $shot = pp_screenshot_readiness();
-    if ($shot['ready']) {
+    if ($shot['state'] === 'available') {
         // Healthy: not a finding, no class.
         $checks[] = [
             'check'    => 'screenshot_readiness',
             'pass'     => true,
             'severity' => 'warning',
+            'state'    => 'available',
             'message'  => 'Native screenshot capture is ready (' . $shot['message'] . ').',
         ];
     } else {
-        // Capability-class finding (#496): an environment tool is missing (#497).
+        // Capability-class finding (#496): an environment tool is missing/misconfigured
+        // (#497). `unavailable` and `broken` render distinctly via the `state` field.
         $checks[] = [
             'check'       => 'screenshot_readiness',
             'pass'        => false,
             'severity'    => 'warning',
             'class'       => 'capability',
+            'state'       => $shot['state'],
             'next_action' => 'wp pp screenshot doctor',
             'message'     => $shot['message'] . ' Typed mutations may still proceed; native VERIFIED requires a '
               . 'working capture — run `wp pp screenshot doctor` to diagnose.',

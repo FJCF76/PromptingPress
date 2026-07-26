@@ -90,25 +90,125 @@ function pp_screenshot_resolve_browser_cmd(): array {
 }
 
 /**
- * Reports screenshot-capture readiness for the CURRENT runtime context (CLI `wp` and
- * web PHP can resolve different env/config, so the reported context matters). Capability
- * detection only by default; pass $probe=true to actually attempt a tiny capture and
- * confirm the adapter launches, writes a file, and exits cleanly.
+ * Extracts the executable token from a configured browser command. PP_BROWSER_CMD
+ * is a command line (e.g. `node /path/shot.js`, `"/opt/my browser/pp-shot"`), so the
+ * binary to check is its first shell token, quote-aware.
  *
- * Basis for both `wp pp screenshot doctor` and the non-blocking preflight readiness
- * warning. Never mutates the site and never blocks anything.
- *
- * @param bool $probe  When true, run a real minimal capture against the home URL.
- * @return array{ready: bool, source: ?string, context: string, browser_cmd: ?string,
- *               probe: ?array, message: string}
+ * @param string $cmd  The configured command line.
+ * @return string  The first token (the binary), or '' when none.
  */
-function pp_screenshot_readiness(bool $probe = false): array {
+function pp_screenshot_command_binary(string $cmd): string {
+    $cmd = trim($cmd);
+    if ($cmd === '') {
+        return '';
+    }
+    // Quote-aware first token: honor a leading '...' or "..." so a path with spaces
+    // resolves as one binary rather than being split.
+    $q = $cmd[0];
+    if ($q === '"' || $q === "'") {
+        $end = strpos($cmd, $q, 1);
+        return $end !== false ? substr($cmd, 1, $end - 1) : substr($cmd, 1);
+    }
+    $parts = preg_split('/\s+/', $cmd, 2);
+    return $parts[0] ?? '';
+}
+
+/**
+ * Resolves a bare binary name against $PATH (or checks an explicit path directly).
+ * Cheap and side-effect-free: stat-only, no process launch — safe for the read-only
+ * preflight surface.
+ *
+ * @param string $binary  A binary name or path.
+ * @return ?string  The resolved executable path, or null when not found/executable.
+ */
+function pp_screenshot_which(string $binary): ?string {
+    if ($binary === '') {
+        return null;
+    }
+    // Explicit path (absolute or relative with a slash): check it directly. Require a
+    // regular file, not just any x-bit inode — a directory carries the execute bit but is
+    // not an adapter.
+    if (strpos($binary, '/') !== false) {
+        return (is_file($binary) && is_executable($binary)) ? $binary : null;
+    }
+    $path = (string) getenv('PATH');
+    foreach (explode(PATH_SEPARATOR, $path) as $dir) {
+        if ($dir === '') {
+            continue;
+        }
+        $candidate = rtrim($dir, '/') . '/' . $binary;
+        if (is_file($candidate) && is_executable($candidate)) {
+            return $candidate;
+        }
+    }
+    return null;
+}
+
+/**
+ * Detects common browser/screenshot binaries on $PATH. These are DISCOVERY HINTS
+ * only: PromptingPress blesses no specific tool — each candidate still has to be
+ * wrapped to the adapter contract (`<url> --width --height --output`) before it can
+ * back PP_BROWSER_CMD. Used by `wp pp screenshot doctor` to help an operator go from
+ * unconfigured to configured without leaving the CLI.
+ *
+ * @return array[]  Each: ['name' => string, 'path' => string]. Empty when none found.
+ */
+function pp_screenshot_candidate_browsers(): array {
+    // Ordered rough-to-precise: purpose-built shot wrappers first, then raw browsers.
+    $names = [
+        'pp-shot', 'shot-scraper', 'pageres', 'wkhtmltoimage', 'playwright',
+        'chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable',
+        'chrome', 'chrome-headless-shell', 'firefox',
+    ];
+    $found = [];
+    foreach ($names as $name) {
+        $resolved = pp_screenshot_which($name);
+        if ($resolved !== null) {
+            $found[] = ['name' => $name, 'path' => $resolved];
+        }
+    }
+    return $found;
+}
+
+/**
+ * Reports screenshot-capture readiness for the CURRENT runtime context (CLI `wp` and
+ * web PHP can resolve different env/config, so the reported context matters) as an
+ * explicit tri-state (#497):
+ *
+ *   - `available`   — PP_BROWSER_CMD resolves AND its binary is on $PATH. When $probe
+ *                     is set, a real capture also ran and succeeded (definitive).
+ *   - `unavailable` — PP_BROWSER_CMD is not configured for this context. Carries the
+ *                     one-line setup pointer; this is a capability STATE, not a per-run
+ *                     warning.
+ *   - `broken`      — PP_BROWSER_CMD is configured but failing: the binary is missing
+ *                     from $PATH (cheap, no-exec detection), or (with $probe) the real
+ *                     capture failed. Carries the concrete failure.
+ *
+ * Without $probe this is a cheap, side-effect-free capability check (stat-only) safe for
+ * the read-only preflight surface: it can definitively report `unavailable` and a
+ * binary-missing `broken`, and reports `available` optimistically (resolves; not yet
+ * capture-verified). `wp pp screenshot doctor` passes $probe=true to make `available`
+ * vs `broken` definitive by attempting a real capture. Never mutates the site and never
+ * blocks anything.
+ *
+ * `ready` is retained as a convenience alias: `ready === (state === 'available')`.
+ *
+ * @param bool $probe             When true, run a real minimal capture against the home URL.
+ * @param bool $include_candidates When true, attach detected candidate browser binaries
+ *                                 (a doctor-facing setup aid; off by default so preflight
+ *                                 stays lean).
+ * @return array{ready: bool, state: string, source: ?string, context: string,
+ *               browser_cmd: ?string, probe: ?array, candidates?: array, message: string}
+ */
+function pp_screenshot_readiness(bool $probe = false, bool $include_candidates = false): array {
     $resolved = pp_screenshot_resolve_browser_cmd();
     $context  = (php_sapi_name() === 'cli') ? 'cli' : 'web';
 
+    // ── unavailable: nothing configured ─────────────────────────────────────
     if ($resolved['cmd'] === null) {
-        return [
+        $result = [
             'ready'       => false,
+            'state'       => 'unavailable',
             'source'      => null,
             'context'     => $context,
             'browser_cmd' => null,
@@ -118,16 +218,55 @@ function pp_screenshot_readiness(bool $probe = false): array {
                 . 'wp-config.php (PHP constant). Required adapter shape: '
                 . '<url> --width=<px> --height=<px> --output=<path>. See docs/screenshot-setup.md.',
         ];
+        if ($include_candidates) {
+            $result['candidates'] = pp_screenshot_candidate_browsers();
+        }
+        return $result;
     }
 
+    // ── configured: decide available vs broken ──────────────────────────────
+    // Cheap, stat-only resolution of the command's binary. This is DEFINITIVE only for
+    // the no-probe (preflight) surface: a bare token that doesn't resolve on $PATH is a
+    // clearly-broken config. But PP_BROWSER_CMD is a shell command line — an env-var
+    // prefix (`FOO=1 chromium ...`), `A && B`, a shell builtin, or a bare name present at
+    // the adapter's runtime PATH but not this context's PATH are all things the token
+    // parser cannot resolve yet still capture fine. So when we PROBE, the real capture is
+    // the arbiter: the binary-missing early return only fires without a probe.
+    $binary   = pp_screenshot_command_binary($resolved['cmd']);
+    $bin_path = pp_screenshot_which($binary);
+
+    if ($bin_path === null && !$probe) {
+        $result = [
+            'ready'       => false,
+            'state'       => 'broken',
+            'source'      => $resolved['source'],
+            'context'     => $context,
+            'browser_cmd' => $resolved['cmd'],
+            'probe'       => null,
+            'message'     => 'PP_BROWSER_CMD is set (' . $resolved['source'] . ') but its command "'
+                . $binary . '" was not found on $PATH (or is not executable) in the ' . $context
+                . ' context. Run `wp pp screenshot doctor` to capture-verify (it may still work via a '
+                . 'shell form the check cannot resolve), or fix the path. See docs/screenshot-setup.md.',
+        ];
+        if ($include_candidates) {
+            $result['candidates'] = pp_screenshot_candidate_browsers();
+        }
+        return $result;
+    }
+
+    // Optimistic baseline: resolves (or will be probe-arbitrated). The message is only
+    // surfaced on the no-probe path (the probe block overwrites it), where $bin_path is
+    // non-null, so guard the null case defensively.
     $result = [
         'ready'       => true,
+        'state'       => 'available',
         'source'      => $resolved['source'],
         'context'     => $context,
         'browser_cmd' => $resolved['cmd'],
         'probe'       => null,
-        'message'     => 'PP_BROWSER_CMD resolved from ' . $resolved['source'] . ' for the '
-            . $context . ' context.',
+        'message'     => 'PP_BROWSER_CMD resolved from ' . $resolved['source']
+            . ($bin_path !== null ? ' (' . $bin_path . ')' : '')
+            . ' for the ' . $context . ' context. Run `wp pp screenshot doctor` to capture-verify.',
     ];
 
     if ($probe) {
@@ -141,6 +280,7 @@ function pp_screenshot_readiness(bool $probe = false): array {
             'height' => 240,
             'output' => $tmp,
         ]);
+        $bytes = (file_exists($tmp) && ($capture['ok'] ?? false)) ? filesize($tmp) : 0;
         if (file_exists($tmp)) {
             @unlink($tmp);
         }
@@ -148,14 +288,26 @@ function pp_screenshot_readiness(bool $probe = false): array {
             'ok'      => $capture['ok'],
             'error'   => $capture['error'] ?? null,
             'message' => $capture['message'] ?? null,
+            'bytes'   => $bytes,
         ];
-        $result['ready'] = $capture['ok'];
-        if (!$capture['ok']) {
+        // A capture that "succeeded" but produced no bytes is not real evidence — treat it
+        // as broken so a delete race can never masquerade as `available`.
+        if (($capture['ok'] ?? false) && $bytes > 0) {
+            $result['message'] = 'PP_BROWSER_CMD (' . $resolved['source'] . ') captured a real probe '
+                . 'in the ' . $context . ' context: ' . $bytes . '-byte PNG. Native screenshot '
+                . 'evidence is available.';
+        } else {
+            $result['ready']   = false;
+            $result['state']   = 'broken';
             $result['message'] = 'PP_BROWSER_CMD is set (' . $resolved['source'] . ') but a probe '
                 . 'capture in the ' . $context . ' context failed: '
-                . ($capture['message'] ?? $capture['error'] ?? 'unknown')
+                . ($capture['message'] ?? $capture['error'] ?? ($bytes === 0 ? 'empty capture' : 'unknown'))
                 . '. Fix the adapter before relying on native screenshot evidence.';
         }
+    }
+
+    if ($include_candidates && $result['state'] !== 'available') {
+        $result['candidates'] = pp_screenshot_candidate_browsers();
     }
 
     return $result;

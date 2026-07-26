@@ -121,9 +121,15 @@ class ScreenshotTest extends TestCase
         putenv('PP_BROWSER_CMD');
         $readiness = pp_screenshot_readiness();
         $this->assertFalse($readiness['ready']);
+        // Tri-state (#497): unconfigured is the definitive `unavailable` STATE, not an
+        // ambient "may not work" warning.
+        $this->assertSame('unavailable', $readiness['state']);
         $this->assertSame('cli', $readiness['context']); // PHPUnit runs under the CLI SAPI
         $this->assertNull($readiness['source']);
         $this->assertStringContainsString('PP_BROWSER_CMD', $readiness['message']);
+        // No probe requested and no candidates requested: candidates stays out of the
+        // lean (preflight) shape.
+        $this->assertArrayNotHasKey('candidates', $readiness);
     }
 
     public function testReadinessReadyWhenEnvConfigured(): void
@@ -132,11 +138,134 @@ class ScreenshotTest extends TestCase
         try {
             $readiness = pp_screenshot_readiness(); // capability only, no probe
             $this->assertTrue($readiness['ready']);
+            // /bin/true resolves on $PATH → `available` (resolves; not yet capture-verified).
+            $this->assertSame('available', $readiness['state']);
             $this->assertSame('env', $readiness['source']);
             $this->assertSame('/bin/true', $readiness['browser_cmd']);
         } finally {
             putenv('PP_BROWSER_CMD');
         }
+    }
+
+    public function testReadinessBrokenStateWhenBinaryMissingNoExec(): void
+    {
+        // Configured but the command's binary is not on $PATH → `broken`, detected WITHOUT
+        // launching a process (cheap enough for the read-only preflight surface).
+        putenv('PP_BROWSER_CMD=/nonexistent/pp-screenshot-binary-xyz');
+        try {
+            $readiness = pp_screenshot_readiness(); // no probe
+            $this->assertFalse($readiness['ready']);
+            $this->assertSame('broken', $readiness['state']);
+            $this->assertNull($readiness['probe'], 'binary-missing broken must not have run a probe');
+            $this->assertStringContainsString('not found on $PATH', $readiness['message']);
+        } finally {
+            putenv('PP_BROWSER_CMD');
+        }
+    }
+
+    public function testReadinessAvailableStateWithVerifiedProbe(): void
+    {
+        // A fake adapter that honors the contract (writes a PNG to --output, exits 0) makes
+        // the probe path reach a definitive, capture-verified `available` — and we inspect
+        // what it wrote (Section 14.2): a non-empty file.
+        $adapter = $this->screenshotDir . '/fake-adapter.sh';
+        file_put_contents($adapter, <<<'SH'
+#!/bin/sh
+out=""
+for arg in "$@"; do
+  case "$arg" in
+    --output=*) out="${arg#--output=}" ;;
+  esac
+done
+[ -n "$out" ] || exit 3
+printf '\211PNG\r\n\032\n fake pixels' > "$out"
+exit 0
+SH
+        );
+        chmod($adapter, 0755);
+        putenv('PP_BROWSER_CMD=' . $adapter);
+        try {
+            $readiness = pp_screenshot_readiness(true); // probe
+            $this->assertTrue($readiness['ready'], $readiness['message']);
+            $this->assertSame('available', $readiness['state']);
+            $this->assertIsArray($readiness['probe']);
+            $this->assertTrue($readiness['probe']['ok'], 'the fake adapter capture should succeed');
+            $this->assertGreaterThan(0, $readiness['probe']['bytes'], 'probe must report the captured byte count');
+        } finally {
+            putenv('PP_BROWSER_CMD');
+            foreach (glob(pp_screenshot_dir() . '/.doctor-probe-*.png') ?: [] as $f) {
+                @unlink($f);
+            }
+        }
+    }
+
+    public function testProbeArbitratesShellFormWhoseFirstTokenIsNotOnPath(): void
+    {
+        // Regression: a shell command line whose FIRST token is not a $PATH binary (here an
+        // env-var prefix) is `broken` on the cheap no-exec check, but `doctor --probe` must
+        // NOT short-circuit — the real capture is the arbiter, and this one captures fine.
+        $adapter = $this->screenshotDir . '/env-prefixed-adapter.sh';
+        file_put_contents($adapter, <<<'SH'
+#!/bin/sh
+out=""
+for arg in "$@"; do
+  case "$arg" in --output=*) out="${arg#--output=}" ;; esac
+done
+[ -n "$out" ] || exit 3
+printf '\211PNG\r\n\032\n fake pixels' > "$out"
+exit 0
+SH
+        );
+        chmod($adapter, 0755);
+        // First token is `PP_FAKE=1`, which is not a binary on $PATH.
+        putenv('PP_BROWSER_CMD=PP_FAKE=1 ' . $adapter);
+        try {
+            // No probe: the cheap check cannot resolve the first token → broken.
+            $cheap = pp_screenshot_readiness();
+            $this->assertSame('broken', $cheap['state']);
+
+            // Probe (doctor default): the actual capture succeeds → available, not a false broken.
+            $probed = pp_screenshot_readiness(true);
+            $this->assertSame('available', $probed['state'], $probed['message']);
+            $this->assertTrue($probed['ready']);
+            $this->assertTrue($probed['probe']['ok']);
+            $this->assertGreaterThan(0, $probed['probe']['bytes']);
+        } finally {
+            putenv('PP_BROWSER_CMD');
+            foreach (glob(pp_screenshot_dir() . '/.doctor-probe-*.png') ?: [] as $f) {
+                @unlink($f);
+            }
+        }
+    }
+
+    public function testReadinessCandidatesIncludedForDoctorWhenUnconfigured(): void
+    {
+        // Doctor passes include_candidates=true so an unconfigured operator gets discovery
+        // hints. The set may be empty on a browserless container — the CONTRACT is that the
+        // key is present and is a list, each entry naming a binary + resolved path.
+        putenv('PP_BROWSER_CMD');
+        $readiness = pp_screenshot_readiness(true, true); // doctor shape: probe + candidates
+        $this->assertSame('unavailable', $readiness['state']);
+        $this->assertArrayHasKey('candidates', $readiness);
+        $this->assertIsArray($readiness['candidates']);
+        foreach ($readiness['candidates'] as $cand) {
+            $this->assertArrayHasKey('name', $cand);
+            $this->assertArrayHasKey('path', $cand);
+        }
+    }
+
+    public function testCandidateBrowsersReturnsList(): void
+    {
+        $candidates = pp_screenshot_candidate_browsers();
+        $this->assertIsArray($candidates);
+    }
+
+    public function testCommandBinaryIsQuoteAwareFirstToken(): void
+    {
+        $this->assertSame('/usr/bin/node', pp_screenshot_command_binary('/usr/bin/node /path/shot.js --flag'));
+        $this->assertSame('/opt/my browser/pp-shot', pp_screenshot_command_binary('"/opt/my browser/pp-shot" --width=1'));
+        $this->assertSame('pp-shot', pp_screenshot_command_binary('pp-shot'));
+        $this->assertSame('', pp_screenshot_command_binary('   '));
     }
 
     public function testPreflightSurfacesScreenshotReadinessAsNonBlockingWarning(): void
@@ -166,6 +295,51 @@ class ScreenshotTest extends TestCase
         );
     }
 
+    public function testPreflightUnavailableFindingCarriesUnavailableState(): void
+    {
+        // #497: preflight renders the tri-state distinctly. Unconfigured → a capability
+        // finding tagged state `unavailable`, surfaced in the classified findings block.
+        putenv('PP_BROWSER_CMD');
+        $result = pp_preflight([]);
+        $shot = array_values(array_filter(
+            $result['checks'],
+            fn ($c) => ($c['check'] ?? '') === 'screenshot_readiness'
+        ))[0];
+        $this->assertFalse($shot['pass']);
+        $this->assertSame('capability', $shot['class']);
+        $this->assertSame('unavailable', $shot['state']);
+        $this->assertSame('wp pp screenshot doctor', $shot['next_action']);
+        // The classified findings block copies the sub-state through.
+        $cap = $result['findings']['by_class']['capability'];
+        $row = array_values(array_filter($cap, fn ($r) => ($r['check'] ?? '') === 'screenshot_readiness'))[0];
+        $this->assertSame('unavailable', $row['state']);
+    }
+
+    public function testPreflightBrokenFindingCarriesBrokenState(): void
+    {
+        // #497: a configured-but-missing binary renders as `broken` in preflight, WITHOUT
+        // preflight launching a browser (the cheap non-exec check), and stays non-blocking.
+        putenv('PP_BROWSER_CMD=/nonexistent/pp-screenshot-binary-xyz');
+        try {
+            $result = pp_preflight([]);
+            $shot = array_values(array_filter(
+                $result['checks'],
+                fn ($c) => ($c['check'] ?? '') === 'screenshot_readiness'
+            ))[0];
+            $this->assertFalse($shot['pass']);
+            $this->assertSame('capability', $shot['class']);
+            $this->assertSame('broken', $shot['state']);
+            // Distinct from `unavailable`: the two states never collapse into one warning.
+            $blocking = array_filter(
+                $result['checks'],
+                fn ($c) => !$c['pass'] && (($c['severity'] ?? 'error') !== 'warning')
+            );
+            $this->assertNotContains('screenshot_readiness', array_column($blocking, 'check'));
+        } finally {
+            putenv('PP_BROWSER_CMD');
+        }
+    }
+
     public function testReadinessProbeReflectsCaptureOutcome(): void
     {
         // --probe runs a real capture; a failing adapter must flip ready to false and
@@ -174,6 +348,9 @@ class ScreenshotTest extends TestCase
         try {
             $readiness = pp_screenshot_readiness(true);
             $this->assertFalse($readiness['ready'], 'A failing probe must report not-ready.');
+            // A configured-but-failing probe is the `broken` state (#497), distinct from
+            // `unavailable` (never configured).
+            $this->assertSame('broken', $readiness['state']);
             $this->assertIsArray($readiness['probe']);
             $this->assertFalse($readiness['probe']['ok'], 'The probe sub-result must record the failure.');
         } finally {
