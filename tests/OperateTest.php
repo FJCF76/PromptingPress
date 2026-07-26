@@ -1921,48 +1921,371 @@ class OperateTest extends TestCase
 
     // ── Field Editability Map Tests ──────────────────────────────────────────
 
-    public function testRegisterComponentFields(): void
+    /**
+     * #509: field editability is DERIVED from schemas, not a hand-list. This
+     * matrix asserts the derived field set for representative props across ALL
+     * 10 composable components — including fields the retired registry never
+     * covered (hero.layout, section.image_url, stats.*, table.caption, embed.*,
+     * logos.*) — plus the type/format mapping (#506/#507) and that structural
+     * array/object props are excluded.
+     *
+     * @return array<string, array<string, string|null>>  type => [field => scalar_type], format captured separately.
+     */
+    private function fieldMap(string $type): array
     {
-        // Verify built-in registrations for all 5 types.
-        $hero = pp_get_component_fields('hero');
-        $this->assertCount(5, $hero);
-        $this->assertSame('title', $hero[0]['name']);
-        $this->assertSame('string', $hero[0]['type']);
-        $this->assertSame('cta_url', $hero[4]['name']);
-        $this->assertSame('url', $hero[4]['type']);
+        $map = [];
+        foreach (pp_get_component_fields($type) as $f) {
+            $map[$f['name']] = $f['type'];
+        }
+        return $map;
+    }
 
-        $section = pp_get_component_fields('section');
-        $this->assertCount(4, $section);
-        $this->assertSame('eyebrow', $section[1]['name']);
-        $this->assertSame('subheading', $section[2]['name']);
-        $this->assertSame('body', $section[3]['name']);
-        $this->assertSame('html', $section[3]['type']);
+    private function fieldFormat(string $type, string $name): ?string
+    {
+        foreach (pp_get_component_fields($type) as $f) {
+            if ($f['name'] === $name) {
+                return $f['format'] ?? null;
+            }
+        }
+        return null;
+    }
 
-        $grid = pp_get_component_fields('grid');
-        $this->assertCount(6, $grid);
-        $this->assertSame('eyebrow', $grid[0]['name']);
-        $this->assertSame('subheading', $grid[1]['name']);
-        $this->assertSame('items[].title', $grid[2]['name']);
-        $this->assertSame('items[].link_url', $grid[4]['name']);
-        $this->assertSame('items[].link_text', $grid[5]['name']);
+    public function testDeriveComponentFieldsMatrixAllComponents(): void
+    {
+        // hero — full coverage now (registry only had 5 of ~20).
+        $hero = $this->fieldMap('hero');
+        $this->assertSame('string', $hero['title']);
+        $this->assertSame('string', $hero['subtitle']);
+        $this->assertSame('string', $hero['cta_url']);            // was 'url' in the old vocabulary
+        $this->assertSame('link_url', $this->fieldFormat('hero', 'cta_url')); // #507 format inherited
+        $this->assertSame('enum', $hero['layout']);              // never patchable before #509
+        $this->assertSame('string', $hero['image_url']);
+        $this->assertSame('image_url', $this->fieldFormat('hero', 'image_url'));
+        $this->assertSame('number', $hero['image_id']);
+        $this->assertArrayHasKey('id', $hero);                   // scalar id now exposed
 
-        $faq = pp_get_component_fields('faq');
-        $this->assertCount(3, $faq);
-        $this->assertSame('eyebrow', $faq[0]['name']);
-        $this->assertSame('items[].question', $faq[1]['name']);
-        $this->assertSame('items[].answer', $faq[2]['name']);
+        // section — body is schema type:string (retired the private 'html').
+        $section = $this->fieldMap('section');
+        $this->assertSame('string', $section['body']);
+        $this->assertSame('enum', $section['theme']);
+        $this->assertSame('string', $section['image_url']);
+        $this->assertArrayNotHasKey('panel_items', $section);    // array prop, not a scalar
+        $this->assertArrayNotHasKey('body_items', $section);     // string-array, not addressable
 
-        $cta = pp_get_component_fields('cta');
-        $this->assertCount(5, $cta);
-        $this->assertSame('title', $cta[0]['name']);
-        $this->assertSame('eyebrow', $cta[1]['name']);
-        $this->assertSame('text', $cta[2]['name']);
-        $this->assertSame('button_text', $cta[3]['name']);
-        $this->assertSame('button_url', $cta[4]['name']);
+        // grid — nested item scalars + top-level number/enum.
+        $grid = $this->fieldMap('grid');
+        $this->assertSame('number', $grid['columns']);
+        $this->assertSame('enum', $grid['card_emphasis']);
+        $this->assertSame('string', $grid['items[].title']);
+        $this->assertSame('link_url', $this->fieldFormat('grid', 'items[].link_url'));
+        $this->assertSame('enum', $grid['items[].text_role']);
+        $this->assertArrayNotHasKey('items[].bullets', $grid);   // nested array excluded
+        $this->assertArrayNotHasKey('items[].style', $grid);     // nested object excluded
 
-        // Unmapped type returns empty array.
-        $unknown = pp_get_component_fields('nonexistent');
-        $this->assertSame([], $unknown);
+        // faq
+        $faq = $this->fieldMap('faq');
+        $this->assertSame('string', $faq['items[].question']);
+        $this->assertSame('string', $faq['items[].answer']);
+
+        // cta
+        $cta = $this->fieldMap('cta');
+        $this->assertSame('string', $cta['button_text']);
+        $this->assertSame('string', $cta['button_url']);
+        $this->assertSame('link_url', $this->fieldFormat('cta', 'button_url'));
+
+        // testimonials
+        $testi = $this->fieldMap('testimonials');
+        $this->assertSame('string', $testi['items[].quote']);
+        $this->assertSame('string', $testi['items[].company']);
+
+        // stats — absent from the old registry entirely.
+        $stats = $this->fieldMap('stats');
+        $this->assertSame('enum', $stats['theme']);
+        $this->assertSame('string', $stats['items[].number']);
+        $this->assertSame('string', $stats['items[].label']);
+        $this->assertArrayNotHasKey('items', $stats);            // the array itself is not a field
+
+        // table — absent before; caption/title/headers/rows.
+        $table = $this->fieldMap('table');
+        $this->assertSame('string', $table['caption']);
+        $this->assertSame('string', $table['title']);
+        $this->assertArrayNotHasKey('headers', $table);          // array prop
+        $this->assertArrayNotHasKey('rows', $table);             // array prop
+
+        // logos — absent before; nested image_id is number.
+        $logos = $this->fieldMap('logos');
+        $this->assertSame('string', $logos['items[].label']);
+        $this->assertSame('number', $logos['items[].image_id']);
+        $this->assertSame('image_url', $this->fieldFormat('logos', 'items[].image_url'));
+
+        // embed — absent before; content/title/theme.
+        $embed = $this->fieldMap('embed');
+        $this->assertSame('string', $embed['content']);
+        $this->assertSame('enum', $embed['theme']);
+
+        // Unknown/unschema'd type returns empty (composability guard intact).
+        $this->assertSame([], pp_get_component_fields('nonexistent'));
+    }
+
+    public function testEveryComposableComponentHasPatchableFields(): void
+    {
+        // Drift guard: all 10 composable components must derive at least one
+        // patchable field. If a schema loses all scalar props (or the derivation
+        // regresses), this catches the silent coverage drop the old hand-list had.
+        foreach (['hero', 'section', 'grid', 'faq', 'cta', 'testimonials', 'stats', 'table', 'logos', 'embed'] as $type) {
+            $this->assertNotEmpty(pp_get_component_fields($type), "$type must derive patchable fields from its schema");
+        }
+    }
+
+    /**
+     * #509 DRIFT-CATCHER: a NEW scalar schema prop becomes patchable with ZERO
+     * registry edits (the disease the retired hand-list carried — every new prop
+     * silently widened the coverage gap). We inject a synthetic prop into a
+     * component's schema on disk, invalidate the schema cache, and prove the
+     * derived field set picks it up automatically and a patch round-trips through
+     * the real surface. Also proves the `patchable: false` opt-out is honored.
+     */
+    public function testDriftCatcherNewSchemaPropIsAutomaticallyPatchable(): void
+    {
+        // Rewrite the embed schema in the mirrored temp theme, adding two new
+        // props: one plain scalar (must become patchable) and one opted out.
+        $schemaPath = $this->tempDir . '/components/embed/schema.json';
+        $schema = json_decode(file_get_contents($schemaPath), true);
+        $schema['props']['synthetic_tagline'] = [
+            'type'        => 'string',
+            'required'    => false,
+            'default'     => '',
+            'description' => 'Synthetic prop added by the #509 drift-catcher test.',
+        ];
+        $schema['props']['synthetic_locked'] = [
+            'type'        => 'string',
+            'required'    => false,
+            'default'     => '',
+            'patchable'   => false,
+            'description' => 'Synthetic opted-out prop; must NOT be patchable in isolation.',
+        ];
+        file_put_contents($schemaPath, json_encode($schema));
+        $GLOBALS['_pp_registered_components_invalidate'] = true;
+
+        // Derivation: new scalar prop is present; opted-out prop is absent.
+        $fields = $this->fieldMap('embed');
+        $this->assertSame('string', $fields['synthetic_tagline'] ?? null, 'new scalar schema prop must derive with zero registry edits');
+        $this->assertArrayNotHasKey('synthetic_locked', $fields, 'patchable:false opt-out must exclude the prop');
+
+        // End-to-end: the new prop patches through the real update_component path.
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Drift Embed', 'post_status' => 'publish']);
+        update_post_meta($post_id, '_pp_composition', json_encode([
+            ['component' => 'embed', 'props' => ['id' => 'pp-embed001', 'content' => '[shortcode]', 'synthetic_tagline' => 'Old']],
+        ]));
+
+        $ok = pp_patch_composition($post_id, 'embed.synthetic_tagline', 'New tagline');
+        $this->assertTrue($ok['ok'], 'a brand-new schema prop must be patchable with zero code change');
+        $this->assertSame('New tagline', pp_get_composition($post_id)[0]['props']['synthetic_tagline']);
+
+        // The opted-out prop is rejected as not editable, even though it is a
+        // declared scalar string — the opt-out is enforced end-to-end.
+        update_post_meta($post_id, '_pp_composition', json_encode([
+            ['component' => 'embed', 'props' => ['id' => 'pp-embed001', 'content' => '[shortcode]', 'synthetic_locked' => 'x']],
+        ]));
+        $locked = pp_patch_composition($post_id, 'embed.synthetic_locked', 'y');
+        $this->assertInstanceOf(WP_Error::class, $locked);
+        $this->assertSame('field_not_editable', $locked->get_error_code());
+    }
+
+    /**
+     * #509 acceptance + Section 14.1 AUTHORING-PATH: patch a field on a component
+     * the retired registry never covered (table.caption), authoring the page
+     * through the REAL validating surface (pp_update_composition), not a raw
+     * _pp_composition meta write, then round-tripping the patch through the real
+     * pp_patch_composition path.
+     */
+    public function testPatchPreviouslyAbsentComponentTableCaptionRoundTrips(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Table Author', 'post_status' => 'publish']);
+
+        // Author through the real VALIDATING surface (the update_composition
+        // action runs pp_validate_composition), not a raw meta write (Section 14.1).
+        $author = pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [
+            ['component' => 'table', 'props' => [
+                'title'   => 'Pricing',
+                'headers' => ['Plan', 'Price'],
+                'rows'    => [['Pro', '$9'], ['Team', '$29']],
+                'caption' => 'Old caption',
+            ]],
+        ]]);
+        $this->assertTrue($author['ok'], 'authoring a table through update_composition must validate and persist');
+
+        // caption was NEVER in the old hand-list; it is now patchable by derivation.
+        $result = pp_patch_composition($post_id, 'table.caption', 'New accessible caption');
+        $this->assertTrue($result['ok']);
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('New accessible caption', $comp[0]['props']['caption']);
+        // Structural array props stay intact through the targeted patch.
+        $this->assertSame(['Plan', 'Price'], $comp[0]['props']['headers']);
+    }
+
+    /**
+     * #509: round-trips on more previously-uncovered surfaces — a top-level field
+     * on stats, a nested item field on logos, and a NUMBER-typed field (grid.columns)
+     * the old string/url/html vocabulary could not express. Each authors through
+     * the real pp_update_composition surface (Section 14.1).
+     */
+    public function testPatchPreviouslyUncoveredFieldsRoundTrip(): void
+    {
+        // stats — top-level title (whole component was absent from the registry).
+        $stats_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Stats Author', 'post_status' => 'publish']);
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $stats_id, 'composition' => [
+            ['component' => 'stats', 'props' => [
+                'title' => 'By the numbers',
+                'items' => [['number' => '+30', 'label' => 'Years'], ['number' => '100+', 'label' => 'Clients']],
+            ]],
+        ]])['ok']);
+        $this->assertTrue(pp_patch_composition($stats_id, 'stats.title', 'The numbers')['ok']);
+        $this->assertSame('The numbers', pp_get_composition($stats_id)[0]['props']['title']);
+        // stats nested item field, matched by label.
+        $this->assertTrue(pp_patch_composition($stats_id, 'stats.items[label="Clients"].number', '250+')['ok']);
+        $this->assertSame('250+', pp_get_composition($stats_id)[0]['props']['items'][1]['number']);
+
+        // logos — nested item label (whole component was absent).
+        $logos_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Logos Author', 'post_status' => 'publish']);
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $logos_id, 'composition' => [
+            ['component' => 'logos', 'props' => [
+                'items' => [['image_url' => '/a.png', 'image_alt' => 'A', 'label' => 'Alpha']],
+            ]],
+        ]])['ok']);
+        $this->assertTrue(pp_patch_composition($logos_id, 'logos.items[label="Alpha"].label', 'Alphabet')['ok']);
+        $this->assertSame('Alphabet', pp_get_composition($logos_id)[0]['props']['items'][0]['label']);
+
+        // grid.columns — a NUMBER field; the CLI value is the string "3", accepted
+        // by the shared validator's numeric-string rule and persisted.
+        $grid_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Grid Cols', 'post_status' => 'publish']);
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $grid_id, 'composition' => [
+            ['component' => 'grid', 'props' => [
+                'title' => 'Features',
+                'columns' => 2,
+                'items' => [['title' => 'A', 'text' => 'a'], ['title' => 'B', 'text' => 'b']],
+            ]],
+        ]])['ok']);
+        $this->assertTrue(pp_patch_composition($grid_id, 'grid.columns', '3')['ok']);
+        $this->assertSame('3', (string) pp_get_composition($grid_id)[0]['props']['columns']);
+
+        // embed.content — a real field on a previously-absent component (the
+        // drift test only exercised a synthetic embed prop).
+        $embed_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Embed Author', 'post_status' => 'publish']);
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $embed_id, 'composition' => [
+            ['component' => 'embed', 'props' => ['content' => '[old_shortcode]']],
+        ]])['ok']);
+        $this->assertTrue(pp_patch_composition($embed_id, 'embed.content', '[new_shortcode]')['ok']);
+        $this->assertSame('[new_shortcode]', pp_get_composition($embed_id)[0]['props']['content']);
+    }
+
+    /**
+     * Asserts a patch attempt did NOT succeed (WP_Error or an ok:false action result).
+     */
+    private function assertPatchRejected($result, string $message): void
+    {
+        if (is_wp_error($result)) {
+            return; // rejected before the action ran (e.g. field_not_editable)
+        }
+        $this->assertIsArray($result, $message);
+        $this->assertFalse($result['ok'] ?? true, $message);
+    }
+
+    /**
+     * #509 + #506/#507: the derived patch surface INHERITS the shared validator's
+     * type/format enforcement — it does not re-validate in the patch layer. These
+     * negative cases prove a bad value on a newly-exposed typed field is rejected
+     * on the real patch path (not just that the field descriptor carries a type),
+     * and that the rejected write never persists.
+     */
+    public function testPatchInheritsSchemaTypeAndFormatEnforcement(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Enforce', 'post_status' => 'publish']);
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [
+            ['component' => 'grid', 'props' => [
+                'title' => 'Features', 'columns' => 2,
+                'items' => [['title' => 'A', 'text' => 'a'], ['title' => 'B', 'text' => 'b']],
+            ]],
+            ['component' => 'hero', 'props' => ['title' => 'Welcome', 'cta_url' => '/ok']],
+        ]])['ok']);
+
+        // number field: a non-numeric value is rejected (schema type:number).
+        $bad_num = pp_patch_composition($post_id, 'grid.columns', 'not-a-number');
+        $this->assertPatchRejected($bad_num, 'non-numeric value on a number field must be rejected');
+        $this->assertSame(2, (int) pp_get_composition($post_id)[0]['props']['columns'], 'rejected number patch must not persist');
+
+        // link_url format: a disallowed protocol is rejected (format:link_url, #507).
+        $bad_url = pp_patch_composition($post_id, 'hero.cta_url', 'javascript:alert(1)');
+        $this->assertPatchRejected($bad_url, 'a javascript: URL on a link_url field must be rejected');
+        $this->assertSame('/ok', pp_get_composition($post_id)[1]['props']['cta_url'], 'rejected link_url patch must not persist');
+    }
+
+    /**
+     * #509: a structural (array/object) prop is excluded from derivation AND
+     * rejected on the write path — closing the loop between "not a derived field"
+     * and "field_not_editable". table.headers is a required array prop.
+     */
+    public function testPatchStructuralPropRejectedAsNotEditable(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Struct Reject', 'post_status' => 'publish']);
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [
+            ['component' => 'table', 'props' => ['title' => 'T', 'headers' => ['A'], 'rows' => [['1']]]],
+        ]])['ok']);
+
+        $result = pp_patch_composition($post_id, 'table.headers', 'not editable');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('field_not_editable', $result->get_error_code());
+    }
+
+    /**
+     * #509: inspect surfaces the schema-declared `field_format` alongside
+     * `field_type`, so a caller sees the link_url/image_url family the validator
+     * enforces. Null for props without a format.
+     */
+    public function testInspectSurfacesFieldFormat(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Fmt', 'post_status' => 'publish']);
+        update_post_meta($post_id, '_pp_composition', json_encode([
+            ['component' => 'hero', 'props' => ['id' => 'pp-hero0fmt', 'title' => 'Welcome', 'cta_url' => '/go']],
+        ]));
+
+        $fields = pp_inspect_composition($post_id)[0]['fields'];
+        $byField = [];
+        foreach ($fields as $f) {
+            $byField[$f['field']] = $f;
+        }
+        $this->assertSame('link_url', $byField['cta_url']['field_format'] ?? null);
+        $this->assertNull($byField['title']['field_format'], 'a prop with no schema format reports null');
+    }
+
+    /**
+     * #509: _pp_pick_nested_match_field falls back to the FIRST scalar sub-field
+     * when an items schema declares none of the preferred readable handles
+     * (title/question/quote/label/name/number). Exercised via a synthetic schema
+     * injected into the mirrored temp theme.
+     */
+    public function testNestedMatchFieldFallsBackToFirstScalar(): void
+    {
+        // Give faq's items a sub-schema with no preferred handle: only 'heading'
+        // (string) and 'detail' (string). The fallback must pick 'heading'.
+        $schemaPath = $this->tempDir . '/components/faq/schema.json';
+        $schema = json_decode(file_get_contents($schemaPath), true);
+        $schema['props']['items']['items'] = [
+            'heading' => ['type' => 'string', 'required' => true, 'description' => 'x'],
+            'detail'  => ['type' => 'string', 'required' => false, 'description' => 'y'],
+        ];
+        file_put_contents($schemaPath, json_encode($schema));
+        $GLOBALS['_pp_registered_components_invalidate'] = true;
+
+        $this->assertSame('heading', _pp_pick_nested_match_field('faq'));
+
+        // And inspect builds a selector keyed on that fallback field.
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Fallback', 'post_status' => 'publish']);
+        update_post_meta($post_id, '_pp_composition', json_encode([
+            ['component' => 'faq', 'props' => ['id' => 'pp-faq0fb', 'items' => [['heading' => 'Q1', 'detail' => 'A1']]]],
+        ]));
+        $selectors = array_column(pp_inspect_composition($post_id)[0]['fields'], 'selector');
+        $this->assertContains('faq.items[heading="Q1"].detail', $selectors);
     }
 
     public function testInspectCompositionResolvesRealCtaAndGridValues(): void
@@ -2156,7 +2479,8 @@ class OperateTest extends TestCase
         $section = $result[1];
         $this->assertSame('section', $section['component_type']);
         $this->assertSame('pp-sect2222', $section['component_id']);
-        // body field should have field_type = html
+        // body field_type is the schema-native type (#509 retired the private
+        // 'html'/'url' vocabulary; body is declared type:string in the schema).
         $body_field = null;
         foreach ($section['fields'] as $f) {
             if ($f['field'] === 'body') {
@@ -2165,7 +2489,7 @@ class OperateTest extends TestCase
             }
         }
         $this->assertNotNull($body_field);
-        $this->assertSame('html', $body_field['field_type']);
+        $this->assertSame('string', $body_field['field_type']);
         $this->assertSame('<p>Hi</p>', $body_field['current_value']);
     }
 
