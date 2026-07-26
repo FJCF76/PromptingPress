@@ -558,6 +558,71 @@ class StyleSlotContractTest extends TestCase
         );
     }
 
+    /**
+     * Hero primary-button fill slots (issue 514): byte-identical-unset fallback pins.
+     *
+     * The generic keystone checks above prove --hero-button-bg / --hero-button-color /
+     * --hero-button-shadow are consumed on type-compatible properties inside the hero
+     * block. They do NOT pin the fallback literals, and the VISIBLE winner for the fill
+     * lives in the SHARED premium `main .btn:not(...)` cascade (outside the hero block).
+     * These pins lock both surfaces so an unset hero button stays byte-identical:
+     *   - the premium winner routes each new slot as the OUTERMOST var() with the prior
+     *     chain (--cta-button-* / --btn-* / literal) as the fallback, so unset resolves
+     *     to today's gradient/ink/bevel; and
+     *   - the hero-block keystone wires the ink/elevation at [0,4,0] with a `none` default
+     *     (the premium winner supplies the bevel), and the fill/border follow --hero-button-bg.
+     */
+    public function testIssue514HeroButtonFillSlotFallbacks(): void
+    {
+        $css = $this->stripComments($this->css);
+
+        // Premium cascade — the VISIBLE winners (shared block, outside COMPONENT: hero).
+        // Rest fill: --hero-button-bg outermost, then the pre-#514 --cta-button-bg/--btn-bg
+        // chain to the gradient literal (byte-identical unset).
+        $this->assertMatchesRegularExpression(
+            '/background:\s*var\(--hero-button-bg,\s*var\(--cta-button-bg,\s*var\(--btn-bg,\s*'
+            . 'linear-gradient\(180deg,\s*var\(--color-accent-strong\)\s*0%,\s*var\(--color-accent-hover\)\s*100%\)\)\)\)/',
+            $css,
+            'The premium rest fill must route --hero-button-bg -> --cta-button-bg -> --btn-bg -> gradient (issue 514).'
+        );
+        // Rest ink: --hero-button-color outermost, prior chain to --color-bg.
+        $this->assertStringContainsString(
+            'color: var(--hero-button-color, var(--cta-button-color, var(--btn-text, var(--color-bg))))',
+            $css,
+            'The premium rest ink must route --hero-button-color -> --cta-button-color -> --btn-text -> --color-bg (issue 514).'
+        );
+        // Rest elevation: --hero-button-shadow outermost, prior chain to the bevel literal.
+        $this->assertMatchesRegularExpression(
+            '/box-shadow:\s*var\(--hero-button-shadow,\s*var\(--cta-button-shadow,\s*var\(--btn-shadow,\s*'
+            . 'inset 0 1px 0 rgba\(255, 255, 255, 0\.16\),\s*'
+            . '0 10px 22px color-mix\(in srgb, var\(--color-accent-strong\) 14%, transparent\)\)\)\)/',
+            $css,
+            'The premium rest elevation must route --hero-button-shadow -> --cta-button-shadow -> --btn-shadow -> bevel (issue 514).'
+        );
+
+        // Hero block — the slot-contract keystone at [0,4,0] (below the premium winner).
+        $block = $this->stripComments($this->componentBlock('hero'));
+        $this->assertMatchesRegularExpression(
+            '/\.hero__cta:not\(\.btn--outline\):not\(\.btn--ghost\):not\(\.btn--secondary\)\s*\{\s*'
+            . 'color:\s*var\(--hero-button-color,\s*var\(--btn-text,\s*var\(--color-bg\)\)\);\s*'
+            . 'box-shadow:\s*var\(--hero-button-shadow,\s*none\);\s*\}/',
+            $block,
+            'The .hero__cta keystone must wire --hero-button-color (ink) and --hero-button-shadow: none (issue 514).'
+        );
+        // Fill/border keystone on the higher-specificity hero rule: --hero-button-bg leads
+        // the fill; the border honors its own knob then FOLLOWS --hero-button-bg.
+        $this->assertStringContainsString(
+            'background-color: var(--hero-button-bg, var(--hero-accent, var(--btn-bg, var(--color-accent))))',
+            $block,
+            'The hero primary background-color must route --hero-button-bg -> --hero-accent -> --btn-bg -> --color-accent (issue 514).'
+        );
+        $this->assertStringContainsString(
+            'border-color: var(--hero-accent, var(--btn-border-color, var(--hero-button-bg, var(--btn-bg, var(--color-accent)))))',
+            $block,
+            'The hero primary border must follow the fill (--hero-button-bg) when its own knobs are unset (issue 514).'
+        );
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**

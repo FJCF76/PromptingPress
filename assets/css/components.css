@@ -21,8 +21,8 @@
    `initial` (unset), so each consuming rule resolves its own literal until the token is
    set and an unset button is byte-identical; --btn-text keeps a concrete --color-bg
    default (its value equals the universal ink literal). Per-component slots
-   (--cta-button-* / --cta-accent / --hero-accent) still win over the global tokens when
-   set — --btn-* sits between those slots and the literal fallback. These tokens are NOT
+   (--cta-button-* / --cta-accent / --hero-button-* / --hero-accent) still win over the
+   global tokens when set — --btn-* sits between those slots and the literal fallback. These tokens are NOT
    exposed as component style_slots: per-instance button color stays on component-scoped
    rules (e.g. .cta .btn), so a section's __pp_style cannot leak into nested buttons.
    ========================================================================== */
@@ -805,16 +805,33 @@
    from the primary (a `.hero .btn` background here outranks `.btn--outline`'s
    transparent and would otherwise flatten both CTAs into identical filled buttons). */
 .hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  /* Global button surface routed under the hero slot (#458): --hero-accent still wins when
-     set; unset, fill falls to --btn-bg then --color-accent (byte-identical). Border honors
-     its own --btn-border-color knob, else FOLLOWS the fill (--btn-bg) so a recolored button
-     keeps a matching ring, else --color-accent. */
-  background-color: var(--hero-accent, var(--btn-bg, var(--color-accent)));
-  border-color: var(--hero-accent, var(--btn-border-color, var(--btn-bg, var(--color-accent))));
+  /* Per-instance filled-button fill slot (issue 514, analogous to --cta-button-bg on
+     .cta .btn): --hero-button-bg wins the (masked here) background-color AND, via the
+     premium `main .btn:not(...)` winner, the visible gradient-clearing fill. This
+     in-block consumption is the slot-contract keystone (StyleSlotContractTest). Unset it
+     falls to --hero-accent then the #458 global chain, so an unset button is byte-identical.
+     Global button surface routed under the hero slot (#458): --hero-accent still wins when
+     set; unset, fill falls to --btn-bg then --color-accent. Border honors its own
+     --btn-border-color knob, else FOLLOWS the fill (--hero-button-bg, then --btn-bg) so a
+     recolored button keeps a matching ring, else --color-accent. */
+  background-color: var(--hero-button-bg, var(--hero-accent, var(--btn-bg, var(--color-accent))));
+  border-color: var(--hero-accent, var(--btn-border-color, var(--hero-button-bg, var(--btn-bg, var(--color-accent)))));
 }
 .hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   background-color: var(--hero-accent-hover, var(--color-accent-hover));
   border-color: var(--hero-accent-hover, var(--color-accent-hover));
+}
+/* Ink + elevation slots for the hero primary button (issue 514, the --cta-button-color /
+   --cta-button-shadow idiom scoped to .cta__button). Kept at [0,4,0] — BELOW the premium
+   `main .btn:not(...)` winner [0,4,1] — so the premium cascade stays the visible winner
+   and the hover ink/elevation handoff is untouched; this rule only WIRES the slots inside
+   the hero block for the slot-contract keystone. Default `none` shadow: the premium winner
+   supplies the bevel via its own var(--hero-button-shadow, <bevel>) fallback, so an unset
+   button is byte-identical; --hero-button-shadow: none flattens rest + hover. Scoped to the
+   .hero__cta primary variant only (never leaks onto the secondary CTA's own slots). */
+.hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
+  color: var(--hero-button-color, var(--btn-text, var(--color-bg)));
+  box-shadow: var(--hero-button-shadow, none);
 }
 /* Outline (secondary) hero CTA: foreground tracks --hero-text, which is defined
    to contrast --hero-bg, so the ghost button stays readable on any hero palette
@@ -3763,18 +3780,23 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
   border-width: 1px;
   border-style: solid;
   border-color: var(--cta-button-border, var(--color-accent-strong));
-  background: var(--cta-button-bg,
-    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%));
-  box-shadow: var(--cta-button-shadow,
+  /* Superseded for background by the later "True final cascade" block; --hero-button-bg
+     leads the chain here too (issue 514) so both rest primary-fill rules stay uniform. */
+  background: var(--hero-button-bg, var(--cta-button-bg,
+    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%)));
+  box-shadow: var(--hero-button-shadow, var(--cta-button-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 10px 24px color-mix(in srgb, var(--color-accent-strong) 16%, transparent));
+    0 10px 24px color-mix(in srgb, var(--color-accent-strong) 16%, transparent)));
   /* NOTE (#458): border-color/background/box-shadow above are SUPERSEDED by the
      identical-specificity "True final cascade" block below (source order wins). Only `color`
      is the live winner for a composed primary, routed through the global --btn-text knob
      (--cta-button-color still wins when set; unset falls to --color-bg, byte-identical). The
      live fill/border/shadow are routed through --btn-bg/--btn-border-color/--btn-shadow in
-     that later block. */
-  color: var(--cta-button-color, var(--btn-text, var(--color-bg)));
+     that later block. The hero exposes its own per-instance ink slot here (issue 514,
+     analogous to --cta-button-color): --hero-button-color wins when set, unset falls to
+     the cta slot then --btn-text then --color-bg (byte-identical). Only ever defined on a
+     .hero root, so a cta/section/standalone primary never inherits it. */
+  color: var(--hero-button-color, var(--cta-button-color, var(--btn-text, var(--color-bg))));
 }
 
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
@@ -3832,20 +3854,30 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
      the existing accent-strong-vs-gradient treatment), so it routes --btn-border-color but
      does NOT follow --btn-bg. */
   border-color: var(--cta-button-border, var(--cta-accent, var(--btn-border-color, var(--color-accent-strong))));
-  background: var(--cta-button-bg, var(--btn-bg,
-    linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%)));
-  box-shadow: var(--cta-button-shadow, var(--btn-shadow,
+  /* Hero per-instance fill slot (issue 514): --hero-button-bg is the visible fill
+     winner for a hero primary. A FLAT color value here resolves the shorthand to
+     `background: <color>`, which resets background-image to `none` and CLEARS the
+     premium gradient (the whole bug: the hero rule only set background-COLOR, which the
+     gradient background-IMAGE covered). Unset, it falls through --cta-button-bg /
+     --btn-bg to the gradient literal, so an unset button is byte-identical. Only defined
+     on a .hero root, so cta/section/standalone primaries never inherit it. */
+  background: var(--hero-button-bg, var(--cta-button-bg, var(--btn-bg,
+    linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%))));
+  box-shadow: var(--hero-button-shadow, var(--cta-button-shadow, var(--btn-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    0 10px 22px color-mix(in srgb, var(--color-accent-strong) 14%, transparent)));
+    0 10px 22px color-mix(in srgb, var(--color-accent-strong) 14%, transparent))));
 }
 
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   border-color: var(--cta-button-hover-border, var(--cta-accent-hover, var(--color-accent)));
   background: var(--cta-button-hover-bg,
     linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%));
-  box-shadow: var(--cta-button-shadow,
+  /* --hero-button-shadow flattens hover too (issue 514, matching --cta-button-shadow's
+     rest+hover contract): set `none` and both rest and hover lose the bevel. Unset falls
+     to --cta-button-shadow then the hover bevel literal (byte-identical). */
+  box-shadow: var(--hero-button-shadow, var(--cta-button-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 14px 30px color-mix(in srgb, var(--color-accent-strong) 20%, transparent));
+    0 14px 30px color-mix(in srgb, var(--color-accent-strong) 20%, transparent)));
 }
 
 main .btn:focus,

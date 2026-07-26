@@ -187,6 +187,43 @@ class HeroCompositionTest extends TestCase
 
     // ── Proof Slot ────────────────────────────────────────────────────────
 
+    // ── #514 hero primary-button fill slots (render surface) ─────────────────
+
+    // When the author sets the new fill slots, they must reach the hero root as
+    // inline custom properties (the premium `main .btn` cascade reads them there,
+    // DOM-scoped to this hero). This is the render half of the #514 contract; the
+    // slot-contract keystone (StyleSlotContractTest) proves the CSS consumes them.
+    public function testHeroButtonFillSlotsEmittedAsInlineCustomProperties(): void
+    {
+        $html = $this->render([
+            'title'      => 'Test',
+            'cta_text'   => 'Get started',
+            '__pp_style' => [
+                '--hero-button-bg'     => '#7c3aed',
+                '--hero-button-color'  => '#ffffff',
+                '--hero-button-shadow' => 'none',
+            ],
+        ]);
+        $this->assertStringContainsString('--hero-button-bg: #7c3aed', $html);
+        $this->assertStringContainsString('--hero-button-color: #ffffff', $html);
+        $this->assertStringContainsString('--hero-button-shadow: none', $html);
+    }
+
+    // Byte-identical-when-unset: a hero that sets none of the new slots must emit
+    // no --hero-button-* custom property, so its rendered markup is unchanged from
+    // before #514 (the premium gradient fallback governs the fill).
+    public function testHeroButtonFillSlotsOmittedWhenUnset(): void
+    {
+        $html = $this->render([
+            'title'      => 'Test',
+            'cta_text'   => 'Get started',
+            '__pp_style' => ['--hero-bg' => '#0d1117'],
+        ]);
+        $this->assertStringNotContainsString('--hero-button-bg', $html);
+        $this->assertStringNotContainsString('--hero-button-color', $html);
+        $this->assertStringNotContainsString('--hero-button-shadow', $html);
+    }
+
     public function testProofNonEmptyRendersDiv(): void
     {
         $html = $this->render([
