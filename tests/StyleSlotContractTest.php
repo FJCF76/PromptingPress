@@ -623,6 +623,86 @@ class StyleSlotContractTest extends TestCase
         );
     }
 
+    /**
+     * Hero cta2 slot isolation + premium fill routing (issue 526).
+     *
+     * Style slots land as inline custom properties on the .hero ROOT, so #514's
+     * --hero-button-* slots inherit onto the SECOND CTA too; a cta2 authored as the
+     * filled `primary` variant also matches the shared premium `main .btn:not(...)`
+     * winner, so the primary's fill/elevation repainted it. The fix re-declares the
+     * three slots ON the cta2 element:
+     *   - --hero-button-bg: var(--hero-cta2-bg)  — a var() that cannot substitute makes
+     *     the property guaranteed-invalid, so UNSET falls through the premium chain to
+     *     the gradient (byte-identical, leak killed) and SET resolves the premium
+     *     `background:` SHORTHAND to a flat color, clearing the masking gradient;
+     *   - --hero-button-color / --hero-button-shadow: `initial` (the guaranteed-invalid
+     *     value) so cta2 keeps its own ink rule and the premium bevel.
+     * Pin the whole block: dropping any one line silently restores half the bug, and
+     * swapping the var() form for `initial` on --hero-button-bg would kill the leak but
+     * leave --hero-cta2-bg masked again (the pre-existing half).
+     */
+    public function testIssue526HeroCta2SlotIsolationAndFillRouting(): void
+    {
+        $block = $this->stripComments($this->componentBlock('hero'));
+
+        // Isolate the rule whose selector-subject is a BARE .hero__cta--secondary (no
+        // :not()/variant qualifier) — that unscoped selector is itself part of the
+        // contract: the slots must be unreachable on EVERY cta2 variant, not just the
+        // filled one. Grabbing the block first also makes the three declaration
+        // assertions order-independent, so reordering them is not a false failure.
+        $this->assertMatchesRegularExpression(
+            '/(?:^|\})\s*\.hero\s+\.hero__cta-group\s+\.hero__cta--secondary\s*\{([^}]*)\}/',
+            $block,
+            'The issue 526 cta2 isolation rule is missing, or its selector gained a variant '
+            . 'qualifier — it must stay an unqualified .hero__cta--secondary rule so the '
+            . 'primary button slots are unreachable on every cta2 variant.'
+        );
+        preg_match(
+            '/(?:^|\})\s*\.hero\s+\.hero__cta-group\s+\.hero__cta--secondary\s*\{([^}]*)\}/',
+            $block,
+            $m
+        );
+        $isolation = $m[1] ?? '';
+
+        $this->assertMatchesRegularExpression(
+            '/--hero-button-bg:\s*var\(--hero-cta2-bg\)\s*;/',
+            $isolation,
+            'The isolation rule must re-point --hero-button-bg at --hero-cta2-bg (issue 526): '
+            . 'that single declaration both kills the #514 leak (unset -> guaranteed-invalid -> '
+            . 'premium fallback) AND routes the cta2 fill into the gradient-clearing chain. '
+            . 'Plain `initial` here would fix the leak but leave --hero-cta2-bg masked again.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/--hero-button-color:\s*initial\s*;/',
+            $isolation,
+            'The isolation rule must reset --hero-button-color on cta2 (issue 526).'
+        );
+        $this->assertMatchesRegularExpression(
+            '/--hero-button-shadow:\s*initial\s*;/',
+            $isolation,
+            'The isolation rule must reset --hero-button-shadow on cta2 (issue 526).'
+        );
+
+        // The cta2 rest rule still consumes --hero-cta2-bg directly (background-color), so
+        // the slot keeps its in-block, type-compatible consumption for the keystone checks.
+        $this->assertStringContainsString(
+            'background-color: var(--hero-cta2-bg, var(--hero-accent, var(--color-accent)))',
+            $block,
+            'The filled cta2 rest rule must keep routing --hero-cta2-bg (issue 111/526).'
+        );
+        // Border FOLLOWS the fill when its own knobs are unset — the #514 idiom the primary
+        // uses, extended to cta2 by the issue 526 decision. Without --hero-cta2-bg in this
+        // chain a fill-only recolor renders a --color-accent ring around a brand-colored
+        // button; --hero-cta2-border / --hero-accent still win first, and the chain still
+        // bottoms out at --color-accent so an unset cta2 is byte-identical.
+        $this->assertStringContainsString(
+            'border-color: var(--hero-cta2-border, var(--hero-accent, var(--hero-cta2-bg, var(--color-accent))))',
+            $block,
+            'The filled cta2 border must FOLLOW --hero-cta2-bg when --hero-cta2-border and '
+            . '--hero-accent are unset (issue 526, mirroring the primary at #514).'
+        );
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
@@ -1193,10 +1273,25 @@ class StyleSlotContractTest extends TestCase
      * DECLARES a schema slot (`.grid .grid__item { --grid-card-border: ... }`)
      * beats that inheritance on every matched descendant and deadens the slot
      * while every consumption still routes through var() — invisible to the
-     * bypass guard, which only inspects consumptions. No rule declares a schema
-     * slot today (theme defaults use separate `-theme-color` variables); keep it
-     * that way.
+     * bypass guard, which only inspects consumptions.
+     *
+     * ISOLATION EXEMPTIONS (issue 526) — the only declarations allowed, listed exactly.
+     * The hero's second CTA is a DESCENDANT of the .hero root, so it inherits the
+     * PRIMARY button's #514 --hero-button-* slots; a filled (`primary`) cta2 sits in the
+     * same shared premium button cascade and was repainted by them. Re-declaring those
+     * three slots on the cta2 element is the fix, and it does not deaden anything an
+     * author can set THERE: cta2's own author-facing slots are --hero-cta2-*, none of
+     * which is declared. --hero-button-bg is re-pointed at --hero-cta2-bg (routing the
+     * cta2 fill into the premium gradient-clearing chain); the other two are reset to the
+     * guaranteed-invalid `initial`. Any OTHER rule/slot pair still fails, and this list is
+     * exact — adding or dropping an entry fails until it is updated deliberately.
      */
+    private const SLOT_DECLARATION_EXEMPTIONS = [
+        '.hero .hero__cta-group .hero__cta--secondary declares --hero-button-bg',
+        '.hero .hero__cta-group .hero__cta--secondary declares --hero-button-color',
+        '.hero .hero__cta-group .hero__cta--secondary declares --hero-button-shadow',
+    ];
+
     public function testNoStylesheetRuleDeclaresASchemaSlot(): void
     {
         $css = $this->stripComments($this->css);
@@ -1216,11 +1311,41 @@ class StyleSlotContractTest extends TestCase
                 }
             }
         }
+        // The issue 526 cta2 isolation rule is the one documented exemption; every entry
+        // must still be present (a stale exemption means the fix silently vanished).
+        // Compare by COUNT, not by value: array_diff would drop every offender equal to an
+        // exemption, so a SECOND rule with the same selector re-declaring the same slot
+        // would slip through the slot-deadening guard entirely.
+        $seen     = array_count_values($offenders);
+        $expected = array_count_values(self::SLOT_DECLARATION_EXEMPTIONS);
+
+        $unexpected = [];
+        foreach ($seen as $decl => $count) {
+            $allowed = $expected[$decl] ?? 0;
+            for ($i = 0; $i < $count - $allowed; $i++) {
+                $unexpected[] = $allowed === 0 ? $decl : "{$decl} (declared more than once)";
+            }
+        }
+        $missing = [];
+        foreach ($expected as $decl => $count) {
+            for ($i = 0; $i < $count - ($seen[$decl] ?? 0); $i++) {
+                $missing[] = $decl;
+            }
+        }
+
         $this->assertSame(
             [],
-            $offenders,
+            $unexpected,
             "Stylesheet rules re-declare schema slots, overriding the renderer's inline "
-            . "style attribute on descendants:\n- " . implode("\n- ", $offenders)
+            . "style attribute on descendants:\n- " . implode("\n- ", $unexpected)
+        );
+        $this->assertSame(
+            [],
+            $missing,
+            "STALE exemption: these declarations are listed in SLOT_DECLARATION_EXEMPTIONS "
+            . "but no longer exist — the issue 526 cta2 isolation rule was removed or "
+            . "renamed (the #514 slot leak would be back). Restore it or drop the entry:\n- "
+            . implode("\n- ", $missing)
         );
     }
 

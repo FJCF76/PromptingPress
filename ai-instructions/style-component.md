@@ -361,10 +361,14 @@ the matching border, `--hero-button-color` the ink, and `--hero-button-shadow: n
 the gradient bevel/drop shadow on BOTH rest and hover. Unset, all of these fall back to the
 premium look byte-identically — they add the branded/flat-button capability, not a new
 default. Note: a flat `--hero-button-bg` reverts to the premium gradient on hover (matching
-the cta button). These slots target the PRIMARY button; the default second CTA (`cta2`, an
-outline variant) is unaffected. A second CTA explicitly set to the filled `primary` variant
-sits in the same shared button cascade, so it also picks up `--hero-button-*` — style a filled
-second CTA independently with its own `--hero-cta2-*` slots.
+the cta button). These slots target the PRIMARY button only: the second CTA (`cta2`) never
+picks up `--hero-button-*`, whatever variant it renders as. Style it with its own
+`--hero-cta2-*` slots — on a filled (`primary`) cta2, `--hero-cta2-bg` replaces the premium
+gradient with a flat fill exactly the way `--hero-button-bg` does for the primary (and
+reverts to the gradient on hover the same way), with `--hero-cta2-border` and
+`--hero-cta2-color` for its border and ink. An unset border FOLLOWS the fill, so
+`--hero-cta2-bg` alone already gives a matching ring — set `--hero-cta2-border` only when
+you want the ring to differ from the fill.
 
 **3. Tag a grid card's text with a typography role (an item field).**
 `text_role` lives on each item inside the grid's `items` array, not as a top-level
