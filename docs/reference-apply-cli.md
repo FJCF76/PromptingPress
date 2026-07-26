@@ -188,6 +188,16 @@ A page whose stored composition already carries a collision (written before this
 
 The source of truth is the component's schema `props`, not the curated CLI-patch editability map (`pp_get_component_fields()`), so real props like `cta.theme` and `cta.background_image` are accepted while a misspelled or invented key is not — closing the "phantom field" hole where an unknown key would persist behind an `ok:true` while the renderer silently ignored it. Unlike template-owned chrome and duplicate ids, this rule has no composition-smell counterpart: a stored composition that already carries an unknown prop (from a legacy write or a raw non-action path) is surfaced by `restore_composition`, which never blocks undo and instead reports the `unknown_prop` finding (#233), rather than by `wp pp check page`.
 
+**Schema-typed prop values (#507).** Beyond the *key* being known, each prop's *value* is checked against its declared schema `type`, so an accepted write renders as authored instead of the renderer emitting `Array` (with a PHP warning) behind an `ok:true`. A prop declared `type: "string"` rejects a non-scalar (array/object) value; `type: "number"` rejects a non-numeric; `type: "array"` rejects a scalar; and an object-item array (one declaring `item_type: "object"`, e.g. `grid.items`) rejects any entry that is not an object. Each check has a per-type "unset" sentinel (`null`, `""`, and — for arrays — `[]`) that preserves the prop's default, so an omitted value is never a rejection. The rule is generic and schema-driven: a new prop is enforced the moment its schema declares a `type`, with no per-component code. It layers under the bounded opt-in families (numeric `min`/`max` #379, strict enum #380, string-array bounds #475), which keep their own precise messages for the props that opt in. Rejections carry `invalid_prop_value`:
+
+> `Component "cta" prop "title" must be a string; got array. [invalid_prop_value]`
+
+**Link-URL format (#507).** A prop that declares `format: "link_url"` (today `cta.button_url`, `hero.cta_url` / `cta2_url`, `section.panel_cta_url`, and `grid.items[].link_url`) is validated so the write cannot report `ok:true` for a value that `esc_url()` would silently neuter into an empty `href` — a dead button. The bar is "what survives `esc_url()` renders as authored": a site-relative path (`/pricing`), an anchor (`#booking`), a protocol-relative URL (`//cdn.example.com/x`), `mailto:`, `tel:`, and any other `wp_allowed_protocols()` scheme are accepted; a value carrying a disallowed protocol (`javascript:`, `data:`, `vbscript:`, ...) is rejected:
+
+> `Component "cta" prop "button_url" is not a usable link URL: "javascript:alert(1)" uses a disallowed protocol and would render as a dead link. Use an absolute URL (https://...), a site-relative path (/path), an anchor (#id), mailto:, or tel:. [invalid_prop_value]`
+
+Like every rule here, both checks run in the shared `pp_validate_composition()` and are reported (never blocked) by `restore_composition` (#233).
+
 **Output** — the preflight result:
 
 ```json
