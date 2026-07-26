@@ -338,6 +338,34 @@ flat-button capability, not a new default.
 > has not individually restyled. See `ai-instructions/retheme.md` for the full global
 > button surface.
 
+**Brand-accent hero primary button (fill slots).** The hero's primary (filled) CTA
+ships the same premium gradient treatment as the cta button. `--hero-accent` recolors
+the button's BORDER (and the outline CTA's hover fill) but NOT the filled primary's
+visible gradient fill — to give a hero a solid brand-colored primary button on a fresh
+install (no global `--btn-bg` override), set the per-instance fill slots on the hero,
+analogous to the cta's `--cta-button-*`:
+```bash
+wp pp action execute style_component --run-id=<uuid> --params='{
+  "post_id": 19,
+  "component_id": "pp-a1b2c3d4",
+  "style": {
+    "--hero-button-bg": "#7c3aed",
+    "--hero-accent": "#7c3aed",
+    "--hero-button-color": "#ffffff",
+    "--hero-button-shadow": "none"
+  }
+}'
+```
+`--hero-button-bg` is the primary button's flat fill (replaces the gradient), `--hero-accent`
+the matching border, `--hero-button-color` the ink, and `--hero-button-shadow: none` removes
+the gradient bevel/drop shadow on BOTH rest and hover. Unset, all of these fall back to the
+premium look byte-identically — they add the branded/flat-button capability, not a new
+default. Note: a flat `--hero-button-bg` reverts to the premium gradient on hover (matching
+the cta button). These slots target the PRIMARY button; the default second CTA (`cta2`, an
+outline variant) is unaffected. A second CTA explicitly set to the filled `primary` variant
+sits in the same shared button cascade, so it also picks up `--hero-button-*` — style a filled
+second CTA independently with its own `--hero-cta2-*` slots.
+
 **3. Tag a grid card's text with a typography role (an item field).**
 `text_role` lives on each item inside the grid's `items` array, not as a top-level
 prop. Patch the whole `items` array via `update_component` (a prop shallow-merge

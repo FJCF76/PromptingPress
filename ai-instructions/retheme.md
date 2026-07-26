@@ -166,9 +166,12 @@ renders byte-identically to today.
 | `--btn-shadow` | change every button's elevation (a `--shadow-*` preset, or `none` to flatten) | bare `.btn`, premium primary | `none` (bare) / premium bevel (composed primary) |
 
 **Per-component slots still win.** `--btn-*` sits BETWEEN the per-component slots
-(`--cta-button-*`, `--cta-accent`, `--hero-accent`) and the literal fallback. A component
-that sets its own slot keeps overriding the global token, so a site-wide `--btn-bg` recolors
-every button that has not been individually restyled. (Resting state only — hover keeps its
+(`--cta-button-*`, `--cta-accent`, `--hero-button-*`, `--hero-accent`) and the literal
+fallback. A component that sets its own slot keeps overriding the global token, so a
+site-wide `--btn-bg` recolors every button that has not been individually restyled.
+(The hero's per-instance FILLED-primary slots are `--hero-button-bg` / `--hero-button-color`
+/ `--hero-button-shadow`; `--hero-accent` recolors only its border. See
+`ai-instructions/style-component.md`.) (Resting state only — hover keeps its
 own `--*-hover-*` slots and its accent-derived default; set those to control hover.)
 
 **Fill and border are independent knobs.** `--btn-bg` recolors the fill; `--btn-border-color`

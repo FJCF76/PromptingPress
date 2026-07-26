@@ -3569,6 +3569,85 @@ class ActionsTest extends TestCase
         $this->assertEquals('invalid_style_value', $result->get_error_code());
     }
 
+    // ── #514 hero primary-button fill slots (authoring-path mandate) ──────────
+
+    /**
+     * Authoring-path acceptance (issue 514): the three new hero primary-button
+     * fill slots are accepted through the REAL validate surface, exercising the
+     * shared schema-derived validator (a color, a color, and a shadow slot).
+     */
+    public function testStyleComponentAcceptsHeroButtonFillSlots(): void
+    {
+        $post_id = pp_create_page('Hero button fill test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => [
+                '--hero-button-bg'     => '#7c3aed',
+                '--hero-button-color'  => '#ffffff',
+                '--hero-button-shadow' => 'none',
+            ],
+        ]);
+        $this->assertTrue($result);
+    }
+
+    /**
+     * The `color`-typed --hero-button-bg goes through the same shared validator as
+     * every other color slot: a non-color value is rejected with the standard code
+     * (authoring-path negative branch, issue 514).
+     */
+    public function testStyleComponentRejectsInvalidHeroButtonBg(): void
+    {
+        $post_id = pp_create_page('Hero button fill reject test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--hero-button-bg' => 'not-a-color'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_style_value', $result->get_error_code());
+    }
+
+    /**
+     * End-to-end authoring: setting the fill slots through the real apply surface
+     * persists them onto the component's style map (issue 514), so a site-builder
+     * AI can produce a filled brand-accent hero button through composition style
+     * slots alone — the capability #514 adds.
+     */
+    public function testStyleComponentPersistsHeroButtonFillSlots(): void
+    {
+        $post_id = pp_create_page('Hero button fill persist test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_execute_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => [
+                '--hero-button-bg'     => '#7c3aed',
+                '--hero-button-color'  => '#ffffff',
+                '--hero-button-shadow' => 'none',
+                '--hero-accent'        => '#7c3aed',
+            ],
+        ]);
+        $this->assertTrue($result['ok']);
+
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('#7c3aed', $comp[0]['style']['--hero-button-bg']);
+        $this->assertSame('#ffffff', $comp[0]['style']['--hero-button-color']);
+        $this->assertSame('none', $comp[0]['style']['--hero-button-shadow']);
+        $this->assertSame('#7c3aed', $comp[0]['style']['--hero-accent']);
+    }
+
     public function testStyleComponentExecuteMergesStyle(): void
     {
         $post_id = pp_create_page('Style test');

@@ -328,8 +328,8 @@ describe('CSS lint: style slot fallback patterns', () => {
         });
     });
 
-    test('hero/section/grid/cta schemas declare 149 style slots (subset of the total)', () => {
-        expect(allSlots.length).toBe(149);
+    test('hero/section/grid/cta schemas declare 152 style slots (subset of the total)', () => {
+        expect(allSlots.length).toBe(152);
     });
 
     allSlots.forEach(({ component, slotName }) => {
@@ -389,9 +389,11 @@ describe('CSS lint: secondary/ghost buttons never get a filled gradient', () => 
  * to that layer-defeat: every rule targeting the primary-button surface
  * (`main .btn:not(...)`, the composed winner) that sets `background`/`background-image`
  * MUST route through var(--cta-button-bg / --cta-button-hover-bg), so a future
- * shorthand cannot re-defeat the flat-button slot.
+ * shorthand cannot re-defeat the flat-button slot. Issue 514 extends the rest chain
+ * to lead with --hero-button-bg (the hero primary's visible fill winner) with
+ * --cta-button-bg still next; both slots must survive in the chain.
  */
-describe('CSS lint: premium primary-button fill routes through --cta-button-bg (#412)', () => {
+describe('CSS lint: premium primary-button fill routes through the fill-slot chain (#412/#514)', () => {
     const css = stripComments(COMPONENTS_CSS);
     // Innermost rules: `selectors { body-without-braces }`.
     const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
@@ -426,15 +428,29 @@ describe('CSS lint: premium primary-button fill routes through --cta-button-bg (
         expect(surfaceRules.length).toBeGreaterThanOrEqual(2);
     });
 
-    test('every primary-fill background routes through --cta-button-bg / --cta-button-hover-bg', () => {
+    test('every primary-fill background routes through the per-instance fill slot chain', () => {
+        // Rest fill now leads with --hero-button-bg (issue 514: the hero primary's visible
+        // fill winner), with --cta-button-bg still next in the chain. Both must be present so
+        // dropping EITHER slot is caught. Hover has no hero slot, so it still leads with
+        // --cta-button-hover-bg.
         const offenders = [];
         surfaceRules.forEach(r => {
             const isHover = /:hover\b/.test(r.selector);
-            const slot = isHover ? '--cta-button-hover-bg' : '--cta-button-bg';
+            const requiredSlots = isHover
+                ? ['--cta-button-hover-bg']
+                : ['--hero-button-bg', '--cta-button-bg'];
             r.decls.forEach(d => {
-                if (!new RegExp('background(?:-image)?\\s*:\\s*var\\(\\s*' + slot + '\\b').test(d)) {
-                    offenders.push(`${r.selector} { ${d} }`);
+                // Leading slot must be the outermost required slot.
+                const lead = requiredSlots[0];
+                if (!new RegExp('background(?:-image)?\\s*:\\s*var\\(\\s*' + lead + '\\b').test(d)) {
+                    offenders.push(`${r.selector} { ${d} } (missing leading ${lead})`);
                 }
+                // Every required slot must appear somewhere in the chain.
+                requiredSlots.forEach(slot => {
+                    if (!new RegExp('var\\(\\s*' + slot + '\\b').test(d)) {
+                        offenders.push(`${r.selector} { ${d} } (missing ${slot} in chain)`);
+                    }
+                });
             });
         });
         expect(offenders).toEqual([]);
