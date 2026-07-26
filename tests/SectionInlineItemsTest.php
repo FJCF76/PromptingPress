@@ -225,13 +225,14 @@ class SectionInlineItemsTest extends TestCase
             $this->componentsCss,
             '.section__inline-items must wrap (the responsive default, no mobile rule).'
         );
-        // Left-packed so the hanging-separator clip (#489) can hide line-leading
-        // separators at the box edge — an edge-clip cannot hide them on a per-line-
-        // centered row.
+        // justify-content reads the --section-inline-items-align slot (#510) and
+        // defaults to flex-start when unset — byte-identical to the historical
+        // left-packed row that lets the hanging-separator clip (#489) hide
+        // line-leading separators at the box edge.
         $this->assertMatchesRegularExpression(
-            '/\.section__inline-items\s*\{[^}]*justify-content:\s*flex-start/s',
+            '/\.section__inline-items\s*\{[^}]*justify-content:\s*var\(--section-inline-items-align,\s*flex-start\)/s',
             $this->componentsCss,
-            '.section__inline-items must be left-packed (flex-start) for the #489 clip.'
+            '.section__inline-items justify-content must read var(--section-inline-items-align, flex-start) (default flex-start).'
         );
         // Centered as a BLOCK instead: shrink-to-fit width + auto side margins, so a
         // single-line row still reads centered.
@@ -329,5 +330,224 @@ class SectionInlineItemsTest extends TestCase
             'schema must declare the --section-separator-color style slot.');
         $this->assertSame('color', $slots['--section-separator-color']['type']);
         $this->assertSame('var(--color-muted)', $slots['--section-separator-color']['default']);
+    }
+
+    // ── Per-line alignment slot (issue 510) ───────────────────────────────
+
+    public function testAlignSlotIsEnumStartCenterDefaultStartInSchema(): void
+    {
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+        $slots  = $schema['styling']['style_slots'];
+        $this->assertArrayHasKey('--section-inline-items-align', $slots,
+            'schema must declare the --section-inline-items-align style slot.');
+        $slot = $slots['--section-inline-items-align'];
+        $this->assertSame('enum', $slot['type'], 'the align slot must be an enum slot.');
+        $this->assertSame(['start', 'center'], $slot['values'],
+            'the align slot must accept exactly start | center.');
+        $this->assertSame('start', $slot['default'],
+            'the align slot must default to start (unchanged historical behavior).');
+    }
+
+    public function testCenterAlignValueAddsCenterModifierClass(): void
+    {
+        // The renderer reads the validated component style map (top-level style →
+        // __pp_style) and derives the --center modifier when the value is center.
+        $html = $this->render('section', [
+            'layout'     => 'text-only',
+            'body'       => '<p>Hi</p>',
+            'body_items' => ['One', 'Two', 'Three'],
+            '__pp_style' => ['--section-inline-items-align' => 'center'],
+        ]);
+        $this->assertStringContainsString(
+            '<ul class="section__inline-items section__inline-items--center" role="list">',
+            $html,
+            'a center-aligned strip must carry the --center modifier class.'
+        );
+    }
+
+    public function testUnsetAlignStaysByteIdenticalAndStartEmitsNoCenterModifier(): void
+    {
+        // Unset align renders byte-identically to before this issue: no --center
+        // modifier and no inline --section-inline-items-align custom property at all
+        // (the base rule's flex-start fallback drives it). The unchanged #489
+        // hanging-clip pins above assert the visual result stays put.
+        $unset = $this->render('section', [
+            'layout'     => 'text-only',
+            'body'       => '<p>Hi</p>',
+            'body_items' => ['One', 'Two'],
+        ]);
+        $this->assertStringNotContainsString('section__inline-items--center', $unset,
+            'an unset align must not add the --center modifier.');
+        $this->assertStringNotContainsString('--section-inline-items-align', $unset,
+            'an unset align must not emit the inline custom property (byte-identical to before).');
+
+        // Explicit start is a no-op mode: it emits the prop (resolving to flex-start,
+        // the fallback) but never the --center modifier, so it reads left-packed.
+        $start = $this->render('section', [
+            'layout'     => 'text-only',
+            'body'       => '<p>Hi</p>',
+            'body_items' => ['One', 'Two'],
+            '__pp_style' => ['--section-inline-items-align' => 'start'],
+        ]);
+        $this->assertStringNotContainsString('section__inline-items--center', $start,
+            'align:start must not add the --center modifier (left-packed).');
+    }
+
+    public function testUnknownAlignValueFallsBackToStartAtRender(): void
+    {
+        // Render-time fail-safe: any non-'center' value (an out-of-band / legacy /
+        // restore write the strict write-time enum would have rejected) falls
+        // through to the unchanged left-packed default — never a half-applied mode.
+        $html = $this->render('section', [
+            'layout'     => 'text-only',
+            'body'       => '<p>Hi</p>',
+            'body_items' => ['One', 'Two'],
+            '__pp_style' => ['--section-inline-items-align' => 'left'],
+        ]);
+        $this->assertStringNotContainsString('section__inline-items--center', $html,
+            'a non-center align value must not trigger the center modifier (fail-safe to start).');
+    }
+
+    public function testFlushTopAndCenterModifiersCombineOnBodyLessCenteredStrip(): void
+    {
+        // A body-less centered strip carries BOTH derived modifiers.
+        $html = $this->render('section', [
+            'layout'     => 'text-only',
+            'body_items' => ['SOC 2', '99.99% uptime'],
+            '__pp_style' => ['--section-inline-items-align' => 'center'],
+        ]);
+        $this->assertStringContainsString(
+            '<ul class="section__inline-items section__inline-items--flush-top section__inline-items--center" role="list">',
+            $html,
+            'a body-less centered strip must carry both --flush-top and --center modifiers.'
+        );
+    }
+
+    // ── Authoring-path validation (issue 510, Section 14.1) ───────────────
+
+    public function testCenterAlignValidatesThroughComposition(): void
+    {
+        // Author the slot through the REAL validate surface (pp_validate_composition
+        // → shared style-slot engine → enum membership check), not a raw meta write.
+        $composition = [[
+            'component' => 'section',
+            'props'     => ['body' => '<p>x</p>', 'body_items' => ['A', 'B']],
+            'style'     => ['--section-inline-items-align' => 'center'],
+        ]];
+        $this->assertTrue(
+            pp_validate_composition($composition),
+            'align:center must validate through the shared style-slot engine.'
+        );
+    }
+
+    public function testStartAlignValidatesThroughComposition(): void
+    {
+        $composition = [[
+            'component' => 'section',
+            'props'     => ['body' => '<p>x</p>', 'body_items' => ['A', 'B']],
+            'style'     => ['--section-inline-items-align' => 'start'],
+        ]];
+        $this->assertTrue(
+            pp_validate_composition($composition),
+            'align:start must validate through the shared style-slot engine.'
+        );
+    }
+
+    public function testOutOfSetAlignValueRejectedByComposition(): void
+    {
+        // Anything outside the bounded set is rejected at write time (nothing
+        // persists) — the enum slot rejects 'left' exactly as it rejects garbage.
+        $composition = [[
+            'component' => 'section',
+            'props'     => ['body' => '<p>x</p>', 'body_items' => ['A', 'B']],
+            'style'     => ['--section-inline-items-align' => 'left'],
+        ]];
+        $result = pp_validate_composition($composition);
+        $this->assertInstanceOf(\WP_Error::class, $result,
+            'an out-of-set align value must be rejected by the authoring surface.');
+        $this->assertSame('invalid_style_value', $result->get_error_code());
+        $this->assertStringContainsString('start, center', $result->get_error_message(),
+            'the rejection must name the accepted value set.');
+    }
+
+    public function testRenderBoundaryDropsOutOfSetAlignButEmitsValidOne(): void
+    {
+        // #330 parity: the render boundary re-validates the enum value set, so a
+        // valid value is emitted as an inline custom property while an out-of-band
+        // value outside {start, center} is dropped (never reaches the DOM).
+        $valid = $this->render('section', [
+            'layout'     => 'text-only',
+            'body'       => '<p>Hi</p>',
+            'body_items' => ['One', 'Two'],
+            '__pp_style' => ['--section-inline-items-align' => 'center'],
+        ]);
+        $this->assertStringContainsString('--section-inline-items-align: center', $valid,
+            'a valid enum value must be emitted as an inline custom property.');
+
+        $rogue = $this->render('section', [
+            'layout'     => 'text-only',
+            'body'       => '<p>Hi</p>',
+            'body_items' => ['One', 'Two'],
+            '__pp_style' => ['--section-inline-items-align' => 'left'],
+        ]);
+        $this->assertStringNotContainsString('--section-inline-items-align', $rogue,
+            'an out-of-set enum value must be dropped at the render boundary (#330).');
+    }
+
+    // ── CSS pins: the centered trailing-separator technique ───────────────
+
+    public function testCenterModifierZeroesItemPullAndSwitchesSeparator(): void
+    {
+        // On the centered row the hanging-clip geometry does not apply, so the
+        // per-item left pull is zeroed and the leading ::before separator is
+        // suppressed (content: none).
+        $this->assertMatchesRegularExpression(
+            '/\.section__inline-items--center \.section__inline-item\s*\{[^}]*margin-left:\s*0/s',
+            $this->componentsCss,
+            'the --center modifier must zero the per-item left pull.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.section__inline-items--center li::before\s*\{[^}]*content:\s*none/s',
+            $this->componentsCss,
+            'the --center modifier must suppress the leading ::before separator.'
+        );
+    }
+
+    public function testCenterModifierEmitsTrailingSeparatorWithSlotColor(): void
+    {
+        // The centered separator is a TRAILING middot on every item except the last
+        // (:not(:last-child)), routed through the SAME --section-separator-color slot.
+        $this->assertMatchesRegularExpression(
+            '/\.section__inline-items--center li:not\(:last-child\)::after\s*\{[^}]*content:\s*"\\\\00b7"\s*\/\s*""/s',
+            $this->componentsCss,
+            'the --center separator must be a trailing middot on li:not(:last-child)::after.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.section__inline-items--center li:not\(:last-child\)::after\s*\{[^}]*color:\s*var\(--section-separator-color,\s*var\(--color-muted\)\)/s',
+            $this->componentsCss,
+            'the --center trailing separator color must route through --section-separator-color.'
+        );
+    }
+
+    public function testCenterModifierRoutesTrailingSeparatorOnBgImageBand(): void
+    {
+        // The overlay band remaps the trailing ::after default to the light on-overlay
+        // color, mirroring the ::before rule, so both modes behave identically there.
+        $this->assertMatchesRegularExpression(
+            '/\.section--has-bg-image \.section__inline-items--center li:not\(:last-child\)::after\s*\{[^}]*color:\s*var\(--section-separator-color,\s*var\(--color-bg\)\)/s',
+            $this->componentsCss,
+            'on the bg-image band the --center trailing separator default must route through var(--section-separator-color, var(--color-bg)).'
+        );
+    }
+
+    public function testCenterModifierDeclaredAfterBaseRule(): void
+    {
+        // Equal-specificity source order: the modifier must follow the base rule.
+        $basePos   = strpos($this->componentsCss, '.section__inline-items {');
+        $centerPos = strpos($this->componentsCss, '.section__inline-items--center .section__inline-item {');
+        $this->assertNotFalse($basePos);
+        $this->assertNotFalse($centerPos);
+        $this->assertGreaterThan($basePos, $centerPos,
+            'the --center modifier must be declared after the base .section__inline-items rule.');
     }
 }

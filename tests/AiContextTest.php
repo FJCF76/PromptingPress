@@ -95,6 +95,19 @@ class AiContextTest extends TestCase
         );
     }
 
+    public function testSystemPromptSurfacesEnumSlotValues(): void
+    {
+        // An enum style slot must surface its bounded value set in the slot list,
+        // mirroring the prop-enum format, so the chat AI knows exactly which values
+        // are accepted (issue 510: --section-inline-items-align is start|center).
+        $prompt = pp_ai_system_prompt();
+        $this->assertStringContainsString(
+            '--section-inline-items-align (enum: "start"|"center", default: start)',
+            $prompt,
+            'the slot catalog must surface an enum slot\'s value set, not just its type.'
+        );
+    }
+
     // ── Schema Condensing ─────────────────────────────────────────────────
 
     public function testCondenseSchemaWithRequiredAndOptional(): void

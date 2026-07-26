@@ -475,8 +475,11 @@ function _pp_validate_style_slot_map(array $style, array $available_slots, strin
             );
         }
         // Validate value using same injection guard + type validators as tokens.
-        $slot_type  = $available_slots[$slot_name]['type'] ?? null;
-        $validation = _pp_validate_token_value((string) $slot_value, $slot_type);
+        // An enum slot carries its bounded value set; pass it so membership is
+        // enforced (rejecting anything outside the set) by the shared engine.
+        $slot_type    = $available_slots[$slot_name]['type'] ?? null;
+        $slot_allowed = $available_slots[$slot_name]['values'] ?? null;
+        $validation   = _pp_validate_token_value((string) $slot_value, $slot_type, $slot_allowed);
         if (is_wp_error($validation)) {
             return new WP_Error(
                 'invalid_style_value',

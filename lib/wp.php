@@ -832,12 +832,17 @@ function pp_get_style_recipes(string $component_name): array {
  *      at write time (`_pp_validate_token_value`). Only its documented success
  *      shape (`=== true`) passes; any WP_Error drops the declaration.
  *
- * @param string      $value  The stored style value, cast to string.
- * @param string|null $type   The slot's declared type (color/length/gradient/…),
- *                            or null when no type context is available.
+ * @param string      $value    The stored style value, cast to string.
+ * @param string|null $type     The slot's declared type (color/length/gradient/…),
+ *                              or null when no type context is available.
+ * @param array|null  $allowed  For an `enum` slot, its bounded value set — passed
+ *                              so the render boundary re-checks membership exactly
+ *                              as the write boundary does (#330 parity: an
+ *                              out-of-band-written value outside the set is dropped
+ *                              here, not emitted). Null for non-enum types.
  * @return bool  True if the value is safe to emit; false to drop the declaration.
  */
-function pp_render_style_value_allowed(string $value, ?string $type): bool {
+function pp_render_style_value_allowed(string $value, ?string $type, ?array $allowed = null): bool {
     // Layer 1 — conservative reject set (defense-in-depth), every value.
     // Char class: { } ; < >, a literal backslash, and control chars 0x00-0x1F/0x7F.
     if (preg_match('/[{};<>\\\\\x00-\x1f\x7f]/', $value)) {
@@ -848,8 +853,10 @@ function pp_render_style_value_allowed(string $value, ?string $type): bool {
         return false;
     }
 
-    // Layer 2 — delegate to the shared write-time engine when type is known.
-    if ($type !== null && _pp_validate_token_value($value, $type) !== true) {
+    // Layer 2 — delegate to the shared write-time engine when type is known. For
+    // an enum slot the value set is threaded through so membership is enforced at
+    // the render boundary too, keeping every slot type equally re-validated (#330).
+    if ($type !== null && _pp_validate_token_value($value, $type, $allowed) !== true) {
         return false;
     }
 
@@ -891,8 +898,9 @@ function pp_render_style_vars(array $style, string $component_name): string {
         // declared type through the shared engine (plus the conservative reject
         // set). Drop only this declaration on rejection — the page and any
         // in-progress restore are never blocked (#233).
-        $type = $slots[$name]['type'] ?? null;
-        if (!pp_render_style_value_allowed($value, $type)) {
+        $type    = $slots[$name]['type'] ?? null;
+        $allowed = $slots[$name]['values'] ?? null;
+        if (!pp_render_style_value_allowed($value, $type, $allowed)) {
             continue;
         }
         $properties[] = esc_attr($name) . ': ' . esc_attr($value);
