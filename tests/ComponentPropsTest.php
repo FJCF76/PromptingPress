@@ -32,6 +32,32 @@ class ComponentPropsTest extends TestCase
         return ob_get_clean();
     }
 
+    // ── Legacy cta prop-rename renders the authored button (issue #495) ────
+    //
+    // A pre-1.0 cta stored cta_text/cta_url; the renderer reads button_text/
+    // button_url. After alias resolution (the render path runs
+    // pp_normalize_legacy_props), the authored label/href must appear in the HTML
+    // instead of the renderer's defaults. This is the rendered-output evidence
+    // that "rendering accepts the mapped names": the resolved item renders
+    // byte-for-byte like a normal button_text cta.
+
+    public function testLegacyCtaPropsRenderAuthoredButtonAfterResolution(): void
+    {
+        $resolved = pp_normalize_legacy_props([
+            ['component' => 'cta', 'props' => [
+                'cta_text' => 'View on GitHub',
+                'cta_url'  => 'https://example.com/repo',
+            ]],
+        ])[0];
+
+        $html = $this->render('cta', $resolved['props']);
+
+        $this->assertStringContainsString('View on GitHub', $html, 'authored legacy label must render');
+        $this->assertStringContainsString('https://example.com/repo', $html, 'authored legacy url must render');
+        // The renderer's fallback defaults must NOT leak through.
+        $this->assertStringNotContainsString('Get Started', $html, 'the default button label must not appear');
+    }
+
     // ── Section Centered Layout ────────────────────────────────────────────
 
     public function testSectionCenteredIsValidLayout(): void

@@ -224,7 +224,22 @@ function pp_composition(): array {
         return [];
     }
     $items = json_decode($raw, true);
-    return is_array($items) ? pp_migrate_stored_composition($items) : [];
+    if (!is_array($items)) {
+        return [];
+    }
+    // Render-path resolution (issue #495): a legacy-shaped stored cta still
+    // carries cta_text/cta_url, and the renderer reads button_text/button_url,
+    // so without this a legacy button would render its default label. Resolve the
+    // recognized legacy prop keys to canonical for RENDERING only. This is a
+    // transient view — the stored composition is never mutated here, so an
+    // untouched legacy component keeps its stored shape until a write heals it
+    // (normalize-on-write). The action read path (pp_get_composition_result /
+    // pp_get_composition) deliberately does NOT resolve, so a targeted
+    // update_component writing the whole array back preserves untouched components.
+    $items = pp_migrate_stored_composition($items);
+    return function_exists('pp_normalize_legacy_props')
+        ? pp_normalize_legacy_props($items)
+        : $items;
 }
 
 // ── Site-state read functions (action-layer support) ─────────────────────────

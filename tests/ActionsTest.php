@@ -576,6 +576,293 @@ class ActionsTest extends TestCase
         $this->assertSame('unknown_prop', $result['error_code'], 'validate-stage rejection must carry its code (#312)');
     }
 
+    // ── Bounded legacy prop-rename alias map (issue #495) ──
+    //
+    // Pre-1.0, `cta` renamed cta_text->button_text and cta_url->button_url (both
+    // now REQUIRED). Stored legacy compositions still carry the old names, which
+    // used to block a targeted edit to ANY component because the whole composition
+    // is validated. The map makes validation + rendering accept exactly those
+    // mapped names and normalizes them on a write that touches the component;
+    // untouched components keep their stored shape (incremental heal). The #147
+    // strict gate is otherwise unchanged — genuinely unknown keys still reject.
+    // These exercise the REAL action surface (Section 14.1), not raw-meta unit calls.
+
+    /** A legacy-shaped composition: a section plus a cta carrying the old prop names. */
+    private function seedLegacyCtaComposition(): int
+    {
+        $id = pp_create_page('Legacy-shaped page', 'draft');
+        // Thin writer, no validation — persists the legacy shape as a live install would hold it.
+        pp_update_composition($id, [
+            ['component' => 'section', 'props' => ['title' => 'Intro', 'body' => 'Hello world.']],
+            ['component' => 'cta',     'props' => ['cta_text' => 'View on GitHub', 'cta_url' => 'https://example.com/repo']],
+        ]);
+        return $id;
+    }
+
+    public function testTargetedEditSucceedsWhenAnUntouchedComponentHasLegacyProps(): void
+    {
+        // The dogfood bug: a safe edit to the SECTION was rejected because the
+        // untouched cta carried cta_text/cta_url. Alias-on-read must let it through.
+        $id = $this->seedLegacyCtaComposition();
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0, // the section — NOT the legacy cta
+            'props'           => ['title' => 'Updated intro'],
+        ]);
+
+        $this->assertTrue($result['ok'], 'a targeted edit must succeed despite an untouched legacy-prop component');
+        $comp = pp_get_composition($id);
+        $this->assertSame('Updated intro', $comp[0]['props']['title'], 'the targeted edit landed');
+        // The untouched cta keeps its STORED (legacy) prop shape — incremental heal,
+        // not a whole-composition migration.
+        $this->assertArrayHasKey('cta_text', $comp[1]['props'], 'untouched component keeps its legacy prop key');
+        $this->assertArrayNotHasKey('button_text', $comp[1]['props'], 'untouched component is NOT normalized');
+    }
+
+    public function testWriteTouchingLegacyComponentNormalizesItToCanonical(): void
+    {
+        $id = $this->seedLegacyCtaComposition();
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 1, // the cta itself
+            'props'           => ['title' => 'Ready to start?'],
+        ]);
+
+        $this->assertTrue($result['ok'], 'editing the legacy cta must succeed');
+        $cta = pp_get_composition($id)[1]['props'];
+        $this->assertArrayNotHasKey('cta_text', $cta, 'a write touching the component heals cta_text');
+        $this->assertArrayNotHasKey('cta_url', $cta, 'a write touching the component heals cta_url');
+        $this->assertSame('View on GitHub', $cta['button_text'], 'legacy value carries to the canonical prop');
+        $this->assertSame('https://example.com/repo', $cta['button_url'], 'legacy value carries to the canonical prop');
+        $this->assertSame('Ready to start?', $cta['title'], 'the actual edit landed too');
+    }
+
+    public function testUnknownNonMappedKeyStillRejectsOnLegacyComposition(): void
+    {
+        // Aliasing must not become a hole: a genuinely unknown key still rejects
+        // with the current error, even on a legacy-shaped composition.
+        $id = $this->seedLegacyCtaComposition();
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 1,
+            'props'           => ['not_a_real_prop' => 'x'],
+        ]);
+
+        $this->assertFalse($result['ok'], 'an unknown non-mapped key must still reject');
+        $this->assertSame('unknown_prop', $result['error_code']);
+        $this->assertStringContainsString('not_a_real_prop', $result['error']);
+    }
+
+    public function testCanonicalWinsWhenBothLegacyAndCanonicalPropsPresent(): void
+    {
+        $id = pp_create_page('Conflict page', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'cta', 'props' => [
+                'cta_text'    => 'OLD legacy label',
+                'button_text' => 'NEW canonical label',
+                'cta_url'     => 'https://old.example.com',
+                'button_url'  => 'https://new.example.com',
+            ]],
+        ]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['title' => 'Heading'],
+        ]);
+
+        $this->assertTrue($result['ok']);
+        $cta = pp_get_composition($id)[0]['props'];
+        $this->assertArrayNotHasKey('cta_text', $cta, 'the legacy text key is dropped');
+        $this->assertArrayNotHasKey('cta_url', $cta, 'the legacy url key is dropped');
+        $this->assertSame('NEW canonical label', $cta['button_text'], 'the explicit canonical value wins over the legacy one');
+        $this->assertSame('https://new.example.com', $cta['button_url'], 'canonical-wins holds for the url alias too');
+    }
+
+    public function testLegacyNamedEditToAnAlreadyHealedComponentLands(): void
+    {
+        // Regression: an edit that uses the LEGACY prop name against a component whose
+        // stored props already use the canonical name must land, not be silently
+        // dropped by canonical-wins (the "ok:true but no effect" class). The incoming
+        // patch is canonicalized before the merge, so cta_text overwrites button_text.
+        $id = pp_create_page('Already healed', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'cta', 'props' => ['button_text' => 'Old label', 'button_url' => '/old']],
+        ]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['cta_text' => 'New label', 'cta_url' => '/new'], // legacy names
+        ]);
+
+        $this->assertTrue($result['ok']);
+        $cta = pp_get_composition($id)[0]['props'];
+        $this->assertSame('New label', $cta['button_text'], 'a legacy-named edit must overwrite the canonical prop, not be dropped');
+        $this->assertSame('/new', $cta['button_url']);
+        $this->assertArrayNotHasKey('cta_text', $cta, 'no legacy key persists after the write');
+
+        // The reported change log must match what was stored (canonical), not the
+        // pre-normalization legacy shape.
+        $paths = array_map(static fn ($c) => $c['path'] ?? '', $result['changes']);
+        $joined = implode(' ', $paths);
+        $this->assertStringNotContainsString('cta_text', $joined, 'the change log reports the canonical prop, not the legacy alias');
+    }
+
+    public function testTargetedEditDoesNotRewriteHeroCurrentProps(): void
+    {
+        // hero.cta_text/cta_url are CURRENT canonical props (not aliases). A write
+        // touching the hero must leave them exactly as authored — the per-component
+        // map must never treat them as legacy.
+        $id = pp_create_page('Hero write path', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'hero', 'props' => ['title' => 'Hi', 'cta_text' => 'Go', 'cta_url' => '/go']],
+        ]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['title' => 'Hello'],
+        ]);
+
+        $this->assertTrue($result['ok']);
+        $hero = pp_get_composition($id)[0]['props'];
+        $this->assertSame('Go', $hero['cta_text'], 'hero cta_text is canonical and must survive a write');
+        $this->assertSame('/go', $hero['cta_url'], 'hero cta_url is canonical and must survive a write');
+        $this->assertArrayNotHasKey('button_text', $hero, 'hero must not gain a cta-only canonical prop');
+    }
+
+    public function testAddComponentPreviewReflectsCanonicalShape(): void
+    {
+        $id = pp_create_page('Add preview', 'draft');
+        pp_update_composition($id, [['component' => 'section', 'props' => ['body' => 'x']]]);
+
+        $preview = pp_get_action('add_component')['preview']([
+            'post_id'   => $id,
+            'component' => 'cta',
+            'props'     => ['cta_text' => 'Sign up', 'cta_url' => '/signup'],
+        ]);
+
+        $encoded = json_encode($preview);
+        $this->assertStringContainsString('button_text', $encoded, 'preview reflects the canonical shape that will be stored');
+        $this->assertStringNotContainsString('cta_text', $encoded, 'preview does not show the legacy alias');
+    }
+
+    public function testReorderPreservesUntouchedLegacyProps(): void
+    {
+        // Whole-array rewrite actions that do not author props (reorder/remove/style)
+        // must not heal legacy props: they preserve the stored shape.
+        $id = $this->seedLegacyCtaComposition(); // [section, cta(legacy)]
+
+        $result = pp_execute_action('reorder_components', [
+            'post_id' => $id,
+            'order'   => [1, 0],
+        ]);
+
+        $this->assertTrue($result['ok'], 'reorder must succeed on a legacy-shaped composition');
+        $comp = pp_get_composition($id);
+        // cta is now at index 0 after the reorder; it keeps its stored legacy props.
+        $this->assertSame('cta', $comp[0]['component']);
+        $this->assertArrayHasKey('cta_text', $comp[0]['props'], 'reorder must not heal untouched legacy props');
+        $this->assertArrayNotHasKey('button_text', $comp[0]['props']);
+    }
+
+    public function testRestoreCompositionHealsLegacyProps(): void
+    {
+        // restore_composition is a full-replace surface (it goes through
+        // pp_normalize_composition), so a restored legacy-shaped snapshot heals to
+        // canonical. This is value-preserving (the same content, canonical keys) and
+        // consistent with the existing legacy-`variant` migration on restore.
+        $id = pp_create_page('Restore heal', 'draft');
+        // v1: a legacy-shaped composition.
+        pp_update_composition($id, [
+            ['component' => 'cta', 'props' => ['cta_text' => 'Legacy', 'cta_url' => '/legacy']],
+        ]);
+        // v2: a different composition, so v1 is pushed onto the history ring.
+        pp_update_composition($id, [
+            ['component' => 'section', 'props' => ['body' => 'current']],
+        ]);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $id, 'steps_back' => 1]);
+        $this->assertTrue($result['ok'], 'restore of a legacy snapshot must succeed');
+
+        $restored = pp_get_composition($id);
+        $this->assertSame('cta', $restored[0]['component']);
+        $this->assertArrayNotHasKey('cta_text', $restored[0]['props'], 'restore heals legacy props to canonical');
+        $this->assertSame('Legacy', $restored[0]['props']['button_text'], 'the legacy value is preserved under the canonical key');
+        $this->assertSame('/legacy', $restored[0]['props']['button_url']);
+    }
+
+    public function testAddComponentHealsLegacyCtaPropsOnTheNewItem(): void
+    {
+        $id = pp_create_page('Add legacy cta', 'draft');
+        pp_update_composition($id, [['component' => 'section', 'props' => ['body' => 'x']]]);
+
+        $result = pp_execute_action('add_component', [
+            'post_id'   => $id,
+            'component' => 'cta',
+            'props'     => ['cta_text' => 'Sign up', 'cta_url' => '/signup'],
+        ]);
+
+        $this->assertTrue($result['ok'], 'a freshly authored legacy-shaped cta is accepted');
+        $cta = pp_get_composition($id)[1]['props'];
+        $this->assertArrayNotHasKey('cta_text', $cta, 'the new item is normalized on write');
+        $this->assertSame('Sign up', $cta['button_text']);
+        $this->assertSame('/signup', $cta['button_url']);
+    }
+
+    public function testAddComponentStillRejectsUnknownKeyAlongsideLegacyProps(): void
+    {
+        $id = pp_create_page('Add legacy+garbage', 'draft');
+        pp_update_composition($id, [['component' => 'section', 'props' => ['body' => 'x']]]);
+
+        $result = pp_execute_action('add_component', [
+            'post_id'   => $id,
+            'component' => 'cta',
+            'props'     => ['cta_text' => 'Sign up', 'cta_url' => '/signup', 'garbage' => 'no'],
+        ]);
+
+        $this->assertFalse($result['ok'], 'a mapped alias does not smuggle an unrelated unknown key through');
+        $this->assertStringContainsString('garbage', $result['error']);
+        $this->assertCount(1, pp_get_composition($id), 'the rejected component was not appended');
+    }
+
+    public function testUpdateCompositionHealsLegacyCtaPropsOnFullReplace(): void
+    {
+        $id = pp_create_page('Full replace legacy', 'draft');
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => $id,
+            'composition' => [
+                ['component' => 'cta', 'props' => ['cta_text' => 'Go', 'cta_url' => '/go']],
+            ],
+        ]);
+
+        $this->assertTrue($result['ok'], 'a full-replace legacy-shaped composition is accepted and healed');
+        $cta = pp_get_composition($id)[0]['props'];
+        $this->assertArrayNotHasKey('cta_text', $cta);
+        $this->assertSame('Go', $cta['button_text']);
+        $this->assertSame('/go', $cta['button_url']);
+    }
+
+    public function testCreatePageHealsLegacyCtaProps(): void
+    {
+        $result = pp_execute_action('create_page', [
+            'title'       => 'New legacy page',
+            'composition' => [
+                ['component' => 'cta', 'props' => ['cta_text' => 'Go', 'cta_url' => '/go']],
+            ],
+        ]);
+
+        $this->assertTrue($result['ok']);
+        $cta = pp_get_composition($result['target']['post_id'])[0]['props'];
+        $this->assertArrayNotHasKey('cta_text', $cta, 'create_page normalizes legacy props on write');
+        $this->assertSame('Go', $cta['button_text']);
+    }
+
     // ── Retired `variant` prop is rejected at write time (#388) ──
     //
     // #69 split `variant` into `layout`/`theme`. v1's public API accepts NO alias:

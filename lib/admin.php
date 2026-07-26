@@ -168,6 +168,15 @@ function pp_normalize_composition(array $items): array {
     // Legacy `variant` is still decoded on the RESTORE/READ paths only, which call
     // pp_migrate_legacy_variant_keys() explicitly (restore_composition, lib/wp.php,
     // the editor read path) — see that helper's #233 note.
+
+    // Normalize-on-write for the bounded pre-1.0 prop RENAMES (issue #495).
+    // UNLIKE `variant`, these renames DO ship a write-time alias: create_page and
+    // update_composition supply the WHOLE composition, so canonicalizing every
+    // item here heals a legacy-shaped composition on save. The single-component
+    // read-then-write actions do NOT route through here (they normalize only the
+    // touched item), so a targeted edit heals incrementally and leaves untouched
+    // components in their stored shape.
+    $items = pp_normalize_legacy_props($items);
     return $items;
 }
 
@@ -240,6 +249,124 @@ function pp_migrate_legacy_variant_keys(array $items): array {
             $items[$i]['props'][$target] = $value;
         }
         unset($items[$i]['props']['variant']);
+    }
+    return $items;
+}
+
+/**
+ * The bounded, closed map of pre-1.0 component-scoped prop RENAMES whose old
+ * names can still exist in stored compositions (issue #495).
+ *
+ * This is NOT a general schema-evolution framework and NOT a forever alias
+ * surface. It is a fixed, audited inventory of the pre-1.0 renames the #147
+ * strict gate could not have caught (the gate has rejected unknown props since
+ * 1.0; the post-1.0 convention ships compatibility WITH every rename — #442).
+ * The closed audit found exactly one component with such renames:
+ *
+ *   cta: cta_text -> button_text, cta_url -> button_url
+ *
+ * The map is deliberately PER-COMPONENT: `hero` declares `cta_text`/`cta_url`
+ * as its CURRENT canonical props (the hero's own button), so a global alias
+ * would corrupt hero content. The `variant` -> `layout`/`theme` rename is NOT
+ * here — it is handled by the separate write-reject + read-migrate mechanism
+ * (pp_migrate_legacy_variant_keys, #69/#388), a different contract.
+ *
+ * Pinned by SchemaValidationTest::testLegacyPropAliasInventoryIsPinned and
+ * guarded against silent future drift by the schema-rename drift-catcher
+ * (SchemaValidationTest::testSchemaRenameDriftIsCaught): a future schema change
+ * that removes/renames a prop must add an entry HERE (or an explicit migration
+ * note) or CI fails.
+ *
+ * @return array<string, array<string, string>>  component => [old_prop => canonical_prop]
+ */
+function pp_legacy_prop_aliases(): array {
+    return [
+        'cta' => [
+            'cta_text' => 'button_text',
+            'cta_url'  => 'button_url',
+        ],
+    ];
+}
+
+/**
+ * Canonicalizes the recognized legacy prop keys on a SINGLE composition item
+ * (issue #495), the alias-on-read + normalize-on-write primitive.
+ *
+ * Only rewrites keys inside `props`, only after the component name is known,
+ * and only for components that declare a legacy-alias map. Genuinely unknown
+ * keys are left untouched so the #147 strict gate still rejects them — this is
+ * a bounded compatibility shim, not a hole in unknown-prop rejection.
+ *
+ * CANONICAL-WINS: if BOTH the legacy and canonical keys are present on the same
+ * item, the canonical value is kept and the legacy key is dropped (an explicit
+ * author value beats a stale legacy one). Otherwise the legacy value carries
+ * across to the canonical key. Either way the legacy key is removed, so the
+ * result is a pure-canonical view.
+ *
+ * Used on THREE surfaces with different persistence semantics:
+ *   - validation (pp_validate_composition_errors): a TRANSIENT resolved copy,
+ *     so the required-prop and unknown-prop checks see canonical names; stored
+ *     data is never mutated by validation.
+ *   - write (pp_normalize_composition + the touched item in update_component /
+ *     add_component): persists the canonical form so a touched component heals.
+ *   - render (pp_composition): a transient resolved view so a legacy-shaped
+ *     stored cta renders its authored button; never written back.
+ *
+ * @param  array $item  One composition item ({component|type, props}).
+ * @return array        The item with any recognized legacy prop keys canonicalized.
+ */
+function _pp_apply_legacy_prop_aliases(array $item): array {
+    if (!isset($item['props']) || !is_array($item['props'])) {
+        return $item;
+    }
+    // A corrupt/raw-written item (reached via the restore path's normalize, which
+    // runs over arbitrary history-ring snapshots) can carry a non-scalar
+    // component key. Casting it would emit "Array to string conversion"; no alias
+    // map applies to a malformed name anyway, so leave the item untouched and let
+    // the shared validator report the real problem (mirrors the non-scalar
+    // component guard in pp_validate_composition_errors).
+    $raw_component = $item['component'] ?? $item['type'] ?? '';
+    if (!is_scalar($raw_component)) {
+        return $item;
+    }
+    $component = (string) $raw_component;
+    $aliases   = pp_legacy_prop_aliases()[$component] ?? [];
+    if ($aliases === []) {
+        return $item;
+    }
+    foreach ($aliases as $old => $canonical) {
+        if (!array_key_exists($old, $item['props'])) {
+            continue;
+        }
+        // Canonical-wins: only carry the legacy value across when the canonical
+        // key is absent. Either way the legacy key is removed.
+        if (!array_key_exists($canonical, $item['props'])) {
+            $item['props'][$canonical] = $item['props'][$old];
+        }
+        unset($item['props'][$old]);
+    }
+    return $item;
+}
+
+/**
+ * Array wrapper for _pp_apply_legacy_prop_aliases() (issue #495): canonicalizes
+ * recognized legacy prop keys across every item of a composition.
+ *
+ * This is the WRITE-PATH normalizer for the full-replace surfaces
+ * (pp_normalize_composition, and thereby create_page / update_composition /
+ * restore_composition). The single-component read-then-write actions
+ * (update_component / add_component) normalize only the touched item directly,
+ * so untouched components keep their stored (legacy) prop shape and the
+ * composition heals incrementally rather than all at once.
+ *
+ * @param  array $items  Composition array.
+ * @return array         Items with recognized legacy prop keys canonicalized.
+ */
+function pp_normalize_legacy_props(array $items): array {
+    foreach ($items as $i => $item) {
+        if (is_array($item)) {
+            $items[$i] = _pp_apply_legacy_prop_aliases($item);
+        }
     }
     return $items;
 }
@@ -423,6 +550,17 @@ function pp_validate_composition_errors(array $items): array {
             );
             continue;
         }
+
+        // Alias-on-read (issue #495). Resolve the bounded pre-1.0 legacy prop
+        // renames (cta.cta_text -> button_text, cta.cta_url -> button_url) into
+        // a TRANSIENT canonical view of this item BEFORE any prop check runs, so
+        // both the required-prop loop below (button_text/button_url are required)
+        // and the unknown-prop gate further down see the canonical names. $item
+        // is the local loop copy, so this never mutates the caller's $items or
+        // stored data — write-time healing is normalize-on-write, done separately
+        // by the action layer on the touched item only. A genuinely unknown key
+        // is left untouched and still rejected by the unknown-prop gate.
+        $item = _pp_apply_legacy_prop_aliases($item);
 
         $schema = $registered[$name];
         if (!empty($schema['props'])) {
