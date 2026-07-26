@@ -58,6 +58,8 @@
       "--stats-title-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading, if set" },
       "--stats-number-color": { "type": "color", "default": "var(--color-accent)", "description": "Stat number (large metric value) text color" },
       "--stats-number-size": { "type": "length", "default": "2.5rem", "description": "Stat number (large metric value) font size" },
+      "--stats-number-font": { "type": "font-family", "default": "inherit", "description": "Stat number (large metric value) font family. Defaults to inherit, so the number keeps the page body font exactly as before. Set to var(--font-heading) to make the display figures follow the heading system (a serif/display brand face), or give any comma-separated font stack." },
+      "--stats-number-weight": { "type": "number", "default": "700", "description": "Stat number (large metric value) font weight, as a unitless number (e.g. 600). Defaults to 700. Pair with --stats-number-font when the heading face needs a different weight than the bold body default." },
       "--stats-label-color": { "type": "color", "default": "var(--color-muted)", "description": "Stat label text color" },
       "--stats-bg-position": { "type": "position", "default": "center", "description": "background_image focal point" },
       "--stats-radius": { "type": "length", "default": "0", "description": "Border radius of the stats band. Pair with --stats-max-width for a contained, rounded metrics card." },
