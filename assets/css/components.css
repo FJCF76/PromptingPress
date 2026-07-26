@@ -1107,15 +1107,23 @@
    the items inherit the section body size/weight (the brand band's 15px/600).
    Unset (no body_items) emits no markup, so output stays byte-identical.
 
-   Centering + wrapping (issue 489): the row is a left-packed (justify-content:
-   flex-start) flex row that shrink-wraps its content (width: fit-content) and is
-   centered as a BLOCK via auto side margins. A single-line row therefore reads
-   centered exactly like before; a row that WRAPS fills the available width and its
-   lines pack from the left. Left-packing is required by the hanging-separator clip
-   below — an edge-clip cannot hide a line-leading separator on a per-line-CENTERED
-   row (the separator is not at the box edge), so per-line centering is traded for a
-   correct clip at every width. overflow: hidden is the clip surface; the separator
-   ::before is pulled left of this box on every line-leading item and disappears. */
+   Centering + wrapping (issue 489): the DEFAULT row is a left-packed
+   (justify-content: flex-start) flex row that shrink-wraps its content (width:
+   fit-content) and is centered as a BLOCK via auto side margins. A single-line row
+   therefore reads centered exactly like before; a row that WRAPS fills the available
+   width and its lines pack from the left. Left-packing is what lets the
+   hanging-separator clip below hide line-leading separators — an edge-clip cannot
+   hide a line-leading separator on a per-line-CENTERED row (the separator is not at
+   the box edge). overflow: hidden is the clip surface; the separator ::before is
+   pulled left of this box on every line-leading item and disappears.
+
+   Per-line alignment (issue 510): justify-content reads the
+   --section-inline-items-align style slot (start | center). Unset resolves to
+   flex-start, so the default row above is byte-identical to before. 'center'
+   (with the --center modifier the renderer derives, below) switches to per-line
+   centering + a TRAILING separator; a centered line ends mid-box, so its trailing
+   middot cannot be edge-clipped and stays VISIBLE as a subtle line-end dot — the
+   documented trade of choosing center. */
 .section__inline-items {
   list-style: none;
   margin: var(--space-md) auto 0;
@@ -1123,7 +1131,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  justify-content: flex-start;
+  justify-content: var(--section-inline-items-align, flex-start);
   width: fit-content;
   max-width: 100%;
   column-gap: var(--space-md);
@@ -1183,6 +1191,35 @@
   width: var(--space-sm);
   text-align: center;
   margin-right: var(--space-xs);
+  color: var(--section-separator-color, var(--color-muted));
+}
+
+/* Centered per-line alignment (issue 510): the --center modifier is derived by the
+   renderer when --section-inline-items-align is 'center'. justify-content: center is
+   already supplied by the slot on the base rule; this modifier carries only what a
+   raw keyword cannot express — the switch from the leading, edge-clipped ::before
+   separator to a TRAILING ::after one that survives centering. On a centered row the
+   hanging-clip geometry does not apply, so the per-item left pull is zeroed (the
+   ::before is suppressed anyway) and the separator is emitted as an ::after on every
+   item except the last (:not(:last-child)). At a wrap point the trailing middot sits
+   at a centered line's right edge — mid-box, not the box edge — so overflow: hidden
+   cannot clip it and it stays VISIBLE as a subtle line-end dot (the documented trade;
+   there is no pure-CSS centered-and-artifact-free option). Line-leading items on
+   wrapped lines carry NO separator, so a wrapped line never opens with a dangling
+   middot. Same slot color routing as ::before, so --section-separator-color and the
+   inverted/overlay defaults apply identically in both modes. */
+.section__inline-items--center .section__inline-item {
+  margin-left: 0;
+}
+.section__inline-items--center li::before {
+  content: none;
+}
+.section__inline-items--center li:not(:last-child)::after {
+  content: "\00b7" / "";
+  display: inline-block;
+  width: var(--space-sm);
+  text-align: center;
+  margin-left: var(--space-xs);
   color: var(--section-separator-color, var(--color-muted));
 }
 
@@ -1428,6 +1465,12 @@
    above resolves to --color-bg); the --section-separator-color slot still wins.
    Mirrors the inverted band's automatic --color-muted remap. */
 .section--has-bg-image .section__inline-items li::before {
+  color: var(--section-separator-color, var(--color-bg));
+}
+/* Same on-overlay routing for the centered (issue 510) trailing ::after separator,
+   so the light default and the --section-separator-color slot behave identically to
+   the leading ::before in the default mode. */
+.section--has-bg-image .section__inline-items--center li:not(:last-child)::after {
   color: var(--section-separator-color, var(--color-bg));
 }
 

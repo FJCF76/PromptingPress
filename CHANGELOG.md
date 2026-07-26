@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.7.10] — 2026-07-26 — a wrapped trust strip can now be centered per line, not just left-packed (#510)
+
+**A `body_items` trust strip that fits one line on desktop reads centered, but the moment it wraps at mobile widths it silently became a left-packed ragged block — a different composition than the one that was authored, with no lever to restore it. The new `--section-inline-items-align` style slot (`start` | `center`) gives the author that lever. `start` is the default and is byte-identical to today: left-packed wrapped lines with no separator ever dangling at the start of a line. `center` centers every wrapped line, so a brand strip whose art direction wants a centered row keeps it at every width, mobile included.**
+
+`center` uses a trailing separator (a middot after every item except the last) instead of the default's leading, edge-clipped one, so a wrapped line never opens with a dangling dot. There is one documented trade: because a centered line ends mid-box, the trailing middot at a wrap point stays visible as a subtle line-end dot (an edge clip can only remove a dot at the box edge, and a centered line's end is not at the edge). That is the accepted cost of choosing `center`; keep the default `start` for artifact-free left-packing. A single-line strip reads centered in both modes, so the choice only matters where the row wraps. The separator color slot and the on-inverted / on-overlay routing behave identically in both modes.
+
+### Fixed
+- `section.body_items` rows can now be centered per line when they wrap, via the new `--section-inline-items-align` style slot (`start` default | `center`). Previously a wrapped strip was always left-packed with no author control, so a centered desktop strip silently became left-aligned at mobile widths (#510).
+
+### Added
+- `--section-inline-items-align` section style slot, the first enum-typed style slot: the shared style-slot engine now validates a bounded keyword set (`start` | `center`) and rejects anything outside it at write time, exactly like a component prop enum. `center` switches the wrapped row to per-line centering with a trailing separator; `start` (unset default) is unchanged (#510).
+
+### Docs
+- `ai-instructions/composition.md` documents the `--section-inline-items-align` slot and the centered-mode line-end-dot trade; the schema description and the runtime AI slot catalog (`lib/ai-context.php`) surface the enum's accepted value set so the chat AI knows `start | center`, not just "enum" (#510).
+
+### Tests
+- `tests/SectionInlineItemsTest.php`: the align slot's schema shape, the renderer deriving the `--center` modifier only for `center` (with a fail-safe fallback to left-packing for any other value), the authoring-path acceptance of `start`/`center` and rejection of an out-of-set value through `pp_validate_composition`, and the centered trailing-separator CSS (leading `::before` suppressed, trailing `::after` on `:not(:last-child)`, slot color + on-overlay routing). `tests/e2e/style-render.spec.ts`: a rendered `@smoke` proof that centered wrapped lines are symmetric with no leading separator at 320/375/768, while the #489 left-packed clip stays green. `tests/SchemaValidationTest.php`, `tests/AiContextTest.php`, `tests/js/css-lint.test.js`: enum-slot structure, the surfaced value set, and the updated slot counts (#510).
+
 ## [v1.7.9] — 2026-07-26 — native screenshot readiness is a definitive available / unavailable / broken state, never an ambient warning (#497)
 
 **Native screenshot capture depends on a browser command you configure (`PP_BROWSER_CMD`). On installs where it was never set up, every visual-verification step emitted the same "not configured" warning forever, so operators routed around the product's own evidence path with external tooling. Screenshot readiness now reports exactly one definitive state — available (configured and a real capture succeeded), unavailable (not configured, with candidate binaries found on your `$PATH` and the one-line setup step), or broken (configured but failing, with the concrete error). `wp pp screenshot doctor` is the in-band setup-and-diagnose surface: it probes by default, so "configured" always means "actually captured a screenshot," not "resolves on paper."**

@@ -706,6 +706,128 @@ test.describe('Safe-surface rendered proof', () => {
     }
   });
 
+  // #510: the --section-inline-items-align style slot ('start' | 'center', default
+  // 'start') gives the author a lever over the wrap alignment. 'start' keeps the
+  // #489 hanging-clip left-packing (its own test above). 'center' switches to
+  // per-line centering with a TRAILING separator (li:not(:last-child)::after): the
+  // leading ::before is suppressed (content: none) so a wrapped line NEVER opens
+  // with a dangling middot, and every wrapped line is centered. The documented
+  // trade is that a trailing middot at a wrap point stays visible (a centered line
+  // ends mid-box, so it cannot be edge-clipped) — that is accepted, not a bug.
+  //
+  // This proves the two guarantees computed-style can prove: (1) NO ::before dot on
+  // any item in center mode (content: none), while a mid-line item DOES paint a
+  // trailing ::after middot; (2) every visual line is centered — the left gap
+  // (first item to the ul's left edge) equals the right gap (ul's right edge to the
+  // last item) to within a pixel or two. Verified at wrapped mobile widths where
+  // the row breaks to 2-3 lines, plus a single-line row that stays block-centered.
+  test('#510 body_items center alignment centers wrapped lines with no leading separator @smoke', async ({
+    page,
+  }, testInfo) => {
+    pageId = createPage('E2E Section Inline Items Center');
+    setComposition(pageId, [
+      // A centered strip long enough to wrap to 2-3 lines at mobile. Top-level
+      // `style` sets the align slot (component-level style, not props.style).
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec-center',
+          body: '<p>Body.</p>',
+          body_items: [
+            'Recuperación incluida',
+            'Copias diarias',
+            'Sin permanencia',
+            'Soporte en español',
+            '99,9% de disponibilidad',
+          ],
+        },
+        style: { '--section-inline-items-align': 'center' },
+      },
+      // A short centered strip that fits one line even at 320 — still block-centered.
+      {
+        component: 'section',
+        props: { id: 'pp-sec-center-oneline', body: '<p>Body.</p>', body_items: ['Rápido', 'Seguro', 'Fiable'] },
+        style: { '--section-inline-items-align': 'center' },
+      },
+    ]);
+
+    const geom = (rowId: string) =>
+      page.locator(`#${rowId} .section__inline-items`).evaluate((ul: HTMLElement) => {
+        const items = Array.from(ul.querySelectorAll('li')) as HTMLElement[];
+        const ulRect = ul.getBoundingClientRect();
+        const first = items[0];
+        // A mid-line item (2nd) reads its trailing ::after; every item reads ::before.
+        const mid = items[1] ?? items[0];
+        return {
+          justify: getComputedStyle(ul).justifyContent,
+          ulLeft: ulRect.left,
+          ulRight: ulRect.right,
+          ulCenter: (ulRect.left + ulRect.right) / 2,
+          parentCenter: (() => {
+            const p = ul.parentElement as HTMLElement;
+            const pr = p.getBoundingClientRect();
+            const pcs = getComputedStyle(p);
+            return (pr.left + parseFloat(pcs.paddingLeft) + pr.right - parseFloat(pcs.paddingRight)) / 2;
+          })(),
+          // ::before must be gone on every item; ::after must paint on a mid item.
+          beforeContent: getComputedStyle(first, '::before').content,
+          afterContent: getComputedStyle(mid, '::after').content,
+          rows: items.map((li) => {
+            const r = li.getBoundingClientRect();
+            return { left: r.left, right: r.right, top: Math.round(r.top) };
+          }),
+        };
+      });
+
+    for (const width of [768, 375, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('#pp-sec-center .section__inline-item')).toHaveCount(5, { timeout: 10000 });
+
+      const g = await geom('pp-sec-center');
+
+      // The slot drives justify-content to center.
+      expect(g.justify).toBe('center');
+
+      // (1) No leading separator in center mode: ::before is suppressed everywhere,
+      // so a wrapped line can never open with a dangling middot. The trailing
+      // ::after still paints the middot on a non-last item.
+      expect(g.beforeContent === 'none' || g.beforeContent === 'normal').toBe(true);
+      expect(g.afterContent).toContain('·');
+
+      // (2) Every visual line is centered: group items into lines by rounded top,
+      // then the left gap (line's first item to ul left edge) equals the right gap
+      // (ul right edge to line's last item) to within ~2px.
+      const byTop = new Map<number, { left: number; right: number }[]>();
+      for (const it of g.rows) {
+        const arr = byTop.get(it.top) ?? [];
+        arr.push(it);
+        byTop.set(it.top, arr);
+      }
+      for (const [, lineItems] of byTop) {
+        const firstLeft = Math.min(...lineItems.map((i) => i.left));
+        const lastRight = Math.max(...lineItems.map((i) => i.right));
+        const leftGap = firstLeft - g.ulLeft;
+        const rightGap = g.ulRight - lastRight;
+        expect(Math.abs(leftGap - rightGap)).toBeLessThanOrEqual(2);
+      }
+
+      // At mobile the strip must actually wrap, or the centered-wrap edge is untested.
+      if (width <= 375) {
+        expect(byTop.size).toBeGreaterThan(1);
+      }
+
+      // The short strip fits one line and stays centered as a block.
+      const one = await geom('pp-sec-center-oneline');
+      expect(Math.abs(one.ulCenter - one.parentCenter)).toBeLessThanOrEqual(1.5);
+
+      await testInfo.attach(`inline-center-${width}`, {
+        body: await page.locator('#pp-sec-center').screenshot(),
+        contentType: 'image/png',
+      });
+    }
+  });
+
   // #488: a body_items-only band (no body copy) is a first-class strip. Its
   // top margin — a body-relative separation — zeroes so the band's symmetric
   // padding centers the row, while a strip WITH body copy keeps var(--space-md).

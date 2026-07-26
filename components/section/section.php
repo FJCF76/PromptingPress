@@ -165,7 +165,20 @@ if (!empty($body_items)) {
     foreach ($body_items as $body_item) {
         $items_markup .= '<li class="section__inline-item">' . esc_html($body_item) . '</li>';
     }
-    $inline_items_class = 'section__inline-items' . ($has_body_copy ? '' : ' section__inline-items--flush-top');
+    // Per-line alignment (issue 510): the --section-inline-items-align style slot
+    // selects the wrap technique. 'start' (default/unset/anything-else) keeps the
+    // #489 hanging-separator clip — left-packed lines, byte-identical to before.
+    // 'center' derives the --center modifier, which switches the row to per-line
+    // centering with a trailing separator (see components.css). The value is read
+    // from the validated component style map (top-level `style` → __pp_style); the
+    // strict === 'center' check is fail-safe: any other/absent/malformed value
+    // falls through to the unchanged left-packed default. justify-content itself is
+    // driven by the slot's own custom property in CSS; the modifier only carries
+    // what a raw keyword cannot (the ::before→::after separator switch + margin).
+    $inline_items_align = $props['__pp_style']['--section-inline-items-align'] ?? '';
+    $inline_items_class = 'section__inline-items'
+        . ($has_body_copy ? '' : ' section__inline-items--flush-top')
+        . ($inline_items_align === 'center' ? ' section__inline-items--center' : '');
     $inline_items_html = '<ul class="' . $inline_items_class . '" role="list">' . $items_markup . '</ul>';
 }
 

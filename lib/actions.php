@@ -2629,7 +2629,8 @@ pp_register_action('style_component', [
                 ));
             }
             $slot_type = $available_slots[$slot_name]['type'] ?? null;
-            $validation = _pp_validate_token_value((string) $slot_value, $slot_type);
+            $slot_allowed = $available_slots[$slot_name]['values'] ?? null;
+            $validation = _pp_validate_token_value((string) $slot_value, $slot_type, $slot_allowed);
             if (is_wp_error($validation)) {
                 return new WP_Error('invalid_style_value', sprintf(
                     'Style slot "%s": %s', $slot_name, $validation->get_error_message()

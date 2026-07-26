@@ -246,7 +246,7 @@ class SchemaValidationTest extends TestCase
     {
         $expected = [
             'hero'    => 41,
-            'section' => 39,
+            'section' => 40,
             'grid'    => 37,
             'cta'     => 31,
         ];
@@ -331,7 +331,7 @@ class SchemaValidationTest extends TestCase
     public function testStyleSlotStructure(): void
     {
         $components = ['hero', 'section', 'grid', 'cta'];
-        $validTypes = ['color', 'length', 'number', 'shadow', 'gradient', 'position', 'ratio', 'align', 'text-transform', 'font-family'];
+        $validTypes = ['color', 'length', 'number', 'shadow', 'gradient', 'position', 'ratio', 'align', 'text-transform', 'font-family', 'enum'];
 
         foreach ($components as $component) {
             $schemaFile = $this->themeRoot . "/components/{$component}/schema.json";
@@ -349,6 +349,13 @@ class SchemaValidationTest extends TestCase
                 $this->assertArrayHasKey('default', $slotDef, "Slot {$slotName} must declare a default value.");
                 $this->assertArrayHasKey('description', $slotDef, "Slot {$slotName} must have a description.");
                 $this->assertNotEmpty($slotDef['description'], "Slot {$slotName} description must not be empty.");
+                // An enum slot must declare a non-empty bounded value set, and its
+                // default must be a member of that set (issue 510).
+                if ($slotDef['type'] === 'enum') {
+                    $this->assertArrayHasKey('values', $slotDef, "Enum slot {$slotName} must declare a values array.");
+                    $this->assertNotEmpty($slotDef['values'], "Enum slot {$slotName} values must not be empty.");
+                    $this->assertContains($slotDef['default'], $slotDef['values'], "Enum slot {$slotName} default must be one of its values.");
+                }
             }
         }
     }

@@ -80,7 +80,15 @@ function pp_ai_system_prompt(): string {
             if ($slots) {
                 $slot_parts = [];
                 foreach ($slots as $slot_name => $slot_def) {
-                    $slot_parts[] = "{$slot_name} ({$slot_def['type']}, default: {$slot_def['default']})";
+                    // Enum slots carry a bounded value set — surface it (mirrors the
+                    // prop-enum format) so the AI knows exactly which values are
+                    // accepted, not just that the slot is "enum".
+                    if (($slot_def['type'] ?? null) === 'enum' && !empty($slot_def['values']) && is_array($slot_def['values'])) {
+                        $enum_str = '"' . implode('"|"', $slot_def['values']) . '"';
+                        $slot_parts[] = "{$slot_name} (enum: {$enum_str}, default: {$slot_def['default']})";
+                    } else {
+                        $slot_parts[] = "{$slot_name} ({$slot_def['type']}, default: {$slot_def['default']})";
+                    }
                 }
                 $parts[] = "  Style slots: " . implode(', ', $slot_parts);
 

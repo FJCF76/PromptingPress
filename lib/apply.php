@@ -861,7 +861,7 @@ function _pp_validate_text_transform(string $value): bool {
  *
  * @return true|WP_Error
  */
-function _pp_validate_token_value(string $value, ?string $type) {
+function _pp_validate_token_value(string $value, ?string $type, ?array $allowed = null) {
     // Injection check: reject { } ; < > (prevents CSS injection and style-tag breakout)
     if (preg_match('/[{};<>]/', $value)) {
         return new WP_Error('injection', 'Value must not contain {, }, ;, <, or > characters.');
@@ -876,6 +876,21 @@ function _pp_validate_token_value(string $value, ?string $type) {
     }
 
     switch ($type) {
+        case 'enum':
+            // Bounded keyword set (e.g. --section-inline-items-align: start|center).
+            // The allowed values live on the slot definition, so a write-time caller
+            // (composition validation, update_style) passes them here for strict
+            // membership. The #330 render boundary calls WITHOUT $allowed: the value
+            // is a plain keyword that already cleared the injection guard above and
+            // was enforced against the set at write time, so it passes through (a
+            // never-matched keyword renders as an invalid CSS value and is inert).
+            if ($allowed !== null && !in_array($value, $allowed, true)) {
+                return new WP_Error(
+                    'invalid_enum',
+                    sprintf('Value must be one of: %s.', implode(', ', $allowed))
+                );
+            }
+            break;
         case 'color':
             if (!_pp_validate_color($value)) {
                 return new WP_Error('invalid_color', 'Value must be a valid CSS color (hex, rgb(), rgba(), hsl(), hsla()), the keyword "transparent" or "currentColor", or a single reference to a registered color token, e.g. var(--color-accent) — no fallback or nesting. Named colors are not accepted.');
