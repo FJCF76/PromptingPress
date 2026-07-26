@@ -41,7 +41,8 @@
       "type": "string",
       "required": false,
       "default": "#",
-      "description": "Primary CTA button URL."
+      "format": "link_url",
+      "description": "Primary CTA button URL. Accepts an absolute URL, a site-relative /path, an #anchor, mailto:, or tel:; a disallowed protocol (javascript:, data:) is rejected at write time."
     },
     "cta2_text": {
       "type": "string",
@@ -53,7 +54,8 @@
       "type": "string",
       "required": false,
       "default": "#",
-      "description": "Secondary CTA button URL."
+      "format": "link_url",
+      "description": "Secondary CTA button URL. Accepts an absolute URL, a site-relative /path, an #anchor, mailto:, or tel:; a disallowed protocol (javascript:, data:) is rejected at write time."
     },
     "cta_variant": {
       "type": "enum",

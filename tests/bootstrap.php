@@ -279,6 +279,20 @@ if (!function_exists('esc_url')) {
     }
 }
 
+if (!function_exists('wp_allowed_protocols')) {
+    // Mirrors WordPress core's default protocol allow-list (wp_allowed_protocols()).
+    // The link_url format check (#507) reads this so its write-time accept/reject
+    // decision matches esc_url()'s render-time protocol decision. Kept in sync with
+    // pp_link_url_allowed_protocols()'s fail-closed fallback list.
+    function wp_allowed_protocols(): array {
+        return [
+            'http', 'https', 'ftp', 'ftps', 'mailto', 'news', 'irc', 'irc6', 'ircs',
+            'gopher', 'nntp', 'feed', 'telnet', 'mms', 'rtsp', 'svn', 'tel', 'fax',
+            'xmpp', 'webcal', 'urn', 'sms',
+        ];
+    }
+}
+
 if (!function_exists('wp_kses_post')) {
     function wp_kses_post(string $content): string {
         return $content;

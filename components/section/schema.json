@@ -122,7 +122,8 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "text-panel layout only: destination URL of the panel's call-to-action button (passed through esc_url). The button renders only when both panel_cta_text and panel_cta_url are set."
+      "format": "link_url",
+      "description": "text-panel layout only: destination URL of the panel's call-to-action button (passed through esc_url). Accepts an absolute URL, a site-relative /path, an #anchor, mailto:, or tel:; a disallowed protocol (javascript:, data:) is rejected at write time. The button renders only when both panel_cta_text and panel_cta_url are set."
     },
     "panel_cta_variant": {
       "type": "enum",
