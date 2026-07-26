@@ -4,6 +4,12 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.8.0] — 2026-07-26 — live safe-edit readiness: targeted edits on long-lived sites are safe, explained, and evidence-backed (rollup)
+
+**v1.8.0 is the rollup release of the Live Safe-Edit Readiness gate plus the Starter Presentation gate — seven working versions (1.7.4–1.7.10) verified as one line. The theme: an operator (human or AI) doing a targeted safe edit on a long-lived live site gets a clean preview and apply even when the stored composition predates 1.0 (#495), a render path that never destroys data no matter how corrupt the stored state is (#506), preflight output where every warning is classified and either actionable or explicitly acknowledgeable (#496), screenshot evidence readiness reported as a definitive available/unavailable/broken state (#497), and an authorable alignment lever for wrapped inline strips (#510). It also ships the Starter Presentation pair: a real branded theme-card `screenshot.png` with a package guard (#511) and a six-band branded starter homepage seeded on fresh activation (#512).**
+
+The gate closed against a rehearsal bar executed end-to-end: a targeted `update_component` on a legacy-shaped (pre-1.0 props) composition previews and applies cleanly, healing only the touched component; a corrupt-meta front page renders its safe fallback with zero writes while `inspect` still reports the corruption honestly; preflight contains zero unexplained warnings; screenshot readiness reports its definitive tri-state. No code changes in this release beyond the version bump — see the [v1.7.4]…[v1.7.10] entries below for the substance.
+
 ## [v1.7.10] — 2026-07-26 — a wrapped trust strip can now be centered per line, not just left-packed (#510)
 
 **A `body_items` trust strip that fits one line on desktop reads centered, but the moment it wraps at mobile widths it silently became a left-packed ragged block — a different composition than the one that was authored, with no lever to restore it. The new `--section-inline-items-align` style slot (`start` | `center`) gives the author that lever. `start` is the default and is byte-identical to today: left-packed wrapped lines with no separator ever dangling at the start of a line. `center` centers every wrapped line, so a brand strip whose art direction wants a centered row keeps it at every width, mobile included.**
