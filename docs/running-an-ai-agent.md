@@ -110,6 +110,32 @@ Do not report VERIFIED without screenshots and a completed review.
 That single block closes the "I'll just edit the file" gap at the instruction level.
 The framework then closes it again inside the `wp pp` surface.
 
+### Native screenshot evidence — configure it once (#497)
+
+Screenshots come from a browser command you configure (`PP_BROWSER_CMD`); PromptingPress
+ships no bundled browser. Check readiness with one command before you rely on visual proof:
+
+```bash
+wp pp screenshot doctor             # resolves PP_BROWSER_CMD + runs a real probe capture
+wp pp screenshot doctor --no-probe  # fast capability-only check (no browser launch)
+```
+
+`doctor` reports one definitive tri-state, so evidence is never an ambient "may not work"
+warning:
+
+- **`available`** — configured and a real probe capture succeeded. Handoffs say
+  "evidence captured natively."
+- **`unavailable`** — `PP_BROWSER_CMD` not configured. `doctor` lists candidate binaries
+  found on `$PATH` and the one-line setup step. Handoffs say "native evidence explicitly
+  unavailable" and fall back to another visual-proof method — this is a stable capability
+  state, not a per-run nag.
+- **`broken`** — configured but failing (binary missing, or the probe failed), with the
+  concrete error to fix.
+
+`wp pp apply preflight` surfaces the same state as a **non-blocking** capability finding
+(`unavailable` and `broken` render distinctly), so a missing browser never blocks a safe
+typed change. Full setup: `docs/screenshot-setup.md`.
+
 ## ✍️ Step 2 — Give it a task
 
 Keep the task itself short. The contract above carries the safety steps, so you just
