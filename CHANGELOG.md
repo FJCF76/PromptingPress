@@ -4,6 +4,12 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.9.0] — 2026-07-26 — write-path trust: accepted writes render as authored, the patch surface derives from schemas, and no read command mutates (rollup)
+
+**v1.9.0 is the rollup release of the Write-Path Trust gate — four working versions (1.8.1–1.8.4) verified as one line. The theme: what the write layer accepts is what the page shows. Write-time enforcement of schema-declared prop types and a link-URL format family ends the dead-button `ok:true` class (#507); the semantic patch surface is derived from component schemas instead of a hand-maintained 6-of-10 registry, inheriting that enforcement everywhere (#509); a branded hero can carry a filled accent primary button through per-instance style slots without a global token override (#514); and plain `wp pp sync check` no longer silently creates a baseline manifest on a read — baselines are established only by the explicit commands (#522).**
+
+No code changes in this release beyond the version bump — see the [v1.8.1]…[v1.8.4] entries below for the substance.
+
 ## [v1.8.4] — 2026-07-26 — `wp pp sync check` is now truly read-only: it no longer secretly records a baseline the first time you run it (#522)
 
 **Running `wp pp sync check` on an install that had never been baselined used to silently write the current theme files in as the deployment baseline. On a drifted install that meant the drift got recorded as "normal" and every later check reported clean against a poisoned baseline, hiding the exact change the command exists to surface. Plain `sync check` now writes nothing when there is no manifest: it reports that there is no baseline and points you at the two explicit commands that create one, so a baseline only ever exists because you asked for it.**
