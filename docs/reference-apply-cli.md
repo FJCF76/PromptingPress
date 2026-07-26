@@ -45,8 +45,8 @@ wp pp operate inspect --post_id=42
 |---|---|---|
 | `target` | `{site_url, wp_root, theme_path, environment}` | The canonical mutation target, auto-resolved from WordPress state (`pp_get_target`). A field is `null` when it can't be resolved. |
 | `pages` | array of `{id, title, status, url}` | Every page using the Composition template (`composition.php`), any status, title-sorted (`pp_composition_pages`). |
-| `drift` | `{has_drift, modified, added, deleted}` (`error` added when the theme dir is unreadable) | Theme-file drift vs the deployment manifest (`pp_check_drift`). No manifest baseline ⇒ `has_drift:false` with empty arrays (it never creates one). |
-| `preflight` | `{ok, checks[]}` | A **site-grain** preflight snapshot computed with no planned files and no post (`pp_preflight`). This is advisory situational awareness — the gate that actually unlocks a mutation is `wp pp apply preflight --run-id=…`, not this. |
+| `drift` | `{has_drift, modified, added, deleted, release_version}` (`error` added when the theme dir is unreadable) | Theme-file drift vs the deployment manifest (`pp_check_drift`). `release_version` is the installed release the baseline was captured against (#496; `null` on manifests written before that, or no baseline). No manifest baseline ⇒ `has_drift:false` with empty arrays (it never creates one). |
+| `preflight` | `{ok, checks[], findings}` | A **site-grain** preflight snapshot computed with no planned files and no post (`pp_preflight`). Advisory situational awareness — the gate that actually unlocks a mutation is `wp pp apply preflight --run-id=…`, not this. `findings` groups the warning-grade rows by class (#496 — see `wp pp readiness` below). |
 | `tokens` | map of `--token` ⇒ `{value, type}` | Design tokens parsed from `base.css :root {}`, with the type from each token's structured comment (`pp_design_tokens`). |
 | `conflicts` | array of `{selector, component}` | WordPress Custom CSS selectors that target PP component classes (`pp_check_custom_css_conflicts`). Report-only; `[]` when there are none. |
 | `smells` | array of `{type, message, index}` | Page composition smells for `--post_id` (`pp_validate_composition_smells`): hero/layout/wall-of-text advisories, plus `template_owned_component` / `duplicate_component_id` on a page whose stored composition predates those rules. `[]` when no `--post_id` is given, the page's composition is empty, or the page is corrupt (a corrupt page is reported via `composition_decode_error`, not here). |
@@ -458,6 +458,54 @@ Output carries `count`, the ring `max` (10), and per-entry `{history_index, step
 ### In the AI chat
 
 After a proposal that changes a page's composition applies, the chat renders an **"Undo these changes"** link (parity with the token "Reset to default" link). It calls `restore_composition` with `steps_back` equal to the number of composition mutations in the proposal, walking the ring back to the state before the proposal. It appears only when the proposal's composition mutations all target a single page.
+
+---
+
+## `wp pp readiness` — classified findings (#496)
+
+Readiness/preflight warnings carry a **class** and a sanctioned **next action**, so an operator can group them and always know what to do — resolve, re-baseline, or acknowledge. This command family is the operator surface for that model. The same classified block appears as `findings` in `wp pp operate inspect` and `wp pp apply preflight` output.
+
+**Classes:**
+
+| Class | Meaning | Sanctioned resolution |
+|---|---|---|
+| `integrity` | Theme file drift vs the recorded release baseline | `wp pp readiness rebaseline` |
+| `configuration` | Site-state gap resolvable through a safe surface (e.g. an unassigned menu location) | Fix through the surface (e.g. `set_menu`), **or** acknowledge as intentional |
+| `capability` | An environment tool is missing (e.g. a screenshot browser, #497) | Run the finding's next action (e.g. `wp pp screenshot doctor`) |
+
+Only **findings** carry a class; passing/healthy rows and hard preconditions do not. Only **configuration** findings are acknowledgeable.
+
+### `wp pp readiness status` (read-only)
+
+Prints current findings grouped by class, each with its `next_action`, plus `active_warnings` and `acknowledged` counts. Never mutates.
+
+```bash
+wp pp readiness status
+```
+
+### `wp pp readiness rebaseline`
+
+Re-snapshots the deployment manifest against the currently-installed theme files and records the installed release version. The sanctioned reconciliation for integrity drift: afterward drift always means "changed since this release", never "stale baseline". (`wp pp sync check --save-manifest` also records the version.)
+
+```bash
+wp pp readiness rebaseline
+```
+
+### `wp pp readiness acknowledge <finding-key> [--note=<text>]`
+
+Records a configuration finding as intentional (e.g. a deliberately menu-less footer). It then reports as `acknowledged` instead of an active warning, and drops out of the post-apply warning list. Rejects any key that is not a currently-present configuration finding (run `status` to see valid keys).
+
+```bash
+wp pp readiness acknowledge nav_readiness:footer:no_menu --note="footer is deliberately menu-less"
+```
+
+### `wp pp readiness unacknowledge <finding-key>`
+
+Reverses an acknowledgement. If the underlying condition still holds, the finding returns as an active warning.
+
+```bash
+wp pp readiness unacknowledge nav_readiness:footer:no_menu
+```
 
 ---
 

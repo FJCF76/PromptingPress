@@ -76,7 +76,14 @@ Preflight checks:
 
 **If drift exists in non-overlapping files**: Proceed, but record the drift in your HANDOFF report.
 
-**Required output**: `preflight_result` — the full preflight result.
+**Classified findings (#496).** Preflight output carries a `findings` block grouping the warning-grade findings by class, each with a sanctioned `next_action`:
+- **integrity** (theme file drift vs the recorded release baseline) — resolve with `wp pp readiness rebaseline`, which re-snapshots the manifest against the currently-installed release. After that, drift means "changed since this release", never "stale baseline".
+- **configuration** (site-state gaps like an unassigned menu location) — resolve through the finding's safe surface (e.g. `set_menu`), OR, if the gap is deliberate (a purposely menu-less footer), record it as intentional with `wp pp readiness acknowledge <finding-key>`. Acknowledged findings report as acknowledged, not warnings, and are reversible with `wp pp readiness unacknowledge <finding-key>`.
+- **capability** (an environment tool missing, e.g. a screenshot browser) — run the finding's next action (e.g. `wp pp screenshot doctor`).
+
+Use `wp pp readiness status` any time for a read-only, grouped view of current findings (`active_warnings` vs `acknowledged`). Status, `inspect`, and `apply preflight` never mutate — only `rebaseline` / `acknowledge` / `unacknowledge` change state, and each is an explicit command. A completed operation should show zero unexplained warnings: every finding is either actionable-now, acknowledged-intentional, or absent.
+
+**Required output**: `preflight_result` — the full preflight result (including the `findings` block).
 
 ### 4. EDIT
 **Role**: Implementer. Execute only what was planned.
@@ -196,5 +203,9 @@ Three playbooks are available. Each one customizes the loop for a specific opera
 | `wp pp screenshot capture --post_id=<id> --playbook=<name>` | SCREENSHOT | — | Capture both viewports |
 | `wp pp screenshot capture --capture-url=<url> --width=<px>` | SCREENSHOT | — | Capture single URL |
 | `wp pp screenshot doctor [--probe]` | SCREENSHOT | — | Diagnose capture readiness (PP_BROWSER_CMD + context) |
+| `wp pp readiness status` | any | — | Read-only: current findings grouped by class (integrity/configuration/capability) with per-finding next actions (#496) |
+| `wp pp readiness rebaseline` | any | — | Re-baseline the deployment manifest against the installed release (resolves integrity drift) |
+| `wp pp readiness acknowledge <finding-key> [--note=<text>]` | any | — | Record a configuration finding as intentional (reversible) |
+| `wp pp readiness unacknowledge <finding-key>` | any | — | Reverse an acknowledgement |
 | `wp pp operate checklist --playbook=<name>` | REVIEW | — | Get playbook checklist |
 | `wp pp operate validate --run='...'` | HANDOFF | — | Validate loop run completeness |

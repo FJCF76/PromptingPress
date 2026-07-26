@@ -67,12 +67,25 @@ automatically -- you do not call it directly. The rows appear:
 - in the **post-apply validation** report after a composition changes.
 
 Every row is **warning-grade** (`severity: warning`): it surfaces the problem but
-never blocks the mutation. Find the rows by their `check` field:
+never blocks the mutation. A non-passing row is a **configuration-class finding**
+(#496): it carries `class: configuration`, a stable `finding_key`,
+`acknowledgeable: true`, and a `next_action`. Find the rows by their `check` field:
 
 ```
 { "check": "nav_readiness", "pass": false, "severity": "warning",
+  "class": "configuration", "finding_key": "nav_readiness:primary:no_menu",
+  "acknowledgeable": true,
+  "next_action": "Assign a menu to \"primary\" via the set_menu action (or Appearance -> Menus), or acknowledge as intentional.",
   "message": "Site chrome location \"primary\" has no menu assigned. Use the set_menu action (or Appearance -> Menus) to create one and assign it (issue 132)." }
 ```
+
+**Acknowledging a deliberate gap.** If a location is intentionally menu-less (e.g.
+a footer with no menu by design), record it as intentional with
+`wp pp readiness acknowledge <finding-key>` (optionally `--note`). It then reports
+as acknowledged instead of a warning, and is reversible with
+`wp pp readiness unacknowledge <finding-key>`. Only configuration findings are
+acknowledgeable. See `operating-loop.md` -> PREFLIGHT for the full class model and
+the grouped `findings` block (`wp pp readiness status` gives a read-only view).
 
 It is scoped to the locations the template actually renders, not to anything a
 page composition declares -- chrome is not composable (see `composition.md` ->

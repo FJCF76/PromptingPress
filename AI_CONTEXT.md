@@ -41,7 +41,7 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 
 **To set the site favicon / app icon:** Use the `update_site_option` action with key `site_icon` (a Media Library image attachment ID, not a URL). This is WordPress core's `site_icon` option, so once set the browser-tab favicon and app/OS icon (`<link rel="icon">` / apple-touch-icon) render automatically in `wp_head` — no page composition needed. Setting it here renders the attachment as-is (the Customizer's square-crop step is not run on a direct option write), so pass a roughly square source (ideally >=512px); any image is accepted. Same validation as `pp_logo_id` (must be an image attachment).
 
-**To validate a site (CSS conflicts, navigation readiness, rendered review):** Read `ai-instructions/validate-site.md`. Run `wp pp validate site`; navigation readiness (empty/unassigned menus) surfaces automatically in preflight and post-apply output.
+**To validate a site (CSS conflicts, navigation readiness, rendered review):** Read `ai-instructions/validate-site.md`. Run `wp pp validate site`; navigation readiness (empty/unassigned menus) surfaces automatically in preflight and post-apply output. Readiness findings are classified (#496 — integrity / configuration / capability) with a per-finding `next_action`; a deliberate configuration gap can be recorded as intentional with `wp pp readiness acknowledge <finding-key>` (see `wp pp readiness status`).
 
 **To provision a new WordPress site:** Read `ai-instructions/bootstrap.md` for the full state contract and WP-CLI verification commands.
 
