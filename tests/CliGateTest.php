@@ -51,10 +51,12 @@ if (!class_exists('WP_CLI')) {
     class WP_CLI {
         /** @var string[] Captured line() output — the machine-readable stdout channel. */
         public static array $lines = [];
+        /** @var string[] Captured warning() output — the advisory stderr channel. */
+        public static array $warnings = [];
         public static function error($message, $exit = true): void { throw new WpCliExitException((string) $message); }
         public static function add_command($name, $handler, $args = []): void {}
         public static function line($message = ''): void { self::$lines[] = (string) $message; }
-        public static function warning($message = ''): void {}
+        public static function warning($message = ''): void { self::$warnings[] = (string) $message; }
         public static function success($message = ''): void {}
         public static function debug($message = '', $group = false): void {}
         public static function log($message = ''): void {}
