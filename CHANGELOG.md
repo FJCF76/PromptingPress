@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.8.3] — 2026-07-26 — a hero can now carry a filled brand-accent primary button through composition style slots alone (#514)
+
+**A dark, brand-recolored hero used to be stuck with the theme's default blue premium button, because the primary button's visible fill lives in a shared cascade that painted a gradient over the hero's own color. The hero now exposes three per-instance fill slots — `--hero-button-bg`, `--hero-button-color`, `--hero-button-shadow` — analogous to the cta button's, so a site-builder AI can set a solid brand fill (and flat ink / no bevel) on a fresh install without overriding the site-wide accent token. Set none of them and the hero renders exactly as before.**
+
+The premium `main .btn` primary cascade paints the fill with a `background` shorthand whose gradient background-image sat on top of the `background-color` the hero rule set, so `--hero-accent` only ever recolored the border, never the visible fill. `--hero-button-bg` is now the outermost value in that shorthand's chain: a flat color resolves it to a solid fill that clears the gradient, while an unset slot falls through the existing `--cta-button-*` / `--btn-*` chain to the gradient literal (byte-identical). `--hero-button-color` routes the ink and `--hero-button-shadow` the elevation the same way (set it to `none` for a flat button, rest and hover). `--hero-accent` keeps recoloring the border, so a fully brand-colored filled hero CTA is `--hero-accent` (border) plus `--hero-button-bg` (fill). The slots emit only on the hero root, so cta/section/standalone primary buttons are untouched.
+
+### Fixed
+- The hero primary (filled) button's visible fill, ink, and elevation are now recolorable per instance through `--hero-button-bg` / `--hero-button-color` / `--hero-button-shadow`, read by the premium `main .btn:not(...)` primary cascade (the actual visible winner) with the pre-existing `--cta-button-*` → `--btn-*` → literal chain preserved as the fallback, so an unset button is byte-identical. A flat `--hero-button-bg` clears the premium gradient that previously masked `--hero-accent`; `--hero-button-shadow: none` flattens rest and hover (#514).
+
+### Docs
+- `components/hero/schema.json` declares the three new color/shadow slots (and clarifies that `--hero-accent` recolors only the border). `ai-instructions/style-component.md` gains a filled/flat hero-button recipe, and `ai-instructions/retheme.md` lists the hero fill slots in the per-component slot chain. `AI_CONTEXT.md` / `README.md` slot counts move to 220 (hero 44) (#514).
+
+### Tests
+- `tests/ActionsTest.php`: Section 14.1 authoring-path proofs accept the three slots and persist them through the real `style_component` apply surface, with the shared validator rejecting a non-color `--hero-button-bg`. `tests/HeroCompositionTest.php`: render pins that the slots emit as inline custom properties when set and are omitted when unset (byte-identical). `tests/StyleSlotContractTest.php`: a fallback-literal pin for the premium and hero-block chains, plus the auto-discovering keystone now covering the new slots. `tests/js/css-lint.test.js`: the #412 premium-fill guard is extended so both `--hero-button-bg` and `--cta-button-bg` must survive in the rest-fill chain (#514).
+
 ## [v1.8.2] — 2026-07-26 — every scalar prop of every component is now patchable: the semantic patch surface derives from schemas (#509)
 
 **Targeted `operate patch` (and its `inspect-composition` view) used to expose a hand-maintained list of editable fields that covered only 6 of the 10 components, with a small subset of each one's props — so most fields could only be changed by replacing the whole component, and every new prop silently widened the gap. The patchable-field set now derives directly from each component's `schema.json`: every scalar prop (a `string`, `number`, or `enum`, carrying any `format` like `link_url`) is patchable by default, across all 10 components. `stats`, `table`, `logos`, and `embed` — absent from the old list entirely — are now fully patchable (you can patch a `table` caption or an `embed` shortcode by selector), and a new scalar prop becomes patchable the moment its schema declares it, with zero code change.**
