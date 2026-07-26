@@ -185,6 +185,58 @@ class HeroCompositionTest extends TestCase
         $this->assertStringNotContainsString('data-pp-vertical-align', $html);
     }
 
+    // ── #526 hero cta2 slot isolation (render surface) ───────────────────────
+
+    /**
+     * The CSS fix keys on the dedicated `.hero__cta--secondary` class, and on the
+     * filled cta2 carrying NO `btn--*` variant class (that is what puts it in the
+     * shared premium `main .btn:not(...)` cascade where the #514 leak lived). Pin
+     * both halves of that markup contract: a selector-only fix silently stops
+     * working if the class or the variant-class rule ever changes.
+     */
+    public function testFilledCta2CarriesSecondaryClassAndNoVariantClass(): void
+    {
+        $html = $this->render([
+            'title'        => 'Test',
+            'cta_text'     => 'Get started',
+            'cta2_text'    => 'Talk to sales',
+            'cta2_variant' => 'primary',
+        ]);
+        $this->assertStringContainsString('class="hero__cta hero__cta--secondary btn"', $html);
+    }
+
+    /** The default (outline) cta2 keeps its variant class, so it stays outside that cascade. */
+    public function testDefaultCta2KeepsOutlineVariantClass(): void
+    {
+        $html = $this->render([
+            'title'     => 'Test',
+            'cta_text'  => 'Get started',
+            'cta2_text' => 'Talk to sales',
+        ]);
+        $this->assertStringContainsString('class="hero__cta hero__cta--secondary btn btn--outline"', $html);
+    }
+
+    /**
+     * A hero can carry BOTH slot families at once (issue 526): the primary's #514
+     * fill slots and the cta2's own fill slot reach the hero root together, which
+     * is what the CSS then keeps separate.
+     */
+    public function testHeroButtonAndCta2FillSlotsCoexistOnTheRoot(): void
+    {
+        $html = $this->render([
+            'title'        => 'Test',
+            'cta_text'     => 'Get started',
+            'cta2_text'    => 'Talk to sales',
+            'cta2_variant' => 'primary',
+            '__pp_style'   => [
+                '--hero-button-bg' => '#7c3aed',
+                '--hero-cta2-bg'   => '#0f766e',
+            ],
+        ]);
+        $this->assertStringContainsString('--hero-button-bg: #7c3aed', $html);
+        $this->assertStringContainsString('--hero-cta2-bg: #0f766e', $html);
+    }
+
     // ── Proof Slot ────────────────────────────────────────────────────────
 
     // ── #514 hero primary-button fill slots (render surface) ─────────────────

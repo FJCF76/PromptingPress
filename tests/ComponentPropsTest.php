@@ -803,13 +803,20 @@ class ComponentPropsTest extends TestCase
     {
         // Comprehensive coverage beyond the keystone contract test's "at least
         // one compatible consumption" check — every one of the 4 variant-specific
-        // rule blocks must reference --hero-cta2-bg, not just one of them.
+        // rule blocks must reference --hero-cta2-bg, not just one of them. Count the FILL
+        // consumptions specifically: issue 526 adds a SECOND kind of reference (the cta2
+        // isolation rule re-points --hero-button-bg at this slot, routing it into the
+        // premium gradient-clearing chain), and one combined total would let a deleted
+        // variant consumption hide behind an added reference of the other kind. That
+        // declaration has its own pin in StyleSlotContractTest. Comments are stripped
+        // because the prose around these rules names the slot repeatedly.
         $css = file_get_contents(dirname(__DIR__) . '/assets/css/components.css');
+        $css = preg_replace('#/\*.*?\*/#s', '', $css);
         $this->assertSame(
             4,
-            substr_count($css, '--hero-cta2-bg'),
-            '--hero-cta2-bg must be referenced in exactly 4 places: the primary-shape rule '
-            . 'plus outline/secondary/ghost — one per variant (#111).'
+            substr_count($css, 'background-color: var(--hero-cta2-bg'),
+            '--hero-cta2-bg must be consumed as the fill in exactly 4 rules: the '
+            . 'primary-shape rule plus outline/secondary/ghost — one per variant (#111).'
         );
     }
 

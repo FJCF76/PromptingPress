@@ -3648,6 +3648,68 @@ class ActionsTest extends TestCase
         $this->assertSame('#7c3aed', $comp[0]['style']['--hero-accent']);
     }
 
+    // ── #526 hero cta2 fill slot (authoring-path mandate) ────────────────────
+
+    /**
+     * Authoring path for the issue 526 combination: a filled second CTA styled with its
+     * own --hero-cta2-* slots ALONGSIDE the primary's #514 --hero-button-* slots goes
+     * through the real validate + apply surface, and both families persist independently.
+     * The leak only bites when an author sets --hero-button-* AND makes cta2 a filled
+     * `primary`, so the path that PRODUCES that state is exercised here rather than
+     * assumed. This pins authoring only — it says nothing about the rendered cascade;
+     * the fix itself is proven by the CSS pins in StyleSlotContractTest and the rendered
+     * computed-style pins in tests/e2e/style-render.spec.ts.
+     */
+    public function testStyleComponentPersistsIndependentHeroCta2AndPrimaryFillSlots(): void
+    {
+        $post_id = pp_create_page('Hero cta2 fill test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => [
+                'id'           => 'pp-aabb1122',
+                'title'        => 'Hello',
+                'cta_text'     => 'Get started',
+                'cta2_text'    => 'Talk to sales',
+                'cta2_variant' => 'primary',
+            ]],
+        ]);
+
+        $result = pp_execute_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => [
+                '--hero-button-bg'     => '#7c3aed',
+                '--hero-button-shadow' => 'none',
+                '--hero-cta2-bg'       => '#0f766e',
+                '--hero-cta2-color'    => '#ffffff',
+            ],
+        ]);
+        $this->assertTrue($result['ok']);
+
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('#7c3aed', $comp[0]['style']['--hero-button-bg']);
+        $this->assertSame('none', $comp[0]['style']['--hero-button-shadow']);
+        $this->assertSame('#0f766e', $comp[0]['style']['--hero-cta2-bg']);
+        $this->assertSame('#ffffff', $comp[0]['style']['--hero-cta2-color']);
+        $this->assertSame('primary', $comp[0]['props']['cta2_variant']);
+    }
+
+    /** --hero-cta2-bg is a color slot on the shared validator: garbage is rejected (issue 526). */
+    public function testStyleComponentRejectsInvalidHeroCta2Bg(): void
+    {
+        $post_id = pp_create_page('Hero cta2 fill reject test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--hero-cta2-bg' => 'not-a-color'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_style_value', $result->get_error_code());
+    }
+
     public function testStyleComponentExecuteMergesStyle(): void
     {
         $post_id = pp_create_page('Style test');

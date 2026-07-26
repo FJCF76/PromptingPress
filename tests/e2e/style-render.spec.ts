@@ -5976,3 +5976,178 @@ test.describe('#424 inverted text-panel heading legibility (rendered)', () => {
     }
   });
 });
+
+/**
+ * #526 — the hero's SECOND CTA is isolated from the primary button's fill slots, and its
+ * own fill slot actually paints.
+ *
+ * Style slots are emitted as inline custom properties on the .hero ROOT, so #514's
+ * --hero-button-* slots INHERIT onto the second CTA. A cta2 authored as the filled
+ * `primary` variant also matches the shared premium `main .btn:not(...)` winner, so the
+ * PRIMARY's fill/elevation repainted it (the leak). Separately, --hero-cta2-bg was
+ * consumed only as `background-color` and the premium gradient background-IMAGE covered
+ * it (the mask) — the same defect #514 fixed for the primary.
+ *
+ * Both halves are invisible to CSS-TEXT pins: the masking bug lived for months while the
+ * static --hero-cta2-bg guards stayed green, because a background-color under a gradient
+ * is present in the text and invisible on screen. Only getComputedStyle in a real browser
+ * separates "declared" from "painted", so these are the acceptance pins for the fix.
+ * Literals are probe-resolved (the #458 idiom) so byte-identical compares against the
+ * browser's own resolution of the historical premium gradient, not a hardcoded hex.
+ */
+test.describe('#526 hero cta2 fill slots are isolated and painted (real WP)', () => {
+  let pageId = 0;
+
+  const CTA2_TEAL = '#0f766e';
+  const PRIMARY_PURPLE = '#7c3aed';
+
+  test.afterEach(async () => {
+    if (pageId) {
+      deletePage(pageId);
+      pageId = 0;
+    }
+  });
+
+  // A hero whose SECOND cta renders as the filled `primary` variant — the only shape in
+  // which cta2 enters the premium cascade, i.e. the shape both defects need.
+  function filledCta2Page(title: string, style?: Record<string, string>): number {
+    const id = createPage(title);
+    setComposition(id, [
+      {
+        component: 'hero',
+        props: {
+          id: 'pp-526-hero',
+          title: 'Ship faster',
+          cta_text: 'Primary action',
+          cta_url: '/start',
+          cta2_text: 'Second action',
+          cta2_url: '/learn',
+          cta2_variant: 'primary',
+        },
+        ...(style ? { style } : {}),
+      },
+    ]);
+    return id;
+  }
+
+  // Computed fill/ink/elevation for both hero CTAs, plus the browser's own resolution of
+  // the premium rest literals the unset chains bottom out at.
+  async function readButtons(page: any) {
+    return page.evaluate(() => {
+      const resolve = (prop: string, value: string) => {
+        const el = document.createElement('div');
+        el.style.setProperty(prop, value);
+        document.body.appendChild(el);
+        const out = getComputedStyle(el).getPropertyValue(prop);
+        el.remove();
+        return out.trim();
+      };
+      const read = (sel: string) => {
+        const el = document.querySelector(sel) as HTMLElement;
+        const cs = getComputedStyle(el);
+        return {
+          bgColor: cs.backgroundColor,
+          bgImage: cs.backgroundImage,
+          borderColor: cs.borderTopColor,
+          color: cs.color,
+          shadow: cs.boxShadow,
+        };
+      };
+      return {
+        primary: read('.hero__cta:not(.hero__cta--secondary)'),
+        cta2: read('.hero__cta--secondary'),
+        premiumGradient: resolve(
+          'background-image',
+          'linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%)',
+        ),
+        teal: resolve('background-color', '#0f766e'),
+      };
+    });
+  }
+
+  for (const width of [1280, 375]) {
+    // Half 1 — the LEAK. An author restyles the PRIMARY only; the filled cta2 must keep
+    // the premium gradient and bevel it had before the primary was touched.
+    test(`--hero-button-* never reach a filled cta2 (${width}px) @smoke`, async ({ page }) => {
+      pageId = filledCta2Page('E2E 526 leak', {
+        '--hero-button-bg': PRIMARY_PURPLE,
+        '--hero-button-color': '#fffbe6',
+        '--hero-button-shadow': 'none',
+        // cta2's OWN ink, set so the ink assertion below can prove the positive
+        // (cta2 keeps its own slot) and not merely the negative (it is not the
+        // primary's ink, which a third unrelated color would also satisfy).
+        '--hero-cta2-color': '#e0f2f1',
+      });
+
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('.hero__cta--secondary')).toBeVisible({ timeout: 10000 });
+
+      const got = await readButtons(page);
+
+      // Fixture sanity: the slots really did reach the PRIMARY (a no-op fixture would
+      // make every cta2 assertion below pass vacuously).
+      expect(got.primary.bgImage, `@${width}: primary should be a flat fill`).toBe('none');
+      expect(got.primary.bgColor, `@${width}: primary should take --hero-button-bg`).toBe(
+        'rgb(124, 58, 237)',
+      );
+      expect(got.primary.shadow, `@${width}: primary should be flattened`).toBe('none');
+
+      // The leak: cta2 must be untouched by all three.
+      expect(got.cta2.bgImage, `@${width}: cta2 must keep the premium gradient`).toBe(
+        got.premiumGradient,
+      );
+      expect(got.cta2.bgColor, `@${width}: cta2 must not take the primary fill`).not.toBe(
+        'rgb(124, 58, 237)',
+      );
+      expect(got.cta2.color, `@${width}: cta2 must keep its own --hero-cta2-color`).toBe(
+        'rgb(224, 242, 241)',
+      );
+      expect(got.cta2.shadow, `@${width}: cta2 must keep the premium bevel`).not.toBe('none');
+    });
+
+    // Half 2 — the MASK. --hero-cta2-bg must clear the gradient and actually paint.
+    test(`--hero-cta2-bg paints a filled cta2 (${width}px) @smoke`, async ({ page }) => {
+      pageId = filledCta2Page('E2E 526 fill', { '--hero-cta2-bg': CTA2_TEAL });
+
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('.hero__cta--secondary')).toBeVisible({ timeout: 10000 });
+
+      const got = await readButtons(page);
+
+      expect(got.cta2.bgImage, `@${width}: the gradient must be cleared, not covering the slot`).toBe(
+        'none',
+      );
+      expect(got.cta2.bgColor, `@${width}: cta2 must paint --hero-cta2-bg`).toBe(got.teal);
+      // Border FOLLOWS the fill when --hero-cta2-border / --hero-accent are unset (issue 526,
+      // the #514 idiom): a fill-only recolor must not leave a --color-accent ring around a
+      // brand-colored button.
+      expect(got.cta2.borderColor, `@${width}: cta2 border must follow the fill`).toBe(got.teal);
+      // Slot independence: the untouched PRIMARY keeps the premium gradient.
+      expect(got.primary.bgImage, `@${width}: the primary must be untouched`).toBe(
+        got.premiumGradient,
+      );
+    });
+  }
+
+  // Byte-identical when unset: with neither slot family set, both CTAs render the premium
+  // gradient — the invariant the isolation rule must not disturb.
+  test('both CTAs stay byte-identical with no fill slots set @smoke', async ({ page }) => {
+    pageId = filledCta2Page('E2E 526 unset');
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('.hero__cta--secondary')).toBeVisible({ timeout: 10000 });
+
+    const got = await readButtons(page);
+
+    expect(got.cta2.bgImage, 'unset cta2 must keep the premium gradient').toBe(got.premiumGradient);
+    expect(got.primary.bgImage, 'unset primary must keep the premium gradient').toBe(
+      got.premiumGradient,
+    );
+    expect(got.cta2.bgColor).toBe(got.primary.bgColor);
+    expect(got.cta2.color).toBe(got.primary.color);
+    expect(got.cta2.shadow).toBe(got.primary.shadow);
+  });
+});
