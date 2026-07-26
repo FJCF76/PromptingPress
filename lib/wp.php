@@ -242,6 +242,81 @@ function pp_composition(): array {
         : $items;
 }
 
+/**
+ * Resolves how templates/front-page.php should render the homepage, classifying
+ * the stored composition FIRST so a corrupt one is never silently overwritten (#506).
+ *
+ * The pre-#506 safeguard read via pp_composition() — which returns [] for BOTH a
+ * genuinely-absent page AND a corrupt/undecodable one — and, on empty, seeded the
+ * defaults with a RAW update_post_meta(). An anonymous view of a corrupt homepage
+ * therefore DESTROYED the recoverable bytes pp_get_composition_result() (#144)
+ * deliberately preserves, bypassed the versioned writer, and made inspect (reports
+ * the decode error) and render (shows healthy defaults) disagree (#302). This
+ * classifies before seeding.
+ *
+ *   pp_get_composition_result($post_id)
+ *      │
+ *      ├─ ok === false (decode_error / unexpected_shape)
+ *      │      └─► mode 'corrupt'  — render a safe fallback, WRITE NOTHING. Stored
+ *      │                            bytes stay intact; inspect remains honest.
+ *      │
+ *      ├─ raw === null && composition === []   (genuinely absent meta)
+ *      │      ├─ $post_id <= 0 ─► mode 'no_front'  — no static front page is set.
+ *      │      └─ else ─────────► seed pp_default_homepage_composition() through the
+ *      │                          VERSIONED writer pp_update_composition() (version
+ *      │                          marker + history ring), exactly like
+ *      │                          pp_setup_homepage(); then fall through to render.
+ *      │
+ *      └─ otherwise ─────────► mode 'render' — a present (or just-seeded) list.
+ *
+ * The 'render' composition is normalized through pp_normalize_legacy_props(),
+ * reproducing pp_composition()'s render output byte-for-byte (pp_get_composition_result
+ * already applied pp_migrate_stored_composition; pp_composition adds only the
+ * legacy-prop normalization on top), so valid pages render identically to before.
+ *
+ * A stored empty list ("[]", raw !== null) is a deliberate authored state, not an
+ * absent page, so it renders blank and is NOT re-seeded — the blank-page promise
+ * ("a newly created page is never blank") covers only genuinely-absent meta.
+ *
+ * Best-effort seed: pp_update_composition() can return a WP_Error (lock/CAS); it is
+ * ignored here — a failed seed leaves the meta absent and the next render retries,
+ * never a partial or lost write. This matches pp_setup_homepage()'s posture.
+ *
+ * @param int $post_id  The front-page post ID (0 when no static front page is set).
+ * @return array{mode: string, composition: array}  mode ∈ {render, corrupt, no_front}.
+ */
+function pp_resolve_front_page_render(int $post_id): array {
+    $result = pp_get_composition_result($post_id);
+
+    // Corrupt / wrong-shape stored composition: never overwrite it. The raw bytes
+    // are the only recovery source and inspect keeps reporting the exact error.
+    if (!$result['ok']) {
+        return ['mode' => 'corrupt', 'composition' => []];
+    }
+
+    $items = $result['composition'];
+
+    // Genuinely-absent meta: no stored bytes AND no decoded items.
+    if ($result['raw'] === null && $items === []) {
+        if ($post_id <= 0) {
+            return ['mode' => 'no_front', 'composition' => []];
+        }
+        // Seed once, through the versioned writer (never a raw update_post_meta),
+        // then render those same defaults regardless of the write's outcome. A
+        // lock/CAS WP_Error leaves the meta absent and the next render retries the
+        // seed, but the visitor still gets content — the blank-page promise holds
+        // even when the write is skipped, and no re-read can go stale.
+        $items = pp_default_homepage_composition();
+        pp_update_composition($post_id, $items);
+    }
+
+    // Present, or just-seeded: render via the canonical render normalization.
+    $items = function_exists('pp_normalize_legacy_props')
+        ? pp_normalize_legacy_props($items)
+        : $items;
+    return ['mode' => 'render', 'composition' => $items];
+}
+
 // ── Site-state read functions (action-layer support) ─────────────────────────
 
 /**
@@ -281,8 +356,11 @@ function pp_is_list(array $arr): bool {
  * so list-shape is enforced via pp_is_list() to keep objects out of compositions.
  *
  * This is the single owner of composition decode + state classification for
- * consuming callers (inspect / check / validate). Render paths (pp_composition())
- * keep their own defensive decode by design — issue #144 leaves rendering untouched.
+ * consuming callers (inspect / check / validate, and the front-page render safeguard
+ * pp_resolve_front_page_render() — issue #506 — which classifies here so a corrupt
+ * homepage is never overwritten by the blank-page seed). The generic renderer
+ * pp_composition() still keeps its own defensive decode by design — issue #144 leaves
+ * that render path untouched.
  *
  * @param int $post_id  WordPress post ID.
  * @return array{ok: bool, composition: array, error: ?string, raw: ?string}
