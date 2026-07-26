@@ -1984,92 +1984,146 @@ function _pp_parse_bracket_match(string $str) {
     ];
 }
 
-// ── Component Field Editability Map ──────────────────────────────────────
+// ── Component Field Editability (schema-derived) ──────────────────────────
+//
+// The semantic patch surface (`operate patch`, `operate inspect-composition`)
+// derives its patchable-field set DIRECTLY from each component's schema.json —
+// there is no hand-maintained registry (issue #509 retired the old
+// pp_register_component_fields() list, which covered only 6 of 10 components
+// with partial fields and silently lagged every schema change). A prop is
+// patchable when its schema `type` is a scalar (string / number / enum) and it
+// does not opt out; array/object props are structural, not single-value edits.
+// This inherits the shared validator's type + `format: "link_url"` enforcement
+// (issues #506/#507): the patch routes through the update_component action, so
+// the schema's declared type/format is what actually validates the written
+// value. No parallel type vocabulary, no second validator (repo invariant).
+//
+//   schema.json props ──► pp_component_scalar_type() ──► derived field list
+//                              (string|number|enum)          consumed by
+//                                                            inspect + patch
+//
+// Opt-out: a prop MAY set `"patchable": false` in its schema to exclude itself
+// from isolated patching (for a prop that genuinely must not be edited alone).
+// The inventory is expected empty; the mechanism exists so future props can
+// opt out with zero code change (pinned by a drift-catcher test, #509).
 
 /**
- * Registers editable fields for a component type.
+ * The scalar prop `type` values that are patchable in isolation via the
+ * semantic patch surface. A prop with one of these declared types (and no
+ * `patchable: false` opt-out) is exposed as an editable field; array/object
+ * props are structural and are not patched as a single scalar value (their
+ * scalar item sub-props are patched via the items[].field selector).
+ *
+ * @return string[]
+ */
+function pp_patchable_scalar_types(): array {
+    return ['string', 'number', 'enum'];
+}
+
+/**
+ * Returns the patchable scalar `type` of a schema prop definition, or null when
+ * the prop is not a patchable scalar (array/object, unknown type, malformed def,
+ * or an explicit `patchable: false` opt-out).
+ *
+ * @param mixed $prop_def  A single prop definition from a component schema.
+ * @return string|null  The scalar type ('string'|'number'|'enum'), or null.
+ */
+function pp_component_scalar_type($prop_def): ?string {
+    if (!is_array($prop_def)) {
+        return null;
+    }
+    // Explicit schema-level opt-out (issue #509). Expected inventory: empty.
+    if (array_key_exists('patchable', $prop_def) && $prop_def['patchable'] === false) {
+        return null;
+    }
+    $type = $prop_def['type'] ?? null;
+    return in_array($type, pp_patchable_scalar_types(), true) ? $type : null;
+}
+
+/**
+ * Derives the patchable fields for a component type from its schema (issue #509).
+ *
+ * Returns a list of field descriptors — the same shape the retired manual
+ * registry produced, so pp_inspect_composition() and pp_patch_composition()
+ * consume it unchanged: each is ['name' => string, 'type' => string] plus an
+ * optional 'format' key when the schema declares one (e.g. 'link_url'). Nested
+ * item sub-props of the `items` array are emitted as 'items[].<field>' — the
+ * selector grammar (pp_parse_composition_selector) only parses a nested array
+ * literally named `items`, so only that prop yields nested patch fields
+ * (panel_items / headers / rows stay top-level-only, unreachable by the grammar
+ * and therefore not emitted as nested fields).
  *
  * @param string $component_type  Component type name (e.g. 'hero', 'section').
- * @param array  $fields          Array of field definitions: ['name' => string, 'type' => string].
- */
-function pp_register_component_fields(string $component_type, array $fields): void {
-    global $_pp_component_fields;
-    if (!isset($_pp_component_fields)) {
-        $_pp_component_fields = [];
-    }
-    $_pp_component_fields[$component_type] = $fields;
-}
-
-/**
- * Retrieves the editable fields for a component type.
- *
- * @param string $component_type  Component type name.
- * @return array  Array of field definitions, or empty array if type is not registered.
+ * @return array  List of field descriptors; empty when the type has no schema.
  */
 function pp_get_component_fields(string $component_type): array {
-    global $_pp_component_fields;
-    return $_pp_component_fields[$component_type] ?? [];
+    $components = function_exists('pp_get_registered_components') ? pp_get_registered_components() : [];
+    $props = $components[$component_type]['props'] ?? null;
+    if (!is_array($props)) {
+        return [];
+    }
+
+    $fields = [];
+    foreach ($props as $prop_name => $prop_def) {
+        $scalar_type = pp_component_scalar_type($prop_def);
+        if ($scalar_type !== null) {
+            $field = ['name' => $prop_name, 'type' => $scalar_type];
+            if (isset($prop_def['format']) && is_string($prop_def['format'])) {
+                $field['format'] = $prop_def['format'];
+            }
+            $fields[] = $field;
+            continue;
+        }
+
+        // Nested object-item array named `items`: expose its scalar sub-props as
+        // items[].<field>. Gated on the prop name so it aligns with the selector
+        // grammar; a named sub-schema (associative field defs) confirms it is an
+        // object-item array (body_items / a bare string array carries no such map).
+        // An `items` array carrying its own `patchable: false` opts its whole
+        // nested surface out (mirrors the scalar opt-out — "opt out with zero code
+        // change"): pp_component_scalar_type() already returned null for it above,
+        // so re-check the opt-out here before expanding sub-fields.
+        if ($prop_name === 'items'
+            && is_array($prop_def)
+            && !(array_key_exists('patchable', $prop_def) && $prop_def['patchable'] === false)
+            && ($prop_def['type'] ?? null) === 'array'
+            && !empty($prop_def['items'])
+            && is_array($prop_def['items'])
+        ) {
+            foreach ($prop_def['items'] as $sub_name => $sub_def) {
+                $sub_type = pp_component_scalar_type($sub_def);
+                if ($sub_type === null) {
+                    continue;
+                }
+                $sub_field = ['name' => 'items[].' . $sub_name, 'type' => $sub_type];
+                if (isset($sub_def['format']) && is_string($sub_def['format'])) {
+                    $sub_field['format'] = $sub_def['format'];
+                }
+                $fields[] = $sub_field;
+            }
+        }
+    }
+
+    return $fields;
 }
 
 /**
- * Returns the full component-fields registry: component_type => field definitions.
+ * Returns the full derived field map: component_type => field descriptors,
+ * for every component whose schema is registered (issue #509).
  *
  * @return array<string, array>
  */
 function pp_get_registered_component_fields(): array {
-    global $_pp_component_fields;
-    return $_pp_component_fields ?? [];
+    $components = function_exists('pp_get_registered_components') ? pp_get_registered_components() : [];
+    $map = [];
+    foreach (array_keys($components) as $type) {
+        $fields = pp_get_component_fields($type);
+        if (!empty($fields)) {
+            $map[$type] = $fields;
+        }
+    }
+    return $map;
 }
-
-// ── Register default component fields ────────────────────────────────────
-
-pp_register_component_fields('hero', [
-    ['name' => 'title',    'type' => 'string'],
-    ['name' => 'subtitle', 'type' => 'string'],
-    ['name' => 'eyebrow',  'type' => 'string'],
-    ['name' => 'cta_text', 'type' => 'string'],
-    ['name' => 'cta_url',  'type' => 'url'],
-]);
-
-pp_register_component_fields('section', [
-    ['name' => 'title',      'type' => 'string'],
-    ['name' => 'eyebrow',    'type' => 'string'],
-    ['name' => 'subheading', 'type' => 'string'],
-    ['name' => 'body',       'type' => 'html'],
-]);
-
-pp_register_component_fields('grid', [
-    ['name' => 'eyebrow',           'type' => 'string'],
-    ['name' => 'subheading',        'type' => 'string'],
-    ['name' => 'items[].title',     'type' => 'string'],
-    ['name' => 'items[].text',      'type' => 'string'],
-    ['name' => 'items[].link_url',  'type' => 'url'],
-    ['name' => 'items[].link_text', 'type' => 'string'],
-]);
-
-pp_register_component_fields('faq', [
-    ['name' => 'eyebrow',          'type' => 'string'],
-    ['name' => 'items[].question', 'type' => 'string'],
-    ['name' => 'items[].answer',   'type' => 'html'],
-]);
-
-pp_register_component_fields('cta', [
-    ['name' => 'title',       'type' => 'string'],
-    ['name' => 'eyebrow',     'type' => 'string'],
-    ['name' => 'text',        'type' => 'string'],
-    ['name' => 'button_text', 'type' => 'string'],
-    ['name' => 'button_url',  'type' => 'url'],
-]);
-
-pp_register_component_fields('testimonials', [
-    ['name' => 'title',            'type' => 'string'],
-    ['name' => 'eyebrow',          'type' => 'string'],
-    ['name' => 'subheading',       'type' => 'string'],
-    ['name' => 'items[].quote',    'type' => 'string'],
-    ['name' => 'items[].author',   'type' => 'string'],
-    ['name' => 'items[].role',     'type' => 'string'],
-    ['name' => 'items[].company',  'type' => 'string'],
-]);
 
 // ── Inspect Composition ──────────────────────────────────────────────────
 
@@ -2100,6 +2154,10 @@ function pp_inspect_composition(int $post_id): array|WP_Error {
         foreach ($fields_def as $fdef) {
             $field_name = $fdef['name'];
             $field_type = $fdef['type'];
+            // Schema-declared format (e.g. 'link_url', 'image_url'), surfaced so
+            // inspect callers see the same type/format the shared validator
+            // enforces on a patch (#506/#507/#509). Null when the prop has none.
+            $field_format = $fdef['format'] ?? null;
 
             // Nested items field (e.g. items[].title)
             if (str_starts_with($field_name, 'items[].')) {
@@ -2128,6 +2186,7 @@ function pp_inspect_composition(int $post_id): array|WP_Error {
                         'selector'      => $selector,
                         'field'         => $field_name,
                         'field_type'    => $field_type,
+                        'field_format'  => $field_format,
                         'current_value' => $item_data[$nested_field] ?? null,
                     ];
                 }
@@ -2143,6 +2202,7 @@ function pp_inspect_composition(int $post_id): array|WP_Error {
                     'selector'      => $selector,
                     'field'         => $field_name,
                     'field_type'    => $field_type,
+                    'field_format'  => $field_format,
                     'current_value' => $props[$field_name] ?? null,
                 ];
             }
@@ -2192,16 +2252,40 @@ function pp_inspect_composition(int $post_id): array|WP_Error {
 /**
  * Picks the best match field for identifying a nested item within a component type.
  *
+ * Derived from the component's `items` sub-schema (issue #509) so newly-covered
+ * components (stats, logos) get a sensible default without a hand-maintained map.
+ * Only builds the inspect-suggested selector; the patch parser accepts ANY
+ * scalar item sub-field as a match, so this default never limits what an
+ * operator can target. Prefers a human-readable identifying field (title,
+ * question, quote, ...) to keep the pre-#509 selectors stable (grid→title,
+ * faq→question, testimonials→quote), else falls back to the first scalar
+ * sub-field.
+ *
  * @param string $component_type  The component type.
  * @return string|null  The match field name, or null if none available.
  */
 function _pp_pick_nested_match_field(string $component_type): ?string {
-    $match_map = [
-        'grid'         => 'title',
-        'faq'          => 'question',
-        'testimonials' => 'quote',
-    ];
-    return $match_map[$component_type] ?? null;
+    $components = function_exists('pp_get_registered_components') ? pp_get_registered_components() : [];
+    $item_schema = $components[$component_type]['props']['items']['items'] ?? null;
+    if (!is_array($item_schema)) {
+        return null;
+    }
+
+    // Preference order for a readable match handle (keeps historical selectors).
+    foreach (['title', 'question', 'quote', 'label', 'name', 'number'] as $preferred) {
+        if (isset($item_schema[$preferred]) && pp_component_scalar_type($item_schema[$preferred]) !== null) {
+            return $preferred;
+        }
+    }
+
+    // Fallback: first scalar sub-field in schema order.
+    foreach ($item_schema as $sub_name => $sub_def) {
+        if (pp_component_scalar_type($sub_def) !== null) {
+            return $sub_name;
+        }
+    }
+
+    return null;
 }
 
 // ── Patch Composition ────────────────────────────────────────────────────

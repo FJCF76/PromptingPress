@@ -681,7 +681,7 @@ class AiContextTest extends TestCase
         $GLOBALS['_pp_test_store']['post_meta'][60]['_pp_composition'] = wp_json_encode([
             [
                 'component' => 'hero',
-                'props' => ['id' => 'pp-test123', 'title' => 'Welcome', 'layout' => 'split'],
+                'props' => ['id' => 'pp-test123', 'title' => 'Welcome', 'layout' => 'split', 'cta_url' => '/go'],
                 'style' => ['--hero-bg' => '#0d1117', '--hero-text' => '#f0f0f0', '__recipe' => 'dark-spacious'],
             ],
         ]);
@@ -694,6 +694,9 @@ class AiContextTest extends TestCase
         $this->assertStringContainsString('--hero-bg: #0d1117', $system);
         $this->assertStringContainsString('Editable:', $system);
         $this->assertStringContainsString('title (string)', $system);
+        // A prop with a schema format shows its family so the AI patches valid
+        // values (#509): cta_url is a link_url-format string.
+        $this->assertStringContainsString('cta_url (string, link_url)', $system);
     }
 
     public function testFormatMessagesPageContextHandlesNoStyleOverrides(): void

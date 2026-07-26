@@ -2169,78 +2169,79 @@ class SchemaValidationTest extends TestCase
         }
     }
 
-    // ── Field editability map drift (#120) ──────────────────────────────────
+    // ── Field editability derivation vs schema (#120 origin, #509 rework) ────
 
     /**
-     * pp_register_component_fields() (lib/operate.php) is a hand-maintained
-     * map of which props each component exposes for semantic-selector
-     * patching (wp pp operate patch) and AI-chat inspection. It silently
-     * drifted from the real component props: cta declared subtitle/cta_text/
-     * cta_url (none exist — cta has text/button_text/button_url) and grid
-     * declared items[].link (grid items use link_url/link_text). A patch to
-     * a dead field wrote an unused prop and reported success while the
-     * rendered page didn't change (lib/operate.php update_component does a
-     * shallow merge that accepts unknown props).
+     * The semantic-patch field set (wp pp operate patch / inspect-composition)
+     * is DERIVED from each component's schema.json (#509 retired the hand-list
+     * pp_register_component_fields() that caused the #120 drift). This is the
+     * bidirectional drift-catcher: derivation and schema must AGREE, in both
+     * directions, or the suite fails —
      *
-     * This walks every registered component type and asserts each field
-     * name resolves to a real prop in that component's schema.json — top-
-     * level props directly, `items[].X` fields against the schema's
-     * `items` sub-definition — so this class of drift fails the suite
-     * instead of shipping.
+     *   1. every derived field name resolves to a real schema prop (top-level,
+     *      or `items[].X` against props.items.items) with a scalar type; and
+     *   2. every scalar-typed schema prop (string/number/enum, not opted out)
+     *      IS derived — no silent coverage drop, the exact rot the old
+     *      hand-list suffered; and
+     *   3. no structural (array/object) top-level prop leaks into the field set.
+     *
+     * Walks the real registered components (not a hand-list), so a schema that
+     * adds a scalar prop, or a derivation regression that drops or over-includes
+     * one, fails here.
      */
-    public function testFieldEditabilityMapMatchesSchemaProps(): void
+    public function testDerivedFieldEditabilityAgreesWithSchema(): void
     {
-        // Known, pre-existing drift tracked as its own issue (not
-        // introduced or fixed here): hero's registered 'eyebrow' field has
-        // no corresponding prop anywhere in hero.php or hero/schema.json.
-        // Fixing it requires a product decision (render eyebrow, or remove
-        // it) that #120's fix plan explicitly scopes out — see GitHub #85
-        // ("Hero eyebrow render-or-remove"). Exception is intentionally
-        // narrow: exactly one field, on one component.
-        $knownExceptions = [
-            'hero' => ['eyebrow'],
-        ];
+        $scalarTypes = ['string', 'number', 'enum'];
+        $components  = pp_get_registered_components();
+        $this->assertNotEmpty($components, 'Expected at least one registered component.');
 
-        $registry = pp_get_registered_component_fields();
-        $this->assertNotEmpty($registry, 'Expected at least one registered component field map.');
-
-        foreach ($registry as $componentType => $fields) {
-            $schemaFile = $this->themeRoot . "/components/{$componentType}/schema.json";
-            $this->assertFileExists($schemaFile, "Missing schema.json for registered component '{$componentType}'.");
-
-            $schema = json_decode(file_get_contents($schemaFile), true);
-            $this->assertIsArray($schema, "schema.json for '{$componentType}' must be valid JSON.");
+        $sawComposable = false;
+        foreach ($components as $componentType => $schema) {
             $props = $schema['props'] ?? [];
-            $itemProps = $props['items']['items'] ?? null;
+            if (empty($props)) {
+                continue;
+            }
 
-            foreach ($fields as $field) {
-                $name = $field['name'];
+            $derived = [];
+            foreach (pp_get_component_fields($componentType) as $field) {
+                $derived[$field['name']] = $field['type'];
+            }
+            if (empty($derived)) {
+                continue; // chrome/no-scalar component
+            }
+            $sawComposable = true;
 
-                if (in_array($name, $knownExceptions[$componentType] ?? [], true)) {
-                    continue;
-                }
-
+            // Direction 1: every derived field resolves to a real scalar schema prop.
+            foreach ($derived as $name => $type) {
+                $this->assertContains($type, $scalarTypes, "'{$componentType}.{$name}' derived a non-scalar type '{$type}'.");
                 if (str_starts_with($name, 'items[].')) {
-                    $itemField = substr($name, strlen('items[].'));
-                    $this->assertIsArray(
-                        $itemProps,
-                        "'{$componentType}' registers '{$name}' but its schema has no props.items.items definition."
-                    );
-                    $this->assertArrayHasKey(
-                        $itemField,
-                        $itemProps,
-                        "'{$componentType}' registers editable field '{$name}', but '{$itemField}' is not a key in schema.json props.items.items."
-                    );
+                    $sub = substr($name, strlen('items[].'));
+                    $itemProps = $props['items']['items'] ?? null;
+                    $this->assertIsArray($itemProps, "'{$componentType}' derives '{$name}' but schema has no props.items.items.");
+                    $this->assertArrayHasKey($sub, $itemProps, "'{$componentType}' derives '{$name}' but '{$sub}' is not a props.items.items key.");
+                    $this->assertContains($itemProps[$sub]['type'] ?? null, $scalarTypes, "'{$componentType}.{$name}' sub-prop is not scalar in schema.");
+                } else {
+                    $this->assertArrayHasKey($name, $props, "'{$componentType}' derives '{$name}' but it is not a schema prop.");
+                }
+            }
+
+            // Directions 2 & 3: every non-opted-out scalar top-level prop is
+            // derived; every array/object top-level prop is NOT.
+            foreach ($props as $propName => $propDef) {
+                if (!is_array($propDef)) {
                     continue;
                 }
-
-                $this->assertArrayHasKey(
-                    $name,
-                    $props,
-                    "'{$componentType}' registers editable field '{$name}', but it is not a key in schema.json props."
-                );
+                $optedOut = array_key_exists('patchable', $propDef) && $propDef['patchable'] === false;
+                $type = $propDef['type'] ?? null;
+                if (in_array($type, $scalarTypes, true) && !$optedOut) {
+                    $this->assertArrayHasKey($propName, $derived, "'{$componentType}.{$propName}' is a scalar schema prop but was NOT derived (silent coverage drop).");
+                } elseif (in_array($type, ['array', 'object'], true)) {
+                    $this->assertArrayNotHasKey($propName, $derived, "'{$componentType}.{$propName}' is a structural prop but leaked into the derived field set.");
+                }
             }
         }
+
+        $this->assertTrue($sawComposable, 'Expected at least one component to derive patchable fields.');
     }
 
     // ── Legacy prop-rename alias map + schema-rename drift-catcher (#495) ──
