@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.8.4] — 2026-07-26 — `wp pp sync check` is now truly read-only: it no longer secretly records a baseline the first time you run it (#522)
+
+**Running `wp pp sync check` on an install that had never been baselined used to silently write the current theme files in as the deployment baseline. On a drifted install that meant the drift got recorded as "normal" and every later check reported clean against a poisoned baseline, hiding the exact change the command exists to surface. Plain `sync check` now writes nothing when there is no manifest: it reports that there is no baseline and points you at the two explicit commands that create one, so a baseline only ever exists because you asked for it.**
+
+`sync check` is a drift-reporting command, and reporting must not establish state. With no deployment manifest there is nothing to compare against, so the command now prints the no-baseline state and exits without hashing-and-saving anything. To record a baseline you run one of the two sanctioned writers, unchanged: `wp pp sync check --save-manifest` (snapshot the current files) or `wp pp readiness rebaseline` (snapshot and record the installed release version, so later drift reads as "changed since <release>"). The drift computation, `--save-manifest`, and `readiness rebaseline` all behave exactly as before.
+
+### Fixed
+- `wp pp sync check` with no deployment manifest no longer creates one as a side effect of the read (lib/cli.php). It reports the no-baseline state and names `wp pp sync check --save-manifest` and `wp pp readiness rebaseline` as the explicit ways to establish a baseline, then exits 0. Only those two commands write the manifest (#522).
+
+### Docs
+- The `pp_check_drift` doc comment (lib/operate.php) no longer tells operators to establish a baseline by running plain `wp pp sync check`; it names the explicit `--save-manifest` / `readiness rebaseline` commands (#522).
+
+### Tests
+- `tests/ReadinessFindingsTest.php`: a real-CLI assertion that plain `sync check` on a manifest-less install writes nothing (manifest still absent afterward), reports the no-baseline state, and names both explicit baseline commands; plus a companion test that `--save-manifest` still writes the manifest. The shared WP_CLI test stub (`tests/CliGateTest.php`, `tests/ReadinessFindingsTest.php`) now captures `warning()` output so advisory state reports are assertable (#522).
+
 ## [v1.8.3] — 2026-07-26 — a hero can now carry a filled brand-accent primary button through composition style slots alone (#514)
 
 **A dark, brand-recolored hero used to be stuck with the theme's default blue premium button, because the primary button's visible fill lives in a shared cascade that painted a gradient over the hero's own color. The hero now exposes three per-instance fill slots — `--hero-button-bg`, `--hero-button-color`, `--hero-button-shadow` — analogous to the cta button's, so a site-builder AI can set a solid brand fill (and flat ink / no bevel) on a fresh install without overriding the site-wide accent token. Set none of them and the hero renders exactly as before.**
