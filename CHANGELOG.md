@@ -4,6 +4,25 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.8.2] — 2026-07-26 — every scalar prop of every component is now patchable: the semantic patch surface derives from schemas (#509)
+
+**Targeted `operate patch` (and its `inspect-composition` view) used to expose a hand-maintained list of editable fields that covered only 6 of the 10 components, with a small subset of each one's props — so most fields could only be changed by replacing the whole component, and every new prop silently widened the gap. The patchable-field set now derives directly from each component's `schema.json`: every scalar prop (a `string`, `number`, or `enum`, carrying any `format` like `link_url`) is patchable by default, across all 10 components. `stats`, `table`, `logos`, and `embed` — absent from the old list entirely — are now fully patchable (you can patch a `table` caption or an `embed` shortcode by selector), and a new scalar prop becomes patchable the moment its schema declares it, with zero code change.**
+
+The manual `pp_register_component_fields()` registry is removed, not deprecated (no parallel surface to drift). Because a patch still routes through the `update_component` action, it inherits the shared validator's type and `format: "link_url"` enforcement (#507) unchanged — patching `grid.columns` to a non-number or `hero.cta_url` to a `javascript:` URL is rejected on the patch path exactly as on any other write, and the rejected value never persists. Structural array/object props (a table's `headers`/`rows`, a grid item's `bullets`) are not patchable as a single value and report `field_not_editable`. A prop can opt out of isolated patching with `"patchable": false` in its schema; the shipped inventory is empty. `inspect-composition` now reports each field's schema `format` alongside its type, and the AI chat's page context shows it too (e.g. `cta_url (string, link_url)`), so the assistant patches valid values.
+
+### Changed
+- The `operate patch` / `inspect-composition` editable-field set is derived from component schemas by `pp_get_component_fields()` (lib/operate.php) instead of the retired `pp_register_component_fields()` hand-list. Scalar props (`string`/`number`/`enum`, with any `format`) are patchable; scalar sub-props of an `items` array are patchable as `items[].<field>`; structural array/object props are excluded. All 10 components are covered, including `stats`/`table`/`logos`/`embed`, which the old list omitted (#509).
+- Field types reported by `inspect-composition` are now the schema-native `type` (the private `url`/`html` vocabulary is retired), with the schema `format` (`link_url`/`image_url`) surfaced in a new `field_format` field on each row and in the AI chat page-context "Editable:" line (#509).
+
+### Added
+- Schema-level `"patchable": false` opt-out for any prop (top-level or an `items` array) that must not be patched in isolation (inventory currently empty) (#509).
+
+### Docs
+- `docs/AI_IMPLEMENTATION_RECIPES.md`: the "register editable fields" step in Recipe B and Recipe D is replaced with the schema-derivation contract (declare a scalar prop and it is patchable; set `"patchable": false` to exclude) (#509).
+
+### Tests
+- `tests/OperateTest.php`: a derivation matrix across all 10 components (representative scalar/format fields and excluded structural props); a drift-catcher proving a synthetic new schema prop becomes patchable with zero registry edits and that the `patchable:false` opt-out is honored end-to-end; Section 14.1 authoring-path round-trips through the real `update_composition` + `operate patch` surfaces for previously-absent components (`table.caption`, `stats`, `logos`, `embed.content`) and a number field (`grid.columns`); negative cases proving inherited type/`link_url` enforcement; `field_format` surfacing; and the nested match-field fallback. `tests/SchemaValidationTest.php`: the #120 drift test is retargeted to a bidirectional derivation-vs-schema invariant (no scalar prop dropped, no structural prop leaked). `tests/AiContextTest.php`: the page-context editable line asserts the `format` hint (#509).
+
 ## [v1.8.1] — 2026-07-26 — an accepted write now renders as authored: schema types and link URLs are enforced at write time (#507)
 
 **The write path now checks every prop's value against the type its schema declares, and rejects a link URL that would render as a dead button, so a write that reports `ok:true` actually renders the way it was authored. Before this, `title: []`, a scalar where an items-array belongs, or a `button_url: "javascript:..."` all validated and persisted; the renderer then emitted `Array` as text (with a PHP warning) or `esc_url()` silently neutered the bad URL into an empty `href`, always behind a clean success. That is the reported-success-without-effect class, and this closes it generically instead of adding another one-off rule.**
