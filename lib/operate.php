@@ -136,7 +136,167 @@ function pp_check_drift(): array {
         'modified'  => $modified,
         'added'     => $added,
         'deleted'   => $deleted,
+        // The release the baseline was captured against (#496), so a drift finding
+        // can say "changed since <release>". Null on manifests written before #496.
+        'release_version' => $manifest['release_version'] ?? null,
     ];
+}
+
+// ── Finding classification (#496) ──────────────────────────────────────────
+//
+// Readiness/preflight warnings are undifferentiated by default: theme-file
+// drift, site-configuration gaps, and missing environment tools all surface as
+// look-alike warning rows that persist run after run. An operator who cannot
+// tell "changed since the installed release" from "the footer has no menu" from
+// "no browser installed" learns to ignore ALL warnings — which masks the one
+// that matters (#302 reported-state trust class).
+//
+// Every finding therefore carries a CLASS and a sanctioned NEXT ACTION:
+//   - integrity     : theme file drift vs the recorded deployment baseline.
+//                     Resolved by re-baselining (`wp pp readiness rebaseline`).
+//   - configuration : site-state gaps resolvable through their existing safe
+//                     surfaces (e.g. an unassigned menu location). ALSO
+//                     acknowledgeable — an operator can record "intentional",
+//                     after which the finding reports as acknowledged, not a
+//                     warning, reversibly.
+//   - capability    : environment tools missing (e.g. a screenshot browser,
+//                     #497). Resolved by installing/configuring the tool.
+//
+// Only CLASSED rows are findings. Passing/healthy rows (no drift, a ready menu
+// location, a ready capture) carry no class — there is nothing to group or act
+// on. Preconditions/gates (target, capability-to-mutate, surface, …) are not
+// findings either: they either pass silently or hard-block the whole operation
+// with their own message.
+//
+// Only CONFIGURATION findings are acknowledgeable. Integrity drift is resolved
+// by re-baselining and capability gaps by installing the tool — neither is a
+// deliberate site-state choice, so neither can be "marked intentional".
+
+/**
+ * The stored map of acknowledged findings (#496).
+ *
+ * Shape: finding_key => ['acknowledged_at' => ISO8601, 'note' => string].
+ * READ-ONLY accessor — never writes. The explicit `wp pp readiness acknowledge`
+ * / `unacknowledge` commands are the only writers, honoring the standing
+ * read-only-status rule (status/preflight never mutate).
+ *
+ * @return array
+ */
+function pp_acknowledged_findings(): array {
+    $stored = get_option('pp_acknowledged_findings', []);
+    return is_array($stored) ? $stored : [];
+}
+
+/**
+ * Stamps `acknowledged` (+ note/timestamp) onto configuration findings whose
+ * finding_key is recorded in pp_acknowledged_findings() (#496).
+ *
+ * Central, single-pass enrichment so acknowledgement logic lives in ONE place
+ * rather than being scattered across each finding source. Pure w.r.t. the
+ * option store (reads once); returns a new checks array.
+ *
+ * @param array $checks  Preflight/readiness check rows.
+ * @return array         The same rows, configuration findings stamped.
+ */
+function pp_apply_finding_acknowledgements(array $checks): array {
+    $acks = pp_acknowledged_findings();
+    foreach ($checks as &$check) {
+        // Only configuration findings are acknowledgeable, and only rows that
+        // actually carry a finding_key (the actionable, pass=false ones).
+        if (($check['class'] ?? '') !== 'configuration') {
+            continue;
+        }
+        $key = (string) ($check['finding_key'] ?? '');
+        if ($key !== '' && isset($acks[$key]) && is_array($acks[$key])) {
+            $check['acknowledged']      = true;
+            $check['acknowledged_note'] = (string) ($acks[$key]['note'] ?? '');
+            $check['acknowledged_at']   = (string) ($acks[$key]['acknowledged_at'] ?? '');
+        }
+    }
+    unset($check);
+    return $checks;
+}
+
+/**
+ * Groups classed findings by class and summarizes the trust surface (#496).
+ *
+ * A CLASSED row is a finding; an ACTIVE finding is a classed row that is not
+ * acknowledged. Every active finding carries a `next_action`, so "zero
+ * unexplained warnings" on a completed operation means active_warnings rows that
+ * are all actionable-now, plus any acknowledged (intentional) findings.
+ *
+ * Pure — no I/O. Feed it acknowledgement-enriched checks.
+ *
+ * @param array $checks  Preflight/readiness check rows (post-enrichment).
+ * @return array{by_class: array<string, array>, active_warnings: int, acknowledged: int}
+ */
+function pp_classify_findings(array $checks): array {
+    $by_class = ['integrity' => [], 'configuration' => [], 'capability' => []];
+
+    foreach ($checks as $check) {
+        $class = $check['class'] ?? null;
+        if ($class === null || !isset($by_class[$class])) {
+            continue;
+        }
+        $by_class[$class][] = [
+            'check'            => $check['check'] ?? '',
+            'pass'             => (bool) ($check['pass'] ?? false),
+            'acknowledgeable'  => (bool) ($check['acknowledgeable'] ?? false),
+            'acknowledged'     => (bool) ($check['acknowledged'] ?? false),
+            // Surface the operator's recorded rationale in the read surface — it
+            // is captured at acknowledge time and would otherwise be write-only.
+            'acknowledged_note' => $check['acknowledged_note'] ?? '',
+            'acknowledged_at'   => $check['acknowledged_at'] ?? '',
+            'finding_key'      => $check['finding_key'] ?? null,
+            'next_action'      => $check['next_action'] ?? null,
+            'message'          => $check['message'] ?? '',
+        ];
+    }
+
+    $active = 0;
+    $acknowledged = 0;
+    foreach ($by_class as $rows) {
+        foreach ($rows as $row) {
+            if ($row['acknowledged']) {
+                $acknowledged++;
+            } else {
+                $active++;
+            }
+        }
+    }
+
+    return [
+        'by_class'        => $by_class,
+        'active_warnings' => $active,
+        'acknowledged'    => $acknowledged,
+    ];
+}
+
+/**
+ * The configuration finding_keys that are CURRENTLY present (#496).
+ *
+ * `wp pp readiness acknowledge` validates against this so an operator can only
+ * acknowledge a finding that actually exists — preventing typo'd keys and
+ * unbounded growth of the acknowledgement store.
+ *
+ * SINGLE SOURCE OF TRUTH: derived from the SAME classified path `wp pp readiness
+ * status` prints (pp_preflight → findings.by_class.configuration), so the set an
+ * operator can acknowledge can never diverge from the set they see. Any future
+ * configuration producer wired into preflight is automatically acknowledgeable
+ * with no second list to update. Stays generic (keys come from the producers,
+ * no site specifics baked in).
+ *
+ * @return string[]  Distinct configuration finding_keys currently present.
+ */
+function pp_current_configuration_finding_keys(): array {
+    $configuration = pp_preflight([])['findings']['by_class']['configuration'] ?? [];
+    $keys = [];
+    foreach ($configuration as $row) {
+        if (!empty($row['finding_key'])) {
+            $keys[(string) $row['finding_key']] = true;
+        }
+    }
+    return array_keys($keys);
 }
 
 // ── Site Inspection ────────────────────────────────────────────────────────
@@ -317,24 +477,41 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
     }
 
     if (!$drift['has_drift']) {
+        // Healthy state: not a finding, so no class (nothing to group or act on).
         $checks[] = ['check' => 'drift', 'pass' => true, 'message' => 'No drift detected.'];
     } else {
+        // Integrity-class finding (#496): the live theme differs from the recorded
+        // release baseline. Phrase it as "changed since <release>" so drift always
+        // reads as a genuine change, never "stale baseline of unknown vintage".
+        $rel   = $drift['release_version'] ?? null;
+        $since = $rel !== null
+            ? 'since the installed release (' . $rel . ')'
+            : 'since the recorded baseline (which predates release-version tracking — run `wp pp readiness rebaseline` to record it)';
+
         // Check overlap between drifted files and planned mutations
         $drifted_files = array_merge($drift['modified'], $drift['added'], $drift['deleted']);
         $overlap = array_intersect($drifted_files, $planned_files);
 
         if (!empty($overlap)) {
+            // Error-grade (no severity): overlapping drift blocks the apply.
             $checks[] = [
-                'check'   => 'drift',
-                'pass'    => false,
-                'message' => 'Drift overlaps with planned mutations: ' . implode(', ', $overlap) . '. Escalate to human before proceeding.',
+                'check'       => 'drift',
+                'pass'        => false,
+                'class'       => 'integrity',
+                'next_action' => 'Escalate to human; once the intended state is confirmed, re-baseline with `wp pp readiness rebaseline`.',
+                'message'     => 'Drift overlaps with planned mutations (' . implode(', ', $overlap) . '), changed ' . $since . '. Escalate to human before proceeding.',
             ];
         } else {
+            // Non-overlapping drift is advisory (pass=true, this operation cannot
+            // touch these files), but still a classified integrity finding with a
+            // sanctioned next action so it is never an unexplained warning.
             $checks[] = [
-                'check'   => 'drift',
-                'pass'    => true,
-                'message' => 'Drift detected in non-overlapping files (warning only): ' .
-                    implode(', ', $drifted_files) . '. Note in HANDOFF report.',
+                'check'       => 'drift',
+                'pass'        => true,
+                'class'       => 'integrity',
+                'next_action' => 'Re-baseline with `wp pp readiness rebaseline` after confirming these are an intended release; otherwise note in HANDOFF.',
+                'message'     => count($drifted_files) . ' theme file(s) changed ' . $since . ', none overlapping this operation\'s planned writes (advisory): ' .
+                    implode(', ', $drifted_files) . '.',
             ];
         }
     }
@@ -483,15 +660,26 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
     // readiness BEFORE mutation. A missing browser is a capability warning, not a gate:
     // typed mutations may still proceed; the run just cannot claim native VERIFIED.
     $shot = pp_screenshot_readiness();
-    $checks[] = [
-        'check'    => 'screenshot_readiness',
-        'pass'     => $shot['ready'],
-        'severity' => 'warning',
-        'message'  => $shot['ready']
-            ? 'Native screenshot capture is ready (' . $shot['message'] . ').'
-            : $shot['message'] . ' Typed mutations may still proceed; native VERIFIED requires a '
+    if ($shot['ready']) {
+        // Healthy: not a finding, no class.
+        $checks[] = [
+            'check'    => 'screenshot_readiness',
+            'pass'     => true,
+            'severity' => 'warning',
+            'message'  => 'Native screenshot capture is ready (' . $shot['message'] . ').',
+        ];
+    } else {
+        // Capability-class finding (#496): an environment tool is missing (#497).
+        $checks[] = [
+            'check'       => 'screenshot_readiness',
+            'pass'        => false,
+            'severity'    => 'warning',
+            'class'       => 'capability',
+            'next_action' => 'wp pp screenshot doctor',
+            'message'     => $shot['message'] . ' Typed mutations may still proceed; native VERIFIED requires a '
               . 'working capture — run `wp pp screenshot doctor` to diagnose.',
-    ];
+        ];
+    }
 
     // ok ignores severity=warning rows: warnings surface problems (pass=false) without
     // blocking the apply. Checks without a severity are treated as errors (legacy behavior).
@@ -500,9 +688,17 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
         fn($c) => !$c['pass'] && (($c['severity'] ?? 'error') !== 'warning')
     ));
 
+    // Stamp acknowledgement state onto configuration findings, then attach the
+    // by-class grouping so consumers get "output groups by class, per-finding
+    // next action" (#496). Enrichment reads the acknowledgement option only —
+    // pp_preflight() stays read-only.
+    $checks   = pp_apply_finding_acknowledgements($checks);
+    $findings = pp_classify_findings($checks);
+
     return [
-        'ok'     => $all_pass,
-        'checks' => $checks,
+        'ok'       => $all_pass,
+        'checks'   => $checks,
+        'findings' => $findings,
     ];
 }
 
