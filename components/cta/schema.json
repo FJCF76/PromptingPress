@@ -40,7 +40,8 @@
     "button_url": {
       "type": "string",
       "required": true,
-      "description": "Button destination URL."
+      "format": "link_url",
+      "description": "Button destination URL. Accepts an absolute URL (https://...), a site-relative path (/path), an anchor (#id), mailto:, or tel:; a disallowed protocol (javascript:, data:) is rejected at write time because it would render as a dead link."
     },
     "layout": {
       "type": "enum",

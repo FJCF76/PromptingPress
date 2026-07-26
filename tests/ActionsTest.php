@@ -576,6 +576,112 @@ class ActionsTest extends TestCase
         $this->assertSame('unknown_prop', $result['error_code'], 'validate-stage rejection must carry its code (#312)');
     }
 
+    // ── Write-time type + link-URL enforcement through the action surface (#507) ──
+    //
+    // Section 14.1 authoring-path proofs: an accepted write must render as authored,
+    // so a wrong-typed prop or a dead-button link URL is rejected at the REAL write
+    // surface (create_page / update_component / update_composition), not neutered at
+    // render behind ok:true. Accepts AND rejects, including the previously-silent
+    // classes (a URL esc_url would empty, a non-scalar scalar prop).
+
+    public function testCreatePageRejectsDeadButtonLinkUrl(): void
+    {
+        $result = pp_execute_action('create_page', [
+            'title'       => 'Dead button page',
+            'composition' => [['component' => 'cta', 'props' => [
+                'button_text' => 'Click', 'button_url' => 'javascript:alert(1)',
+            ]]],
+        ]);
+        $this->assertFalse($result['ok'], 'a javascript: button_url must not persist behind ok:true');
+        $this->assertSame('invalid_prop_value', $result['error_code']);
+        $this->assertStringContainsString('button_url', $result['error']);
+        $this->assertStringContainsString('dead link', $result['error']);
+    }
+
+    public function testCreatePageAcceptsRenderableLinkUrls(): void
+    {
+        // #anchor (dev's real content uses #booking), site-relative, mailto:, tel:, absolute.
+        foreach (['#booking', '/pricing', 'mailto:hi@example.com', 'tel:+15551234567', 'https://example.com'] as $url) {
+            $result = pp_execute_action('create_page', [
+                'title'       => 'Good link page',
+                'composition' => [['component' => 'cta', 'props' => [
+                    'button_text' => 'Click', 'button_url' => $url,
+                ]]],
+            ]);
+            $this->assertTrue($result['ok'], sprintf('button_url "%s" must be accepted; got: %s', $url, $result['error'] ?? ''));
+        }
+    }
+
+    public function testUpdateComponentRejectsNonScalarStringProp(): void
+    {
+        $id = pp_create_page('Non-scalar title', 'draft');
+        pp_update_composition($id, [['component' => 'cta', 'props' => ['title' => 'Ok', 'button_text' => 'Go', 'button_url' => '/']]]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['title' => ['unexpected' => 'array']],
+        ]);
+        $this->assertFalse($result['ok'], 'a non-scalar title must not persist behind ok:true');
+        $this->assertSame('invalid_prop_value', $result['error_code']);
+        $this->assertStringContainsString('must be a string', $result['error']);
+        // The prior composition is intact.
+        $this->assertSame('Ok', pp_get_composition($id)[0]['props']['title']);
+    }
+
+    public function testUpdateCompositionRejectsScalarWhereObjectItemArrayBelongs(): void
+    {
+        $id = pp_create_page('Bad grid items', 'draft');
+        pp_update_composition($id, [['component' => 'grid', 'props' => ['items' => [['title' => 'One']]]]]);
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => $id,
+            'composition' => [['component' => 'grid', 'props' => ['items' => ['just a string']]]],
+        ]);
+        $this->assertFalse($result['ok']);
+        $this->assertSame('invalid_prop_value', $result['error_code']);
+        $this->assertStringContainsString('must be an object', $result['error']);
+        // The prior valid composition never got replaced.
+        $this->assertSame('One', pp_get_composition($id)[0]['props']['items'][0]['title']);
+    }
+
+    public function testUpdateComponentRejectsDeadButtonInNestedGridLink(): void
+    {
+        $id = pp_create_page('Nested dead link', 'draft');
+        pp_update_composition($id, [['component' => 'grid', 'props' => ['items' => [['title' => 'One']]]]]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['items' => [
+                ['title' => 'One', 'link_url' => '/ok'],
+                ['title' => 'Two', 'link_url' => 'data:text/html,x'],
+            ]],
+        ]);
+        $this->assertFalse($result['ok']);
+        $this->assertSame('invalid_prop_value', $result['error_code']);
+        $this->assertStringContainsString('item 1', $result['error']);
+        $this->assertStringContainsString('link_url', $result['error']);
+    }
+
+    public function testRestoreReportsDeadButtonLinkWithoutBlocking(): void
+    {
+        // #233 pattern for the #507 rule: restore never blocks, so a snapshot holding
+        // a dead-button link (seeded past write-time validation) restores verbatim and
+        // reports the violation as a finding rather than a bare ok:true.
+        $post_id = pp_create_page('Dead link snapshot');
+        pp_update_composition($post_id, [
+            ['component' => 'cta', 'props' => ['button_text' => 'Go', 'button_url' => 'javascript:alert(1)']],
+        ]);
+        pp_update_composition($post_id, [['component' => 'cta', 'props' => ['button_text' => 'Go', 'button_url' => '/ok']]]);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? 'restore must not block');
+        $this->assertSame('javascript:alert(1)', pp_get_composition($post_id)[0]['props']['button_url'], 'content restored verbatim');
+        $this->assertContains('invalid_prop_value', array_column($result['findings'], 'type'), 'the dead-button link is reported as a finding');
+    }
+
     // ── Bounded legacy prop-rename alias map (issue #495) ──
     //
     // Pre-1.0, `cta` renamed cta_text->button_text and cta_url->button_url (both

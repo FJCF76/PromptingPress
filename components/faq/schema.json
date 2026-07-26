@@ -35,6 +35,7 @@
     },
     "items": {
       "type": "array",
+      "item_type": "object",
       "required": true,
       "description": "Array of FAQ items. Each item: { question: string, answer: string (HTML allowed) }.",
       "items": {

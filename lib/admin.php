@@ -496,6 +496,114 @@ function _pp_validate_style_slot_map(array $style, array $available_slots, strin
     return null;
 }
 
+/**
+ * The URI schemes accepted by a `format: "link_url"` prop (issue 507).
+ *
+ * Mirrors the render boundary: the link renderers run esc_url(), which empties
+ * any URL whose scheme is not in wp_allowed_protocols(). Using that same list
+ * here keeps the write-time accept/reject decision aligned with what esc_url
+ * will do at render, so an accepted write renders as authored and a rejected one
+ * is exactly the "esc_url would neuter this to a dead button" class.
+ *
+ * FAIL-CLOSED: if wp_allowed_protocols() is unavailable (e.g. a non-WP unit
+ * context) or returns an empty set, fall back to WordPress's own default
+ * protocol list rather than an empty set — an empty allow-list would accept
+ * NOTHING with a scheme, but more importantly this guarantees the check never
+ * silently degrades to "accept every scheme". Callers that want the http/https/
+ * mailto/tel/relative/anchor bar the issue names get it from this default.
+ *
+ * @return string[] Lower-case allowed scheme names.
+ */
+function pp_link_url_allowed_protocols(): array {
+    if (function_exists('wp_allowed_protocols')) {
+        $protocols = wp_allowed_protocols();
+        if (is_array($protocols) && $protocols !== []) {
+            return array_map('strtolower', $protocols);
+        }
+    }
+    // WordPress core defaults (wp-includes/functions.php kses_init / wp_allowed_protocols).
+    return [
+        'http', 'https', 'ftp', 'ftps', 'mailto', 'news', 'irc', 'irc6', 'ircs',
+        'gopher', 'nntp', 'feed', 'telnet', 'mms', 'rtsp', 'svn', 'tel', 'fax',
+        'xmpp', 'webcal', 'urn', 'sms',
+    ];
+}
+
+/**
+ * True when a `format: "link_url"` value would render as authored (issue 507).
+ *
+ * The accept bar is "what survives esc_url()": anything without a scheme (an
+ * #anchor, a /site-relative path, a //protocol-relative URL, a bare relative
+ * path, a ?query) renders as authored, and a scheme-bearing value is accepted
+ * only when its scheme is in pp_link_url_allowed_protocols(). A scheme OUTSIDE
+ * that set (javascript:, data:, vbscript:, file:, ...) is exactly what esc_url()
+ * empties into a dead button, so it is rejected.
+ *
+ * Non-string values return true here: a link prop is declared type:string, so a
+ * non-scalar is already rejected by the generic type pass — this helper must not
+ * double-report it (and casting an array to string would warn).
+ *
+ * SCOPE: this matches esc_url()'s PROTOCOL decision, not its full character
+ * cleanup. esc_url() remains the render-time boundary that neutralises obfuscated
+ * or malformed URLs (embedded control characters, entity tricks); this write-time
+ * check catches the honest dead-button class the issue targets. Leading
+ * whitespace/control characters are stripped before the scheme test so a value
+ * like " javascript:..." cannot slip through as "no scheme".
+ *
+ * @param mixed $value Raw prop value.
+ */
+function _pp_link_url_is_valid($value): bool {
+    if (!is_string($value)) {
+        return true;
+    }
+    // Strip ALL control characters (not just leading) before the scheme test.
+    // A control character embedded inside an otherwise-recognisable scheme —
+    // "java\tscript:", "java\nscript:" — is a classic esc_url-neutered obfuscation:
+    // the browser ignores the control char and honours the protocol, esc_url empties
+    // it, so it is a dead button. Removing control chars first means the scheme test
+    // sees the real protocol and rejects it, instead of mistaking it for a
+    // scheme-less relative path. Then trim leading whitespace for the empty check.
+    $trimmed = ltrim(preg_replace('/[\x00-\x1f\x7f]+/', '', $value));
+    if ($trimmed === null || $trimmed === '') {
+        return true; // unset / empty — the button simply does not render
+    }
+    // A scheme is letter, then letters/digits/+/-/. up to the first colon.
+    if (preg_match('/^([a-zA-Z][a-zA-Z0-9+.\-]*):/', $trimmed, $m)) {
+        return in_array(strtolower($m[1]), pp_link_url_allowed_protocols(), true);
+    }
+    // No scheme: #anchor, /relative, //protocol-relative, ?query, bare path — all
+    // survive esc_url() and render as authored.
+    return true;
+}
+
+/**
+ * Builds the rejection message for an invalid `format: "link_url"` value (#507).
+ *
+ * @param string      $component  Component name.
+ * @param string      $prop_name  Top-level prop (e.g. "button_url" or the array prop "items").
+ * @param int|null    $item_index Item index when the prop is a nested items[] link, else null.
+ * @param string|null $field      Item field name (e.g. "link_url") when nested, else null.
+ * @param mixed       $value      The rejected value.
+ */
+function _pp_link_url_error_message(string $component, string $prop_name, ?int $item_index, ?string $field, $value): string {
+    $where = ($item_index === null)
+        ? sprintf('prop "%s"', $prop_name)
+        : sprintf('prop "%s" item %d field "%s"', $prop_name, $item_index, (string) $field);
+    // The value is always a string here (_pp_link_url_is_valid returns false only
+    // for strings), but cast defensively. Strip control characters and cap the
+    // length so a pathological URL cannot bloat the error envelope or corrupt logs.
+    $shown = is_string($value) ? preg_replace('/[\x00-\x1f\x7f]+/', '', $value) : (string) $value;
+    if (mb_strlen($shown) > 100) {
+        $shown = mb_substr($shown, 0, 100) . '...';
+    }
+    return sprintf(
+        'Component "%s" %s is not a usable link URL: "%s" uses a disallowed protocol and would render as a dead link. Use an absolute URL (https://...), a site-relative path (/path), an anchor (#id), mailto:, or tel:.',
+        $component,
+        $where,
+        $shown
+    );
+}
+
 function pp_validate_composition_errors(array $items): array {
     $registered = pp_get_registered_components();
     $errors     = [];
@@ -842,6 +950,173 @@ function pp_validate_composition_errors(array $items): array {
                             )
                         );
                         continue 3;
+                    }
+                }
+            }
+        }
+
+        // Generic schema-typed prop enforcement (issue 507). The three opt-in
+        // families above (#379 numeric bounds, #380 strict enum, #475 string-array
+        // bounds) each guard ONE prop shape; this pass closes the remaining generic
+        // gap so EVERY prop is checked against its declared `type`, not only the
+        // props that opted into a bounded family. Without it, `title: []`,
+        // `logo_id: "abc"`, or a scalar where an items-array belongs all validated
+        // and persisted, and the renderer emitted silent-wrong output ("Array" as
+        // text, PHP warnings) with ok:true — the reported-success-without-effect
+        // trust class. Schema-driven, no per-component branch: a new prop is enforced
+        // the moment its schema declares a `type`. Deliberately runs AFTER the three
+        // bounded families so their precise messages still win first-error order for
+        // the props they cover (e.g. grid.columns keeps the #379 "integer between
+        // 1 and 12" message; body_items keeps the #475 "array of strings" message);
+        // this pass only fires for shapes those families leave unchecked. Each check
+        // has a per-type "unset" sentinel that preserves the prop's default. Runs in
+        // the shared validator; restore_composition (#233) reports it via
+        // _pp_composition_findings() but never blocks on it, same as every rule here.
+        if (isset($item['props']) && is_array($item['props']) && !empty($schema['props'])) {
+            foreach ($schema['props'] as $prop_name => $prop_def) {
+                if (!is_array($prop_def) || !array_key_exists($prop_name, $item['props'])) {
+                    continue;
+                }
+                $declared_type = $prop_def['type'] ?? null;
+                $value         = $item['props'][$prop_name];
+
+                if ($declared_type === 'string') {
+                    // "Reject non-scalars" (issue 507): a scalar (string/int/float/
+                    // bool) coerces to text and renders as authored; an array/object
+                    // renders as "Array" with a PHP warning. null is the unset
+                    // sentinel; the empty string is a valid string value (is_scalar).
+                    if ($value !== null && !is_scalar($value)) {
+                        $errors[] = new WP_Error(
+                            'invalid_prop_value',
+                            sprintf(
+                                'Component "%s" prop "%s" must be a string; got %s.',
+                                $name,
+                                $prop_name,
+                                gettype($value)
+                            )
+                        );
+                        continue 2;
+                    }
+                } elseif ($declared_type === 'number') {
+                    // Reject non-numerics. Numeric strings are accepted (a JSON/CLI
+                    // write sends "3"; the #379 bounds family already accepts them
+                    // for grid.columns, so this stays consistent). null/'' are the
+                    // unset sentinel (keeps the prop default, e.g. logo_id => 0).
+                    if ($value !== null && $value !== '' && !is_numeric($value)) {
+                        $errors[] = new WP_Error(
+                            'invalid_prop_value',
+                            sprintf(
+                                'Component "%s" prop "%s" must be a number; got %s.',
+                                $name,
+                                $prop_name,
+                                is_scalar($value) ? '"' . (string) $value . '"' : gettype($value)
+                            )
+                        );
+                        continue 2;
+                    }
+                } elseif ($declared_type === 'array') {
+                    // Reject scalars where an array belongs. null/''/[] are the unset
+                    // sentinel (an empty row renders nothing). A present scalar is the
+                    // silent-wrong case the renderer's is_array() guards swallow.
+                    if ($value !== null && $value !== '' && $value !== [] && !is_array($value)) {
+                        $errors[] = new WP_Error(
+                            'invalid_prop_value',
+                            sprintf(
+                                'Component "%s" prop "%s" must be an array; got %s.',
+                                $name,
+                                $prop_name,
+                                gettype($value)
+                            )
+                        );
+                        continue 2;
+                    }
+                    // Object-item arrays opt in with `item_type: "object"` (mirrors
+                    // the #475 `item_type: "string"` convention). Every entry must be
+                    // an object (a JSON object decodes to an associative array); a
+                    // scalar entry, or a populated JSON list where an object was
+                    // expected, is rejected — the renderer reads $item['field'] and a
+                    // non-object entry throws / renders nothing. panel_items is
+                    // deliberately NOT annotated: it accepts mixed string+object
+                    // entries, so it stays out of this check.
+                    if (($prop_def['item_type'] ?? null) === 'object' && is_array($value)) {
+                        foreach ($value as $entry_index => $entry) {
+                            $is_object_shape = is_array($entry)
+                                && ($entry === [] || !pp_is_list($entry));
+                            if (!$is_object_shape) {
+                                $errors[] = new WP_Error(
+                                    'invalid_prop_value',
+                                    sprintf(
+                                        'Component "%s" prop "%s" item %s must be an object; got %s.',
+                                        $name,
+                                        $prop_name,
+                                        is_scalar($entry_index) ? (string) $entry_index : gettype($entry_index),
+                                        gettype($entry)
+                                    )
+                                );
+                                continue 3;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Link-URL format family (issue 507). A prop MAY declare `format: "link_url"`
+        // (the #154 media-URL annotation pattern, applied to the destination-URL
+        // props: cta.button_url, hero.cta_url/cta2_url, section.panel_cta_url,
+        // grid.items[].link_url). The renderer runs esc_url() on these, which
+        // SILENTLY neuters a disallowed-protocol value (javascript:, data:, ...) into
+        // an empty href — a dead button — while still reporting ok:true. This rejects
+        // that class at write time so an accepted write renders as authored. The bar
+        // is "what survives esc_url renders as authored": intentional non-http values
+        // that render fine (#anchor, /relative, //protocol-relative, mailto:, tel:,
+        // and every other wp_allowed_protocols scheme) stay accepted; only a value
+        // carrying a scheme OUTSIDE the allowed set is rejected. Schema-driven and
+        // walked at the same two depths as #154 (top-level props + one items[] level);
+        // restore_composition (#233) reports it via _pp_composition_findings() but
+        // never blocks on it, same as every rule here.
+        if (isset($item['props']) && is_array($item['props']) && !empty($schema['props'])) {
+            foreach ($schema['props'] as $prop_name => $prop_def) {
+                if (!is_array($prop_def)) {
+                    continue;
+                }
+                // Top-level link_url prop.
+                if (($prop_def['format'] ?? null) === 'link_url'
+                    && array_key_exists($prop_name, $item['props'])
+                    && !_pp_link_url_is_valid($item['props'][$prop_name])
+                ) {
+                    $errors[] = new WP_Error(
+                        'invalid_prop_value',
+                        _pp_link_url_error_message($name, $prop_name, null, null, $item['props'][$prop_name])
+                    );
+                    continue 2;
+                }
+                // Nested link_url on the items[] of an array prop (grid.items[].link_url).
+                if (($prop_def['type'] ?? null) === 'array'
+                    && isset($prop_def['items'])
+                    && is_array($prop_def['items'])
+                ) {
+                    $link_fields = [];
+                    foreach ($prop_def['items'] as $item_prop_name => $item_prop_def) {
+                        if (is_array($item_prop_def) && ($item_prop_def['format'] ?? null) === 'link_url') {
+                            $link_fields[] = $item_prop_name;
+                        }
+                    }
+                    if ($link_fields !== [] && is_array($item['props'][$prop_name] ?? null)) {
+                        foreach ($item['props'][$prop_name] as $entry_index => $entry) {
+                            if (!is_array($entry)) {
+                                continue; // non-object entries are caught by the type pass above
+                            }
+                            foreach ($link_fields as $field) {
+                                if (array_key_exists($field, $entry) && !_pp_link_url_is_valid($entry[$field])) {
+                                    $errors[] = new WP_Error(
+                                        'invalid_prop_value',
+                                        _pp_link_url_error_message($name, $prop_name, (int) $entry_index, $field, $entry[$field])
+                                    );
+                                    continue 3;
+                                }
+                            }
+                        }
                     }
                 }
             }

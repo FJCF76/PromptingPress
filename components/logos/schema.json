@@ -23,6 +23,7 @@
     },
     "items": {
       "type": "array",
+      "item_type": "object",
       "required": true,
       "description": "Array of image items. Each: { image_url: string, image_alt: string, image_id?: number, label?: string }. Omit label for pure logo display; include label for icon+category tiles.",
       "items": {

@@ -77,6 +77,7 @@
     },
     "items": {
       "type": "array",
+      "item_type": "object",
       "required": true,
       "description": "Array of card items. Each: { title, text, bullets, image_url, link_url, link_text }. When layout is 'steps', also include: { number }.",
       "items": {
@@ -87,7 +88,7 @@
         "bullets":   { "type": "array", "required": false, "description": "Optional checklist lines rendered below text, each prefixed with a check mark. Plain text only — no HTML/markdown; each line is escaped independently. Use for scannable feature/benefit lists instead of cramming items into one text sentence.", "items": { "type": "string" } },
         "image_url": { "type": "string", "required": false, "format": "image_url" },
         "image_alt": { "type": "string", "required": false, "default": "", "description": "Alt text for the card image. Leave empty only if the image is purely decorative." },
-        "link_url":  { "type": "string", "required": false },
+        "link_url":  { "type": "string", "required": false, "format": "link_url", "description": "Optional card link destination. Accepts an absolute URL, a site-relative /path, an #anchor, mailto:, or tel:; a disallowed protocol (javascript:, data:) is rejected at write time." },
         "link_text": { "type": "string", "required": false, "default": "Read more" },
         "style":     { "type": "object", "required": false, "description": "Optional per-card style overrides for THIS card only (issue 306). Accepts ONLY the CARD-SCOPED style slots — the ones flagged item_eligible in styling.style_slots because they are consumed on the .grid__item and its contents (issue 323): --grid-card-bg, --grid-card-border, --grid-card-border-width, --grid-card-radius, --grid-card-shadow, --grid-card-bar-color, --grid-card-bar-height, --grid-featured-texture-color, --grid-featured-shadow, --grid-card-padding, --grid-card-gap, --grid-item-text-align, --grid-item-icon-size, --grid-item-title-size, --grid-item-title-color, --grid-item-text-color, --grid-bullet-color, --grid-link-color, --grid-step-color, --grid-step-text-color. Validated by the shared style engine exactly like grid-level slots (unknown slot names and invalid values are rejected). Rendered as inline custom properties on this card's .grid__item, so a per-card slot overrides the grid-level value by cascade proximity. Container/heading slots (--grid-bg, --grid-gap, --grid-heading-*, --grid-heading-accent-color, --grid-eyebrow-*, --grid-subheading-*, --grid-padding-*) are read on the section/list/header, not the card, so a per-card override would render nothing — they are REJECTED here with invalid_style_slot naming the card; set those on the grid-level style instead. Use per-card style for one distinct card in a row: a dark CTA panel beside light checklist cards, or a green-on-dark terminal card. Set via the composition (update_component / update_composition / create_page), not style_component (which is component-scoped)." }
       }

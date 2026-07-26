@@ -1453,27 +1453,40 @@ class SchemaValidationTest extends TestCase
         foreach (pp_composable_components() as $name => $schema) {
             $props = [];
             foreach (($schema['props'] ?? []) as $prop_name => $prop_def) {
-                // Most prop VALUES are not type-checked by the shared validator, so a
-                // placeholder string suffices. Two exceptions declare their constraint
-                // in schema and ARE value-checked: a prop with integer min/max bounds
-                // (issue 379) needs an in-range integer, and a strict enum (issue 380,
-                // type:enum + strict:true) needs one of its declared values — the
-                // placeholder 'x' would be rejected as out-of-set.
+                // Every prop VALUE is now type-checked against its schema `type`
+                // (issue 507), so the placeholder must match the declared type. The
+                // opt-in families layer additional constraints on top: integer min/max
+                // bounds (issue 379) need an in-range integer, a strict enum (issue 380)
+                // needs one of its declared values, a string-array (issue 475) needs an
+                // array of short strings, and an object-array (issue 507) needs object
+                // entries. A plain string 'x' satisfies every remaining string prop.
+                $prop_type = $prop_def['type'] ?? null;
                 if (isset($prop_def['min'])) {
                     $props[$prop_name] = (int) $prop_def['min'];
                 } elseif (
-                    ($prop_def['type'] ?? null) === 'enum'
+                    $prop_type === 'enum'
                     && !empty($prop_def['strict'])
                     && !empty($prop_def['values'])
                 ) {
                     $props[$prop_name] = $prop_def['values'][0];
-                } elseif (
-                    ($prop_def['type'] ?? null) === 'array'
-                    && ($prop_def['item_type'] ?? null) === 'string'
-                ) {
+                } elseif ($prop_type === 'number') {
+                    $props[$prop_name] = 1;
+                } elseif ($prop_type === 'array' && ($prop_def['item_type'] ?? null) === 'string') {
                     // Bounded string-array prop (issue 475, e.g. section.body_items):
-                    // the placeholder 'x' would be rejected as "not an array". A single
-                    // short string satisfies the count/length bounds.
+                    // a single short string satisfies the count/length bounds.
+                    $props[$prop_name] = ['x'];
+                } elseif ($prop_type === 'array' && ($prop_def['item_type'] ?? null) === 'object') {
+                    // Object-array prop (issue 507, e.g. grid.items): one object entry
+                    // keyed by the declared item fields. Item sub-props are not
+                    // value-checked by the shared validator, so 'x' placeholders suffice.
+                    $entry = [];
+                    foreach (($prop_def['items'] ?? []) as $item_prop => $item_def) {
+                        $entry[$item_prop] = 'x';
+                    }
+                    $props[$prop_name] = [$entry === [] ? ['x' => 'x'] : $entry];
+                } elseif ($prop_type === 'array') {
+                    // Plain array prop (no item contract, e.g. table.rows/headers): an
+                    // array of strings is a valid, non-rejected value.
                     $props[$prop_name] = ['x'];
                 } else {
                     $props[$prop_name] = 'x';
@@ -2438,6 +2451,288 @@ class SchemaValidationTest extends TestCase
         // A component with no alias map (hero's cta_text is a CURRENT prop) is untouched.
         $hero = ['component' => 'hero', 'props' => ['cta_text' => 'Get Started']];
         $this->assertSame($hero, _pp_apply_legacy_prop_aliases($hero));
+    }
+
+    // ── Generic schema-typed prop enforcement (issue 507) ───────────────────
+    //
+    // The shared validator enforces every prop's declared `type` (string rejects
+    // non-scalars, number rejects non-numerics, array rejects scalars, object-item
+    // arrays reject non-object entries) so an accepted write renders as authored
+    // instead of the renderer emitting "Array"/warnings behind ok:true. These are
+    // unit-level pins on pp_validate_composition; the authoring-path proofs
+    // (create_page / update_component) live in ActionsTest per Section 14.1.
+
+    /** type:string rejects a non-scalar (array/object) value. */
+    public function testStringPropRejectsNonScalar(): void
+    {
+        foreach ([[], ['nested' => 1]] as $bad) {
+            $result = pp_validate_composition([
+                ['component' => 'cta', 'props' => [
+                    'title' => $bad, 'button_text' => 'Go', 'button_url' => '/',
+                ]],
+            ]);
+            $this->assertInstanceOf(\WP_Error::class, $result);
+            $this->assertSame('invalid_prop_value', $result->get_error_code());
+            $this->assertStringContainsString('must be a string', $result->get_error_message());
+        }
+    }
+
+    /** type:string still accepts scalar values (numbers/bools coerce and render as authored). */
+    public function testStringPropAcceptsScalars(): void
+    {
+        foreach (['Real title', '', 0, 123, true] as $ok) {
+            $result = pp_validate_composition([
+                ['component' => 'cta', 'props' => [
+                    'title' => $ok, 'button_text' => 'Go', 'button_url' => '/',
+                ]],
+            ]);
+            $this->assertTrue($result, sprintf('scalar title %s must validate', var_export($ok, true)));
+        }
+    }
+
+    /** type:number rejects a non-numeric value; accepts ints and numeric strings; treats null/'' as unset. */
+    public function testNumberPropTypeEnforcement(): void
+    {
+        // hero.image_id is type:number with no bounds — the generic number check owns it.
+        $reject = pp_validate_composition([
+            ['component' => 'hero', 'props' => ['title' => 'Hi', 'image_id' => 'not-a-number']],
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $reject);
+        $this->assertSame('invalid_prop_value', $reject->get_error_code());
+        $this->assertStringContainsString('must be a number', $reject->get_error_message());
+
+        $rejectArray = pp_validate_composition([
+            ['component' => 'hero', 'props' => ['title' => 'Hi', 'image_id' => [5]]],
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $rejectArray);
+
+        foreach ([7, '7', 0, '', null] as $ok) {
+            $result = pp_validate_composition([
+                ['component' => 'hero', 'props' => ['title' => 'Hi', 'image_id' => $ok]],
+            ]);
+            $this->assertTrue($result, sprintf('image_id %s must validate', var_export($ok, true)));
+        }
+    }
+
+    /** type:array rejects a scalar where an array belongs; accepts arrays and the empty-array unset sentinel. */
+    public function testArrayPropRejectsScalar(): void
+    {
+        // faq.items is type:array — a scalar is the silent-wrong case renderers swallow.
+        $result = pp_validate_composition([
+            ['component' => 'faq', 'props' => ['items' => 'oops']],
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_prop_value', $result->get_error_code());
+        $this->assertStringContainsString('must be an array', $result->get_error_message());
+
+        // An empty array is the unset sentinel (renders nothing) — not a rejection.
+        $empty = pp_validate_composition([
+            ['component' => 'faq', 'props' => ['items' => []]],
+        ]);
+        $this->assertTrue($empty, 'an empty items array is the unset sentinel and must validate');
+    }
+
+    /** object-item arrays (item_type:object) reject scalar entries and populated JSON lists. */
+    public function testObjectItemArrayRejectsNonObjectEntries(): void
+    {
+        // A scalar entry.
+        $scalarEntry = pp_validate_composition([
+            ['component' => 'grid', 'props' => ['items' => ['just a string']]],
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $scalarEntry);
+        $this->assertSame('invalid_prop_value', $scalarEntry->get_error_code());
+        $this->assertStringContainsString('must be an object', $scalarEntry->get_error_message());
+
+        // A populated JSON list where an object was expected.
+        $listEntry = pp_validate_composition([
+            ['component' => 'grid', 'props' => ['items' => [['a', 'b']]]],
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $listEntry);
+        $this->assertStringContainsString('must be an object', $listEntry->get_error_message());
+
+        // Real object entries validate.
+        $ok = pp_validate_composition([
+            ['component' => 'grid', 'props' => ['items' => [['title' => 'One'], ['title' => 'Two']]]],
+        ]);
+        $this->assertTrue($ok, 'object entries must validate');
+    }
+
+    /**
+     * section.panel_items keeps its MIXED string+object contract (no item_type:object):
+     * plain-string entries are NOT rejected by the object-item check.
+     */
+    public function testPanelItemsStillAcceptsMixedStringAndObjectEntries(): void
+    {
+        $result = pp_validate_composition([
+            ['component' => 'section', 'props' => [
+                'title'      => 'Panel',
+                'layout'     => 'text-panel',
+                'panel_items' => ['A plain string row', ['label' => 'Plan', 'value' => 'Pro']],
+            ]],
+        ]);
+        $this->assertTrue($result, 'panel_items must still accept mixed string + object entries');
+    }
+
+    // ── Link-URL format family (issue 507) ──────────────────────────────────
+    //
+    // A `format: "link_url"` prop rejects, at write time, exactly the values
+    // esc_url() would neuter into a dead button (disallowed protocol) while keeping
+    // every value that renders as authored (#anchor, /relative, //protocol-relative,
+    // mailto:, tel:, and any wp_allowed_protocols scheme). The bar is pinned by the
+    // shared helper _pp_link_url_is_valid so every link prop across the registry
+    // shares one decision.
+
+    public function testLinkUrlHelperAcceptsRenderableValues(): void
+    {
+        foreach ([
+            '', '#', '#booking', '/pricing', '//cdn.example.com/logo.png',
+            'https://example.com', 'http://example.com/path?a=1&b=2',
+            'mailto:hello@example.com', 'tel:+15551234567', 'ftp://files.example.com',
+            '  https://example.com', // leading whitespace is stripped before the scheme test
+        ] as $value) {
+            $this->assertTrue(
+                _pp_link_url_is_valid($value),
+                sprintf('link_url "%s" survives esc_url and must be accepted', $value)
+            );
+        }
+        // A non-string is deferred to the generic type check, not double-reported here.
+        $this->assertTrue(_pp_link_url_is_valid(['x']));
+        $this->assertTrue(_pp_link_url_is_valid(null));
+    }
+
+    public function testLinkUrlHelperRejectsDisallowedProtocols(): void
+    {
+        foreach ([
+            'javascript:alert(1)', 'JavaScript:alert(1)', '  javascript:alert(1)',
+            'data:text/html,<script>', 'vbscript:msgbox(1)', 'file:///etc/passwd',
+            // Control-character obfuscation of a disallowed scheme: the browser
+            // honours the protocol, esc_url empties it — a dead button. Stripped
+            // before the scheme test so the real protocol is seen and rejected.
+            "java\tscript:alert(1)", "java\nscript:alert(1)", "java\0script:alert(1)",
+        ] as $value) {
+            $this->assertFalse(
+                _pp_link_url_is_valid($value),
+                sprintf('link_url "%s" would render as a dead link and must be rejected', $value)
+            );
+        }
+    }
+
+    /** The allowed-protocol set is never empty (fail-closed), even in a bare context. */
+    public function testLinkUrlAllowedProtocolsIsFailClosed(): void
+    {
+        $protocols = pp_link_url_allowed_protocols();
+        $this->assertNotEmpty($protocols, 'the allowed-protocol set must never be empty (accept-nothing-with-scheme, never accept-everything)');
+        foreach (['http', 'https', 'mailto', 'tel'] as $required) {
+            $this->assertContains($required, $protocols, sprintf('%s must be an allowed link protocol', $required));
+        }
+        $this->assertNotContains('javascript', $protocols);
+    }
+
+    /** A disallowed link_url is rejected through the shared validator with a per-prop envelope. */
+    public function testValidatorRejectsDisallowedLinkUrl(): void
+    {
+        $result = pp_validate_composition([
+            ['component' => 'cta', 'props' => [
+                'button_text' => 'Go', 'button_url' => 'javascript:alert(1)',
+            ]],
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_prop_value', $result->get_error_code());
+        $this->assertStringContainsString('button_url', $result->get_error_message());
+        $this->assertStringContainsString('dead link', $result->get_error_message());
+    }
+
+    /** A disallowed nested grid.items[].link_url names the item index and the field. */
+    public function testValidatorRejectsDisallowedNestedLinkUrl(): void
+    {
+        $result = pp_validate_composition([
+            ['component' => 'grid', 'props' => ['items' => [
+                ['title' => 'One', 'link_url' => '/ok'],
+                ['title' => 'Two', 'link_url' => 'javascript:alert(1)'],
+            ]]],
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_prop_value', $result->get_error_code());
+        $this->assertStringContainsString('item 1', $result->get_error_message());
+        $this->assertStringContainsString('link_url', $result->get_error_message());
+    }
+
+    /**
+     * Drift-catcher: the link_url check is schema-driven, not per-component. EVERY
+     * prop that declares format:link_url across the live registry (top-level and one
+     * items[] level) must be REJECTED through the real validator for a javascript:
+     * value, with zero extra validator code. This builds a minimal composition per
+     * discovered prop and runs pp_validate_composition, so it proves the prop is
+     * actually WIRED into the validator (not just that the helper rejects the
+     * constant). A future component that adds a format:link_url prop is caught here.
+     */
+    public function testEveryLinkUrlPropInRegistryRejectsDisallowedProtocol(): void
+    {
+        $checked = 0;
+        foreach (pp_composable_components() as $name => $schema) {
+            foreach (($schema['props'] ?? []) as $propName => $propDef) {
+                if (!is_array($propDef)) {
+                    continue;
+                }
+                // Top-level link_url prop: put a javascript: value on it and satisfy
+                // any sibling required props with harmless placeholders.
+                if (($propDef['format'] ?? null) === 'link_url') {
+                    $props = $this->minimalRequiredProps($schema, [$propName => 'javascript:alert(1)']);
+                    $result = pp_validate_composition([['component' => $name, 'props' => $props]]);
+                    $this->assertInstanceOf(
+                        \WP_Error::class,
+                        $result,
+                        sprintf('%s.%s declares format:link_url but the validator accepted javascript:', $name, $propName)
+                    );
+                    $this->assertSame('invalid_prop_value', $result->get_error_code());
+                    $checked++;
+                }
+                // Nested items[].link_url: one bad entry inside the array prop.
+                if (($propDef['type'] ?? null) === 'array' && isset($propDef['items']) && is_array($propDef['items'])) {
+                    foreach ($propDef['items'] as $itemProp => $itemDef) {
+                        if (is_array($itemDef) && ($itemDef['format'] ?? null) === 'link_url') {
+                            $props = $this->minimalRequiredProps($schema, [$propName => [[$itemProp => 'javascript:alert(1)']]]);
+                            $result = pp_validate_composition([['component' => $name, 'props' => $props]]);
+                            $this->assertInstanceOf(
+                                \WP_Error::class,
+                                $result,
+                                sprintf('%s.%s[].%s declares format:link_url but the validator accepted javascript:', $name, $propName, $itemProp)
+                            );
+                            $checked++;
+                        }
+                    }
+                }
+            }
+        }
+        $this->assertGreaterThanOrEqual(5, $checked, 'expected the five known link_url props (button_url, cta_url, cta2_url, panel_cta_url, grid.items[].link_url)');
+    }
+
+    /**
+     * Builds a props map satisfying a schema's REQUIRED props with type-appropriate
+     * placeholders, then overlays $overrides. Used to isolate one prop under test
+     * without tripping unrelated required-prop rejections.
+     */
+    private function minimalRequiredProps(array $schema, array $overrides): array
+    {
+        $props = [];
+        foreach (($schema['props'] ?? []) as $propName => $propDef) {
+            if (empty($propDef['required'])) {
+                continue;
+            }
+            $type = $propDef['type'] ?? 'string';
+            if ($type === 'array' && ($propDef['item_type'] ?? null) === 'string') {
+                $props[$propName] = ['x'];
+            } elseif ($type === 'array' && ($propDef['item_type'] ?? null) === 'object') {
+                $props[$propName] = [['x' => 'x']];
+            } elseif ($type === 'array') {
+                $props[$propName] = ['x'];
+            } elseif ($type === 'number') {
+                $props[$propName] = 1;
+            } else {
+                $props[$propName] = 'x';
+            }
+        }
+        return array_merge($props, $overrides);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────

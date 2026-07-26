@@ -55,6 +55,7 @@
     },
     "items": {
       "type": "array",
+      "item_type": "object",
       "required": true,
       "description": "Array of testimonial items. Each: { quote (req), author, role, company, image_url, image_alt }.",
       "items": {
