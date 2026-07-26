@@ -559,6 +559,39 @@ class StyleSlotContractTest extends TestCase
     }
 
     /**
+     * Stats display-number typography slots (issue 472): byte-identical-unset pins.
+     *
+     * The number's family was never declared (so it took the page BODY font) and its
+     * weight was the literal 700, which left the largest text in the component off
+     * the heading system with no way to bring it on. The generic checks above prove
+     * --stats-number-font / --stats-number-weight are consumed on type-compatible
+     * properties inside the stats block; they do NOT pin the fallbacks, and the
+     * fallbacks are the whole compatibility story here. `inherit` is what the ABSENT
+     * font-family declaration already did, and 700 is the literal it replaces.
+     *
+     * Routing either fallback through the heading tokens instead would move existing
+     * pages: --font-weight-heading is 650, not 700, and --font-heading is exactly what
+     * differs from --font-body on the sites this slot is for. So heading-system parity
+     * is opt-in, and these two literals are what makes that true.
+     */
+    public function testIssue472StatsNumberTypographySlotFallbacks(): void
+    {
+        $block = $this->stripComments($this->componentBlock('stats'));
+        $this->assertStringContainsString(
+            'font-family: var(--stats-number-font, inherit)',
+            $block,
+            'The .stats__number rule must route font-family through --stats-number-font '
+            . 'with `inherit` as the fallback (issue 472, byte-identical unset).'
+        );
+        $this->assertStringContainsString(
+            'font-weight: var(--stats-number-weight, 700)',
+            $block,
+            'The .stats__number rule must route font-weight through --stats-number-weight '
+            . 'with 700 as the fallback (issue 472, byte-identical unset).'
+        );
+    }
+
+    /**
      * Hero primary-button fill slots (issue 514): byte-identical-unset fallback pins.
      *
      * The generic keystone checks above prove --hero-button-bg / --hero-button-color /

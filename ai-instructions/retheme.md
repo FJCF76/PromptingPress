@@ -104,6 +104,12 @@ Replace `system-ui, sans-serif` with your chosen web font name, e.g.:
 --font-heading: 'Playfair Display', Georgia, serif;
 ```
 
+**A distinct heading face does not reach the `stats` display numbers.** They are the
+largest text on the band but they are not headings: they take `--font-body` at weight
+700 unless you say otherwise. After swapping `--font-heading` to a display face, bring
+the figures with it per instance via `--stats-number-font` / `--stats-number-weight`
+(`style-component.md`), the same way per-component button slots are set for buttons.
+
 ---
 
 ## Step 3 — Enqueue the font via apply (no file edits needed)

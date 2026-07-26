@@ -3074,6 +3074,78 @@ test.describe('Safe-surface rendered proof', () => {
       .evaluate((el) => getComputedStyle(el).fontSize);
     expect(sized).toBe('73px');
   });
+
+  // Strand 3 (#472). The number's family was never declared, so it silently took
+  // the BODY font, and its weight was the literal 700 — a serif heading system
+  // could not reach the biggest figures on the page. The static contract test
+  // proves the two new slots are consumed; only the browser proves they WIN the
+  // cascade, that the unset band is unmoved, and that the sibling label does not
+  // follow the number's face.
+  test('#472 stats number font and weight are slot-driven; unset is unmoved and the label never follows @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Stats Number Typography Slots');
+    setComposition(pageId, [
+      {
+        component: 'stats',
+        props: { id: 'pp-stats02', items: [{ number: '1,250,000+', label: 'Documents processed' }] },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const read = () =>
+      page.evaluate(() => {
+        const number = document.querySelector('.stats__number') as HTMLElement;
+        const label = document.querySelector('.stats__label') as HTMLElement;
+        return {
+          numberFamily: getComputedStyle(number).fontFamily,
+          numberWeight: getComputedStyle(number).fontWeight,
+          labelFamily: getComputedStyle(label).fontFamily,
+          bodyFamily: getComputedStyle(document.body).fontFamily,
+        };
+      });
+
+    await expect(page.locator('.stats__number')).toBeVisible({ timeout: 10000 });
+    const before = await read();
+    // Unset stays byte-identical to pre-#472: weight 700 (NOT the 650 that
+    // --font-weight-heading carries) and the same inherited family as the label.
+    expect(before.numberWeight).toBe('700');
+    // Compare against the BODY font, not the label: the claim being pinned is
+    // "the number takes the page body font when unset", and keying that to a
+    // sibling would break the day the label gets a font role of its own.
+    expect(before.numberFamily).toBe(before.bodyFamily);
+    // Guard the swap assertion below: if the baseline stack already contained the
+    // face we set, "family contains Georgia" would pass without the slot doing
+    // anything, and this test would prove nothing.
+    expect(before.numberFamily).not.toContain('Georgia');
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    // A literal stack, not var(--font-heading): the token resolves to the same
+    // system stack the body already uses on a default install, so a token value
+    // could not distinguish "the slot won" from "nothing happened".
+    const res = await styleComponent(page, pageId, {
+      '--stats-number-font': 'Georgia, serif',
+      '--stats-number-weight': '600',
+    });
+    expect(res.success).toBe(true);
+
+    // Both breakpoints, deliberately: .stats__number carries no media query today,
+    // so this asserts the slots are viewport-independent. Add a mobile stats rule
+    // later and the 375 pass is what catches it dropping the slot.
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      const after = await read();
+      expect(after.numberWeight).toBe('600');
+      expect(after.numberFamily).toContain('Georgia');
+      expect(after.numberFamily).not.toBe(before.numberFamily);
+      // The label is a SIBLING span: the display face must not reach it.
+      expect(after.labelFamily).toBe(before.labelFamily);
+    }
+  });
 });
 
 /**

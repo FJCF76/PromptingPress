@@ -131,6 +131,19 @@ To "remove" the max-width, set `100%` (the type has no `none` input) — the slo
 `none` default is the built-in full-bleed. Stats does not expose `*-border-*` or
 `*-shadow` slots.
 
+**Stats display numbers follow the heading system only when you ask (#472).** The big
+metric values are the largest text in the component, but by default they take the page
+**body** font at weight `700` — they are not headings. On a site whose headings use a
+distinct display face, set both `--stats-number-font` (font-family, default `inherit`)
+and `--stats-number-weight` (number, default `700`) to bring the figures onto the
+heading system: `"--stats-number-font": "var(--font-heading)"` plus, say,
+`"--stats-number-weight": "600"` when the heading face wants a lighter weight than the
+bold body default. `--stats-number-font` takes a font token or any comma-separated
+stack; `--stats-number-weight` is literal-only (a unitless number — `bold` is
+rejected), so read `--font-weight-heading`'s current value and pass that number if you
+want parity. Both are opt-in: leave them unset and the band renders exactly as before.
+The `--stats-label-*` text is a sibling element and never follows the number's face.
+
 The grid's **featured first-card treatment** (accent top bar, texture stripe, blue
 glow on card 1 of a cards-layout grid) is slot-controllable (#293):
 `--grid-card-bar-color`/`--grid-card-bar-height` pin one top bar on EVERY card

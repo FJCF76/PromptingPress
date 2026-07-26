@@ -4,6 +4,28 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.9.2] — 2026-07-27 — stats display numbers can follow the heading system instead of the body font (#472)
+
+**A brand on a serif display face could style the biggest text in the `stats` band every way except the two that mattered: the numbers took the page BODY font because no `font-family` was ever declared, and their weight was a hardcoded `700`. Two per-instance slots fix that — `--stats-number-font` and `--stats-number-weight`. Set them and the figures join the heading system; leave them unset and the band renders exactly as it did before, down to the byte.**
+
+The `stats` numbers are the largest text the component draws, but they are not headings — they are spans inside a list item, so they inherited `--font-body` and there was no slot pointing anywhere else. A site whose headings ran Fraunces 600 got Fraunces card titles above Instrument Sans 700 figures, a mismatch no operator could fix without editing `components.css`. Both new slots reuse validation families the shared engine already owns (`font-family`, as `--section-panel-font` does; `number`, as `--hero-title-weight` does), so no new value grammar was invented and every schema-derived surface — composition validation, the #330 render boundary, the #509 patch surface, the AI-facing context — picks them up automatically. The fallbacks are deliberately literals rather than `var(--font-heading)` / `var(--font-weight-heading)`: `--font-weight-heading` is `650`, not `700`, and `--font-heading` is precisely what differs from `--font-body` on the sites this slot exists for, so routing the defaults through the tokens would silently re-typeset every stats band already in the wild. Heading-system parity is opt-in, which is what makes the unset path byte-identical.
+
+### Fixed
+- `.stats__number` routes `font-family` through `--stats-number-font` (fallback `inherit`, the exact behaviour of the absent declaration it replaces) and `font-weight` through `--stats-number-weight` (fallback `700`, the literal it replaces) in assets/css/components.css. The `stats--inverted` and `stats--has-bg-image` variants re-declare colour only, so both slots reach every theme; the sibling `.stats__label` is untouched by either (#472).
+- `components/stats/schema.json` declares both slots with types the shared validation engine already enforces, so an out-of-type value (`--stats-number-weight: bold`) is rejected at the authoring boundary rather than persisted and dropped at render (#472).
+
+### Docs
+- `ai-instructions/style-component.md` documents the opt-in recipe, that `--stats-number-weight` is literal-only, and that the label never follows the number's face.
+- `ai-instructions/retheme.md` warns at the font-token step that swapping `--font-heading` to a display face does not reach the stats figures, and points at the two slots.
+- `AI_CONTEXT.md` and `README.md`: style-slot totals 220 to 222 (stats 12 to 14).
+
+### Tests
+- New `tests/StatsNumberTypographyTest.php` (13 tests): schema declarations and defaults, the shared validation families the slots depend on, authoring-path validation through `pp_validate_composition()` with a top-level `style` key for the accepted shapes (`var(--font-heading)` + `600`, a literal stack, a quoted stack, each slot alone) and the rejected ones (`bold`, CSS breakout payloads), inline-custom-property render, byte-identical unset render, no competing `font-family`/`font-weight` declaration anywhere in the stylesheet, and label isolation.
+- `tests/StyleSlotContractTest.php` pins the two fallback literals alongside the byte-identical-unset pins for #293/#296/#514; its generic checks auto-discovered both slots with no edit.
+- `tests/e2e/style-render.spec.ts`: a `@smoke` pin at 1280 and 375 — unset renders weight `700` and the body family, a set serif stack and weight `600` win the cascade at both widths, and the sibling label's family never moves.
+
+---
+
 ## [v1.9.1] — 2026-07-27 — the hero's second CTA no longer inherits the primary button's fill, and its own fill slot finally paints (#526)
 
 **Styling a hero's primary button used to repaint the second CTA with it, and setting `--hero-cta2-bg` on a filled second CTA did nothing at all — the premium gradient covered it. Both are fixed. The second CTA is now isolated from `--hero-button-*` in every variant, `--hero-cta2-bg` replaces the gradient with a flat fill exactly the way `--hero-button-bg` does for the primary, and an unset border follows that fill so a fill-only recolor keeps a matching ring. A hero that sets none of these slots renders byte-identically to before.**
