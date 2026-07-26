@@ -1948,7 +1948,9 @@ pp_register_action('add_component', [
     },
     'preview' => function (array $params): array {
         $current   = pp_get_composition($params['post_id']);
-        $new_item  = ['component' => $params['component'], 'props' => $params['props']];
+        // Mirror execute's normalize-on-write (issue #495) so the preview reflects
+        // the canonical shape that will actually be stored.
+        $new_item  = _pp_apply_legacy_prop_aliases(['component' => $params['component'], 'props' => $params['props']]);
         if (!empty($params['style'])) {
             $new_item['style'] = $params['style'];
         }
@@ -1964,7 +1966,10 @@ pp_register_action('add_component', [
     },
     'execute' => function (array $params): array {
         $current   = pp_get_composition($params['post_id']);
-        $new_item  = ['component' => $params['component'], 'props' => $params['props']];
+        // Normalize-on-write (issue #495): a freshly authored component heals its
+        // recognized legacy prop keys to canonical on the way in. Only this new
+        // item is normalized; existing (untouched) components keep their stored shape.
+        $new_item  = _pp_apply_legacy_prop_aliases(['component' => $params['component'], 'props' => $params['props']]);
         if (!empty($params['style'])) {
             $new_item['style'] = $params['style'];
         }
@@ -2343,7 +2348,16 @@ pp_register_action('update_component', [
         _pp_resolve_id_param($params, $params['post_id']);
         $composition = pp_get_composition($params['post_id']);
         $before_props = $composition[$params['component_index']]['props'] ?? [];
-        $after_props  = _pp_merge_component_props($before_props, $params['props']);
+        // Mirror execute (issue #495): canonicalize the incoming patch first (so a
+        // legacy-named edit lands), then normalize the merged item, so the preview's
+        // reported "after" and changes match the canonical shape that will be stored.
+        $patch_props  = _pp_apply_legacy_prop_aliases(
+            array_merge($composition[$params['component_index']], ['props' => $params['props']])
+        )['props'];
+        $after_props  = _pp_merge_component_props($before_props, $patch_props);
+        $after_props  = _pp_apply_legacy_prop_aliases(
+            array_merge($composition[$params['component_index']], ['props' => $after_props])
+        )['props'];
 
         $changes = _pp_diff_props($before_props, $after_props, $params['component_index']);
 
@@ -2362,9 +2376,28 @@ pp_register_action('update_component', [
         _pp_resolve_id_param($params, $params['post_id']);
         $composition  = pp_get_composition($params['post_id']);
         $before_props = $composition[$params['component_index']]['props'] ?? [];
-        $after_props  = _pp_merge_component_props($before_props, $params['props']);
+        // Normalize-on-write, touched item only (issue #495). The INCOMING PATCH is
+        // canonicalized FIRST so a legacy-named edit (e.g. cta_text) to a component
+        // that already healed to button_text overwrites the canonical prop instead
+        // of being dropped by canonical-wins — an accepted legacy-named edit must
+        // land, never silently no-op behind ok:true.
+        $patch_props  = _pp_apply_legacy_prop_aliases(
+            array_merge($composition[$params['component_index']], ['props' => $params['props']])
+        )['props'];
+        $after_props  = _pp_merge_component_props($before_props, $patch_props);
 
         $composition[$params['component_index']]['props'] = $after_props;
+
+        // Then canonicalize any legacy prop keys the STORED component still carries
+        // (untouched by the patch), so the touched component heals to the current
+        // shape. Only this touched item is normalized — untouched components keep
+        // their stored props, so a targeted edit heals incrementally.
+        $composition[$params['component_index']] = _pp_apply_legacy_prop_aliases(
+            $composition[$params['component_index']]
+        );
+        // Reflect the normalization in the reported diff so `changes` matches what
+        // is actually stored (a touched legacy cta stores button_text, not cta_text).
+        $after_props = $composition[$params['component_index']]['props'];
 
         $changes = _pp_diff_props($before_props, $after_props, $params['component_index']);
 

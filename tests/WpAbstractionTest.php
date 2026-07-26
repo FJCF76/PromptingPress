@@ -196,6 +196,58 @@ class WpAbstractionTest extends TestCase
         $this->assertSame($modern, $result, 'Modern-shape compositions must render unchanged (migration is a no-op).');
     }
 
+    // ── pp_composition() legacy prop-rename resolution (issue #495) ────────
+    //
+    // A pre-1.0 `cta` stored `cta_text`/`cta_url`; the renderer reads
+    // `button_text`/`button_url`, so without render-path resolution a legacy
+    // button rendered its default label. pp_composition() resolves the bounded
+    // alias map for display only — the stored composition is NEVER mutated here
+    // (untouched components heal only on a write that touches them).
+
+    public function testPpCompositionResolvesLegacyCtaPropsOnRender(): void
+    {
+        $stored = wp_json_encode([
+            ['component' => 'cta', 'props' => [
+                'cta_text' => 'View on GitHub',
+                'cta_url'  => 'https://example.com/repo',
+            ]],
+        ]);
+        $GLOBALS['_pp_test_store']['post_meta'][0]['_pp_composition'] = $stored;
+
+        $result = pp_composition();
+
+        $this->assertArrayNotHasKey('cta_text', $result[0]['props'], 'legacy cta_text must resolve away on render.');
+        $this->assertArrayNotHasKey('cta_url', $result[0]['props'], 'legacy cta_url must resolve away on render.');
+        $this->assertSame('View on GitHub', $result[0]['props']['button_text'], 'cta_text value must carry to button_text.');
+        $this->assertSame('https://example.com/repo', $result[0]['props']['button_url'], 'cta_url value must carry to button_url.');
+
+        // Render resolution is a transient view: stored meta is untouched.
+        $this->assertSame(
+            $stored,
+            $GLOBALS['_pp_test_store']['post_meta'][0]['_pp_composition'],
+            'render-path resolution must NOT mutate the stored composition.'
+        );
+    }
+
+    public function testPpCompositionDoesNotResolveHeroCtaProps(): void
+    {
+        // hero.cta_text/cta_url are CURRENT canonical props, not aliases — the
+        // per-component map must leave them exactly as authored.
+        $GLOBALS['_pp_test_store']['post_meta'][0]['_pp_composition'] = wp_json_encode([
+            ['component' => 'hero', 'props' => [
+                'title'    => 'Hi',
+                'cta_text' => 'Get Started',
+                'cta_url'  => '/docs',
+            ]],
+        ]);
+
+        $result = pp_composition();
+
+        $this->assertSame('Get Started', $result[0]['props']['cta_text'], 'hero cta_text is canonical and must be preserved.');
+        $this->assertSame('/docs', $result[0]['props']['cta_url'], 'hero cta_url is canonical and must be preserved.');
+        $this->assertArrayNotHasKey('button_text', $result[0]['props'], 'hero must not gain a cta-only canonical prop.');
+    }
+
     public function testPpCompositionLeavesNonListShapeUnchanged(): void
     {
         // Defensive-parity pin: pp_composition() has never enforced list shape
