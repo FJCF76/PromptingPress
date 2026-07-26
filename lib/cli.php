@@ -1695,27 +1695,44 @@ class PP_Screenshot_Command extends WP_CLI_Command {
     }
 
     /**
-     * Diagnoses screenshot-capture readiness for the current runtime context.
+     * Diagnoses screenshot-capture readiness for the current runtime context (#497).
      *
-     * Reports whether PP_BROWSER_CMD resolves, from where (constant vs env), and in which
-     * context (CLI `wp` vs web PHP — they can resolve different config). With --probe it
-     * attempts a real minimal capture to confirm the adapter actually launches and writes
-     * a file. Read-only: never mutates the site. Exits 1 when not ready so scripts and the
-     * operating loop can gate visual-proof steps on it.
+     * Reports one definitive tri-state so native screenshot evidence is never an ambient
+     * warning:
+     *   - `available`   — PP_BROWSER_CMD resolves and a real probe capture succeeded.
+     *   - `unavailable` — not configured; lists candidate browser binaries found on $PATH
+     *                     plus the one-line setup pointer.
+     *   - `broken`      — configured but failing (binary missing, or the probe capture
+     *                     itself failed), with the concrete failure.
+     *
+     * Reports where PP_BROWSER_CMD resolves from (constant vs env) and in which context
+     * (CLI `wp` vs web PHP — they can resolve different config). Probes by default: it
+     * attempts a real minimal capture so `available` vs `broken` is definitive. Pass
+     * --no-probe for a fast capability-only check (no browser launch). Read-only: it never
+     * mutates site state (the probe writes a temp file it deletes). Exits 1 when not ready
+     * so scripts and the operating loop can gate visual-proof steps on it.
      *
      * ## OPTIONS
      *
      * [--probe]
-     * : Attempt a real minimal capture against the home URL to confirm the adapter runs.
+     * : Attempt a real minimal capture (this is the DEFAULT; flag kept for explicitness).
+     *
+     * [--no-probe]
+     * : Capability-only check — resolve PP_BROWSER_CMD and check its binary without
+     *   launching a browser. Cannot distinguish `available` from a probe-time `broken`.
      *
      * ## EXAMPLES
      *
      *     wp pp screenshot doctor
-     *     wp pp screenshot doctor --probe
+     *     wp pp screenshot doctor --no-probe
      *
      */
     public function doctor($args, $assoc_args) {
-        $readiness = pp_screenshot_readiness(isset($assoc_args['probe']));
+        // Probe by default so the tri-state is definitive; --no-probe opts out. In
+        // WP-CLI a negatable flag is read off the base key: --no-probe sets 'probe' to
+        // false, --probe sets it true, absent uses the default (true).
+        $probe = (bool) \WP_CLI\Utils\get_flag_value($assoc_args, 'probe', true);
+        $readiness = pp_screenshot_readiness($probe, true);
         WP_CLI::line(json_encode($readiness, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         if (!$readiness['ready']) {
             WP_CLI::halt(1);

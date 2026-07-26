@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.7.9] — 2026-07-26 — native screenshot readiness is a definitive available / unavailable / broken state, never an ambient warning (#497)
+
+**Native screenshot capture depends on a browser command you configure (`PP_BROWSER_CMD`). On installs where it was never set up, every visual-verification step emitted the same "not configured" warning forever, so operators routed around the product's own evidence path with external tooling. Screenshot readiness now reports exactly one definitive state — available (configured and a real capture succeeded), unavailable (not configured, with candidate binaries found on your `$PATH` and the one-line setup step), or broken (configured but failing, with the concrete error). `wp pp screenshot doctor` is the in-band setup-and-diagnose surface: it probes by default, so "configured" always means "actually captured a screenshot," not "resolves on paper."**
+
+`doctor` now runs a real minimal capture by default (pass `--no-probe` for a fast capability-only check) and, when nothing is configured, lists candidate browser binaries it found on `$PATH` as discovery hints — clearly marked as needing to be wrapped to the adapter contract, since PromptingPress blesses no specific tool. `wp pp apply preflight` surfaces the same tri-state as a non-blocking capability finding: `unavailable` and `broken` render distinctly instead of collapsing into one repeated warning, each pointing at `wp pp screenshot doctor`. Preflight stays read-only and never launches a browser — it does the cheap check (does the command resolve, is its binary on `$PATH`) and leaves capture-verification to `doctor`. A configured command whose binary is missing is reported `broken` without ever running a process, but a working setup that uses a shell form the cheap check can't resolve (an env-var prefix, a bare name on a different runtime `$PATH`) is proven by the probe rather than mislabeled. A capture that "succeeds" but writes zero bytes is treated as broken, so the operating loop can never claim native `VERIFIED` off a non-working browser.
+
+### Fixed
+- Screenshot readiness (`pp_screenshot_readiness()`, `wp pp screenshot doctor`, and the preflight `screenshot_readiness` finding) now reports an explicit `state` of `available` / `unavailable` / `broken` instead of a single not-configured warning. A stable unconfigured install reports `unavailable` as a capability STATE, not a per-run nag; `unavailable` and `broken` render as distinct capability-class findings in preflight, each with `next_action: wp pp screenshot doctor` (#497).
+
+### Added
+- `wp pp screenshot doctor` probes by default (runs a real minimal capture so `available` vs `broken` is definitive) and, when `PP_BROWSER_CMD` is unconfigured, detects candidate browser binaries on `$PATH` as setup hints. `--no-probe` keeps the fast, no-browser-launch capability check. It stays read-only: the probe writes a temp file it deletes immediately (#497).
+
+### Docs
+- `docs/screenshot-setup.md` documents the tri-state, the default-probe behavior, `--no-probe`, and the candidate-binaries aid. `docs/running-an-ai-agent.md` gains a "configure it once" section so operators find the setup path where they look, and `docs/reference-apply-cli.md` plus `ai-instructions/operating-loop.md` describe the preflight tri-state finding (#497).
+
+### Tests
+- `tests/ScreenshotTest.php`: the three states through `pp_screenshot_readiness()` (unconfigured → `unavailable`; configured-but-binary-missing → `broken` with no process launched; a fake adapter that writes a PNG → capture-verified `available` with a byte count; a failing probe → `broken`), a regression that a shell-form command whose first token isn't on `$PATH` is `broken` on the cheap check but arbitrated to `available` by the probe, candidate detection returns a list, quote-aware first-token parsing, and the preflight `screenshot_readiness` finding carrying `unavailable` / `broken` distinctly without preflight launching a browser (#497).
+
 ## [v1.7.8] — 2026-07-26 — readiness warnings are now classified, actionable, and acknowledgeable (#496)
 
 **Preflight and readiness warnings used to arrive as an undifferentiated pile: theme-file drift, a site-configuration gap, and a missing environment tool all looked the same and persisted run after run, so operators learned to ignore all of them — which masks the one that matters. Every finding now carries a class (integrity, configuration, or capability) and a sanctioned next action. Integrity drift has a one-command re-baseline that records the installed release, so drift always means "changed since this release." A deliberate configuration gap (a purposely menu-less footer, say) can be acknowledged as intentional and stops showing as a warning, reversibly. A completed operation now reports zero unexplained warnings.**

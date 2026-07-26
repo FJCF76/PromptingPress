@@ -220,6 +220,14 @@ The checks that can run (`pp_preflight`, `lib/operate.php`):
 
 `ok` is `true` only when no **error-grade** check failed. Rows with `severity: warning` (nav readiness, screenshot readiness, non-overlapping drift) surface a problem without blocking.
 
+**Screenshot readiness tri-state (#497).** The `screenshot_readiness` row carries a `state`:
+`available` (healthy, no finding), `unavailable` (`PP_BROWSER_CMD` not configured), or
+`broken` (configured but the binary is missing from `$PATH`). `unavailable` and `broken`
+are distinct capability-class findings, each with `next_action: wp pp screenshot doctor` —
+never a single ambient warning. Preflight does the cheap **non-exec** check only (it never
+launches a browser); run `wp pp screenshot doctor` to capture-verify `available` and to turn
+a probe-time failure into `broken`. See `docs/screenshot-setup.md`.
+
 **Uploads writability (#229).** `import_media` sideloads a file into `wp-content/uploads/YYYY/MM/`, so a preflight with `--apply=import_media` runs `uploads_writable` instead of asserting "no filesystem writes." The check mirrors execute-time `wp_mkdir_p()` semantics: it walks from the dated path to the **deepest existing ancestor** and requires it to be a writable directory — so a fresh site whose `uploads/` doesn't exist yet passes (WordPress creates it), while an unwritable intermediate directory (`uploads/2026` rsync'd `0555`) or a regular file occupying a path segment fails closed even when `uploads/` itself is writable. The `theme_writable` row still passes for media applies (the theme directory is untouched) with a message pointing at `uploads_writable`.
 
 **Unknown apply name (issue 245).** The `--apply` flag exists so preflight can verify the named apply's preconditions, so a name that matches no registered apply is a hard error, not a no-op. Without the guard, `--apply=import_medai` (a typo) would resolve to "no apply planned," skip the apply-routed filesystem checks, pass clean, and record a `PREFLIGHT` state asserting "no filesystem writes" the operator never earned — the same false-pass class as #227/#229, one level up. Any **provided** non-empty apply value is validated (including the falsy literal `--apply=0`, which is never a registered name); an empty `--apply=` is treated as "no apply planned," same as omitting the flag. The `apply_known` check is error-grade, so an unknown name makes `ok` false and no `PREFLIGHT` is recorded:
@@ -471,7 +479,7 @@ Readiness/preflight warnings carry a **class** and a sanctioned **next action**,
 |---|---|---|
 | `integrity` | Theme file drift vs the recorded release baseline | `wp pp readiness rebaseline` |
 | `configuration` | Site-state gap resolvable through a safe surface (e.g. an unassigned menu location) | Fix through the surface (e.g. `set_menu`), **or** acknowledge as intentional |
-| `capability` | An environment tool is missing (e.g. a screenshot browser, #497) | Run the finding's next action (e.g. `wp pp screenshot doctor`) |
+| `capability` | An environment tool is missing or misconfigured (e.g. a screenshot browser, #497 — the finding's `state` is `unavailable` or `broken`) | Run the finding's next action (e.g. `wp pp screenshot doctor`) |
 
 Only **findings** carry a class; passing/healthy rows and hard preconditions do not. Only **configuration** findings are acknowledgeable.
 

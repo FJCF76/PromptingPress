@@ -108,7 +108,7 @@ Run: `wp pp screenshot capture --post_id=<id> --playbook=<name>`
 
 This captures screenshots at both viewports (1280px desktop + 375px mobile) unless the playbook declares otherwise.
 
-To diagnose capture readiness BEFORE you reach this step, run `wp pp screenshot doctor` (add `--probe` to attempt a real capture). It reports whether `PP_BROWSER_CMD` resolves, from where, and in which context (CLI vs web), with remediation. `wp pp apply preflight` also surfaces a non-blocking screenshot-readiness warning — a missing browser never blocks a typed mutation, it only means you cannot reach native `VERIFIED`. Setup: `docs/screenshot-setup.md`.
+To diagnose capture readiness BEFORE you reach this step, run `wp pp screenshot doctor`. It probes by default (attempts a real capture) and reports one definitive tri-state: `available` (configured and capture-verified), `unavailable` (`PP_BROWSER_CMD` not configured — lists candidate binaries + the setup step), or `broken` (configured but failing, with the error). Add `--no-probe` for a fast capability-only check. It also reports where `PP_BROWSER_CMD` resolves from and in which context (CLI vs web). `wp pp apply preflight` surfaces the same state as a non-blocking capability finding (`unavailable` and `broken` render distinctly) — a missing browser never blocks a typed mutation, it only means you cannot reach native `VERIFIED`. Setup: `docs/screenshot-setup.md`.
 
 **Three status paths** (the capture command returns the matching `status` in its result):
 - **Browser configured and capture succeeds**: Continue to REVIEW with screenshots.
@@ -202,7 +202,7 @@ Three playbooks are available. Each one customizes the loop for a specific opera
 | `wp pp apply reset --run-id=<uuid> [--token=<name>]` | APPLY | Required | Reset token overrides to product defaults — all, or one with `--token`. This is the deliberate "back to base.css" path, NOT a per-run undo. Use `apply restore` to undo a specific run. |
 | `wp pp screenshot capture --post_id=<id> --playbook=<name>` | SCREENSHOT | — | Capture both viewports |
 | `wp pp screenshot capture --capture-url=<url> --width=<px>` | SCREENSHOT | — | Capture single URL |
-| `wp pp screenshot doctor [--probe]` | SCREENSHOT | — | Diagnose capture readiness (PP_BROWSER_CMD + context) |
+| `wp pp screenshot doctor [--no-probe]` | SCREENSHOT | — | Diagnose capture readiness — tri-state available/unavailable/broken (probes by default) |
 | `wp pp readiness status` | any | — | Read-only: current findings grouped by class (integrity/configuration/capability) with per-finding next actions (#496) |
 | `wp pp readiness rebaseline` | any | — | Re-baseline the deployment manifest against the installed release (resolves integrity drift) |
 | `wp pp readiness acknowledge <finding-key> [--note=<text>]` | any | — | Record a configuration finding as intentional (reversible) |
