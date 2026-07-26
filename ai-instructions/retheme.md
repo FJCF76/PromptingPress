@@ -179,7 +179,10 @@ recolors the border. On `.cta`/`.hero` primaries an unset border follows the fil
 recolored `--btn-bg` alone keeps a matching ring), but the plain `main .btn` primary (e.g.
 the section-panel CTA) keeps its own `--color-accent-strong` border until you set
 `--btn-border-color` — matching the bare `.btn` primitive, where fill and border are separate.
-Set both when recoloring buttons site-wide so every context stays consistent.
+Set both when recoloring buttons site-wide so every context stays consistent. The same
+border-follows-fill idiom applies to the hero's per-instance slots: a filled second CTA
+recolored with `--hero-cta2-bg` alone keeps a matching ring (`--hero-cta2-border` and
+`--hero-accent` still win where set).
 
 **The `--btn-text` → `--color-bg` inversion coupling.** Button text defaults to the PAGE
 BACKGROUND token, not to `--color-text`. Buttons invert on purpose: the accent fill is
