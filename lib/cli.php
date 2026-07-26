@@ -1752,6 +1752,11 @@ class PP_Sync_Command extends WP_CLI_Command {
      * Reports modified, added (live-only), and deleted files.
      * Exit 0 if clean, exit 1 if drift detected.
      *
+     * Read-only: with no deployment manifest there is no baseline to compare
+     * against, so this reports the no-baseline state and exits WITHOUT creating
+     * one. Establish a baseline explicitly with `--save-manifest` or
+     * `wp pp readiness rebaseline`.
+     *
      * ## OPTIONS
      *
      * [--force]
@@ -1791,19 +1796,25 @@ class PP_Sync_Command extends WP_CLI_Command {
 
         // Load manifest
         $manifest = _pp_load_deployment_manifest();
-        $current_hashes = _pp_hash_theme_files($theme_path);
 
         if ($manifest === null) {
-            WP_CLI::warning('No previous deployment manifest found. Run wp pp sync check --save-manifest after your next sync to establish a baseline.');
-            // Save current state as baseline
-            $saved = _pp_save_deployment_manifest($theme_path, $current_hashes);
-            if (!$saved) {
-                WP_CLI::error('Failed to save baseline manifest. Check permissions on ' . dirname(_pp_deployment_manifest_path()));
-            }
-            WP_CLI::line(sprintf('Baseline manifest created: %d files.', count($current_hashes)));
+            // Read-only invariant: `check` REPORTS drift, it never establishes
+            // state. With no baseline there is nothing to compare against, so we
+            // report the no-baseline state and return WITHOUT writing a manifest.
+            // Recording the current (possibly already-drifted) files here would
+            // silently poison the baseline — the drift this command exists to
+            // detect would be masked as "clean" on every subsequent check, with
+            // no operator intent expressed. Establishing a baseline is the job of
+            // the explicit `--save-manifest` / `wp pp readiness rebaseline`
+            // commands, never a side effect of reading state (issue #522).
+            WP_CLI::warning('No deployment manifest found — no baseline to check drift against. `wp pp sync check` reports drift; it does not create a baseline.');
+            WP_CLI::line('To establish a baseline explicitly, run one of:');
+            WP_CLI::line('  - `wp pp sync check --save-manifest` — snapshot the current theme files as the baseline.');
+            WP_CLI::line('  - `wp pp readiness rebaseline` — snapshot AND record the installed release version (drift then reads as "changed since <release>").');
             return;
         }
 
+        $current_hashes = _pp_hash_theme_files($theme_path);
         $manifest_hashes = $manifest['file_hashes'];
 
         // Compute drift

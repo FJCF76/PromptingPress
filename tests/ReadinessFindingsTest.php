@@ -37,10 +37,11 @@ if (!class_exists('WP_CLI_Command')) {
 if (!class_exists('WP_CLI')) {
     class WP_CLI {
         public static array $lines = [];
+        public static array $warnings = [];
         public static function error($message, $exit = true): void { throw new WpCliExitException((string) $message); }
         public static function add_command($name, $handler, $args = []): void {}
         public static function line($message = ''): void { self::$lines[] = (string) $message; }
-        public static function warning($message = ''): void {}
+        public static function warning($message = ''): void { self::$warnings[] = (string) $message; }
         public static function success($message = ''): void {}
         public static function debug($message = '', $group = false): void {}
         public static function log($message = ''): void {}
@@ -83,6 +84,7 @@ class ReadinessFindingsTest extends TestCase
 
         $this->clearManifest();
         WP_CLI::$lines = [];
+        WP_CLI::$warnings = [];
     }
 
     protected function tearDown(): void
@@ -372,6 +374,51 @@ class ReadinessFindingsTest extends TestCase
         (new PP_Sync_Command())->check([], []);
         $report = $this->lastJson();
         $this->assertSame(PP_VERSION, $report['manifest_release_version']);
+    }
+
+    /**
+     * Read-only invariant (#522): plain `sync check` with NO manifest must not
+     * create one. Driven through the real CLI surface (Section 14.1). Asserts
+     * both the no-write (manifest still absent afterward) and that the emitted
+     * guidance names the two explicit baseline commands.
+     */
+    public function testCliSyncCheckWithNoManifestWritesNothing(): void
+    {
+        // Precondition: setUp() already cleared the manifest.
+        $this->assertFileDoesNotExist(_pp_deployment_manifest_path(), 'no manifest before check');
+
+        // Plain check (no flags) on a manifest-less install must not throw
+        // (exit 0 — no baseline is neither drift nor a failure).
+        (new PP_Sync_Command())->check([], []);
+
+        // The heart of the fix: still no manifest — the read command wrote nothing.
+        $this->assertFileDoesNotExist(
+            _pp_deployment_manifest_path(),
+            'plain sync check must NOT create a baseline manifest'
+        );
+
+        // It REPORTS the no-baseline state (the advisory warning names it).
+        $warnings = implode("\n", WP_CLI::$warnings);
+        $this->assertStringContainsString('No deployment manifest found', $warnings);
+        $this->assertStringContainsString('does not create a baseline', $warnings);
+
+        // And the operator is pointed at the explicit baseline commands.
+        $output = implode("\n", WP_CLI::$lines);
+        $this->assertStringContainsString('--save-manifest', $output);
+        $this->assertStringContainsString('readiness rebaseline', $output);
+    }
+
+    /**
+     * The explicit save path (#522 non-goal: unchanged) still creates a manifest.
+     */
+    public function testCliSyncCheckSaveManifestStillWrites(): void
+    {
+        $this->assertFileDoesNotExist(_pp_deployment_manifest_path(), 'no manifest before save');
+        (new PP_Sync_Command())->check([], ['save-manifest' => true]);
+        $this->assertFileExists(
+            _pp_deployment_manifest_path(),
+            '--save-manifest must create the deployment manifest'
+        );
     }
 
     public function testOverlappingDriftIsBlockingIntegrityFinding(): void
