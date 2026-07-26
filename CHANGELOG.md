@@ -4,6 +4,22 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.7.6] — 2026-07-26 — pre-1.0 pages stay editable: a bounded legacy CTA-prop compatibility map (#495)
+
+**A page built before v1.0 could be locked out of a simple, safe edit. Early CTA blocks stored `cta_text`/`cta_url`; v1 renamed those props to `button_text`/`button_url` and the strict validator (which rejects unknown props to stop phantom fields) then refused the WHOLE page — so a targeted edit to an unrelated section was rejected because some other CTA still carried the old names. This release ships a bounded, audited compatibility map for exactly those pre-1.0 CTA renames. Validation and rendering now accept the old names, and any edit that touches a component rewrites its props to the current names, so the page heals one edit at a time. Genuinely unknown props are still rejected exactly as before.**
+
+The map is deliberately small and closed: only the CTA block, only `cta_text`→`button_text` and `cta_url`→`button_url`. It is per-component on purpose — the hero block uses `cta_text`/`cta_url` as its own current props, and those are never touched. A targeted single-component edit heals only the component it touches and leaves every other component's stored shape alone, so there is no surprise whole-page rewrite; a full-page save (or an undo/restore) heals the whole composition at once. A page that still stores the old names renders its real button now instead of a default label. A CI guard makes this the last such surprise: any future change that renames or removes a component prop without shipping a compatibility entry (or an explicit migration note) fails the test suite, so the "add compatibility when you rename" rule is enforced by the build, not by memory.
+
+### Fixed
+- A targeted safe edit to any component on a pre-1.0 page no longer fails because an unrelated component still carries the old CTA prop names. Validation and rendering accept the bounded legacy names (`cta.cta_text`/`cta.cta_url`), and a write that touches a component canonicalizes its props to `button_text`/`button_url`; untouched components keep their stored shape and heal on their next edit. Unknown, non-mapped props are still rejected with the same error (#495).
+- A pre-1.0 CTA that still stores `cta_text`/`cta_url` now renders its authored button label and link on the front end instead of the renderer's default (#495).
+
+### Tests
+- `tests/ActionsTest.php`: legacy-shaped compositions exercised through the real action surface — a targeted edit succeeds while an untouched legacy CTA is present (and keeps its stored shape), a write that touches the CTA heals it to canonical, a legacy-named edit to an already-healed component lands instead of being silently dropped, canonical-wins on conflicting old+new props, `hero`'s current `cta_text`/`cta_url` are never rewritten, `add_component`/`update_composition`/`create_page` heal on write, unknown non-mapped props still reject, `reorder` preserves untouched legacy props, and `restore_composition` heals a legacy snapshot (#495).
+- `tests/ComponentPropsTest.php`: a resolved legacy CTA renders the authored button label and URL, not the default (#495).
+- `tests/WpAbstractionTest.php`: `pp_composition()` resolves legacy CTA props for rendering without mutating stored data, and leaves `hero`'s current props untouched (#495).
+- `tests/SchemaValidationTest.php`: the legacy-alias inventory is pinned, the schema-rename drift-catcher fails a simulated rename that ships no compatibility entry (and a symmetric guard forces new props into the pinned baseline), and the alias helper's malformed-input guards are covered (#495).
+
 ## [v1.7.5] — 2026-07-23 — the default homepage seed is now a curated branded multi-band starter (#512)
 
 **A fresh PromptingPress activation used to seed a three-component homepage (hero, one section, one CTA) that proved the composition system worked but presented the product like a rough default. `pp_default_homepage_composition()` now returns a curated six-band branded starter: a dark split hero with a workflow proof surface, an audience/problem band, a files-vs-WordPress mechanism band, a speed/trust card grid, a maintainability/proof band, and a closing CTA. A new install now opens on a page that reads as a polished branded product, not a placeholder, so a first-time operator immediately understands what PromptingPress is, who it is for, and why structured composition matters.**
