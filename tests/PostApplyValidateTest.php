@@ -551,6 +551,42 @@ class PostApplyValidateTest extends TestCase
         $this->assertStringContainsString('empty href', $result['warnings'][0]['message']);
     }
 
+    /**
+     * #496: a non-passing nav_readiness row surfaces as a classified
+     * configuration finding in the post-apply report, and acknowledging it
+     * suppresses the warning (so a completed operation shows zero unexplained
+     * warnings).
+     */
+    public function testNavReadinessWarningIsClassifiedAndAcknowledgeable(): void
+    {
+        // Unassign the footer location → a configuration finding.
+        $GLOBALS['_pp_test_store']['nav_menu_locations'] = ['primary' => 1];
+        $this->createTestComponent('cta', '<div><a href="https://example.com">Go</a></div>');
+        $this->setComposition([
+            ['component' => 'cta', 'props' => [], 'style' => []],
+        ]);
+
+        $result = pp_post_apply_validate($this->postId);
+        $navWarnings = array_values(array_filter(
+            $result['warnings'],
+            fn($w) => $w['check'] === 'nav_readiness'
+        ));
+        $this->assertCount(1, $navWarnings, 'unassigned footer surfaces one finding');
+        $this->assertSame('configuration', $navWarnings[0]['class']);
+        $this->assertSame('nav_readiness:footer:no_menu', $navWarnings[0]['finding_key']);
+        $this->assertNotNull($navWarnings[0]['next_action']);
+
+        // Acknowledge it → the warning is gone from the report.
+        update_option('pp_acknowledged_findings', [
+            'nav_readiness:footer:no_menu' => ['acknowledged_at' => '2026-07-26T00:00:00+00:00', 'note' => 'intentional'],
+        ]);
+        $after = pp_post_apply_validate($this->postId);
+        $navAfter = array_filter($after['warnings'], fn($w) => $w['check'] === 'nav_readiness');
+        $this->assertEmpty($navAfter, 'acknowledged finding is not reported as a warning');
+
+        update_option('pp_acknowledged_findings', []);
+    }
+
     public function testBareHashHrefIsWarning(): void
     {
         // Deliberately not named 'nav': chrome may not appear in a composition

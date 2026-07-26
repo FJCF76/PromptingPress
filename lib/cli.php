@@ -1816,7 +1816,8 @@ class PP_Sync_Command extends WP_CLI_Command {
             'modified' => $modified,
             'added'    => $added,
             'deleted'  => $deleted,
-            'manifest_timestamp' => $manifest['timestamp'] ?? 'unknown',
+            'manifest_timestamp'       => $manifest['timestamp'] ?? 'unknown',
+            'manifest_release_version' => $manifest['release_version'] ?? null,
         ];
 
         WP_CLI::line(json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
@@ -1845,6 +1846,166 @@ class PP_Sync_Command extends WP_CLI_Command {
 }
 
 WP_CLI::add_command('pp sync', 'PP_Sync_Command');
+
+/**
+ * Readiness commands — classify findings and resolve/acknowledge them (#496).
+ *
+ * Readiness/preflight findings carry a class (integrity | configuration |
+ * capability) and a sanctioned next action. This command group is the operator
+ * surface for that model:
+ *
+ *   - `status`        (read-only) groups current findings by class with per-finding
+ *                     next actions and acknowledgement state.
+ *   - `rebaseline`    (mutating) re-baselines the deployment manifest against the
+ *                     currently-installed release — the sanctioned reconciliation
+ *                     path for integrity drift.
+ *   - `acknowledge`   (mutating) records a configuration finding as intentional, so
+ *                     it reports as acknowledged instead of as a warning.
+ *   - `unacknowledge` (mutating) reverses an acknowledgement.
+ *
+ * Read-only-status invariant: `status` never mutates. Re-baseline and
+ * (un)acknowledge are the ONLY writers, and each is an explicit command — never
+ * a side effect of reading state.
+ */
+class PP_Readiness_Command {
+
+    /**
+     * Shows readiness findings grouped by class, with per-finding next actions.
+     *
+     * READ-ONLY: computes and prints; never writes the manifest or the
+     * acknowledgement store.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp readiness status
+     *
+     */
+    public function status($args, $assoc_args) {
+        // pp_preflight() is pure (recording happens in the apply-preflight CLI
+        // wrapper, not here), so a site-grain call is a safe read-only source of
+        // the classified findings.
+        $result   = pp_preflight([]);
+        $findings = $result['findings'];
+
+        WP_CLI::line(json_encode($findings, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+        $active = (int) ($findings['active_warnings'] ?? 0);
+        $ack    = (int) ($findings['acknowledged'] ?? 0);
+        if ($active === 0) {
+            WP_CLI::success($ack > 0
+                ? 'No active warnings (' . $ack . ' acknowledged as intentional).'
+                : 'No active warnings.');
+        } else {
+            WP_CLI::warning($active . ' active finding(s) — each lists a next_action above (' . $ack . ' acknowledged).');
+        }
+    }
+
+    /**
+     * Re-baselines the deployment manifest against the installed release (#496).
+     *
+     * The sanctioned reconciliation path for integrity drift: snapshots the
+     * currently-installed theme files and records the release version, so drift
+     * afterward always means "changed since this release".
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp readiness rebaseline
+     *
+     */
+    public function rebaseline($args, $assoc_args) {
+        $target = pp_get_target();
+        $theme_path = $target['theme_path'];
+        if ($theme_path === null || !is_dir($theme_path)) {
+            WP_CLI::error('Cannot resolve theme path. Run `wp pp target show` to diagnose.');
+        }
+
+        $hashes = _pp_hash_theme_files($theme_path);
+        if (!_pp_save_deployment_manifest($theme_path, $hashes)) {
+            WP_CLI::error('Failed to save deployment manifest. Check permissions on ' . dirname(_pp_deployment_manifest_path()));
+        }
+
+        $rel = defined('PP_VERSION') ? PP_VERSION : 'unknown';
+        WP_CLI::success(sprintf(
+            'Re-baselined deployment manifest against installed release %s (%d files). Drift now means "changed since %s".',
+            $rel, count($hashes), $rel
+        ));
+    }
+
+    /**
+     * Records a configuration finding as intentional (#496).
+     *
+     * Only configuration-class findings are acknowledgeable, and only findings
+     * that currently exist — integrity drift is resolved by `rebaseline`, and
+     * capability gaps by installing the tool.
+     *
+     * ## OPTIONS
+     *
+     * <finding-key>
+     * : The finding_key to acknowledge (see `wp pp readiness status`).
+     *
+     * [--note=<text>]
+     * : Optional note recording why it is intentional.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp readiness acknowledge nav_readiness:footer:no_menu --note="footer is deliberately menu-less"
+     *
+     */
+    public function acknowledge($args, $assoc_args) {
+        $key = isset($args[0]) ? (string) $args[0] : '';
+        if ($key === '') {
+            WP_CLI::error('A finding-key is required. Run `wp pp readiness status` to list acknowledgeable configuration findings.');
+        }
+
+        $current = pp_current_configuration_finding_keys();
+        if (!in_array($key, $current, true)) {
+            $available = empty($current) ? '(none currently present)' : implode(', ', $current);
+            WP_CLI::error('Not an acknowledgeable configuration finding: "' . $key . '". '
+                . 'Only currently-present configuration findings can be acknowledged (integrity drift → `wp pp readiness rebaseline`; capability gaps → install the tool). '
+                . 'Available: ' . $available);
+        }
+
+        $note = isset($assoc_args['note']) ? (string) $assoc_args['note'] : '';
+        $acks = pp_acknowledged_findings();
+        $acks[$key] = ['acknowledged_at' => date('c'), 'note' => $note];
+        update_option('pp_acknowledged_findings', $acks);
+
+        WP_CLI::success('Acknowledged configuration finding "' . $key . '" as intentional. '
+            . 'It now reports as acknowledged, not a warning. Reverse with `wp pp readiness unacknowledge ' . $key . '`.');
+    }
+
+    /**
+     * Reverses an acknowledgement (#496).
+     *
+     * ## OPTIONS
+     *
+     * <finding-key>
+     * : The finding_key to un-acknowledge.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp readiness unacknowledge nav_readiness:footer:no_menu
+     *
+     */
+    public function unacknowledge($args, $assoc_args) {
+        $key = isset($args[0]) ? (string) $args[0] : '';
+        if ($key === '') {
+            WP_CLI::error('A finding-key is required.');
+        }
+
+        $acks = pp_acknowledged_findings();
+        if (!isset($acks[$key])) {
+            WP_CLI::error('Finding "' . $key . '" is not acknowledged; nothing to reverse.');
+        }
+
+        unset($acks[$key]);
+        update_option('pp_acknowledged_findings', $acks);
+
+        WP_CLI::success('Un-acknowledged "' . $key . '". If the underlying condition still holds it will report as an active warning again.');
+    }
+}
+
+WP_CLI::add_command('pp readiness', 'PP_Readiness_Command');
 
 /**
  * Theme integrity commands — compare live files against the shipped baseline manifest.

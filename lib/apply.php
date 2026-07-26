@@ -1915,7 +1915,9 @@ function _pp_deployment_manifest_path(): string {
 /**
  * Loads the deployment manifest. Returns null if missing or malformed.
  *
- * @return array|null  ['timestamp' => string, 'theme_path' => string, 'file_hashes' => [relative => md5]]
+ * @return array|null  ['timestamp' => string, 'release_version' => ?string,
+ *                       'theme_path' => string, 'file_hashes' => [relative => md5]]
+ *                      release_version is absent on manifests written before #496.
  */
 function _pp_load_deployment_manifest(): ?array {
     $path = _pp_deployment_manifest_path();
@@ -1939,6 +1941,12 @@ function _pp_load_deployment_manifest(): ?array {
 function _pp_save_deployment_manifest(string $theme_path, array $file_hashes): bool {
     $manifest = [
         'timestamp'   => date('c'),
+        // Record the installed release the baseline was captured against (#496).
+        // Drift then always means "changed since this release", never "stale
+        // baseline of unknown vintage". Null only when PP_VERSION is somehow
+        // undefined (never in a real WP-CLI runtime); the drift finding degrades
+        // gracefully to a "predates version tracking" message in that case.
+        'release_version' => defined('PP_VERSION') ? PP_VERSION : null,
         'theme_path'  => $theme_path,
         'file_hashes' => $file_hashes,
     ];

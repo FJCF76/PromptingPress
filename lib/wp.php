@@ -485,6 +485,9 @@ function pp_template_owned_menu_locations(): array {
  * readiness is an operator-facing diagnostic, never a gate on content mutations.
  *
  * @return array[]  Rows: ['check'=>'nav_readiness','pass'=>bool,'severity'=>'warning','message'=>string].
+ *                  Non-passing rows are configuration-class findings (#496) and
+ *                  additionally carry 'class'=>'configuration', a stable
+ *                  'finding_key', 'acknowledgeable'=>true, and a 'next_action'.
  */
 function pp_check_nav_readiness(): array {
     $registered = array_keys(get_registered_nav_menus());
@@ -497,13 +500,25 @@ function pp_check_nav_readiness(): array {
         // nothing and keeps the guarantee local. Raw $loc is used for lookups.
         $safe_loc = esc_html((string) $loc);
 
+        // Configuration-class findings (#496): each carries a stable, generic
+        // finding_key (keyed on the template-owned location constant, never on
+        // site data) and a sanctioned next action, and is acknowledgeable — an
+        // operator can record a deliberately menu-less location as intentional.
         if (!in_array($loc, $registered, true)) {
             $checks[] = ['check' => 'nav_readiness', 'pass' => false, 'severity' => 'warning',
+                'class'           => 'configuration',
+                'finding_key'     => 'nav_readiness:' . $loc . ':unregistered',
+                'acknowledgeable' => true,
+                'next_action'     => 'Register the "' . $safe_loc . '" menu location in functions.php (or acknowledge as intentional).',
                 'message' => 'The page template renders menu location "' . $safe_loc . '", which is not registered. Register it in functions.php.'];
             continue;
         }
         if (!has_nav_menu($loc)) {
             $checks[] = ['check' => 'nav_readiness', 'pass' => false, 'severity' => 'warning',
+                'class'           => 'configuration',
+                'finding_key'     => 'nav_readiness:' . $loc . ':no_menu',
+                'acknowledgeable' => true,
+                'next_action'     => 'Assign a menu to "' . $safe_loc . '" via the set_menu action (or Appearance → Menus), or acknowledge as intentional.',
                 'message' => 'Site chrome location "' . $safe_loc . '" has no menu assigned. Use the set_menu action (or Appearance → Menus) to create one and assign it (issue 132).'];
             continue;
         }
@@ -511,9 +526,14 @@ function pp_check_nav_readiness(): array {
         $items   = $menu_id ? wp_get_nav_menu_items($menu_id) : false;
         if (empty($items)) {
             $checks[] = ['check' => 'nav_readiness', 'pass' => false, 'severity' => 'warning',
+                'class'           => 'configuration',
+                'finding_key'     => 'nav_readiness:' . $loc . ':empty_menu',
+                'acknowledgeable' => true,
+                'next_action'     => 'Add links to the "' . $safe_loc . '" menu via set_menu or add_menu_item (or Appearance → Menus), or acknowledge as intentional.',
                 'message' => 'The menu assigned to site chrome location "' . $safe_loc . '" is empty. Use the set_menu or add_menu_item action (or Appearance → Menus) to add links (issue 132).'];
             continue;
         }
+        // Healthy: not a finding, no class.
         $checks[] = ['check' => 'nav_readiness', 'pass' => true, 'severity' => 'warning',
             'message' => 'Site chrome location "' . $safe_loc . '" is ready (' . count($items) . ' item(s)).'];
     }
@@ -532,6 +552,10 @@ function pp_check_nav_readiness(): array {
     $logo_option = (int) get_option('pp_logo_id', '');
     if ($logo_option > 0 && !pp_is_image_attachment($logo_option)) {
         $checks[] = ['check' => 'nav_readiness', 'pass' => false, 'severity' => 'warning',
+            'class'           => 'configuration',
+            'finding_key'     => 'nav_readiness:logo:not_image',
+            'acknowledgeable' => true,
+            'next_action'     => 'Set pp_logo_id to an image attachment id, clear it to use the wordmark, or acknowledge the wordmark fallback as intentional.',
             'message' => 'The "pp_logo_id" site option is set to attachment ' . $logo_option
                 . ', which is not an image. The site chrome falls back to a text wordmark. '
                 . 'Set pp_logo_id to an image attachment id, or clear it to use the wordmark deliberately.'];

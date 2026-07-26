@@ -321,11 +321,20 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
     // config for the site chrome the template renders on every page. Never an
     // error — it does not gate the apply's success, only informs the operator.
     // Site-scoped, not composition-scoped: chrome is template-owned (#223).
-    foreach (pp_check_nav_readiness() as $nav_check) {
-        if (!$nav_check['pass']) {
+    //
+    // Findings are configuration-class (#496): carry the class + finding_key +
+    // next_action so the post-apply report matches preflight's classified shape,
+    // and honor acknowledgement — an acknowledged (intentional) finding is NOT
+    // reported as a warning, so a completed operation shows zero unexplained
+    // warnings. Enrichment reads the acknowledgement option only (read-only).
+    foreach (pp_apply_finding_acknowledgements(pp_check_nav_readiness()) as $nav_check) {
+        if (!$nav_check['pass'] && empty($nav_check['acknowledged'])) {
             $warnings[] = [
-                'check'   => 'nav_readiness',
-                'message' => $nav_check['message'],
+                'check'       => 'nav_readiness',
+                'class'       => $nav_check['class'] ?? 'configuration',
+                'finding_key' => $nav_check['finding_key'] ?? null,
+                'next_action' => $nav_check['next_action'] ?? null,
+                'message'     => $nav_check['message'],
             ];
         }
     }
