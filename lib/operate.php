@@ -71,8 +71,10 @@ function pp_operate_loop_steps(): array {
  * Checks for drift between live theme files and the deployment manifest.
  *
  * READ-ONLY: does NOT auto-create a baseline manifest when none exists.
- * If no manifest is found, returns no-drift. An agent that wants to
- * establish a baseline must run `wp pp sync check` explicitly.
+ * If no manifest is found, returns no-drift. Establishing a baseline is the
+ * job of the explicit `wp pp sync check --save-manifest` or
+ * `wp pp readiness rebaseline` commands (#522) — never a side effect of a
+ * read.
  *
  * @return array{has_drift: bool, modified: string[], added: string[], deleted: string[]}
  */
