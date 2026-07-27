@@ -710,15 +710,15 @@
   justify-content: center;
 }
 
-.hero--cover .btn--outline {
-  border-color: var(--color-bg);
-  color: var(--color-bg);
-}
-
-.hero--cover .btn--outline:hover {
-  background-color: var(--color-bg);
-  color: var(--color-text);
-}
+/* NOTE (issue 535): the cover band's outline/ghost button routing used to live here as
+   `.hero--cover .btn--outline` { border-color/color: var(--color-bg) }. It NEVER painted:
+   `.hero .btn--outline` below has the IDENTICAL specificity [0,2,0] and wins on source
+   order, so a cover hero's outline primary rendered var(--hero-text, var(--color-text))
+   = near-black ink on the dark scrim (measured ~3.6:1 over the worst-case overlay-over-
+   white composite, and far worse over a dark photo). The rules moved DOWN to sit after
+   `.hero .btn--outline`, where they actually win, and their literals now route through
+   the --color-accent-on-overlay role. See "Dark-band routing for the hero's cover band"
+   below. Do not re-add a cover button rule up here: it would be dead again. */
 
 .hero__image-wrap {
   flex-shrink: 0;
@@ -859,6 +859,70 @@
   color: var(--hero-bg, var(--color-bg));
 }
 
+/* Dark-band routing for the hero's cover band (issue 535, the #474 mechanism applied to
+   the PRIMARY button). `.hero--cover` lays the same --overlay-bg scrim over an ARBITRARY
+   image as the section/cta/stats bg-image bands, so a transparent-fill button paints its
+   ink and ring straight onto that scrim. Two separate defaults failed there:
+     - outline inherited `.hero .btn--outline`'s var(--hero-text, var(--color-text)) —
+       near-black #101828 on the scrim, ~3.6:1 against the worst-case overlay-over-WHITE
+       composite and far worse over a dark photo. The older `.hero--cover .btn--outline`
+       rule that was meant to handle this never won (identical [0,2,0], earlier in source);
+       these rules sit AFTER `.hero .btn--outline` so source order makes them the winner.
+     - ghost fell all the way to the shared `.btn--ghost` var(--color-accent) at 1.17:1.
+   Both now fall back to --color-accent-on-overlay (4.59:1, base.css), the same role
+   .hero--cover .hero__title-accent already uses (#463), so no new colour is invented.
+   The per-instance slot still wins: --hero-text is the surface `.hero .btn--outline`
+   already reads, and it also drives .hero--cover .hero__title, so an author who sets it
+   has already chosen a colour that reads on their own scrim. Deliberately kept on
+   --hero-text rather than --hero-button-color: that slot is documented in schema.json as
+   the FILLED primary's ink, and widening it to the transparent variants would change a
+   published slot's meaning. Scoped to `.hero--cover .btn--*` (not `.hero__cta`) so an
+   outline button authored inside the `proof` HTML surface is covered too; the second CTA
+   keeps its own [0,4,0] rules and is handled by the cover cta2 block below.
+   This is a REST-state fix only: on hover both variants paint their own contrasting fill,
+   so the ink leaves the scrim and needs no role token. Outline's hover rule already
+   outranks this one; ghost's ties with it and needs the explicit restoration below. */
+.hero--cover .btn--outline {
+  color: var(--hero-text, var(--color-accent-on-overlay));
+  border-color: var(--hero-text, var(--color-accent-on-overlay));
+}
+.hero--cover .btn--ghost {
+  color: var(--hero-text, var(--color-accent-on-overlay));
+}
+/* HOVER restoration for the cover ghost (issue 535, the same leak the cta rules below
+   document). `.hero--cover .btn--ghost` [0,2,0] ties with the shared `.btn--ghost:hover`
+   [0,2,0] and follows it, so without this the on-overlay ink survived onto a hover that
+   fills with the near-white --color-surface — near-invisible. The outline twin needs no
+   restoration: `.hero .btn--outline:hover` is [0,3,0] and already outranks it. Value
+   copied verbatim from `.btn--ghost:hover`. */
+.hero--cover .btn--ghost:hover {
+  color: var(--color-accent);
+}
+
+/* Separation ring for the FILLED button on the cover band (issue 535, defect 2's
+   class-triggerable half; the .cta--has-bg-image twin lives in the cta block and carries
+   the fuller rationale). The premium gradient fill measures well under 2:1 against the
+   worst-case scrim composite, so the button's SHAPE disappears and only its label carries
+   it; its border followed the fill, so it added nothing. Here the border stops following
+   the fill and bottoms out at the on-overlay role (4.59:1, base.css) — the "border falling
+   back to a role token distinct from the fill" the recorded direction names.
+   Only the TERMINAL fallback changes: --hero-accent, --btn-border-color and the fill chain
+   (--hero-button-bg -> --btn-bg) all stay ahead of it in `.hero .btn:not(...)`'s exact
+   order, so a cover hero flattened to a brand colour with --hero-button-bg keeps its
+   MATCHING ring rather than gaining a near-white one.
+   [0,5,0], the SAME as `.hero .btn:not(...)` above, so it wins only by following it in
+   source order (pinned in css-lint) — not by outranking it. `.hero__cta` is used rather
+   than the bare `.btn` the two rules above use so the ring stays on the hero's own CTA
+   buttons instead of any `.btn` an author writes into the `proof` surface. The :hover twin
+   is [0,6,0] to beat `.hero .btn:not(...):hover`, whose border also follows the fill.
+   There is no `theme: inverted` hero, so the Q2 not-ringed case does not arise here. */
+.hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
+  border-color: var(--hero-accent, var(--btn-border-color, var(--hero-button-bg, var(--btn-bg, var(--color-accent-on-overlay)))));
+}
+.hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
+  border-color: var(--hero-accent-hover, var(--hero-button-hover-bg, var(--color-accent-on-overlay)));
+}
+
 /* Second CTA button (cta2): per-instance bg/border/color override, independent
    of the primary button (issue 111). Targeted via the dedicated .hero__cta--secondary
    class (hero.php) rather than a positional :nth-child selector — this
@@ -924,6 +988,31 @@
   background-color: var(--hero-cta2-hover-bg, var(--color-surface));
   border-color: var(--hero-cta2-hover-border, transparent);
   color: var(--hero-cta2-hover-color, var(--color-accent));
+}
+
+/* Dark-band routing for the SECOND CTA's transparent-fill variants on the cover band
+   (issue 535, Q3). #474 fixed exactly this defect for the cta component's button2 but was
+   scoped to that component; hero's cta2 has the same trigger and was left behind.
+   `cta2_variant` DEFAULTS to `outline` (hero.php), so simply setting cta2_text on a cover
+   hero shipped a sub-AA control without the author ever choosing a variant: the rules
+   above resolve var(--hero-cta2-color, var(--hero-text, var(--color-text))) to near-black
+   #101828 on the scrim (~3.6:1 measured), and ghost fell to var(--color-accent) at 1.17:1.
+   Both defaults now route through --color-accent-on-overlay, matching the primary above
+   and .hero--cover .hero__title-accent (#463). The --hero-cta2-color / --hero-cta2-border
+   slots still win, so the #61/#86 dark-surface-slot contract holds.
+   These carry the SAME [0,4,0] specificity as the base cta2 variant rules they override,
+   so they depend on following them in source order — do not move them above, and do not
+   add a competing `.hero--cover` cta2 rule further down the file. Hover needs no
+   restoration here (unlike the primary and the cta component's): the cta2 `:hover` rules
+   are [0,5,0] and already outrank these, so the routed ink cannot leak into a state where
+   the button paints its own fill. A cta2 authored as the FILLED `primary` variant keeps
+   its existing border (an explicit author choice, not a default) and is out of scope. */
+.hero--cover .hero__cta-group .hero__cta--secondary.btn--outline {
+  color: var(--hero-cta2-color, var(--color-accent-on-overlay));
+  border-color: var(--hero-cta2-border, var(--color-accent-on-overlay));
+}
+.hero--cover .hero__cta-group .hero__cta--secondary.btn--ghost {
+  color: var(--hero-cta2-color, var(--color-accent-on-overlay));
 }
 
 /* cta2 slot isolation + premium fill routing (issue 526). Style slots are emitted as
@@ -2538,6 +2627,91 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   color: var(--cta-button2-color, var(--color-accent-on-overlay));
 }
 
+/* Dark-band routing for the PRIMARY button's transparent-fill variants (issue 535).
+   #474 fixed this for the SECOND button and deliberately left the primary — an
+   explicitly authored `button_variant: outline|ghost` on a dark band — as the wider
+   pre-existing class. This is that class. The mechanism, the role tokens and the slot
+   precedence are identical to the button2 rules above; only the selector differs:
+   --color-accent paints 3.23:1 on --color-bg-inverted and 1.17:1 over the worst-case
+   bg-image scrim, both below AA, and both now fall back to the role token this component
+   already uses for its dark-band body links (#437/#461) and title accent (#463).
+   Both figures are base.css's, not re-derived here: 8.33:1 on inverted, 4.59:1 over the overlay.
+   These sit at [0,3,0] — deliberately BELOW the button2 rules above at [0,4,0] — so the
+   second button keeps its own routing and the #474/#526/#530 pins stay green even though
+   button2 also carries the .cta__button class. --cta-button-color / --cta-button-border
+   still win when set. REST state only — the hover restoration block below explains why
+   these four rules must not be allowed to reach `:hover`. */
+.cta--inverted .cta__button.btn--outline {
+  color: var(--cta-button-color, var(--color-accent-on-inverted));
+  border-color: var(--cta-button-border, var(--color-accent-on-inverted));
+}
+.cta--inverted .cta__button.btn--ghost {
+  color: var(--cta-button-color, var(--color-accent-on-inverted));
+}
+
+.cta--has-bg-image .cta__button.btn--outline {
+  color: var(--cta-button-color, var(--color-accent-on-overlay));
+  border-color: var(--cta-button-border, var(--color-accent-on-overlay));
+}
+.cta--has-bg-image .cta__button.btn--ghost {
+  color: var(--cta-button-color, var(--color-accent-on-overlay));
+}
+
+/* HOVER restoration (issue 535). The four rest rules above are [0,3,0] — the SAME
+   specificity as the `.cta__button.btn--outline:hover` / `.btn--ghost:hover` rules they
+   follow (a pseudo-class counts as a class), so source order alone made them win on
+   hover too and the dark-band ink leaked into a state it was never meant to reach.
+   Rendered, that was worse than the bug being fixed: outline hover fills with
+   --color-accent, so on-inverted ink over it measured 2.58:1, and ghost hover fills with
+   the near-white --color-surface, where the on-overlay ink is effectively invisible.
+   These rules re-assert each variant's OWN documented hover values at [0,4,0].
+   The dark-band routing is a REST-state fix by design: on hover both variants paint a
+   contrasting fill of their own, so the ink no longer sits on the band and needs no
+   role token. The button2 rules above never needed this — their selectors carry one more
+   ancestor class, so their `:hover` siblings already outrank them. Values here are copied
+   verbatim from those hover rules; changing one without the other reopens this leak. */
+.cta--inverted .cta__button.btn--outline:hover,
+.cta--has-bg-image .cta__button.btn--outline:hover {
+  color: var(--cta-button-hover-color, var(--color-bg));
+  border-color: var(--cta-button-hover-border, var(--color-accent));
+}
+.cta--inverted .cta__button.btn--ghost:hover,
+.cta--has-bg-image .cta__button.btn--ghost:hover {
+  color: var(--cta-button-hover-color, var(--color-accent));
+}
+
+/* Separation ring for the FILLED button on the bg-image band (issue 535, defect 2's
+   class-triggerable half; the .hero--cover twin of this rule lives in the hero block).
+   The premium gradient fill measures well under 2:1 against the worst-case overlay-over-
+   white composite — the button's SHAPE vanishes and only its label carries it — and the
+   border FOLLOWED the fill, so it added nothing. Here the border stops following the fill
+   and bottoms out at the on-overlay role (4.59:1, base.css) instead, giving the pill a
+   visible edge.
+   Only the TERMINAL fallback changes. Every authored link ahead of it is preserved in the
+   `.cta .btn:not(...)` order — --cta-button-border, then the global --btn-border-color,
+   then the fill chain (--cta-button-bg -> --cta-accent -> --btn-bg) — so a button whose
+   ring an author already colours keeps exactly the colour it had. Dropping those links
+   and jumping straight to the role would have silently repainted every authored
+   --cta-accent ring on a photo band near-white.
+   [0,5,0] matches `.cta .btn:not(...)` above, so this wins only by staying AFTER it in
+   source order (pinned in css-lint). The :hover twin is [0,6,0] to beat
+   `.cta .btn:not(...):hover`, whose border also follows the fill — without it the ring
+   reappeared at rest and dissolved again the moment the pointer landed, which is the
+   state a user is most likely looking at (WCAG 1.4.11 applies to hover too).
+   The INVERTED band is deliberately NOT ringed (issue 535 Q2): its filled button measures
+   3.23:1 fill-vs-band, which already clears the 3:1 non-text bar, so a ring there would be
+   a visual change with no measured defect behind it. A band an author darkened with
+   --cta-bg carries no class at all and is tracked in #541 as a trigger-mechanism design
+   problem, not a colour problem. A filled SECOND button keeps its own [0,6,0] rules and is
+   deliberately not ringed here — same fill, same band, but changing it is a scope
+   extension rather than this issue's defect; tracked in #543. */
+.cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
+  border-color: var(--cta-button-border, var(--btn-border-color, var(--cta-button-bg, var(--cta-accent, var(--btn-bg, var(--color-accent-on-overlay))))));
+}
+.cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
+  border-color: var(--cta-button-hover-border, var(--cta-button-hover-bg, var(--cta-accent-hover, var(--color-accent-on-overlay))));
+}
+
 /* button2 slot isolation + premium fill routing (the issue 526 mechanism applied
    to cta). Style slots are emitted as inline custom properties on the .cta ROOT,
    so the PRIMARY button's --cta-button-* slots INHERIT down to the second button;
@@ -2643,11 +2817,12 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   border-bottom: var(--cta-border-width, 1px) solid var(--cta-border-color, var(--color-border));
 }
 
-/* NOTE (issue 474): the dark-band routing for the SECOND button's outline/ghost
-   variants lives ABOVE, with the other button2 rules, not in this theme block. Those
-   rules are [0,4,0] and depend on source order against the base button2 variant rules
-   they follow. Do not add a competing `.cta--inverted`/`.cta--has-bg-image` button2
-   rule down here: it would win by source order and silently defeat the AA routing. */
+/* NOTE (issues 474, 535): the dark-band routing for BOTH buttons' outline/ghost variants,
+   and the filled primary's bg-image separation ring, live ABOVE with the other button
+   rules, not in this theme block. They are [0,3,0]–[0,5,0] and depend on source order
+   against the base button rules they follow. Do not add a competing `.cta--inverted` /
+   `.cta--has-bg-image` button rule down here: it would win by source order and silently
+   defeat the AA routing. */
 .cta--inverted {
   background: var(--cta-bg, var(--color-bg-inverted));
   --cta-body-theme-color: var(--color-bg);

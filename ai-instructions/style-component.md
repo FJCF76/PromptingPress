@@ -376,9 +376,15 @@ on-brand through the hover instead of returning to the premium gradient. Setting
 primary's hover fill never touches the second button's. Pair each hover slot with its
 resting slot: with only the hover slot set, the button drops the gradient layer instantly
 while the color animates, which reads as a brief off-brand wash. On a dark band
-(`theme: "inverted"` or a `background_image`) the second button's default outline/ghost ink
-already routes to the AA-safe on-dark accent role, so it is readable without any slot; set
-`--cta-button2-color` only to override that.
+(`theme: "inverted"` or a `background_image`) the default outline/ghost ink of BOTH buttons
+already routes to the AA-safe on-dark accent role, so each is readable without any slot;
+set `--cta-button-color` / `--cta-button2-color` only to override that. The same holds for
+a `cover` hero's two CTAs (`--hero-text` for the first, `--hero-cta2-color` for the
+second). On a `background_image` cta or a `cover` hero the FILLED button additionally
+takes its border from that role, so its shape stays visible against the band; set
+`--cta-button-border` / `--hero-accent` to colour that edge yourself. The routing only
+covers bands the theme can identify — a band you darken yourself with `--cta-bg` or
+`--hero-bg` gets no automatic treatment, so set the slots there.
 
 **Brand-accent hero primary button (fill slots).** The hero's primary (filled) CTA
 ships the same premium gradient treatment as the cta button. `--hero-accent` recolors

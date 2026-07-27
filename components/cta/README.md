@@ -37,6 +37,16 @@ Selects the shared button style. Set as a prop via `update_component`.
 
 Per-instance button color is still set through the `--cta-accent` style slot.
 
+On a dark band (`theme: "inverted"` or a `background_image`) the transparent-fill
+variants paint their ink and ring straight onto the band, where the light-surface
+accent fails WCAG AA. Both buttons' `outline`/`ghost` defaults therefore fall back to
+the band's accent role (`--color-accent-on-inverted` / `--color-accent-on-overlay`)
+instead, so they are readable without setting anything; `--cta-button-color` /
+`--cta-button-border` (and the `--cta-button2-*` pair) still win when set. Resting
+state only — on hover each variant paints its own contrasting fill. On a
+`background_image` band the filled button also takes its border from that role so its
+shape stays visible against the band.
+
 ## Second button (`button2_*`)
 
 A closing CTA can offer a primary + secondary pair — "Ver planes" *and* "Hablar con
