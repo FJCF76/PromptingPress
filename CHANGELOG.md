@@ -4,6 +4,12 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.10.0] — 2026-07-27 — button & brand parity: every button surface behaves per-instance and consistently (rollup)
+
+**v1.10.0 is the rollup release of the Button & Brand Parity gate — three working versions (1.9.1–1.9.3) verified as one line. The hero's second CTA no longer inherits the primary's per-instance slots, and its own fill slot finally paints (with the border following the fill, matching #514's convention) (#526); stats numbers gain `--stats-number-font` / `--stats-number-weight` so figures can match a serif heading system (#472); and the cta component gains an optional second button (`button2_*`, mirroring hero's `cta2_*`) with leak-proof slot isolation and dark-band contrast routed through the established on-inverted/on-overlay role tokens (#474).**
+
+No code changes in this release beyond the version bump — see the [v1.9.1]…[v1.9.3] entries below for the substance.
+
 ## [v1.9.3] — 2026-07-27 — a closing CTA can offer a primary + secondary button pair (#474)
 
 **A page-closing CTA had one button, so a band that wanted "Ver planes" AND "Hablar con nosotros" had to drop one of them or switch to a `hero`, which is a styling change nobody asked for. The `cta` component now takes an optional second button — `button2_text` / `button2_url` / `button2_variant` — rendered beside the primary as a secondary action. Leave `button2_text` unset and the band renders byte for byte as it always has.**
