@@ -176,12 +176,16 @@ renders byte-identically to today.
 `--hero-accent`) and the literal fallback. A component that sets its own slot keeps
 overriding the global token, so a site-wide `--btn-bg` recolors every button that has not
 been individually restyled.
-(The hero's per-instance FILLED-primary slots are `--hero-button-bg` / `--hero-button-color`
-/ `--hero-button-shadow`; `--hero-accent` recolors only its border. A cta or hero SECOND
-button has its own family — `--cta-button2-*` / `--hero-cta2-*` — which the primary's slots
-never reach, so restyling the primary alone leaves the second button on the global token.
-See `ai-instructions/style-component.md`.) (Resting state only — hover keeps its
-own `--*-hover-*` slots and its accent-derived default; set those to control hover.)
+(The hero's per-instance FILLED-primary slots are `--hero-button-bg` / `--hero-button-hover-bg`
+/ `--hero-button-color` / `--hero-button-shadow`; `--hero-accent` recolors only its border. A
+cta or hero SECOND button has its own family — `--cta-button2-*` / `--hero-cta2-*` — which the
+primary's slots never reach in rest OR hover, so restyling the primary alone leaves the second
+button on the global token. See `ai-instructions/style-component.md`.)
+
+**There is no global hover-fill token.** `--btn-bg` is resting-state only: there is no
+`--btn-hover-bg`, so a site-wide fill retheme still returns to the theme's premium gradient on
+hover. Hover fill is per-instance only — `--hero-button-hover-bg`, `--cta-button-hover-bg`,
+`--hero-cta2-hover-bg`, `--cta-button2-hover-bg` — and each pairs with its resting slot.
 
 **Fill and border are independent knobs.** `--btn-bg` recolors the fill; `--btn-border-color`
 recolors the border. On `.cta`/`.hero` primaries an unset border follows the fill (so a
