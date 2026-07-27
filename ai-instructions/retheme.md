@@ -189,14 +189,17 @@ renders byte-identically to today.
 
 **Per-component slots still win.** `--btn-*` sits BETWEEN the per-component slots
 (`--cta-button-*`, `--cta-button2-*`, `--cta-accent`, `--hero-button-*`, `--hero-cta2-*`,
-`--hero-accent`) and the literal fallback. A component that sets its own slot keeps
+`--hero-accent`, `--section-panel-cta-*`) and the literal fallback. A component that sets its own slot keeps
 overriding the global token, so a site-wide `--btn-bg` recolors every button that has not
 been individually restyled.
 (The hero's per-instance FILLED-primary slots are `--hero-button-bg` / `--hero-button-hover-bg`
 / `--hero-button-color` / `--hero-button-shadow`; `--hero-accent` recolors only its border. A
 cta or hero SECOND button has its own family — `--cta-button2-*` / `--hero-cta2-*` — which the
 primary's slots never reach in rest OR hover, so restyling the primary alone leaves the second
-button on the global token. See `ai-instructions/style-component.md`.)
+button on the global token. The section's `text-panel` CTA has its own family too —
+`--section-panel-cta-bg` / `--section-panel-cta-color` / `--section-panel-cta-shadow` — which
+is the only way to give one section's panel button a flat brand fill without moving the
+site-wide token. See `ai-instructions/style-component.md`.)
 
 **There is no global hover-fill token.** `--btn-bg` is resting-state only: there is no
 `--btn-hover-bg`, so a site-wide fill retheme still returns to the theme's premium gradient on

@@ -722,6 +722,68 @@ class SectionTextPanelTest extends TestCase
         );
     }
 
+    // ── #536 panel-CTA fill slots ─────────────────────────────────────────
+
+    /**
+     * The three #536 slots emit as inline custom properties on the SECTION ROOT
+     * (the shared pp_render_style_vars path), which is how they inherit down to
+     * .section__panel-cta and reach the premium cascade that paints the fill.
+     */
+    public function testPanelCtaFillSlotsEmitOnSectionRoot(): void
+    {
+        $html = $this->render($this->fullPanelProps([
+            '__pp_style' => [
+                '--section-panel-cta-bg'     => '#7c3aed',
+                '--section-panel-cta-color'  => '#ffffff',
+                '--section-panel-cta-shadow' => 'none',
+            ],
+        ]));
+
+        $this->assertStringContainsString('--section-panel-cta-bg: #7c3aed', $html);
+        $this->assertStringContainsString('--section-panel-cta-color: #ffffff', $html);
+        $this->assertStringContainsString('--section-panel-cta-shadow: none', $html);
+        // The slots ride the root, not the anchor: the premium winner reads them by
+        // inheritance, and the panel CTA markup itself stays untouched.
+        $this->assertMatchesRegularExpression(
+            '/<a href="\/signup" class="section__panel-cta btn">/',
+            $html,
+            'The panel CTA anchor must keep its exact pre-536 markup.'
+        );
+    }
+
+    /** Unset, nothing is emitted: the markup is byte-identical to before #536. */
+    public function testPanelCtaFillSlotsAbsentWhenUnset(): void
+    {
+        $html = $this->render($this->fullPanelProps());
+
+        $this->assertStringNotContainsString('--section-panel-cta-bg', $html);
+        $this->assertStringNotContainsString('--section-panel-cta-color', $html);
+        $this->assertStringNotContainsString('--section-panel-cta-shadow', $html);
+    }
+
+    /**
+     * The section RENDERER emits exactly ONE button surface, which is why #536 needs no
+     * #526-style isolation rule. Pin that structural fact across every panel_cta_variant:
+     * if a second button surface is ever added to the section, this fails and the isolation
+     * question has to be answered again. Counts elements carrying the `btn` CLASS (matched
+     * at a word boundary inside a class attribute), not the substring — a variant modifier
+     * (`btn btn--outline`) is still ONE surface, and an unrelated `btn` substring elsewhere
+     * in the markup is not a surface at all.
+     */
+    public function testSectionRendersExactlyOneButtonSurface(): void
+    {
+        foreach (['primary', 'secondary', 'outline', 'ghost'] as $variant) {
+            $html = $this->render($this->fullPanelProps(['panel_cta_variant' => $variant]));
+            $this->assertSame(
+                1,
+                preg_match_all('/class="[^"]*\bbtn\b/', $html),
+                "section must render exactly one .btn surface (panel_cta_variant=$variant) — a "
+                . 'second one would need the #526 slot-isolation treatment before the #536 slots '
+                . 'could be trusted.'
+            );
+        }
+    }
+
     public function testPanelRowMarkerGlyphIsSuppressed(): void
     {
         // A row is not a bullet: its ::before marker box is neutralised so a

@@ -420,6 +420,31 @@ and `--hero-cta2-color` for its border and ink. At REST an unset border FOLLOWS 
 `--hero-cta2-hover-border` (or `--hero-accent-hover`) when a recolored hover fill needs a
 matching ring.
 
+The section's `text-panel` CTA carries the SAME premium gradient and the same masking
+problem, so it has the same family of slots (`--section-panel-cta-bg` /
+`--section-panel-cta-color` / `--section-panel-cta-shadow`):
+```bash
+wp pp action execute style_component --run-id=<uuid> --params='{
+  "post_id": 19,
+  "component_id": "pp-sec9012",
+  "style": {
+    "--section-panel-cta-bg": "#7c3aed",
+    "--section-panel-cta-color": "#ffffff",
+    "--section-panel-cta-shadow": "none"
+  }
+}'
+```
+`--section-panel-cta-bg` is the panel button's flat fill (it replaces the gradient — a plain
+background color cannot, the gradient is a background-IMAGE painted over it), and an unset
+border FOLLOWS that fill, so a fill-only recolor already gives a matching ring.
+`--section-panel-cta-color` is the ink and `--section-panel-cta-shadow: none` flattens the
+bevel on BOTH rest and hover. They apply to a `primary` `panel_cta_variant` only —
+outline/ghost/secondary panel CTAs keep their transparent treatment — and only when the
+panel actually renders a CTA (`panel_cta_text` + `panel_cta_url`). Like the hero's, they
+govern the RESTING state: a flat panel button reverts to the premium gradient on hover, and
+its ring follows the theme accent there rather than the fill (there is no panel-CTA hover slot
+today). Unset, the panel CTA renders byte-identically.
+
 **3. Tag a grid card's text with a typography role (an item field).**
 `text_role` lives on each item inside the grid's `items` array, not as a top-level
 prop. Patch the whole `items` array via `update_component` (a prop shallow-merge

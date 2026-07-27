@@ -1504,12 +1504,53 @@
   content: none;
 }
 
-/* Panel CTA spacing. Color/variant come from the shared .btn primitive and the
-   panel_cta_variant prop (primary/secondary/outline/ghost); the panel does not
-   introduce its own button-color slots, so the premium main .btn cascade stays
-   the single source of primary-button color. issue 104 */
+/* Panel CTA spacing + per-instance filled-button slots (issue 104, extended by 536).
+   Variant selection still comes from the panel_cta_variant prop (primary/secondary/
+   outline/ghost) and the shared .btn primitive; the premium `main .btn:not(...)`
+   cascade is still the visible winner for a filled panel CTA. What changed in #536 is
+   that the panel now exposes its OWN per-instance fill slots — --section-panel-cta-bg /
+   -color / -shadow — routed as the OUTERMOST value of that premium chain (the #514/#526
+   idiom), so a branded section can paint a flat accent button through composition style
+   slots alone instead of being stuck under the premium gradient.
+
+   The rule below is the slot-contract keystone (StyleSlotContractTest): it wires all
+   three slots inside the section block on type-compatible properties. It sits BELOW the
+   premium winner [0,4,1] in specificity, so it never changes what a button actually
+   paints — the VISIBLE win happens in the premium rule, exactly as the hero's
+   .hero .btn / .hero__cta keystones do for --hero-button-*.
+
+     specificity map:
+       .section__panel-cta                         [0,1,0]  <- spacing only
+       .section__panel-cta:not(x):not(y):not(z)    [0,4,0]  <- this keystone
+       main .btn:focus / :focus-visible            [0,2,1]
+       main .btn:not(x):not(y):not(z)              [0,4,1]  <- the live winner, always
+
+   All three slots share ONE variant carve-out, which is what makes the primary-only
+   contract in schema.json true of the ELEVATION slot as well as the fill and ink. An
+   uncarved [0,1,0] box-shadow line would outrank the shared `.btn` rule and paint a
+   drop shadow on a transparent outline/ghost panel CTA — a slot the schema says never
+   reaches them. The carve-out also keeps the transparent variants' focus glow intact:
+   `main .btn:focus` [0,2,1] stays their box-shadow winner because this rule cannot
+   match them at all. (On the FILLED variant the premium rest rule [0,4,1] already
+   outranks the focus rule, so nothing changes there either — that is pre-existing
+   shared-button behavior, not something this rule introduces.) */
 .section__panel-cta {
   margin-top: var(--space-sm);
+}
+
+/* Filled (primary) panel CTA only — outline/ghost/secondary keep their transparent
+   treatment, so the fill slot never flattens them into look-alike filled buttons (the
+   same carve-out `.hero .btn:not(...)` makes). Border honors its own global knob first,
+   then FOLLOWS the fill (the #526 border-follows-fill convention) so a fill-only recolor
+   keeps a matching ring; unset it falls through --btn-* to today's literals. The `none`
+   elevation default mirrors `.hero__cta:not(...)`: the premium winner supplies the real
+   bevel through its own var(--section-panel-cta-shadow, <bevel>) fallback, so an unset
+   button is byte-identical and `none` flattens rest + hover. */
+.section__panel-cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
+  background-color: var(--section-panel-cta-bg, var(--btn-bg, var(--color-accent)));
+  border-color: var(--btn-border-color, var(--section-panel-cta-bg, var(--btn-bg, var(--color-accent))));
+  color: var(--section-panel-cta-color, var(--btn-text, var(--color-bg)));
+  box-shadow: var(--section-panel-cta-shadow, none);
 }
 
 /* Section background variants */
@@ -4219,13 +4260,14 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
   border-width: 1px;
   border-style: solid;
   border-color: var(--cta-button-border, var(--color-accent-strong));
-  /* Superseded for background by the later "True final cascade" block; --hero-button-bg
-     leads the chain here too (issue 514) so both rest primary-fill rules stay uniform. */
-  background: var(--hero-button-bg, var(--cta-button-bg,
-    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%)));
-  box-shadow: var(--hero-button-shadow, var(--cta-button-shadow,
+  /* Superseded for background by the later "True final cascade" block; --section-panel-cta-bg
+     and --hero-button-bg lead the chain here too (issues 514/536) so both rest primary-fill
+     rules stay uniform. */
+  background: var(--section-panel-cta-bg, var(--hero-button-bg, var(--cta-button-bg,
+    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%))));
+  box-shadow: var(--section-panel-cta-shadow, var(--hero-button-shadow, var(--cta-button-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 10px 24px color-mix(in srgb, var(--color-accent-strong) 16%, transparent)));
+    0 10px 24px color-mix(in srgb, var(--color-accent-strong) 16%, transparent))));
   /* NOTE (#458): border-color/background/box-shadow above are SUPERSEDED by the
      identical-specificity "True final cascade" block below (source order wins). Only `color`
      is the live winner for a composed primary, routed through the global --btn-text knob
@@ -4236,8 +4278,14 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
      the cta slot then --btn-text then --color-bg (byte-identical). Defined only on a .hero
      root by the renderer (so a cta/section/standalone primary never inherits it) and reset
      on .hero__cta--secondary by the issue 526 isolation rule (so the hero's own second CTA
-     does not inherit it either). */
-  color: var(--hero-button-color, var(--cta-button-color, var(--btn-text, var(--color-bg))));
+     does not inherit it either). The section's panel CTA exposes the same ink slot at the
+     head of the chain (issue 536): --section-panel-cta-color is emitted only on a .section
+     root, and the section RENDERER emits exactly ONE button surface (.section__panel-cta),
+     so no #526-style isolation rule is needed. Like every root-emitted button slot,
+     --hero-button-* included, it does inherit onto a `.btn` an author hand-writes into the
+     wp_kses_post `body` HTML — the pre-existing trait of the whole family, not something
+     this slot introduces. */
+  color: var(--section-panel-cta-color, var(--hero-button-color, var(--cta-button-color, var(--btn-text, var(--color-bg)))));
 }
 
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
@@ -4296,8 +4344,12 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
      through --btn-* to today's literal (gradient / --color-accent-strong / bevel), so an
      unset premium button is byte-identical. Border is INDEPENDENT of the fill here (matches
      the existing accent-strong-vs-gradient treatment), so it routes --btn-border-color but
-     does NOT follow --btn-bg. */
-  border-color: var(--cta-button-border, var(--cta-accent, var(--btn-border-color, var(--color-accent-strong))));
+     does NOT follow --btn-bg. The one exception is the section panel CTA's own fill slot
+     (issue 536, the #526 border-follows-fill convention): --section-panel-cta-bg sits just
+     ahead of the literal, so a fill-only panel recolor keeps a matching ring instead of a
+     stray accent-strong outline, while every knob above it still wins exactly as before
+     and an unset button still resolves --color-accent-strong (byte-identical). */
+  border-color: var(--cta-button-border, var(--cta-accent, var(--btn-border-color, var(--section-panel-cta-bg, var(--color-accent-strong)))));
   /* Hero per-instance fill slot (issue 514): --hero-button-bg is the visible fill
      winner for a hero primary. A FLAT color value here resolves the shorthand to
      `background: <color>`, which resets background-image to `none` and CLEARS the
@@ -4306,12 +4358,19 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
      --btn-bg to the gradient literal, so an unset button is byte-identical. Defined only on
      a .hero root by the renderer (cta/section/standalone primaries never inherit it), and
      re-pointed at --hero-cta2-bg on .hero__cta--secondary by the issue 526 isolation rule —
-     which is how a filled second CTA gets its OWN gradient-clearing fill here. */
-  background: var(--hero-button-bg, var(--cta-button-bg, var(--btn-bg,
-    linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%))));
-  box-shadow: var(--hero-button-shadow, var(--cta-button-shadow, var(--btn-shadow,
+     which is how a filled second CTA gets its OWN gradient-clearing fill here.
+     The section's panel CTA is the last member of that masked-fill class (issue 536):
+     .section__panel-cta has no .hero/.cta ancestor, so THIS rule is its only fill winner
+     and --section-panel-cta-bg leads the chain the same way. It is emitted only on a
+     .section root and the section RENDERER emits exactly one button surface, so no
+     isolation re-pointing is needed (see the ink chain above for the one inheritance
+     caveat the whole slot family shares); unset, it falls straight through to the
+     hero/cta/--btn-bg chain and the gradient literal (byte-identical). */
+  background: var(--section-panel-cta-bg, var(--hero-button-bg, var(--cta-button-bg, var(--btn-bg,
+    linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%)))));
+  box-shadow: var(--section-panel-cta-shadow, var(--hero-button-shadow, var(--cta-button-shadow, var(--btn-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    0 10px 22px color-mix(in srgb, var(--color-accent-strong) 14%, transparent))));
+    0 10px 22px color-mix(in srgb, var(--color-accent-strong) 14%, transparent)))));
 }
 
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
@@ -4332,10 +4391,15 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
     linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%)));
   /* --hero-button-shadow flattens hover too (issue 514, matching --cta-button-shadow's
      rest+hover contract): set `none` and both rest and hover lose the bevel. Unset falls
-     to --cta-button-shadow then the hover bevel literal (byte-identical). */
-  box-shadow: var(--hero-button-shadow, var(--cta-button-shadow,
+     to --cta-button-shadow then the hover bevel literal (byte-identical).
+     --section-panel-cta-shadow joins at the head for the same reason (issue 536): an
+     elevation slot that flattened rest but not hover would re-grow a bevel mid-interaction.
+     This is the elevation contract only — the hover FILL is deliberately untouched here
+     (#536 excludes hover; the panel CTA has no hover fill slot, so a flat rest fill still
+     reverts to the premium hover gradient, the pre-#530 trait hero/cta both had). */
+  box-shadow: var(--section-panel-cta-shadow, var(--hero-button-shadow, var(--cta-button-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 14px 30px color-mix(in srgb, var(--color-accent-strong) 20%, transparent)));
+    0 14px 30px color-mix(in srgb, var(--color-accent-strong) 20%, transparent))));
 }
 
 main .btn:focus,

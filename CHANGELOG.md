@@ -4,6 +4,35 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.10.3] — 2026-07-27 — a section's panel button can finally carry your brand colour (#536)
+
+**Set one slot and the section panel's call-to-action button turns a flat brand colour with a matching ring. Set none and it renders exactly as before.**
+
+The `text-panel` section's CTA is the last button in the theme whose fill was unreachable. The theme paints a filled button with a gradient, and a gradient is a background IMAGE: any background colour set underneath it is simply covered up. `.section__panel-cta` sits in no `hero` or `cta` scope, so the shared premium cascade was its only fill winner and nothing an author could set from a composition reached it. A branded section had to accept the theme's default blue button or fall back to a transparent `outline` variant.
+
+Three new per-instance slots fix that, mirroring the hero's (#514) and the CTA's second button (#526) exactly. `--section-panel-cta-bg` replaces the gradient with a flat fill, `--section-panel-cta-color` sets the label ink, and `--section-panel-cta-shadow: none` flattens the bevel on rest and hover. Set the fill alone and the border follows it, so a one-slot recolour still gets a matching ring instead of a stray accent outline. All three reach the default `primary` variant only: `outline`, `ghost` and `secondary` panel buttons keep their transparent treatment, ring and focus glow untouched.
+
+They govern the resting state. A flat panel button still hovers back to the theme's gradient, and its ring follows the theme accent there, the same trait every filled button had before per-instance hover slots existed.
+
+### Added
+
+- `--section-panel-cta-bg` / `--section-panel-cta-color` / `--section-panel-cta-shadow` on the `section` component: the panel CTA's resting fill, ink and elevation, read by the premium `main .btn:not(...)` cascade that actually paints a filled button, with the pre-existing `--hero-button-*` → `--cta-button-*` → `--btn-*` → literal chain preserved as the fallback so an unset button is byte-identical (#536).
+- The panel CTA's border follows `--section-panel-cta-bg` when the global `--btn-border-color` is unset, so a fill-only recolour keeps a matching ring (#536).
+
+### Docs
+
+- `components/section/README.md`, `ai-instructions/composition.md`, `ai-instructions/style-component.md` and `ai-instructions/retheme.md` describe the new slots, the `primary`-only scope, and the resting-state-only caveat (fill and ring both revert to the theme on hover). `composition.md` previously told the site-builder AI the panel CTA colour could only be changed by picking a different variant, which is no longer true.
+
+### Tests
+
+- `tests/ActionsTest.php`: authoring-path proofs that the three slots are accepted and persisted through the real `style_component` validate/apply surface on a `text-panel` section that renders a CTA, with the shared validator rejecting a non-colour fill and a non-shadow elevation.
+- `tests/SectionTextPanelTest.php`: render pins that the slots emit as inline custom properties on the section root and are absent when unset, plus a structural pin that the renderer emits exactly one button surface across all four `panel_cta_variant` values (a second one would need #526-style isolation first).
+- `tests/StyleSlotContractTest.php`: fallback-literal pins for all four premium chains the slots join, and a keystone pin that all three slots share ONE variant carve-out — wiring the elevation slot a tier lower would let it paint a shadow on a transparent panel button that the schema says it never reaches.
+- `tests/e2e/style-render.spec.ts`: rendered computed-style acceptance at 1280 and 375 — the gradient is cleared and the flat fill, matching ring and ink actually paint; the unset button keeps the premium gradient, bevel, ring and ink; `none` flattens hover as well as rest; and the fill and elevation slots reach none of `outline` / `ghost` / `secondary`.
+- `tests/js/css-lint.test.js`: the premium rest-fill guard now requires all three per-instance fill slots to survive in the chain, so dropping any one of them fails the build.
+
+---
+
 ## [v1.10.2] — 2026-07-27 — outline, ghost and filled buttons stay legible on dark bands (#535)
 
 **A button on an inverted or photo band is now readable by default, and a filled button on a photo band keeps a visible edge instead of dissolving into it.** The dark-band button defaults route through the accent roles the rest of the theme already uses there.
