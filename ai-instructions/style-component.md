@@ -415,10 +415,20 @@ gradient. These slots target the PRIMARY button only: the second CTA (`cta2`) ne
 `--hero-cta2-*` slots — on a filled (`primary`) cta2, `--hero-cta2-bg` and
 `--hero-cta2-hover-bg` replace the premium gradient with a flat fill exactly the way
 `--hero-button-bg` / `--hero-button-hover-bg` do for the primary, with `--hero-cta2-border`
-and `--hero-cta2-color` for its border and ink. At REST an unset border FOLLOWS the fill, so
-`--hero-cta2-bg` alone already gives a matching ring. Hover does NOT follow the fill: set
-`--hero-cta2-hover-border` (or `--hero-accent-hover`) when a recolored hover fill needs a
-matching ring.
+and `--hero-cta2-color` for its border and ink. On a FILLED cta2 an unset border FOLLOWS the
+fill in BOTH states, so `--hero-cta2-bg` and `--hero-cta2-hover-bg` alone already give matching
+rings. Set `--hero-cta2-hover-border` (or `--hero-accent-hover`) only when the hover ring should
+DIFFER from the hover fill — either slot still wins over it. The cta component's second
+button behaves the same way on hover (`--cta-button2-hover-border`, then
+`--cta-accent-hover`, then `--cta-button2-hover-bg`), with one asymmetry worth knowing: at
+REST the cta's fill slot is resolved BEFORE `--cta-accent`, while on hover
+`--cta-accent-hover` is resolved before the fill. So on a cta whose accent knobs are set,
+the second button's ring matches the fill at rest and returns to the accent on hover; set
+`--cta-button2-hover-border` if you want it to match the fill in both states.
+This fill-follow is specific to the FILLED (`primary`) variant; an `outline`, `ghost`, or
+`secondary` second button keeps its own variant default on hover, so give those an explicit
+`--hero-cta2-hover-border` / `--cta-button2-hover-border` if their ring must track a recolored
+hover fill.
 
 The section's `text-panel` CTA carries the SAME premium gradient and the same masking
 problem, so it has the same family of slots (`--section-panel-cta-bg` /
