@@ -29,6 +29,8 @@ Generic text + optional image section. Use this for "what is this", "how it work
 
 `panel_items` entries are EITHER plain strings (bulleted list items) OR paired-row objects `{ label, value }` rendered as a two-part row (label left, value right) — for a spec sheet, pricing summary, stat readout, or config list. String and paired-row entries mix in one list. A paired row may carry a per-row `style` map setting the item_eligible `--section-panel-text` slot to emphasise/de-emphasise that one row. Set `--section-panel-font` to `var(--font-mono)` for a monospace panel. A monospace data panel (spec sheet, config readout, stat summary) is a composition of these generic parts (mono font + paired rows + dark `--section-panel-bg` + per-row accent), not a named mode. Full grammar and worked examples: `ai-instructions/composition.md`.
 
+**Panel CTA fill (#536).** The panel's `primary` CTA ships the shared premium gradient, which is a background-IMAGE and therefore paints over any background colour. `--section-panel-cta-bg` is the per-instance slot that actually replaces it with a flat brand fill; `--section-panel-cta-color` sets the ink and `--section-panel-cta-shadow: none` flattens the bevel on rest and hover. An unset border follows the fill, so a fill-only recolour keeps a matching ring. They reach the `primary` variant only (outline/ghost/secondary stay transparent) and only when the panel renders a CTA. Resting state only: a flat panel button hovers back to the premium gradient, and its ring follows the theme accent on hover rather than the fill (there is no panel-CTA hover slot today). Unset, the button is byte-identical to before.
+
 ## Variants
 
 Layout (`layout`):
