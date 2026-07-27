@@ -214,7 +214,9 @@ the section-panel CTA) keeps its own `--color-accent-strong` border until you se
 Set both when recoloring buttons site-wide so every context stays consistent. The same
 border-follows-fill idiom applies to the hero's per-instance slots: a filled second CTA
 recolored with `--hero-cta2-bg` alone keeps a matching ring (`--hero-cta2-border` and
-`--hero-accent` still win where set). The cta's own second button works the same way
+`--hero-accent` still win where set), and since issue 538 the same holds on HOVER —
+`--hero-cta2-hover-bg` alone gives a matching hover ring, behind `--hero-cta2-hover-border`
+and `--hero-accent-hover`. The cta's own second button works the same way
 through `--cta-button2-bg` / `--cta-button2-border`, and its chain routes `--btn-bg` and
 `--btn-border-color` in the primary's exact order, so a site-wide recolor moves both
 buttons of a pair together.
