@@ -67,8 +67,9 @@ other derived token (see below), so you are told when a base change may not reac
 (section/cta links, stats numbers, the `title_accent` substring on all four, section
 body list markers, the `outline`/`ghost` buttons on a cta or cover hero — including
 the hero's second CTA, whose variant DEFAULTS to `outline` — and the FOCUS RING of
-EVERY button variant on a bg-image cta or cover hero, which is drawn outside the button
-and so lands on the scrim) routes through a SEPARATE role,
+EVERY button variant on a bg-image cta or cover hero — drawn outside the button, so it
+lands on the scrim, and applying to any `cover` hero whether or not it has an
+`image_url`, because the scrim is painted either way) routes through a SEPARATE role,
 `--color-accent-on-overlay` (default `#fafbff`), with `--color-accent-on-overlay-hover`
 (default `#ffffff`) for hover. This is NOT the same as `--color-accent-on-inverted`:
 on-inverted is tuned to the SOLID `--color-bg-inverted`, but the overlay sits over an
