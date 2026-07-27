@@ -79,6 +79,14 @@ button each replaces the shared premium hover gradient with a flat fill. A resti
 governs the resting state only, so pair each with its hover counterpart when a button
 should stay on-brand through the hover; left unset, hover keeps the premium gradient.
 
+On the filled SECOND button the hover BORDER follows that hover fill when neither
+`--cta-button2-hover-border` nor `--cta-accent-hover` is set, so a hover-fill-only recolor
+keeps a matching ring (issue 538). Either of those two slots still wins where set — note
+the hover chain resolves `--cta-accent-hover` BEFORE the fill, while the resting chain
+resolves `--cta-button2-bg` before `--cta-accent`, so a CTA with accent knobs set can match
+its fill at rest and return to the accent on hover. The `outline`, `ghost` and `secondary`
+variants do not follow the hover fill; give those `--cta-button2-hover-border` explicitly.
+
 At mobile widths the pair stacks one button per row.
 
 ## Usage

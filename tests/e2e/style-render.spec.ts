@@ -6879,11 +6879,11 @@ test.describe('#530 hover fill slots paint and stay isolated (real WP)', () => {
       expect(got.second.bgColor, `@${width}: cta2 must paint --hero-cta2-hover-bg`).toBe(
         got.secondHover,
       );
-      // The hover BORDER deliberately does NOT follow the hover fill (issue 530): unlike the
-      // fill, it was never masked by the premium gradient, so routing the fill into it would
-      // change rendered output for an already-shipping slot. Pinned as a negative so a future
-      // edit cannot add the fill-follow silently.
-      expect(got.second.borderColor, `@${width}: cta2 hover border must NOT follow the fill`).not.toBe(
+      // The hover BORDER now FOLLOWS the hover fill (issue 538, Option 3). #530 pinned the
+      // negative here; that pin is flipped, not deleted. With --hero-cta2-hover-border and
+      // --hero-accent-hover both unset, the fill is the last link before the theme default,
+      // so a fill-only recolor gets a MATCHING ring instead of a --color-accent-hover one.
+      expect(got.second.borderColor, `@${width}: cta2 hover border must follow the fill`).toBe(
         got.secondHover,
       );
       // The two buttons carry DISTINCT hover fills — the capability, not just the absence
@@ -7057,6 +7057,293 @@ test.describe('#530 hover fill slots paint and stay isolated (real WP)', () => {
     );
     expect(onSecond.second.bgColor).toBe(onPrimary.primary.bgColor);
     expect(onSecond.second.borderColor).toBe(onPrimary.primary.borderColor);
+  });
+});
+
+/**
+ * #538 — the hover ring on the two FILLED second buttons follows the hover fill, but only
+ * from the LAST fallback position (the maintainer's Option 3).
+ *
+ * At rest a second button's border already follows its fill (#526/#474), so a fill-only
+ * recolor keeps a matching ring. On hover it did not: #530 deliberately left the fill out of
+ * the hover border chain, because unlike the hover FILL (which the premium gradient masked,
+ * so it rendered nothing and no shipped composition could depend on it) the hover BORDER has
+ * always painted. Inserting the fill AHEAD of the accent knob would therefore have repainted
+ * an explicitly authored ring on live sites — --hero-cta2-hover-bg and --cta-button2-hover-bg
+ * both shipped in v1.10.0. Option 3 puts the fill BEHIND the accent knob instead.
+ *
+ * That makes the contract directional, and direction is exactly what a CSS-text pin proves
+ * weakly and a render pin proves outright. These tests walk the whole slot lattice per
+ * component — fill-only, fill+accent, fill+border, accent-only — and assert the RESOLVED
+ * border color under a real :hover. The middle two are the tests that distinguish Option 3
+ * from the rejected Option 2: under Option 2 they would fail, under Option 3 they must show
+ * the authored value winning and the fill being ignored.
+ *
+ * Literals are probe-resolved (the #458 idiom) so comparisons run against the browser's own
+ * resolution rather than a hardcoded hex.
+ */
+test.describe('#538 filled second-button hover ring follows the hover fill (real WP)', () => {
+  let pageId = 0;
+
+  const FILL = '#7c3aed'; // the purple from the v1.11.0 dev smoke that exposed this
+  const ACCENT = '#ff8800';
+  const BORDER = '#10b981';
+
+  test.afterEach(async () => {
+    if (pageId) {
+      deletePage(pageId);
+      pageId = 0;
+    }
+  });
+
+  function heroPage(title: string, style?: Record<string, string>): number {
+    const id = createPage(title);
+    setComposition(id, [
+      {
+        component: 'hero',
+        props: {
+          id: 'pp-538-hero',
+          title: 'Ship faster',
+          cta_text: 'Primary action',
+          cta_url: '/start',
+          cta2_text: 'Second action',
+          cta2_url: '/learn',
+          cta2_variant: 'primary',
+        },
+        ...(style ? { style } : {}),
+      },
+    ]);
+    return id;
+  }
+
+  function ctaPage(title: string, style?: Record<string, string>): number {
+    const id = createPage(title);
+    setComposition(id, [
+      {
+        component: 'cta',
+        props: {
+          id: 'pp-538-cta',
+          title: 'Ready to start?',
+          button_text: 'Primary action',
+          button_url: '/start',
+          button2_text: 'Second action',
+          button2_url: '/learn',
+          button2_variant: 'primary',
+        },
+        ...(style ? { style } : {}),
+      },
+    ]);
+    return id;
+  }
+
+  const HERO_SECOND = '.hero__cta--secondary';
+  const CTA_SECOND = '.cta__button--secondary';
+
+  /** Hover the second button and read its painted fill + ring, plus probe-resolved literals. */
+  async function ringOnHover(page: any, sel: string) {
+    await page.hover(sel);
+    return page.evaluate(
+      ([s, fillHex, accentHex, borderHex]: [string, string, string, string]) => {
+        const resolve = (value: string) => {
+          const el = document.createElement('div');
+          el.style.setProperty('background-color', value);
+          document.body.appendChild(el);
+          const out = getComputedStyle(el).getPropertyValue('background-color');
+          el.remove();
+          return out.trim();
+        };
+        const cs = getComputedStyle(document.querySelector(s) as HTMLElement);
+        return {
+          bgColor: cs.backgroundColor,
+          borderColor: cs.borderTopColor,
+          fill: resolve(fillHex),
+          accent: resolve(accentHex),
+          border: resolve(borderHex),
+          themeHover: resolve('var(--color-accent-hover)'),
+        };
+      },
+      [sel, FILL, ACCENT, BORDER],
+    );
+  }
+
+  async function open(page: any, id: number, sel: string, width: number) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/?page_id=${id}`);
+    await expect(page.locator(sel)).toBeVisible({ timeout: 10000 });
+    // Kill transitions so the hover read is the settled value, not a mid-animation sample.
+    await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
+  }
+
+  for (const width of [1280, 375]) {
+    // THE DEFECT. Exactly the configuration the v1.11.0 dev smoke rendered: a purple hover
+    // fill under a --color-accent-hover blue ring. Post-#538 the ring must be purple too.
+    test(`hero cta2 fill-only hover ring matches the fill (${width}px) @smoke`, async ({ page }) => {
+      pageId = heroPage('E2E 538 hero fill only', { '--hero-cta2-hover-bg': FILL });
+      await open(page, pageId, HERO_SECOND, width);
+
+      const got = await ringOnHover(page, HERO_SECOND);
+      expect(got.bgColor, `@${width}: cta2 must paint the authored hover fill`).toBe(got.fill);
+      expect(got.borderColor, `@${width}: the ring must follow the fill`).toBe(got.fill);
+      expect(got.borderColor, `@${width}: the ring must no longer fall to the theme default`).not.toBe(
+        got.themeHover,
+      );
+    });
+
+    test(`cta button2 fill-only hover ring matches the fill (${width}px) @smoke`, async ({ page }) => {
+      pageId = ctaPage('E2E 538 cta fill only', { '--cta-button2-hover-bg': FILL });
+      await open(page, pageId, CTA_SECOND, width);
+
+      const got = await ringOnHover(page, CTA_SECOND);
+      expect(got.bgColor, `@${width}: button2 must paint the authored hover fill`).toBe(got.fill);
+      expect(got.borderColor, `@${width}: the ring must follow the fill`).toBe(got.fill);
+      expect(got.borderColor, `@${width}: the ring must no longer fall to the theme default`).not.toBe(
+        got.themeHover,
+      );
+    });
+  }
+
+  // OPTION 3's DEFINING CASE. An author who set BOTH the hover fill and the accent-hover knob
+  // keeps the accent ring. Under the rejected Option 2 the fill would outrank it and this
+  // site's authored orange would silently turn purple.
+  test('hero cta2: an authored --hero-accent-hover still beats the hover fill @smoke', async ({
+    page,
+  }) => {
+    pageId = heroPage('E2E 538 hero accent wins', {
+      '--hero-cta2-hover-bg': FILL,
+      '--hero-accent-hover': ACCENT,
+    });
+    await open(page, pageId, HERO_SECOND, 1280);
+
+    const got = await ringOnHover(page, HERO_SECOND);
+    expect(got.bgColor, 'the fill slot still paints the fill').toBe(got.fill);
+    expect(got.borderColor, 'the authored accent must win the ring').toBe(got.accent);
+    expect(got.borderColor, 'the fill must NOT reach the ring here').not.toBe(got.fill);
+  });
+
+  test('cta button2: an authored --cta-accent-hover still beats the hover fill @smoke', async ({
+    page,
+  }) => {
+    pageId = ctaPage('E2E 538 cta accent wins', {
+      '--cta-button2-hover-bg': FILL,
+      '--cta-accent-hover': ACCENT,
+    });
+    await open(page, pageId, CTA_SECOND, 1280);
+
+    const got = await ringOnHover(page, CTA_SECOND);
+    expect(got.bgColor, 'the fill slot still paints the fill').toBe(got.fill);
+    expect(got.borderColor, 'the authored accent must win the ring').toBe(got.accent);
+    expect(got.borderColor, 'the fill must NOT reach the ring here').not.toBe(got.fill);
+  });
+
+  // The dedicated hover-border slot stays the strongest link in the chain.
+  test('hero cta2: an authored --hero-cta2-hover-border beats both @smoke', async ({ page }) => {
+    pageId = heroPage('E2E 538 hero border wins', {
+      '--hero-cta2-hover-bg': FILL,
+      '--hero-accent-hover': ACCENT,
+      '--hero-cta2-hover-border': BORDER,
+    });
+    await open(page, pageId, HERO_SECOND, 1280);
+
+    const got = await ringOnHover(page, HERO_SECOND);
+    expect(got.borderColor, 'the dedicated hover-border slot must win').toBe(got.border);
+  });
+
+  test('cta button2: an authored --cta-button2-hover-border beats both @smoke', async ({ page }) => {
+    pageId = ctaPage('E2E 538 cta border wins', {
+      '--cta-button2-hover-bg': FILL,
+      '--cta-accent-hover': ACCENT,
+      '--cta-button2-hover-border': BORDER,
+    });
+    await open(page, pageId, CTA_SECOND, 1280);
+
+    const got = await ringOnHover(page, CTA_SECOND);
+    expect(got.borderColor, 'the dedicated hover-border slot must win').toBe(got.border);
+  });
+
+  // The accent-only case is untouched by this change: with no hover fill set, the inserted
+  // link is guaranteed-invalid and the chain resolves exactly as it did before #538.
+  test('hero cta2: accent-hover alone still colors the ring, fill slot unset @smoke', async ({
+    page,
+  }) => {
+    pageId = heroPage('E2E 538 hero accent only', { '--hero-accent-hover': ACCENT });
+    await open(page, pageId, HERO_SECOND, 1280);
+
+    const got = await ringOnHover(page, HERO_SECOND);
+    expect(got.borderColor, 'accent-hover still colors the ring on its own').toBe(got.accent);
+  });
+
+  test('cta button2: accent-hover alone still colors the ring, fill slot unset @smoke', async ({
+    page,
+  }) => {
+    pageId = ctaPage('E2E 538 cta accent only', { '--cta-accent-hover': ACCENT });
+    await open(page, pageId, CTA_SECOND, 1280);
+
+    const got = await ringOnHover(page, CTA_SECOND);
+    expect(got.borderColor, 'accent-hover still colors the ring on its own').toBe(got.accent);
+  });
+
+  // The terminal of the chain, pinned ABSOLUTELY. The #530 unset tests compare the second
+  // button's ring against the PRIMARY's, which is a relative check: a change that moved both
+  // terminals together would pass it. These assert the resolved --color-accent-hover literal,
+  // so the byte-identical-when-unset guarantee this change had to preserve is pinned on its
+  // own terms rather than against a sibling that shares the same fate.
+  test('hero cta2: with no slots set the hover ring is still the theme default @smoke', async ({
+    page,
+  }) => {
+    pageId = heroPage('E2E 538 hero unset');
+    await open(page, pageId, HERO_SECOND, 1280);
+
+    const got = await ringOnHover(page, HERO_SECOND);
+    expect(got.borderColor, 'an unset cta2 must still hover to --color-accent-hover').toBe(
+      got.themeHover,
+    );
+  });
+
+  test('cta button2: with no slots set the hover ring is still the theme default @smoke', async ({
+    page,
+  }) => {
+    pageId = ctaPage('E2E 538 cta unset');
+    await open(page, pageId, CTA_SECOND, 1280);
+
+    const got = await ringOnHover(page, CTA_SECOND);
+    expect(got.borderColor, 'an unset button2 must still hover to --color-accent-hover').toBe(
+      got.themeHover,
+    );
+  });
+
+  // 14.1 AUTHORING PATH. Every case above seeds _pp_composition directly. This one drives the
+  // REAL surface — the style_component action, through validation — so the fix is proven on
+  // the path an operator actually uses, not only on a hand-written fixture.
+  test('hero cta2 hover ring follows a fill set through style_component @smoke', async ({
+    page,
+  }) => {
+    pageId = heroPage('E2E 538 hero authoring path');
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await styleComponent(page, pageId, { '--hero-cta2-hover-bg': FILL });
+    expect(res.success, 'style_component must accept the hover fill slot').toBe(true);
+
+    await open(page, pageId, HERO_SECOND, 1280);
+    const got = await ringOnHover(page, HERO_SECOND);
+    expect(got.bgColor, 'the action-written fill must paint').toBe(got.fill);
+    expect(got.borderColor, 'and the ring must follow it').toBe(got.fill);
+  });
+
+  test('cta button2 hover ring follows a fill set through style_component @smoke', async ({
+    page,
+  }) => {
+    pageId = ctaPage('E2E 538 cta authoring path');
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await styleComponent(page, pageId, { '--cta-button2-hover-bg': FILL });
+    expect(res.success, 'style_component must accept the hover fill slot').toBe(true);
+
+    await open(page, pageId, CTA_SECOND, 1280);
+    const got = await ringOnHover(page, CTA_SECOND);
+    expect(got.bgColor, 'the action-written fill must paint').toBe(got.fill);
+    expect(got.borderColor, 'and the ring must follow it').toBe(got.fill);
   });
 });
 
