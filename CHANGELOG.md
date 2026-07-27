@@ -4,6 +4,35 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.11.1] — 2026-07-27 — recolour a second button's hover fill and its ring comes with it (#538)
+
+**Set `--hero-cta2-hover-bg` and the hover ring turns your colour too. Set the accent knob as well and the accent still wins, exactly as it does today.**
+
+A filled second button already matched its own ring at rest: recolour it with `--hero-cta2-bg` alone and the border follows the fill, so a brand-coloured pill does not end up wearing a theme-blue outline. Hover did not do that. An author who set only `--hero-cta2-hover-bg` got their colour in the fill and the theme's `--color-accent-hover` in the ring — a purple button with a blue edge, which is the exact mismatch the resting behaviour was built to remove. The same gap existed on the CTA block's `--cta-button2-hover-bg`.
+
+The hover ring now falls through to the hover fill, but only from the last position in the chain. `--hero-cta2-hover-border` still wins first, then `--hero-accent-hover`, and only then the fill. That ordering is the whole point: both of those knobs already ship on live sites, and putting the fill ahead of them would have repainted rings authors deliberately chose. A site that sets an accent hover colour sees no change at all. A site that sets neither sees no change at all. The only render that moves is the one that was wrong.
+
+Rest-state behaviour is untouched, and this is scoped to the FILLED (`primary`) second button. An `outline`, `ghost` or `secondary` second button keeps its own variant ring on hover — following the fill on `ghost` would draw a new ring rather than fix a mismatched one, since its border resolves to `transparent`. Set the hover-border slot explicitly on those.
+
+One consequence worth naming: on a cover hero or a background-image CTA band, a fill-only second button's hover ring now matches its fill rather than falling to the theme accent. Neither colour ever cleared the 3:1 contrast bar against a photo scrim, and the resting ring has followed the fill since the second button gained its slots, so this makes hover consistent with rest. The real fix for that band is the second button's own separation ring, tracked in #543, which now needs to cover hover as well as rest.
+
+### Fixed
+
+- The filled second CTA's hover border follows `--hero-cta2-hover-bg` when `--hero-cta2-hover-border` and `--hero-accent-hover` are both unset, so a hover-fill-only recolour keeps a matching ring (#538).
+- The filled second button's hover border in the `cta` component follows `--cta-button2-hover-bg` on the same terms, behind `--cta-button2-hover-border` and `--cta-accent-hover` (#538).
+- Unset, both chains still resolve to `--color-accent-hover`, so a composition that sets none of these slots renders byte-identically.
+
+### Docs
+
+- `components/hero/schema.json` and `components/cta/schema.json` describe the new fallback order on the two hover-border slots, and note on `--hero-accent-hover` / `--cta-accent-hover` that they outrank the second button's hover fill. The CTA schema also records that its hover chain resolves the accent knob BEFORE the fill while its resting chain resolves the fill first, so the ring can match at rest and return to the accent on hover.
+- `ai-instructions/style-component.md` tells the site-builder AI that a filled second button's ring follows the fill in both states, that the accent knobs override it, and that the non-filled variants need an explicit hover-border slot.
+
+### Tests
+
+- `StyleSlotContractTest` flips the two `#530` pins that asserted the hover border must NOT route the hover fill into positional pins of the new contract. The pin isolates the filled variant's `:hover` rule, requires that rule and its `border-color` declaration to appear exactly once (a duplicate of either wins the cascade and would otherwise leave a correct-but-overridden chain green), matches the token order whitespace-tolerantly, and anchors the terminal so appended fallbacks cannot erode the byte-identical guarantee.
+- A new data-driven test pins the deliberate exclusion across all six non-filled second-button hover rules, so folding the fill into the `ghost` chain fails rather than silently ringing every ghost button.
+- The `#538` e2e block adds 15 render-level cases across both components at 1280 and 375: fill-only, fill + authored accent, fill + authored border, accent-only, fully unset, and two that write the slot through the real `style_component` action rather than seeding composition meta.
+
 ## [v1.11.0] — 2026-07-27 — hover & dark-band button contrast: every button state is brandable and legible (rollup)
 
 **v1.11.0 is the rollup release of the Hover & Dark-Band Button Contrast gate — three working versions (1.10.1–1.10.3) verified as one line. Per-instance hover fill slots finally paint on filled buttons, ending the premium gradient's mask over every hover recolour, with hover-state isolation across hero cta2 and cta button2 (#530); dark-band `outline`/`ghost` buttons and the filled button's separation ring route through the established on-inverted/on-overlay accent roles, taking them from sub-AA (3.23:1 / 1.17:1) to 8.33:1 / 4.59:1 with light bands byte-identical (#535); and the section panel CTA gains `--section-panel-cta-bg/-color/-shadow` fill slots mirroring the hero and cta conventions, closing the last button surface with an unreachable fill (#536).**
