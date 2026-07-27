@@ -4,6 +4,36 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.10.2] — 2026-07-27 — outline, ghost and filled buttons stay legible on dark bands (#535)
+
+**A button on an inverted or photo band is now readable by default, and a filled button on a photo band keeps a visible edge instead of dissolving into it.** The dark-band button defaults route through the accent roles the rest of the theme already uses there.
+
+`--color-accent` is tuned for light surfaces. Painted straight onto a dark band it measures 3.23:1 on an inverted band and 1.17:1 over a background-image scrim, so an `outline` or `ghost` button rendered its label and ring below the WCAG AA bar. The cover hero was worse: the rule meant to handle it sat above an identically-specific rule and never won, so its outline button painted near-black ink on the dark scrim. The hero's second CTA, whose variant defaults to `outline`, had the same defect, which meant simply adding a second CTA to a cover hero shipped a sub-AA control without the author choosing anything. Separately, a filled button on a photo band measured under 2:1 against it and its border followed the fill, so the button's shape vanished and only the label carried it.
+
+Every one of these defaults now falls back to `--color-accent-on-inverted` on the solid inverted band and `--color-accent-on-overlay` over an image, the same roles the dark-band body links, stat numbers and highlighted title words already use. No new color ships. On an overlay band that role is also the filled button's border, which gives the shape a readable edge. The solid inverted band deliberately keeps its unringed filled button: it already measures 3.23:1 against the band, which clears the 3:1 bar for a non-text shape.
+
+Per-instance slots still win everywhere, and a light band renders exactly as before. A band you darken yourself with `--cta-bg` gets no automatic ring, because nothing in CSS can compare your authored band color to the button fill.
+
+### Fixed
+
+- Default `outline` and `ghost` buttons on a `theme: "inverted"` CTA route their ink and ring through `--color-accent-on-inverted` (3.23:1 → 8.33:1); `--cta-button-color` / `--cta-button-border` still win when set (#535).
+- The same buttons on a `background_image` CTA, and on a `cover` hero, route through `--color-accent-on-overlay` (1.17:1 → 4.59:1 against the worst-case scrim-over-white composite; the cover hero's outline started from near-black ink at roughly 3.6:1 there and worse over a dark photo) (#535).
+- A `cover` hero's outline button no longer paints near-black ink on its own scrim. The rule responsible had been dead since it shipped: it shared specificity with a later rule and lost on source order (#535).
+- A `cover` hero's second CTA gets the same treatment as the first. Its variant defaults to `outline`, so this closes the case where adding a second CTA silently produced a sub-AA button (#535).
+- A filled button on a `background_image` CTA or a `cover` hero keeps a visible edge at rest AND on hover: its border stops following the fill and bottoms out at the overlay accent role (4.59:1) instead of the sub-2:1 fill. Only the final fallback changed, so `--cta-button-border`, `--cta-accent`, `--hero-accent`, `--hero-button-bg` and the global `--btn-border-color` all still win exactly as before, and an already-branded ring keeps its colour (#535).
+- Hover is unaffected by the dark-band routing. Both transparent variants paint their own contrasting fill on hover, so the ink reverts to that variant's normal hover color rather than carrying a role token onto a surface it was never measured against.
+
+### Docs
+
+- `ai-instructions/retheme.md` states that dark-band `outline`/`ghost` buttons — including the hero's second CTA — route through the same on-inverted / on-overlay roles as links and title accents, that the routing is resting-state only, and that the overlay role doubles as the filled button's separation ring.
+
+### Tests
+
+- css-lint pins every new route (slot → role) per band, the wrong-role and bare-accent regressions, the hover restoration rules, the four source-order dependencies that the dead-rule defect came from, and a negative pin that the inverted filled button is NOT ringed.
+- Rendered `@smoke` coverage across both CTA dark bands and the cover hero: resting and hover computed values, the filled ring, per-instance slot overrides winning, a light-band control, and a non-cover hero control.
+
+---
+
 ## [v1.10.1] — 2026-07-27 — per-instance hover fills reach filled buttons (#530)
 
 **A filled button styled with a brand color no longer snaps back to the theme gradient the moment you point at it.** Hover is now a real per-instance surface on all four filled button slots.
