@@ -45,7 +45,12 @@ Check at https://webaim.org/resources/contrastchecker/
 surfaces; on the dark `--color-bg-inverted` it drops to ~3.2:1 and fails AA for body
 text. Links (and dim accent text like inverted stats numbers) on inverted bands
 therefore route through `--color-accent-on-inverted` (default `#9dafee`, 8.33:1 on the
-default inverted bg) with `--color-accent-on-inverted-hover` for hover. **Pairing
+default inverted bg) with `--color-accent-on-inverted-hover` for hover. The same applies
+to any BUTTON whose variant paints ink straight onto the band: an `outline` or `ghost`
+button on an inverted cta takes its default ink and ring from `--color-accent-on-inverted`
+too (the bare accent measured 3.23:1 there). Only the RESTING state routes this way —
+on hover both variants paint their own contrasting fill, so the ink reverts to the
+variant's normal hover colour. **Pairing
 contract:** if you change `--color-accent` OR `--color-bg-inverted`, keep
 `--color-accent-on-inverted` at ≥ 4.5:1 against `--color-bg-inverted`. The programmatic
 path auto-derives it (a lightened accent tint) when you change `--color-accent` and
@@ -56,8 +61,10 @@ other derived token (see below), so you are told when a base change may not reac
 **Surface-paired accent (the bg-image band).** A section/cta/stats band WITH a
 `background_image` — and a hero with `cover` layout + `image_url` — lays a dark
 `rgba(0,0,0,.55)` overlay over an ARBITRARY image, so EVERY accent surface on that band
-(section/cta links, stats numbers, the `title_accent` substring on all four, and section
-body list markers) routes through a SEPARATE role,
+(section/cta links, stats numbers, the `title_accent` substring on all four, section
+body list markers, and the `outline`/`ghost` buttons on a cta or cover hero — including
+the hero's second CTA, whose variant DEFAULTS to `outline`) routes through a SEPARATE
+role,
 `--color-accent-on-overlay` (default `#fafbff`), with `--color-accent-on-overlay-hover`
 (default `#ffffff`) for hover. This is NOT the same as `--color-accent-on-inverted`:
 on-inverted is tuned to the SOLID `--color-bg-inverted`, but the overlay sits over an
@@ -71,6 +78,15 @@ affordance comes from its underline. The programmatic path auto-derives it (a ne
 accent tint) when you change `--color-accent` and leave it unpinned; a pinned override
 that diverges is surfaced by the same `stale_warnings` / `masked_derived_override`
 machinery as every other derived token.
+
+On an overlay band the role does one more job: it is also the FILLED primary button's
+border, so the button keeps a visible edge. The premium gradient fill measures only
+~1.1:1 against the worst-case composite, so without that ring the button's shape
+disappears into the band and only its label carries it. The solid inverted band does NOT
+get this ring — the same fill measures 3.23:1 there, which already clears the 3:1
+non-text bar. Per-instance slots (`--cta-button-border`, `--hero-accent`) still win, so
+you can recolour the ring; a band you darken yourself with `--cta-bg` gets no automatic
+ring, because nothing in CSS can compare your authored band colour to the button fill.
 
 Example retheme — warm neutral:
 ```css
