@@ -49,12 +49,12 @@ const BAND_RESTORING = /(?:^|[;{\s])(?:min-)?width\s*:|(?:^|[;\s])flex\s*:|place
 // Shared by the #225 (hero) and #255 (cta) eyebrow guards below — both need to reason
 // about "every rule touching this class, in every media context", and a second copy of
 // this parser would be a place for the two to silently drift apart.
-function rulesMatching(needle) {
-    const css = stripComments(COMPONENTS_CSS);
-    // Class-boundary match, so `.hero__eyebrow` never swallows `.hero__eyebrow--lg`.
-    const boundary = new RegExp(
-        needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\w-])'
-    );
+// EVERY rule in components.css, in source order, each tagged with its @media context
+// (null at top level) and its source `index`. `rulesMatching` filters this; the #542
+// focus-ring guards consume it whole, because their "no OTHER rule sets outline-color"
+// pin has to see rules that do not mention the needle at all. One parser, so a
+// media-aware caller and a whole-file caller cannot drift apart.
+function parseRules(css = stripComments(COMPONENTS_CSS)) {
     const rules = [];
     // A stack, not a depth counter: components.css already nests at-rules (@keyframes
     // at :909), and any nested block — @supports, @keyframes, an inner @media — emits
@@ -69,16 +69,22 @@ function rulesMatching(needle) {
             stack.push(match[1] === 'media' ? match[2].trim() : null);
         } else if (match[3] !== undefined) {
             const selectors = match[3].split(',').map(s => s.trim().replace(/\s+/g, ' '));
-            if (selectors.some(s => boundary.test(s))) {
-                // Nearest enclosing @media, looking outward past non-media at-rules.
-                const media = [...stack].reverse().find(m => m !== null) ?? null;
-                rules.push({ selectors, body: match[4], media });
-            }
+            // Nearest enclosing @media, looking outward past non-media at-rules.
+            const media = [...stack].reverse().find(m => m !== null) ?? null;
+            rules.push({ selectors, body: match[4], media, index: match.index });
         } else if (match[0] === '}') {
             stack.pop();
         }
     }
     return rules;
+}
+
+function rulesMatching(needle) {
+    // Class-boundary match, so `.hero__eyebrow` never swallows `.hero__eyebrow--lg`.
+    const boundary = new RegExp(
+        needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\w-])'
+    );
+    return parseRules().filter(r => r.selectors.some(s => boundary.test(s)));
 }
 
 describe('CSS lint: positional selectors', () => {
@@ -3410,5 +3416,199 @@ describe('CSS lint: fill-slot re-pointing targets are never @property-registered
             new RegExp('@property\\s+' + slot + '\\b').test(bad),
         );
         expect(hits).toEqual(['--hero-button-hover-bg']);
+    });
+});
+
+/**
+ * The FOCUS RING on dark bands (#542).
+ *
+ * `main .btn:focus, main .btn:focus-visible` paints the live focus indicator for every
+ * composed button, and `outline-offset` puts it OUTSIDE the button — on the BAND. The
+ * bare light-surface --color-accent measured there:
+ *
+ *   --color-bg-inverted (theme:"inverted")                  3.23:1
+ *   --overlay-bg scrim over a WHITE image, rgb(115,115,115)  1.17:1  <- 1.4.11 failure
+ *   same scrim over a mid-grey image, rgb(58,58,58)          2.06:1  <- 1.4.11 failure
+ *
+ * Both bands now bottom out at the role token base.css defines for them (8.33:1 and
+ * 4.59:1). The routing is COLOUR-ONLY: width, style, offset and the box-shadow glow all
+ * stay with the base rules, so light bands are byte-identical and no ring is revealed
+ * that was not already painted.
+ *
+ * SECTION bands are deliberately absent from ROUTES. A section's only rendered button is
+ * `.section__panel-cta`, which sits inside `.section__panel` — a LIGHT surface
+ * (--color-surface) with --space-lg padding, so the ring lands on the panel, not the band.
+ * Routing it measured 5.18:1 -> 2.02:1 / 1.04:1, i.e. worse than the bug. Same carve-out
+ * #424/#463 made for the panel's list markers. The NEGATIVE pin below keeps it that way.
+ */
+describe('CSS lint: dark-band focus ring routes through the AA accent roles (#542)', () => {
+    // Media-aware and whole-file: a routed block wrapped in a never-matching @media, or a
+    // reverting rule declared inside one, must not read as green (see parseRules).
+    const rules = parseRules();
+    // A routed BLOCK is one rule with a grouped selector, so look it up by any member.
+    const blocksFor = (sel) => rules.filter(r => r.selectors.includes(sel));
+    const blockFor = (sel) => blocksFor(sel)[0];
+    const esc = (s) => s.replace(/[-]/g, '\\-');
+
+    const INVERTED_SELECTORS = [
+        '.cta--inverted .btn:focus',
+    ];
+    const OVERLAY_SELECTORS = [
+        '.hero--cover .btn:focus',
+        '.cta--has-bg-image .btn:focus',
+    ];
+    const ROUTES = INVERTED_SELECTORS.map(sel => ({ sel, role: '--color-accent-on-inverted' }))
+        .concat(OVERLAY_SELECTORS.map(sel => ({ sel, role: '--color-accent-on-overlay' })));
+
+    ROUTES.forEach(({ sel, role }) => {
+        test(`${sel} routes the ring through ${role}`, () => {
+            const rule = blockFor(sel);
+            expect(rule).toBeDefined();
+            expect(rule.body).toMatch(new RegExp(
+                'outline-color\\s*:\\s*var\\(\\s*' + esc(role) + '\\s*\\)'
+            ));
+        });
+
+        test(`${sel} does not fall back to the bare accent or the wrong role`, () => {
+            const rule = blockFor(sel);
+            expect(rule).toBeDefined();
+            // The 3.23:1 / 1.17:1 bug: the bare light-surface accent.
+            expect(rule.body).not.toMatch(/var\(\s*--color-accent\s*\)/);
+            // Wrong surface: on-inverted is only 2.21:1 over the arbitrary-image scrim,
+            // and on-overlay is not the tuned choice for the solid inverted band.
+            const wrongRole = role === '--color-accent-on-overlay'
+                ? '--color-accent-on-inverted'
+                : '--color-accent-on-overlay';
+            expect(rule.body).not.toMatch(new RegExp(esc(wrongRole)));
+        });
+
+        /*
+         * COLOUR-ONLY. Re-declaring the `outline` SHORTHAND here would reset offset to its
+         * initial 0 and collapse the ring onto the button edge; re-declaring width or style
+         * would reveal a ring on surfaces that deliberately suppress one. Width, style,
+         * offset and the box-shadow glow must all stay upstream.
+         */
+        test(`${sel} overrides ONLY the outline colour`, () => {
+            const rule = blockFor(sel);
+            expect(rule).toBeDefined();
+            const props = rule.body
+                .split(';')
+                .map(d => d.split(':')[0].trim())
+                .filter(Boolean);
+            expect(props).toEqual(['outline-color']);
+        });
+
+        /*
+         * A DUPLICATE rule appended later wins the cascade while every other pin here still
+         * passes — the same hole the #535 uniqueness pin closes.
+         */
+        test(`${sel} is declared exactly once (a later duplicate would silently win)`, () => {
+            expect(blocksFor(sel).length).toBe(1);
+        });
+
+        // A routed block moved into a media block applies only at that width; every other
+        // pin here still reads green because the rule text is unchanged.
+        test(`${sel} is declared at the top level, not inside a media block`, () => {
+            expect(blockFor(sel).media).toBeNull();
+        });
+    });
+
+    /*
+     * SEMANTIC PRECEDENCE, not formatting. ONE root can carry an inverted class AND a
+     * bg-image class: components/cta/cta.php:75 concatenates `pp_theme_class($theme,'cta')`
+     * and `cta--has-bg-image` independently (section.php:186 does the same, which is why
+     * section bands would have had the identical dependency had they been routed). The two
+     * blocks then match at [0,3,0] and only source order decides. The OVERLAY role must
+     * win: on-inverted is only 2.21:1 over the worst-case scrim, so the combined band would
+     * otherwise get a ring that fails 1.4.11 harder than the bug this fixes.
+     */
+    test('the overlay block follows the inverted block (combined inverted + bg-image cta)', () => {
+        const inverted = blockFor('.cta--inverted .btn:focus');
+        const overlay = blockFor('.cta--has-bg-image .btn:focus');
+        expect(inverted).toBeDefined();
+        expect(overlay).toBeDefined();
+        expect(overlay.index).toBeGreaterThan(inverted.index);
+    });
+
+    /*
+     * These rules win on SPECIFICITY, not source order: [0,3,0] (band class + .btn +
+     * :focus) against the [0,2,1] of `main .btn:focus`. Losing a class from a routed
+     * selector would silently hand the ring back to the bare accent. Specificity is
+     * computed from the selector AS PARSED OUT OF components.css, never from this file's
+     * own constants — otherwise the assertion can only fail when the test is edited.
+     */
+    test('every routed selector outranks the `main .btn:focus` winner, as parsed from the CSS', () => {
+        // [classes+pseudo-classes, type selectors] — enough to compare these shapes.
+        const specificity = (sel) => [
+            (sel.match(/[.:][a-zA-Z][\w-]*/g) || []).length,
+            (sel.match(/(?:^|\s)[a-zA-Z][\w-]*/g) || []).length,
+        ];
+        const base = blockFor('main .btn:focus');
+        expect(base).toBeDefined();
+        const [baseCls, baseType] = specificity('main .btn:focus');
+        ROUTES.forEach(({ sel }) => {
+            const parsed = blockFor(sel).selectors.find(s => s === sel);
+            expect(parsed).toBe(sel);
+            const [cls, type] = specificity(parsed);
+            expect(cls > baseCls || (cls === baseCls && type > baseType)).toBe(true);
+        });
+    });
+
+    /*
+     * LIGHT-BAND BYTE IDENTITY. The three base focus rules must keep their exact
+     * declarations — a light band matches none of the routed selectors, so its focus
+     * rendering is unchanged if and only if these are untouched.
+     */
+    const BASE_FOCUS = [
+        { sel: '.btn:focus-visible', offset: '3px' },
+        { sel: 'main .btn:focus-visible', offset: '4px' },
+        { sel: 'main .btn:focus', offset: '4px' },
+    ];
+    BASE_FOCUS.forEach(({ sel, offset }) => {
+        test(`${sel} still declares the unrouted accent ring at ${offset} (light bands unchanged)`, () => {
+            const rule = blockFor(sel);
+            expect(rule).toBeDefined();
+            expect(rule.body).toMatch(/outline\s*:\s*2px\s+solid\s+var\(\s*--color-accent\s*\)/);
+            expect(rule.body).toMatch(new RegExp('outline-offset\\s*:\\s*' + offset));
+        });
+    });
+
+    /*
+     * CLOSED SET, over the SHORTHAND as well as the longhand. Any rule outside the routed
+     * blocks that paints an outline colour is either a band this issue did not measure or a
+     * light-band regression — and the shorthand is the sneaky half: `.btn:focus { outline:
+     * 2px solid red }` appended anywhere reverts the light-band ring while a longhand-only
+     * scan stays green. `:focus-visible` twins of the routed selectors are offenders for the
+     * same reason: they tie at [0,3,0], win on source order for exactly the keyboard users
+     * this issue is about, and are not one of the three documented base rules.
+     */
+    const BASE_FOCUS_SELECTORS = BASE_FOCUS.map(b => b.sel);
+    const ROUTED_SELECTORS = ROUTES.map(r => r.sel);
+    test('no rule outside the routed blocks and the three base rules paints an outline colour', () => {
+        const offenders = rules
+            .filter(r => /(?:^|[;{\s])outline(-color)?\s*:/.test(r.body))
+            .filter(r => !r.selectors.every(s =>
+                ROUTED_SELECTORS.includes(s) || BASE_FOCUS_SELECTORS.includes(s)))
+            .map(r => r.selectors.join(', '));
+        expect(offenders).toEqual([]);
+    });
+
+    /*
+     * NEGATIVE PIN — section bands stay unrouted (see the describe docblock and the CSS
+     * comment). `.section__panel-cta` is the only button a section renders and it sits on
+     * the LIGHT `.section__panel`, so routing its ring measured 5.18:1 -> 2.02:1 / 1.04:1.
+     * A future edit "completing the set" is a WCAG regression, not a consistency fix.
+     */
+    test('no section band routes a focus ring (the panel CTA sits on a LIGHT panel)', () => {
+        const offenders = rules
+            .filter(r => /outline(-color)?\s*:/.test(r.body))
+            .filter(r => r.selectors.some(s => /\.(pp-)?section--(inverted|has-bg-image)\b/.test(s)))
+            .map(r => r.selectors.join(', '));
+        expect(offenders).toEqual([]);
+    });
+
+    test('the roles these rules depend on are declared in base.css :root', () => {
+        expect(BASE_CSS).toMatch(/--color-accent-on-inverted:\s*#[0-9a-fA-F]{6}/);
+        expect(BASE_CSS).toMatch(/--color-accent-on-overlay:\s*#[0-9a-fA-F]{6}/);
     });
 });

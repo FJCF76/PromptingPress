@@ -4,6 +4,40 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.11.2] — 2026-07-27 — the focus ring stays visible on dark bands (#542)
+
+**Tab onto a button over a photo band and you can now see where you are. Before, the focus ring was blue-on-grey at 1.17:1 and effectively invisible.**
+
+Keyboard focus is drawn as an outline sitting just outside the button, which means it lands on the BAND, not on the button's own fill. That outline was always the light-surface accent. On a `theme: "inverted"` band it measured 3.23:1 against the background; over the dark scrim of a `background_image` band or a `cover` hero it measured 1.17:1 in the worst case. WCAG 1.4.11 asks for 3:1. A keyboard user tabbing across a photo band got a control that gave no sign it was focused, and the only edge visible was the separation ring the button already wears at rest — so focused and not-focused looked the same.
+
+The ring's default now routes through the accent role each band already uses for its links and its button ink: `--color-accent-on-inverted` on an inverted band (8.33:1) and `--color-accent-on-overlay` on a background-image band or cover hero (4.59:1 against the worst-case scrim). This covers every variant, filled ones included, on the `cta` block and the hero, and it applies to any `cover` hero whether or not it carries an image, because the scrim is painted either way. Nothing else about the ring changes: same 2px width, same style, same 4px offset, same glow. A light band's focus ring is byte-identical to what it was.
+
+Keyboard navigation is the case that motivated this, but the routing attaches to `:focus` rather than `:focus-visible`, so it recolours whatever ring a button already paints — which on a composed button includes the one a pointer click paints. No ring appears anywhere one was not appearing before; only its colour moves.
+
+Two scope calls worth knowing. A `text-panel` section is deliberately left alone even on those bands: its `panel_cta` sits inside the panel, which is a self-contained light surface, so its ring already reads at 5.14:1 there and the dark-band roles would have dropped it to 1.04:1. And a band you darken yourself with `--cta-bg` instead of `theme: "inverted"` carries no band class, so it gets no routing — keep `--color-accent` legible against any band colour you author.
+
+### Fixed
+
+- The focus ring on every button variant of an inverted `cta` falls back to `--color-accent-on-inverted` instead of the light-surface accent, taking it from 3.23:1 to 8.33:1 against the band (#542).
+- The focus ring on every button variant of a `background_image` `cta` or a `cover` hero falls back to `--color-accent-on-overlay`, taking it from 1.17:1 to 4.59:1 against the worst-case scrim — the difference between no visible focus indicator and a clear one (#542).
+- A band carrying both an inverted theme and a background image resolves to the overlay role, which is the one tuned for an arbitrary image behind the scrim.
+- Only the ring's colour is routed. Width, style, offset and the focus glow stay where they were, so a light band's focus rendering is unchanged.
+
+### Docs
+
+- `ai-instructions/retheme.md` adds the focus ring to the surfaces each accent role covers, records that the routing is colour-only, and names the `text-panel` section exclusion and the authored-band blind spot.
+- `components/cta/README.md` and `components/hero/README.md` describe the routed focus ring alongside the ink and separation-ring routing they already documented.
+
+### Tests
+
+- `tests/js/css-lint.test.js` pins each routed selector to its band's role, rejects the bare accent and the wrong-surface role, and requires each block to declare `outline-color` and nothing else.
+- Pins the combined inverted + background-image band's source-order dependency, the specificity relationship computed from the CSS itself, and that every routed block sits at the top level rather than inside a media block.
+- A closed-set pin covers the `outline` shorthand as well as the longhand, so a re-declaration anywhere in `components.css` that reverts a light-band or keyboard focus ring fails instead of shipping.
+- A negative pin keeps section bands unrouted, with the measured panel figures recorded as the reason.
+- The shared rule parser is now media-aware and whole-file for every caller, so a rule hidden inside a never-matching media block can no longer read as green.
+
+---
+
 ## [v1.11.1] — 2026-07-27 — recolour a second button's hover fill and its ring comes with it (#538)
 
 **Set `--hero-cta2-hover-bg` and the hover ring turns your colour too. Set the accent knob as well and the accent still wins, exactly as it does today.**

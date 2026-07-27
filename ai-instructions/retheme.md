@@ -50,7 +50,10 @@ to any BUTTON whose variant paints ink straight onto the band: an `outline` or `
 button on an inverted cta takes its default ink and ring from `--color-accent-on-inverted`
 too (the bare accent measured 3.23:1 there). Only the RESTING state routes this way —
 on hover both variants paint their own contrasting fill, so the ink reverts to the
-variant's normal hover colour. **Pairing
+variant's normal hover colour. The FOCUS RING is routed through the same role on an
+inverted cta, for EVERY button variant including the filled one: the ring is drawn
+outside the button, so it lands on the band rather than on the button's own fill.
+**Pairing
 contract:** if you change `--color-accent` OR `--color-bg-inverted`, keep
 `--color-accent-on-inverted` at ≥ 4.5:1 against `--color-bg-inverted`. The programmatic
 path auto-derives it (a lightened accent tint) when you change `--color-accent` and
@@ -62,9 +65,11 @@ other derived token (see below), so you are told when a base change may not reac
 `background_image` — and a hero with `cover` layout + `image_url` — lays a dark
 `rgba(0,0,0,.55)` overlay over an ARBITRARY image, so EVERY accent surface on that band
 (section/cta links, stats numbers, the `title_accent` substring on all four, section
-body list markers, and the `outline`/`ghost` buttons on a cta or cover hero — including
-the hero's second CTA, whose variant DEFAULTS to `outline`) routes through a SEPARATE
-role,
+body list markers, the `outline`/`ghost` buttons on a cta or cover hero — including
+the hero's second CTA, whose variant DEFAULTS to `outline` — and the FOCUS RING of
+EVERY button variant on a bg-image cta or cover hero — drawn outside the button, so it
+lands on the scrim, and applying to any `cover` hero whether or not it has an
+`image_url`, because the scrim is painted either way) routes through a SEPARATE role,
 `--color-accent-on-overlay` (default `#fafbff`), with `--color-accent-on-overlay-hover`
 (default `#ffffff`) for hover. This is NOT the same as `--color-accent-on-inverted`:
 on-inverted is tuned to the SOLID `--color-bg-inverted`, but the overlay sits over an
@@ -87,6 +92,21 @@ get this ring — the same fill measures 3.23:1 there, which already clears the 
 non-text bar. Per-instance slots (`--cta-button-border`, `--hero-accent`) still win, so
 you can recolour the ring; a band you darken yourself with `--cta-bg` gets no automatic
 ring, because nothing in CSS can compare your authored band colour to the button fill.
+
+The focus ring is a SEPARATE surface from that border and has no per-instance slot:
+recolouring a button's border does not recolour its focus ring, and vice versa. Both
+dark-band focus routings change the ring's COLOUR only — its width, style and offset are
+unchanged, and a light band's focus ring is exactly what it always was.
+
+Focus-ring routing covers the cta and the cover hero, the two components that put a
+button ON the band. A `text-panel` SECTION is deliberately excluded even on those bands:
+its `panel_cta` sits inside the panel, which is a self-contained LIGHT surface, so its
+ring already contrasts there and the dark-band roles would make it worse. Same reasoning
+as the panel's list markers. A dark band you produce yourself with `--cta-bg` /
+`--section-bg` rather than `theme: "inverted"` or a `background_image` carries no band
+class, so it gets no routing at all; keep `--color-accent` legible against any band
+colour you author, and note the reverse also holds — if you LIGHTEN a scrim with
+`--cta-overlay-bg` the band keeps its class and keeps the near-white routing.
 
 Example retheme — warm neutral:
 ```css

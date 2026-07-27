@@ -47,6 +47,14 @@ state only — on hover each variant paints its own contrasting fill. On a
 `background_image` band the filled button also takes its border from that role so its
 shape stays visible against the band.
 
+The focus ring follows the same routing, for EVERY variant including the filled one:
+it is drawn outside the button, so it lands on the band, where the bare accent measured
+3.23:1 (inverted) and 1.17:1 (over the worst-case scrim) against the 3:1 that WCAG
+1.4.11 requires. Keyboard focus is the case that motivated it, but the routing attaches
+to `:focus`, so it recolours whatever ring the button already paints — on a composed
+button that includes the one a pointer click paints. Only the COLOUR changes: width,
+style and offset are untouched, and a light-band cta's focus ring is unchanged.
+
 ## Second button (`button2_*`)
 
 A closing CTA can offer a primary + secondary pair — "Ver planes" *and* "Hablar con
