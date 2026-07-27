@@ -32,7 +32,7 @@ Full-width hero section with headline, optional subtitle, optional CTA button, a
 - **centered** — All content centered horizontally. Best for homepage hero.
 - **left** — Content aligned left. Best for interior page headers.
 - **split** — Text on left, image on right (two-column at lg+). Best for feature introductions.
-- **cover** — Fullscreen background image with a dark overlay and light text. Best for high-impact landing pages.
+- **cover** — Fullscreen background image with a dark overlay and light text. Best for high-impact landing pages. Both CTAs sit on that overlay, so their `outline`/`ghost` defaults fall back to `--color-accent-on-overlay` rather than the light-surface accent, and the filled CTA takes its border from the same role so its shape stays visible against the image. `--hero-text` (first CTA) and `--hero-cta2-color` / `--hero-cta2-border` (second) still win when set.
 
 ## Usage
 
