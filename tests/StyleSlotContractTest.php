@@ -674,6 +674,59 @@ class StyleSlotContractTest extends TestCase
      * swapping the var() form for `initial` on --hero-button-bg would kill the leak but
      * leave --hero-cta2-bg masked again (the pre-existing half).
      */
+    /**
+     * Issue 474 — the cta's own second button carries the #526 isolation mechanism, and
+     * three SLOT_DECLARATION_EXEMPTIONS entries were added to permit it. Those exemptions
+     * switch OFF the slot-deadening guard for this rule, so this is the compensating
+     * STATIC pin (the hero equivalent below is the precedent): dropping any one of the
+     * three declarations, or qualifying the selector with a variant, silently restores
+     * half the #514-class leak while every other check here stays green. The rendered
+     * proof lives in tests/e2e/style-render.spec.ts, but that needs a live WP env — this
+     * one runs in the unit suite on every push.
+     */
+    public function testIssue474CtaButton2SlotIsolationAndFillRouting(): void
+    {
+        $block = $this->stripComments($this->componentBlock('cta'));
+
+        $selector = '/(?:^|\})\s*\.cta\s+\.cta__buttons\s+\.cta__button--secondary\s*\{([^}]*)\}/';
+        $this->assertMatchesRegularExpression(
+            $selector,
+            $block,
+            'The issue 474 button2 isolation rule is missing, or its selector gained a '
+            . 'variant qualifier — it must stay an unqualified .cta__button--secondary rule '
+            . 'so the primary button slots are unreachable on every button2 variant.'
+        );
+        preg_match($selector, $block, $m);
+        $isolation = $m[1] ?? '';
+
+        $this->assertMatchesRegularExpression(
+            '/--cta-button-bg:\s*var\(--cta-button2-bg\)\s*;/',
+            $isolation,
+            'The isolation rule must re-point --cta-button-bg at --cta-button2-bg (issue 474): '
+            . 'that single declaration both kills the slot leak (unset -> guaranteed-invalid -> '
+            . 'premium fallback) AND routes the button2 fill into the gradient-clearing chain. '
+            . 'Plain `initial` here would fix the leak but leave --cta-button2-bg masked again.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/--cta-button-color:\s*initial\s*;/',
+            $isolation,
+            'The isolation rule must reset --cta-button-color on button2 (issue 474).'
+        );
+        $this->assertMatchesRegularExpression(
+            '/--cta-button-shadow:\s*initial\s*;/',
+            $isolation,
+            'The isolation rule must reset --cta-button-shadow on button2 (issue 474).'
+        );
+
+        // The button2 rest rule still consumes --cta-button2-bg directly (background-color),
+        // so the slot stays author-reachable on the element the isolation rule targets.
+        $this->assertMatchesRegularExpression(
+            '/background-color:\s*var\(--cta-button2-bg,/',
+            $block,
+            'The button2 rest rule must still consume --cta-button2-bg as a background-color.'
+        );
+    }
+
     public function testIssue526HeroCta2SlotIsolationAndFillRouting(): void
     {
         $block = $this->stripComments($this->componentBlock('hero'));
@@ -1323,6 +1376,18 @@ class StyleSlotContractTest extends TestCase
         '.hero .hero__cta-group .hero__cta--secondary declares --hero-button-bg',
         '.hero .hero__cta-group .hero__cta--secondary declares --hero-button-color',
         '.hero .hero__cta-group .hero__cta--secondary declares --hero-button-shadow',
+        // issue 474 — the SAME isolation mechanism for the cta component's own second
+        // button, and exempt for the same reason. .cta__button--secondary is a
+        // descendant of the .cta root, so it inherits the PRIMARY button's
+        // --cta-button-* slots; a filled (`primary`) button2 sits in the shared premium
+        // button cascade and would be repainted by them. Nothing an author can set on
+        // the second button is deadened: its own author-facing slots are --cta-button2-*,
+        // none of which is declared here. --cta-button-bg is re-pointed at
+        // --cta-button2-bg (routing the button2 fill into the premium gradient-clearing
+        // chain); the other two are reset to the guaranteed-invalid `initial`.
+        '.cta .cta__buttons .cta__button--secondary declares --cta-button-bg',
+        '.cta .cta__buttons .cta__button--secondary declares --cta-button-color',
+        '.cta .cta__buttons .cta__button--secondary declares --cta-button-shadow',
     ];
 
     public function testNoStylesheetRuleDeclaresASchemaSlot(): void

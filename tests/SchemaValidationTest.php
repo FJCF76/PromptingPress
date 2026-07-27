@@ -248,7 +248,7 @@ class SchemaValidationTest extends TestCase
             'hero'    => 44,
             'section' => 40,
             'grid'    => 37,
-            'cta'     => 31,
+            'cta'     => 37,
         ];
 
         foreach ($expected as $component => $count) {
@@ -2264,7 +2264,7 @@ class SchemaValidationTest extends TestCase
      * intentionally ADD a prop, append it here in the same change.
      */
     private const PINNED_PROP_BASELINE = [
-        'cta'          => ['id', 'title', 'title_accent', 'eyebrow', 'text', 'button_text', 'button_url', 'layout', 'theme', 'background_image', 'button_variant'],
+        'cta'          => ['id', 'title', 'title_accent', 'eyebrow', 'text', 'button_text', 'button_url', 'button2_text', 'button2_url', 'button2_variant', 'layout', 'theme', 'background_image', 'button_variant'],
         'embed'        => ['id', 'title', 'content', 'theme'],
         'faq'          => ['id', 'title', 'title_accent', 'eyebrow', 'theme', 'items'],
         'footer'       => ['location', 'show_logo', 'logo_text', 'logo_id', 'logo_alt', 'bg', 'text', 'link_color', 'blurb', 'contact', 'copyright', 'menu_label', 'contact_label', 'secondary_location', 'secondary_label', 'note', 'social'],

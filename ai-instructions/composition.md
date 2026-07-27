@@ -48,7 +48,7 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 | faq     | items[] {question, answer}              | title, title_accent, eyebrow, theme, id                 |
 | grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, heading_align, layout, card_emphasis, theme, columns, image_treatment |
 | table   | headers[], rows[][]                     | title, caption                                          |
-| cta     | button_text, button_url                 | title, title_accent, eyebrow, text, layout, theme, background_image, button_variant |
+| cta     | button_text, button_url                 | title, title_accent, eyebrow, text, button2_text, button2_url, button2_variant, layout, theme, background_image, button_variant |
 | stats   | items[] {number, label}                 | title, title_accent, theme, background_image            |
 | logos   | items[] {image_url, image_alt, image_id?, label?} | title, theme                                  |
 | embed   | content                                 | title, theme                                            |
@@ -64,7 +64,7 @@ next. The rule (#439):
 |----------|-------|--------------------|
 | **Rich HTML** (`wp_kses_post`) | `section.body`, `faq.items[].answer` | Block markup: paragraphs, lists, headings, links, `strong`/`em`. These are the main prose surfaces. |
 | **Inline HTML** (`a, strong, em, br`) | `cta.text`, `grid.items[].text`, `testimonials.items[].quote` | Supporting copy with a link or light emphasis, e.g. `Read our <a href="/terms">terms</a>.` No block elements — `<p>`, `<ul>`, `<h2>` are stripped. |
-| **Plain text** (escaped) | Titles, eyebrows, subheadings, `button_text`, `stats.items[].label`, `stats.items[].number`, `grid.items[].title`, `testimonials.items[].author`, `faq.items[].question`, and all URLs | Text only. Any `<...>` renders as visible characters, not markup. |
+| **Plain text** (escaped) | Titles, eyebrows, subheadings, `button_text`, `button2_text`, `stats.items[].label`, `stats.items[].number`, `grid.items[].title`, `testimonials.items[].author`, `faq.items[].question`, and all URLs | Text only. Any `<...>` renders as visible characters, not markup. |
 
 Both HTML contracts are allowlist-sanitized: `script`, `style`, `iframe`, event
 handlers (`onclick`), and `javascript:` URLs are always stripped, whoever authored
@@ -79,6 +79,30 @@ plain-text prop (it will show as literal `<a href=...>` text on the page).
 ```json
 { "component": "cta", "props": { "button_text": "Get started free →", "button_url": "/signup" } }
 ```
+
+### cta: primary + secondary button pair
+
+A closing CTA can offer two actions instead of forcing a choice between them. Set
+`button2_text` (and `button2_url`) alongside the primary button props; `button2_variant`
+defaults to `outline`, so the pair reads as one filled action and one outlined
+action without setting it. This is the `cta` equivalent of the hero's `cta2_text` / `cta2_url`,
+so a closing band does not have to become a `hero` just to offer a secondary action.
+
+```json
+{ "component": "cta", "props": {
+  "title": "Listo para empezar",
+  "button_text": "Ver planes",   "button_url": "/precios",
+  "button2_text": "Hablar con nosotros", "button2_url": "/contacto"
+} }
+```
+
+Omit `button2_text` and the CTA renders exactly as it always has — one button, no
+wrapper element. The two buttons take independent per-instance RESTING colors
+(`--cta-button-bg` / `-color` / `-shadow` for the primary, `--cta-button2-*` for the
+second); neither reaches the other. Hover is not isolated: setting the primary's
+`--cta-button-hover-bg` also clears the second button's hover gradient, so set
+`--cta-button2-hover-bg` too when the pair needs distinct hover fills. At mobile
+widths the pair stacks one button per row.
 
 ### section.theme
 

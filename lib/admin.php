@@ -1063,7 +1063,7 @@ function pp_validate_composition_errors(array $items): array {
 
         // Link-URL format family (issue 507). A prop MAY declare `format: "link_url"`
         // (the #154 media-URL annotation pattern, applied to the destination-URL
-        // props: cta.button_url, hero.cta_url/cta2_url, section.panel_cta_url,
+        // props: cta.button_url/button2_url, hero.cta_url/cta2_url, section.panel_cta_url,
         // grid.items[].link_url). The renderer runs esc_url() on these, which
         // SILENTLY neuters a disallowed-protocol value (javascript:, data:, ...) into
         // an empty href — a dead button — while still reporting ok:true. This rejects

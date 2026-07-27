@@ -351,6 +351,32 @@ flat-button capability, not a new default.
 > has not individually restyled. See `ai-instructions/retheme.md` for the full global
 > button surface.
 
+**A cta with a second button (`button2_text`) has TWO button surfaces.** The
+`--cta-button-*` slots above address the PRIMARY button only; the second button has its
+own `--cta-button2-bg` / `-border` / `-color` / `-hover-bg` / `-hover-border` /
+`-hover-color`. Restyling the primary alone therefore leaves the second button on the
+default treatment, which is usually what you want for a filled + outlined pair. To
+recolor both, set both families:
+```bash
+wp pp action execute style_component --run-id=<uuid> --params='{
+  "post_id": 19,
+  "component_id": "pp-a1b2c3d4",
+  "style": {
+    "--cta-button-bg": "#7c3aed",
+    "--cta-button-color": "#ffffff",
+    "--cta-button2-color": "#7c3aed",
+    "--cta-button2-border": "#7c3aed"
+  }
+}'
+```
+Two caveats, both shared with the hero's second CTA: a flat per-instance fill reverts to
+the shared premium gradient on hover, and hover is NOT isolated between the two buttons
+— setting the primary's `--cta-button-hover-bg` also clears the second button's hover
+gradient, so set `--cta-button2-hover-bg` alongside it when the pair needs distinct hover
+fills. On a dark band (`theme: "inverted"` or a `background_image`) the second button's
+default outline/ghost ink already routes to the AA-safe on-dark accent role, so it is
+readable without any slot; set `--cta-button2-color` only to override that.
+
 **Brand-accent hero primary button (fill slots).** The hero's primary (filled) CTA
 ships the same premium gradient treatment as the cta button. `--hero-accent` recolors
 the button's BORDER (and the outline CTA's hover fill) but NOT the filled primary's

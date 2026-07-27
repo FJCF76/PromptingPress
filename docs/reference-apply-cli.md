@@ -184,7 +184,7 @@ A page whose stored composition already carries a collision (written before this
 
 **Unknown component props (#147).** Each component declares its full prop contract in `components/<name>/schema.json` under `props`. A composition whose component carries a prop key not in that contract is rejected at write time by `pp_validate_composition()`, so `create_page`, `update_composition`, `add_component`, `update_component`, and the dashboard editor's save all fail with:
 
-> `Component "cta" has no prop "not_a_real_prop". Available props: id, title, title_accent, eyebrow, text, button_text, button_url, layout, theme, background_image, button_variant [unknown_prop]`
+> `Component "cta" has no prop "not_a_real_prop". Available props: id, title, title_accent, eyebrow, text, button_text, button_url, button2_text, button2_url, button2_variant, layout, theme, background_image, button_variant [unknown_prop]`
 
 The source of truth is the component's full schema `props`, not the narrower schema-derived scalar-patch set (`pp_get_component_fields()`, which exposes only scalar props for `operate patch`), so real props like `cta.theme` and `cta.background_image` are accepted while a misspelled or invented key is not — closing the "phantom field" hole where an unknown key would persist behind an `ok:true` while the renderer silently ignored it. Unlike template-owned chrome and duplicate ids, this rule has no composition-smell counterpart: a stored composition that already carries an unknown prop (from a legacy write or a raw non-action path) is surfaced by `restore_composition`, which never blocks undo and instead reports the `unknown_prop` finding (#233), rather than by `wp pp check page`.
 
@@ -192,7 +192,7 @@ The source of truth is the component's full schema `props`, not the narrower sch
 
 > `Component "cta" prop "title" must be a string; got array. [invalid_prop_value]`
 
-**Link-URL format (#507).** A prop that declares `format: "link_url"` (today `cta.button_url`, `hero.cta_url` / `cta2_url`, `section.panel_cta_url`, and `grid.items[].link_url`) is validated so the write cannot report `ok:true` for a value that `esc_url()` would silently neuter into an empty `href` — a dead button. The bar is "what survives `esc_url()` renders as authored": a site-relative path (`/pricing`), an anchor (`#booking`), a protocol-relative URL (`//cdn.example.com/x`), `mailto:`, `tel:`, and any other `wp_allowed_protocols()` scheme are accepted; a value carrying a disallowed protocol (`javascript:`, `data:`, `vbscript:`, ...) is rejected:
+**Link-URL format (#507).** A prop that declares `format: "link_url"` (today `cta.button_url` / `cta.button2_url`, `hero.cta_url` / `cta2_url`, `section.panel_cta_url`, and `grid.items[].link_url`) is validated so the write cannot report `ok:true` for a value that `esc_url()` would silently neuter into an empty `href` — a dead button. The bar is "what survives `esc_url()` renders as authored": a site-relative path (`/pricing`), an anchor (`#booking`), a protocol-relative URL (`//cdn.example.com/x`), `mailto:`, `tel:`, and any other `wp_allowed_protocols()` scheme are accepted; a value carrying a disallowed protocol (`javascript:`, `data:`, `vbscript:`, ...) is rejected:
 
 > `Component "cta" prop "button_url" is not a usable link URL: "javascript:alert(1)" uses a disallowed protocol and would render as a dead link. Use an absolute URL (https://...), a site-relative path (/path), an anchor (#id), mailto:, or tel:. [invalid_prop_value]`
 

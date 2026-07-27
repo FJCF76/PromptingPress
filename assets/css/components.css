@@ -2380,6 +2380,178 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   color: var(--cta-button-hover-color, var(--color-accent));
 }
 
+/* Second CTA button (issue 474): the pair row + its own per-instance slots.
+   The wrapper is rendered ONLY when button2_text is set (cta.php), so a
+   single-button cta keeps today's markup and computed styles byte-for-byte.
+   flex-wrap + the shared `main .btn { width: 100% }` mobile rule is what makes
+   the pair stack one-per-row under 768px with no mobile-specific rule here —
+   the same mechanism .hero__cta-group relies on (confirmed by rendering at
+   375px). justify-content is STATED rather than inherited from the flexbox
+   initial value, per the issue 338 lesson: the packing only becomes visible
+   once the buttons wrap, so leaving it implicit ships a silently left-packed
+   row on a centered band. */
+.cta__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  justify-content: flex-start;
+  /* Deliberately NO flex-shrink: 0 here (matching .hero__cta-group). The individual
+     buttons keep their own flex-shrink from .cta__button, so they never squash; making
+     the WRAPPER rigid instead would pin it at both buttons' min-width (~432px) in the
+     inline layout's `space-between` row, which both prevents the flex-wrap above from
+     ever firing there AND crushes the text block. Measured at 768px: rigid wrapper
+     forces the title to 3 lines, shrinkable wrapper wraps the pair to two rows and
+     keeps the title at the 2 lines a single-button inline cta renders. */
+}
+
+.cta--full-width .cta__buttons {
+  justify-content: center;
+}
+
+/* Per-instance bg/border/color override for the SECOND button, independent of
+   the primary (the issue 111 idiom the primary already has, mirrored from the
+   hero's cta2 rules). Targeted via the dedicated .cta__button--secondary class
+   rather than a positional :nth-child selector — this codebase's CSS lint guard
+   forbids nth-child/nth-of-type entirely, and button_text/button2_text are
+   fixed named props (not a reorderable array), so a dedicated class is both
+   safe and simpler. Three classes + the :not() chain puts these at [0,6,0],
+   above `.cta .btn:not(...)` at [0,5,0] (the primary's fill winner), so the
+   primary's accent chain cannot repaint the second button. One rule per
+   variant, each falling back to THAT variant's own existing default, so an
+   unset override renders byte-identically to the matching single button. */
+.cta .cta__buttons .cta__button--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
+  /* Fill chain mirrors the PRIMARY's winner (`.cta .btn:not(...)` above) exactly,
+     including the site-wide --btn-bg token from #458. Dropping --btn-bg here would
+     make a `primary` + `primary` pair render two DIFFERENT fills on any site that
+     rethemes the global button surface: the primary would paint --btn-bg while the
+     second fell through to --color-accent. Unset, both bottom out identically. */
+  background-color: var(--cta-button2-bg, var(--cta-accent, var(--btn-bg, var(--color-accent))));
+  /* Border FOLLOWS the fill when its own knobs are unset (the #514/#526 idiom, in the
+     PRIMARY's exact order): --cta-button2-border wins, then the global
+     --btn-border-color knob, then the fill chain — so a filled second button recolored
+     with the fill slot alone keeps a MATCHING ring rather than an --cta-accent one
+     around a brand-colored button. Unset, the chain still bottoms out at
+     --color-accent, byte-identical. */
+  border-color: var(--cta-button2-border, var(--btn-border-color, var(--cta-button2-bg, var(--cta-accent, var(--btn-bg, var(--color-accent))))));
+  color: var(--cta-button2-color, var(--btn-text, var(--color-bg)));
+}
+.cta .cta__buttons .cta__button--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
+  background-color: var(--cta-button2-hover-bg, var(--cta-accent-hover, var(--color-accent-hover)));
+  border-color: var(--cta-button2-hover-border, var(--cta-accent-hover, var(--color-accent-hover)));
+  color: var(--cta-button2-hover-color, var(--btn-text, var(--color-bg)));
+}
+
+.cta .cta__buttons .cta__button--secondary.btn--outline {
+  background-color: var(--cta-button2-bg, transparent);
+  color: var(--cta-button2-color, var(--color-accent));
+  border-color: var(--cta-button2-border, var(--color-accent));
+}
+.cta .cta__buttons .cta__button--secondary.btn--outline:hover {
+  background-color: var(--cta-button2-hover-bg, var(--color-accent));
+  border-color: var(--cta-button2-hover-border, var(--color-accent));
+  color: var(--cta-button2-hover-color, var(--color-bg));
+}
+
+.cta .cta__buttons .cta__button--secondary.btn--secondary {
+  background-color: var(--cta-button2-bg, var(--color-surface));
+  color: var(--cta-button2-color, var(--color-text));
+  border-color: var(--cta-button2-border, var(--color-border));
+}
+.cta .cta__buttons .cta__button--secondary.btn--secondary:hover {
+  background-color: var(--cta-button2-hover-bg, var(--color-border));
+  border-color: var(--cta-button2-hover-border, var(--color-border));
+  color: var(--cta-button2-hover-color, var(--color-text));
+}
+
+.cta .cta__buttons .cta__button--secondary.btn--ghost {
+  background-color: var(--cta-button2-bg, transparent);
+  color: var(--cta-button2-color, var(--color-accent));
+  border-color: var(--cta-button2-border, transparent);
+}
+.cta .cta__buttons .cta__button--secondary.btn--ghost:hover {
+  background-color: var(--cta-button2-hover-bg, var(--color-surface));
+  border-color: var(--cta-button2-hover-border, transparent);
+  color: var(--cta-button2-hover-color, var(--color-accent));
+}
+
+/* Dark-band routing for the SECOND button's transparent-fill variants (issue 474,
+   7A decision). outline/ghost paint their ink and ring DIRECTLY on the band, and
+   the light-surface --color-accent measures 3.23:1 on --color-bg-inverted and
+   1.17:1 over the worst-case bg-image scrim — both below AA. `outline` is the
+   DEFAULT for the second button, so simply setting button2_text on an inverted
+   closing CTA would otherwise ship a sub-AA control without the author ever
+   choosing a variant. Route the FALLBACK through the same named role tokens this
+   component already uses on its sibling dark-band elements — .cta--inverted
+   .cta__body a (#437), .cta--has-bg-image .cta__body a (#461), and
+   .cta--has-bg-image .cta__title-accent (#463) — so no new color is invented and
+   the #61/#86 dark-surface-slot contract holds: --cta-button2-color /
+   --cta-button2-border still win when set, and unset falls to the AA tint.
+   Same [0,4,0] specificity as the base variant rules above, so these must stay
+   AFTER them in source order. Scoped to the second button: the primary's
+   explicitly-authored outline/ghost on a dark band is the pre-existing, wider
+   class and is deliberately untouched here. Hover is unchanged — it fills with
+   the accent (outline) or the light surface (ghost), so the hover ink already
+   sits on its own contrasting fill rather than on the band. */
+.cta--inverted .cta__buttons .cta__button--secondary.btn--outline {
+  color: var(--cta-button2-color, var(--color-accent-on-inverted));
+  border-color: var(--cta-button2-border, var(--color-accent-on-inverted));
+}
+.cta--inverted .cta__buttons .cta__button--secondary.btn--ghost {
+  color: var(--cta-button2-color, var(--color-accent-on-inverted));
+}
+
+.cta--has-bg-image .cta__buttons .cta__button--secondary.btn--outline {
+  color: var(--cta-button2-color, var(--color-accent-on-overlay));
+  border-color: var(--cta-button2-border, var(--color-accent-on-overlay));
+}
+.cta--has-bg-image .cta__buttons .cta__button--secondary.btn--ghost {
+  color: var(--cta-button2-color, var(--color-accent-on-overlay));
+}
+
+/* button2 slot isolation + premium fill routing (the issue 526 mechanism applied
+   to cta). Style slots are emitted as inline custom properties on the .cta ROOT,
+   so the PRIMARY button's --cta-button-* slots INHERIT down to the second button;
+   when button2 is authored as a filled `primary` variant it also matches the
+   shared premium `main .btn:not(...)` winner, and the primary's fill, ink and
+   elevation repaint it. A declaration ON the button2 element beats the inherited
+   value regardless of source order, so this one rule fixes it:
+     - `--cta-button-bg: var(--cta-button2-bg)` — a var() that fails to substitute
+       makes the custom property GUARANTEED-INVALID, so with --cta-button2-bg unset
+       every downstream var(--cta-button-bg, <fallback>) takes its fallback (the
+       premium chain's own --btn-bg -> gradient literal): unset stays byte-identical
+       and the leak is killed. With --cta-button2-bg SET, the flat color resolves the
+       premium `background:` SHORTHAND to `background: <color>`, which resets
+       background-image to none and CLEARS the gradient that would otherwise MASK the
+       slot — the same mechanism #514/#526 used for the hero.
+     - `--cta-button-color` / `--cta-button-shadow: initial` — `initial` IS the
+       guaranteed-invalid value for a custom property, so button2 falls back to its own
+       ink rule above and to the premium bevel instead of the primary's ink/elevation.
+       The ink half is DEFENSIVE today rather than load-bearing: button2's own rules sit
+       at [0,6,0]/[0,7,0] and already outrank every current --cta-button-color consumer
+       (.cta__button:not(...) at [0,4,0], the variant rules at [0,2,0], and the premium
+       `main .btn:not(...)` at [0,4,1]). The shadow half IS load-bearing, since button2
+       has no elevation rule of its own. Both are kept so the isolation holds even if a
+       future rule wires the slots more widely.
+       Consequence, accepted with the fix: flattening the PRIMARY with
+       --cta-button-shadow: none no longer flattens button2 with it. button2 has no
+       elevation slot of its own today; a --cta-button2-shadow slot is the follow-up
+       if a flat pair is wanted.
+   Applied to EVERY button2 variant on purpose. The transparent-fill variants DO reach
+   --cta-button-* consumers (`.cta__button.btn--outline` and its --secondary/--ghost
+   siblings read --cta-button-bg/-color/-border at [0,2,0], and button2 carries the
+   .cta__button class too), so they are not immune by construction — they are covered
+   because button2's own variant rules at [0,4,0] outrank those. Resetting the slots on
+   every variant keeps the isolation true on its own terms rather than resting on that
+   specificity margin, which a future edit could shift. Hover is deliberately
+   unchanged: a flat per-instance fill reverts to the premium hover gradient, the same
+   shipped trait the primary carries since #514 (tracked in #530). */
+.cta .cta__buttons .cta__button--secondary {
+  --cta-button-bg: var(--cta-button2-bg);
+  --cta-button-color: initial;
+  --cta-button-shadow: initial;
+}
+
 /* Full-width: centered block with surface background */
 .cta--full-width {
   background: var(--cta-bg, var(--color-surface));
@@ -2434,6 +2606,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   border-bottom: var(--cta-border-width, 1px) solid var(--cta-border-color, var(--color-border));
 }
 
+/* NOTE (issue 474): the dark-band routing for the SECOND button's outline/ghost
+   variants lives ABOVE, with the other button2 rules, not in this theme block. Those
+   rules are [0,4,0] and depend on source order against the base button2 variant rules
+   they follow. Do not add a competing `.cta--inverted`/`.cta--has-bg-image` button2
+   rule down here: it would win by source order and silently defeat the AA routing. */
 .cta--inverted {
   background: var(--cta-bg, var(--color-bg-inverted));
   --cta-body-theme-color: var(--color-bg);

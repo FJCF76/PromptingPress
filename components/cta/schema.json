@@ -43,6 +43,26 @@
       "format": "link_url",
       "description": "Button destination URL. Accepts an absolute URL (https://...), a site-relative path (/path), an anchor (#id), mailto:, or tel:; a disallowed protocol (javascript:, data:) is rejected at write time because it would render as a dead link."
     },
+    "button2_text": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional SECOND button label, rendered beside the primary button as a secondary action (the hero's cta2_text pattern). Leave empty (the default) and no second button is rendered — the CTA is byte-identical to a single-button one. Plain text — HTML is escaped."
+    },
+    "button2_url": {
+      "type": "string",
+      "required": false,
+      "default": "#",
+      "format": "link_url",
+      "description": "Second button destination URL. Accepts an absolute URL (https://...), a site-relative path (/path), an anchor (#id), mailto:, or tel:; a disallowed protocol (javascript:, data:) is rejected at write time because it would render as a dead link."
+    },
+    "button2_variant": {
+      "type": "enum",
+      "values": ["primary", "secondary", "outline", "ghost"],
+      "required": false,
+      "default": "outline",
+      "description": "Second button style — defaults to 'outline' so a primary + secondary pair reads as one filled action and one outlined action. 'primary' = filled accent. 'secondary' = muted surface fill. 'outline' = accent border, transparent fill. 'ghost' = borderless text button. Set via update_component (a prop, not a style slot). Only rendered when button2_text is set."
+    },
     "layout": {
       "type": "enum",
       "values": ["full-width", "inline"],
@@ -101,6 +121,12 @@
       "--cta-button-hover-border": { "type": "color", "default": "(varies by button_variant)", "description": "Button hover border color." },
       "--cta-button-hover-color": { "type": "color", "default": "(varies by button_variant)", "description": "Button hover text color." },
       "--cta-button-shadow": { "type": "shadow", "default": "(premium bevel)", "description": "Button box shadow on the DEFAULT (primary) variant. Set to `none` for a FLAT button (removes the gradient bevel/drop shadow on rest AND hover); pair with --cta-button-bg (a flat color) and --cta-button-color (ink) for a flat primary." },
+      "--cta-button2-bg": { "type": "color", "default": "(varies by button2_variant)", "description": "SECOND button background color, independent of the primary button (the primary's RESTING slots --cta-button-bg / -color / -shadow never reach this button; hover is not isolated — see --cta-button2-hover-bg). Applies whatever button2_variant is set to: on a filled (primary) button2 it replaces the premium gradient with a flat fill, exactly as --cta-button-bg does for the primary button, and reverts to the gradient on hover unless left unset." },
+      "--cta-button2-border": { "type": "color", "default": "(varies by button2_variant)", "description": "Second button border color, independent of the primary button. The chain mirrors the primary button's exactly: this slot wins, then the site-wide --btn-border-color token, then the fill chain (--cta-button2-bg, then --cta-accent, then --btn-bg) — so with no global border token set, a fill-only recolor keeps a matching ring. Set this slot when the ring should differ from the fill, or when a site-wide --btn-border-color is in play and this button needs its own ring." },
+      "--cta-button2-color": { "type": "color", "default": "(varies by button2_variant)", "description": "Second button text color, independent of the primary button. This is the safe surface for fixing the second button's contrast on a dark band." },
+      "--cta-button2-hover-bg": { "type": "color", "default": "(varies by button2_variant)", "description": "Second button hover background color. Two shared-with-hero caveats: on a filled (primary) button2 the shared premium hover gradient covers a flat --cta-button2-bg, which reverts to that gradient on hover (the same shipped behaviour --cta-button-bg has on the primary button); and hover is NOT isolated between the two buttons, so setting the primary's --cta-button-hover-bg also clears this button's hover gradient. Set this slot alongside it when the pair needs distinct hover fills." },
+      "--cta-button2-hover-border": { "type": "color", "default": "(varies by button2_variant)", "description": "Second button hover border color." },
+      "--cta-button2-hover-color": { "type": "color", "default": "(varies by button2_variant)", "description": "Second button hover text color." },
       "--cta-border-color": { "type": "color", "default": "transparent", "description": "Top and bottom border color" },
       "--cta-border-width": { "type": "length", "default": "0", "description": "Top and bottom border width" },
       "--cta-radius": { "type": "length", "default": "0", "description": "Border radius" },
