@@ -372,7 +372,8 @@ Spacing:    --space-xs, --space-sm, --space-md, --space-lg, --space-xl, --space-
 Typography: --font-body, --font-heading, --font-weight-heading, --line-height-body, --line-height-heading,
             --letter-spacing-heading, --font-mono
 Button:     --btn-padding-y, --btn-padding-x, --btn-radius,
-            --btn-bg, --btn-text, --btn-border-color, --btn-shadow
+            --btn-bg, --btn-text, --btn-border-color, --btn-shadow,
+            --btn-hover-bg, --btn-hover-border-color
 Shape:      --radius, --max-width, --measure-body, --measure-body-wide, --measure-centered,
             --transition, --overlay-bg
 Elevation:  --shadow-none, --shadow-sm, --shadow-md, --shadow-lg

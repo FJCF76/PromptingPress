@@ -91,7 +91,11 @@ Hover is a separate surface, isolated the same way (issue 530): `--cta-button-ho
 addresses the primary only and `--cta-button2-hover-bg` the second only, and on a filled
 button each replaces the shared premium hover gradient with a flat fill. A resting slot
 governs the resting state only, so pair each with its hover counterpart when a button
-should stay on-brand through the hover; left unset, hover keeps the premium gradient.
+should stay on-brand through the hover; left unset, hover falls through to the global
+`--btn-hover-bg` (issue 539) and then to the premium gradient. That global knob is the
+site-wide hover twin of `--btn-bg`, so a theme-level button retheme now survives the
+pointer on both of this component's buttons without per-instance slots; the per-instance
+slots above still win wherever they are set.
 
 On the filled SECOND button the hover BORDER follows that hover fill when neither
 `--cta-button2-hover-border` nor `--cta-accent-hover` is set, so a hover-fill-only recolor

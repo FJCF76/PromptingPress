@@ -342,7 +342,10 @@ flat-button capability, not a new default.
 
 > **Per-instance vs site-wide.** The `--cta-button-*` slots above restyle ONE
 > component's button. The global `--btn-bg` / `--btn-text` / `--btn-border-color` /
-> `--btn-shadow` tokens (base.css, set via `update_design_token`) restyle EVERY composed
+> `--btn-shadow` tokens — plus the hover pair `--btn-hover-bg` /
+> `--btn-hover-border-color` (#539), which keep a site-wide fill or border retheme from
+> reverting to the theme gradient under the pointer — (base.css, set via
+> `update_design_token`) restyle EVERY composed
 > primary button at once: the premium `main .btn` primary cascade routes its
 > fill/border/ink/shadow fallbacks through them (#458), so setting `--btn-bg` at `:root`
 > recolors the section-panel CTA, the CTA-block button, and the hero button together.

@@ -2265,6 +2265,68 @@ class ApplyTest extends TestCase
         $this->assertEquals('invalid_length', $result->get_error_code());
     }
 
+    // ── Global button HOVER tier (issue 539) ──────────────────────────────
+    // #458 gave the theme four site-wide button knobs; #530 gave every filled
+    // surface a per-instance hover fill slot. The global tier stopped at rest,
+    // so a site-wide fill/border retheme reverted to the theme's premium accent
+    // gradient on hover. --btn-hover-bg / --btn-hover-border-color close that.
+    //
+    // These are AUTHORING-PATH tests, not render pins. pp_design_tokens() derives
+    // every token's type from the `/* type: ... */` comment beside its :root
+    // declaration, so a token declared without (or with a wrong) annotation is
+    // registered with a null type and update_design_token refuses to validate it.
+    // A CSS chain that routes a token no operator can actually SET is an inert
+    // feature — exactly the schema-vs-render incoherence raw fixtures never catch.
+
+    public function testGlobalButtonHoverTokensAreRegisteredAsColorTokens(): void
+    {
+        $tokens = pp_design_tokens();
+
+        $this->assertArrayHasKey('--btn-hover-bg', $tokens);
+        $this->assertSame('color', $tokens['--btn-hover-bg']['type']);
+
+        $this->assertArrayHasKey('--btn-hover-border-color', $tokens);
+        $this->assertSame('color', $tokens['--btn-hover-border-color']['type']);
+    }
+
+    public function testGlobalButtonHoverTokensRegisterUnsetSoRenderIsByteIdentical(): void
+    {
+        // Both must register `initial` (the guaranteed-invalid value), the same way
+        // --btn-bg / --btn-border-color do. That is what makes every consuming hover
+        // chain fall through to its own literal until an operator sets the token, so
+        // an untouched site renders exactly as before. A concrete default here would
+        // repaint every button hover on every existing install.
+        $tokens = pp_design_tokens();
+        $this->assertSame('initial', $tokens['--btn-hover-bg']['value']);
+        $this->assertSame('initial', $tokens['--btn-hover-border-color']['value']);
+    }
+
+    public function testUpdateDesignTokenAcceptsGlobalButtonHoverColors(): void
+    {
+        // The point of the issue: an operator rethemes hover site-wide through the
+        // SAME shared colour engine (_pp_validate_token_value) used by every other
+        // colour token, with no surface-specific validator.
+        $this->assertTrue(
+            pp_validate_apply('update_design_token', ['token' => '--btn-hover-bg', 'value' => '#b45309'])
+        );
+        $this->assertTrue(
+            pp_validate_apply('update_design_token', ['token' => '--btn-hover-border-color', 'value' => '#b45309'])
+        );
+    }
+
+    public function testUpdateDesignTokenRejectsInvalidGlobalButtonHoverColors(): void
+    {
+        // Same colour grammar as every other colour token — rejection comes from the
+        // shared engine, so the new knobs cannot drift into a laxer surface.
+        $bg = pp_validate_apply('update_design_token', ['token' => '--btn-hover-bg', 'value' => 'burnt-sienna']);
+        $this->assertInstanceOf(WP_Error::class, $bg);
+        $this->assertEquals('invalid_color', $bg->get_error_code());
+
+        $border = pp_validate_apply('update_design_token', ['token' => '--btn-hover-border-color', 'value' => 'burnt-sienna']);
+        $this->assertInstanceOf(WP_Error::class, $border);
+        $this->assertEquals('invalid_color', $border->get_error_code());
+    }
+
     // ── Font apply tests ─────────────────────────────────────────────────
 
     public function testEnqueueFontValid(): void

@@ -205,9 +205,9 @@ renders byte-identically to today.
 
 | Token | Set it to… | Reaches | Effective default when unset |
 |-------|-----------|---------|------------------------------|
-| `--btn-bg` | recolor every button fill | bare `.btn`, `.cta`/`.hero` primary, a filled cta second button, premium `main .btn` primary | `--color-accent` (bare) / accent gradient (composed primary) |
+| `--btn-bg` | recolor every button fill | bare `.btn`, `.cta`/`.hero` primary, a filled cta second button, the section-panel CTA, premium `main .btn` primary | `--color-accent` (bare) / accent gradient (composed primary) |
 | `--btn-text` | recolor every button label ink | every button ink rule | `var(--color-bg)` (registered, the inversion coupling below) |
-| `--btn-border-color` | recolor every button border | bare `.btn`, `.cta`/`.hero`, premium primary | `--color-accent` (bare/`.cta`/`.hero`) / `--color-accent-strong` (premium) |
+| `--btn-border-color` | recolor every button border | bare `.btn` (incl. the `outline` variant), `.cta`/`.hero`, the section-panel CTA, premium primary | `--color-accent` (bare/`.cta`/`.hero`) / `--color-accent-strong` (premium) |
 | `--btn-shadow` | change every button's elevation (a `--shadow-*` preset, or `none` to flatten) | bare `.btn`, premium primary | `none` (bare) / premium bevel (composed primary) |
 
 **Per-component slots still win.** `--btn-*` sits BETWEEN the per-component slots
@@ -219,15 +219,70 @@ been individually restyled.
 / `--hero-button-color` / `--hero-button-shadow`; `--hero-accent` recolors only its border. A
 cta or hero SECOND button has its own family — `--cta-button2-*` / `--hero-cta2-*` — which the
 primary's slots never reach in rest OR hover, so restyling the primary alone leaves the second
-button on the global token. The section's `text-panel` CTA has its own family too —
+button on the global token. That last part holds for the CTA block's second button, whose own
+chains do route `--btn-bg` / `--btn-hover-bg`; the HERO's second CTA is the exception and does
+not — see the hover section below. The section's `text-panel` CTA has its own family too —
 `--section-panel-cta-bg` / `--section-panel-cta-color` / `--section-panel-cta-shadow` — which
 is the only way to give one section's panel button a flat brand fill without moving the
 site-wide token. See `ai-instructions/style-component.md`.)
 
-**There is no global hover-fill token.** `--btn-bg` is resting-state only: there is no
-`--btn-hover-bg`, so a site-wide fill retheme still returns to the theme's premium gradient on
-hover. Hover fill is per-instance only — `--hero-button-hover-bg`, `--cta-button-hover-bg`,
-`--hero-cta2-hover-bg`, `--cta-button2-hover-bg` — and each pairs with its resting slot.
+**The global tier has hover twins for fill and border.** `--btn-hover-bg` and
+`--btn-hover-border-color` are the hover counterparts of `--btn-bg` and `--btn-border-color`,
+and they sit at the same place in the hover chains that the resting knobs occupy at rest:
+below every per-instance hover slot, above the literal. Set them alongside the resting pair
+whenever you recolour buttons site-wide, or the retheme reverts to the theme's premium accent
+gradient the moment a pointer lands.
+
+| Token | Set it to… | Reaches | Effective default when unset |
+|-------|-----------|---------|------------------------------|
+| `--btn-hover-bg` | recolor every button's hover fill | bare `.btn`, `.cta`/`.hero` primary, a filled cta second button, the section-panel CTA, premium `main .btn` primary | `--color-accent-hover` (bare) / the premium hover gradient (composed primary) |
+| `--btn-hover-border-color` | recolor every button's hover border | same surfaces as above | `--color-accent-hover` (bare/`.cta`/`.hero`) / `--color-accent` (premium) |
+
+Per-instance hover slots still win **for their own property**: `--hero-button-hover-bg`,
+`--cta-button-hover-bg`, `--hero-cta2-hover-bg`, `--cta-button2-hover-bg` beat
+`--btn-hover-bg` for the fill; `--cta-button-hover-border`, `--hero-cta2-hover-border`,
+`--cta-button2-hover-border` beat `--btn-hover-border-color` for the border.
+
+One cross-property note, same as at rest: `--btn-hover-border-color` outranks the per-instance
+hover FILL slots inside a border chain. An explicit global ring beats a ring merely inferred
+from someone's fill. So a component that sets only `--cta-button-hover-bg` keeps its matching
+ring until you set a global `--btn-hover-border-color`, at which point it takes the global
+ring. Set that component's `--cta-button-hover-border` to opt back out.
+
+The **section-panel CTA** has no per-instance hover fill slot of its own
+(`--section-panel-cta-bg` is resting-state only), so the global knob is the only way to move
+its hover fill. That is intended, not an oversight.
+
+**The hero's second CTA is the exception — set its own slots.** Its chains route
+`--hero-cta2-*` / `--hero-accent` / `--color-accent` and never routed `--btn-bg` either, so
+the global tier does not paint it. Be aware of the halfway state, because it is visible: the
+global knob still reaches that button through the shared premium rule, where a flat value
+clears the theme gradient, while the cta2's own higher-specificity rule keeps painting
+`--color-accent` / `--color-accent-hover`. So a site-wide button retheme renders a filled hero
+cta2 flat-accent rather than brand-coloured. `--btn-bg` already does this to its resting state
+today; `--btn-hover-bg` does the same to hover, which at least keeps the two states matching.
+**Always set `--hero-cta2-bg` and `--hero-cta2-hover-bg` when you retheme buttons site-wide
+and a hero has a filled second CTA.**
+
+**Watch hover contrast: there is no global hover INK token.** `--btn-text` sets label ink at
+rest, but the bare `.btn` and the premium primary hard-code hover ink to `--color-bg` (only
+the two SECOND buttons fall back through `--btn-text` on hover). So if you pin a custom
+`--btn-text`, hover ink still reverts to `--color-bg`. When choosing `--btn-hover-bg`, check
+it against **`--color-bg`**, not against `--btn-text` (≥ 4.5:1) — or pin the per-instance
+hover ink slots (`--cta-button-hover-color`, `--hero-cta2-hover-color`,
+`--cta-button2-hover-color`).
+
+**There is no global hover ELEVATION token either.** `--btn-shadow: none` flattens rest and
+the premium bevel returns on hover. Use the per-instance shadow slots
+(`--hero-button-shadow` / `--cta-button-shadow` / `--section-panel-cta-shadow`), which each
+cover rest AND hover.
+
+**`--btn-hover-border-color` also rings the `outline` variant.** `.btn--outline:hover` paints
+its own fill but declares no border, so the global hover ring reaches it — exactly as
+`--btn-border-color` reaches its resting border. Its hover FILL is not routed by any global
+knob, so an outline button hovers to the theme accent wearing your ring. Set
+`--cta-button-hover-border` / `--hero-cta2-hover-border` per instance if that pairing matters
+on a given button.
 
 **Fill and border are independent knobs.** `--btn-bg` recolors the fill; `--btn-border-color`
 recolors the border. On `.cta`/`.hero` primaries an unset border follows the fill (so a

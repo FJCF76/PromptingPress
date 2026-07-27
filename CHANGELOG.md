@@ -4,6 +4,50 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.11.4] — 2026-07-27 — a site-wide button retheme now survives the pointer (#539)
+
+**Recolour every button on the site and they stay recoloured when someone hovers them. Until now the theme's accent gradient came straight back the moment a pointer landed.**
+
+`--btn-bg` and `--btn-border-color` are the knobs that restyle every button at once. They only ever governed the resting state, so a brand-coloured site looked right until a visitor moved the mouse, and then every button flashed back to the stock accent gradient. The only way out was to set a hover fill on each button individually, which defeats the point of a site-wide token. Two new tokens close the gap: `--btn-hover-bg` and `--btn-hover-border-color`, the hover twins of the two resting knobs. Set them alongside their resting counterparts and the brand holds through the whole interaction, on the hero button, the CTA block's buttons, the section panel CTA, and plain buttons in the header and footer alike.
+
+Both are unset by default, so nothing about an existing site changes until you set them. Per-instance slots still win where a component has been individually styled: `--hero-button-hover-bg` and friends override the global knob exactly as they always overrode the resting one.
+
+### The chains that changed
+
+Threading a global token into a hover chain is not a matter of appending one fallback. The rule that paints a button's gradient and the rule that paints its colour are different rules with different specificity, and only one of them owns the gradient:
+
+| Rule | Specificity | Owns |
+|---|---|---|
+| `.hero .btn:not(...):hover`, `.cta .btn:not(...):hover` | `[0,6,0]` | `background-color` |
+| `main .btn:not(...):hover` | `[0,5,1]` | `background-image` (the gradient) |
+
+Adding the knob to the gradient rule alone clears the gradient and then loses to the colour rule, which still resolves the stock accent. So the token was threaded into every hover chain whose resting twin already routes the resting knob, at the same position: ten chains in all.
+
+### Known limits
+
+The hero's **second** CTA is the one filled surface the global tokens do not paint, in either state. Its chains route `--hero-cta2-*` and never routed `--btn-bg` either. Set `--hero-cta2-bg` and `--hero-cta2-hover-bg` on that button when you retheme site-wide.
+
+There is still no global hover **ink** or hover **elevation** token. Hover label ink falls back to the page background on the primaries, so when picking a `--btn-hover-bg`, check it for contrast against `--color-bg` rather than against `--btn-text`.
+
+### Itemized changes
+
+### Added
+- `--btn-hover-bg` and `--btn-hover-border-color` design tokens in `assets/css/base.css`, both registered `initial` and settable through `update_design_token`.
+
+### Fixed
+- The global button tokens no longer revert to the theme's premium accent gradient on hover, on the hero primary, the CTA primary and second button, the section panel CTA, and bare buttons outside `main` (#539).
+
+### Docs
+- `ai-instructions/retheme.md` documents the hover pair, the exact per-property precedence, the hover-contrast hazard, the `outline` variant's ring, and the hero second CTA exception.
+- `ai-instructions/style-component.md`, `AI_CONTEXT.md`, and `components/cta/README.md` list the new tokens.
+
+### Tests
+- Authoring-path coverage through `update_design_token` for both tokens (registration, `initial` default, accept and reject).
+- Rendered hover pins for all five filled surfaces at 1280 and 375, covering byte-identity when unset, global reach when set, and per-instance precedence for both fill and border.
+- Two new lint guards for `:root` docblock hazards: a comment that closes early and leaves prose as raw CSS, and `--token: value` prose that the design-token registry regex would register as a phantom token.
+
+---
+
 ## [v1.11.3] — 2026-07-27 — a filled pair of buttons on a photo band now matches (#543)
 
 **Put two filled buttons side by side on a background-image band and both keep a visible edge. Until now only the first one did, and the second dissolved into the picture.**
