@@ -4467,6 +4467,85 @@ main .btn:focus-visible {
     0 14px 30px color-mix(in srgb, var(--color-accent-strong) 20%, transparent);
 }
 
+/* Dark-band routing for the FOCUS RING (issue 542). Same pattern #437/#461/#463 established
+   for links and accents and #474/#535 finished for button ink and rings — only the surface
+   is new.
+
+   The rule above is the live focus indicator for EVERY composed button, and `outline-offset`
+   paints it OUTSIDE the button, so the ring sits on the BAND, not on the button's fill.
+   The bare light-surface --color-accent measures there:
+
+     --color-bg-inverted (theme:"inverted")                  3.23:1
+     --overlay-bg scrim over a WHITE image, rgb(115,115,115)  1.17:1   <- WCAG 1.4.11 failure
+     same scrim over a mid-grey image, rgb(58,58,58)          2.06:1   <- WCAG 1.4.11 failure
+
+   Rendered, the overlay case is the real defect: the blue ring vanishes into the scrim and
+   the only edge left is #535's white separation ring, which is present at rest too — focus
+   becomes indistinguishable from not-focus. Both bands now bottom out at the role token
+   base.css already defines for them (8.33:1 and 4.59:1 respectively).
+
+   Only the outline-COLOR longhand is overridden: width, style, offset and the box-shadow
+   glow all stay with the base rules, so this changes which colour an already-painted ring
+   uses and nothing else. The glow (`0 0 0 4px color-mix(--color-accent 14%, transparent)`)
+   is deliberately left on the bare accent: at 14% alpha it is a decorative halo, not the
+   indicator carrying the 1.4.11 obligation, and routing it would repaint a surface with no
+   measured defect. Note this attaches to `:focus`, not `:focus-visible` — one selector
+   covering both base rules. On a COMPOSED button that also means pointer focus, because
+   `main .btn:focus` [0,2,1] already outranks base.css's `:focus:not(:focus-visible)`
+   suppression [0,2,0] and has always painted a ring on click; this recolours that ring too.
+   Nothing new is revealed: a button whose ring is suppressed has `outline-style: none`, and
+   a colour alone cannot paint it.
+
+   These sit at [0,3,0] and beat the `main .btn:focus` winner at [0,2,1] on SPECIFICITY, not
+   on source order, so they are safe anywhere in the file. The order BETWEEN the two blocks
+   below IS load-bearing, and is a semantic precedence rule rather than a formatting accident:
+   ONE root can carry both an inverted class and a bg-image class — cta.php:75 and
+   section.php:186 both concatenate the theme class and the bg-image class independently — so
+   the two blocks tie at [0,3,0] and the OVERLAY role must win. on-inverted (#9dafee) is only
+   2.21:1 over the worst-case scrim, so a bg-image band that is also themed inverted would
+   otherwise get a ring that fails 1.4.11 harder than the bug being fixed. Pinned in css-lint.
+
+   SECTION BANDS ARE DELIBERATELY NOT ROUTED, and this is the load-bearing scope call here.
+   A section's only rendered button is `.section__panel-cta` (section.php:270), which lives
+   inside `.section__panel` — a self-contained LIGHT surface (`--color-surface`, #f4f7fb) that
+   sits ON the dark band with `--space-lg` of its own padding, so the ring at 4px offset is
+   drawn on the PANEL, never on the band. Routing it would take that ring from 5.18:1 today
+   down to 2.02:1 (on-inverted) or 1.04:1 (on-overlay) — strictly worse than the bug being
+   fixed. This is the same carve-out #424/#463 already made for the panel's list markers (see
+   "Panel markers stay bare accent" above). Do not "complete the set" by adding
+   `.pp-section--inverted .btn:focus` / `.section--has-bg-image .btn:focus`.
+
+   Scoped to `.btn` on the roots whose RENDERERS put a button ON the band: cover hero and cta.
+   A dark band that renders no on-band button (grid/stats/faq/logos/embed/testimonials, and
+   section per the paragraph above) can only receive a `.btn` through author-written rich-text
+   HTML — the #545 class, deliberately not covered here. Non-button focusables on dark bands
+   (a link in `.cta__body`, nav) also keep the bare accent ring: #437/#461 routed their INK,
+   not their outline, and widening this to every focusable is a separate blast radius.
+
+   No new slot family: the focus ring has no per-instance slot today and does not gain one
+   here, so there is nothing authored to preserve ahead of the role token. An author who
+   recolours a button's BORDER (--cta-button-border and friends) keeps that border exactly —
+   the focus outline is an independent surface and is deliberately not chained to it. The
+   routing is class-triggered, so it shares the whole role family's blind spot: a band you
+   darken yourself with `--cta-bg`, or a scrim you lighten with `--cta-overlay-bg`, carries
+   the same classes and gets the same ring regardless (identical exposure to #461's link ink).
+
+   NOTE on the inverted band: 3.23:1 technically clears the 3:1 non-text bar, and #535 Q2
+   used exactly that figure to refuse a separation ring on the inverted filled primary. This
+   rule routes it anyway, which is a deliberate, recorded divergence rather than an oversight:
+   a 2px hairline reads far weaker than an area fill at the same ratio, and today the resting
+   border of an `outline` button on that band (#9dafee, 8.33:1) is MORE prominent than the
+   focus ring meant to mark the active element. Do not "restore consistency" by dropping the
+   inverted half — the css-lint pins will stop you, on purpose. */
+.cta--inverted .btn:focus {
+  outline-color: var(--color-accent-on-inverted);
+}
+
+.hero--cover .btn:focus,
+.cta--has-bg-image .btn:focus {
+  outline-color: var(--color-accent-on-overlay);
+}
+
 /* Adjacent-sibling rhythm, restored (issue 302). This premium rule used to flatten
    the vertical rhythm to a uniform clamp() at ALL widths, outranking the base
    adjacent-sibling rule (SHARED: Adjacent-Sibling Rhythm) AND defeating every
