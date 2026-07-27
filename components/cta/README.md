@@ -47,6 +47,12 @@ state only — on hover each variant paints its own contrasting fill. On a
 `background_image` band the filled button also takes its border from that role so its
 shape stays visible against the band.
 
+The keyboard focus ring follows the same routing, for EVERY variant including the
+filled one: it is drawn outside the button, so it lands on the band, where the bare
+accent measured 3.23:1 (inverted) and 1.17:1 (over the worst-case scrim) against the
+3:1 that WCAG 1.4.11 requires. Only the ring's colour changes — width, style and offset
+are untouched, and a light-band cta's focus ring is unchanged.
+
 ## Second button (`button2_*`)
 
 A closing CTA can offer a primary + secondary pair — "Ver planes" *and* "Hablar con
