@@ -3008,6 +3008,349 @@ describe('CSS lint: bg-image band title-accent + markers route through --color-a
     });
 });
 
+describe('CSS lint: dark-band buttons route through the AA accent roles (#535)', () => {
+    /*
+     * #474 routed the cta's SECOND button; #535 closes the rest of the same class:
+     * the PRIMARY outline/ghost button on both cta dark bands, the hero's primary AND
+     * default second CTA on the `.hero--cover` scrim, and the filled primary's missing
+     * separation ring on the two OVERLAY bands.
+     *
+     * Measured before -> after (rendered, worst-case composites):
+     *   cta inverted outline/ghost       3.23 -> 8.33  (--color-accent-on-inverted)
+     *   cta bg-image outline/ghost       1.17 -> 4.59  (--color-accent-on-overlay)
+     *   hero cover outline / ghost ~3.6 / 1.17 -> 4.59 (--color-accent-on-overlay)
+     *   hero cover cta2 outline/ghost   ~3.6 -> 4.59  (--color-accent-on-overlay)
+     *   filled button ring, overlay bands: fill under 2:1, ring -> 4.59
+     *
+     * on-inverted is tuned to the SOLID inverted background and only reaches ~2.2:1 over
+     * the arbitrary-image scrim, so the two roles are never interchangeable — every route
+     * below pins which role its band must use, and guards against a regression to the
+     * bare light-surface accent.
+     */
+    const css = stripComments(COMPONENTS_CSS);
+    const rules = [];
+    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+    let m;
+    while ((m = ruleRe.exec(css)) !== null) {
+        rules.push({ selector: m[1].trim(), body: m[2], index: m.index });
+    }
+    const rulesForAll = (sel) => rules.filter(r => r.selector.split(',').some(s => s.trim() === sel));
+    const ruleFor = (sel) => rulesForAll(sel)[0];
+
+    // selector -> { slot, role, border } . `border: true` means the ring is routed too
+    // (outline paints a visible ring; ghost's border stays transparent by design).
+    const ROUTES = [
+        // cta PRIMARY, solid inverted band.
+        { sel: '.cta--inverted .cta__button.btn--outline', slot: '--cta-button-color', borderSlot: '--cta-button-border', role: '--color-accent-on-inverted' },
+        { sel: '.cta--inverted .cta__button.btn--ghost', slot: '--cta-button-color', borderSlot: null, role: '--color-accent-on-inverted' },
+        // cta PRIMARY, bg-image (overlay) band.
+        { sel: '.cta--has-bg-image .cta__button.btn--outline', slot: '--cta-button-color', borderSlot: '--cta-button-border', role: '--color-accent-on-overlay' },
+        { sel: '.cta--has-bg-image .cta__button.btn--ghost', slot: '--cta-button-color', borderSlot: null, role: '--color-accent-on-overlay' },
+        // hero PRIMARY on the cover scrim (slot is --hero-text, the surface
+        // `.hero .btn--outline` already reads — see the rule comment).
+        { sel: '.hero--cover .btn--outline', slot: '--hero-text', borderSlot: '--hero-text', role: '--color-accent-on-overlay' },
+        { sel: '.hero--cover .btn--ghost', slot: '--hero-text', borderSlot: null, role: '--color-accent-on-overlay' },
+        // hero SECOND CTA on the cover scrim (#535 Q3).
+        { sel: '.hero--cover .hero__cta-group .hero__cta--secondary.btn--outline', slot: '--hero-cta2-color', borderSlot: '--hero-cta2-border', role: '--color-accent-on-overlay' },
+        { sel: '.hero--cover .hero__cta-group .hero__cta--secondary.btn--ghost', slot: '--hero-cta2-color', borderSlot: null, role: '--color-accent-on-overlay' },
+    ];
+
+    const esc = (s) => s.replace(/[-]/g, '\\-');
+
+    ROUTES.forEach(({ sel, slot, borderSlot, role }) => {
+        test(`${sel} routes ink through ${slot} then ${role}`, () => {
+            const rule = ruleFor(sel);
+            expect(rule).toBeDefined();
+            expect(rule.body).toMatch(new RegExp(
+                'color\\s*:\\s*var\\(\\s*' + esc(slot) + '\\s*,\\s*var\\(\\s*' + esc(role) + '\\s*\\)\\s*\\)'
+            ));
+        });
+
+        if (borderSlot) {
+            test(`${sel} routes its ring through ${borderSlot} then ${role}`, () => {
+                const rule = ruleFor(sel);
+                expect(rule).toBeDefined();
+                expect(rule.body).toMatch(new RegExp(
+                    'border-color\\s*:\\s*var\\(\\s*' + esc(borderSlot) + '\\s*,\\s*var\\(\\s*' + esc(role) + '\\s*\\)\\s*\\)'
+                ));
+            });
+        } else {
+            test(`${sel} does not paint a ring (ghost stays borderless)`, () => {
+                const rule = ruleFor(sel);
+                expect(rule).toBeDefined();
+                expect(rule.body).not.toMatch(/border-color\s*:/);
+            });
+        }
+
+        test(`${sel} does not fall back to the bare accent or the wrong role`, () => {
+            const rule = ruleFor(sel);
+            expect(rule).toBeDefined();
+            // The 3.23:1 / 1.17:1 bug: a bare light-surface accent default.
+            expect(rule.body).not.toMatch(/var\(\s*--color-accent\s*\)/);
+            // Wrong surface: on-inverted is ~2.2:1 over the arbitrary-image scrim, and
+            // on-overlay is not the tuned choice for the solid inverted band.
+            const wrongRole = role === '--color-accent-on-overlay'
+                ? '--color-accent-on-inverted'
+                : '--color-accent-on-overlay';
+            expect(rule.body).not.toMatch(new RegExp(esc(wrongRole)));
+        });
+    });
+
+    // ── The filled primary's separation ring, OVERLAY bands only ──────────────
+    /*
+     * The ring rules replace ONLY the terminal fallback of the chain they override. Every
+     * authored link ahead of the role token must survive verbatim, or an author who
+     * already coloured this ring (via --cta-accent, --hero-button-bg, the global
+     * --btn-* knobs) silently gets a near-white ring instead of theirs. `leading` is the
+     * chain the corresponding base rule declares, in order; `bottom` is the role token
+     * that replaces the base rule's own terminal --color-accent.
+     *
+     * Both hover twins exist because the base `:hover` rules are [0,6,0] and outrank the
+     * [0,5,0] rest rings: without them the ring appeared at rest and dissolved back into
+     * the band the moment the pointer landed, which is the state a user is most likely
+     * looking at (WCAG 1.4.11 covers hover too).
+     */
+    const RINGS = [
+        {
+            sel: '.cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)',
+            leading: ['--cta-button-border', '--btn-border-color', '--cta-button-bg', '--cta-accent', '--btn-bg'],
+        },
+        {
+            sel: '.cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover',
+            leading: ['--cta-button-hover-border', '--cta-button-hover-bg', '--cta-accent-hover'],
+        },
+        {
+            sel: '.hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)',
+            leading: ['--hero-accent', '--btn-border-color', '--hero-button-bg', '--btn-bg'],
+        },
+        {
+            sel: '.hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover',
+            leading: ['--hero-accent-hover', '--hero-button-hover-bg'],
+        },
+    ];
+
+    RINGS.forEach(({ sel, leading }) => {
+        test(`${sel} bottoms the ring out at the overlay role`, () => {
+            const rule = ruleFor(sel);
+            expect(rule).toBeDefined();
+            expect(rule.body).toMatch(/border-color\s*:/);
+            expect(rule.body).toMatch(/--color-accent-on-overlay/);
+            // Wrong surface: on-inverted is only ~2.2:1 over the arbitrary-image scrim.
+            expect(rule.body).not.toMatch(/--color-accent-on-inverted/);
+            // The role must be the LAST link, not an early one that pre-empts a slot.
+            const chain = rule.body.match(/border-color\s*:([^;}]+)/)[1];
+            const tokens = chain.match(/--[a-z0-9-]+/g);
+            expect(tokens[tokens.length - 1]).toBe('--color-accent-on-overlay');
+        });
+
+        test(`${sel} preserves every authored slot ahead of the role, in order`, () => {
+            const rule = ruleFor(sel);
+            expect(rule).toBeDefined();
+            const chain = rule.body.match(/border-color\s*:([^;}]+)/)[1];
+            const tokens = chain.match(/--[a-z0-9-]+/g).filter(t => t !== '--color-accent-on-overlay');
+            expect(tokens).toEqual(leading);
+        });
+
+        test(`${sel} does not bottom out at the bare accent (the pre-#535 behaviour)`, () => {
+            const rule = ruleFor(sel);
+            expect(rule).toBeDefined();
+            const chain = rule.body.match(/border-color\s*:([^;}]+)/)[1];
+            expect(chain).not.toMatch(/var\(\s*--color-accent\s*\)/);
+            expect(chain).not.toMatch(/var\(\s*--color-accent-hover\s*\)/);
+        });
+    });
+
+    /*
+     * NEGATIVE pin (#535 Q2). The INVERTED filled primary measures 3.23:1 fill-vs-band,
+     * which already clears the 3:1 non-text bar, so it is deliberately NOT ringed. If a
+     * future edit adds an on-inverted ring here it is a gratuitous visual change to every
+     * dark-band CTA with no measured defect behind it — fail instead.
+     */
+    test('the INVERTED filled primary is not ringed (3.23:1 already clears the 3:1 bar)', () => {
+        const offenders = rules.filter(r =>
+            /\.cta--inverted\b/.test(r.selector)
+            && /:not\(\.btn--outline\)/.test(r.selector)
+            && /border-color\s*:/.test(r.body)
+        );
+        expect(offenders.map(r => r.selector)).toEqual([]);
+    });
+
+    /*
+     * SOURCE-ORDER pins. Three of these rule groups carry the SAME specificity as the
+     * rule they must override, so they win only by following it. This is not a style
+     * preference — `.hero--cover .btn--outline` used to sit ABOVE `.hero .btn--outline`
+     * (both [0,2,0]) and was therefore DEAD, which is precisely how the near-black-ink
+     * defect shipped. Moving any of these up silently restores the bug.
+     */
+    const ORDER = [
+        {
+            later: '.hero--cover .btn--outline',
+            earlier: '.hero .btn--outline',
+            why: 'both [0,2,0]; the cover rule was dead above it (the #535 near-black-ink defect)',
+        },
+        {
+            later: '.hero--cover .btn--ghost',
+            earlier: '.btn--ghost',
+            why: 'both paint ink; the cover rule is [0,2,0] vs the shared [0,1,0]',
+        },
+        {
+            later: '.hero--cover .hero__cta-group .hero__cta--secondary.btn--outline',
+            earlier: '.hero .hero__cta-group .hero__cta--secondary.btn--outline',
+            why: 'both [0,4,0]',
+        },
+        {
+            later: '.hero--cover .hero__cta-group .hero__cta--secondary.btn--ghost',
+            earlier: '.hero .hero__cta-group .hero__cta--secondary.btn--ghost',
+            why: 'both [0,4,0]',
+        },
+        {
+            later: '.hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)',
+            earlier: '.hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)',
+            why: 'both [0,5,0]',
+        },
+        {
+            later: '.hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover',
+            earlier: '.hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover',
+            why: 'both [0,6,0]; without this the ring dissolves again on hover',
+        },
+        {
+            later: '.cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)',
+            earlier: '.cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)',
+            why: 'both [0,5,0]',
+        },
+        {
+            later: '.cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover',
+            earlier: '.cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover',
+            why: 'both [0,6,0]; without this the ring dissolves again on hover',
+        },
+        /*
+         * A cta can carry BOTH classes: cta.php emits the theme class and the bg-image
+         * class independently, so `theme: "inverted"` + `background_image` renders
+         * `.cta--inverted.cta--has-bg-image` with the scrim painted over the inverted
+         * background. Both routing rules then match at [0,3,0] and only source order
+         * decides. The overlay role must win — on-inverted is only ~2.2:1 over the scrim.
+         */
+        {
+            later: '.cta--has-bg-image .cta__button.btn--outline',
+            earlier: '.cta--inverted .cta__button.btn--outline',
+            why: 'both [0,3,0]; an inverted band WITH a background_image must resolve to the overlay role',
+        },
+        {
+            later: '.cta--has-bg-image .cta__button.btn--ghost',
+            earlier: '.cta--inverted .cta__button.btn--ghost',
+            why: 'both [0,3,0]; same combined-band case',
+        },
+        {
+            later: '.cta--has-bg-image .cta__buttons .cta__button--secondary.btn--outline',
+            earlier: '.cta--inverted .cta__buttons .cta__button--secondary.btn--outline',
+            why: 'both [0,4,0]; the #474 button2 pair has the identical combined-band dependency',
+        },
+    ];
+
+    ORDER.forEach(({ later, earlier, why }) => {
+        test(`${later} comes after ${earlier} (${why})`, () => {
+            const l = ruleFor(later);
+            const e = ruleFor(earlier);
+            expect(l).toBeDefined();
+            expect(e).toBeDefined();
+            expect(l.index).toBeGreaterThan(e.index);
+        });
+    });
+
+    /*
+     * UNIQUENESS. The order pins above compare the FIRST rule carrying each selector, so
+     * on their own they cannot catch the regression the CSS comments actually warn about:
+     * a DUPLICATE rule appended further down the file wins the cascade while every order
+     * pin still passes (confirmed by mutation — appending
+     * `.hero--cover .btn--outline { color: red }` left the whole suite green). Requiring
+     * exactly one rule per routed selector closes that hole.
+     */
+    const UNIQUE_SELECTORS = ROUTES.map(r => r.sel)
+        .concat(RINGS.map(r => r.sel))
+        .concat(ORDER.map(o => o.later));
+
+    [...new Set(UNIQUE_SELECTORS)].forEach(sel => {
+        test(`${sel} is declared exactly once (a later duplicate would silently win)`, () => {
+            expect(rulesForAll(sel).length).toBe(1);
+        });
+    });
+
+    /*
+     * The cta PRIMARY rules must stay BELOW the #474 button2 rules in specificity, not
+     * just in source order: the second button also carries `.cta__button`, so an equal
+     * or higher primary rule would repaint it and break the #474/#526/#530 pins.
+     */
+    test('the cta primary dark-band rules do not outrank the button2 rules', () => {
+        // [0,3,0] vs [0,4,0]: the primary selector must NOT carry the --secondary class,
+        // and the button2 selector must carry one more class than the primary one.
+        const primary = ruleFor('.cta--inverted .cta__button.btn--outline');
+        const second = ruleFor('.cta--inverted .cta__buttons .cta__button--secondary.btn--outline');
+        expect(primary).toBeDefined();
+        expect(second).toBeDefined();
+        const classCount = (sel) => (sel.match(/\.[a-zA-Z][\w-]*/g) || []).length;
+        expect(classCount(second.selector)).toBeGreaterThan(classCount(primary.selector));
+    });
+
+    /*
+     * HOVER leak guard. The rest rules tie on specificity with the `:hover` rules they
+     * follow (a pseudo-class counts as a class), so source order made the routed
+     * dark-band ink win on hover too — landing it on a fill it was never measured
+     * against (on-inverted ink over the accent fill is 2.58:1; on-overlay ink over the
+     * near-white ghost hover fill is effectively invisible). The restoration rules must
+     * exist AND must not themselves carry a role token: on hover each variant paints its
+     * own contrasting fill, so the correct ink is the variant's original hover value.
+     */
+    // `source` is the shared rule whose hover ink each restoration copies verbatim. If the
+    // shared rule's value is ever changed, the copy must move with it — so assert the
+    // declarations are IDENTICAL rather than merely present, which is what makes a silent
+    // divergence fail here instead of shipping.
+    const HOVER_RESTORED = [
+        { sel: '.cta--inverted .cta__button.btn--outline:hover', source: '.cta__button.btn--outline:hover' },
+        { sel: '.cta--has-bg-image .cta__button.btn--outline:hover', source: '.cta__button.btn--outline:hover' },
+        { sel: '.cta--inverted .cta__button.btn--ghost:hover', source: '.cta__button.btn--ghost:hover' },
+        { sel: '.cta--has-bg-image .cta__button.btn--ghost:hover', source: '.cta__button.btn--ghost:hover' },
+        { sel: '.hero--cover .btn--ghost:hover', source: '.btn--ghost:hover' },
+    ];
+
+    // `color:` alone also matches `border-color:` / `background-color:`, which would let a
+    // restoration rule that dropped its ink declaration entirely still pass.
+    const inkDecl = (body) => {
+        const m = body.match(/(?:^|[;{\s])color\s*:([^;}]+)/);
+        return m ? m[1].replace(/\s+/g, ' ').trim() : null;
+    };
+
+    HOVER_RESTORED.forEach(({ sel, source }) => {
+        test(`${sel} restores exactly the ink ${source} declares`, () => {
+            const rule = ruleFor(sel);
+            const src = ruleFor(source);
+            expect(rule).toBeDefined();
+            expect(src).toBeDefined();
+            expect(inkDecl(rule.body)).not.toBeNull();
+            expect(inkDecl(rule.body)).toBe(inkDecl(src.body));
+        });
+
+        test(`${sel} carries no dark-band role token (on hover the fill contrasts, not the band)`, () => {
+            const rule = ruleFor(sel);
+            expect(rule).toBeDefined();
+            expect(rule.body).not.toMatch(/--color-accent-on-inverted|--color-accent-on-overlay/);
+        });
+
+        test(`${sel} follows its rest rule in source order`, () => {
+            const restSel = sel.replace(/:hover$/, '');
+            const hover = ruleFor(sel);
+            const rest = ruleFor(restSel);
+            expect(hover).toBeDefined();
+            expect(rest).toBeDefined();
+            expect(hover.index).toBeGreaterThan(rest.index);
+        });
+    });
+
+    test('the roles these rules depend on are declared in base.css :root', () => {
+        expect(BASE_CSS).toMatch(/--color-accent-on-inverted:\s*#[0-9a-fA-F]{6}/);
+        expect(BASE_CSS).toMatch(/--color-accent-on-overlay:\s*#[0-9a-fA-F]{6}/);
+    });
+});
+
 /**
  * The isolation re-pointing declarations depend on GUARANTEED-INVALID custom properties
  * (#514/#526/#474/#530).

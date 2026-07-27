@@ -1508,6 +1508,265 @@ test.describe('Safe-surface rendered proof', () => {
   });
 
   /*
+   * #535 — the rest of the dark-band button class #474 opened.
+   *
+   * #474 fixed the cta's SECOND button. Everything else that paints ink directly on a
+   * dark band was still on the light-surface accent (or, on the cover hero, on near-black
+   * --color-text): the PRIMARY outline/ghost on both cta dark bands, the hero's primary
+   * AND its default-outline second CTA on the `.hero--cover` scrim. Separately, the FILLED
+   * primary on the two OVERLAY bands had no separation from the band at all — its gradient
+   * measured under 2:1 against the worst-case composite and its border followed the fill, so
+   * the button's SHAPE vanished and only the label carried it.
+   *
+   * Only a rendered box proves these. The cover-hero case in particular is a pure CASCADE
+   * defect: `.hero--cover .btn--outline` existed but sat ABOVE `.hero .btn--outline` at
+   * identical [0,2,0] specificity, so it never painted. A static "the rule exists" check
+   * passed for years while the rendered button stayed near-black. css-lint pins the source
+   * order; this pins the colour the cascade actually resolves.
+   *
+   * Ratios quoted below are against the worst-case composites documented in base.css:
+   * --color-bg-inverted for the solid band, the --overlay-bg scrim over a pure-WHITE
+   * image for the overlay bands.
+   */
+  test('#535 dark-band primary + cover-hero buttons route to the AA role tokens; rings, slots and light bands hold @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Dark Band Button Contrast');
+    setComposition(pageId, [
+      // 0/1: cta PRIMARY outline + ghost on the solid inverted band (3.23:1 -> 8.33:1).
+      { component: 'cta', props: { title: 'Inverted outline', button_text: 'Ver planes', button_url: '/precios', theme: 'inverted', button_variant: 'outline' } },
+      { component: 'cta', props: { title: 'Inverted ghost', button_text: 'Ver planes', button_url: '/precios', theme: 'inverted', button_variant: 'ghost' } },
+      // 2/3: cta PRIMARY outline + ghost on the bg-image scrim (1.17:1 -> 4.59:1).
+      { component: 'cta', props: { title: 'Overlay outline', button_text: 'Ver planes', button_url: '/precios', background_image: 'https://example.com/nonexistent.jpg', button_variant: 'outline' } },
+      { component: 'cta', props: { title: 'Overlay ghost', button_text: 'Ver planes', button_url: '/precios', background_image: 'https://example.com/nonexistent.jpg', button_variant: 'ghost' } },
+      // 4: FILLED primary on the bg-image band — gains the separation ring.
+      { component: 'cta', props: { title: 'Overlay filled', button_text: 'Ver planes', button_url: '/precios', background_image: 'https://example.com/nonexistent.jpg' } },
+      // 5: FILLED primary on the INVERTED band — deliberately NOT ringed (Q2).
+      { component: 'cta', props: { title: 'Inverted filled', button_text: 'Ver planes', button_url: '/precios', theme: 'inverted' } },
+      // 6: per-instance slots must beat the routed dark-band fallback (#61/#86 contract).
+      {
+        component: 'cta',
+        props: { title: 'Inverted, author override', button_text: 'Ver planes', button_url: '/precios', theme: 'inverted', button_variant: 'outline' },
+        style: { '--cta-button-color': '#ffd166', '--cta-button-border': '#ffd166' },
+      },
+      // 7: LIGHT band control — must be byte-identical to before the change.
+      { component: 'cta', props: { title: 'Light outline', button_text: 'Ver planes', button_url: '/precios', button_variant: 'outline' } },
+      // 8: BOTH dark-band classes at once. cta.php emits the theme class and the bg-image
+      // class independently, so this renders `.cta--inverted.cta--has-bg-image` with the
+      // scrim over the inverted background. The two routing rules tie at [0,3,0], so only
+      // source order decides — and the OVERLAY role must win, since on-inverted is barely
+      // 2.2:1 over an arbitrary image.
+      { component: 'cta', props: { title: 'Inverted AND overlay', button_text: 'Ver planes', button_url: '/precios', theme: 'inverted', background_image: 'https://example.com/nonexistent.jpg', button_variant: 'outline' } },
+      // 9: an authored --cta-accent on the bg-image band. The ring rule replaces only the
+      // TERMINAL fallback, so this brand colour must still paint the ring; jumping straight
+      // to the role token would have silently repainted every authored ring near-white.
+      {
+        component: 'cta',
+        props: { title: 'Overlay filled, authored accent', button_text: 'Ver planes', button_url: '/precios', background_image: 'https://example.com/nonexistent.jpg' },
+        style: { '--cta-accent': 'rgb(255, 92, 46)' },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const buttons = page.locator('.cta__button');
+    await expect(buttons).toHaveCount(10, { timeout: 10000 });
+
+    const prop = async (i: number, p: string) =>
+      buttons.nth(i).evaluate((el, name) => getComputedStyle(el).getPropertyValue(name), p);
+
+    const ON_INVERTED = 'rgb(157, 175, 238)'; // #9dafee, 8.33:1 on --color-bg-inverted
+    const ON_OVERLAY = 'rgb(250, 251, 255)';  // #fafbff, 4.59:1 on the worst-case scrim
+    const BARE_ACCENT = 'rgb(49, 87, 244)';   // #3157f4 — the failing light-surface accent
+
+    // Solid inverted band: outline gets ink AND ring; ghost is borderless by design.
+    expect(await prop(0, 'color')).toBe(ON_INVERTED);
+    expect(await prop(0, 'border-top-color')).toBe(ON_INVERTED);
+    expect(await prop(1, 'color')).toBe(ON_INVERTED);
+
+    // Overlay band: on-overlay, NOT on-inverted (which is only ~2.2:1 over the scrim).
+    expect(await prop(2, 'color')).toBe(ON_OVERLAY);
+    expect(await prop(2, 'border-top-color')).toBe(ON_OVERLAY);
+    expect(await prop(3, 'color')).toBe(ON_OVERLAY);
+
+    // Filled primary on the overlay band: the ring no longer follows the fill, so the
+    // pill has a visible edge (ring -> 4.59:1) while the fill itself is unchanged.
+    expect(await prop(4, 'border-top-color')).toBe(ON_OVERLAY);
+    expect(await prop(4, 'background-color')).toBe(BARE_ACCENT);
+
+    // Filled primary on the INVERTED band: NOT ringed. Its fill already measures 3.23:1
+    // against the band, clearing the 3:1 non-text bar, so the border stays on the fill.
+    expect(await prop(5, 'border-top-color')).toBe(BARE_ACCENT);
+
+    // The per-instance slots beat the routed fallback on a dark band.
+    expect(await prop(6, 'color')).toBe('rgb(255, 209, 102)');
+    expect(await prop(6, 'border-top-color')).toBe('rgb(255, 209, 102)');
+
+    // Light band is untouched: still the bare accent at 5.14:1 on --color-surface.
+    expect(await prop(7, 'color')).toBe(BARE_ACCENT);
+    expect(await prop(7, 'border-top-color')).toBe(BARE_ACCENT);
+
+    // Both dark-band classes at once: the overlay role wins, not on-inverted.
+    expect(await prop(8, 'color')).toBe(ON_OVERLAY);
+    expect(await prop(8, 'border-top-color')).toBe(ON_OVERLAY);
+
+    // An authored --cta-accent still paints the ring; only the terminal fallback moved.
+    expect(await prop(9, 'border-top-color')).toBe('rgb(255, 92, 46)');
+
+    /*
+     * HOVER must NOT inherit the dark-band routing. The rest rules sit at [0,3,0], the
+     * same specificity as the `:hover` rules they follow (a pseudo-class counts as a
+     * class), so without the explicit hover restoration the routed ink won by source
+     * order and landed on a fill it was never measured against: on-inverted ink over the
+     * accent fill is 2.58:1, and on-overlay ink over the near-white ghost hover fill is
+     * effectively invisible. On hover each variant paints its own contrasting fill, so
+     * the correct value is the variant's ORIGINAL hover ink, not the role token.
+     */
+    const PAGE_BG = 'rgb(252, 253, 255)';   // --color-bg, outline hover ink (4.70:1 on the accent fill)
+    const SURFACE = 'rgb(244, 247, 251)';   // --color-surface, ghost hover fill
+
+    // .btn animates colour over --transition (150ms), so getComputedStyle right after
+    // hover() returns a mid-flight blend. Kill transitions rather than sleeping: the
+    // assertion is about which value the CASCADE resolves, not how it gets there.
+    await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; }' });
+
+    for (const i of [0, 2]) { // inverted + overlay outline
+      await buttons.nth(i).hover();
+      expect(await prop(i, 'color')).toBe(PAGE_BG);
+      expect(await prop(i, 'background-color')).toBe(BARE_ACCENT);
+      expect(await prop(i, 'border-top-color')).toBe(BARE_ACCENT);
+    }
+    for (const i of [1, 3]) { // inverted + overlay ghost
+      await buttons.nth(i).hover();
+      expect(await prop(i, 'color')).toBe(BARE_ACCENT);
+      expect(await prop(i, 'background-color')).toBe(SURFACE);
+    }
+
+    /*
+     * The separation ring must SURVIVE hover. `.cta .btn:not(...):hover` is [0,6,0] and
+     * its border follows the hover fill, so the [0,5,0] rest ring alone left the button
+     * ringed at rest and dissolving again under the pointer — the defect reappearing in
+     * the state a user is most likely looking at. WCAG 1.4.11 covers hover too.
+     */
+    await buttons.nth(4).hover();
+    expect(await prop(4, 'border-top-color')).toBe(ON_OVERLAY);
+    // The authored-accent ring survives hover through --cta-accent-hover's own chain
+    // rather than snapping to the role token.
+    await buttons.nth(9).hover();
+    expect(await prop(9, 'border-top-color')).not.toBe(BARE_ACCENT);
+  });
+
+  test('#535 cover-hero primary and default second CTA clear AA on the scrim @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Cover Hero Button Contrast');
+    setComposition(pageId, [
+      // 0/1: outline PRIMARY + the DEFAULT (outline) second CTA. Before #535 both painted
+      // var(--hero-text, var(--color-text)) = near-black #101828 on the scrim — the dead
+      // `.hero--cover .btn--outline` rule never won.
+      {
+        component: 'hero',
+        props: {
+          title: 'Cover outline', layout: 'cover',
+          cta_text: 'Empezar', cta_url: '/a', cta_variant: 'outline',
+          cta2_text: 'Hablar', cta2_url: '/b',
+        },
+      },
+      // 2/3: ghost PRIMARY + ghost second CTA (both fell to --color-accent at 1.17:1).
+      {
+        component: 'hero',
+        props: {
+          title: 'Cover ghost', layout: 'cover',
+          cta_text: 'Empezar', cta_url: '/a', cta_variant: 'ghost',
+          cta2_text: 'Hablar', cta2_url: '/b', cta2_variant: 'ghost',
+        },
+      },
+      // 4: FILLED primary — gains the separation ring on the scrim.
+      { component: 'hero', props: { title: 'Cover filled', layout: 'cover', cta_text: 'Empezar', cta_url: '/a' } },
+      // 5: per-instance slot still wins over the routed fallback.
+      {
+        component: 'hero',
+        props: { title: 'Cover override', layout: 'cover', cta_text: 'Empezar', cta_url: '/a', cta_variant: 'outline' },
+        style: { '--hero-text': '#ffd166' },
+      },
+      // 6: a NON-cover hero must be untouched (no scrim, no routing).
+      { component: 'hero', props: { title: 'Plain hero', layout: 'centered', cta_text: 'Empezar', cta_url: '/a', cta_variant: 'outline' } },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const ctas = page.locator('.hero__cta');
+    await expect(ctas).toHaveCount(7, { timeout: 10000 });
+
+    const prop = async (i: number, p: string) =>
+      ctas.nth(i).evaluate((el, name) => getComputedStyle(el).getPropertyValue(name), p);
+
+    const ON_OVERLAY = 'rgb(250, 251, 255)';
+    const NEAR_BLACK = 'rgb(16, 24, 40)';   // --color-text, the defect's rendered value
+    const BARE_ACCENT = 'rgb(49, 87, 244)';
+
+    // 0: outline PRIMARY on the cover scrim — ink and ring both on the overlay role.
+    expect(await prop(0, 'color')).toBe(ON_OVERLAY);
+    expect(await prop(0, 'border-top-color')).toBe(ON_OVERLAY);
+    expect(await prop(0, 'color')).not.toBe(NEAR_BLACK);
+    // 1: the DEFAULT second CTA (cta2_variant defaults to `outline`) — #535 Q3.
+    expect(await prop(1, 'color')).toBe(ON_OVERLAY);
+    expect(await prop(1, 'border-top-color')).toBe(ON_OVERLAY);
+
+    // 2/3: ghost primary + ghost second CTA.
+    expect(await prop(2, 'color')).toBe(ON_OVERLAY);
+    expect(await prop(3, 'color')).toBe(ON_OVERLAY);
+
+    // 4: FILLED primary gains the ring; the fill itself is unchanged.
+    expect(await prop(4, 'border-top-color')).toBe(ON_OVERLAY);
+
+    // 5: --hero-text still wins over the routed fallback.
+    expect(await prop(5, 'color')).toBe('rgb(255, 209, 102)');
+    expect(await prop(5, 'border-top-color')).toBe('rgb(255, 209, 102)');
+
+    // 6: a plain (non-cover) hero keeps today's --hero-text -> --color-text outline and
+    // its accent-bordered fill. The routing is scoped to the scrim, nothing else moved.
+    expect(await prop(6, 'color')).toBe(NEAR_BLACK);
+    expect(await prop(6, 'border-top-color')).toBe(NEAR_BLACK);
+    expect(await prop(6, 'color')).not.toBe(BARE_ACCENT);
+
+    /*
+     * HOVER, same leak class as the cta test above. `.hero--cover .btn--ghost` [0,2,0]
+     * ties with the shared `.btn--ghost:hover` and follows it, so the on-overlay ink
+     * survived onto a hover that fills with the near-white --color-surface. The outline
+     * twin was already safe ([0,3,0] hover outranks it) and is pinned here so a future
+     * specificity change to either rule is caught.
+     */
+    const PAGE_BG = 'rgb(252, 253, 255)';
+    const SURFACE = 'rgb(244, 247, 251)';
+
+    // See the cta test: kill the 150ms colour transition so the assertion reads the
+    // cascade's resolved value rather than a mid-flight blend.
+    await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; }' });
+
+    await ctas.nth(0).hover();
+    expect(await prop(0, 'color')).toBe(PAGE_BG);
+    expect(await prop(0, 'background-color')).toBe(BARE_ACCENT);
+    expect(await prop(0, 'border-top-color')).toBe(BARE_ACCENT);
+
+    await ctas.nth(2).hover();
+    expect(await prop(2, 'color')).toBe(BARE_ACCENT);
+    expect(await prop(2, 'background-color')).toBe(SURFACE);
+
+    // The second CTA's own :hover rules are [0,5,0] and outrank the [0,4,0] cover
+    // routing, so its hover ink is the variant's normal value, not a role token.
+    await ctas.nth(1).hover();
+    expect(await prop(1, 'color')).toBe(PAGE_BG);
+    expect(await prop(1, 'background-color')).toBe(BARE_ACCENT);
+
+    // The filled primary's ring must survive hover here too (see the cta test).
+    await ctas.nth(4).hover();
+    expect(await prop(4, 'border-top-color')).toBe(ON_OVERLAY);
+  });
+
+  /*
    * #474 — the compensating proof for the three SLOT_DECLARATION_EXEMPTIONS entries
    * added in StyleSlotContractTest. That guard normally forbids a stylesheet rule from
    * DECLARING a schema slot, because declaring it beats the renderer's inline value on

@@ -1035,12 +1035,19 @@ class ComponentPropsTest extends TestCase
         // var(--cta-button-bg, ...))`) so the border follows the fill when the border slot
         // is unset. `.cta .btn` is the [0,5,0] longhand winner that outranked BOTH of the
         // above layers for background-color/border-color and silently re-killed the slot.
+        // PLUS 1 on the bg-image separation ring (issue 535). That rule overrides
+        // `.cta .btn:not(...)`'s border on an overlay band, replacing ONLY the terminal
+        // --color-accent with --color-accent-on-overlay; every authored link ahead of it,
+        // including this fill slot, is carried over verbatim so a button an author already
+        // recoloured keeps its matching ring instead of gaining a near-white one.
         $this->assertSame(
-            8,
+            9,
             substr_count($css, 'var(--cta-button-bg'),
             'var(--cta-button-bg) must be consumed by the 4 cta-block variant rules, the 2 '
-            . 'premium primary-fill winners (issue 412), and the .cta .btn rest rule twice '
-            . '(fill + the fill nested in its border fallback, issue 420).'
+            . 'premium primary-fill winners (issue 412), the .cta .btn rest rule twice '
+            . '(fill + the fill nested in its border fallback, issue 420), and the '
+            . '.cta--has-bg-image separation ring, which preserves that same border '
+            . 'fallback chain ahead of the overlay role (issue 535).'
         );
     }
 
