@@ -4,6 +4,39 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.10.1] — 2026-07-27 — per-instance hover fills reach filled buttons (#530)
+
+**A filled button styled with a brand color no longer snaps back to the theme gradient the moment you point at it.** Hover is now a real per-instance surface on all four filled button slots.
+
+Every button component already exposed a hover fill slot, but on a FILLED (`primary`) button those slots painted nothing. The shared premium hover rule paints a `background` shorthand carrying a gradient image, and the component rules underneath only set a background color, which that image covered. A hero or CTA button given a brand fill therefore looked right at rest and flashed back to the theme accent on hover. The hero's primary button had no hover fill slot at all. The same rule also coupled the two buttons in a pair: setting the primary's hover fill cleared the second button's hover gradient with it.
+
+The hover chain now leads with a per-instance slot the way the resting chain has since v1.9.0, and each second button re-points its own hover slot, so the four filled surfaces (hero primary, hero second CTA, CTA primary, CTA second button) carry independent hover fills and stay isolated from each other in both rest and hover. Leave the slots unset and every button renders exactly as before, byte for byte.
+
+Pair a hover slot with its resting slot. Setting only the hover fill drops the gradient layer instantly while the color animates, which reads as a brief off-brand wash.
+
+### Added
+
+- `--hero-button-hover-bg`: per-instance hover fill for the hero's filled primary button, the hover counterpart to `--hero-button-bg`. Unset, hover keeps the premium gradient.
+
+### Fixed
+
+- `--hero-cta2-hover-bg` and `--cta-button2-hover-bg` now paint a filled second button instead of being masked by the shared premium hover gradient (#530).
+- Setting the primary button's hover fill no longer clears the second button's hover gradient; hover is isolated between the two buttons exactly as the resting state is.
+
+### Docs
+
+- Hero and CTA schemas describe hover as its own surface and correct `--hero-accent-hover` / `--cta-accent-hover`, which are hover BORDER knobs on a filled button, not hover fills.
+- `ai-instructions/style-component.md`, `composition.md`, `retheme.md` and the CTA component README drop the "reverts to the gradient on hover" and "hover is not isolated" caveats, and note that there is no global `--btn-hover-bg` tier.
+
+### Tests
+
+- Rendered `:hover` computed-style pins at 1280 and 375 for all four filled surfaces, covering the mask, the cross-button leak, each second button's slot working alone, and byte-identical hover when unset.
+- The CSS fill-chain lint guard now requires the hero slot on the hover surface, so a future shorthand cannot re-mask it, and its detection proof runs the real slot list instead of a hardcoded one.
+- New guard: none of the eight re-pointing source/target slots may be `@property`-registered, the invariant the byte-identical-when-unset behavior depends on.
+- Authoring-path coverage for the new slot through the real `style_component` action, plus rejection of a non-color value.
+
+---
+
 ## [v1.10.0] — 2026-07-27 — button & brand parity: every button surface behaves per-instance and consistently (rollup)
 
 **v1.10.0 is the rollup release of the Button & Brand Parity gate — three working versions (1.9.1–1.9.3) verified as one line. The hero's second CTA no longer inherits the primary's per-instance slots, and its own fill slot finally paints (with the border following the fill, matching #514's convention) (#526); stats numbers gain `--stats-number-font` / `--stats-number-weight` so figures can match a serif heading system (#472); and the cta component gains an optional second button (`button2_*`, mirroring hero's `cta2_*`) with leak-proof slot isolation and dark-band contrast routed through the established on-inverted/on-overlay role tokens (#474).**
