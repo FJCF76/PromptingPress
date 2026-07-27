@@ -44,11 +44,14 @@ the band's accent role (`--color-accent-on-inverted` / `--color-accent-on-overla
 instead, so they are readable without setting anything; `--cta-button-color` /
 `--cta-button-border` (and the `--cta-button2-*` pair) still win when set. Resting
 state only — on hover each variant paints its own contrasting fill. On a
-`background_image` band every filled button — the primary and `button2` alike — also
-takes its border from that role so its shape stays visible against the band and a
-`primary` + `primary` pair reads as a matched pair. The solid `inverted` band does not
-get this ring (its fill already clears the 3:1 non-text bar); a band carrying both
-classes does, because the overlay role is the safe one over an arbitrary image.
+`background_image` band every filled button — the primary and `button2` alike —
+DEFAULTS its border to that role so its shape stays visible against the band and an
+unstyled `primary` + `primary` pair reads as a matched pair. The role is the last link
+in the chain: `--cta-button2-border`, the global `--btn-border-color`, and the fill
+chain (`--cta-button2-bg` → `--cta-accent` → `--btn-bg`) all still win ahead of it, so a
+ring you author keeps the colour you gave it. The solid `inverted` band does not get
+this ring (its fill already clears the 3:1 non-text bar); a band carrying both classes
+does, because the overlay role is the safe one over an arbitrary image.
 
 The focus ring follows the same routing, for EVERY variant including the filled one:
 it is drawn outside the button, so it lands on the band, where the bare accent measured
