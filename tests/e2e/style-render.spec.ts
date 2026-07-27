@@ -7059,3 +7059,180 @@ test.describe('#530 hover fill slots paint and stay isolated (real WP)', () => {
     expect(onSecond.second.borderColor).toBe(onPrimary.primary.borderColor);
   });
 });
+
+/**
+ * #536 — the section's panel CTA is the last member of the #514 masked-fill class, and its
+ * three new per-instance slots actually paint.
+ *
+ * `.section__panel-cta` has no .hero / .cta ancestor, so the shared premium
+ * `main .btn:not(...)` cascade is its ONLY fill winner. That rule paints a `background:`
+ * SHORTHAND carrying a gradient background-IMAGE, which sits above any background-COLOR the
+ * section block sets — so before this change a branded section simply could not carry a
+ * filled accent button through composition style slots. The defect class is invisible to
+ * CSS-TEXT pins (a background-color under a gradient is present in the text and absent on
+ * screen), so getComputedStyle in a real browser is the acceptance surface. Premium literals
+ * are probe-resolved (the #458 idiom) rather than hardcoded, so the byte-identical-when-unset
+ * assertions compare against the browser's own resolution of today's gradient.
+ */
+test.describe('#536 section panel-CTA fill slots paint (real WP)', () => {
+  let pageId = 0;
+
+  const PANEL_PURPLE = '#7c3aed';
+  const PANEL_CTA = '.section__panel-cta';
+
+  test.afterEach(async () => {
+    if (pageId) {
+      deletePage(pageId);
+      pageId = 0;
+    }
+  });
+
+  // A text-panel section whose panel renders a CTA — the only shape in which the slots apply.
+  function panelPage(title: string, style?: Record<string, string>, variant?: string): number {
+    const id = createPage(title);
+    setComposition(id, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-536-section',
+          layout: 'text-panel',
+          title: 'Plans',
+          body: 'Pick the plan that fits.',
+          panel_heading: 'Starter',
+          panel_body: 'Everything you need to launch.',
+          panel_cta_text: 'Book a call',
+          panel_cta_url: '/contact',
+          ...(variant ? { panel_cta_variant: variant } : {}),
+        },
+        ...(style ? { style } : {}),
+      },
+    ]);
+    return id;
+  }
+
+  async function readPanelCta(page: any) {
+    return page.evaluate(() => {
+      const resolve = (prop: string, value: string) => {
+        const el = document.createElement('div');
+        el.style.setProperty(prop, value);
+        document.body.appendChild(el);
+        const out = getComputedStyle(el).getPropertyValue(prop);
+        el.remove();
+        return out.trim();
+      };
+      const el = document.querySelector('.section__panel-cta') as HTMLElement;
+      const cs = getComputedStyle(el);
+      return {
+        bgColor: cs.backgroundColor,
+        bgImage: cs.backgroundImage,
+        borderColor: cs.borderTopColor,
+        color: cs.color,
+        shadow: cs.boxShadow,
+        premiumGradient: resolve(
+          'background-image',
+          'linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%)',
+        ),
+        purple: resolve('background-color', '#7c3aed'),
+        accentStrong: resolve('background-color', 'var(--color-accent-strong)'),
+        colorBg: resolve('background-color', 'var(--color-bg)'),
+      };
+    });
+  }
+
+  for (const width of [1280, 375]) {
+    test(`--section-panel-cta-bg clears the premium gradient and paints (${width}px) @smoke`, async ({
+      page,
+    }) => {
+      pageId = panelPage('E2E 536 fill', {
+        '--section-panel-cta-bg': PANEL_PURPLE,
+        '--section-panel-cta-color': '#fffbe6',
+        '--section-panel-cta-shadow': 'none',
+      });
+
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator(PANEL_CTA)).toBeVisible({ timeout: 10000 });
+
+      const got = await readPanelCta(page);
+
+      expect(got.bgImage, `@${width}: the gradient must be cleared, not covering the slot`).toBe(
+        'none',
+      );
+      expect(got.bgColor, `@${width}: the panel CTA must paint --section-panel-cta-bg`).toBe(
+        got.purple,
+      );
+      // Border FOLLOWS the fill when --btn-border-color is unset (the #526 convention), so a
+      // fill-only recolor keeps a matching ring instead of a stray accent-strong outline.
+      expect(got.borderColor, `@${width}: the border must follow the fill`).toBe(got.purple);
+      expect(got.color, `@${width}: the panel CTA must paint the ink slot`).toBe(
+        'rgb(255, 251, 230)',
+      );
+      expect(got.shadow, `@${width}: `+'`none` must flatten the button').toBe('none');
+
+      // The elevation contract is rest AND hover (the #514 contract this slot mirrors):
+      // without --section-panel-cta-shadow in the premium HOVER chain the bevel re-grows
+      // mid-interaction, which a rest-only computed pin cannot see.
+      await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
+      await page.locator(PANEL_CTA).hover();
+      const hovered = await readPanelCta(page);
+      expect(hovered.shadow, `@${width}: `+'`none` must flatten hover too').toBe('none');
+    });
+  }
+
+  // Byte-identical when unset: the whole chain must bottom out at today's premium literals.
+  test('an unset panel CTA renders byte-identically @smoke', async ({ page }) => {
+    pageId = panelPage('E2E 536 unset');
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator(PANEL_CTA)).toBeVisible({ timeout: 10000 });
+
+    const got = await readPanelCta(page);
+
+    expect(got.bgImage, 'unset panel CTA must keep the premium gradient').toBe(
+      got.premiumGradient,
+    );
+    expect(got.shadow, 'unset panel CTA must keep the premium bevel').not.toBe('none');
+    // The border and ink chains gained a link too (#536 routes --section-panel-cta-bg into
+    // the premium border chain and --section-panel-cta-color into the ink chain), so both
+    // need their own unset proof: a dropped fallback or a mis-nested paren there would leave
+    // the resting ring or label unpinned at the rendered level.
+    expect(got.borderColor, 'unset panel CTA must keep the premium accent ring').toBe(
+      got.accentStrong,
+    );
+    expect(got.color, 'unset panel CTA must keep the premium ink').toBe(got.colorBg);
+  });
+
+  // Variant carve-out: the fill slot must not flatten a transparent panel CTA into a
+  // look-alike filled button (the secondary-contrast defect class the premium :not() chain
+  // exists to prevent).
+  // All three transparent variants are named in the carve-out, so all three get a proof.
+  // The ELEVATION slot is asserted here too: wiring it one specificity tier lower (on the
+  // bare .section__panel-cta rule) escapes the carve-out and paints a drop shadow on a
+  // transparent button, which is exactly the contract lie schema.json would then be telling.
+  for (const variant of ['outline', 'ghost', 'secondary']) {
+    test(`the fill and elevation slots never reach a ${variant} panel CTA @smoke`, async ({
+      page,
+    }) => {
+      pageId = panelPage(
+        `E2E 536 ${variant}`,
+        { '--section-panel-cta-bg': PANEL_PURPLE, '--section-panel-cta-shadow': '0 8px 20px #000' },
+        variant,
+      );
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator(PANEL_CTA)).toBeVisible({ timeout: 10000 });
+
+      const got = await readPanelCta(page);
+
+      expect(got.bgImage, `a ${variant} panel CTA must have no fill layer`).toBe('none');
+      expect(got.bgColor, `a ${variant} panel CTA must not take the fill slot`).not.toBe(
+        got.purple,
+      );
+      expect(got.shadow, `a ${variant} panel CTA must not take the elevation slot`).not.toContain(
+        '8px 20px',
+      );
+    });
+  }
+});

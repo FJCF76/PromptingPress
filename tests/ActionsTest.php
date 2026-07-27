@@ -3893,6 +3893,101 @@ class ActionsTest extends TestCase
         $this->assertEquals('invalid_style_value', $result->get_error_code());
     }
 
+    // ── #536 section panel-CTA fill slots (authoring-path mandate) ────────────
+
+    /**
+     * Authoring path for issue 536: the three new panel-CTA slots go through the REAL
+     * validate + apply surface on a text-panel section that actually renders a CTA, and
+     * persist onto that component's style map. Raw _pp_composition seeding would bypass
+     * the schema-derived allowlist entirely and prove nothing about whether a site-builder
+     * AI can set them (Section 14.1). This pins authoring only; the cascade that makes the
+     * fill VISIBLE is pinned by StyleSlotContractTest and the rendered computed-style pins
+     * in tests/e2e/style-render.spec.ts.
+     */
+    public function testStyleComponentPersistsSectionPanelCtaFillSlots(): void
+    {
+        $post_id = pp_create_page('Section panel CTA fill test');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => [
+                'id'             => 'pp-eeff5566',
+                'layout'         => 'text-panel',
+                'title'          => 'Plans',
+                'body'           => 'Pick a plan.',
+                'panel_heading'  => 'Starter',
+                'panel_cta_text' => 'Book a call',
+                'panel_cta_url'  => '/contact',
+            ]],
+        ]);
+
+        $result = pp_execute_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => [
+                '--section-panel-cta-bg'     => '#7c3aed',
+                '--section-panel-cta-color'  => '#ffffff',
+                '--section-panel-cta-shadow' => 'none',
+            ],
+        ]);
+        $this->assertTrue($result['ok']);
+
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('#7c3aed', $comp[0]['style']['--section-panel-cta-bg']);
+        $this->assertSame('#ffffff', $comp[0]['style']['--section-panel-cta-color']);
+        $this->assertSame('none', $comp[0]['style']['--section-panel-cta-shadow']);
+    }
+
+    /**
+     * The `color`-typed --section-panel-cta-bg goes through the same shared validator as
+     * every other color slot: a non-color value is rejected with the standard code
+     * (authoring-path negative branch, issue 536).
+     */
+    public function testStyleComponentRejectsInvalidSectionPanelCtaBg(): void
+    {
+        $post_id = pp_create_page('Section panel CTA reject test');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => [
+                'id'     => 'pp-eeff5566',
+                'layout' => 'text-panel',
+                'title'  => 'Plans',
+                'body'   => 'Pick a plan.',
+            ]],
+        ]);
+
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--section-panel-cta-bg' => 'not-a-color'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_style_value', $result->get_error_code());
+    }
+
+    /**
+     * The `shadow`-typed --section-panel-cta-shadow is validated as a shadow, not a color:
+     * a color literal there is rejected, so the three slots are not silently interchangeable
+     * (issue 536).
+     */
+    public function testStyleComponentRejectsInvalidSectionPanelCtaShadow(): void
+    {
+        $post_id = pp_create_page('Section panel CTA shadow reject test');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => [
+                'id'     => 'pp-eeff5566',
+                'layout' => 'text-panel',
+                'title'  => 'Plans',
+                'body'   => 'Pick a plan.',
+            ]],
+        ]);
+
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--section-panel-cta-shadow' => 'javascript:alert(1)'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_style_value', $result->get_error_code());
+    }
+
     public function testStyleComponentExecuteMergesStyle(): void
     {
         $post_id = pp_create_page('Style test');

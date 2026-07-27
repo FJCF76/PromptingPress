@@ -612,25 +612,27 @@ class StyleSlotContractTest extends TestCase
         // Premium cascade — the VISIBLE winners (shared block, outside COMPONENT: hero).
         // Rest fill: --hero-button-bg outermost, then the pre-#514 --cta-button-bg/--btn-bg
         // chain to the gradient literal (byte-identical unset).
+        // NOTE (issue 536): the section panel CTA joined the same masked-fill class and its
+        // slots now lead these chains, with the #514 hero links preserved immediately after.
         $this->assertMatchesRegularExpression(
-            '/background:\s*var\(--hero-button-bg,\s*var\(--cta-button-bg,\s*var\(--btn-bg,\s*'
-            . 'linear-gradient\(180deg,\s*var\(--color-accent-strong\)\s*0%,\s*var\(--color-accent-hover\)\s*100%\)\)\)\)/',
+            '/background:\s*var\(--section-panel-cta-bg,\s*var\(--hero-button-bg,\s*var\(--cta-button-bg,\s*var\(--btn-bg,\s*'
+            . 'linear-gradient\(180deg,\s*var\(--color-accent-strong\)\s*0%,\s*var\(--color-accent-hover\)\s*100%\)\)\)\)\)/',
             $css,
-            'The premium rest fill must route --hero-button-bg -> --cta-button-bg -> --btn-bg -> gradient (issue 514).'
+            'The premium rest fill must route --section-panel-cta-bg -> --hero-button-bg -> --cta-button-bg -> --btn-bg -> gradient (issues 514/536).'
         );
-        // Rest ink: --hero-button-color outermost, prior chain to --color-bg.
+        // Rest ink: --hero-button-color in the chain, prior chain to --color-bg.
         $this->assertStringContainsString(
-            'color: var(--hero-button-color, var(--cta-button-color, var(--btn-text, var(--color-bg))))',
+            'color: var(--section-panel-cta-color, var(--hero-button-color, var(--cta-button-color, var(--btn-text, var(--color-bg)))))',
             $css,
-            'The premium rest ink must route --hero-button-color -> --cta-button-color -> --btn-text -> --color-bg (issue 514).'
+            'The premium rest ink must route --section-panel-cta-color -> --hero-button-color -> --cta-button-color -> --btn-text -> --color-bg (issues 514/536).'
         );
-        // Rest elevation: --hero-button-shadow outermost, prior chain to the bevel literal.
+        // Rest elevation: --hero-button-shadow in the chain, prior chain to the bevel literal.
         $this->assertMatchesRegularExpression(
-            '/box-shadow:\s*var\(--hero-button-shadow,\s*var\(--cta-button-shadow,\s*var\(--btn-shadow,\s*'
+            '/box-shadow:\s*var\(--section-panel-cta-shadow,\s*var\(--hero-button-shadow,\s*var\(--cta-button-shadow,\s*var\(--btn-shadow,\s*'
             . 'inset 0 1px 0 rgba\(255, 255, 255, 0\.16\),\s*'
-            . '0 10px 22px color-mix\(in srgb, var\(--color-accent-strong\) 14%, transparent\)\)\)\)/',
+            . '0 10px 22px color-mix\(in srgb, var\(--color-accent-strong\) 14%, transparent\)\)\)\)\)/',
             $css,
-            'The premium rest elevation must route --hero-button-shadow -> --cta-button-shadow -> --btn-shadow -> bevel (issue 514).'
+            'The premium rest elevation must route --section-panel-cta-shadow -> --hero-button-shadow -> --cta-button-shadow -> --btn-shadow -> bevel (issues 514/536).'
         );
 
         // Hero block — the slot-contract keystone at [0,4,0] (below the premium winner).
@@ -653,6 +655,74 @@ class StyleSlotContractTest extends TestCase
             'border-color: var(--hero-accent, var(--btn-border-color, var(--hero-button-bg, var(--btn-bg, var(--color-accent)))))',
             $block,
             'The hero primary border must follow the fill (--hero-button-bg) when its own knobs are unset (issue 514).'
+        );
+    }
+
+    /**
+     * Section panel-CTA fill slots (issue 536): the last member of the #514 masked-fill class.
+     *
+     * `.section__panel-cta` has NO .hero / .cta ancestor, so the shared premium
+     * `main .btn:not(...)` cascade is its ONLY fill winner — a background-COLOR set anywhere
+     * in the section block sits under that rule's gradient background-IMAGE and is invisible.
+     * The fix mirrors #514/#526: the three slots lead the premium chains (pinned in
+     * testIssue514HeroButtonFillSlotFallbacks, which now asserts the section links too), and
+     * the section block carries the keystone consumptions this test pins.
+     *
+     * One shape is load-bearing and easy to "tidy" into a regression: ALL THREE slots share
+     * the single [0,4,0] variant carve-out. The obvious-looking simplification — wiring the
+     * elevation slot on the bare `.section__panel-cta` rule — is a shipped contract lie: at
+     * [0,1,0] it outranks the shared `.btn` box-shadow (later in source) on EVERY variant, so
+     * `--section-panel-cta-shadow` would paint a drop shadow on a transparent outline/ghost
+     * panel CTA that schema.json promises it never reaches (caught in review, verified in a
+     * browser: an outline panel CTA took the slot's shadow at rest).
+     */
+    public function testIssue536SectionPanelCtaFillSlotKeystone(): void
+    {
+        $block = $this->stripComments($this->componentBlock('section'));
+
+        // The bare rule carries spacing ONLY — no slot may be wired at [0,1,0], where it
+        // would escape the variant carve-out.
+        $this->assertMatchesRegularExpression(
+            '/\.section__panel-cta\s*\{\s*margin-top:\s*var\(--space-sm\);\s*\}/',
+            $block,
+            'The bare .section__panel-cta rule must stay spacing-only (issue 536): a slot wired '
+            . 'there reaches outline/ghost/secondary, contradicting the primary-only contract '
+            . 'in components/section/schema.json.'
+        );
+
+        // Fill/ink/border/elevation keystone, carved away from the transparent variants.
+        $this->assertMatchesRegularExpression(
+            '/\.section__panel-cta:not\(\.btn--outline\):not\(\.btn--ghost\):not\(\.btn--secondary\)\s*\{\s*'
+            . 'background-color:\s*var\(--section-panel-cta-bg,\s*var\(--btn-bg,\s*var\(--color-accent\)\)\);\s*'
+            . 'border-color:\s*var\(--btn-border-color,\s*var\(--section-panel-cta-bg,\s*var\(--btn-bg,\s*var\(--color-accent\)\)\)\);\s*'
+            . 'color:\s*var\(--section-panel-cta-color,\s*var\(--btn-text,\s*var\(--color-bg\)\)\);\s*'
+            . 'box-shadow:\s*var\(--section-panel-cta-shadow,\s*none\);\s*\}/',
+            $block,
+            'The section block must wire ALL THREE panel-CTA slots on ONE variant-carved [0,4,0] '
+            . 'rule, with the border FOLLOWING the fill when --btn-border-color is unset (issue '
+            . '536, the #526 border-follows-fill convention) and the `none` elevation default '
+            . 'mirroring .hero__cta:not(...).'
+        );
+
+        // The premium LIVE border must reach the fill slot too, so a fill-only recolor keeps a
+        // matching ring instead of the stray --color-accent-strong outline.
+        $css = $this->stripComments($this->css);
+        $this->assertStringContainsString(
+            'border-color: var(--cta-button-border, var(--cta-accent, var(--btn-border-color, '
+            . 'var(--section-panel-cta-bg, var(--color-accent-strong)))))',
+            $css,
+            'The premium primary border must fall through to --section-panel-cta-bg before its '
+            . 'literal, so a flat panel CTA keeps a matching ring (issue 536).'
+        );
+
+        // Elevation contract: `none` must flatten hover as well as rest (the #514 contract).
+        $this->assertMatchesRegularExpression(
+            '/box-shadow:\s*var\(--section-panel-cta-shadow,\s*var\(--hero-button-shadow,\s*var\(--cta-button-shadow,\s*'
+            . 'inset 0 1px 0 rgba\(255, 255, 255, 0\.18\),\s*'
+            . '0 14px 30px color-mix\(in srgb, var\(--color-accent-strong\) 20%, transparent\)\)\)\)/',
+            $css,
+            'The premium HOVER elevation must route --section-panel-cta-shadow too, so `none` '
+            . 'flattens rest AND hover instead of re-growing a bevel mid-interaction (issue 536).'
         );
     }
 

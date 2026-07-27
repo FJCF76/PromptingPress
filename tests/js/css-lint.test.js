@@ -328,8 +328,8 @@ describe('CSS lint: style slot fallback patterns', () => {
         });
     });
 
-    test('hero/section/grid/cta schemas declare 159 style slots (subset of the total)', () => {
-        expect(allSlots.length).toBe(159);
+    test('hero/section/grid/cta schemas declare 162 style slots (subset of the total)', () => {
+        expect(allSlots.length).toBe(162);
     });
 
     allSlots.forEach(({ component, slotName }) => {
@@ -429,9 +429,10 @@ describe('CSS lint: premium primary-button fill routes through the fill-slot cha
     });
 
     test('every primary-fill background routes through the per-instance fill slot chain', () => {
-        // Rest fill now leads with --hero-button-bg (issue 514: the hero primary's visible
-        // fill winner), with --cta-button-bg still next in the chain. Both must be present so
-        // dropping EITHER slot is caught. Hover mirrors that chain exactly since issue 530:
+        // Rest fill leads with --section-panel-cta-bg (issue 536: the section panel CTA's
+        // ONLY fill winner — it has no .hero/.cta ancestor, so nothing else can route it),
+        // then --hero-button-bg (issue 514) then --cta-button-bg. All three must be present
+        // so dropping ANY of them is caught. Hover mirrors that chain since issue 530:
         // --hero-button-hover-bg leads, --cta-button-hover-bg follows. Before #530 the hover
         // branch required only the cta slot, which is why the hover surface could ship a
         // gradient shorthand that masked every per-instance hover fill slot — the guard was
@@ -441,7 +442,7 @@ describe('CSS lint: premium primary-button fill routes through the fill-slot cha
             const isHover = /:hover\b/.test(r.selector);
             const requiredSlots = isHover
                 ? ['--hero-button-hover-bg', '--cta-button-hover-bg']
-                : ['--hero-button-bg', '--cta-button-bg'];
+                : ['--section-panel-cta-bg', '--hero-button-bg', '--cta-button-bg'];
             r.decls.forEach(d => {
                 // Leading slot must be the outermost required slot.
                 const lead = requiredSlots[0];
@@ -482,9 +483,9 @@ describe('CSS lint: premium primary-button fill routes through the fill-slot cha
     };
 
     test('detector flags a bare gradient shorthand but passes a slot-routed one', () => {
-        const rest = ['--hero-button-bg', '--cta-button-bg'];
+        const rest = ['--section-panel-cta-bg', '--hero-button-bg', '--cta-button-bg'];
         const bad = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) { background: linear-gradient(red, blue); }';
-        const good = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) { background: var(--hero-button-bg, var(--cta-button-bg, linear-gradient(red, blue))); }';
+        const good = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) { background: var(--section-panel-cta-bg, var(--hero-button-bg, var(--cta-button-bg, linear-gradient(red, blue)))); }';
         expect(scanWithRequiredSlots(bad, rest).length).toBe(1);
         expect(scanWithRequiredSlots(good, rest).length).toBe(0);
     });
