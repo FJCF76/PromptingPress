@@ -4,6 +4,33 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.9.3] — 2026-07-27 — a closing CTA can offer a primary + secondary button pair (#474)
+
+**A page-closing CTA had one button, so a band that wanted "Ver planes" AND "Hablar con nosotros" had to drop one of them or switch to a `hero`, which is a styling change nobody asked for. The `cta` component now takes an optional second button — `button2_text` / `button2_url` / `button2_variant` — rendered beside the primary as a secondary action. Leave `button2_text` unset and the band renders byte for byte as it always has.**
+
+The prop trio mirrors the hero's `cta2_*` exactly, so the two components stay learnable as one pattern, and `button2_variant` defaults to `outline` so a pair reads as one filled action and one outlined action without the author choosing a variant. `button2_url` picks up the `link_url` format check for free, so a `javascript:` destination is rejected at write time instead of rendering as a dead button. The pair sits in its own flex row that wraps to one button per row on mobile; the wrapper is emitted only when a second button exists, which is what keeps the single-button render unchanged down to the whitespace. Six `--cta-button2-*` slots give the second button per-instance colour independent of the primary: flattening the primary to a brand fill leaves the second button on the default premium treatment, and recolouring the second leaves the primary alone. The one place the two buttons could not simply mirror the hero is contrast. `outline` is the DEFAULT here, and an outline button paints its ink straight onto the band, where the light-surface accent measures 3.23:1 on an inverted band and 1.17:1 over a background image — both below AA. Rather than invent a colour, the second button's outline and ghost defaults route through the same `--color-accent-on-inverted` and `--color-accent-on-overlay` roles this component already uses for its dark-band body links, which lands them at 8.33:1 and 4.59:1. The per-instance slots still win, so an author can override either.
+
+### Added
+- `cta` accepts `button2_text`, `button2_url` (with the #507 `link_url` format check) and `button2_variant` (`primary`/`secondary`/`outline`/`ghost`, default `outline`). Only `button2_text` gates the render, matching the hero's `cta2_text`; unset renders no wrapper and no second anchor (#474).
+- Six per-instance slots — `--cta-button2-bg`, `-border`, `-color`, `-hover-bg`, `-hover-border`, `-hover-color` — address the second button independently of the primary's `--cta-button-*` family, using the #526 isolation mechanism so neither button's resting fill, ink or elevation reaches the other. Style-slot totals 222 to 228 (cta 31 to 37) (#474).
+- On a dark band (`theme: "inverted"` or a `background_image`), the second button's default `outline`/`ghost` ink and ring route through the `--color-accent-on-inverted` / `--color-accent-on-overlay` roles, so the default pair meets AA without the author setting a slot; `--cta-button2-color` / `--cta-button2-border` still win when set (#474).
+
+### Fixed
+- The second button's fill and border chains route the site-wide `--btn-bg` / `--btn-border-color` tokens in the primary's exact order, so a `primary` + `primary` pair renders one colour rather than two on a site that rethemes the global button surface (#474).
+- A non-scalar or `false` `button2_text` reaching the renderer from a raw or legacy composition snapshot renders nothing instead of an unlabelled button or the literal text `Array`; a `"0"` label still renders (#474).
+
+### Docs
+- `components/cta/README.md`, `ai-instructions/composition.md` and `ai-instructions/style-component.md` document the pair, the two slot families, the mobile stacking, and the two hover caveats shared with the hero.
+- `AI_CONTEXT.md`, `README.md`, `docs/reference-apply-cli.md` and the `link_url` prop inventory in `lib/admin.php` list the new props and the updated slot totals.
+
+### Tests
+- `tests/ComponentPropsTest.php` (14 new): the pair renders both anchors inside one wrapper, variant-to-modifier mapping for all four values, the `outline` default and the invalid-value coercion, escaping of both new props, the title-less standalone pair, and a whitespace-exact pin that the unset render keeps its pre-#474 indentation — the false branch must emit zero bytes.
+- `tests/ActionsTest.php` (4 new): authoring-path proofs through `pp_execute_action` — `create_page` accepts and persists a pair, `update_component` adds a second button to an existing single-button CTA, a `javascript:` `button2_url` is rejected with `invalid_prop_value`, and an out-of-enum variant is accept-and-coerced like its siblings.
+- `tests/StyleSlotContractTest.php` pins the isolation rule's selector and all three declarations (the compensating static guard for its three exemption entries), and `tests/js/css-lint.test.js` extends the #420 fill guard to the second button's own slot family.
+- `tests/e2e/style-render.spec.ts` (3 new): computed-style proof that both dark bands route to the AA role tokens and the per-instance slot still wins, that the primary's slots do not repaint a filled second button and `--cta-button2-bg` clears the premium gradient, and that the pair sits on one row at 1280 and stacks at 375.
+
+---
+
 ## [v1.9.2] — 2026-07-27 — stats display numbers can follow the heading system instead of the body font (#472)
 
 **A brand on a serif display face could style the biggest text in the `stats` band every way except the two that mattered: the numbers took the page BODY font because no `font-family` was ever declared, and their weight was a hardcoded `700`. Two per-instance slots fix that — `--stats-number-font` and `--stats-number-weight`. Set them and the figures join the heading system; leave them unset and the band renders exactly as it did before, down to the byte.**
