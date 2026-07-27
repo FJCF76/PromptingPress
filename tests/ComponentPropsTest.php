@@ -589,6 +589,203 @@ class ComponentPropsTest extends TestCase
         $this->assertStringNotContainsString('btn--', $html);
     }
 
+    // ── CTA second button (issue 474) ──────────────────────────────────────
+    //
+    // A closing CTA can offer a primary + secondary pair, the hero's cta2 pattern
+    // scoped to cta. The hard contract is that an UNSET second button renders the
+    // component byte-for-byte as before: no wrapper element, no extra anchor.
+
+    public function testCtaWithoutButton2IsByteIdenticalToBefore(): void
+    {
+        $baseline = $this->render('cta', $this->ctaProps());
+
+        // Structural: no wrapper element, no second anchor.
+        $this->assertStringNotContainsString('cta__buttons', $baseline, 'no pair wrapper on a single-button cta');
+        $this->assertStringNotContainsString('cta__button--secondary', $baseline);
+        $this->assertSame(1, substr_count($baseline, '<a href='), 'exactly one button anchor');
+
+        // WHITESPACE-EXACT: the guarantee documented in schema.json/README/composition.md
+        // is byte-for-byte, and the obvious implementation breaks it invisibly — an
+        // INDENTED `if`/`endif` control tag prints its own leading spaces even when the
+        // branch is false, which silently added 24 bytes ahead of the primary anchor.
+        // Pin the exact indentation so a future re-indent of those tags fails here
+        // instead of quietly widening the diff on every existing page.
+        $this->assertMatchesRegularExpression(
+            '/\n {12}<a href="#" class="cta__button btn">/',
+            $baseline,
+            'the primary anchor must keep exactly its pre-474 indentation — the false '
+            . 'button2 branch must emit no bytes at all'
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/\n {13,}<a href="#" class="cta__button btn">/',
+            $baseline,
+            'stray indentation leaked from the unset second button branch'
+        );
+
+        // An explicit empty button2_text behaves exactly like the prop being absent.
+        $this->assertSame(
+            $baseline,
+            $this->render('cta', $this->ctaProps(['button2_text' => ''])),
+            'an explicit empty button2_text must not change a single byte of the render'
+        );
+    }
+
+    /** @dataProvider button2NonLabelProvider */
+    public function testCtaButton2NonScalarOrEmptyLabelRendersNoSecondButton($label): void
+    {
+        // restore_composition never blocks on validation (#233), so a legacy/raw-written
+        // snapshot can put a boolean or array here. Neither may render a button with an
+        // empty accessible name or the literal text "Array".
+        $html = $this->render('cta', $this->ctaProps([
+            'button2_text' => $label,
+            'button2_url'  => '/contacto',
+        ]));
+        $this->assertStringNotContainsString('cta__buttons', $html);
+        $this->assertStringNotContainsString('cta__button--secondary', $html);
+        $this->assertStringNotContainsString('Array', $html);
+        $this->assertSame(1, substr_count($html, '<a href='), 'exactly one button anchor');
+    }
+
+    public static function button2NonLabelProvider(): array
+    {
+        return [
+            'empty string' => [''],
+            'false'        => [false],
+            'null'         => [null],
+            'array'        => [['a' => 'b']],
+        ];
+    }
+
+    public function testCtaButton2ZeroLabelStillRenders(): void
+    {
+        // "0" is a legitimate label; the is_scalar guard must not drop it the way a
+        // bare truthy check would.
+        $html = $this->render('cta', $this->ctaProps(['button2_text' => '0', 'button2_url' => '/x']));
+        $this->assertStringContainsString('cta__button--secondary', $html);
+        $this->assertSame(2, substr_count($html, '<a href='));
+    }
+
+    public function testCtaButton2UrlWithoutTextRendersNoSecondButton(): void
+    {
+        // button2_text is the gate (mirroring hero, where cta2_text gates cta2_url), so
+        // a URL authored without a label is a silent no-op rather than an empty button.
+        $html = $this->render('cta', $this->ctaProps(['button2_url' => '/contacto']));
+        $this->assertStringNotContainsString('cta__buttons', $html);
+        $this->assertStringNotContainsString('/contacto', $html);
+        $this->assertSame(1, substr_count($html, '<a href='), 'exactly one button anchor');
+    }
+
+    public function testCtaButton2RendersPairInsideWrapper(): void
+    {
+        $html = $this->render('cta', $this->ctaProps([
+            'button2_text' => 'Hablar con nosotros',
+            'button2_url'  => '/contacto',
+        ]));
+
+        $this->assertStringContainsString('<div class="cta__buttons">', $html, 'the pair needs its own flex row');
+        $this->assertStringContainsString('class="cta__button btn"', $html, 'primary keeps the bare .btn');
+        $this->assertStringContainsString('class="cta__button cta__button--secondary btn btn--outline"', $html);
+        $this->assertStringContainsString('href="/contacto"', $html);
+        $this->assertStringContainsString('Hablar con nosotros', $html);
+        $this->assertSame(2, substr_count($html, '<a href='), 'exactly two button anchors');
+    }
+
+    public function testCtaButton2DefaultsToOutline(): void
+    {
+        // Mirrors hero's cta2_variant default: the pair reads as one filled action
+        // and one outlined action without the author selecting a variant.
+        $html = $this->render('cta', $this->ctaProps(['button2_text' => 'Secondary']));
+        $this->assertStringContainsString('cta__button--secondary btn btn--outline', $html);
+    }
+
+    public function testCtaButton2VariantPrimaryIsBareBtn(): void
+    {
+        $html = $this->render('cta', $this->ctaProps([
+            'button2_text'    => 'Secondary',
+            'button2_variant' => 'primary',
+        ]));
+        $this->assertStringContainsString('class="cta__button cta__button--secondary btn"', $html);
+    }
+
+    /** @dataProvider button2VariantProvider */
+    public function testCtaButton2VariantMapsToModifier(string $variant, string $expected): void
+    {
+        $html = $this->render('cta', $this->ctaProps([
+            'button2_text'    => 'Secondary',
+            'button2_variant' => $variant,
+        ]));
+        $this->assertStringContainsString('cta__button--secondary btn ' . $expected, $html);
+    }
+
+    public static function button2VariantProvider(): array
+    {
+        return [
+            'secondary' => ['secondary', 'btn--secondary'],
+            'outline'   => ['outline', 'btn--outline'],
+            'ghost'     => ['ghost', 'btn--ghost'],
+        ];
+    }
+
+    public function testCtaButton2VariantInvalidFallsBackToOutline(): void
+    {
+        // Unlike the primary (which falls back to `primary`), an unrecognized
+        // second-button variant falls back to the secondary default.
+        $html = $this->render('cta', $this->ctaProps([
+            'button2_text'    => 'Secondary',
+            'button2_variant' => 'neon',
+        ]));
+        $this->assertStringContainsString('cta__button--secondary btn btn--outline', $html);
+    }
+
+    public function testCtaButton2TextAndUrlAreEscaped(): void
+    {
+        $html = $this->render('cta', $this->ctaProps([
+            'button2_text' => 'Tom & Jerry <script>',
+            'button2_url'  => '/a?b=1&c=2',
+        ]));
+        $this->assertStringNotContainsString('<script>', $html, 'button2_text is plain text');
+        $this->assertStringContainsString('Tom &amp; Jerry &lt;script&gt;', $html);
+        // The href must carry the esc_url()-processed value, not the raw prop. Comparing
+        // against esc_url() itself keeps this honest under the test bootstrap's stub
+        // while still failing if esc_url() is dropped from the anchor.
+        $this->assertStringContainsString('href="' . esc_url('/a?b=1&c=2') . '"', $html);
+    }
+
+    public function testCtaButton2UrlActuallyPassesThroughEscUrl(): void
+    {
+        // Non-tautological on purpose: a space is one of the few characters BOTH the
+        // test bootstrap's esc_url() stub (FILTER_SANITIZE_URL strips it) and real
+        // WordPress esc_url() (encodes it as %20) transform. Asserting the raw value is
+        // ABSENT is what fails if esc_url() is ever dropped from the anchor; asserting
+        // against esc_url() itself keeps the expectation correct under either engine.
+        // (Quote-stripping is deliberately NOT asserted here — real esc_url() strips
+        // `"`, but the stub does not, so such a test would fail against safe code.)
+        $raw  = '/a b?c=1';
+        $html = $this->render('cta', $this->ctaProps([
+            'button2_text' => 'Secondary',
+            'button2_url'  => $raw,
+        ]));
+
+        $this->assertStringContainsString('href="' . esc_url($raw) . '"', $html);
+        $this->assertStringNotContainsString('href="' . $raw . '"', $html, 'button2_url must be escaped, not emitted raw');
+    }
+
+    public function testCtaButton2RendersOnTitlelessStandaloneRow(): void
+    {
+        // The pair must also work as the sanctioned heading-less button row (#294),
+        // where the wrapper is the ONLY child of .cta__inner.
+        $html = $this->render('cta', [
+            'button_text'  => 'Ver planes',
+            'button_url'   => '/precios',
+            'button2_text' => 'Hablar',
+            'button2_url'  => '/contacto',
+        ]);
+        $this->assertStringContainsString('cta__buttons', $html);
+        $this->assertStringNotContainsString('cta__text', $html);
+        $this->assertStringNotContainsString('<h2', $html);
+        $this->assertSame(2, substr_count($html, '<a href='));
+    }
+
     // ── Title-less CTA = standalone button row (issue 294) ─────────────────
 
     public function testCtaTitlelessRendersNoHeading(): void

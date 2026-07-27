@@ -328,8 +328,8 @@ describe('CSS lint: style slot fallback patterns', () => {
         });
     });
 
-    test('hero/section/grid/cta schemas declare 152 style slots (subset of the total)', () => {
-        expect(allSlots.length).toBe(152);
+    test('hero/section/grid/cta schemas declare 158 style slots (subset of the total)', () => {
+        expect(allSlots.length).toBe(158);
     });
 
     allSlots.forEach(({ component, slotName }) => {
@@ -509,6 +509,13 @@ describe('CSS lint: primary-button background-color routes through --cta-button-
             const s = sel.trim();
             return /(^|\s)\.cta\s+\.btn:not\(\.btn--outline\)/.test(s)
                 || /(^|\s)\.cta__button:not\(\.btn--outline\)/.test(s)
+                // The cta's SECOND button (issue 474) is its own composed-primary fill
+                // surface in CTA context: it sets a background-color longhand and routes
+                // --cta-button2-bg. The `.cta__button` alternative above cannot match it
+                // (that pattern needs `:not(` immediately after the class, and this
+                // selector carries the `--secondary` modifier there), so without this
+                // line the #420 guard has a hole exactly where the newest fill rule is.
+                || /(^|\s)\.cta__button--secondary:not\(\.btn--outline\)/.test(s)
                 || /(^|\s)main\s+\.btn:not\(\.btn--outline\)/.test(s);
         });
     }
@@ -535,7 +542,14 @@ describe('CSS lint: primary-button background-color routes through --cta-button-
         const offenders = [];
         surfaceRules.forEach(r => {
             const isHover = /:hover\b/.test(r.selector);
-            const slot = isHover ? '--cta-button-hover-bg' : '--cta-button-bg';
+            // The cta's SECOND button (issue 474) is the same fill surface but owns a
+            // SEPARATE slot family: --cta-button2-* is what an author sets there, and
+            // routing it through --cta-button-* would re-couple it to the primary (the
+            // exact leak the isolation rule exists to kill). Expect the slot that
+            // actually belongs to the surface, so the guard polices both buttons.
+            const isSecond = /\.cta__button--secondary\b/.test(r.selector);
+            const family = isSecond ? '--cta-button2' : '--cta-button';
+            const slot = isHover ? `${family}-hover-bg` : `${family}-bg`;
             r.decls.forEach(d => {
                 if (!new RegExp('background-color\\s*:\\s*var\\(\\s*' + slot + '\\b').test(d)) {
                     offenders.push(`${r.selector} { ${d} }`);

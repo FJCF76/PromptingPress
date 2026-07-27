@@ -1423,6 +1423,226 @@ test.describe('Safe-surface rendered proof', () => {
   });
 
   /*
+   * #474 — the cta's optional SECOND button.
+   *
+   * Two things only a rendered box can prove. (1) The dark-band routing: outline is
+   * the DEFAULT second-button variant, and outline paints its ink and ring directly
+   * on the band, so on `theme: inverted` and on a background_image band the
+   * light-surface --color-accent (#3157f4) rendered at 3.23:1 and 1.17:1 — both
+   * below AA. The fallback now routes through the same role tokens this component
+   * already uses for its dark-band body links (#437/#461). (2) The per-instance slot
+   * must still WIN over that routed fallback, or the #61/#86 dark-surface-slot
+   * contract is broken. The static StyleSlotContractTest proves the var() is
+   * consumed; only getComputedStyle proves which value the cascade actually paints.
+   */
+  test('#474 second button outline routes to the AA role token on both dark bands; the slot still wins @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E CTA Second Button Dark Bands');
+    setComposition(pageId, [
+      // 0: inverted band, default (outline) second button.
+      {
+        component: 'cta',
+        props: {
+          title: 'Inverted closing band',
+          button_text: 'Ver planes',
+          button_url: '/precios',
+          button2_text: 'Hablar con nosotros',
+          button2_url: '/contacto',
+          theme: 'inverted',
+        },
+      },
+      // 1: background-image band, default (outline) second button.
+      {
+        component: 'cta',
+        props: {
+          title: 'Overlay closing band',
+          button_text: 'Ver planes',
+          button_url: '/precios',
+          button2_text: 'Hablar con nosotros',
+          button2_url: '/contacto',
+          background_image: 'https://example.com/nonexistent.jpg',
+        },
+      },
+      // 2: inverted band with an explicit per-instance override — the slot must beat
+      // the routed fallback (the safe-surface contract).
+      {
+        component: 'cta',
+        props: {
+          title: 'Inverted, author override',
+          button_text: 'Ver planes',
+          button_url: '/precios',
+          button2_text: 'Hablar con nosotros',
+          button2_url: '/contacto',
+          theme: 'inverted',
+        },
+        style: { '--cta-button2-color': '#ffd166', '--cta-button2-border': '#ffd166' },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const secondaries = page.locator('.cta__button--secondary');
+    await expect(secondaries).toHaveCount(3, { timeout: 10000 });
+
+    const colorOf = async (i: number, prop: string) =>
+      secondaries.nth(i).evaluate(
+        (el, p) => getComputedStyle(el).getPropertyValue(p),
+        prop,
+      );
+
+    // --color-accent-on-inverted (#9dafee) = 8.33:1 on --color-bg-inverted,
+    // replacing --color-accent's failing 3.23:1.
+    expect(await colorOf(0, 'color')).toBe('rgb(157, 175, 238)');
+    expect(await colorOf(0, 'border-top-color')).toBe('rgb(157, 175, 238)');
+
+    // --color-accent-on-overlay (#fafbff) = 4.59:1 over the worst-case
+    // overlay-over-white composite, replacing --color-accent's 1.17:1.
+    expect(await colorOf(1, 'color')).toBe('rgb(250, 251, 255)');
+    expect(await colorOf(1, 'border-top-color')).toBe('rgb(250, 251, 255)');
+
+    // The per-instance slot beats the routed dark-band fallback.
+    expect(await colorOf(2, 'color')).toBe('rgb(255, 209, 102)');
+    expect(await colorOf(2, 'border-top-color')).toBe('rgb(255, 209, 102)');
+  });
+
+  /*
+   * #474 — the compensating proof for the three SLOT_DECLARATION_EXEMPTIONS entries
+   * added in StyleSlotContractTest. That guard normally forbids a stylesheet rule from
+   * DECLARING a schema slot, because declaring it beats the renderer's inline value on
+   * every descendant. The cta2-style isolation rule is exempt, so the guard can no
+   * longer catch a regression here — this test is what replaces it. It pins both halves
+   * of the mechanism that the exemption exists to enable, which is exactly the #514/#526
+   * leak class: the primary's slots must not repaint a filled second button, and the
+   * second button's own fill slot must resolve the premium `background` SHORTHAND so the
+   * gradient is cleared rather than masking the flat color.
+   */
+  test('#474 primary button slots do not leak into a filled second button; --cta-button2-bg clears the gradient @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E CTA Button2 Slot Isolation');
+    setComposition(pageId, [
+      // 0: the PRIMARY is flattened to a brand color. button2 is the filled `primary`
+      // variant, so it matches the same premium cascade and would be repainted too.
+      {
+        component: 'cta',
+        props: {
+          title: 'Isolation',
+          button_text: 'Primary',
+          button_url: '/a',
+          button2_text: 'Second',
+          button2_url: '/b',
+          button2_variant: 'primary',
+        },
+        style: {
+          '--cta-button-bg': 'rgb(185, 28, 28)',
+          '--cta-button-color': 'rgb(0, 255, 0)',
+          '--cta-button-shadow': 'none',
+        },
+      },
+      // 1: the SECOND button is recolored on its own slot; the primary must stay default.
+      {
+        component: 'cta',
+        props: {
+          title: 'Flat second',
+          button_text: 'Primary',
+          button_url: '/a',
+          button2_text: 'Second',
+          button2_url: '/b',
+          button2_variant: 'primary',
+        },
+        style: { '--cta-button2-bg': 'rgb(21, 128, 61)' },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const bands = page.locator('section.cta');
+    await expect(bands).toHaveCount(2, { timeout: 10000 });
+
+    const boxOf = (loc: any) =>
+      loc.evaluate((el: Element) => {
+        const cs = getComputedStyle(el);
+        return {
+          bg: cs.backgroundColor,
+          img: cs.backgroundImage,
+          color: cs.color,
+          shadow: cs.boxShadow,
+        };
+      });
+
+    // Band 0 — the primary's per-instance slots must NOT reach the second button.
+    const primary0 = await boxOf(bands.nth(0).locator('.cta__button').nth(0));
+    const second0 = await boxOf(bands.nth(0).locator('.cta__button--secondary'));
+    expect(primary0.bg).toBe('rgb(185, 28, 28)');
+    expect(primary0.img).toBe('none'); // flat fill cleared the gradient
+    expect(primary0.shadow).toBe('none');
+    expect(second0.bg).not.toBe('rgb(185, 28, 28)');
+    expect(second0.color).not.toBe('rgb(0, 255, 0)');
+    expect(second0.shadow).not.toBe('none'); // keeps the premium bevel
+    expect(second0.img).not.toBe('none'); // keeps the premium gradient
+
+    // Band 1 — the reverse direction: button2's fill slot must resolve the premium
+    // `background` shorthand (clearing the gradient) and must not touch the primary.
+    const primary1 = await boxOf(bands.nth(1).locator('.cta__button').nth(0));
+    const second1 = await boxOf(bands.nth(1).locator('.cta__button--secondary'));
+    expect(second1.bg).toBe('rgb(21, 128, 61)');
+    expect(second1.img).toBe('none');
+    expect(primary1.bg).not.toBe('rgb(21, 128, 61)');
+    expect(primary1.img).not.toBe('none'); // primary keeps its gradient
+  });
+
+  test('#474 an unset second button leaves the cta byte-identical; a set one renders the pair', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E CTA Second Button Presence');
+    setComposition(pageId, [
+      {
+        component: 'cta',
+        props: { title: 'Single', button_text: 'Ver planes', button_url: '/precios' },
+      },
+      {
+        component: 'cta',
+        props: {
+          title: 'Pair',
+          button_text: 'Ver planes',
+          button_url: '/precios',
+          button2_text: 'Hablar',
+          button2_url: '/contacto',
+        },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const bands = page.locator('section.cta');
+    await expect(bands).toHaveCount(2, { timeout: 10000 });
+
+    // Unset: no wrapper, no second anchor — the pre-#474 shape exactly.
+    await expect(bands.nth(0).locator('.cta__buttons')).toHaveCount(0);
+    await expect(bands.nth(0).locator('.cta__button')).toHaveCount(1);
+
+    // Set: the pair sits in one wrapper, side by side on desktop (same row).
+    await expect(bands.nth(1).locator('.cta__buttons')).toHaveCount(1);
+    await expect(bands.nth(1).locator('.cta__button')).toHaveCount(2);
+
+    const primaryBox = (await bands.nth(1).locator('.cta__button').nth(0).boundingBox())!;
+    const secondBox = (await bands.nth(1).locator('.cta__button').nth(1).boundingBox())!;
+    expect(Math.abs(primaryBox.y - secondBox.y)).toBeLessThan(2);
+    expect(secondBox.x).toBeGreaterThan(primaryBox.x);
+
+    // Mobile: the pair stacks one button per row (the shared `main .btn` width rule
+    // plus flex-wrap, the mechanism .hero__cta-group relies on).
+    await page.setViewportSize({ width: 375, height: 800 });
+    const mPrimary = (await bands.nth(1).locator('.cta__button').nth(0).boundingBox())!;
+    const mSecond = (await bands.nth(1).locator('.cta__button').nth(1).boundingBox())!;
+    expect(mSecond.y).toBeGreaterThan(mPrimary.y + mPrimary.height - 2);
+  });
+
+  /*
    * #305 — slot-contract rendered proof, one pin per dead-slot axis that shipped.
    *
    * The static guard (StyleSlotContractTest) proves every consumed slot survives the

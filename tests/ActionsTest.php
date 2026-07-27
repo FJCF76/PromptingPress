@@ -612,6 +612,97 @@ class ActionsTest extends TestCase
         }
     }
 
+    // ── CTA second button, through the REAL write surface (issue 474) ──────
+    //
+    // Section 14.1 authoring-path proofs. Raw _pp_composition meta writes bypass
+    // validation entirely, so the authoring CONTRACT for each new prop is exercised
+    // once here through pp_execute_action: the pair is accepted and persisted, the
+    // enum is enforced, and button2_url inherits the #507 link_url family.
+
+    public function testCreatePageAcceptsCtaSecondButtonPair(): void
+    {
+        $result = pp_execute_action('create_page', [
+            'title'       => 'Closing CTA with a pair',
+            'composition' => [['component' => 'cta', 'props' => [
+                'button_text'     => 'Ver planes',
+                'button_url'      => '/precios',
+                'button2_text'    => 'Hablar con nosotros',
+                'button2_url'     => '/contacto',
+                'button2_variant' => 'outline',
+            ]]],
+        ]);
+
+        $this->assertTrue($result['ok'], 'the primary+secondary pair must be accepted: ' . ($result['error'] ?? ''));
+        $props = pp_get_composition((int) $result['target']['post_id'])[0]['props'];
+        $this->assertSame('Hablar con nosotros', $props['button2_text']);
+        $this->assertSame('/contacto', $props['button2_url']);
+        $this->assertSame('outline', $props['button2_variant']);
+    }
+
+    public function testUpdateComponentAddsSecondButtonToAnExistingCta(): void
+    {
+        // The reported symptom: an existing single-button closing CTA gains a
+        // secondary action through a targeted edit.
+        $id = pp_create_page('Existing closing CTA', 'draft');
+        pp_update_composition($id, [['component' => 'cta', 'props' => [
+            'button_text' => 'Ver planes', 'button_url' => '/precios',
+        ]]]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['button2_text' => 'Hablar', 'button2_url' => '/contacto'],
+        ]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+        $props = pp_get_composition($id)[0]['props'];
+        $this->assertSame('Hablar', $props['button2_text']);
+        $this->assertSame('Ver planes', $props['button_text'], 'the primary button is untouched');
+    }
+
+    public function testCreatePageRejectsDeadButton2LinkUrl(): void
+    {
+        // #507 link_url family applies to button2_url exactly as to button_url:
+        // esc_url() would neuter this into an empty href — a dead second button.
+        $result = pp_execute_action('create_page', [
+            'title'       => 'Dead second button',
+            'composition' => [['component' => 'cta', 'props' => [
+                'button_text'  => 'Click',
+                'button_url'   => '/ok',
+                'button2_text' => 'Also click',
+                'button2_url'  => 'javascript:alert(1)',
+            ]]],
+        ]);
+
+        $this->assertFalse($result['ok'], 'a javascript: button2_url must not persist behind ok:true');
+        $this->assertSame('invalid_prop_value', $result['error_code']);
+        $this->assertStringContainsString('button2_url', $result['error']);
+        $this->assertStringContainsString('dead link', $result['error']);
+    }
+
+    public function testUpdateComponentCoercesOutOfEnumButton2Variant(): void
+    {
+        // button2_variant mirrors button_variant (and hero's cta2_variant): neither
+        // declares `strict`, so the enum is accept-and-COERCE, not reject. The write
+        // is accepted and the renderer falls back to the secondary default, so the
+        // authored page still renders a real button rather than being locked out.
+        $id = pp_create_page('Out-of-enum second variant', 'draft');
+        pp_update_composition($id, [['component' => 'cta', 'props' => [
+            'button_text' => 'Go', 'button_url' => '/',
+        ]]]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['button2_text' => 'Second', 'button2_variant' => 'neon'],
+        ]);
+
+        $this->assertTrue($result['ok'], 'a non-strict enum is coerced at render, not rejected at write');
+        $this->assertSame('neon', pp_get_composition($id)[0]['props']['button2_variant']);
+        // The render-side coercion to `outline` is pinned in
+        // ComponentPropsTest::testCtaButton2VariantInvalidFallsBackToOutline.
+    }
+
     public function testUpdateComponentRejectsNonScalarStringProp(): void
     {
         $id = pp_create_page('Non-scalar title', 'draft');
