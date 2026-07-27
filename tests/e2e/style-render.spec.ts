@@ -7348,6 +7348,372 @@ test.describe('#538 filled second-button hover ring follows the hover fill (real
 });
 
 /**
+ * #543 — the filled SECOND button gets #535's separation ring on the two OVERLAY bands.
+ *
+ * #535 scoped that ring to the filled PRIMARY. The second button's own rules are one class
+ * higher ([0,6,0] rest / [0,7,0] hover) and bottomed out at the bare --color-accent, so a
+ * `primary` + `primary` pair on a photo band rendered ONE button with a visible edge next to
+ * one dissolving into the scrim — same fill, same band, different treatment.
+ *
+ * This is a CASCADE fix and a rendered one. The four new rules tie on specificity with the
+ * base button2 rules and win only by source order, which no CSS-text check can prove; and
+ * #538 made the base HOVER ring follow the hover fill, so a rest-only ring would have
+ * dissolved again the moment the pointer landed. Both states are therefore asserted from a
+ * real browser, on both bands, at 1280 and 375.
+ *
+ * The three controls (light band, inverted band, authored slots) are the byte-identity half:
+ * only the TERMINAL fallback moved, so anything an author already coloured — and every band
+ * without the overlay class — must render exactly as before.
+ */
+test.describe('#543 filled second button is ringed on overlay bands (real WP)', () => {
+  let pageId = 0;
+
+  const IMG = 'https://example.com/nonexistent.jpg'; // triggers .cta--has-bg-image, no upload
+  const ON_OVERLAY = 'rgb(250, 251, 255)'; // #fafbff, 4.59:1 over the worst-case scrim
+  const BARE_ACCENT = 'rgb(49, 87, 244)'; // #3157f4 — the pre-fix ring, == the fill
+  const FILL = 'rgb(124, 58, 237)';
+  const RING = 'rgb(16, 185, 129)';
+  const ACCENT_HOVER = 'rgb(255, 136, 0)';
+
+  test.afterEach(async () => {
+    if (pageId) {
+      deletePage(pageId);
+      pageId = 0;
+    }
+  });
+
+  /** A filled PAIR: primary + a `primary` second button, on whichever band `props` names. */
+  const ctaPair = (title: string, props: Record<string, unknown>, style?: Record<string, string>) => ({
+    component: 'cta',
+    props: {
+      title,
+      button_text: 'Primary action', button_url: '/start',
+      button2_text: 'Second action', button2_url: '/learn',
+      button2_variant: 'primary',
+      ...props,
+    },
+    ...(style ? { style } : {}),
+  });
+
+  const heroPair = (title: string, props: Record<string, unknown>, style?: Record<string, string>) => ({
+    component: 'hero',
+    props: {
+      title,
+      cta_text: 'Primary action', cta_url: '/start',
+      cta2_text: 'Second action', cta2_url: '/learn',
+      cta2_variant: 'primary',
+      ...props,
+    },
+    ...(style ? { style } : {}),
+  });
+
+  async function open(page: any, id: number, width: number) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/?page_id=${id}`);
+    // The .btn colour transition is 150ms, so a read right after hover() samples a
+    // mid-flight blend. Kill transitions: the assertion is about which value the CASCADE
+    // resolves, not how it animates there.
+    await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; }' });
+  }
+
+  const prop = (loc: any, name: string) =>
+    loc.evaluate((el: Element, p: string) => getComputedStyle(el).getPropertyValue(p), name);
+
+  for (const width of [1280, 375]) {
+    // THE DEFECT, both bands. Before this change the second button's ring resolved to
+    // --color-accent — the same colour as its own fill — so the pill had no edge at all
+    // while its neighbour did.
+    test(`cta: a filled pair on a bg-image band is ringed symmetrically (${width}px) @smoke`, async ({
+      page,
+    }) => {
+      pageId = createPage('E2E 543 cta overlay pair');
+      setComposition(pageId, [ctaPair('Ready to start?', { background_image: IMG })]);
+      await open(page, pageId, width);
+
+      const primary = page.locator('.cta__button').first();
+      const second = page.locator('.cta__button--secondary');
+      await expect(second).toBeVisible({ timeout: 10000 });
+
+      // Rest: both ringed with the role token, and the fill itself is untouched.
+      expect(await prop(primary, 'border-top-color'), `@${width}: primary ring`).toBe(ON_OVERLAY);
+      expect(await prop(second, 'border-top-color'), `@${width}: second ring`).toBe(ON_OVERLAY);
+      // The pre-fix value, asserted directly. Comparing against the button's own
+      // background-COLOR would be a weaker check that happens to pass for the wrong
+      // reason: on an unset filled button the premium gradient background-IMAGE is what
+      // paints, so the background-color the DOM reports is already masked.
+      expect(await prop(second, 'border-top-color'), `@${width}: not the pre-fix accent`).not.toBe(
+        BARE_ACCENT,
+      );
+      // A ring with no width is not a ring. Every colour assertion here would stay green
+      // under `border-width: 0`, so pin the width that makes the colour visible.
+      expect(
+        parseFloat(await prop(second, 'border-top-width')),
+        `@${width}: the ring must have a width`,
+      ).toBeGreaterThan(0);
+
+      // Hover: the ring must SURVIVE. #538 made the base hover ring follow the hover fill,
+      // so without the hover twin this is exactly where the ring dissolved again.
+      await second.hover();
+      expect(await prop(second, 'border-top-color'), `@${width}: second ring under the pointer`).toBe(
+        ON_OVERLAY,
+      );
+      expect(await prop(second, 'border-top-color')).not.toBe(await prop(second, 'background-color'));
+    });
+
+    test(`hero: a filled pair on a cover band is ringed symmetrically (${width}px) @smoke`, async ({
+      page,
+    }) => {
+      pageId = createPage('E2E 543 hero cover pair');
+      setComposition(pageId, [heroPair('Ship faster', { layout: 'cover' })]);
+      await open(page, pageId, width);
+
+      const primary = page.locator('.hero__cta').first();
+      const second = page.locator('.hero__cta--secondary');
+      await expect(second).toBeVisible({ timeout: 10000 });
+
+      expect(await prop(primary, 'border-top-color'), `@${width}: primary ring`).toBe(ON_OVERLAY);
+      expect(await prop(second, 'border-top-color'), `@${width}: second ring`).toBe(ON_OVERLAY);
+
+      await second.hover();
+      expect(await prop(second, 'border-top-color'), `@${width}: second ring under the pointer`).toBe(
+        ON_OVERLAY,
+      );
+    });
+  }
+
+  /*
+   * BYTE IDENTITY, the half that proves only the terminal moved. A light band and an
+   * inverted band carry neither overlay class, so their filled second button must still
+   * ring with the bare accent — and on the inverted band that is also #535 Q2's recorded
+   * refusal (3.23:1 fill-vs-band already clears the 3:1 non-text bar), now pinned for the
+   * second button at render level rather than only in CSS text.
+   */
+  test('light and inverted bands are unchanged; the SOLID inverted second button stays un-ringed @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 543 controls');
+    setComposition(pageId, [
+      ctaPair('Light band', {}),
+      ctaPair('Inverted band', { theme: 'inverted' }),
+      // A non-cover hero: `.hero--cover` is emitted by LAYOUT alone (hero.php), so a
+      // centered hero differs from a cover hero by exactly one class. Without this the
+      // hero half of "every band without the class is byte-identical" would be pinned
+      // only in CSS text, on the side where the ring rule is loosest.
+      heroPair('Centered hero', { layout: 'centered' }),
+    ]);
+    await open(page, pageId, 1280);
+
+    const seconds = page.locator('.cta__button--secondary');
+    await expect(seconds).toHaveCount(2, { timeout: 10000 });
+
+    // Exact values on both states, not merely "not the role token". A regression that
+    // repainted these to some THIRD colour (a reordered base chain, a terminal swapped to
+    // --color-accent instead of --color-accent-hover) would slip past a not.toBe check.
+    const accentHover = await page.evaluate(() => {
+      const el = document.createElement('div');
+      el.style.setProperty('background-color', 'var(--color-accent-hover)');
+      document.body.appendChild(el);
+      const out = getComputedStyle(el).backgroundColor;
+      el.remove();
+      return out;
+    });
+
+    const controls: [any, string][] = [
+      [seconds.nth(0), 'light cta'],
+      [seconds.nth(1), 'inverted cta'],
+      [page.locator('.hero__cta--secondary'), 'centered hero'],
+    ];
+    for (const [btn, label] of controls) {
+      expect(await prop(btn, 'border-top-color'), `${label} rest ring`).toBe(BARE_ACCENT);
+      await btn.hover();
+      expect(await prop(btn, 'border-top-color'), `${label} hover ring`).toBe(accentHover);
+    }
+  });
+
+  /*
+   * The COMBINED band. cta.php emits the theme class and the bg-image class
+   * independently, so `theme: "inverted"` + `background_image` renders
+   * `.cta--inverted.cta--has-bg-image` — the scrim painted over the inverted background.
+   * The Q2 refusal above is scoped to the SOLID inverted band; here the overlay role must
+   * win, because on-inverted measures only ~2.2:1 over an arbitrary image. #535 pins this
+   * precedence for the primary and #542 for the focus ring; this is the second button's.
+   */
+  test('a band carrying BOTH dark classes rings the second button with the overlay role @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 543 combined band');
+    setComposition(pageId, [ctaPair('Inverted AND overlay', { theme: 'inverted', background_image: IMG })]);
+    await open(page, pageId, 1280);
+
+    const second = page.locator('.cta__button--secondary');
+    await expect(second).toBeVisible({ timeout: 10000 });
+    expect(await prop(second, 'border-top-color'), 'the overlay role must win here').toBe(ON_OVERLAY);
+    await second.hover();
+    expect(await prop(second, 'border-top-color'), 'and survive hover').toBe(ON_OVERLAY);
+  });
+
+  /*
+   * The ring must stay OFF the transparent-fill variants. The `:not()` exclusions are
+   * pinned in CSS text, but the consequence is a cascade outcome: ghost's border bottoms
+   * out at `transparent`, so routing the fill chain there would ADD a ring to a
+   * deliberately borderless button, and outline already carries its own #474 on-overlay
+   * ring that must not be re-derived from the fill chain.
+   */
+  test('ghost and outline second buttons on an overlay band are unaffected @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 543 transparent variants');
+    setComposition(pageId, [
+      ctaPair('Ghost second', { background_image: IMG, button2_variant: 'ghost' }),
+      ctaPair('Outline second', { background_image: IMG, button2_variant: 'outline' }),
+    ]);
+    await open(page, pageId, 1280);
+
+    const seconds = page.locator('.cta__button--secondary');
+    await expect(seconds).toHaveCount(2, { timeout: 10000 });
+
+    // Ghost stays borderless — the ring rule must not have reached it.
+    expect(await prop(seconds.nth(0), 'border-top-color'), 'ghost stays transparent').toBe(
+      'rgba(0, 0, 0, 0)',
+    );
+    // Outline keeps its own #474 routed ring, which is the same role token but arrives
+    // from a different rule and a different chain (--cta-button2-border -> the role).
+    expect(await prop(seconds.nth(1), 'border-top-color'), 'outline keeps its #474 ring').toBe(
+      ON_OVERLAY,
+    );
+  });
+
+  /*
+   * AUTHORED SLOTS still win. The ring replaces only the TERMINAL fallback, so every link
+   * ahead of it survives; jumping straight to the role token would have silently repainted
+   * every authored ring on a photo band near-white.
+   */
+  test('an authored ring slot still beats the role token, at rest and on hover @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 543 authored slots');
+    setComposition(pageId, [
+      ctaPair('Authored rings', { background_image: IMG }, {
+        '--cta-button2-border': RING,
+        '--cta-button2-hover-border': RING,
+      }),
+      heroPair('Authored rings', { layout: 'cover' }, {
+        '--hero-cta2-border': RING,
+        '--hero-cta2-hover-border': RING,
+      }),
+    ]);
+    await open(page, pageId, 1280);
+
+    for (const sel of ['.cta__button--secondary', '.hero__cta--secondary']) {
+      const btn = page.locator(sel);
+      await expect(btn).toBeVisible({ timeout: 10000 });
+      expect(await prop(btn, 'border-top-color'), `${sel} rest: the slot must win`).toBe(RING);
+      await btn.hover();
+      expect(await prop(btn, 'border-top-color'), `${sel} hover: the slot must win`).toBe(RING);
+    }
+  });
+
+  /*
+   * THE FILL-ONLY AUTHOR, and #538's Option-3 ORDER. Both are chain positions the new
+   * terminal must not disturb:
+   *   - fill slot alone -> the ring FOLLOWS the fill (matching the primary's own contract),
+   *     not the near-white role token;
+   *   - accent-hover knob set alongside the hover fill -> the ACCENT wins the hover ring,
+   *     which is the case that distinguishes Option 3 from the rejected Option 2.
+   */
+  test('a fill-only recolor keeps a fill-matching ring; an authored accent-hover still wins @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 543 fill only');
+    setComposition(pageId, [
+      ctaPair('Fill only', { background_image: IMG }, { '--cta-button2-bg': FILL }),
+      ctaPair('Accent hover wins', { background_image: IMG }, {
+        '--cta-button2-hover-bg': FILL,
+        '--cta-accent-hover': ACCENT_HOVER,
+      }),
+    ]);
+    await open(page, pageId, 1280);
+
+    const seconds = page.locator('.cta__button--secondary');
+    await expect(seconds).toHaveCount(2, { timeout: 10000 });
+
+    const fillOnly = seconds.nth(0);
+    expect(await prop(fillOnly, 'background-color'), 'the fill slot must paint').toBe(FILL);
+    expect(await prop(fillOnly, 'border-top-color'), 'the ring follows the authored fill').toBe(FILL);
+    expect(await prop(fillOnly, 'border-top-color'), 'and does NOT snap to the role token').not.toBe(
+      ON_OVERLAY,
+    );
+
+    const accentWins = seconds.nth(1);
+    await accentWins.hover();
+    expect(await prop(accentWins, 'background-color'), 'the hover fill still paints').toBe(FILL);
+    expect(await prop(accentWins, 'border-top-color'), 'the authored accent-hover wins the ring').toBe(
+      ACCENT_HOVER,
+    );
+  });
+
+  /*
+   * THREE INDICATORS AT ONCE. #542 routes the FOCUS outline on these same bands to the same
+   * role token, so a focused + hovered second button now stacks a near-white separation ring,
+   * a near-white focus outline and the hover fill. `outline-offset` paints the focus ring
+   * OUTSIDE the border with a gap, so the two must remain distinguishable rather than merging
+   * into one thick edge — the composition the primary has shipped since #535 + #542, now
+   * reached by the second button too.
+   */
+  test('focus + hover compose: separation ring, focus outline and hover fill all present @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 543 focus plus hover');
+    setComposition(pageId, [ctaPair('Focus and hover', { background_image: IMG })]);
+    await open(page, pageId, 1280);
+
+    const second = page.locator('.cta__button--secondary');
+    await expect(second).toBeVisible({ timeout: 10000 });
+
+    await second.focus();
+    await second.hover();
+
+    expect(await prop(second, 'border-top-color'), 'the separation ring survives focus+hover').toBe(
+      ON_OVERLAY,
+    );
+    expect(await prop(second, 'outline-color'), 'the #542 focus ring is routed on this band').toBe(
+      ON_OVERLAY,
+    );
+    // The two indicators must not be flush: a zero offset would render them as one edge.
+    expect(await prop(second, 'outline-style'), 'the focus ring is actually painted').not.toBe('none');
+    expect(
+      parseFloat(await prop(second, 'outline-offset')),
+      'outline-offset must keep a gap between the focus ring and the border',
+    ).toBeGreaterThan(0);
+    // And the hover fill is still the hover fill, not the rest fill.
+    expect(await prop(second, 'background-color')).not.toBe(BARE_ACCENT);
+  });
+
+  /*
+   * 14.1 AUTHORING PATH. Every case above seeds _pp_composition directly. This one drives
+   * the REAL surface — the style_component action, through validation — so an author who
+   * colours the ring on an overlay band is proven to still beat the role token on the path
+   * an operator actually uses.
+   */
+  test('a ring slot written through style_component still beats the role token @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 543 authoring path');
+    setComposition(pageId, [ctaPair('Authoring path', { background_image: IMG })]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await styleComponent(page, pageId, { '--cta-button2-border': RING });
+    expect(res.success, 'style_component must accept the button2 border slot').toBe(true);
+
+    await open(page, pageId, 1280);
+    const second = page.locator('.cta__button--secondary');
+    await expect(second).toBeVisible({ timeout: 10000 });
+    expect(await prop(second, 'border-top-color'), 'the action-written ring must win').toBe(RING);
+  });
+});
+
+/**
  * #536 — the section's panel CTA is the last member of the #514 masked-fill class, and its
  * three new per-instance slots actually paint.
  *
