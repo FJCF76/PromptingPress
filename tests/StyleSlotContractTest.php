@@ -813,14 +813,171 @@ class StyleSlotContractTest extends TestCase
             $block,
             'The button2 hover rule must still consume --cta-button2-hover-bg as a background-color.'
         );
-        // The hover BORDER deliberately does NOT follow the hover fill (issue 530): unlike the
-        // hover FILL, it was never masked by the premium gradient, so routing the fill into it
-        // would change rendered output for an already-shipping slot. Pinned so a future edit
-        // does not quietly add the fill-follow without deciding to.
-        $this->assertStringContainsString(
-            'border-color: var(--cta-button2-hover-border, var(--cta-accent-hover, var(--color-accent-hover)))',
+        // The hover BORDER follows the hover fill from the LAST fallback position (issue 538,
+        // Option 3). #530 pinned the NEGATIVE of this — the fill was left out entirely because
+        // the hover border, unlike the hover fill, was never masked by the premium gradient, so
+        // inserting it AHEAD of --cta-accent-hover would have repainted an authored accent ring
+        // on an already-shipping slot combination. That pin is deliberately flipped here, not
+        // deleted: the fill now sits BEHIND --cta-accent-hover, so every authored value keeps
+        // winning in its existing order and only the fill-only case changes.
+        $this->assertHoverBorderChain(
             $block,
-            'The filled button2 hover border must NOT route the hover fill (issue 530).'
+            '.cta .cta__buttons .cta__button--secondary',
+            ['--cta-button2-hover-border', '--cta-accent-hover', '--cta-button2-hover-bg', '--color-accent-hover'],
+            'button2'
+        );
+    }
+
+    /**
+     * The fill-follow is scoped to the FILLED variant on purpose (issue 538), and that
+     * exclusion is now a documented contract — both component schemas and
+     * ai-instructions/style-component.md tell authors that outline/ghost/secondary need an
+     * explicit hover-border slot. An unpinned negative is exactly what #530 learned not to
+     * leave behind: folding the fill into the GHOST chain would newly ring a ghost button
+     * (its border bottoms out at `transparent`) on every site that sets only a hover fill,
+     * and without this test the whole suite stays green while the docs go stale.
+     *
+     * @dataProvider nonFilledSecondButtonHoverRules
+     */
+    public function testIssue538FillFollowIsScopedToTheFilledSecondButton(
+        string $component,
+        string $selector,
+        string $borderSlot,
+        string $fillSlot
+    ): void {
+        $block = $this->stripComments($this->componentBlock($component));
+
+        $rulePattern = '/' . preg_quote($selector, '/') . ':hover\s*\{(.*?)\}/s';
+        $this->assertMatchesRegularExpression(
+            $rulePattern,
+            $block,
+            "Missing the {$selector}:hover rule — issue 538 pins its border chain."
+        );
+        preg_match($rulePattern, $block, $m);
+        $body = $m[1] ?? '';
+
+        // The dedicated hover-border slot still leads the chain, so an author retains a knob.
+        $this->assertMatchesRegularExpression(
+            '/border-color\s*:\s*var\(\s*' . preg_quote($borderSlot, '/') . '\s*,/',
+            $body,
+            "{$selector}:hover must keep {$borderSlot} at the head of its border chain."
+        );
+        // ...but the hover FILL must not appear in the border chain on these variants.
+        $borderDecl = [];
+        preg_match('/border-color\s*:[^;]*;/', $body, $borderDecl);
+        $this->assertStringNotContainsString(
+            $fillSlot,
+            $borderDecl[0] ?? '',
+            "{$selector}:hover must NOT route {$fillSlot} into its border. Issue 538 scoped "
+            . 'the fill-follow to the FILLED variant; on ghost the border bottoms out at '
+            . '`transparent`, so following the fill would ADD a ring rather than match one, '
+            . 'and outline/secondary deliberately do not follow the fill in either state. '
+            . 'Widening this is a decision, not a cleanup — the schemas document the current '
+            . 'contract to authors.'
+        );
+    }
+
+    /** @return array<string, array{0:string,1:string,2:string,3:string}> */
+    public static function nonFilledSecondButtonHoverRules(): array
+    {
+        $hero = '.hero .hero__cta-group .hero__cta--secondary';
+        $cta  = '.cta .cta__buttons .cta__button--secondary';
+
+        return [
+            'hero cta2 outline'   => ['hero', $hero . '.btn--outline',   '--hero-cta2-hover-border', '--hero-cta2-hover-bg'],
+            'hero cta2 secondary' => ['hero', $hero . '.btn--secondary', '--hero-cta2-hover-border', '--hero-cta2-hover-bg'],
+            'hero cta2 ghost'     => ['hero', $hero . '.btn--ghost',     '--hero-cta2-hover-border', '--hero-cta2-hover-bg'],
+            'cta button2 outline'   => ['cta', $cta . '.btn--outline',   '--cta-button2-hover-border', '--cta-button2-hover-bg'],
+            'cta button2 secondary' => ['cta', $cta . '.btn--secondary', '--cta-button2-hover-border', '--cta-button2-hover-bg'],
+            'cta button2 ghost'     => ['cta', $cta . '.btn--ghost',     '--cta-button2-hover-border', '--cta-button2-hover-bg'],
+        ];
+    }
+
+    /**
+     * Pin the ORDER of a filled second button's hover border chain (issue 538).
+     *
+     * Order is the entire contract here. Option 3 (accepted) puts the hover FILL behind the
+     * accent knob so an authored ring survives; Option 2 (rejected) puts it in front and
+     * repaints that ring. Those two differ only by the position of one token, so the pin has
+     * to be positional — and it has to prove the declaration it matched is the one that
+     * actually WINS, not merely that the desired string appears somewhere in the block.
+     *
+     * Four properties, each closing a way an earlier draft of this pin could pass while the
+     * rendered ring was wrong:
+     *   1. It isolates the filled variant's :hover rule by selector, and requires that
+     *      selector to appear EXACTLY ONCE. Matching only the first occurrence would let a
+     *      second, identical-specificity rule added later in the block win on source order
+     *      while this pin happily inspected the earlier, still-correct one.
+     *   2. It requires EXACTLY ONE border-color declaration in that rule. A later duplicate
+     *      declaration in the same block silently wins in the cascade; without this count a
+     *      correct-but-overridden chain would still pass.
+     *   3. It matches the token sequence with \s* between parts rather than a fixed-whitespace
+     *      substring, so reformatting these 110-character declarations is not a false failure
+     *      while a reordering still is.
+     *   4. It anchors the TERMINAL — the chain must close on the theme literal and end there.
+     *      A prefix-only match would accept extra fallbacks appended after --color-accent-hover,
+     *      and that terminal is exactly what "byte-identical when the slots are unset" rests on.
+     *
+     * What it deliberately does NOT prove: that no HIGHER-specificity rule elsewhere overrides
+     * this one. That is a cascade fact, not a text fact, and it is pinned at render level by
+     * the `#538` block in tests/e2e/style-render.spec.ts, which reads borderTopColor under a
+     * real :hover in a real browser.
+     *
+     * @param string   $block    Comment-stripped CSS for the component.
+     * @param string   $selector The filled second button's base selector (without :not()/:hover).
+     * @param string[] $chain    Custom property names in their required order, outermost first.
+     * @param string   $label    Human name for the button, used in failure messages.
+     */
+    private function assertHoverBorderChain(
+        string $block,
+        string $selector,
+        array $chain,
+        string $label
+    ): void {
+        // The filled variant's hover rule: the base selector, the three :not() exclusions in
+        // any order, then :hover. Non-greedy body match stops at the first closing brace.
+        $rulePattern = '/' . preg_quote($selector, '/')
+            . '(?::not\(\.btn--(?:outline|ghost|secondary)\)){3}:hover\s*\{(.*?)\}/s';
+        $ruleCount = preg_match_all($rulePattern, $block, $matches);
+        $this->assertSame(
+            1,
+            $ruleCount,
+            "Expected exactly ONE filled {$label} :hover rule, found {$ruleCount}. Issue 538's "
+            . 'border contract is pinned against that rule; a duplicate rule later in the block '
+            . 'carries equal specificity and wins on source order, so the chain checked here '
+            . 'would no longer be the one that paints.'
+        );
+        $body = $matches[1][0] ?? '';
+
+        $this->assertSame(
+            1,
+            preg_match_all('/border-color\s*:/', $body),
+            "The filled {$label} :hover rule must declare border-color exactly once. A second "
+            . 'declaration later in the same block wins the cascade, which would leave the '
+            . 'chain below correct in the source and wrong on screen (issue 538).'
+        );
+
+        // Order + terminal pattern: `border-color: var(--a, var(--b, var(--c, var(--d))));`
+        // Every entry but the last opens a var() with a fallback; the last opens a var() that
+        // CLOSES the chain, and the declaration must end right after the matching parens.
+        $last  = array_key_last($chain);
+        $parts = '';
+        foreach ($chain as $i => $prop) {
+            $parts .= $i === $last
+                ? 'var\(\s*' . preg_quote($prop, '/') . '\s*\)'
+                : 'var\(\s*' . preg_quote($prop, '/') . '\s*,\s*';
+        }
+        $orderPattern = '/border-color\s*:\s*' . $parts . '\s*' . str_repeat('\)\s*', $last) . ';/';
+
+        $this->assertMatchesRegularExpression(
+            $orderPattern,
+            $body,
+            "The filled {$label} hover border must resolve in exactly this order and stop there: "
+            . implode(' -> ', $chain) . '. The hover FILL sits BEHIND the accent knob on '
+            . 'purpose (issue 538, Option 3): ahead of it — the rejected Option 2 — it would '
+            . 'repaint a ring an author explicitly set, on compositions that already ship. '
+            . 'The terminal is pinned too: anything appended after the theme literal would '
+            . 'break the byte-identical-when-unset guarantee.'
         );
     }
 
@@ -902,11 +1059,16 @@ class StyleSlotContractTest extends TestCase
             $block,
             'The filled cta2 hover rule must keep routing --hero-cta2-hover-bg (issue 530).'
         );
-        // Same contract as the cta's button2: the hover border does NOT follow the hover fill.
-        $this->assertStringContainsString(
-            'border-color: var(--hero-cta2-hover-border, var(--hero-accent-hover, var(--color-accent-hover)))',
+        // Same contract as the cta's button2: the hover border FOLLOWS the hover fill, but only
+        // from the last fallback position (issue 538, Option 3 — the flipped #530 negative pin).
+        // --hero-cta2-hover-border and --hero-accent-hover both still win ahead of it, so the
+        // only case that changes is fill-set/both-knobs-unset; unset it still reaches
+        // --color-accent-hover, byte-identical.
+        $this->assertHoverBorderChain(
             $block,
-            'The filled cta2 hover border must NOT route the hover fill (issue 530).'
+            '.hero .hero__cta-group .hero__cta--secondary',
+            ['--hero-cta2-hover-border', '--hero-accent-hover', '--hero-cta2-hover-bg', '--color-accent-hover'],
+            'cta2'
         );
         // The hero PRIMARY's new hover fill slot keeps an in-block, type-compatible
         // consumption (the slot-contract keystone). Its VISIBLE win is the premium hover
