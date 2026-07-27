@@ -4,6 +4,12 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.11.0] — 2026-07-27 — hover & dark-band button contrast: every button state is brandable and legible (rollup)
+
+**v1.11.0 is the rollup release of the Hover & Dark-Band Button Contrast gate — three working versions (1.10.1–1.10.3) verified as one line. Per-instance hover fill slots finally paint on filled buttons, ending the premium gradient's mask over every hover recolour, with hover-state isolation across hero cta2 and cta button2 (#530); dark-band `outline`/`ghost` buttons and the filled button's separation ring route through the established on-inverted/on-overlay accent roles, taking them from sub-AA (3.23:1 / 1.17:1) to 8.33:1 / 4.59:1 with light bands byte-identical (#535); and the section panel CTA gains `--section-panel-cta-bg/-color/-shadow` fill slots mirroring the hero and cta conventions, closing the last button surface with an unreachable fill (#536).**
+
+No code changes in this release beyond the version bump — see the [v1.10.1]…[v1.10.3] entries below for the substance.
+
 ## [v1.10.3] — 2026-07-27 — a section's panel button can finally carry your brand colour (#536)
 
 **Set one slot and the section panel's call-to-action button turns a flat brand colour with a matching ring. Set none and it renders exactly as before.**
