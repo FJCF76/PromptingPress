@@ -4,6 +4,33 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.11.3] — 2026-07-27 — a filled pair of buttons on a photo band now matches (#543)
+
+**Put two filled buttons side by side on a background-image band and both keep a visible edge. Until now only the first one did, and the second dissolved into the picture.**
+
+A filled button's gradient measures under 2:1 against the dark scrim over a background image, so its shape disappears and only the label carries it. The fix for that was a separation ring: the border stops following the fill and falls back to `--color-accent-on-overlay`, a near-white role that reads at 4.59:1 against the worst case. That ring reached the primary button only. The second button carries its own higher-specificity rules, and those still bottomed out at the light-surface accent, which is the same colour as the button's own fill. The result on a `background_image` `cta` or a `cover` hero with two `primary` buttons was one outlined pill next to one with no edge at all: same fill, same band, different treatment.
+
+Both buttons now take the same ring, at rest and under the pointer. The hover half matters as much as the rest half here, since a second button's hover border follows its hover fill, so a rest-only ring would have vanished again the moment the pointer landed.
+
+Only the last link in each border chain moved. Every slot an author can already set keeps winning in the position it always had, so a ring you coloured yourself stays exactly the colour you gave it, and a button recoloured through its fill slot still gets a ring matching that fill rather than a near-white one. Bands without a background image are byte-identical, and a solid `inverted` band is deliberately left un-ringed because its filled button already clears the 3:1 non-text bar. A band carrying both an inverted theme and a background image does get the ring, because over an arbitrary image the overlay role is the safe one.
+
+### Fixed
+
+- The filled second button on a `background_image` `cta` (`button2_variant: "primary"`) falls back to `--color-accent-on-overlay` for its border instead of the light-surface accent, so it keeps a visible edge against the scrim rather than dissolving into it (#543).
+- The filled second CTA on a `cover` hero (`cta2_variant: "primary"`) gets the same ring, closing the same gap on the other overlay band.
+- Both rings are specified at rest AND on hover, so the edge survives the pointer instead of reappearing only when the cursor moves away.
+- Light bands, non-cover heroes and the solid `inverted` band are unchanged, and `--cta-button2-border` / `--cta-button2-hover-border` / `--hero-cta2-border` / `--hero-cta2-hover-border` still win over the new fallback.
+
+### Docs
+
+- `ai-instructions/style-component.md` and `ai-instructions/retheme.md` state that every filled button on an overlay band takes its border from the accent role, primary and second alike, and name the second button's ring slots.
+- `components/cta/README.md` and `components/hero/README.md` describe the ring as covering the whole filled pair, and record the un-ringed solid `inverted` band and the ringed combined band.
+
+### Tests
+
+- Rendered Playwright pins assert the ring colour at rest and on hover for both overlay bands at 1280 and 375, plus the combined inverted-and-overlay band, the ghost and outline second buttons, a fill-only recolor, an authored ring slot written through `style_component`, and the focus-plus-hover state where the separation ring, the focus outline and the hover fill all have to remain distinguishable.
+- `css-lint` pins the four new rules' chains token by token, their source-order dependency against the base rules they tie with on specificity, the uniqueness of both sides of that comparison, and the boundary that keeps them above the `cta` theme block.
+
 ## [v1.11.2] — 2026-07-27 — the focus ring stays visible on dark bands (#542)
 
 **Tab onto a button over a photo band and you can now see where you are. Before, the focus ring was blue-on-grey at 1.17:1 and effectively invisible.**

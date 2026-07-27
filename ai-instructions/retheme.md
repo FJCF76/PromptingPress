@@ -84,12 +84,15 @@ accent tint) when you change `--color-accent` and leave it unpinned; a pinned ov
 that diverges is surfaced by the same `stale_warnings` / `masked_derived_override`
 machinery as every other derived token.
 
-On an overlay band the role does one more job: it is also the FILLED primary button's
-border, so the button keeps a visible edge. The premium gradient fill measures only
-~1.1:1 against the worst-case composite, so without that ring the button's shape
-disappears into the band and only its label carries it. The solid inverted band does NOT
+On an overlay band the role does one more job: it is also the DEFAULT border of every
+FILLED button, the primary and the second one alike, so an unstyled filled pair keeps a
+visible edge and stays symmetric. It sits last in each border chain, so it paints only
+where you have not coloured that edge yourself. The premium gradient fill measures only ~1.1:1 against the
+worst-case composite, so without that ring the button's shape disappears into the band
+and only its label carries it. The solid inverted band does NOT
 get this ring — the same fill measures 3.23:1 there, which already clears the 3:1
-non-text bar. Per-instance slots (`--cta-button-border`, `--hero-accent`) still win, so
+non-text bar. Per-instance slots (`--cta-button-border`, `--hero-accent`, and
+`--cta-button2-border` / `--hero-cta2-border` for the second button) still win, so
 you can recolour the ring; a band you darken yourself with `--cta-bg` gets no automatic
 ring, because nothing in CSS can compare your authored band colour to the button fill.
 

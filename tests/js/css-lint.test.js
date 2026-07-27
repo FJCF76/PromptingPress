@@ -3420,6 +3420,197 @@ describe('CSS lint: fill-slot re-pointing targets are never @property-registered
 });
 
 /**
+ * The filled SECOND button's separation ring on the two OVERLAY bands (#543).
+ *
+ * #535 gave the ring to the filled PRIMARY only. The second button's own rules are one
+ * class higher ([0,6,0] rest / [0,7,0] hover vs the primary ring's [0,5,0]/[0,6,0]) and
+ * bottomed out at the bare --color-accent, so a `primary` + `primary` pair on a photo
+ * band rendered ONE button with a visible edge next to one dissolving into the scrim.
+ *
+ * These pins mirror #535's RINGS/ORDER contract at the second button's specificity, with
+ * three differences that matter:
+ *
+ *   1. Media-aware (parseRules, the #542 idiom). #535's block uses a media-blind local
+ *      parser; a ring wrapped in a never-matching @media would read as green there.
+ *   2. Both twins are REQUIRED, not just the rest one. #538 made the base hover ring
+ *      follow the hover fill, so the last incidental fill-vs-ring edge on these bands is
+ *      gone — a rest-only ring dissolves again under the pointer (WCAG 1.4.11 covers
+ *      hover), which is exactly the defect #535's rendered pass caught on the primary.
+ *   3. The hover chain's ORDER is #538's Option 3 (accent knob AHEAD of the fill) and is
+ *      deliberately NOT the rest chain's order. `leading` encodes that asymmetry, so a
+ *      future "consistency" cleanup fails here rather than silently repainting an
+ *      authored --cta-accent-hover / --hero-accent-hover ring.
+ *
+ * The base (non-overlay) rules keep their own --color-accent terminals, pinned below:
+ * that is what makes every light band byte-identical.
+ */
+describe('CSS lint: the filled second button is ringed on overlay bands (#543)', () => {
+    const rules = parseRules();
+    const rulesForAll = (sel) => rules.filter(r => r.selectors.includes(sel));
+    const ruleFor = (sel) => rulesForAll(sel)[0];
+
+    const NOT3 = ':not(.btn--outline):not(.btn--ghost):not(.btn--secondary)';
+    const CTA2_BASE = '.cta .cta__buttons .cta__button--secondary' + NOT3;
+    const CTA2_RING = '.cta--has-bg-image .cta__buttons .cta__button--secondary' + NOT3;
+    const HERO2_BASE = '.hero .hero__cta-group .hero__cta--secondary' + NOT3;
+    const HERO2_RING = '.hero--cover .hero__cta-group .hero__cta--secondary' + NOT3;
+
+    // `leading` = the authored links that MUST survive ahead of the role token, in order.
+    // Each is its base rule's chain verbatim; only the terminal differs.
+    const RINGS = [
+        { sel: CTA2_RING, base: CTA2_BASE, terminal: '--color-accent',
+          leading: ['--cta-button2-border', '--btn-border-color', '--cta-button2-bg', '--cta-accent', '--btn-bg'] },
+        { sel: CTA2_RING + ':hover', base: CTA2_BASE + ':hover', terminal: '--color-accent-hover',
+          leading: ['--cta-button2-hover-border', '--cta-accent-hover', '--cta-button2-hover-bg'] },
+        { sel: HERO2_RING, base: HERO2_BASE, terminal: '--color-accent',
+          leading: ['--hero-cta2-border', '--hero-accent', '--hero-cta2-bg'] },
+        { sel: HERO2_RING + ':hover', base: HERO2_BASE + ':hover', terminal: '--color-accent-hover',
+          leading: ['--hero-cta2-hover-border', '--hero-accent-hover', '--hero-cta2-hover-bg'] },
+    ];
+
+    const chainOf = (rule) => {
+        const decl = rule.body.match(/border-color\s*:([^;}]+)/);
+        expect(decl).not.toBeNull();
+        return decl[1];
+    };
+
+    RINGS.forEach(({ sel, base, terminal, leading }) => {
+        test(`${sel} exists, at top level, exactly once`, () => {
+            const found = rulesForAll(sel);
+            // Exactly one: a duplicate later in the file wins the cascade while every
+            // order pin below still passes (the hole #535's uniqueness pin closes).
+            expect(found.length).toBe(1);
+            // Top level: a ring that only paints inside an @media is not a ring.
+            expect(found[0].media).toBeNull();
+            expect(found[0].body).toMatch(/border-color\s*:/);
+        });
+
+        test(`${sel} bottoms the ring out at the overlay role`, () => {
+            const tokens = chainOf(ruleFor(sel)).match(/--[a-z0-9-]+/g);
+            expect(tokens[tokens.length - 1]).toBe('--color-accent-on-overlay');
+            // on-inverted is only ~2.2:1 over the arbitrary-image scrim — never here.
+            expect(tokens).not.toContain('--color-accent-on-inverted');
+        });
+
+        test(`${sel} preserves every authored slot ahead of the role, in order`, () => {
+            const tokens = chainOf(ruleFor(sel))
+                .match(/--[a-z0-9-]+/g)
+                .filter(t => t !== '--color-accent-on-overlay');
+            expect(tokens).toEqual(leading);
+        });
+
+        test(`${sel} no longer bottoms out at the bare accent`, () => {
+            const chain = chainOf(ruleFor(sel));
+            expect(chain).not.toMatch(/var\(\s*--color-accent\s*\)/);
+            expect(chain).not.toMatch(/var\(\s*--color-accent-hover\s*\)/);
+        });
+
+        test(`${sel} follows ${base} in source order (equal specificity, order decides)`, () => {
+            const ring = ruleFor(sel);
+            const baseRule = ruleFor(base);
+            expect(ring).toBeDefined();
+            expect(baseRule).toBeDefined();
+            expect(ring.index).toBeGreaterThan(baseRule.index);
+        });
+
+        test(`${base} keeps its own ${terminal} terminal (light bands stay byte-identical)`, () => {
+            const tokens = chainOf(ruleFor(base)).match(/--[a-z0-9-]+/g);
+            expect(tokens[tokens.length - 1]).toBe(terminal);
+            expect(tokens).not.toContain('--color-accent-on-overlay');
+        });
+
+        /*
+         * The order pin above compares the FIRST rule carrying each selector, so uniqueness
+         * has to hold on BOTH sides of the comparison. #535's uniqueness section proved by
+         * mutation that a duplicate appended later wins the cascade while every order pin
+         * stays green; it pinned that for the ring selectors only. A duplicate of the BASE
+         * rule placed AFTER the ring is the mirror image of that hole — equal specificity,
+         * later in source order, so it takes the ring back off — and it is invisible to
+         * every assertion above. Same reason the media context is pinned: a base rule
+         * re-declared inside an @media block would outrank the top-level ring at one
+         * breakpoint only, which is exactly the class of bug a media-blind scan misses.
+         */
+        test(`${base} is itself declared exactly once, at top level`, () => {
+            const found = rulesForAll(base);
+            expect(found.length).toBe(1);
+            expect(found[0].media).toBeNull();
+        });
+    });
+
+    /*
+     * NEGATIVE pin, the button2 half of #535 Q2. The SOLID inverted filled button measures
+     * 3.23:1 fill-vs-band, clearing the 3:1 non-text bar, so it is deliberately NOT
+     * ringed — for the second button exactly as for the primary. #535's own negative pin
+     * already scans every `.cta--inverted` + `:not(.btn--outline)` rule; this one names
+     * the button2 selector explicitly so the refusal is legible at the specificity a
+     * future edit would actually reach for.
+     *
+     * SOLID is the operative word. A cta can carry BOTH classes — cta.php emits the theme
+     * class and the bg-image class independently — and `.cta--inverted.cta--has-bg-image`
+     * DOES get the ring, correctly: the scrim sits over the inverted background, and
+     * on-inverted is only ~2.2:1 over an arbitrary image. This pin scans for a rule whose
+     * SELECTOR names `.cta--inverted`, so the combined band (which matches the ring rule
+     * through `.cta--has-bg-image`) is untouched by it. The rendered half of that case is
+     * pinned in style-render.spec.ts, the same way #535 pins it for the primary.
+     */
+    test('the SOLID inverted filled second button is not ringed (Q2 refusal, unchanged)', () => {
+        const offenders = rules.filter(r =>
+            r.selectors.some(s =>
+                /\.cta--inverted\b/.test(s)
+                && /\.cta__button--secondary\b/.test(s)
+                && /:not\(\.btn--outline\)/.test(s))
+            && /border-color\s*:/.test(r.body));
+        expect(offenders.map(r => r.selectors.join(', '))).toEqual([]);
+    });
+
+    /*
+     * BOUNDARY pin. The `.cta--dark` theme block carries a NOTE telling future editors not
+     * to add a competing `.cta--inverted` / `.cta--has-bg-image` button rule down there,
+     * because it would win on source order and silently defeat the routing above. The ring
+     * comment leans on that NOTE as its guardrail, so the guardrail has to be a test: a
+     * comment cannot fail CI. Two halves — the ring rules must sit ABOVE the theme block,
+     * and nothing below it may declare border-color on a cta button on either dark band.
+     *
+     * This is the one pin that catches a competing rule spelled DIFFERENTLY from the ring
+     * selectors (`.cta--dark .cta__button--secondary:not(...)`, or a `.cta--has-bg-image`
+     * rule that drops the `.cta__buttons` link). The uniqueness pins only match exact
+     * selector strings, so such a rule evades them entirely while winning the cascade.
+     */
+    test('the ring rules sit ABOVE the .cta--dark theme block', () => {
+        const themeBlock = ruleFor('.cta--dark');
+        expect(themeBlock).toBeDefined();
+        [CTA2_RING, CTA2_RING + ':hover'].forEach(sel => {
+            expect(ruleFor(sel).index).toBeLessThan(themeBlock.index);
+        });
+    });
+
+    test('no rule below .cta--dark sets a cta button border on either dark band', () => {
+        const themeBlock = ruleFor('.cta--dark');
+        const offenders = rules.filter(r =>
+            r.index > themeBlock.index
+            && /border-color\s*:/.test(r.body)
+            && r.selectors.some(s =>
+                /\.cta--(dark|inverted|has-bg-image)\b/.test(s) && /\.cta__button\b/.test(s)));
+        expect(offenders.map(r => r.selectors.join(', '))).toEqual([]);
+    });
+
+    /*
+     * SCOPE pin: the ring stays on the FILLED variant. outline and secondary paint a real
+     * ring of their own and ghost's border bottoms out at `transparent`, so routing the
+     * fill chain there would repaint an authored edge or ADD one to a borderless button —
+     * the same scoping #538 pins for the hover fill-follow. Dropping any :not() from a
+     * ring selector is the mechanical way that happens, so pin all three.
+     */
+    RINGS.forEach(({ sel }) => {
+        test(`${sel} excludes all three transparent-fill variants`, () => {
+            ['.btn--outline', '.btn--ghost', '.btn--secondary'].forEach(v => {
+                expect(ruleFor(sel).selectors[0]).toContain(`:not(${v})`);
+            });
+        });
+    });
+});
+
+/**
  * The FOCUS RING on dark bands (#542).
  *
  * `main .btn:focus, main .btn:focus-visible` paints the live focus indicator for every
