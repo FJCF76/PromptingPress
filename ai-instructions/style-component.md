@@ -380,9 +380,13 @@ while the color animates, which reads as a brief off-brand wash. On a dark band
 already routes to the AA-safe on-dark accent role, so each is readable without any slot;
 set `--cta-button-color` / `--cta-button2-color` only to override that. The same holds for
 a `cover` hero's two CTAs (`--hero-text` for the first, `--hero-cta2-color` for the
-second). On a `background_image` cta or a `cover` hero the FILLED button additionally
-takes its border from that role, so its shape stays visible against the band; set
-`--cta-button-border` / `--hero-accent` to colour that edge yourself. The routing only
+second). On a `background_image` cta or a `cover` hero EVERY filled button additionally
+takes its border from that role — the primary and the second button alike, so a
+`primary` + `primary` pair carries one matched edge rather than one ringed button beside
+one that dissolves into the band. Set `--cta-button-border` / `--hero-accent` to colour
+the primary's edge yourself, and `--cta-button2-border` / `--hero-cta2-border` for the
+second button's; recolouring only a button's FILL slot gives it a ring matching that
+fill instead of the role token. The routing only
 covers bands the theme can identify — a band you darken yourself with `--cta-bg` or
 `--hero-bg` gets no automatic treatment, so set the slots there.
 
