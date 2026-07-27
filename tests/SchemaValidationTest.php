@@ -245,7 +245,7 @@ class SchemaValidationTest extends TestCase
     public function testStyleSlotsExistForV1Components(): void
     {
         $expected = [
-            'hero'    => 44,
+            'hero'    => 45,
             'section' => 40,
             'grid'    => 37,
             'cta'     => 37,

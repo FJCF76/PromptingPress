@@ -99,9 +99,9 @@ so a closing band does not have to become a `hero` just to offer a secondary act
 Omit `button2_text` and the CTA renders exactly as it always has — one button, no
 wrapper element. The two buttons take independent per-instance RESTING colors
 (`--cta-button-bg` / `-color` / `-shadow` for the primary, `--cta-button2-*` for the
-second); neither reaches the other. Hover is not isolated: setting the primary's
-`--cta-button-hover-bg` also clears the second button's hover gradient, so set
-`--cta-button2-hover-bg` too when the pair needs distinct hover fills. At mobile
+second); neither reaches the other. Hover is isolated the same way (`--cta-button-hover-bg`
+for the primary, `--cta-button2-hover-bg` for the second), and a filled button keeps the
+premium hover gradient until its own hover-fill slot is set. At mobile
 widths the pair stacks one button per row.
 
 ### section.theme

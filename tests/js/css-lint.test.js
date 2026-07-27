@@ -328,8 +328,8 @@ describe('CSS lint: style slot fallback patterns', () => {
         });
     });
 
-    test('hero/section/grid/cta schemas declare 158 style slots (subset of the total)', () => {
-        expect(allSlots.length).toBe(158);
+    test('hero/section/grid/cta schemas declare 159 style slots (subset of the total)', () => {
+        expect(allSlots.length).toBe(159);
     });
 
     allSlots.forEach(({ component, slotName }) => {
@@ -431,13 +431,16 @@ describe('CSS lint: premium primary-button fill routes through the fill-slot cha
     test('every primary-fill background routes through the per-instance fill slot chain', () => {
         // Rest fill now leads with --hero-button-bg (issue 514: the hero primary's visible
         // fill winner), with --cta-button-bg still next in the chain. Both must be present so
-        // dropping EITHER slot is caught. Hover has no hero slot, so it still leads with
-        // --cta-button-hover-bg.
+        // dropping EITHER slot is caught. Hover mirrors that chain exactly since issue 530:
+        // --hero-button-hover-bg leads, --cta-button-hover-bg follows. Before #530 the hover
+        // branch required only the cta slot, which is why the hover surface could ship a
+        // gradient shorthand that masked every per-instance hover fill slot — the guard was
+        // satisfied by a chain that had no hero entry and no second-button re-pointing target.
         const offenders = [];
         surfaceRules.forEach(r => {
             const isHover = /:hover\b/.test(r.selector);
             const requiredSlots = isHover
-                ? ['--cta-button-hover-bg']
+                ? ['--hero-button-hover-bg', '--cta-button-hover-bg']
                 : ['--hero-button-bg', '--cta-button-bg'];
             r.decls.forEach(d => {
                 // Leading slot must be the outermost required slot.
@@ -458,22 +461,42 @@ describe('CSS lint: premium primary-button fill routes through the fill-slot cha
 
     // Detection proof: a bare gradient shorthand on the surface must be CAUGHT, and a
     // slot-routed one must PASS — so a parser regression can't make the scan vacuous.
+    // The scan runs the SAME requiredSlots logic the real guard uses (issue 530): the
+    // previous version hardcoded --cta-button-bg, so dropping a slot from requiredSlots
+    // left this "anti-vacuity" proof passing — vacuous with respect to the thing it guards.
+    const scanWithRequiredSlots = (fixture, requiredSlots) => {
+        const rr = /([^{}]+)\{([^{}]*)\}/g;
+        let mm, out = [];
+        while ((mm = rr.exec(fixture)) !== null) {
+            if (!targetsPrimaryFill(mm[1])) continue;
+            fillDecls(mm[2]).forEach(d => {
+                const lead = requiredSlots[0];
+                if (!new RegExp('background(?:-image)?\\s*:\\s*var\\(\\s*' + lead + '\\b').test(d)) {
+                    out.push(d);
+                    return;
+                }
+                if (requiredSlots.some(slot => !new RegExp('var\\(\\s*' + slot + '\\b').test(d))) out.push(d);
+            });
+        }
+        return out;
+    };
+
     test('detector flags a bare gradient shorthand but passes a slot-routed one', () => {
+        const rest = ['--hero-button-bg', '--cta-button-bg'];
         const bad = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) { background: linear-gradient(red, blue); }';
-        const good = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) { background: var(--cta-button-bg, linear-gradient(red, blue)); }';
-        const scan = (fixture) => {
-            const rr = /([^{}]+)\{([^{}]*)\}/g;
-            let mm, out = [];
-            while ((mm = rr.exec(fixture)) !== null) {
-                if (!targetsPrimaryFill(mm[1])) continue;
-                fillDecls(mm[2]).forEach(d => {
-                    if (!/background(?:-image)?\s*:\s*var\(\s*--cta-button-bg\b/.test(d)) out.push(d);
-                });
-            }
-            return out;
-        };
-        expect(scan(bad).length).toBe(1);
-        expect(scan(good).length).toBe(0);
+        const good = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) { background: var(--hero-button-bg, var(--cta-button-bg, linear-gradient(red, blue))); }';
+        expect(scanWithRequiredSlots(bad, rest).length).toBe(1);
+        expect(scanWithRequiredSlots(good, rest).length).toBe(0);
+    });
+
+    // The hover surface gets its own proof (issue 530): a chain that leads with the cta slot
+    // and omits the hero slot is exactly what shipped before #530 and MUST now be caught.
+    test('detector flags a hover chain missing the hero hover slot', () => {
+        const hover = ['--hero-button-hover-bg', '--cta-button-hover-bg'];
+        const preFix = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover { background: var(--cta-button-hover-bg, linear-gradient(red, blue)); }';
+        const fixed = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover { background: var(--hero-button-hover-bg, var(--cta-button-hover-bg, linear-gradient(red, blue))); }';
+        expect(scanWithRequiredSlots(preFix, hover).length).toBe(1);
+        expect(scanWithRequiredSlots(fixed, hover).length).toBe(0);
     });
 });
 
@@ -2982,5 +3005,66 @@ describe('CSS lint: bg-image band title-accent + markers route through --color-a
         );
         // Regression guard: the marker default must not be the bare accent (1.16:1) here.
         expect(rule.body).not.toMatch(/--pp-list-marker-color\s*:\s*var\(\s*--section-body-marker-color\s*,\s*var\(\s*--color-accent\s*\)\s*\)/);
+    });
+});
+
+/**
+ * The isolation re-pointing declarations depend on GUARANTEED-INVALID custom properties
+ * (#514/#526/#474/#530).
+ *
+ * `.hero__cta--secondary { --hero-button-bg: var(--hero-cta2-bg); }` works because, with
+ * --hero-cta2-bg unset, the var() cannot substitute and --hero-button-bg becomes
+ * guaranteed-invalid — so every downstream `var(--hero-button-bg, <fallback>)` takes its
+ * fallback and an unset button renders byte-identically.
+ *
+ * Registering ANY of these four names with `@property` (or CSS.registerProperty) destroys
+ * that: a registered property with an initial value is never guaranteed-invalid, so the
+ * failed substitution would resolve to the registered initial instead of falling through.
+ * Every unset second button would silently flip off the premium gradient. The invariant is
+ * load-bearing and otherwise invisible, so it gets its own guard.
+ */
+describe('CSS lint: fill-slot re-pointing targets are never @property-registered (#530)', () => {
+    const GUARANTEED_INVALID_SLOTS = [
+        // Re-pointing TARGETS: the properties the isolation rules declare.
+        '--hero-button-bg',
+        '--hero-button-hover-bg',
+        '--cta-button-bg',
+        '--cta-button-hover-bg',
+        // Re-pointing SOURCES: equally load-bearing. `--hero-button-bg: var(--hero-cta2-bg)`
+        // is only guaranteed-invalid because --hero-cta2-bg is ITSELF unregistered. Register
+        // the source and the var() always substitutes (to the registered initial), so the
+        // target is never invalid and every unset second button silently leaves the premium
+        // gradient for that initial value.
+        '--hero-cta2-bg',
+        '--hero-cta2-hover-bg',
+        '--cta-button2-bg',
+        '--cta-button2-hover-bg',
+    ];
+
+    test('no shipped stylesheet registers a re-pointing target with @property', () => {
+        const offenders = [];
+        // Scan every shipped stylesheet, not just components.css: an @property block
+        // anywhere in the cascade would break the invariant.
+        Object.entries({
+            'components.css': COMPONENTS_CSS,
+            'base.css': BASE_CSS,
+            'utilities.css': UTILITIES_CSS,
+        }).forEach(([name, css]) => {
+            const stripped = stripComments(css);
+            GUARANTEED_INVALID_SLOTS.forEach((slot) => {
+                const re = new RegExp('@property\\s+' + slot + '\\b');
+                if (re.test(stripped)) offenders.push(`${name} registers ${slot}`);
+            });
+        });
+        expect(offenders).toEqual([]);
+    });
+
+    // Detection proof: the scan must actually catch a registration.
+    test('detector flags an @property registration of a re-pointing target', () => {
+        const bad = '@property --hero-button-hover-bg { syntax: "<color>"; inherits: true; initial-value: red; }';
+        const hits = GUARANTEED_INVALID_SLOTS.filter((slot) =>
+            new RegExp('@property\\s+' + slot + '\\b').test(bad),
+        );
+        expect(hits).toEqual(['--hero-button-hover-bg']);
     });
 });

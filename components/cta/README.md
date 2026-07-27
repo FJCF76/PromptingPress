@@ -63,10 +63,11 @@ The two buttons are styled independently in their RESTING state: `--cta-button-b
 color leaves the second button on the default premium treatment. `--cta-accent` still
 reaches both by design.
 
-Two hover caveats, both shared with the hero: a flat per-instance fill reverts to the
-shared premium gradient on hover, and the primary's `--cta-button-hover-bg` is NOT
-isolated, so setting it also clears the second button's hover gradient. Set
-`--cta-button2-hover-bg` alongside it when the pair needs distinct hover fills.
+Hover is a separate surface, isolated the same way (issue 530): `--cta-button-hover-bg`
+addresses the primary only and `--cta-button2-hover-bg` the second only, and on a filled
+button each replaces the shared premium hover gradient with a flat fill. A resting slot
+governs the resting state only, so pair each with its hover counterpart when a button
+should stay on-brand through the hover; left unset, hover keeps the premium gradient.
 
 At mobile widths the pair stacks one button per row.
 

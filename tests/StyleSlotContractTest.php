@@ -717,6 +717,18 @@ class StyleSlotContractTest extends TestCase
             $isolation,
             'The isolation rule must reset --cta-button-shadow on button2 (issue 474).'
         );
+        // Issue 530: the SAME re-pointing on the hover surface. Without it the premium hover
+        // `background:` shorthand masks --cta-button2-hover-bg (a filled button2 flashes back
+        // to the theme gradient) AND the primary's --cta-button-hover-bg inherits down onto
+        // button2, so setting the primary's hover fill clears button2's hover gradient too.
+        // `initial` here would kill the leak but leave the mask — it must re-point.
+        $this->assertMatchesRegularExpression(
+            '/--cta-button-hover-bg:\s*var\(--cta-button2-hover-bg\)\s*;/',
+            $isolation,
+            'The isolation rule must re-point --cta-button-hover-bg at --cta-button2-hover-bg '
+            . '(issue 530), so hover is isolated the same way rest is and the button2 hover '
+            . 'fill reaches the gradient-clearing premium chain.'
+        );
 
         // The button2 rest rule still consumes --cta-button2-bg directly (background-color),
         // so the slot stays author-reachable on the element the isolation rule targets.
@@ -724,6 +736,21 @@ class StyleSlotContractTest extends TestCase
             '/background-color:\s*var\(--cta-button2-bg,/',
             $block,
             'The button2 rest rule must still consume --cta-button2-bg as a background-color.'
+        );
+        // Same for hover (issue 530).
+        $this->assertMatchesRegularExpression(
+            '/background-color:\s*var\(--cta-button2-hover-bg,/',
+            $block,
+            'The button2 hover rule must still consume --cta-button2-hover-bg as a background-color.'
+        );
+        // The hover BORDER deliberately does NOT follow the hover fill (issue 530): unlike the
+        // hover FILL, it was never masked by the premium gradient, so routing the fill into it
+        // would change rendered output for an already-shipping slot. Pinned so a future edit
+        // does not quietly add the fill-follow without deciding to.
+        $this->assertStringContainsString(
+            'border-color: var(--cta-button2-hover-border, var(--cta-accent-hover, var(--color-accent-hover)))',
+            $block,
+            'The filled button2 hover border must NOT route the hover fill (issue 530).'
         );
     }
 
@@ -768,6 +795,17 @@ class StyleSlotContractTest extends TestCase
             $isolation,
             'The isolation rule must reset --hero-button-shadow on cta2 (issue 526).'
         );
+        // Issue 530: the SAME re-pointing on the hover surface, which makes cta2's isolation
+        // symmetric across rest and hover. Without it the premium hover shorthand masks
+        // --hero-cta2-hover-bg on a filled cta2, and the primary's --hero-button-hover-bg
+        // inherits onto cta2 exactly the way --hero-button-bg used to before #526.
+        $this->assertMatchesRegularExpression(
+            '/--hero-button-hover-bg:\s*var\(--hero-cta2-hover-bg\)\s*;/',
+            $isolation,
+            'The isolation rule must re-point --hero-button-hover-bg at --hero-cta2-hover-bg '
+            . '(issue 530), so hover is isolated the same way rest is and the cta2 hover fill '
+            . 'reaches the gradient-clearing premium chain.'
+        );
 
         // The cta2 rest rule still consumes --hero-cta2-bg directly (background-color), so
         // the slot keeps its in-block, type-compatible consumption for the keystone checks.
@@ -786,6 +824,36 @@ class StyleSlotContractTest extends TestCase
             $block,
             'The filled cta2 border must FOLLOW --hero-cta2-bg when --hero-cta2-border and '
             . '--hero-accent are unset (issue 526, mirroring the primary at #514).'
+        );
+        // The hover half of both chains (issue 530), mirroring the rest chains above with
+        // each knob swapped for its hover equivalent.
+        $this->assertStringContainsString(
+            'background-color: var(--hero-cta2-hover-bg, var(--hero-accent-hover, var(--color-accent-hover)))',
+            $block,
+            'The filled cta2 hover rule must keep routing --hero-cta2-hover-bg (issue 530).'
+        );
+        // Same contract as the cta's button2: the hover border does NOT follow the hover fill.
+        $this->assertStringContainsString(
+            'border-color: var(--hero-cta2-hover-border, var(--hero-accent-hover, var(--color-accent-hover)))',
+            $block,
+            'The filled cta2 hover border must NOT route the hover fill (issue 530).'
+        );
+        // The hero PRIMARY's new hover fill slot keeps an in-block, type-compatible
+        // consumption (the slot-contract keystone). Its VISIBLE win is the premium hover
+        // rule; this declaration is what makes the slot discoverable in the hero block.
+        $this->assertStringContainsString(
+            'background-color: var(--hero-button-hover-bg, var(--hero-accent-hover, var(--color-accent-hover)))',
+            $block,
+            'The hero primary hover rule must consume --hero-button-hover-bg (issue 530).'
+        );
+        // The hero primary's hover border DOES follow the new fill slot, mirroring its rest
+        // sibling. Safe because --hero-button-hover-bg is new in #530: no shipped composition
+        // can already set it, so no existing render changes.
+        $this->assertStringContainsString(
+            'border-color: var(--hero-accent-hover, var(--hero-button-hover-bg, var(--color-accent-hover)))',
+            $block,
+            'The hero primary hover border must FOLLOW --hero-button-hover-bg when '
+            . '--hero-accent-hover is unset (issue 530, mirroring the rest chain).'
         );
     }
 
@@ -1376,6 +1444,12 @@ class StyleSlotContractTest extends TestCase
         '.hero .hero__cta-group .hero__cta--secondary declares --hero-button-bg',
         '.hero .hero__cta-group .hero__cta--secondary declares --hero-button-color',
         '.hero .hero__cta-group .hero__cta--secondary declares --hero-button-shadow',
+        // issue 530 — the hover half of the same mechanism. --hero-button-hover-bg is
+        // re-pointed at --hero-cta2-hover-bg for exactly the reasons above, applied to the
+        // hover surface: it routes cta2's hover fill into the premium gradient-clearing
+        // chain AND stops the primary's hover fill inheriting down. Nothing author-facing
+        // is deadened — cta2's own hover slot is --hero-cta2-hover-bg, which is not declared.
+        '.hero .hero__cta-group .hero__cta--secondary declares --hero-button-hover-bg',
         // issue 474 — the SAME isolation mechanism for the cta component's own second
         // button, and exempt for the same reason. .cta__button--secondary is a
         // descendant of the .cta root, so it inherits the PRIMARY button's
@@ -1388,6 +1462,10 @@ class StyleSlotContractTest extends TestCase
         '.cta .cta__buttons .cta__button--secondary declares --cta-button-bg',
         '.cta .cta__buttons .cta__button--secondary declares --cta-button-color',
         '.cta .cta__buttons .cta__button--secondary declares --cta-button-shadow',
+        // issue 530 — the hover half, mirroring the hero entry above. Re-pointing
+        // --cta-button-hover-bg at --cta-button2-hover-bg both unmasks button2's hover fill
+        // and kills the cross-button hover coupling found in #474's review.
+        '.cta .cta__buttons .cta__button--secondary declares --cta-button-hover-bg',
     ];
 
     public function testNoStylesheetRuleDeclaresASchemaSlot(): void

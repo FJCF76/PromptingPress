@@ -369,13 +369,16 @@ wp pp action execute style_component --run-id=<uuid> --params='{
   }
 }'
 ```
-Two caveats, both shared with the hero's second CTA: a flat per-instance fill reverts to
-the shared premium gradient on hover, and hover is NOT isolated between the two buttons
-— setting the primary's `--cta-button-hover-bg` also clears the second button's hover
-gradient, so set `--cta-button2-hover-bg` alongside it when the pair needs distinct hover
-fills. On a dark band (`theme: "inverted"` or a `background_image`) the second button's
-default outline/ghost ink already routes to the AA-safe on-dark accent role, so it is
-readable without any slot; set `--cta-button2-color` only to override that.
+Rest and hover are separate surfaces, and both are isolated between the two buttons: a
+flat `--cta-button-bg` recolors the RESTING primary only, so add `--cta-button-hover-bg`
+(and `--cta-button2-hover-bg` for the second button) when a filled button should stay
+on-brand through the hover instead of returning to the premium gradient. Setting the
+primary's hover fill never touches the second button's. Pair each hover slot with its
+resting slot: with only the hover slot set, the button drops the gradient layer instantly
+while the color animates, which reads as a brief off-brand wash. On a dark band
+(`theme: "inverted"` or a `background_image`) the second button's default outline/ghost ink
+already routes to the AA-safe on-dark accent role, so it is readable without any slot; set
+`--cta-button2-color` only to override that.
 
 **Brand-accent hero primary button (fill slots).** The hero's primary (filled) CTA
 ships the same premium gradient treatment as the cta button. `--hero-accent` recolors
@@ -399,15 +402,17 @@ wp pp action execute style_component --run-id=<uuid> --params='{
 the matching border, `--hero-button-color` the ink, and `--hero-button-shadow: none` removes
 the gradient bevel/drop shadow on BOTH rest and hover. Unset, all of these fall back to the
 premium look byte-identically — they add the branded/flat-button capability, not a new
-default. Note: a flat `--hero-button-bg` reverts to the premium gradient on hover (matching
-the cta button). These slots target the PRIMARY button only: the second CTA (`cta2`) never
-picks up `--hero-button-*`, whatever variant it renders as. Style it with its own
-`--hero-cta2-*` slots — on a filled (`primary`) cta2, `--hero-cta2-bg` replaces the premium
-gradient with a flat fill exactly the way `--hero-button-bg` does for the primary (and
-reverts to the gradient on hover the same way), with `--hero-cta2-border` and
-`--hero-cta2-color` for its border and ink. An unset border FOLLOWS the fill, so
-`--hero-cta2-bg` alone already gives a matching ring — set `--hero-cta2-border` only when
-you want the ring to differ from the fill.
+default. `--hero-button-bg` governs the RESTING fill only: add `--hero-button-hover-bg` when
+the button should stay on-brand through the hover, otherwise hover returns to the premium
+gradient. These slots target the PRIMARY button only: the second CTA (`cta2`) never picks up
+`--hero-button-*` in rest OR hover, whatever variant it renders as. Style it with its own
+`--hero-cta2-*` slots — on a filled (`primary`) cta2, `--hero-cta2-bg` and
+`--hero-cta2-hover-bg` replace the premium gradient with a flat fill exactly the way
+`--hero-button-bg` / `--hero-button-hover-bg` do for the primary, with `--hero-cta2-border`
+and `--hero-cta2-color` for its border and ink. At REST an unset border FOLLOWS the fill, so
+`--hero-cta2-bg` alone already gives a matching ring. Hover does NOT follow the fill: set
+`--hero-cta2-hover-border` (or `--hero-accent-hover`) when a recolored hover fill needs a
+matching ring.
 
 **3. Tag a grid card's text with a typography role (an item field).**
 `text_role` lives on each item inside the grid's `items` array, not as a top-level
