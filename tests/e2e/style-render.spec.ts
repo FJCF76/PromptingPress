@@ -4970,6 +4970,327 @@ test.describe('#458 the global button surface is a real one-knob (real WP)', () 
 });
 
 /**
+ * #539 — the global button surface survives a HOVER.
+ *
+ * #458 (above) made `--btn-*` a real one-knob at REST. #530 gave every filled surface a
+ * per-instance HOVER fill slot. Between them sat this gap: the global tier was
+ * resting-state only, so an operator who rethemed every button with `--btn-bg` /
+ * `--btn-border-color` got their brand at rest and the theme's premium accent gradient
+ * back the moment a pointer touched any button on the site. `--btn-hover-bg` /
+ * `--btn-hover-border-color` close it.
+ *
+ * Why this is an E2E and not a computed-chain unit pin: the bug lives in the CASCADE, not
+ * in any single chain. The premium `main .btn:not(...):hover` rule [0,5,1] owns
+ * background-IMAGE, while the component hover rules [0,6,0] own background-COLOR. Adding
+ * the tier only to the premium rule computes correctly, clears the gradient, and is then
+ * overridden right back to `--color-accent-hover` by the component rule — a knob that
+ * looks wired in every unit assertion and is dead in a browser. Only a real hover on a
+ * real composed page catches that, which is why all five filled surfaces are hovered here.
+ *
+ * Proven three ways, mirroring the #458 block:
+ *   (a) UNSET is byte-identical on hover — the hovered button matches the browser's own
+ *       resolution of the historical premium hover gradient, at 1280 AND 375.
+ *   (b) SET reaches every filled surface, including the section-panel CTA (which #536 gave
+ *       no per-instance hover slot, so the global tier is its ONLY hover fill authority).
+ *   (c) per-instance hover slots still outrank the global knobs.
+ */
+test.describe('#539 the global button surface survives a hover (real WP)', () => {
+  let pageId = 0;
+
+  test.afterEach(async () => {
+    if (pageId) {
+      deletePage(pageId);
+      pageId = 0;
+    }
+  });
+
+  // All FIVE filled surfaces on one page: hero primary, hero cta2, cta primary, cta
+  // button2, section panel CTA. Both second buttons use `primary` variants so they are
+  // FILLED (an outline/ghost second button takes a different rule and would not exercise
+  // the gradient-clearing path at all).
+  function buildHoverPage(): number {
+    const id = createPage('E2E btn hover tier #539');
+    setComposition(id, [
+      {
+        component: 'hero',
+        props: {
+          id: 'btn539-hero',
+          title: 'Ship faster',
+          cta_text: 'Primary',
+          cta_url: '/start',
+          cta2_text: 'Secondary',
+          cta2_url: '/learn',
+          cta2_variant: 'primary',
+        },
+      },
+      {
+        component: 'cta',
+        props: {
+          id: 'btn539-cta',
+          title: 'Join us',
+          button_text: 'Sign up',
+          button_url: '/join',
+          button2_text: 'Talk to us',
+          button2_url: '/contact',
+          button2_variant: 'primary',
+        },
+      },
+      {
+        component: 'section',
+        props: {
+          id: 'btn539-section',
+          title: 'Details',
+          layout: 'text-panel',
+          panel_heading: 'Panel',
+          panel_cta_text: 'Learn more',
+          panel_cta_url: '/more',
+        },
+      },
+    ]);
+    return id;
+  }
+
+  const SEL = {
+    heroPrimary: '.hero__cta:not(.hero__cta--secondary)',
+    heroCta2: '.hero__cta--secondary',
+    ctaPrimary: '.cta__button:not(.cta__button--secondary)',
+    ctaButton2: '.cta__button--secondary',
+    panelCta: '.section__panel-cta',
+  };
+
+  // Transitions animate colour over 150ms, so every read below must happen with them off or
+  // getComputedStyle samples an intermediate frame (the #458 block's lesson).
+  const NO_TRANSITION =
+    '*,*::before,*::after{transition:none !important;animation:none !important;}';
+
+  for (const width of [1280, 375]) {
+    test(`unset global hover knobs keep every filled surface byte-identical on hover (${width}px) @smoke`, async ({
+      page,
+    }) => {
+      pageId = buildHoverPage();
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator(SEL.panelCta)).toBeVisible({ timeout: 10000 });
+      await page.addStyleTag({ content: NO_TRANSITION });
+
+      // The historical values, resolved by the BROWSER through throwaway probes that inherit
+      // :root — so this compares against the theme's own resolution rather than brittle
+      // hardcoded hex. The gradient alone is not enough: this diff changed the BORDER chain on
+      // six rules and the background-color chain on four, and a reordering that repaints an
+      // unset button while leaving background-image untouched would slip straight through.
+      const probe = await page.evaluate(() => {
+        const resolve = (prop: string, value: string) => {
+          const el = document.createElement('div');
+          el.style.setProperty(prop, value);
+          document.body.appendChild(el);
+          const v = getComputedStyle(el).getPropertyValue(prop);
+          el.remove();
+          return v;
+        };
+        return {
+          gradient: resolve(
+            'background-image',
+            'linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%)',
+          ),
+          accentHover: resolve('background-color', 'var(--color-accent-hover)'),
+          accent: resolve('background-color', 'var(--color-accent)'),
+        };
+      });
+
+      // Each surface's hover border resolves a DIFFERENT literal when unset, so the expected
+      // value is named per surface rather than asserted loosely. A bare truthiness check here
+      // would pass through a reordered chain, a wrong literal, or an accidental repaint —
+      // which is the whole failure class this test exists to catch.
+      const expectedBorder: Record<string, string> = {
+        heroPrimary: probe.accentHover,
+        heroCta2: probe.accentHover,
+        ctaPrimary: probe.accentHover,
+        ctaButton2: probe.accentHover,
+        // The generic panel CTA is governed by the premium rule, which bottoms out at
+        // --color-accent rather than --color-accent-hover.
+        panelCta: probe.accent,
+      };
+
+      for (const [name, sel] of Object.entries(SEL)) {
+        await page.locator(sel).first().hover();
+        const got = await page
+          .locator(sel)
+          .first()
+          .evaluate((el) => {
+            const cs = getComputedStyle(el);
+            return { bgImage: cs.backgroundImage, border: cs.borderTopColor };
+          });
+        // Unset, the chain bottoms out at the premium hover gradient on every surface —
+        // the gradient is still THERE, which is precisely the behaviour #539 complains
+        // about when the operator HAS set a global fill, and must preserve when they have not.
+        expect(got.bgImage, `${name} bgImage @${width}px`).toBe(probe.gradient);
+        // The border chains gained a tier too: six rules changed. Unset, each must still
+        // resolve the exact literal it resolved before.
+        expect(got.border, `${name} border @${width}px`).toBe(expectedBorder[name]);
+      }
+    });
+  }
+
+  test('setting --btn-hover-bg / --btn-hover-border-color reaches every filled surface @smoke', async ({
+    page,
+  }) => {
+    pageId = buildHoverPage();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator(SEL.panelCta)).toBeVisible({ timeout: 10000 });
+
+    // Sentinels no theme token resolves to, so a match proves the global knob reached.
+    await page.addStyleTag({
+      content:
+        NO_TRANSITION +
+        ':root{--btn-hover-bg:rgb(1,2,3);--btn-hover-border-color:rgb(7,8,9);}',
+    });
+
+    // The hero's SECOND cta is NOT in this group — see the dedicated assertion below, which
+    // pins the halfway outcome rather than skipping the surface.
+    const covered = ['heroPrimary', 'ctaPrimary', 'ctaButton2', 'panelCta'] as const;
+
+    for (const name of covered) {
+      await page.locator(SEL[name]).first().hover();
+      const got = await page
+        .locator(SEL[name])
+        .first()
+        .evaluate((el) => {
+          const cs = getComputedStyle(el);
+          return { bgColor: cs.backgroundColor, bgImage: cs.backgroundImage, border: cs.borderTopColor };
+        });
+
+      // A flat colour resolves the premium `background` SHORTHAND to `background: <color>`,
+      // which resets background-image to `none` and CLEARS the gradient that used to mask
+      // every hover fill. Both halves matter: the colour AND the absence of the gradient.
+      expect(got.bgColor, `${name} hover fill`).toBe('rgb(1, 2, 3)');
+      expect(got.bgImage, `${name} hover gradient cleared`).toBe('none');
+      expect(got.border, `${name} hover border`).toBe('rgb(7, 8, 9)');
+    }
+
+    /*
+     * The hero's SECOND cta: pin the ACCEPTED halfway outcome, do not skip it.
+     *
+     * Its own [0,7,0] rules never routed the global tier (rest or hover), but the SHARED
+     * premium rule still resolves `background: var(--btn-hover-bg, ...)` to a flat colour for
+     * it, which clears the gradient background-IMAGE. Its own background-COLOR keeps winning.
+     * Net: gradient gone, fill still the theme accent-hover, not the operator's colour.
+     *
+     * This is pre-existing, not introduced here: --btn-bg alone already does exactly this to
+     * the cta2's REST state. The hover knob mirrors it so the button is consistent with itself.
+     * Pinning it means the day someone routes the global tier through the cta2's own chains,
+     * this assertion fails and gets updated on purpose instead of the behaviour drifting.
+     */
+    const accentHover = await page.evaluate(() => {
+      const el = document.createElement('div');
+      el.style.setProperty('background-color', 'var(--color-accent-hover)');
+      document.body.appendChild(el);
+      const v = getComputedStyle(el).backgroundColor;
+      el.remove();
+      return v;
+    });
+
+    await page.locator(SEL.heroCta2).first().hover();
+    const cta2 = await page
+      .locator(SEL.heroCta2)
+      .first()
+      .evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { bgColor: cs.backgroundColor, bgImage: cs.backgroundImage };
+      });
+    expect(cta2.bgColor, 'hero cta2 keeps its own accent fill, NOT the global knob').toBe(
+      accentHover,
+    );
+    expect(cta2.bgImage, 'hero cta2 gradient is cleared by the shared premium rule').toBe('none');
+  });
+
+  test('a per-instance hover slot still beats the global --btn-hover-bg @smoke', async ({
+    page,
+  }) => {
+    pageId = buildHoverPage();
+
+    // Style ONLY the hero's own hover fill slot (component index 0), then set a conflicting
+    // global knob. The per-instance slot must win on that button; the cta primary, which has
+    // no per-instance hover slot set, must still take the global one.
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    const res = await styleComponent(
+      page,
+      pageId,
+      { '--hero-button-hover-bg': 'rgb(20,30,40)' },
+      undefined,
+      0,
+    );
+    expect(res.success).toBeTruthy();
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator(SEL.ctaPrimary)).toBeVisible({ timeout: 10000 });
+    await page.addStyleTag({
+      content: NO_TRANSITION + ':root{--btn-hover-bg:rgb(1,2,3);}',
+    });
+
+    await page.locator(SEL.heroPrimary).first().hover();
+    const heroFill = await page
+      .locator(SEL.heroPrimary)
+      .first()
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    // Per-instance slot wins over the global knob.
+    expect(heroFill).toBe('rgb(20, 30, 40)');
+
+    await page.locator(SEL.ctaPrimary).first().hover();
+    const ctaFill = await page
+      .locator(SEL.ctaPrimary)
+      .first()
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    // ...and the global knob still governs the surface that set no slot of its own.
+    expect(ctaFill).toBe('rgb(1, 2, 3)');
+  });
+
+  test('a per-instance hover BORDER slot still beats the global --btn-hover-border-color @smoke', async ({
+    page,
+  }) => {
+    pageId = buildHoverPage();
+
+    // --btn-hover-border-color was threaded into six border chains at six different positions.
+    // Chain-order string pins catch a text edit, but only a rendered hover proves the
+    // PRECEDENCE actually holds in the cascade — the exact distinction that makes this whole
+    // block an E2E rather than a unit test.
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    const res = await styleComponent(
+      page,
+      pageId,
+      { '--cta-button-hover-border': 'rgb(60,70,80)' },
+      undefined,
+      1,
+    );
+    expect(res.success).toBeTruthy();
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator(SEL.ctaPrimary)).toBeVisible({ timeout: 10000 });
+    await page.addStyleTag({
+      content: NO_TRANSITION + ':root{--btn-hover-border-color:rgb(7,8,9);}',
+    });
+
+    await page.locator(SEL.ctaPrimary).first().hover();
+    const authored = await page
+      .locator(SEL.ctaPrimary)
+      .first()
+      .evaluate((el) => getComputedStyle(el).borderTopColor);
+    // The authored per-instance ring wins over the global knob.
+    expect(authored).toBe('rgb(60, 70, 80)');
+
+    await page.locator(SEL.panelCta).first().hover();
+    const global = await page
+      .locator(SEL.panelCta)
+      .first()
+      .evaluate((el) => getComputedStyle(el).borderTopColor);
+    // ...and a surface with no per-instance ring still takes the global one.
+    expect(global).toBe('rgb(7, 8, 9)');
+  });
+});
+
+/**
  * Computed-rhythm proof for the shared section-band spacing model (issue 431).
  *
  * The band-level components used to hard-code their own vertical-padding literals

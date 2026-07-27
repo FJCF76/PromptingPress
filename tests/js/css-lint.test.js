@@ -447,7 +447,7 @@ describe('CSS lint: premium primary-button fill routes through the fill-slot cha
         surfaceRules.forEach(r => {
             const isHover = /:hover\b/.test(r.selector);
             const requiredSlots = isHover
-                ? ['--hero-button-hover-bg', '--cta-button-hover-bg']
+                ? ['--hero-button-hover-bg', '--cta-button-hover-bg', '--btn-hover-bg']
                 : ['--section-panel-cta-bg', '--hero-button-bg', '--cta-button-bg'];
             r.decls.forEach(d => {
                 // Leading slot must be the outermost required slot.
@@ -502,6 +502,18 @@ describe('CSS lint: premium primary-button fill routes through the fill-slot cha
         const hover = ['--hero-button-hover-bg', '--cta-button-hover-bg'];
         const preFix = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover { background: var(--cta-button-hover-bg, linear-gradient(red, blue)); }';
         const fixed = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover { background: var(--hero-button-hover-bg, var(--cta-button-hover-bg, linear-gradient(red, blue))); }';
+        expect(scanWithRequiredSlots(preFix, hover).length).toBe(1);
+        expect(scanWithRequiredSlots(fixed, hover).length).toBe(0);
+    });
+
+    // Issue 539 added the GLOBAL tier to the hover branch's requiredSlots. Its own proof:
+    // a chain carrying both per-instance hover slots but no --btn-hover-bg is precisely the
+    // pre-#539 shape (a site-wide fill retheme reverting to the theme gradient on hover) and
+    // MUST now be caught — otherwise dropping the global tier from the chain goes unnoticed.
+    test('detector flags a hover chain missing the global --btn-hover-bg tier', () => {
+        const hover = ['--hero-button-hover-bg', '--cta-button-hover-bg', '--btn-hover-bg'];
+        const preFix = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover { background: var(--hero-button-hover-bg, var(--cta-button-hover-bg, linear-gradient(red, blue))); }';
+        const fixed = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover { background: var(--hero-button-hover-bg, var(--cta-button-hover-bg, var(--btn-hover-bg, linear-gradient(red, blue)))); }';
         expect(scanWithRequiredSlots(preFix, hover).length).toBe(1);
         expect(scanWithRequiredSlots(fixed, hover).length).toBe(0);
     });
@@ -641,8 +653,12 @@ describe('CSS lint: primary-button background-color routes through --cta-button-
     test('hover rule: fill routes through --cta-button-hover-bg, border through --cta-button-hover-border then the fill, accent-hover chain as fallback', () => {
         const body = bodyOf(HOVER_SEL);
         expect(body).not.toBeNull();
-        expect(body).toMatch(/background-color:\s*var\(--cta-button-hover-bg,\s*var\(--cta-accent-hover,\s*var\(--color-accent-hover\)\)\)/);
-        expect(body).toMatch(/border-color:\s*var\(--cta-button-hover-border,\s*var\(--cta-button-hover-bg,\s*var\(--cta-accent-hover,\s*var\(--color-accent-hover\)\)\)\)/);
+        // #539 completes the rest chain's shape above at the hover tier: --btn-hover-bg and
+        // --btn-hover-border-color take exactly the positions --btn-bg and --btn-border-color
+        // hold at rest — between the per-component slots and the --color-accent-hover literal.
+        // Border still FOLLOWS the fill chain after honouring its own global knob.
+        expect(body).toMatch(/background-color:\s*var\(--cta-button-hover-bg,\s*var\(--cta-accent-hover,\s*var\(--btn-hover-bg,\s*var\(--color-accent-hover\)\)\)\)/);
+        expect(body).toMatch(/border-color:\s*var\(--cta-button-hover-border,\s*var\(--btn-hover-border-color,\s*var\(--cta-button-hover-bg,\s*var\(--cta-accent-hover,\s*var\(--btn-hover-bg,\s*var\(--color-accent-hover\)\)\)\)\)\)/);
     });
 });
 
@@ -2870,6 +2886,97 @@ describe('CSS lint: #441 global button token contract (consumed ⊆ registered�
         expect(root).toMatch(/--btn-shadow:\s*initial/);
     });
 
+    test('the global HOVER knobs register as unset-by-default too (#539)', () => {
+        // #539 completed #530's rest/hover parity at the GLOBAL tier. Both hover knobs must
+        // register `initial` for the same reason their resting counterparts do: unset, every
+        // consuming hover rule resolves its own literal and the button renders byte-identically;
+        // set, they override. A concrete default here would repaint every hover on every site.
+        const root = firstRootBlock(BASE_CSS);
+        expect(root).toMatch(/--btn-hover-bg:\s*initial/);
+        expect(root).toMatch(/--btn-hover-border-color:\s*initial/);
+    });
+
+    /*
+     * PARSER TRAP GUARD — a COMMENT inside :root must never contain `--token: value` syntax.
+     *
+     * The design-token registry is derived by regex (_pp_read_tokens_from_file in lib/apply.php
+     * and pp_design_tokens in lib/wp.php) running `/(--[\w-]+)\s*:\s*([^;]+);/` over the raw
+     * :root block with comments NOT stripped. So prose like "set --btn-shadow: none to flatten"
+     * inside a comment registers a phantom token whose "value" is the rest of the sentence.
+     * It is invisible when the real declaration happens to come later (last-wins overwrites it)
+     * and corrupts the registry when it does not — the token then reports a garbage value and
+     * update_design_token validates against it.
+     *
+     * That is why every token comment in this file writes `--btn-shadow = none`, with an equals
+     * sign, not a colon. #539 broke the convention and this guard exists so the next one cannot.
+     */
+    test('no :root comment contains --token: syntax that the registry regex would eat', () => {
+        const root = firstRootBlock(BASE_CSS);
+        const comments = root.match(/\/\*[\s\S]*?\*\//g) || [];
+        const offenders = [];
+        comments.forEach(c => {
+            const hits = c.match(/--[\w-]+\s*:\s*[^;\n]+;/g);
+            if (hits) offenders.push(...hits.map(h => h.trim()));
+        });
+        expect(offenders).toEqual([]);
+    });
+
+    /*
+     * STRUCTURAL GUARD — comment delimiters must balance, and :root must contain only
+     * declarations once comments are stripped.
+     *
+     * The trap this catches is a premature `*​/` in the middle of one of this file's long
+     * docblocks: everything after it becomes RAW CSS inside :root, the browser's error
+     * recovery swallows whatever declaration follows, and a token silently stops existing.
+     * A text-matching lint sees nothing wrong, because the prose it was checking is simply no
+     * longer inside a comment. It happened once during #539 and was caught by an outside
+     * reviewer rather than by this suite, so the suite gets the guard.
+     */
+    test('base.css and components.css have balanced comment delimiters', () => {
+        [['base.css', BASE_CSS], ['components.css', COMPONENTS_CSS]].forEach(([name, css]) => {
+            const stripped = css.replace(/\/\*[\s\S]*?\*\//g, '');
+            expect(stripped.includes('*/'), `${name} has a stray */ (comment closed early)`).toBe(false);
+            expect(stripped.includes('/*'), `${name} has an unclosed /*`).toBe(false);
+            expect(css.split('{').length, `${name} brace balance`).toBe(css.split('}').length);
+        });
+    });
+
+    test(':root contains only declarations once comments are stripped', () => {
+        const bare = firstRootBlock(BASE_CSS).replace(/\/\*[\s\S]*?\*\//g, '');
+        const stray = bare
+            .split(';')
+            .map(s => s.trim())
+            .filter(Boolean)
+            // A real declaration is `prop: value` (custom property or otherwise).
+            .filter(s => !/^[-a-zA-Z][\w-]*\s*:/.test(s));
+        expect(stray).toEqual([]);
+    });
+
+    test('detector catches prose left raw in :root by an early comment close', () => {
+        // Anti-vacuity for the guard above: the exact #539 shape must be caught.
+        const broken = ':root {\n  /* explains a thing */\n  Deliberately NOT mirrored: hover ink\n  and elevation. */\n  --btn-bg: initial;\n}';
+        const stripped = broken.replace(/\/\*[\s\S]*?\*\//g, '');
+        expect(stripped.includes('*/')).toBe(true);
+    });
+
+    test('detector catches a --token: colon form planted inside a :root comment', () => {
+        // Anti-vacuity: prove the guard above actually fires, so a regex slip can't make it
+        // silently pass on a file that really does carry the trap.
+        const planted = ':root {\n  /* set --btn-shadow: none; to flatten */\n  --btn-bg: initial;\n}';
+        const comments = firstRootBlock(planted).match(/\/\*[\s\S]*?\*\//g) || [];
+        const hits = comments.flatMap(c => c.match(/--[\w-]+\s*:\s*[^;\n]+;/g) || []);
+        expect(hits).toHaveLength(1);
+        expect(hits[0]).toContain('--btn-shadow');
+    });
+
+    test('the global hover knobs carry their annotated type comment (#539)', () => {
+        // Same contract as the resting knobs: pp_design_tokens() derives the type from the
+        // `/* type: ... */` comment, and without it update_design_token cannot validate an
+        // authored value. This is the annotation the PHP authoring-path test exercises.
+        expect(BASE_CSS).toMatch(/--btn-hover-bg:[^;]*;\s*\/\*\s*color:/);
+        expect(BASE_CSS).toMatch(/--btn-hover-border-color:[^;]*;\s*\/\*\s*color:/);
+    });
+
     test('the registered button color tokens carry their annotated type comment', () => {
         // pp_design_tokens() derives each token's type from a `/* type: ... */` comment;
         // without it the token exposes a null type and the AI cannot validate authored values.
@@ -3124,7 +3231,9 @@ describe('CSS lint: dark-band buttons route through the AA accent roles (#535)',
         },
         {
             sel: '.cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover',
-            leading: ['--cta-button-hover-border', '--cta-button-hover-bg', '--cta-accent-hover'],
+            // --btn-hover-border-color / --btn-hover-bg join at the positions their resting
+            // counterparts hold in the rest twin above (#539).
+            leading: ['--cta-button-hover-border', '--btn-hover-border-color', '--cta-button-hover-bg', '--cta-accent-hover', '--btn-hover-bg'],
         },
         {
             sel: '.hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)',
@@ -3132,7 +3241,9 @@ describe('CSS lint: dark-band buttons route through the AA accent roles (#535)',
         },
         {
             sel: '.hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover',
-            leading: ['--hero-accent-hover', '--hero-button-hover-bg'],
+            // --btn-hover-border-color / --btn-hover-bg join at the positions their resting
+            // counterparts hold in the rest twin above (#539).
+            leading: ['--hero-accent-hover', '--btn-hover-border-color', '--hero-button-hover-bg', '--btn-hover-bg'],
         },
     ];
 
@@ -3461,7 +3572,11 @@ describe('CSS lint: the filled second button is ringed on overlay bands (#543)',
         { sel: CTA2_RING, base: CTA2_BASE, terminal: '--color-accent',
           leading: ['--cta-button2-border', '--btn-border-color', '--cta-button2-bg', '--cta-accent', '--btn-bg'] },
         { sel: CTA2_RING + ':hover', base: CTA2_BASE + ':hover', terminal: '--color-accent-hover',
-          leading: ['--cta-button2-hover-border', '--cta-accent-hover', '--cta-button2-hover-bg'] },
+          // #539's global hover tier joins at the positions the resting knobs hold in the rest
+          // row above: --btn-hover-border-color right after the button's own hover border slot,
+          // --btn-hover-bg at the tail of the border-follows-fill link. #538's Option-3 order
+          // (--cta-accent-hover ahead of the hover fill) is preserved verbatim between them.
+          leading: ['--cta-button2-hover-border', '--btn-hover-border-color', '--cta-accent-hover', '--cta-button2-hover-bg', '--btn-hover-bg'] },
         { sel: HERO2_RING, base: HERO2_BASE, terminal: '--color-accent',
           leading: ['--hero-cta2-border', '--hero-accent', '--hero-cta2-bg'] },
         { sel: HERO2_RING + ':hover', base: HERO2_BASE + ':hover', terminal: '--color-accent-hover',
@@ -3801,5 +3916,219 @@ describe('CSS lint: dark-band focus ring routes through the AA accent roles (#54
     test('the roles these rules depend on are declared in base.css :root', () => {
         expect(BASE_CSS).toMatch(/--color-accent-on-inverted:\s*#[0-9a-fA-F]{6}/);
         expect(BASE_CSS).toMatch(/--color-accent-on-overlay:\s*#[0-9a-fA-F]{6}/);
+    });
+});
+
+/**
+ * CSS lint: the GLOBAL button hover tier (#539).
+ *
+ * #458 gave the theme four site-wide button knobs; #530 gave every filled surface a
+ * per-instance HOVER fill slot. Between them sat the gap this issue closes: the global tier
+ * was resting-state only, so an operator who rethemed every button with --btn-bg /
+ * --btn-border-color got their brand at rest and the theme's premium accent gradient back the
+ * moment a pointer touched any button on the site.
+ *
+ * The fix is deliberately NOT "add the tier to the two shared premium hover rules". That
+ * would not work. The premium hover rule owns background-IMAGE, but the component hover
+ * rules outrank it on background-COLOR:
+ *
+ *     .hero .btn:not(x):not(y):not(z):hover          [0,6,0]  <- decides background-color
+ *     .cta  .btn:not(x):not(y):not(z):hover          [0,6,0]  <- decides background-color
+ *     main  .btn:not(x):not(y):not(z):hover          [0,5,1]  <- decides background-image
+ *
+ * Today the gradient image masks whatever the component rules compute. The instant
+ * --btn-hover-bg resolves the premium shorthand to a flat colour, background-image becomes
+ * `none` and the component declaration becomes the visible pixel — still resolving to
+ * --color-accent-hover if the tier is missing there. So the knob must appear in EVERY hover
+ * chain whose resting twin routes the global resting tier, at the SAME relative position.
+ * These are exact-value pins: the whole contract is chain ORDER, so a reorder must fail.
+ */
+describe('CSS lint: global button hover tier (#539)', () => {
+    // Comments are stripped first: several of these rules carry long docblocks directly
+    // above them, which defeats a "preceded by } or start-of-file" selector match.
+    const NO_COMMENTS = COMPONENTS_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+    const bodiesFor = (sel) => {
+        const want = sel.replace(/\s+/g, ' ').trim();
+        const out = [];
+        const re = /([^{}]+)\{([^{}]*)\}/g;
+        let m;
+        while ((m = re.exec(NO_COMMENTS)) !== null) {
+            if (m[1].replace(/\s+/g, ' ').trim() === want) out.push(m[2]);
+        }
+        return out;
+    };
+    // Several selectors (notably the premium primary) are declared TWICE — a superseded rule
+    // and the "true final cascade" winner. `last` is the live winner in every such pair.
+    const bodyFor = (sel) => {
+        const all = bodiesFor(sel);
+        return all.length ? all[all.length - 1] : null;
+    };
+    const NOT3 = ':not(.btn--outline):not(.btn--ghost):not(.btn--secondary)';
+
+    // Each entry: the hover rule, and the EXACT chains it must declare. Written out in full
+    // rather than assembled, so the pin is readable as the contract itself.
+    const CHAINS = [
+        {
+            what: 'bare .btn (the live hover winner OUTSIDE main — header/footer buttons)',
+            sel: '.btn:hover',
+            decls: [
+                'background-color: var(--btn-hover-bg, var(--color-accent-hover));',
+                'border-color: var(--btn-hover-border-color, var(--color-accent-hover));',
+            ],
+        },
+        {
+            what: 'hero primary (background-COLOR winner at [0,6,0])',
+            sel: '.hero .btn' + NOT3 + ':hover',
+            decls: [
+                'background-color: var(--hero-button-hover-bg, var(--hero-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));',
+                'border-color: var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-button-hover-bg, var(--btn-hover-bg, var(--color-accent-hover)))));',
+            ],
+        },
+        {
+            what: 'cta primary (background-COLOR winner at [0,6,0])',
+            sel: '.cta .btn' + NOT3 + ':hover',
+            decls: [
+                'background-color: var(--cta-button-hover-bg, var(--cta-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));',
+                'border-color: var(--cta-button-hover-border, var(--btn-hover-border-color, var(--cta-button-hover-bg, var(--cta-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))))));',
+            ],
+        },
+        {
+            what: 'cta second button (isolated from the primary since #530)',
+            sel: '.cta .cta__buttons .cta__button--secondary' + NOT3 + ':hover',
+            decls: [
+                'background-color: var(--cta-button2-hover-bg, var(--cta-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));',
+            ],
+        },
+        {
+            what: 'the shared premium hover rule (background-IMAGE winner; the panel CTA\'s only fill winner)',
+            sel: 'main .btn' + NOT3 + ':hover',
+            decls: [
+                'var(--hero-button-hover-bg, var(--cta-button-hover-bg, var(--btn-hover-bg,',
+            ],
+        },
+    ];
+
+    CHAINS.forEach(({ what, sel, decls }) => {
+        test(`${what}: routes the global hover tier below every per-instance slot`, () => {
+            const body = bodyFor(sel);
+            expect(body).not.toBeNull();
+            decls.forEach(d => expect(body.replace(/\s+/g, ' ')).toContain(d.replace(/\s+/g, ' ')));
+        });
+    });
+
+    /*
+     * Cross-property precedence, pinned in the LOSING direction (red-team finding).
+     *
+     * In every border chain --btn-hover-border-color sits below the per-instance hover BORDER
+     * slot and ABOVE the per-instance hover FILL slot. That asymmetry is deliberate — an
+     * explicitly authored global ring beats a ring merely inferred from someone's fill, and it
+     * mirrors --btn-border-color at rest — but it is exactly the kind of ordering a later
+     * "make the globals sit below every per-instance slot" tidy-up would silently invert,
+     * which would hand authored fills their ring back and change shipped renders.
+     */
+    const BORDER_ORDER = [
+        { sel: '.cta .btn' + NOT3 + ':hover', fill: '--cta-button-hover-bg', own: '--cta-button-hover-border' },
+        { sel: '.cta .cta__buttons .cta__button--secondary' + NOT3 + ':hover', fill: '--cta-button2-hover-bg', own: '--cta-button2-hover-border' },
+        { sel: '.hero .btn' + NOT3 + ':hover', fill: '--hero-button-hover-bg', own: null },
+    ];
+
+    BORDER_ORDER.forEach(({ sel, fill, own }) => {
+        test(`${sel}: the global hover ring outranks the per-instance hover FILL link`, () => {
+            const body = bodyFor(sel);
+            expect(body).not.toBeNull();
+            const chain = body.match(/border-color\s*:([^;]+)/)[1];
+            const order = chain.match(/--[a-z0-9-]+/g);
+            const iGlobal = order.indexOf('--btn-hover-border-color');
+            const iFill = order.indexOf(fill);
+            expect(iGlobal).toBeGreaterThan(-1);
+            expect(iFill).toBeGreaterThan(-1);
+            // Global ring BEFORE the border-follows-fill link.
+            expect(iGlobal).toBeLessThan(iFill);
+            // ...but AFTER the button's own hover border slot, where it has one.
+            if (own) {
+                const iOwn = order.indexOf(own);
+                expect(iOwn).toBeGreaterThan(-1);
+                expect(iOwn).toBeLessThan(iGlobal);
+            }
+        });
+    });
+
+    test('BOTH premium hover rules carry the tier, so the superseded one cannot drift', () => {
+        // #514/#530 keep the superseded and the live premium rules uniform on purpose: the
+        // superseded one is the shape a reader hits first, so a drifted copy teaches the wrong
+        // chain. Two `background:` declarations must route --btn-hover-bg.
+        // Matched against the comment-stripped source: these rules carry docblocks that quote
+        // chain shapes verbatim, so counting against the raw file would trip on documentation.
+        const hits = NO_COMMENTS.match(/background:\s*var\(--hero-button-hover-bg,\s*var\(--cta-button-hover-bg,\s*var\(--btn-hover-bg,/g);
+        expect(hits).not.toBeNull();
+        expect(hits.length).toBe(2);
+    });
+
+    /*
+     * The global hover RING reaches the outline variant, and that is load-bearing to pin.
+     * `.btn--outline:hover` repaints background-color and color but declares NO border-color,
+     * so `.btn:hover`'s border-color is its ring. That mirrors REST exactly (`.btn--outline`
+     * also declares no border-color, so --btn-border-color already rings it), which is the
+     * whole justification for putting the knob in the shared rule. If someone gives
+     * `.btn--outline:hover` its own border-color, or moves it ABOVE `.btn:hover`, the global
+     * ring silently stops reaching outline buttons site-wide and no other assertion notices.
+     */
+    test('the outline variant inherits the global hover ring from .btn:hover', () => {
+        const outlineHover = bodyFor('.btn--outline:hover');
+        expect(outlineHover).not.toBeNull();
+        // It must NOT declare its own border-color, or it would shadow the global ring.
+        expect(outlineHover).not.toMatch(/border-color\s*:/);
+        // ...and it must FOLLOW `.btn:hover` in source order (equal specificity [0,2,0]).
+        const iBase = NO_COMMENTS.indexOf('.btn:hover');
+        const iOutline = NO_COMMENTS.indexOf('.btn--outline:hover');
+        expect(iBase).toBeGreaterThan(-1);
+        expect(iOutline).toBeGreaterThan(iBase);
+    });
+
+    test('the global hover fill NEVER enters a border chain in the premium rule', () => {
+        // Border is INDEPENDENT of the fill in `main .btn:not(...)` at rest (it routes
+        // --btn-border-color but deliberately does not follow --btn-bg, matching the bare .btn
+        // primitive). The hover twin must keep that independence, or a fill-only site retheme
+        // silently starts moving the premium ring too.
+        const body = bodyFor('main .btn' + NOT3 + ':hover');
+        expect(body).not.toBeNull();
+        const border = body.match(/border-color\s*:([^;]+)/)[1];
+        expect(border).toContain('--btn-hover-border-color');
+        expect(border).not.toContain('--btn-hover-bg');
+    });
+
+    /*
+     * NEGATIVE PIN — the hero's SECOND cta's OWN chains stay out of the global tier, in BOTH
+     * states.
+     *
+     * Read this pin precisely, because the rendered behaviour is NOT "the global tier does not
+     * reach that button". It does reach it, through the SHARED premium rule, where a flat
+     * value resolves the `background` shorthand and clears the gradient background-IMAGE —
+     * while this button's own [0,7,0] background-COLOR rule keeps painting --color-accent /
+     * --color-accent-hover. Net: a site-wide retheme renders a filled hero cta2 flat-accent,
+     * not brand-coloured. Verified in a browser, both states.
+     *
+     * That is pre-existing and not this tier's doing: --btn-bg alone already strips the cta2's
+     * REST gradient today. What the hover knob adds is the same treatment on hover, so the
+     * button is at least consistent with itself instead of stripped at rest and gradient on
+     * hover. The real fix routes the global tier through the cta2's OWN chains in BOTH states
+     * and is tracked separately; when it lands, this pin must be updated deliberately.
+     *
+     * So what is asserted here is chain MEMBERSHIP, not rendered isolation: hover must not
+     * gain a global link while rest lacks one, which would make a site setting both knobs
+     * render --color-accent at rest and flash to the operator's colour on hover.
+     */
+    test('hero cta2 own chains stay free of the global tier while their rest twins are', () => {
+        const restBody = bodyFor('.hero .hero__cta-group .hero__cta--secondary' + NOT3);
+        const hoverBody = bodyFor('.hero .hero__cta-group .hero__cta--secondary' + NOT3 + ':hover');
+        expect(restBody).not.toBeNull();
+        expect(hoverBody).not.toBeNull();
+
+        // Premise: the REST twin routes neither global resting knob.
+        expect(restBody).not.toContain('--btn-bg');
+        expect(restBody).not.toContain('--btn-border-color');
+        // Therefore the hover twin routes neither global hover knob.
+        expect(hoverBody).not.toContain('--btn-hover-bg');
+        expect(hoverBody).not.toContain('--btn-hover-border-color');
     });
 });

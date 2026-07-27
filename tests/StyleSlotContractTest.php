@@ -823,7 +823,12 @@ class StyleSlotContractTest extends TestCase
         $this->assertHoverBorderChain(
             $block,
             '.cta .cta__buttons .cta__button--secondary',
-            ['--cta-button2-hover-border', '--cta-accent-hover', '--cta-button2-hover-bg', '--color-accent-hover'],
+            // The global hover tier (issue 539) takes the position --btn-border-color holds in
+            // this button's REST chain — straight after its own hover border slot, ahead of
+            // #538's Option-3 accent-then-fill link, which is preserved verbatim between them.
+            // --btn-hover-bg closes the border-follows-fill link so a site-wide hover fill
+            // still rings itself, exactly as --btn-bg does at rest.
+            ['--cta-button2-hover-border', '--btn-hover-border-color', '--cta-accent-hover', '--cta-button2-hover-bg', '--btn-hover-bg', '--color-accent-hover'],
             'button2'
         );
     }
@@ -1074,18 +1079,19 @@ class StyleSlotContractTest extends TestCase
         // consumption (the slot-contract keystone). Its VISIBLE win is the premium hover
         // rule; this declaration is what makes the slot discoverable in the hero block.
         $this->assertStringContainsString(
-            'background-color: var(--hero-button-hover-bg, var(--hero-accent-hover, var(--color-accent-hover)))',
+            'background-color: var(--hero-button-hover-bg, var(--hero-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))))',
             $block,
-            'The hero primary hover rule must consume --hero-button-hover-bg (issue 530).'
+            'The hero primary hover rule must consume --hero-button-hover-bg (issue 530), then the global --btn-hover-bg (issue 539).'
         );
         // The hero primary's hover border DOES follow the new fill slot, mirroring its rest
         // sibling. Safe because --hero-button-hover-bg is new in #530: no shipped composition
         // can already set it, so no existing render changes.
         $this->assertStringContainsString(
-            'border-color: var(--hero-accent-hover, var(--hero-button-hover-bg, var(--color-accent-hover)))',
+            'border-color: var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-button-hover-bg, var(--btn-hover-bg, var(--color-accent-hover)))))',
             $block,
-            'The hero primary hover border must FOLLOW --hero-button-hover-bg when '
-            . '--hero-accent-hover is unset (issue 530, mirroring the rest chain).'
+            'The hero primary hover border must honour the global --btn-hover-border-color '
+            . '(issue 539) and then FOLLOW --hero-button-hover-bg when --hero-accent-hover is '
+            . 'unset (issue 530) — the same shape its REST sibling has carried since #458.'
         );
     }
 

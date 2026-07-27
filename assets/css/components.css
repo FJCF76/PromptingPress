@@ -12,14 +12,16 @@
    SHARED: Button
    .btn is the shared base; variants .btn--secondary / .btn--outline / .btn--ghost
    (primary = bare .btn) are selected per-instance via the `button_variant` prop.
-   The --btn-* color tokens (--btn-bg / --btn-text / --btn-border-color / --btn-shadow)
+   The --btn-* color tokens (--btn-bg / --btn-text / --btn-border-color / --btn-shadow,
+   plus the HOVER pair --btn-hover-bg / --btn-hover-border-color added by #539)
    are registered design tokens in base.css and are the site-wide GLOBAL button surface.
    The premium `main .btn:not(...)` primary cascade and the `.cta .btn` / `.hero .btn`
    primary rules route their fill/border/ink/shadow fallbacks through --btn-* (#458), so
    setting --btn-bg / --btn-text / --btn-border-color / --btn-shadow at :root restyles
    EVERY composed primary button. --btn-bg / --btn-border-color / --btn-shadow register as
    `initial` (unset), so each consuming rule resolves its own literal until the token is
-   set and an unset button is byte-identical; --btn-text keeps a concrete --color-bg
+   set and an unset button is byte-identical; the two hover knobs register `initial` for the
+   same reason; --btn-text keeps a concrete --color-bg
    default (its value equals the universal ink literal). Per-component slots
    (--cta-button-* / --cta-accent / --hero-button-* / --hero-accent) still win over the
    global tokens when set — --btn-* sits between those slots and the literal fallback. These tokens are NOT
@@ -44,9 +46,20 @@
   line-height: 1.4;
 }
 
+/* Hover twin of the .btn rest rule above: the global hover knobs (issue 539) sit exactly
+   where --btn-bg / --btn-border-color sit at rest — first, ahead of the literal, since the
+   bare primitive has no per-instance slots. This rule is the live hover winner only OUTSIDE
+   `main` (inside it the premium `main .btn:not(...):hover` cascade wins on specificity), so
+   it is what carries a site-wide retheme onto header/footer buttons. Unset, both fall to
+   --color-accent-hover and the button is byte-identical.
+   Note the border reaches .btn--outline too: `.btn--outline:hover` sets no border-color, so
+   this declaration is its hover ring. That mirrors REST exactly (`.btn--outline` sets no
+   border-color either, so --btn-border-color already rings it), which is the point — the
+   global border knob should not change which variants it reaches between the two states.
+   .btn--ghost and .btn--secondary set their own hover border and are unaffected. */
 .btn:hover {
-  background-color: var(--color-accent-hover);
-  border-color: var(--color-accent-hover);
+  background-color: var(--btn-hover-bg, var(--color-accent-hover));
+  border-color: var(--btn-hover-border-color, var(--color-accent-hover));
   color: var(--color-bg);
 }
 
@@ -823,12 +836,21 @@
    This in-block consumption is the slot-contract keystone (StyleSlotContractTest) — the
    VISIBLE win happens in the premium rule, exactly as --hero-button-bg does at rest.
    Unset it falls to --hero-accent-hover then the literal, so an unset button is
-   byte-identical. Border mirrors the REST chain's ordering above (--hero-accent first,
-   then FOLLOWS the fill) with each knob swapped for its hover equivalent; there is no
-   --btn-hover-border-color token, so that link is simply absent. */
+   byte-identical. Border mirrors the REST chain's ordering above (--hero-accent first, then
+   its own global knob, then FOLLOWS the fill) with each knob swapped for its hover equivalent.
+   The global hover tier (issue 539) completes that mirror: --btn-hover-bg and
+   --btn-hover-border-color take the positions --btn-bg and --btn-border-color hold at rest.
+   Routing the fill HERE is not redundant with the premium rule — it is load-bearing. This
+   rule is [0,6,0] and the premium hover winner is [0,5,1], so background-COLOR is decided
+   here while background-IMAGE is decided there. Today the gradient image masks whatever this
+   rule computes; the moment --btn-hover-bg clears that image to `none` in the premium rule,
+   THIS declaration becomes the visible pixel. Insert the tier only in the premium rule and a
+   site-wide hover retheme computes correctly, clears the gradient, and is then overridden
+   right back to --color-accent-hover by this line — the knob would be dead on every hero
+   primary. Same reason --btn-bg is in the rest chain above. */
 .hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  background-color: var(--hero-button-hover-bg, var(--hero-accent-hover, var(--color-accent-hover)));
-  border-color: var(--hero-accent-hover, var(--hero-button-hover-bg, var(--color-accent-hover)));
+  background-color: var(--hero-button-hover-bg, var(--hero-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));
+  border-color: var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-button-hover-bg, var(--btn-hover-bg, var(--color-accent-hover)))));
 }
 /* Ink + elevation slots for the hero primary button (issue 514, the --cta-button-color /
    --cta-button-shadow idiom scoped to .cta__button). Kept at [0,4,0] — BELOW the premium
@@ -920,7 +942,11 @@
   border-color: var(--hero-accent, var(--btn-border-color, var(--hero-button-bg, var(--btn-bg, var(--color-accent-on-overlay)))));
 }
 .hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  border-color: var(--hero-accent-hover, var(--hero-button-hover-bg, var(--color-accent-on-overlay)));
+  /* Global hover tier (issue 539) in the same slot its resting counterpart holds in the rest
+     twin directly above: --btn-hover-border-color after --hero-accent-hover, --btn-hover-bg
+     at the tail of the border-follows-fill link. Only the terminal on-overlay fallback stays
+     last, exactly as at rest. */
+  border-color: var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-button-hover-bg, var(--btn-hover-bg, var(--color-accent-on-overlay)))));
 }
 
 /* Second CTA button (cta2): per-instance bg/border/color override, independent
@@ -2534,8 +2560,16 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   border-color: var(--cta-button-border, var(--btn-border-color, var(--cta-button-bg, var(--cta-accent, var(--btn-bg, var(--color-accent))))));
 }
 .cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  background-color: var(--cta-button-hover-bg, var(--cta-accent-hover, var(--color-accent-hover)));
-  border-color: var(--cta-button-hover-border, var(--cta-button-hover-bg, var(--cta-accent-hover, var(--color-accent-hover))));
+  /* Global hover tier (issue 539) mirrors the rest chain above: --btn-hover-bg last before
+     the literal in the fill, --btn-hover-border-color straight after this rule's own hover
+     border slot. As on the hero, routing the fill here is load-bearing rather than
+     decorative — this rule is [0,6,0] and decides background-COLOR, while the premium
+     [0,5,1] hover rule decides background-IMAGE; once the global knob clears the gradient
+     there, this declaration is what actually paints. The pre-existing order quirk (this
+     chain keeps the hover FILL ahead of --cta-accent-hover, where button2 keeps #538's
+     Option-3 order) is untouched — see issue 548. */
+  background-color: var(--cta-button-hover-bg, var(--cta-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));
+  border-color: var(--cta-button-hover-border, var(--btn-hover-border-color, var(--cta-button-hover-bg, var(--cta-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))))));
 }
 
 /* CTA button (single button): per-instance bg/border/color override,
@@ -2651,7 +2685,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   color: var(--cta-button2-color, var(--btn-text, var(--color-bg)));
 }
 .cta .cta__buttons .cta__button--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  background-color: var(--cta-button2-hover-bg, var(--cta-accent-hover, var(--color-accent-hover)));
+  background-color: var(--cta-button2-hover-bg, var(--cta-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));
   /* Border follows the hover fill from the LAST fallback position (issue 538, Option 3 —
      the recorded decision), the exact twin of the hero's cta2 hover ring above. #530 left
      the fill out entirely because the hover BORDER, unlike the hover FILL, was never masked
@@ -2685,7 +2719,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      Not mirrored onto the outline/ghost/secondary button2 hover rules — see the hero cta2
      comment above for the two separate reasons (ghost bottoms out at `transparent`;
      outline/secondary don't follow the fill in either state). */
-  border-color: var(--cta-button2-hover-border, var(--cta-accent-hover, var(--cta-button2-hover-bg, var(--color-accent-hover))));
+  /* Global hover tier (issue 539) takes the position --btn-border-color holds in this
+     button's rest chain: after its own hover border slot, ahead of #538's Option-3
+     accent-then-fill link, which is preserved verbatim. --btn-hover-bg joins the tail of
+     that link so a site-wide hover fill still rings itself. */
+  border-color: var(--cta-button2-hover-border, var(--btn-hover-border-color, var(--cta-accent-hover, var(--cta-button2-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))));
   color: var(--cta-button2-hover-color, var(--btn-text, var(--color-bg)));
 }
 
@@ -2845,7 +2883,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   border-color: var(--cta-button-border, var(--btn-border-color, var(--cta-button-bg, var(--cta-accent, var(--btn-bg, var(--color-accent-on-overlay))))));
 }
 .cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  border-color: var(--cta-button-hover-border, var(--cta-button-hover-bg, var(--cta-accent-hover, var(--color-accent-on-overlay))));
+  border-color: var(--cta-button-hover-border, var(--btn-hover-border-color, var(--cta-button-hover-bg, var(--cta-accent-hover, var(--btn-hover-bg, var(--color-accent-on-overlay))))));
 }
 
 /* The SAME separation ring for the filled SECOND button (issue 543). #535 scoped its ring
@@ -2886,7 +2924,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   border-color: var(--cta-button2-border, var(--btn-border-color, var(--cta-button2-bg, var(--cta-accent, var(--btn-bg, var(--color-accent-on-overlay))))));
 }
 .cta--has-bg-image .cta__buttons .cta__button--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  border-color: var(--cta-button2-hover-border, var(--cta-accent-hover, var(--cta-button2-hover-bg, var(--color-accent-on-overlay))));
+  border-color: var(--cta-button2-hover-border, var(--btn-hover-border-color, var(--cta-accent-hover, var(--cta-button2-hover-bg, var(--btn-hover-bg, var(--color-accent-on-overlay))))));
 }
 
 /* button2 slot isolation + premium fill routing (the issue 526 mechanism applied
@@ -4428,10 +4466,11 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   border-color: var(--cta-button-hover-border, var(--color-accent));
   /* Superseded for background by the later "True final cascade" block; --hero-button-hover-bg
-     leads the chain here too (issue 530) so both hover primary-fill rules stay uniform, the
-     way #514 kept both REST rules uniform. */
-  background: var(--hero-button-hover-bg, var(--cta-button-hover-bg,
-    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-hover) 100%)));
+     leads the chain here too (issue 530) and the global --btn-hover-bg closes it (issue 539)
+     so both hover primary-fill rules stay uniform, the way #514 kept both REST rules
+     uniform. */
+  background: var(--hero-button-hover-bg, var(--cta-button-hover-bg, var(--btn-hover-bg,
+    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-hover) 100%))));
   box-shadow: var(--cta-button-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.2),
     0 14px 30px color-mix(in srgb, var(--color-accent-strong) 22%, transparent));
@@ -4511,7 +4550,14 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
 }
 
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  border-color: var(--cta-button-hover-border, var(--cta-accent-hover, var(--color-accent)));
+  /* Global hover BORDER (issue 539) mirrors the rest twin's ordering above: after
+     --cta-button-hover-border and --cta-accent-hover, ahead of the literal. Border stays
+     INDEPENDENT of the fill in this rule exactly as at rest, so --btn-hover-bg is
+     deliberately absent here. The rest chain's --section-panel-cta-bg link has no hover
+     counterpart because the panel CTA has no per-instance hover fill slot (#536 shipped it
+     resting-state-only), so that one link is simply absent — the same way
+     --btn-hover-border-color used to be. */
+  border-color: var(--cta-button-hover-border, var(--cta-accent-hover, var(--btn-hover-border-color, var(--color-accent))));
   /* Hero per-instance HOVER fill slot (issue 530): --hero-button-hover-bg is the visible
      hover fill winner for a hero primary, exactly as --hero-button-bg is at rest. A FLAT
      color here resolves the shorthand to `background: <color>`, which resets background-image
@@ -4523,9 +4569,17 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
      inherit it), and re-pointed at --hero-cta2-hover-bg on .hero__cta--secondary (and
      --cta-button-hover-bg at --cta-button2-hover-bg on .cta__button--secondary) by the
      issue 530 isolation declarations — which is how a filled SECOND button gets its OWN
-     gradient-clearing hover fill here, isolated from the primary's. */
-  background: var(--hero-button-hover-bg, var(--cta-button-hover-bg,
-    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%)));
+     gradient-clearing hover fill here, isolated from the primary's.
+     The global --btn-hover-bg closes the chain (issue 539), in the position --btn-bg holds in
+     the rest twin above. It is deliberately NOT re-pointed by any isolation declaration: a
+     global knob is meant to move both buttons of a pair together, exactly as --btn-bg does at
+     rest. This is also the panel CTA's only hover fill winner — .section__panel-cta has no
+     .hero/.cta ancestor and no hover rule of its own — so the global tier reaches it here even
+     though #536 gave it no per-instance hover slot. That asymmetry is intended: the global
+     tier is site-wide by definition, and a knob that skipped one filled surface would be the
+     surprising behaviour. */
+  background: var(--hero-button-hover-bg, var(--cta-button-hover-bg, var(--btn-hover-bg,
+    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%))));
   /* --hero-button-shadow flattens hover too (issue 514, matching --cta-button-shadow's
      rest+hover contract): set `none` and both rest and hover lose the bevel. Unset falls
      to --cta-button-shadow then the hover bevel literal (byte-identical).

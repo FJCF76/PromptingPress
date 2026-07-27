@@ -64,11 +64,53 @@
      rule: --btn-bg = --color-accent on the bare .btn / accent gradient on the composed
      primary; --btn-border-color = --color-accent (bare/.cta/.hero) / --color-accent-strong
      (premium); --btn-shadow = none (bare) / premium bevel (composed primary). See the .btn and
-     `main .btn` rules in components.css and ai-instructions/retheme.md. */
+     `main .btn` rules in components.css and ai-instructions/retheme.md.
+
+     HOVER (issue 539). --btn-hover-bg / --btn-hover-border-color are the hover twins of
+     --btn-bg / --btn-border-color, and complete #530's rest/hover parity at the GLOBAL tier:
+     before them, a site-wide fill or border retheme reverted to the theme's premium accent
+     gradient the moment a pointer touched any button. They sit in the hover chains at exactly
+     the position their resting counterparts occupy in the rest chains, and above the literal.
+     Both are `initial`, so an unset button is byte-identical.
+
+     Precedence, stated exactly, because "below the per-instance slots" is only half true.
+     Each knob sits below the per-instance slots FOR ITS OWN PROPERTY and above everything
+     else, mirroring rest:
+       fill    --hero-button-hover-bg / --cta-button-hover-bg / --cta-button2-hover-bg
+               -> --btn-hover-bg -> literal
+       border  --*-hover-border (the per-instance BORDER slots) -> --btn-hover-border-color
+               -> the border-follows-fill link -> literal
+     So --btn-hover-border-color DOES outrank the per-instance hover FILL slots in a border
+     chain. That is deliberate and matches --btn-border-color at rest: an explicitly authored
+     global ring should beat a ring merely INFERRED from someone's fill. The visible
+     consequence is worth knowing — a component that sets only --cta-button-hover-bg loses its
+     matching hover ring once a global --btn-hover-border-color is set, and takes the global
+     ring instead. Set the per-instance --*-hover-border to opt back out.
+
+     Deliberately NOT mirrored: hover INK and hover ELEVATION. --btn-shadow reaches no hover
+     rule at all, so setting it to `none` flattens rest and the premium bevel grows back under
+     the pointer. --btn-text is reachable on hover only on the two SECOND buttons (their
+     [0,7,0] hover ink rules fall back through it); the bare .btn and premium primary hover ink
+     are literals. Both are the same class of gap as this one, but routing --btn-shadow into
+     hover would change rendered output for sites that already set it, so they are tracked as
+     their own issues rather than riding along here.
+
+     The hero's SECOND cta gets no hover link here because its own chains never routed --btn-bg
+     either. Be precise about what that does and does not mean: the global knob still reaches
+     that button through the SHARED premium rule, where it resolves the `background` shorthand
+     to a flat colour and so CLEARS the gradient — while the cta2's own [0,7,0]
+     background-color rule keeps painting --color-accent-hover. So a site-wide hover fill turns
+     a filled hero cta2 flat-accent rather than brand-coloured. That is not new and not this
+     tier's doing: --btn-bg already does exactly this to the cta2's REST state today. Mirroring
+     it onto hover makes the button consistent with itself (both states flat) instead of
+     stripped at rest and gradient on hover. The real fix is to route the global tier through
+     the cta2's own chains in BOTH states, which is tracked separately. */
   --btn-bg:           initial;         /* color: Global button fill. Unset = each rule's own default (bare .btn: --color-accent; composed primary: the accent gradient). Set to recolor every button fill. */
   --btn-text:         var(--color-bg); /* color: Button label ink. Defaults to the PAGE BACKGROUND token, not a text token — buttons invert: a light page yields light text on the accent fill. Change --color-bg and button text follows unless pinned here. */
   --btn-border-color: initial;         /* color: Global button border. Unset = each rule's own default (--color-accent, or --color-accent-strong on the premium primary). Set to recolor every button border. */
   --btn-shadow:       initial;         /* shadow: Global button elevation. Unset = each rule's own default (bare .btn flat; composed primary keeps its premium bevel). Set a shadow preset (e.g. --shadow-md) or none to change every button's elevation. */
+  --btn-hover-bg:           initial;   /* color: Global button HOVER fill — the hover twin of --btn-bg. Unset = each rule's own default (bare .btn: --color-accent-hover; composed primary: the premium hover gradient). Set alongside --btn-bg so a site-wide fill retheme survives the pointer. */
+  --btn-hover-border-color: initial;   /* color: Global button HOVER border — the hover twin of --btn-border-color. Unset = each rule's own default (--color-accent-hover, or --color-accent on the premium primary). Set alongside --btn-border-color so a site-wide border retheme survives the pointer. */
 
   /* Shape & motion */
   --radius:     0.375rem;   /* length: 6px — increase for rounder corners */
