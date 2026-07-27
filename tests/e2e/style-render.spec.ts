@@ -6443,3 +6443,360 @@ test.describe('#526 hero cta2 fill slots are isolated and painted (real WP)', ()
     expect(got.cta2.shadow).toBe(got.primary.shadow);
   });
 });
+
+/**
+ * #530 — per-instance HOVER fill slots actually paint on a FILLED button, and hover is
+ * isolated between the two buttons the way rest already is.
+ *
+ * The shared premium hover rule paints a `background:` SHORTHAND carrying a gradient
+ * background-IMAGE. Every component-level hover rule sets only `background-color`, which
+ * that image covers, so --hero-cta2-hover-bg / --cta-button2-hover-bg rendered NOTHING on a
+ * filled button and the hero primary had no hover fill slot at all. Separately, the #514/#526
+ * isolation rules re-pointed only the REST slot, so the primary's hover fill leaked onto the
+ * second button (the coupling found in #474's review).
+ *
+ * This is precisely the class of defect CSS-TEXT pins cannot see: a background-color sitting
+ * under a gradient is present in the stylesheet text and invisible on screen. It is also
+ * invisible to a REST-state computed pin, which is why #514/#526/#474 all shipped it as an
+ * accepted trait. Only getComputedStyle under a real :hover separates "declared" from
+ * "painted" — so these are the acceptance pins, and they assert backgroundImage (the masking
+ * layer) alongside backgroundColor, never backgroundColor alone.
+ *
+ * Literals are probe-resolved (the #458 idiom) so the byte-identical compares run against the
+ * browser's own resolution of the historical premium hover gradient, not a hardcoded hex.
+ */
+test.describe('#530 hover fill slots paint and stay isolated (real WP)', () => {
+  let pageId = 0;
+
+  const PRIMARY_HOVER = '#b91c1c';
+  const SECOND_HOVER = '#0f766e';
+
+  test.afterEach(async () => {
+    if (pageId) {
+      deletePage(pageId);
+      pageId = 0;
+    }
+  });
+
+  // A hero whose SECOND cta renders filled `primary` — the only shape in which cta2 enters
+  // the premium cascade, i.e. the shape the defect needs.
+  function heroPage(title: string, style?: Record<string, string>): number {
+    const id = createPage(title);
+    setComposition(id, [
+      {
+        component: 'hero',
+        props: {
+          id: 'pp-530-hero',
+          title: 'Ship faster',
+          cta_text: 'Primary action',
+          cta_url: '/start',
+          cta2_text: 'Second action',
+          cta2_url: '/learn',
+          cta2_variant: 'primary',
+        },
+        ...(style ? { style } : {}),
+      },
+    ]);
+    return id;
+  }
+
+  // The cta component's equivalent: a filled `primary` button2 alongside the primary button.
+  function ctaPage(title: string, style?: Record<string, string>): number {
+    const id = createPage(title);
+    setComposition(id, [
+      {
+        component: 'cta',
+        props: {
+          id: 'pp-530-cta',
+          title: 'Ready to start?',
+          button_text: 'Primary action',
+          button_url: '/start',
+          button2_text: 'Second action',
+          button2_url: '/learn',
+          button2_variant: 'primary',
+        },
+        ...(style ? { style } : {}),
+      },
+    ]);
+    return id;
+  }
+
+  // Hover one button, then read BOTH — Playwright's hover leaves the pointer in place, so
+  // the sibling is read in its resting state, which is exactly the comparison we want.
+  async function readOnHover(page: any, hoverSel: string, primarySel: string, secondSel: string) {
+    await page.hover(hoverSel);
+    return page.evaluate(
+      ([pSel, sSel, pHex, sHex]: [string, string, string, string]) => {
+        const resolve = (prop: string, value: string) => {
+          const el = document.createElement('div');
+          el.style.setProperty(prop, value);
+          document.body.appendChild(el);
+          const out = getComputedStyle(el).getPropertyValue(prop);
+          el.remove();
+          return out.trim();
+        };
+        const read = (sel: string) => {
+          const el = document.querySelector(sel) as HTMLElement;
+          const cs = getComputedStyle(el);
+          return {
+            bgColor: cs.backgroundColor,
+            bgImage: cs.backgroundImage,
+            borderColor: cs.borderTopColor,
+          };
+        };
+        return {
+          primary: read(pSel),
+          second: read(sSel),
+          // The premium HOVER gradient literal (distinct from the rest one).
+          hoverGradient: resolve(
+            'background-image',
+            'linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%)',
+          ),
+          // The premium REST gradient, for asserting an untouched sibling precisely.
+          restGradient: resolve(
+            'background-image',
+            'linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%)',
+          ),
+          primaryHover: resolve('background-color', pHex),
+          secondHover: resolve('background-color', sHex),
+        };
+      },
+      [primarySel, secondSel, PRIMARY_HOVER, SECOND_HOVER],
+    );
+  }
+
+  const HERO_PRIMARY = '.hero__cta:not(.hero__cta--secondary)';
+  const HERO_SECOND = '.hero__cta--secondary';
+  const CTA_PRIMARY = '.cta__button:not(.cta__button--secondary)';
+  const CTA_SECOND = '.cta__button--secondary';
+
+  for (const width of [1280, 375]) {
+    test(`hero primary hover fill paints and never reaches cta2 (${width}px) @smoke`, async ({
+      page,
+    }) => {
+      pageId = heroPage('E2E 530 hero primary', { '--hero-button-hover-bg': PRIMARY_HOVER });
+
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator(HERO_SECOND)).toBeVisible({ timeout: 10000 });
+      await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
+
+      const got = await readOnHover(page, HERO_PRIMARY, HERO_PRIMARY, HERO_SECOND);
+
+      // The fix: the gradient IMAGE is cleared, so the slot's flat color is the visible fill.
+      expect(got.primary.bgImage, `@${width}: the hover gradient must be cleared`).toBe('none');
+      expect(got.primary.bgColor, `@${width}: primary must paint --hero-button-hover-bg`).toBe(
+        got.primaryHover,
+      );
+      // The hero primary's hover border FOLLOWS the new fill slot when --hero-accent-hover is
+      // unset (issue 530, mirroring the rest chain). Pinned at RENDER level, not just CSS text.
+      expect(got.primary.borderColor, `@${width}: primary hover border must follow the fill`).toBe(
+        got.primaryHover,
+      );
+      // Isolation: the resting cta2 must be untouched by the primary's hover slot. Compare
+      // against the resting gradient probe rather than merely `!== none`, which would pass for
+      // any image at all.
+      expect(got.second.bgImage, `@${width}: cta2 must not take the primary hover fill`).toBe(
+        got.restGradient,
+      );
+    });
+
+    test(`cta2 hover fill paints and is independent of the primary (${width}px) @smoke`, async ({
+      page,
+    }) => {
+      pageId = heroPage('E2E 530 hero cta2', {
+        '--hero-button-hover-bg': PRIMARY_HOVER,
+        '--hero-cta2-hover-bg': SECOND_HOVER,
+      });
+
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator(HERO_SECOND)).toBeVisible({ timeout: 10000 });
+      await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
+
+      const got = await readOnHover(page, HERO_SECOND, HERO_PRIMARY, HERO_SECOND);
+
+      expect(got.second.bgImage, `@${width}: cta2's hover gradient must be cleared`).toBe('none');
+      expect(got.second.bgColor, `@${width}: cta2 must paint --hero-cta2-hover-bg`).toBe(
+        got.secondHover,
+      );
+      // The hover BORDER deliberately does NOT follow the hover fill (issue 530): unlike the
+      // fill, it was never masked by the premium gradient, so routing the fill into it would
+      // change rendered output for an already-shipping slot. Pinned as a negative so a future
+      // edit cannot add the fill-follow silently.
+      expect(got.second.borderColor, `@${width}: cta2 hover border must NOT follow the fill`).not.toBe(
+        got.secondHover,
+      );
+      // The two buttons carry DISTINCT hover fills — the capability, not just the absence
+      // of a leak.
+      expect(got.second.bgColor).not.toBe(got.primaryHover);
+    });
+
+    test(`cta button2 hover fill paints and the primary's does not leak (${width}px) @smoke`, async ({
+      page,
+    }) => {
+      pageId = ctaPage('E2E 530 cta pair', {
+        '--cta-button-hover-bg': PRIMARY_HOVER,
+        '--cta-button2-hover-bg': SECOND_HOVER,
+      });
+
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator(CTA_SECOND)).toBeVisible({ timeout: 10000 });
+      await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
+
+      const onSecond = await readOnHover(page, CTA_SECOND, CTA_PRIMARY, CTA_SECOND);
+      expect(onSecond.second.bgImage, `@${width}: button2's hover gradient must be cleared`).toBe(
+        'none',
+      );
+      expect(onSecond.second.bgColor, `@${width}: button2 must paint --cta-button2-hover-bg`).toBe(
+        onSecond.secondHover,
+      );
+      expect(onSecond.second.bgColor).not.toBe(onSecond.primaryHover);
+
+      const onPrimary = await readOnHover(page, CTA_PRIMARY, CTA_PRIMARY, CTA_SECOND);
+      expect(onPrimary.primary.bgImage, `@${width}: primary hover gradient must be cleared`).toBe(
+        'none',
+      );
+      expect(onPrimary.primary.bgColor, `@${width}: primary must paint --cta-button-hover-bg`).toBe(
+        onPrimary.primaryHover,
+      );
+    });
+  }
+
+  // The MASK half, in isolation. The paired tests above set BOTH hover slots, so the
+  // gradient-clearing there could be credited to the PRIMARY's slot resolving the shared
+  // shorthand rather than the second button's own. These set ONLY the second button's hover
+  // slot, which is the actual capability #530 delivers for cta2 / button2.
+  test('cta2 hover fill alone clears the gradient (primary hover slot unset) @smoke', async ({
+    page,
+  }) => {
+    pageId = heroPage('E2E 530 cta2 alone', { '--hero-cta2-hover-bg': SECOND_HOVER });
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator(HERO_SECOND)).toBeVisible({ timeout: 10000 });
+    await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
+
+    const got = await readOnHover(page, HERO_SECOND, HERO_PRIMARY, HERO_SECOND);
+
+    expect(got.second.bgImage, 'cta2 own hover slot must clear the gradient').toBe('none');
+    expect(got.second.bgColor, 'cta2 must paint its own hover fill').toBe(got.secondHover);
+    // The untouched primary still hovers to the premium gradient.
+    expect(got.primary.bgImage, 'primary must be unaffected').not.toBe('none');
+  });
+
+  test('button2 hover fill alone clears the gradient (primary hover slot unset) @smoke', async ({
+    page,
+  }) => {
+    pageId = ctaPage('E2E 530 button2 alone', { '--cta-button2-hover-bg': SECOND_HOVER });
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator(CTA_SECOND)).toBeVisible({ timeout: 10000 });
+    await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
+
+    const got = await readOnHover(page, CTA_SECOND, CTA_PRIMARY, CTA_SECOND);
+
+    expect(got.second.bgImage, 'button2 own hover slot must clear the gradient').toBe('none');
+    expect(got.second.bgColor, 'button2 must paint its own hover fill').toBe(got.secondHover);
+    expect(got.primary.bgImage, 'primary must be unaffected').not.toBe('none');
+  });
+
+  // The HERO half of the isolation fix, at render level. Without this test, deleting
+  // `--hero-button-hover-bg: var(--hero-cta2-hover-bg)` from the hero isolation rule would
+  // fail only the CSS-TEXT pin in StyleSlotContractTest — the exact pin class this block's
+  // header says cannot see the defect. Note the other hero tests do NOT cover it: the primary
+  // test reads cta2 at REST, and the cta2 test sets BOTH slots (cta2's own higher-specificity
+  // background-color would still win there with the declaration removed).
+  test('setting only the hero primary hover fill leaves cta2 on the premium gradient @smoke', async ({
+    page,
+  }) => {
+    pageId = heroPage('E2E 530 hero leak', { '--hero-button-hover-bg': PRIMARY_HOVER });
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator(HERO_SECOND)).toBeVisible({ timeout: 10000 });
+    await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
+
+    const got = await readOnHover(page, HERO_SECOND, HERO_PRIMARY, HERO_SECOND);
+
+    expect(got.second.bgImage, 'cta2 hover must keep the premium gradient').toBe(
+      got.hoverGradient,
+    );
+    expect(got.second.bgColor, 'cta2 must not take the primary hover fill').not.toBe(
+      got.primaryHover,
+    );
+  });
+
+  // The cta pair's byte-identical-when-unset invariant (the hero has its own below). The cta
+  // isolation rule gained a declaration too, so its unset render needs its own proof.
+  test('cta pair hovers byte-identically with no hover fill slots set @smoke', async ({ page }) => {
+    pageId = ctaPage('E2E 530 cta unset');
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator(CTA_SECOND)).toBeVisible({ timeout: 10000 });
+    await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
+
+    const onPrimary = await readOnHover(page, CTA_PRIMARY, CTA_PRIMARY, CTA_SECOND);
+    expect(onPrimary.primary.bgImage, 'unset cta primary must hover to the premium gradient').toBe(
+      onPrimary.hoverGradient,
+    );
+
+    const onSecond = await readOnHover(page, CTA_SECOND, CTA_PRIMARY, CTA_SECOND);
+    expect(onSecond.second.bgImage, 'unset button2 must hover to the premium gradient').toBe(
+      onSecond.hoverGradient,
+    );
+    expect(onSecond.second.bgColor).toBe(onPrimary.primary.bgColor);
+    expect(onSecond.second.borderColor).toBe(onPrimary.primary.borderColor);
+  });
+
+  // The #474 cross-button hover coupling, isolated: set ONLY the primary's hover fill and the
+  // second button must keep the premium hover gradient. Before #530 the primary's slot
+  // inherited down and cleared it.
+  test('setting only the primary hover fill leaves button2 on the premium gradient @smoke', async ({
+    page,
+  }) => {
+    pageId = ctaPage('E2E 530 cta leak', { '--cta-button-hover-bg': PRIMARY_HOVER });
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator(CTA_SECOND)).toBeVisible({ timeout: 10000 });
+    await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
+
+    const got = await readOnHover(page, CTA_SECOND, CTA_PRIMARY, CTA_SECOND);
+
+    expect(got.second.bgImage, 'button2 hover must keep the premium gradient').toBe(
+      got.hoverGradient,
+    );
+    expect(got.second.bgColor, 'button2 must not take the primary hover fill').not.toBe(
+      got.primaryHover,
+    );
+  });
+
+  // Byte-identical when unset: with no hover slots set, both buttons hover to the premium
+  // gradient — the invariant the new declarations must not disturb.
+  test('both buttons hover byte-identically with no hover fill slots set @smoke', async ({
+    page,
+  }) => {
+    pageId = heroPage('E2E 530 unset');
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator(HERO_SECOND)).toBeVisible({ timeout: 10000 });
+    await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
+
+    const onPrimary = await readOnHover(page, HERO_PRIMARY, HERO_PRIMARY, HERO_SECOND);
+    expect(onPrimary.primary.bgImage, 'unset primary must hover to the premium gradient').toBe(
+      onPrimary.hoverGradient,
+    );
+
+    const onSecond = await readOnHover(page, HERO_SECOND, HERO_PRIMARY, HERO_SECOND);
+    expect(onSecond.second.bgImage, 'unset cta2 must hover to the premium gradient').toBe(
+      onSecond.hoverGradient,
+    );
+    expect(onSecond.second.bgColor).toBe(onPrimary.primary.bgColor);
+    expect(onSecond.second.borderColor).toBe(onPrimary.primary.borderColor);
+  });
+});

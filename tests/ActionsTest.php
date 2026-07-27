@@ -3784,6 +3784,98 @@ class ActionsTest extends TestCase
         $this->assertSame('primary', $comp[0]['props']['cta2_variant']);
     }
 
+    // ── #530 hover fill slots (authoring-path mandate) ───────────────────────
+
+    /**
+     * Authoring path for issue 530: the four filled-button HOVER fill slots go through the
+     * real validate + apply surface together. --hero-button-hover-bg is the NEW slot this
+     * issue adds, so the authoring contract for it is exercised rather than assumed (raw
+     * _pp_composition seeding would bypass the schema allowlist entirely and prove nothing
+     * about whether an author can actually set it). The cta2/button2 hover slots already
+     * existed but were DEAD on a filled button, so they are pinned here too — the capability
+     * #530 delivers is the pair (rest + hover) being settable and independent per button.
+     * This pins authoring only; the rendered cascade is proven by the CSS pins in
+     * StyleSlotContractTest and the computed-style :hover pins in e2e/style-render.spec.ts.
+     */
+    public function testStyleComponentPersistsHeroHoverFillSlotsIndependently(): void
+    {
+        $post_id = pp_create_page('Hero hover fill test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => [
+                'id'           => 'pp-aabb1122',
+                'title'        => 'Hello',
+                'cta_text'     => 'Get started',
+                'cta2_text'    => 'Talk to sales',
+                'cta2_variant' => 'primary',
+            ]],
+        ]);
+
+        $result = pp_execute_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => [
+                '--hero-button-bg'        => '#7c3aed',
+                '--hero-button-hover-bg'  => '#6d28d9',
+                '--hero-cta2-bg'          => '#0f766e',
+                '--hero-cta2-hover-bg'    => '#115e59',
+            ],
+        ]);
+        $this->assertTrue($result['ok']);
+
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('#7c3aed', $comp[0]['style']['--hero-button-bg']);
+        $this->assertSame('#6d28d9', $comp[0]['style']['--hero-button-hover-bg']);
+        $this->assertSame('#0f766e', $comp[0]['style']['--hero-cta2-bg']);
+        $this->assertSame('#115e59', $comp[0]['style']['--hero-cta2-hover-bg']);
+    }
+
+    /** The cta component's two hover fill slots author independently too (issue 530). */
+    public function testStyleComponentPersistsCtaHoverFillSlotsIndependently(): void
+    {
+        $post_id = pp_create_page('CTA hover fill test');
+        pp_update_composition($post_id, [
+            ['component' => 'cta', 'props' => [
+                'id'              => 'pp-ccdd3344',
+                'title'           => 'Ready?',
+                'button_text'     => 'Start',
+                'button_url'      => '/start',
+                'button2_text'    => 'Talk to sales',
+                'button2_url'     => '/sales',
+                'button2_variant' => 'primary',
+            ]],
+        ]);
+
+        $result = pp_execute_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => [
+                '--cta-button-hover-bg'  => '#6d28d9',
+                '--cta-button2-hover-bg' => '#115e59',
+            ],
+        ]);
+        $this->assertTrue($result['ok']);
+
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('#6d28d9', $comp[0]['style']['--cta-button-hover-bg']);
+        $this->assertSame('#115e59', $comp[0]['style']['--cta-button2-hover-bg']);
+    }
+
+    /** --hero-button-hover-bg is a color slot on the shared validator: garbage is rejected (issue 530). */
+    public function testStyleComponentRejectsInvalidHeroButtonHoverBg(): void
+    {
+        $post_id = pp_create_page('Hero hover fill reject test');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--hero-button-hover-bg' => 'not-a-color'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+    }
+
     /** --hero-cta2-bg is a color slot on the shared validator: garbage is rejected (issue 526). */
     public function testStyleComponentRejectsInvalidHeroCta2Bg(): void
     {

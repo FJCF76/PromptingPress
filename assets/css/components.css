@@ -817,9 +817,18 @@
   background-color: var(--hero-button-bg, var(--hero-accent, var(--btn-bg, var(--color-accent))));
   border-color: var(--hero-accent, var(--btn-border-color, var(--hero-button-bg, var(--btn-bg, var(--color-accent)))));
 }
+/* Per-instance filled-button HOVER fill slot (issue 530, the rest idiom above applied to
+   hover): --hero-button-hover-bg wins the (masked here) background-color AND, via the
+   premium `main .btn:not(...):hover` winner, the visible gradient-clearing hover fill.
+   This in-block consumption is the slot-contract keystone (StyleSlotContractTest) — the
+   VISIBLE win happens in the premium rule, exactly as --hero-button-bg does at rest.
+   Unset it falls to --hero-accent-hover then the literal, so an unset button is
+   byte-identical. Border mirrors the REST chain's ordering above (--hero-accent first,
+   then FOLLOWS the fill) with each knob swapped for its hover equivalent; there is no
+   --btn-hover-border-color token, so that link is simply absent. */
 .hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  background-color: var(--hero-accent-hover, var(--color-accent-hover));
-  border-color: var(--hero-accent-hover, var(--color-accent-hover));
+  background-color: var(--hero-button-hover-bg, var(--hero-accent-hover, var(--color-accent-hover)));
+  border-color: var(--hero-accent-hover, var(--hero-button-hover-bg, var(--color-accent-hover)));
 }
 /* Ink + elevation slots for the hero primary button (issue 514, the --cta-button-color /
    --cta-button-shadow idiom scoped to .cta__button). Kept at [0,4,0] — BELOW the premium
@@ -874,6 +883,12 @@
 }
 .hero .hero__cta-group .hero__cta--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   background-color: var(--hero-cta2-hover-bg, var(--hero-accent-hover, var(--color-accent-hover)));
+  /* Border is deliberately NOT routed through the hover fill here (issue 530). The rest
+     sibling above does follow --hero-cta2-bg, but the hover BORDER was never masked by the
+     premium gradient the way the hover FILL was — it has always painted — so inserting the
+     fill into this chain would change rendered output for --hero-cta2-hover-bg, a slot that
+     already ships. That is a behavior change beyond this issue's fix, not a byte-identical
+     one; it is tracked separately rather than folded in here. */
   border-color: var(--hero-cta2-hover-border, var(--hero-accent-hover, var(--color-accent-hover)));
   color: var(--hero-cta2-hover-color, var(--btn-text, var(--color-bg)));
 }
@@ -936,11 +951,20 @@
    Applied to EVERY cta2 variant on purpose: outline/ghost/secondary never consume
    --hero-button-* (all three consumers are :not(.btn--outline):not(.btn--ghost):not(
    .btn--secondary) rules), so those variants stay byte-identical while the isolation
-   holds even if a future rule wires the slots more widely. Hover is deliberately
-   unchanged: a flat per-instance fill reverts to the premium gradient on hover, the same
-   shipped trait the primary carries since #514 (a hover slot would fix both together). */
+   holds even if a future rule wires the slots more widely.
+     - `--hero-button-hover-bg: var(--hero-cta2-hover-bg)` (issue 530) — the same
+       guaranteed-invalid re-pointing applied to the HOVER surface, which closes the last
+       half of this defect class. Before #530 the premium hover rule read only
+       --cta-button-hover-bg, so a filled cta2 flashed back to the theme gradient on hover
+       (the accepted trait #514/#526 shipped) AND the primary's hover fill leaked onto it.
+       One declaration fixes both: cta2's own hover fill now resolves the premium
+       `background:` SHORTHAND to a flat color (clearing the gradient background-image), and
+       with --hero-cta2-hover-bg unset the chain falls through to the premium literal rather
+       than to the primary's --hero-button-hover-bg. Rest and hover are now isolated
+       symmetrically. */
 .hero .hero__cta-group .hero__cta--secondary {
   --hero-button-bg: var(--hero-cta2-bg);
+  --hero-button-hover-bg: var(--hero-cta2-hover-bg);
   --hero-button-color: initial;
   --hero-button-shadow: initial;
 }
@@ -2438,6 +2462,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 .cta .cta__buttons .cta__button--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   background-color: var(--cta-button2-hover-bg, var(--cta-accent-hover, var(--color-accent-hover)));
+  /* Border is deliberately NOT routed through the hover fill here (issue 530), matching the
+     hero's cta2. The hover BORDER was never masked by the premium gradient the way the hover
+     FILL was, so inserting --cta-button2-hover-bg into this chain would change rendered output
+     for an already-shipping slot combination (and would outrank an explicitly authored
+     --cta-accent-hover). That is a behavior change beyond this issue's fix; tracked separately. */
   border-color: var(--cta-button2-hover-border, var(--cta-accent-hover, var(--color-accent-hover)));
   color: var(--cta-button2-hover-color, var(--btn-text, var(--color-bg)));
 }
@@ -2543,11 +2572,19 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    .cta__button class too), so they are not immune by construction — they are covered
    because button2's own variant rules at [0,4,0] outrank those. Resetting the slots on
    every variant keeps the isolation true on its own terms rather than resting on that
-   specificity margin, which a future edit could shift. Hover is deliberately
-   unchanged: a flat per-instance fill reverts to the premium hover gradient, the same
-   shipped trait the primary carries since #514 (tracked in #530). */
+   specificity margin, which a future edit could shift.
+     - `--cta-button-hover-bg: var(--cta-button2-hover-bg)` (issue 530) — the same
+       guaranteed-invalid re-pointing applied to the HOVER surface. It closes both halves of
+       the hover defect at once: button2's own hover fill now resolves the premium
+       `background:` SHORTHAND to a flat color (clearing the gradient background-image that
+       used to MASK it), and the PRIMARY's --cta-button-hover-bg no longer leaks onto
+       button2 (the cross-button coupling found in #474's review — setting the primary's
+       hover fill also cleared button2's hover gradient). Unset, the var() is
+       guaranteed-invalid, so the chain takes the premium hover literal: byte-identical.
+       Rest and hover are now isolated symmetrically. */
 .cta .cta__buttons .cta__button--secondary {
   --cta-button-bg: var(--cta-button2-bg);
+  --cta-button-hover-bg: var(--cta-button2-hover-bg);
   --cta-button-color: initial;
   --cta-button-shadow: initial;
 }
@@ -4030,8 +4067,11 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
 
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   border-color: var(--cta-button-hover-border, var(--color-accent));
-  background: var(--cta-button-hover-bg,
-    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-hover) 100%));
+  /* Superseded for background by the later "True final cascade" block; --hero-button-hover-bg
+     leads the chain here too (issue 530) so both hover primary-fill rules stay uniform, the
+     way #514 kept both REST rules uniform. */
+  background: var(--hero-button-hover-bg, var(--cta-button-hover-bg,
+    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-hover) 100%)));
   box-shadow: var(--cta-button-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.2),
     0 14px 30px color-mix(in srgb, var(--color-accent-strong) 22%, transparent));
@@ -4101,8 +4141,20 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
 
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   border-color: var(--cta-button-hover-border, var(--cta-accent-hover, var(--color-accent)));
-  background: var(--cta-button-hover-bg,
-    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%));
+  /* Hero per-instance HOVER fill slot (issue 530): --hero-button-hover-bg is the visible
+     hover fill winner for a hero primary, exactly as --hero-button-bg is at rest. A FLAT
+     color here resolves the shorthand to `background: <color>`, which resets background-image
+     to `none` and CLEARS the premium hover gradient — the whole bug: every component-level
+     hover rule sets background-COLOR, which this gradient background-IMAGE covered, so every
+     per-instance hover fill slot was dead on a filled button. Unset, it falls through
+     --cta-button-hover-bg to the gradient literal, so an unset button is byte-identical.
+     Defined only on a .hero root by the renderer (cta/section/standalone primaries never
+     inherit it), and re-pointed at --hero-cta2-hover-bg on .hero__cta--secondary (and
+     --cta-button-hover-bg at --cta-button2-hover-bg on .cta__button--secondary) by the
+     issue 530 isolation declarations — which is how a filled SECOND button gets its OWN
+     gradient-clearing hover fill here, isolated from the primary's. */
+  background: var(--hero-button-hover-bg, var(--cta-button-hover-bg,
+    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%)));
   /* --hero-button-shadow flattens hover too (issue 514, matching --cta-button-shadow's
      rest+hover contract): set `none` and both rest and hover lose the bevel. Unset falls
      to --cta-button-shadow then the hover bevel literal (byte-identical). */
