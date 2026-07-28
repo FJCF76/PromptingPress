@@ -4,6 +4,50 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.11.5] — 2026-07-28 — a CTA's two buttons now hover to the same ring colour (#548)
+
+**Set `--cta-accent-hover` and a hover fill on a CTA and both buttons follow the accent. Until now one did and the other didn't, side by side on the same band.**
+
+`--cta-accent-hover` is the knob that colours a CTA button's border on hover. On the second button it outranked that button's hover fill, so setting it kept the ring on your accent even after you recoloured the fill. On the primary button the two were the other way round, and the fill won. A site that authored the accent knob together with both `--cta-button-hover-bg` and `--cta-button2-hover-bg` therefore got two different ring behaviours in one button pair, visible on a single band without scrolling. The primary now resolves the accent ahead of its own hover fill, the way the second button, the hero's primary and the hero's second CTA already did. A dedicated `--cta-button-hover-border` still beats both, and so does the site-wide `--btn-hover-border-color`; what is uniform is that an authored accent-hover outranks the button's own fill.
+
+### What changes on an existing site
+
+Only one configuration renders differently, and it is the one that was inconsistent:
+
+| What you have authored | Primary's hover ring before | After |
+|---|---|---|
+| `--cta-accent-hover` **and** `--cta-button-hover-bg` | the hover fill | the accent |
+| `--cta-button-hover-bg` only | the hover fill | the hover fill |
+| `--cta-accent-hover` only | the accent | the accent |
+| `--cta-button-hover-border` | that slot | that slot |
+| `--btn-hover-border-color` | that token | that token |
+| nothing | the theme default | the theme default |
+
+Everything below the first row is untouched, including the separation ring a filled primary gets on a photo band, whose unset colour is unchanged. If you were relying on the primary's ring tracking its fill while `--cta-accent-hover` was also set, set `--cta-button-hover-border` to the same colour as the fill and you get the old render back, now stated explicitly instead of falling out of chain order.
+
+### What this means for anyone styling a CTA
+
+The rule to carry is short: on a filled button, an authored accent-hover beats that button's own hover fill, and a dedicated hover-border slot beats both. It now reads the same way on all four filled surfaces, so a CTA pair can no longer disagree with itself. The component's schema, its README and the AI styling instructions all describe the single rule.
+
+### Itemized changes
+
+### Fixed
+
+- The `cta` primary button's hover border chain resolves `--cta-accent-hover` ahead of `--cta-button-hover-bg`, matching `--cta-button2-hover-border`'s chain on the second button (#538's Option 3). Applied to both declarations that carry the chain: the plain band rule and the `.cta--has-bg-image` separation-ring twin, whose on-overlay terminal is unchanged. The global `--btn-hover-border-color` / `--btn-hover-bg` positions from #539 are preserved exactly (#548).
+
+### Docs
+
+- `components/cta/schema.json` documents the chain on `--cta-button-hover-border` (it was a bare one-liner) and generalises `--cta-accent-hover` from "on the second button" to both buttons.
+- `components/cta/README.md` and `ai-instructions/style-component.md` describe one precedence rule for the pair instead of a second-button-only rule. The comments in `assets/css/components.css` that recorded the divergence as an accepted residual are corrected — that residual is what this release removes.
+
+### Tests
+
+- `tests/StyleSlotContractTest.php` pins the primary's order positionally on BOTH rules via the existing `assertHoverBorderChain` helper, and adds a cross-chain property test asserting accent-above-own-fill on all eight filled hover chains — the four plain ones plus their four overlay/cover twins — read out of the live CSS, so it proves the chains AGREE rather than pinning eight literals that each hold alone.
+- The CSS-text pins that asserted the old order in `tests/js/css-lint.test.js` are flipped into positive pins of the new one, not deleted, mirroring how #538 flipped #530's pins.
+- `tests/e2e/style-render.spec.ts` adds a `#548` block: real WordPress, real `:hover`, resolved `border-top-color` at 1280 and 375 across both-authored / fill-only / unset / dedicated-slot / global-knob / overlay-band, plus an authoring-path case through `style_component`.
+
+---
+
 ## [v1.11.4] — 2026-07-27 — a site-wide button retheme now survives the pointer (#539)
 
 **Recolour every button on the site and they stay recoloured when someone hovers them. Until now the theme's accent gradient came straight back the moment a pointer landed.**
