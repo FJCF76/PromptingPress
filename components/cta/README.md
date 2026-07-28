@@ -47,11 +47,16 @@ state only — on hover each variant paints its own contrasting fill. On a
 `background_image` band every filled button — the primary and `button2` alike —
 DEFAULTS its border to that role so its shape stays visible against the band and an
 unstyled `primary` + `primary` pair reads as a matched pair. The role is the last link
-in the chain: `--cta-button2-border`, `--cta-accent`, and the fill chain
-(`--cta-button2-bg` → `--btn-bg`) all still win ahead of it, so a ring you author keeps
-the colour you gave it. The site-wide `--btn-border-color` / `--btn-hover-border-color`
-are deliberately NOT in these chains since #564: the role carries a measured 4.59:1
-contrast guarantee, and a global ring retheme sitting above it cancelled that guarantee. The solid `inverted` band does not get
+in the chain: `--cta-button2-border`, `--cta-accent`, and this band's own fill
+(`--cta-button2-bg`) all still win ahead of it, so a ring you author keeps
+the colour you gave it. The site-wide button tokens are deliberately NOT in these chains:
+`--btn-border-color` / `--btn-hover-border-color` left in #564 and `--btn-bg` /
+`--btn-hover-bg` in #565. The role carries a measured 4.59:1 contrast guarantee, and a
+site-wide retheme sitting above it cancelled that guarantee — the ring tokens directly, the
+fill tokens through the border-follows-fill link. So the matching-ring behaviour is scoped
+to fills you aim at THIS band: flatten it with `--cta-button2-bg` and the ring matches;
+set `--btn-bg` site-wide and this band keeps the measured role. Set the per-instance ring
+slot when you want a specific colour here. The solid `inverted` band does not get
 this ring (its fill already clears the 3:1 non-text bar); a band carrying both classes
 does, because the overlay role is the safe one over an arbitrary image.
 
