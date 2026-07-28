@@ -8695,6 +8695,274 @@ test.describe('#543 filled second button is ringed on overlay bands (real WP)', 
     await expect(second).toBeVisible({ timeout: 10000 });
     expect(await prop(second, 'border-top-color'), 'the action-written ring must win').toBe(RING);
   });
+
+  /*
+   * ── #565: a GLOBAL fill knob must not defeat the separation ring either ──────────────
+   *
+   * THE REPORTED DEFECT, rendered. #564 removed the global RING knobs from these eight
+   * chains; the global FILL knobs sat in the same position and defeated the same measured
+   * role by a different route — the border-follows-fill link (#535). A site setting only
+   * `--btn-bg` at :root (a plausible site-wide button retheme, aimed at no band in
+   * particular) repainted every UNAUTHORED filled ring on every photo band to that colour,
+   * which was never measured against the scrim. Against the default scrim a dark neutral
+   * effectively erases the ring — the exact failure #535 and #543 exist to prevent.
+   *
+   * Rendered rather than asserted from CSS text because the ring rules tie on specificity
+   * with their base rules and win by source order alone: only a browser proves which
+   * declaration paints once the whole cascade has run. Both bands, both buttons, both
+   * states, both widths.
+   *
+   * The global tier is a THEME-level token, not a component style slot:
+   * pp_render_style_vars() renders only keys declared in the component's schema, so seeding
+   * --btn-bg through the composition would be silently DROPPED and this test would assert
+   * the unset render while believing it asserted the global. Set at :root, the #539 idiom.
+   */
+  const GLOBAL_FILL = 'rgb(31, 36, 48)'; // #1f2430, the dark neutral from the issue report
+  const GLOBAL_KNOB = `:root{--btn-bg:${GLOBAL_FILL};--btn-hover-bg:${GLOBAL_FILL};}`;
+
+  /*
+   * A ring assertion is colour AND width. Every colour check below would stay green under
+   * `border-width: 0`, which is the exact failure the #543 tests added a width guard for; a
+   * helper makes it impossible to remember it on one sample and forget it on the next seven.
+   */
+  const expectRing = async (loc: any, expected: string, label: string) => {
+    expect(await prop(loc, 'border-top-color'), `${label}: ring colour`).toBe(expected);
+    expect(parseFloat(await prop(loc, 'border-top-width')), `${label}: ring width`).toBeGreaterThan(
+      0,
+    );
+  };
+
+  /*
+   * THE POSITIVE CONTROL, and the reason it is not optional. Every ring assertion under the
+   * injected global knob expects ON_OVERLAY — which is also exactly what the UNSET render
+   * produces. So if the injection ever stops landing (a token rename, a later :root, the
+   * style tag beating the theme sheet), all of these tests keep passing while proving
+   * nothing. The FILL chain still routes --btn-bg by design, so the fill is the witness that
+   * the knob reached this element. A flat colour also resolves the premium `background`
+   * SHORTHAND to a colour, clearing the gradient — both halves are checked, the #458 idiom.
+   */
+  const expectGlobalKnobReached = async (loc: any, label: string) => {
+    expect(await prop(loc, 'background-color'), `${label}: the global fill knob must reach the FILL`).toBe(
+      GLOBAL_FILL,
+    );
+    expect(await prop(loc, 'background-image'), `${label}: gradient cleared, so the knob really landed`).toBe(
+      'none',
+    );
+  };
+
+  for (const width of [1280, 375]) {
+    test(`cta: a global --btn-bg does not defeat the on-overlay ring (${width}px) @smoke`, async ({
+      page,
+    }) => {
+      pageId = createPage('E2E 565 cta global fill');
+      setComposition(pageId, [ctaPair('Ready to start?', { background_image: IMG })]);
+      await open(page, pageId, width);
+      await page.addStyleTag({ content: GLOBAL_KNOB });
+
+      const primary = page.locator('.cta__button').first();
+      const second = page.locator('.cta__button--secondary');
+      await expect(second).toBeVisible({ timeout: 10000 });
+
+      // The knob really landed — see expectGlobalKnobReached. Asserted FIRST, so a failed
+      // injection reports as "the knob never reached" rather than as a passing ring test.
+      await expectGlobalKnobReached(primary, `@${width} cta primary rest`);
+      await expectGlobalKnobReached(second, `@${width} cta button2 rest`);
+
+      // REST. Both buttons: the ring rules are separate declarations and can drift apart.
+      await expectRing(primary, ON_OVERLAY, `@${width} cta primary REST`);
+      await expectRing(second, ON_OVERLAY, `@${width} cta button2 REST`);
+      // The pre-fix value asserted directly, so a revert fails loudly rather than merely
+      // failing to match the role.
+      expect(
+        await prop(primary, 'border-top-color'),
+        `@${width}: the primary ring must NOT be the global fill (the #565 defect)`,
+      ).not.toBe(GLOBAL_FILL);
+      expect(
+        await prop(second, 'border-top-color'),
+        `@${width}: button2's ring must NOT be the global fill either`,
+      ).not.toBe(GLOBAL_FILL);
+
+      // HOVER. The halves moved together, so the ring must not change role under the
+      // pointer — sampled one at a time, since only one element can be :hover at once.
+      await primary.hover();
+      await expectGlobalKnobReached(primary, `@${width} cta primary hover`);
+      await expectRing(primary, ON_OVERLAY, `@${width} cta primary HOVER (no rest->hover flip)`);
+      await second.hover();
+      await expectGlobalKnobReached(second, `@${width} cta button2 hover`);
+      await expectRing(second, ON_OVERLAY, `@${width} cta button2 HOVER`);
+    });
+
+    test(`hero: a global --btn-bg does not defeat the cover ring (${width}px) @smoke`, async ({
+      page,
+    }) => {
+      pageId = createPage('E2E 565 hero global fill');
+      setComposition(pageId, [heroPair('Ship faster', { layout: 'cover' })]);
+      await open(page, pageId, width);
+      await page.addStyleTag({ content: GLOBAL_KNOB });
+
+      const primary = page.locator('.hero__cta').first();
+      const second = page.locator('.hero__cta--secondary');
+      await expect(second).toBeVisible({ timeout: 10000 });
+
+      // Same positive control and same width guards as the cta twin above — the two bands
+      // are separate declarations and this test is worth exactly as much as that one.
+      await expectGlobalKnobReached(primary, `@${width} hero primary rest`);
+      await expectGlobalKnobReached(second, `@${width} hero cta2 rest`);
+
+      await expectRing(primary, ON_OVERLAY, `@${width} cover primary REST`);
+      await expectRing(second, ON_OVERLAY, `@${width} cover cta2 REST`);
+      expect(
+        await prop(primary, 'border-top-color'),
+        `@${width}: the cover primary ring must NOT be the global fill`,
+      ).not.toBe(GLOBAL_FILL);
+      expect(
+        await prop(second, 'border-top-color'),
+        `@${width}: cta2's ring must NOT be the global fill either`,
+      ).not.toBe(GLOBAL_FILL);
+
+      await primary.hover();
+      await expectGlobalKnobReached(primary, `@${width} hero primary hover`);
+      await expectRing(primary, ON_OVERLAY, `@${width} cover primary HOVER`);
+      await second.hover();
+      await expectGlobalKnobReached(second, `@${width} hero cta2 hover`);
+      await expectRing(second, ON_OVERLAY, `@${width} cover cta2 HOVER`);
+    });
+  }
+
+  /*
+   * THE NARROWING, not a reversal. #535's matching-ring promise survives for a fill an
+   * author aimed at THIS band. Without this pin the fix reads as "the ring is always the
+   * role on a photo band", which is a stronger contract than the one that was decided (the
+   * issue's option (c)) and would have silently repainted every authored flattened button.
+   */
+  test('a per-instance fill still rings itself on a photo band, all four buttons @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 565 per-instance fill survives');
+    setComposition(pageId, [
+      ctaPair(
+        'Ready to start?',
+        { background_image: IMG },
+        {
+          '--cta-button-bg': FILL,
+          '--cta-button-hover-bg': FILL,
+          '--cta-button2-bg': FILL,
+          '--cta-button2-hover-bg': FILL,
+        },
+      ),
+      heroPair(
+        'Ship faster',
+        { layout: 'cover' },
+        {
+          '--hero-button-bg': FILL,
+          '--hero-button-hover-bg': FILL,
+          '--hero-cta2-bg': FILL,
+          '--hero-cta2-hover-bg': FILL,
+        },
+      ),
+    ]);
+    await open(page, pageId, 1280);
+    // The global knob is set TOO, so this proves precedence and not merely survival: the
+    // band's own fill must beat the site-wide one, which is the escape-hatch contract.
+    await page.addStyleTag({ content: GLOBAL_KNOB });
+
+    // All FOUR ring rules, not just the cta primary. Each is a physically separate
+    // declaration that ties on specificity with its base rule and wins by source order
+    // alone, so a static chain pin cannot stand in for a rendered one on any of them.
+    const buttons: Array<[string, string]> = [
+      ['.cta__button', 'cta primary'],
+      ['.cta__button--secondary', 'cta button2'],
+      ['.hero__cta:not(.hero__cta--secondary)', 'cover primary'],
+      ['.hero__cta--secondary', 'cover cta2'],
+    ];
+
+    for (const [selector, label] of buttons) {
+      const btn = page.locator(selector).first();
+      await expect(btn, `${label} must render`).toBeVisible({ timeout: 10000 });
+
+      const rest = await prop(btn, 'border-top-color');
+      await btn.hover();
+      const hover = await prop(btn, 'border-top-color');
+
+      // Equality FIRST, so a regression surfaces as "the ring flipped" rather than as a
+      // colour mismatch. Asserted before the absolute pins, or it could never fail alone.
+      expect(hover, `${label}: rest and hover must resolve alike — the halves moved together`).toBe(
+        rest,
+      );
+      expect(
+        rest,
+        `${label}: the band's own fill must still ring itself (#535 survives, per-instance)`,
+      ).toBe(FILL);
+      expect(rest, `${label}: and the site-wide fill must not reach this ring`).not.toBe(
+        GLOBAL_FILL,
+      );
+      expect(
+        parseFloat(await prop(btn, 'border-top-width')),
+        `${label}: the matching ring must have a width`,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  /*
+   * CONTROL — nothing authored. The decision pins every unset configuration unchanged, so
+   * this must read exactly as it did before the chains were shortened.
+   */
+  test('unset: a global --btn-bg leaves the unset photo-band ring untouched @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 565 unset control');
+    setComposition(pageId, [ctaPair('Ready to start?', { background_image: IMG })]);
+    await open(page, pageId, 1280);
+
+    const primary = page.locator('.cta__button').first();
+    await expect(primary).toBeVisible({ timeout: 10000 });
+    const before = await prop(primary, 'border-top-color');
+    expect(before, 'the unset ring is the measured role').toBe(ON_OVERLAY);
+
+    // Adding the global knob must not move it — that is the whole point of the change.
+    await page.addStyleTag({ content: GLOBAL_KNOB });
+    expect(
+      await prop(primary, 'border-top-color'),
+      'adding a site-wide fill knob must not move an unset photo-band ring',
+    ).toBe(before);
+    // ...and the knob DID land, so "unchanged" means "immune", not "never applied".
+    await expectGlobalKnobReached(primary, 'unset control');
+  });
+
+  /*
+   * AUTHORING PATH (Section 14.1). Every case above seeds _pp_composition directly. This one
+   * drives the REAL surface — style_component, through validation — so the surviving
+   * per-instance link is proven on the path an operator actually uses.
+   */
+  test('the surviving per-instance link holds for slots written through style_component @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 565 authoring path');
+    setComposition(pageId, [ctaPair('Ready to start?', { background_image: IMG })]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await styleComponent(page, pageId, {
+      '--cta-button-bg': FILL,
+      '--cta-button-hover-bg': FILL,
+    });
+    expect(res.success, 'style_component must accept both per-instance fill slots').toBe(true);
+
+    await open(page, pageId, 1280);
+    await page.addStyleTag({ content: GLOBAL_KNOB });
+
+    const primary = page.locator('.cta__button').first();
+    await expect(primary).toBeVisible({ timeout: 10000 });
+    expect(
+      await prop(primary, 'border-top-color'),
+      'the action-written per-instance fill must still ring itself over the global knob',
+    ).toBe(FILL);
+    await primary.hover();
+    expect(
+      await prop(primary, 'border-top-color'),
+      'and on hover too — the halves moved together',
+    ).toBe(FILL);
+  });
 });
 
 /**

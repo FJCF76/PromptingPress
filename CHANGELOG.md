@@ -4,6 +4,45 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.2] — 2026-07-29 — a site-wide button fill no longer erases the ring that keeps buttons visible on photos (#565)
+
+**Recolor every button on your site with one token and the rings on your photo bands used to go with it, unmeasured, sometimes to a colour that vanished into the image.** They now hold the contrast role instead.
+
+Filled buttons on a `background_image` cta band or a `cover` hero carry a separation ring, because the button's fill measures under 2:1 against the scrim over an arbitrary photo. Without the ring the button's shape disappears and only its label carries it. That ring bottoms out at `--color-accent-on-overlay`, measured at 4.59:1 against the worst-case composite. v1.12.1 stopped the site-wide *border* tokens from overruling it. The site-wide *fill* tokens reached the same ring by a different route: these chains deliberately let a border follow its fill, so a flattened brand button keeps a matching ring. A site that set only `--btn-bg` — a dark-neutral button retheme, aimed at no band in particular — repainted every unauthored photo-band ring to that colour. Against the default scrim a dark neutral effectively erases it.
+
+`--btn-bg` and `--btn-hover-bg` are now out of all eight overlay and cover ring chains. The per-instance fill slots stay, which is the point: the matching-ring behaviour was written for an author who deliberately flattens one band, and that author still gets it.
+
+### What changes on an existing site
+
+Nothing unless you set a global button fill token AND render a photo or cover band. Every unset configuration and every per-instance-authored configuration renders identically, pinned by rendered before/after checks at 1280 and 375 plus chain-order pins in three test layers.
+
+| Configuration | Before | After |
+|---|---|---|
+| `--btn-bg` set, `background_image` cta band or `cover` hero | global fill colour became the ring | near-white 4.59:1 separation role |
+| `--cta-button-bg` / `--hero-cta2-bg` set on that band | ring matched the authored fill | unchanged — the matching ring survives |
+| `--cta-accent` / `--hero-accent` set | band accent won | unchanged |
+| `--btn-bg` set, any light or inverted band | global fill colour became the ring | unchanged — #554's coverage contract holds |
+| nothing set | theme default | unchanged |
+
+This is a deliberate behaviour change, not only hardening: if you were using `--btn-bg` to colour the rings on your photo bands, that now needs the per-instance slot for the band you want to change. The global fill tokens still paint those buttons' FILL exactly as before; it is only the separation ring they no longer drag along. Rest and hover moved together, so this change cannot create an unintended rest-to-hover ring split. An author who deliberately sets different rest and hover values still gets the change they asked for.
+
+### Fixed
+
+- Removed `--btn-bg` / `--btn-hover-bg` from all eight overlay and cover separation-ring border chains, so a site-wide button fill retheme cannot defeat the measured 4.59:1 `--color-accent-on-overlay` role (#565). The per-instance fill links above the role are kept, so #535's matching-ring promise survives for intentionally authored fills. The four non-overlay base chains are untouched.
+
+### Docs
+
+- Corrected the photo-band carve-out everywhere it was stated as ring-knobs-only: `assets/css/base.css` (the canonical global-tier block at the token declarations), `components/cta/schema.json` (three slot descriptions that reach the chat AI at runtime), `components/cta/README.md`, `components/hero/README.md`, `ai-instructions/retheme.md` and `ai-instructions/style-component.md`, including the forward references that pointed at the stale halves.
+
+### Tests
+
+- New property test asserting no global knob of either kind survives in any of the eight overlay ring chains, and that each chain keeps its per-instance fill link and its measured terminal, stated across rest and hover rather than hover alone.
+- New counterweight pinning that the four non-overlay base chains keep the global fill knobs in both states, so the narrowing cannot creep beyond the bands where a measured role is at stake.
+- New rendered pins at 1280 and 375: the global-fill-only config on both overlay band types in both states, a per-instance-fill config across all four filled buttons, an unset control, and a `style_component` authoring-path case. Each carries a positive control proving the global token actually reached the element, so an assertion that expects the role cannot pass by the injection silently failing.
+- Flipped the css-lint chain-order pins and the `StyleSlotContractTest` literal pin deliberately, citing the decision, rather than deleting them.
+
+---
+
 ## [v1.12.1] — 2026-07-28 — a site-wide ring colour no longer overrules the ring a band already chose (#564)
 
 **Set one global button-border token and it quietly took over rings it had no business touching: the brand colour a cta band had explicitly chosen, and the near-white ring that is the only thing keeping a button's shape visible on a photo.** Both are now safe from it.

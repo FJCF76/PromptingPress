@@ -3455,39 +3455,46 @@ describe('CSS lint: dark-band buttons route through the AA accent roles (#535)',
      */
     /*
      * #564 narrowed the "verbatim, only the terminal changes" contract above to "verbatim
-     * MINUS the global ring knob". On these bands the terminal is not an ordinary default but
-     * a measured 4.59:1 separation role, and --btn-border-color / --btn-hover-border-color
-     * sitting above it let a site-wide ring retheme silently defeat the guarantee these rules
-     * exist to make. The knob is REMOVED rather than demoted because --color-accent-on-overlay
-     * is declared at :root (base.css) and therefore always set — any link below it is dead
-     * code. Per-instance slots stay above everything as the escape hatch. Both halves of each
-     * twin lost it together: dropping it from hover only would re-open the rest->hover ring
-     * flip these twins exist to prevent. These `leading` arrays are the deliberate positive
-     * pins of that contract, flipped rather than deleted (the #538/#530 pattern).
+     * MINUS the global RING knob", and #565 completed the narrowing to "verbatim MINUS the
+     * whole GLOBAL tier" by removing --btn-bg / --btn-hover-bg too. On these bands the terminal
+     * is not an ordinary default but a measured 4.59:1 separation role. --btn-border-color /
+     * --btn-hover-border-color sitting above it let a site-wide RING retheme defeat the
+     * guarantee directly; --btn-bg / --btn-hover-bg defeated the same role indirectly, through
+     * the border-follows-fill link (#535), so a site that set only a global button FILL
+     * repainted every unauthored photo-band ring to a colour never measured against the scrim.
+     * Each knob is REMOVED rather than demoted because --color-accent-on-overlay is declared at
+     * :root (base.css) and therefore always set — any link below it is dead code. Per-instance
+     * slots stay above everything as the escape hatch, which is exactly why the PER-INSTANCE
+     * fill link survives below while the global one does not: #535's matching-ring promise was
+     * written for an author who flattens THIS band, and it still holds for them.
+     * Both halves of each twin lost each knob together: dropping one from hover only would
+     * re-open the rest->hover ring flip these twins exist to prevent.
+     * These `leading` arrays are the deliberate positive pins of that contract, FLIPPED rather
+     * than deleted (the #538/#530 pattern) — see the #565 decision comment (2026-07-29).
      */
     const RINGS = [
         {
             sel: '.cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)',
             // #564 also moved --cta-accent above --cta-button-bg here, mirroring the base rest
-            // chain, so this rule and its :hover twin below are positional twins.
-            leading: ['--cta-button-border', '--cta-accent', '--cta-button-bg', '--btn-bg'],
+            // chain, so this rule and its :hover twin below are positional twins. #565 dropped
+            // the trailing --btn-bg; --cta-button-bg, the per-instance link, stays.
+            leading: ['--cta-button-border', '--cta-accent', '--cta-button-bg'],
         },
         {
             sel: '.cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover',
-            // --btn-hover-bg joins at the position its resting counterpart holds in the rest
-            // twin above (#539). --cta-accent-hover sits ahead of --cta-button-hover-bg since
-            // #548, and since #564 the rest twin uses the SAME order rather than the opposite
-            // one — the #538 Option-3 asymmetry is retired, not preserved.
-            leading: ['--cta-button-hover-border', '--cta-accent-hover', '--cta-button-hover-bg', '--btn-hover-bg'],
+            // --cta-accent-hover sits ahead of --cta-button-hover-bg since #548, and since #564
+            // the rest twin uses the SAME order rather than the opposite one — the #538 Option-3
+            // asymmetry is retired, not preserved. #565 dropped the trailing --btn-hover-bg, so
+            // the twins stay positional: same links, same order, both states.
+            leading: ['--cta-button-hover-border', '--cta-accent-hover', '--cta-button-hover-bg'],
         },
         {
             sel: '.hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)',
-            leading: ['--hero-accent', '--hero-button-bg', '--btn-bg'],
+            leading: ['--hero-accent', '--hero-button-bg'],
         },
         {
             sel: '.hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover',
-            // --btn-hover-bg joins at the position its resting counterpart holds above (#539).
-            leading: ['--hero-accent-hover', '--hero-button-hover-bg', '--btn-hover-bg'],
+            leading: ['--hero-accent-hover', '--hero-button-hover-bg'],
         },
     ];
 
@@ -3813,27 +3820,30 @@ describe('CSS lint: the filled second button is ringed on overlay bands (#543)',
     const HERO2_RING = '.hero--cover .hero__cta-group .hero__cta--secondary' + NOT3;
 
     // `leading` = the authored links that MUST survive ahead of the role token, in order.
-    // Each is its base rule's chain MINUS the global ring knob, with the role terminal (#564).
-    // #564: the contract is now "the base chain verbatim MINUS the global ring knob, with the
-    // role terminal". #554 had added that knob here on the reasoning that a cover band must not
-    // be the one band a site-wide retheme fails to reach; #564 records the counterweight — on
+    // Each is its base rule's chain MINUS the whole GLOBAL tier, with the role terminal
+    // (ring knobs removed by #564, fill knobs by #565).
+    // #554 had added the global tier here on the reasoning that a cover band must not be the
+    // one band a site-wide retheme fails to reach; #564 and #565 record the counterweight — on
     // THESE bands the terminal carries a measured 4.59:1 separation guarantee, so a broader
-    // default must not sit above it. Removed, not demoted: --color-accent-on-overlay is a :root
-    // token (base.css) and always set, so a link below it is dead code. Rest and hover lost it
-    // together, or the twins would disagree across the pointer transition.
+    // default must not sit above it. The RING knobs defeated it directly; the FILL knobs
+    // defeated it through the border-follows-fill link (#535), which is why they had to go too.
+    // Removed, not demoted: --color-accent-on-overlay is a :root token (base.css) and always
+    // set, so a link below it is dead code. Rest and hover lost each knob together, or the
+    // twins would disagree across the pointer transition.
+    // The PER-INSTANCE fill link stays in every row below — that is the narrowing, not a
+    // reversal: an author who flattens THIS band still gets a matching ring (#535).
     const RINGS = [
         { sel: CTA2_RING, base: CTA2_BASE, terminal: '--color-accent',
           // #564 also lifted --cta-accent above --cta-button2-bg, mirroring the base rest chain.
-          leading: ['--cta-button2-border', '--cta-accent', '--cta-button2-bg', '--btn-bg'] },
+          leading: ['--cta-button2-border', '--cta-accent', '--cta-button2-bg'] },
         { sel: CTA2_RING + ':hover', base: CTA2_BASE + ':hover', terminal: '--color-accent-hover',
-          // --btn-hover-bg joins at the position its resting counterpart holds in the rest row
-          // above. #538's Option-3 order (--cta-accent-hover ahead of the hover fill) survives,
-          // and since #564 the rest row uses it too, so the two rows are positional twins.
-          leading: ['--cta-button2-hover-border', '--cta-accent-hover', '--cta-button2-hover-bg', '--btn-hover-bg'] },
+          // #538's Option-3 order (--cta-accent-hover ahead of the hover fill) survives, and
+          // since #564 the rest row uses it too, so the two rows are positional twins.
+          leading: ['--cta-button2-hover-border', '--cta-accent-hover', '--cta-button2-hover-bg'] },
         { sel: HERO2_RING, base: HERO2_BASE, terminal: '--color-accent',
-          leading: ['--hero-cta2-border', '--hero-accent', '--hero-cta2-bg', '--btn-bg'] },
+          leading: ['--hero-cta2-border', '--hero-accent', '--hero-cta2-bg'] },
         { sel: HERO2_RING + ':hover', base: HERO2_BASE + ':hover', terminal: '--color-accent-hover',
-          leading: ['--hero-cta2-hover-border', '--hero-accent-hover', '--hero-cta2-hover-bg', '--btn-hover-bg'] },
+          leading: ['--hero-cta2-hover-border', '--hero-accent-hover', '--hero-cta2-hover-bg'] },
     ];
 
     const chainOf = (rule) => {

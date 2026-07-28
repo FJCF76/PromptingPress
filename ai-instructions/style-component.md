@@ -440,14 +440,18 @@ and `--hero-cta2-color` for its border and ink. On a FILLED cta2 an unset border
 fill in BOTH states, so `--hero-cta2-bg` and `--hero-cta2-hover-bg` alone already give matching
 rings — provided the site-wide `--btn-border-color` / `--btn-hover-border-color` are unset,
 since #554 those sit between the accent and the fill here exactly as they already do on
-every other non-overlay button (on `cover` heroes and `background_image` cta bands they are
-not in the chain at all since #564 — see the photo-band note below).
+every other non-overlay button (on `cover` heroes and `background_image` cta bands no global
+token is in the ring chain at all — ring knobs removed in #564, fill knobs `--btn-bg` /
+`--btn-hover-bg` in #565 — so on those bands the matching-ring idiom is driven by the
+PER-INSTANCE fill slots only; see the photo-band note below).
 Set `--hero-cta2-hover-border` (or `--hero-accent-hover`) only when the hover ring should
 DIFFER from the hover fill — either slot still wins over it. Since #554 the hero's cta2 also
 routes the site-wide tier through its OWN chains in both states — `--hero-cta2-border`, then
 `--hero-accent`, then `--btn-border-color`, then its fill (`--hero-cta2-bg`, then `--btn-bg`),
 and the same shape on hover — which is the hero PRIMARY's order, so a site-wide button
 retheme moves the hero pair together instead of leaving the second button on the theme accent.
+That order is the NON-cover one; on a `cover` hero both global links are gone from the ring
+chain (`--hero-cta2-border`, `--hero-accent`, `--hero-cta2-bg`, then the on-overlay role).
 Since #564 the cta family uses that same order, so the band accent sits above the global ring
 knob on BOTH components. BOTH of the cta component's buttons behave the same way in BOTH
 states — its own border slot (`--cta-button-hover-border` / `--cta-button2-hover-border`),
@@ -461,10 +465,14 @@ fill slot before `--cta-accent` at rest but the accent before the fill on hover,
 whose accent and fill knobs were both set showed a fill-coloured ring at rest that flipped to
 the accent on hover. That flip is gone.)
 
-On `background_image` cta bands and `cover` heroes the global ring knobs are not in the chain
-at all (#564): those bands bottom out at `--color-accent-on-overlay`, a role measured at
+On `background_image` cta bands and `cover` heroes NO global button token is in the ring chain
+at all: the ring knobs left in #564 and the fill knobs `--btn-bg` / `--btn-hover-bg` in #565.
+Those bands bottom out at `--color-accent-on-overlay`, a role measured at
 4.59:1 against the worst-case scrim, and a site-wide default sitting above it cancelled the
-guarantee. Per-instance slots and the band accent still win there.
+guarantee — the ring knobs directly, the fill knobs through the border-follows-fill link.
+Per-instance slots, the band accent, and that band's OWN fill slot still win there, so the
+matching-ring idiom holds for a fill you aimed at THAT band. A site-wide `--btn-bg` still
+paints these buttons' fill; it just no longer drags the ring along with it.
 
 This fill-follow is specific to the FILLED (`primary`) variant; an `outline`, `ghost`, or
 `secondary` second button keeps its own variant default on hover, so give those an explicit
