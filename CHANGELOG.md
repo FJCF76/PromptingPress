@@ -4,6 +4,12 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.0] — 2026-07-28 — button interaction & accessibility: every button state is consistent, legible, and honest (rollup)
+
+**v1.12.0 is the rollup release of the Button Interaction & Accessibility gate — nine working versions (1.11.1–1.11.9) verified as one line.** The second buttons' hover ring follows their hover fill (#538) and the cta primary's hover chain now agrees with every sibling (#548); the keyboard focus ring routes through the dark-band accent roles, taking it from sub-3:1 to 8.33:1 / 4.59:1 (#542); the filled second button gains the same overlay separation ring as its primary, rest and hover (#543); the global tier gains `--btn-hover-bg` / `--btn-hover-border-color` so a site-wide retheme survives hover (#539), and the hero's cta2 chains carry the global links its siblings already had (#554); the outline/ghost/secondary panel CTA is legible on dark bands (~1.02:1 → 5.14:1, #551); author-written `.btn` markup inside rich-text props no longer inherits component fill slots (#545); and a hover-only fill no longer flashes an off-brand colour mid-transition — fill and ring snap on filled premium buttons while shadow, ink and lift keep animating (#540).
+
+No code changes in this release beyond the version bump — see the [v1.11.1]…[v1.11.9] entries below for the substance.
+
 ## [v1.11.9] — 2026-07-28 — a hover fill no longer flashes a colour you never picked (#540)
 
 **Give a filled button a brand hover colour and, for about an eighth of a second, it rendered something else: a violet on the way to red, a muddy slate on the way from teal. A colour nobody chose, on the way to the one you did.**
