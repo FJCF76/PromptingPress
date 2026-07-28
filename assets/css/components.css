@@ -4724,6 +4724,60 @@ main .btn--ghost {
    `main` is a type selector), so without the :not() it would win by source order
    and re-fill the transparent variants — the secondary-CTA contrast bug. */
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
+  /* The FILL and the RING snap; the bevel, the ink and the lift keep easing (issue 540).
+     `main .btn` above sets a five-property transition. On a FILLED premium button two of those
+     five animate a colour nobody chose and, worse, nobody ever saw. The resting fill is a
+     gradient background-IMAGE, and background-image is not interpolable, so it drops to `none`
+     the instant a flat hover slot resolves the shorthand. What the tween then ramps FROM, in
+     full view, is the background-COLOR that gradient had been masking — and that colour is NOT
+     declared here: it comes from the higher-specificity component twins `.hero .btn:not(...)`
+     and `.cta .btn:not(...)` [0,5,0] (the two-rule split documented at the top of this file).
+     Look THERE, not in this block, when tracing where a mid-tween colour came from.
+
+     Measured: 7-8 frames (~120ms) of an unchosen colour across SEVEN flashing configurations
+     spanning the five composed button surfaces — the four per-instance hover slots
+     (--hero-button-hover-bg, --hero-cta2-hover-bg, --cta-button-hover-bg,
+     --cta-button2-hover-bg), the section panel CTA, and the hero and cta primaries reached
+     through the global --btn-hover-bg tier. Example: rgb(80, 74, 195) violet on a button
+     authored blue-at-rest, red-on-hover. The 1px ring rides the same tween one layer out
+     (rgb(150, 43, 84) on that button), which is why border-color leaves the list too: once the
+     fill snaps, the ring is the last thing still crossing colours nobody picked, and one
+     guarantee that holds for the whole surface beats a 7-frame hairline animation.
+     box-shadow, color and transform stay because none of them is implicated: no gradient masks
+     them, so their endpoints are the two states the cascade actually resolves, at rest and on
+     hover, with nothing hidden in between.
+
+     Scoped to the filled premium selector on purpose. outline/ghost/secondary keep the full
+     five-property list from `main .btn`: their fill and border ARE visible at rest, so their
+     tweens ramp between two states that were never masked — honest animation, left alone. Note
+     `.btn--secondary` is VISUALLY filled (it paints --color-surface) yet is excluded here, so a
+     `secondary` second button still cross-fades while a `primary` one snaps. The split is by
+     variant, not by whether the button looks filled.
+
+     Two consequences, both accepted with the issue-540 decision rather than overlooked:
+       1. the ring's cross-fade goes on EVERY filled premium button, unset ones included, where
+          both endpoints (--color-accent -> --color-accent-hover) were already unmasked;
+       2. so does the FILL's cross-fade on a button whose rest AND hover slots are both set to
+          flat colours — the pairing the docs recommend. Both endpoints there are unmasked, so
+          by the test used above that tween was honest too. CSS cannot condition a transition
+          list on whether a custom property was set, and the fill and the gradient arrive
+          through ONE `background` shorthand that resolves to either a colour or an image, so no
+          selector can separate the masked case from the paired one. Snapping the whole surface
+          is the price of the guarantee.
+     Settled rest and hover values are untouched in every one of those cases (the byte-identity
+     bar this repo holds elsewhere); only the FEEL changes, animated -> instant.
+
+     Longhand, not the `transition` shorthand, so this stays the exact delta: duration, timing
+     and delay keep coming from `main .btn`'s var(--transition). One caveat if that list is ever
+     retuned: CSS Transitions L1 matches the other lists against transition-property BY INDEX
+     and ignores the surplus, so shortening the property list to three re-points entries 1-3
+     onto box-shadow/color/transform. That is a no-op only because all five entries are the same
+     var(--transition) today; give `main .btn` per-property timings and this block silently
+     inherits the wrong three. All three currently run at 150ms ease (verified in-browser,
+     computed duration `0.15s, 0.15s, 0.15s, 0.15s, 0.15s` against `box-shadow, color,
+     transform`). Pinned in tests/js/css-lint.test.js and by the rendered #540 case in
+     tests/e2e/style-render.spec.ts. */
+  transition-property: box-shadow, color, transform;
   /* Live fill/border/shadow winner for EVERY composed primary (incl. the generic
      .section__panel-cta, which has no cta/hero ancestor). Global button surface routed here
      (#458): component slots (--cta-button-* / --cta-accent) still win; unset, each falls

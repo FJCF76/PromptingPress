@@ -4,6 +4,41 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.11.9] — 2026-07-28 — a hover fill no longer flashes a colour you never picked (#540)
+
+**Give a filled button a brand hover colour and, for about an eighth of a second, it rendered something else: a violet on the way to red, a muddy slate on the way from teal. A colour nobody chose, on the way to the one you did.**
+
+The premium filled button paints its resting fill with a gradient, and a gradient is a background-IMAGE. Image layers cannot be interpolated, so the moment a flat hover colour resolved, that layer vanished in a single frame — uncovering the background-COLOR it had been hiding. That uncovered colour is where the 150ms cross-fade then started, in full view. Seven authoring configurations across the five composed button surfaces hit it, and the 1px ring crossed the same unchosen ground one layer out. Filled buttons now swap their fill and their ring instantly, straight from one authored state to the other, while the bevel, the ink and the hover lift keep easing exactly as before. Outline, ghost and secondary buttons are untouched: their fill and border are visible at rest, so their cross-fades were never hiding anything.
+
+### What changes on an existing site
+
+Every button looks identical at rest and identical on hover, down to the byte. What changed is only the eighth of a second in between, and only on `primary` buttons. Two consequences are deliberate rather than overlooked: the ring's cross-fade goes on every filled primary including fully unstyled ones, and a button whose resting AND hover fills are both set to flat colours also swaps instantly instead of blending. CSS cannot ask whether a style slot was set, and the fill and the gradient arrive through one shorthand, so no rule can tell the hidden case from the paired one. Snapping the whole surface is what makes the guarantee hold everywhere.
+
+This also supersedes the pairing advice recorded under v1.10.1: pairing a hover fill with its resting fill is still the way to make a button look branded *before* the pointer arrives, but it is no longer needed to avoid an off-brand wash. There is no wash to avoid.
+
+| Hover a filled `primary` button | Before | After |
+|---|---|---|
+| hover fill set, resting fill left default | 7-8 frames of an unchosen blend, e.g. `rgb(80, 74, 195)` | brand colour, immediately |
+| the 1px ring, same button | crossed `rgb(150, 43, 84)` | brand colour, immediately |
+| nothing set at all | ring cross-faded accent to accent-hover | ring swaps instantly |
+| bevel, ink, hover lift | eased over 150ms | unchanged, still eased |
+| `outline` / `ghost` / `secondary` | cross-faded | unchanged, still cross-fades |
+
+### Fixed
+
+- A hover fill slot set without its resting counterpart no longer renders any colour the author did not choose, on either the fill or the ring, on any of the five composed button surfaces (`#540`). The filled premium rule now scopes `transition-property` to `box-shadow, color, transform`; `background-color` and `border-color` leave the list, so both swap declaratively between two authored states.
+
+### Docs
+
+- The five hover-fill slot descriptions (`--hero-button-hover-bg`, `--hero-cta2-hover-bg`, `--cta-button-hover-bg`, `--cta-button2-hover-bg`) and `ai-instructions/style-component.md` no longer warn about a "brief off-brand wash" that can no longer happen, and now state that the snap applies to the `primary` variant while outline/ghost/secondary keep the shared cross-fade.
+
+### Tests
+
+- First pin in the suite to assert a transition rather than a settled value. A rendered `@smoke` case samples the computed fill and ring on every animation frame across a real hover and requires every frame to be one of the two authored endpoints; it fails with 56 off-brand frames if the fix is reverted. An outline control in the same page proves the untouched variants still genuinely animate.
+- `css-lint` pins the transition contract against five regression shapes, including the two that defeated a first draft of the guard: a second `transition` declaration on the same rule, and the fill re-animated on the higher-specificity `.hero .btn` / `.cta .btn` twins that outrank the fixed rule.
+
+---
+
 ## [v1.11.8] — 2026-07-28 — a band's button colours stop repainting buttons you wrote yourself (#545)
 
 **Write `<a class="btn" href="/x">Book a demo</a>` into a section's body, then give that section's panel CTA a brand colour, and your inline button was repainted too. The band's per-instance button styling reached a button the band does not own.**
