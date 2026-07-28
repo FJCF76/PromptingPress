@@ -213,9 +213,9 @@ renders byte-identically to today.
 
 | Token | Set it to… | Reaches | Effective default when unset |
 |-------|-----------|---------|------------------------------|
-| `--btn-bg` | recolor every button fill | bare `.btn`, `.cta`/`.hero` primary, a filled cta second button, the section-panel CTA, premium `main .btn` primary | `--color-accent` (bare) / accent gradient (composed primary) |
+| `--btn-bg` | recolor every button fill | bare `.btn`, `.cta`/`.hero` primary, BOTH filled second buttons (cta and hero), the section-panel CTA, premium `main .btn` primary | `--color-accent` (bare) / accent gradient (composed primary) |
 | `--btn-text` | recolor every button label ink | every button ink rule | `var(--color-bg)` (registered, the inversion coupling below) |
-| `--btn-border-color` | recolor every button border | bare `.btn` (incl. the `outline` variant), `.cta`/`.hero`, the section-panel CTA, premium primary | `--color-accent` (bare/`.cta`/`.hero`) / `--color-accent-strong` (premium) |
+| `--btn-border-color` | recolor every button border | bare `.btn` (incl. the `outline` variant), `.cta`/`.hero` (both buttons of each pair), the section-panel CTA, premium primary | `--color-accent` (bare/`.cta`/`.hero`) / `--color-accent-strong` (premium) |
 | `--btn-shadow` | change every button's elevation (a `--shadow-*` preset, or `none` to flatten) | bare `.btn`, premium primary | `none` (bare) / premium bevel (composed primary) |
 
 **Per-component slots still win.** `--btn-*` sits BETWEEN the per-component slots
@@ -227,9 +227,9 @@ been individually restyled.
 / `--hero-button-color` / `--hero-button-shadow`; `--hero-accent` recolors only its border. A
 cta or hero SECOND button has its own family — `--cta-button2-*` / `--hero-cta2-*` — which the
 primary's slots never reach in rest OR hover, so restyling the primary alone leaves the second
-button on the global token. That last part holds for the CTA block's second button, whose own
-chains do route `--btn-bg` / `--btn-hover-bg`; the HERO's second CTA is the exception and does
-not — see the hover section below. The section's `text-panel` CTA has its own family too —
+button on the global token. Since #554 that holds for BOTH second buttons: the cta block's and
+the hero's each route `--btn-bg` / `--btn-hover-bg` through their own chains, so neither is an
+exception any more. The section's `text-panel` CTA has its own family too —
 `--section-panel-cta-bg` / `--section-panel-cta-color` / `--section-panel-cta-shadow` — which
 is the only way to give one section's panel button a flat brand fill without moving the
 site-wide token. See `ai-instructions/style-component.md`.)
@@ -243,7 +243,7 @@ gradient the moment a pointer lands.
 
 | Token | Set it to… | Reaches | Effective default when unset |
 |-------|-----------|---------|------------------------------|
-| `--btn-hover-bg` | recolor every button's hover fill | bare `.btn`, `.cta`/`.hero` primary, a filled cta second button, the section-panel CTA, premium `main .btn` primary | `--color-accent-hover` (bare) / the premium hover gradient (composed primary) |
+| `--btn-hover-bg` | recolor every button's hover fill | bare `.btn`, `.cta`/`.hero` primary, BOTH filled second buttons (cta and hero), the section-panel CTA, premium `main .btn` primary | `--color-accent-hover` (bare) / the premium hover gradient (composed primary) |
 | `--btn-hover-border-color` | recolor every button's hover border | same surfaces as above | `--color-accent-hover` (bare/`.cta`/`.hero`) / `--color-accent` (premium) |
 
 Per-instance hover slots still win **for their own property**: `--hero-button-hover-bg`,
@@ -271,16 +271,17 @@ The **section-panel CTA** has no per-instance hover fill slot of its own
 (`--section-panel-cta-bg` is resting-state only), so the global knob is the only way to move
 its hover fill. That is intended, not an oversight.
 
-**The hero's second CTA is the exception — set its own slots.** Its chains route
-`--hero-cta2-*` / `--hero-accent` / `--color-accent` and never routed `--btn-bg` either, so
-the global tier does not paint it. Be aware of the halfway state, because it is visible: the
-global knob still reaches that button through the shared premium rule, where a flat value
-clears the theme gradient, while the cta2's own higher-specificity rule keeps painting
-`--color-accent` / `--color-accent-hover`. So a site-wide button retheme renders a filled hero
-cta2 flat-accent rather than brand-coloured. `--btn-bg` already does this to its resting state
-today; `--btn-hover-bg` does the same to hover, which at least keeps the two states matching.
-**Always set `--hero-cta2-bg` and `--hero-cta2-hover-bg` when you retheme buttons site-wide
-and a hero has a filled second CTA.**
+**The hero's second CTA is no longer an exception (#554).** It used to be the one filled
+surface on the theme whose OWN chains never routed the global tier, so a site-wide button
+retheme left it behind — visibly, because the global knob still reached it through the shared
+premium rule (a flat value there clears the theme gradient) while the cta2's own
+higher-specificity rule kept painting `--color-accent` / `--color-accent-hover`. A rethemed
+hero rendered a FLAT ACCENT second button beside a brand-coloured primary. Its rest AND hover
+chains now route `--btn-bg` / `--btn-border-color` / `--btn-hover-bg` /
+`--btn-hover-border-color` at the same positions the hero PRIMARY holds them, so a filled hero
+pair moves together under a site-wide retheme. You no longer need to set `--hero-cta2-bg` /
+`--hero-cta2-hover-bg` merely to keep the pair consistent — set them when you want that button
+to DIFFER.
 
 **Watch hover contrast: there is no global hover INK token.** `--btn-text` sets label ink at
 rest, but the bare `.btn` and the premium primary hard-code hover ink to `--color-bg` (only
@@ -309,13 +310,22 @@ the section-panel CTA) keeps its own `--color-accent-strong` border until you se
 `--btn-border-color` — matching the bare `.btn` primitive, where fill and border are separate.
 Set both when recoloring buttons site-wide so every context stays consistent. The same
 border-follows-fill idiom applies to the hero's per-instance slots: a filled second CTA
-recolored with `--hero-cta2-bg` alone keeps a matching ring (`--hero-cta2-border` and
-`--hero-accent` still win where set), and since issue 538 the same holds on HOVER —
-`--hero-cta2-hover-bg` alone gives a matching hover ring, behind `--hero-cta2-hover-border`
-and `--hero-accent-hover`. The cta's own second button works the same way
-through `--cta-button2-bg` / `--cta-button2-border`, and its chain routes `--btn-bg` and
-`--btn-border-color` in the primary's exact order, so a site-wide recolor moves both
-buttons of a pair together.
+recolored with `--hero-cta2-bg` alone keeps a matching ring (`--hero-cta2-border`,
+`--hero-accent` and the site-wide `--btn-border-color` still win where set), and since issue
+538 the same holds on HOVER — `--hero-cta2-hover-bg` alone gives a matching hover ring, behind
+`--hero-cta2-hover-border`, `--hero-accent-hover` and `--btn-hover-border-color`. Note the
+global ring knobs joined those lists in #554: a fill-only recolor keeps its matching ring only
+while the global ring knob is UNSET, which is the same cross-property rule that already
+applied to every other button (an explicitly authored global ring beats one inferred from
+someone's fill). The cta's own second button works the same way
+through `--cta-button2-bg` / `--cta-button2-border`. Since #554 BOTH second buttons route
+`--btn-bg` / `--btn-border-color` (and their hover twins) in their own primary's exact order,
+so a site-wide recolor moves both buttons of either pair together. Note the ordering differs
+BETWEEN the two components, on purpose: the hero ranks `--hero-accent` above
+`--btn-border-color`, the cta ranks `--btn-border-color` above `--cta-accent`. Each matches
+its own primary, which is what keeps each PAIR consistent — so on a hero that sets
+`--hero-accent`, a global ring knob will not move either hero button's ring, while on a cta
+that sets `--cta-accent` a global ring knob moves both.
 
 **The `--btn-text` → `--color-bg` inversion coupling.** Button text defaults to the PAGE
 BACKGROUND token, not to `--color-text`. Buttons invert on purpose: the accent fill is

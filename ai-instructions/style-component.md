@@ -425,8 +425,17 @@ gradient. These slots target the PRIMARY button only: the second CTA (`cta2`) ne
 `--hero-button-bg` / `--hero-button-hover-bg` do for the primary, with `--hero-cta2-border`
 and `--hero-cta2-color` for its border and ink. On a FILLED cta2 an unset border FOLLOWS the
 fill in BOTH states, so `--hero-cta2-bg` and `--hero-cta2-hover-bg` alone already give matching
-rings. Set `--hero-cta2-hover-border` (or `--hero-accent-hover`) only when the hover ring should
-DIFFER from the hover fill — either slot still wins over it. BOTH of the cta component's
+rings — provided the site-wide `--btn-border-color` / `--btn-hover-border-color` are unset,
+since since #554 those sit between the accent and the fill here exactly as they already did on
+every other button. Set `--hero-cta2-hover-border` (or `--hero-accent-hover`) only when the hover ring should
+DIFFER from the hover fill — either slot still wins over it. Since #554 the hero's cta2 also
+routes the site-wide tier through its OWN chains in both states — `--hero-cta2-border`, then
+`--hero-accent`, then `--btn-border-color`, then its fill (`--hero-cta2-bg`, then `--btn-bg`),
+and the same shape on hover — which is the hero PRIMARY's order, so a site-wide button
+retheme moves the hero pair together instead of leaving the second button on the theme accent.
+Note the hero puts `--hero-accent` ABOVE the global ring knob while the cta puts the global
+knob above `--cta-accent`; each follows its own primary, which is what keeps each pair
+consistent. BOTH of the cta component's
 buttons behave the same way on hover — its own hover-border slot
 (`--cta-button-hover-border` / `--cta-button2-hover-border`), then the site-wide
 `--btn-hover-border-color`, then `--cta-accent-hover`, then its own hover fill
