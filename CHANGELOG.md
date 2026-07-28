@@ -4,6 +4,50 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.11.7] — 2026-07-28 — a hero's two filled buttons no longer disagree under a site-wide button retheme (#554)
+
+**Set `--btn-bg` to brand your buttons site-wide, and a hero with two filled CTAs rendered one button in your brand colour and the one beside it in the theme accent. The second button was the only filled surface on the theme that did not read the global button tokens.**
+
+The site-wide button tokens — `--btn-bg`, `--btn-border-color` and the hover twins `--btn-hover-bg` / `--btn-hover-border-color` — reach every button PromptingPress renders: the bare `.btn`, both `cta` buttons, the section panel CTA, and the hero's primary. The hero's SECOND CTA read none of them. Worse than simply being skipped: the global fill already reached that button's background IMAGE through the shared premium rule, which stripped its gradient, while the button's own higher-specificity rule kept painting `--color-accent`. The result was a flat accent pill standing next to a brand-coloured primary, in the same band, at every viewport. Its rest and hover chains now route all four tokens at the same positions the hero's primary holds them, so a filled hero pair moves together.
+
+### What changes on an existing site
+
+Nothing at all, unless the site sets one of the four global button tokens. That was the condition this fix shipped under and it is pinned in three places, including a rendered check at 1280 and 375.
+
+| Hero with a filled second CTA | Before | After |
+|---|---|---|
+| no global button tokens set | accent fill, accent ring | unchanged, byte for byte |
+| `--hero-accent` or `--hero-cta2-*` set | authored colour wins | unchanged, byte for byte |
+| `--btn-bg` / `--btn-border-color` set | primary brand-coloured, second button flat accent | both buttons brand-coloured |
+| `--btn-hover-bg` / `--btn-hover-border-color` set | primary brand-coloured on hover, second button theme accent | both buttons brand-coloured |
+
+Per-instance slots still win everywhere they did before. `--hero-cta2-bg`, `--hero-cta2-border` and `--hero-accent` all outrank the global tokens, so a hero you have already styled by hand does not move. The one interaction worth knowing: an explicitly authored global ring (`--btn-border-color`) outranks a ring merely inferred from someone's fill, which is the same rule every other button on the theme has always followed.
+
+### What this means for anyone rethemeing buttons
+
+Setting `--btn-bg` and `--btn-border-color` at `:root` is now genuinely one knob — there is no longer a button you have to remember to chase with `--hero-cta2-bg`. Set the hover twins alongside them and the whole site keeps your brand under the pointer. Reach for `--hero-cta2-*` when you want the second button to DIFFER from its primary, not to make it match.
+
+### Itemized changes
+
+### Fixed
+
+- Routed the global button tier through the hero's filled second CTA's own chains in BOTH states (#554): `--btn-bg` and `--btn-hover-bg` join the fill chains, `--btn-border-color` and `--btn-hover-border-color` the ring chains, each at the position its counterpart holds in the hero PRIMARY's chain. The two `.hero--cover` separation-ring twins from #543 take the same links, since those rules are the base chains verbatim with only the terminal swapped — without it a cover band would have been the one band a site-wide retheme still failed to reach. Ordering is deliberate and differs from the `cta` component's: the hero ranks `--hero-accent` above `--btn-border-color` while the `cta` family ranks the global ring knob above `--cta-accent`. Each matches its OWN primary, which is what keeps each PAIR consistent; unifying the two components would split one of the pairs.
+
+### Docs
+
+- `ai-instructions/retheme.md`: the "hero's second CTA is the exception" section is gone. The reach tables for all three global fill/ring tokens now name both second buttons, and the border-follows-fill guidance records that the global ring knobs joined those chains.
+- `ai-instructions/style-component.md`: the hero cta2 chain order is stated in full, including why it differs from the `cta` component's.
+- `components/hero/README.md`: the cover band's ring-winner list was exhaustive and is now complete.
+- `assets/css/base.css`: the `--btn-*` token registry no longer forward-references this fix as "tracked separately", and records the accent-vs-global-knob ordering where a maintainer looks before unifying the two components.
+
+### Tests
+
+- `tests/js/css-lint.test.js`: #539's negative pin ("hero cta2 own chains stay free of the global tier") is inverted to a positive one — the invariant it protected was rest/hover SYMMETRY, which is now satisfied from the other side. Adds a pair-structure table asserting that each component's second button routes every shared link its primary does, in the same relative order, for the hero AND the `cta`; and a structural-equivalence pin between hero cta2 and cta button2. These resolve rules through the media-aware `parseRules()` and assert uniqueness plus top-level placement, because the flat helper the rest of the block uses cannot see `@media` — verified by mutation, a chain moved into a never-matching `@media` used to read green.
+- `tests/StyleSlotContractTest.php` and the #543 ring pins: updated to the new chains, deliberately, including the `.hero--cover` twins.
+- `tests/e2e/style-render.spec.ts`: the hero's second CTA joins the "reaches every filled surface" loop it was carved out of, and gains rest-state coverage plus a byte-identity assertion on the two properties this change rewrote. Pair consistency is asserted as its own property, hovering each button in turn, so a future regression fails with the right message rather than as two unrelated sentinel mismatches.
+
+---
+
 ## [v1.11.6] — 2026-07-28 — an outline or ghost panel button is readable again on a dark section band (#551)
 
 **A `text-panel` section with `theme: "inverted"` or a `background_image`, whose `panel_cta_variant` was `outline`, `ghost` or `secondary`, rendered its button label at 1.04:1 — effectively invisible. The button shape was there; the words were not.**
