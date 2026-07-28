@@ -353,6 +353,15 @@ flat-button capability, not a new default.
 > them and the literal, so a site-wide `--btn-bg` recolors only the buttons a component
 > has not individually restyled. See `ai-instructions/retheme.md` for the full global
 > button surface.
+>
+> The two tiers also differ in WHICH BUTTONS THEY REACH (#545). Per-instance button slots
+> reach only the buttons the component itself renders — the hero's CTAs, the cta block's
+> buttons, the section panel's CTA. A `.btn` you hand-write into a rich-text prop
+> (`section.body`, `hero.proof`) is NOT one of them: it follows the site-wide `--btn-*`
+> tier and the band accents, and stays on the theme default otherwise. So styling a band's
+> button slots never repaints an inline button in its copy. To restyle such a button, set
+> the global tier with `update_design_token`, or give the band a real CTA prop instead of
+> hand-written button markup — the prop is the supported surface.
 
 **A cta with a second button (`button2_text`) has TWO button surfaces.** The
 `--cta-button-*` slots above address the PRIMARY button only; the second button has its

@@ -224,4 +224,10 @@ Add a row to the Component index table in `AI_CONTEXT.md`:
 - [ ] No raw hex values in the new CSS section
 - [ ] No direct WordPress function calls in the PHP file
 - [ ] All text output uses `esc_html()` (plain), `pp_kses_inline()` (inline subset), or `wp_kses_post()` (rich), per the prop's documented contract
+- [ ] If the component renders a `.btn`: its owning element class is added to the
+      `main .btn:not(...)` neutralisation rule in `assets/css/components.css` (#545), and any
+      per-instance BUTTON slot it declares is added to that rule's `initial` list. The rule
+      keeps a band's button slots off buttons no renderer owns; a component whose own button
+      class is missing from the `:not()` list gets its own slots neutralised. `NestedButtonSlotIsolationTest`
+      and the `#545` css-lint pin both fail until this is done.
 - [ ] `AI_CONTEXT.md` component index updated
