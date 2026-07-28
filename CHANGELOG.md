@@ -4,6 +4,51 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.11.8] — 2026-07-28 — a band's button colours stop repainting buttons you wrote yourself (#545)
+
+**Write `<a class="btn" href="/x">Book a demo</a>` into a section's body, then give that section's panel CTA a brand colour, and your inline button was repainted too. The band's per-instance button styling reached a button the band does not own.**
+
+Per-instance button slots — `--hero-button-*`, `--cta-button-*`, `--section-panel-cta-*` and their second-button siblings — are emitted as inline custom properties on the component's ROOT element. Custom properties inherit to every descendant, and the rules that consume them select on `.btn` rather than on the component's own button class, so they also reached any `.btn` an author hand-wrote into a rich-text prop. Two props can carry one: `section.body` and `hero.proof`. The comment at the top of `assets/css/components.css` had stated the opposite invariant since the slots shipped — that a section's `__pp_style` cannot leak into nested buttons — and that invariant is now true rather than aspirational. A single rule neutralises the whole per-instance family on every composed button no renderer owns, so those slots now reach exactly the buttons the component itself renders.
+
+### What changes on an existing site
+
+Nothing, unless a page has a hand-written `.btn` inside `section.body` or `hero.proof` AND that band sets one of its button slots. Every other button on every page is untouched by construction rather than by argument: the new rule cannot match a button a renderer owns, and no existing rule, chain, fallback order or literal was edited. The full rendered smoke suite (149 checks) passes unchanged.
+
+| A `.btn` you hand-wrote into a band's rich text | Before | After |
+|---|---|---|
+| band sets no button slots | theme default | unchanged, byte for byte |
+| band sets `--section-panel-cta-bg` / `--hero-button-bg` | repainted with the band's fill, ink and elevation | theme default, at rest and on hover |
+| site sets the global `--btn-bg` / `--btn-*` tier | follows the site-wide tier | unchanged — it still follows it |
+| band sets `--hero-accent` / `--cta-accent` | takes the band accent | unchanged — it still takes it |
+
+The two tiers are treated differently on purpose. A site-wide button token is site-wide by definition: your inline button should follow a `--btn-bg` retheme exactly as every composed button does. Band-level accents likewise colour every accented element in their band, and an inline button is one of them. What must not reach it is the per-instance styling of whichever band happens to contain it.
+
+### What this means for authors
+
+Styling a band's buttons is now safe next to inline button markup in its copy: recolouring a panel CTA cannot bleed into a call to action written in the body beside it. To restyle a hand-written button, set the global tier with `update_design_token`, or move the button into a real CTA prop — the prop is the supported surface, and it is the one the per-instance slots address. If you deliberately want a hand-written button to take a band's styling, giving it that band's button class opts back in.
+
+### Itemized changes
+
+### Fixed
+
+- Neutralised every per-instance button slot family on composed buttons no renderer owns (#545): `main .btn:not(.hero__cta):not(.cta__button):not(.section__panel-cta)` sets all 26 family properties to `initial`, the guaranteed-invalid value, so each downstream `var(--slot, <fallback>)` resolves exactly what an unset button resolves. This is the #526/#530 isolation idiom — a declaration ON the element beats an inherited value regardless of source order — widened from "the second button" to "every button the theme does not own". No existing chain, fallback order or literal was touched, which is what keeps #530/#535/#536/#538/#539/#542/#543/#548/#551/#554 intact and every owned button byte-identical. The alternative shape (a private `--pp-*` twin per slot, re-pointed on each owned button) was prototyped side by side, renders pixel-identically, and was rejected: it rewrites ten tuned chains plus their pins for no rendering difference, and it would have required weakening the StyleSlotContractTest keystone that requires each slot to be consumed on a type-compatible property.
+
+### Docs
+
+- `ai-instructions/style-component.md`: the per-instance vs site-wide callout now states which BUTTONS each tier reaches, not only which buttons each tier is for, and points authors at the global tier or a real CTA prop for a hand-written button.
+- `ai-instructions/add-component.md` and `docs/AI_IMPLEMENTATION_RECIPES.md` (Recipes A and D): a component that renders a `.btn`, or declares a new per-instance BUTTON slot, must update the neutralisation rule. Following either recipe verbatim previously red-failed the new pins with no explanation of why.
+- `assets/css/components.css`: the header invariant is restated as what it now is, and the `main .btn` block's "no leak" note is qualified — it only ever covered the cross-component case. The block comment records which 14 of the 26 properties are load-bearing and which are inert (by scoping, or by the `cta.text` sanitizer), and that a hero band accent DOES reach a nested button by specificity, deliberately.
+- `assets/css/base.css`: the `--btn-*` registry records that per-instance slots win on the button their component owns, and that the global tier is what reaches any other composed button.
+
+### Tests
+
+- `tests/NestedButtonSlotIsolationTest.php` (new): derives the renderer-owned button classes from the component templates and asserts the exclusion list equals them exactly, so a new component's button fails the build instead of silently having its own slots neutralised. Pins which rich-text props can carry a nested `.btn` (`section.body`, `hero.proof` render unescaped; `cta.text` strips the class through `pp_kses_inline`; the section panel's props are `esc_html`), and authors the nested-button composition through the real validate surface (Section 14.1).
+- `tests/js/css-lint.test.js`: derives the completeness requirement STRUCTURALLY — every schema-declared style slot read by a selector that can match a non-owned `.btn` must be neutralised, or listed as deliberately reaching. A name-prefix guard would have blessed a slot in a brand-new family, and evaluating a selector list as one string would have blessed a leaking arm sitting next to an owned-class arm; both are covered by their own mutation proofs.
+- `tests/StyleSlotContractTest.php`: the slot-deadening ledger records the new rule's 26 declarations, composed from a named constant so widening the exclusion list is one edit rather than 26.
+- `tests/e2e/style-render.spec.ts`: rendered pins on real WordPress at 1280 and 375 — the nested button keeps the premium gradient and ink at rest AND on hover while the owned button still paints its slot, an unset band renders both identically, a site-wide `--btn-bg` still repaints the nested button, a nested `btn--outline` is untouched either way, and a hero band accent still rings a nested button (the scope boundary, pinned as intended).
+
+---
+
 ## [v1.11.7] — 2026-07-28 — a hero's two filled buttons no longer disagree under a site-wide button retheme (#554)
 
 **Set `--btn-bg` to brand your buttons site-wide, and a hero with two filled CTAs rendered one button in your brand colour and the one beside it in the theme accent. The second button was the only filled surface on the theme that did not read the global button tokens.**
