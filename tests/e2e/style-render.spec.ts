@@ -4884,6 +4884,14 @@ test.describe('#458 the global button surface is a real one-knob (real WP)', () 
       expect(got.cta.border).toBe(got.accentBorder);
       expect(got.heroPrimary.bgColor).toBe(got.accentFill);
       expect(got.heroPrimary.border).toBe(got.accentBorder);
+      // The hero's SECOND cta, same two properties (#554). Its ink was already pinned above,
+      // but ink is not what that issue changed: it rewrote this button's fill and ring chains.
+      // Byte-identity-when-unset is the gate condition #554 shipped under, so it is asserted
+      // on the RENDERED pixel here, not only as chain text in css-lint. A reorder that
+      // repaints an unset cta2 through the premium-rule interaction is invisible to a static
+      // pin and lands here instead.
+      expect(got.heroSecondary.bgColor).toBe(got.accentFill);
+      expect(got.heroSecondary.border).toBe(got.accentBorder);
 
       // SECTION-PANEL primary is governed ONLY by the premium block: fill = the accent
       // gradient (background-IMAGE), border = --color-accent-strong, shadow = premium bevel.
@@ -4923,7 +4931,12 @@ test.describe('#458 the global button surface is a real one-knob (real WP)', () 
           shadow: cs.boxShadow,
         };
       };
-      return { cta: read(sel.cta), heroPrimary: read(sel.heroPrimary), section: read(sel.section) };
+      return {
+        cta: read(sel.cta),
+        heroPrimary: read(sel.heroPrimary),
+        heroSecondary: read(sel.heroSecondary),
+        section: read(sel.section),
+      };
     }, SEL);
 
     // INK follows --btn-text on every composed primary.
@@ -4941,6 +4954,27 @@ test.describe('#458 the global button surface is a real one-knob (real WP)', () 
     // and SHADOW (premium-block winners) now track the global tokens too.
     expect(got.section.border).toBe('rgb(7, 8, 9)');
     expect(got.section.shadow).toContain('rgb(10, 11, 12)');
+
+    /*
+     * The hero's SECOND cta at REST (#554) — the surface this tier used to miss.
+     *
+     * Rendered, not static, because the defect was invisible to a chain pin: --btn-bg ALREADY
+     * reached this button's background-IMAGE through the shared premium rule (clearing the
+     * gradient) while its own [0,7,0] background-COLOR kept painting --color-accent. The
+     * computed result was a FLAT ACCENT pill, which no static chain assertion describes. The
+     * gradient-cleared check is what makes the pair assertion meaningful rather than
+     * accidentally-passing.
+     */
+    expect(got.heroSecondary.bgColor, 'hero cta2 rest fill follows --btn-bg').toBe('rgb(1, 2, 3)');
+    expect(got.heroSecondary.border, 'hero cta2 rest ring follows --btn-border-color').toBe(
+      'rgb(7, 8, 9)',
+    );
+    expect(got.heroSecondary.bgImage, 'hero cta2 gradient cleared, not merely overpainted').toBe(
+      'none',
+    );
+    // Stated as the pair property, so a future split fails with the right message.
+    expect(got.heroSecondary.bgColor, 'hero pair rest fill must match').toBe(got.heroPrimary.bgColor);
+    expect(got.heroSecondary.border, 'hero pair rest ring must match').toBe(got.heroPrimary.border);
   });
 
   test('a per-component --cta-button-bg still beats the global --btn-bg @smoke', async ({
@@ -5146,9 +5180,12 @@ test.describe('#539 the global button surface survives a hover (real WP)', () =>
         ':root{--btn-hover-bg:rgb(1,2,3);--btn-hover-border-color:rgb(7,8,9);}',
     });
 
-    // The hero's SECOND cta is NOT in this group — see the dedicated assertion below, which
-    // pins the halfway outcome rather than skipping the surface.
-    const covered = ['heroPrimary', 'ctaPrimary', 'ctaButton2', 'panelCta'] as const;
+    // The hero's SECOND cta joined this group in #554. It used to be carved out here to pin a
+    // halfway outcome: its own [0,7,0] chains routed neither global knob, so the shared premium
+    // rule cleared its gradient while its own background-color kept painting the theme accent —
+    // a FLAT ACCENT pill beside a brand-coloured primary. Its chains now route the tier in both
+    // states, so it behaves like every other filled surface and is asserted like one.
+    const covered = ['heroPrimary', 'heroCta2', 'ctaPrimary', 'ctaButton2', 'panelCta'] as const;
 
     for (const name of covered) {
       await page.locator(SEL[name]).first().hover();
@@ -5169,39 +5206,41 @@ test.describe('#539 the global button surface survives a hover (real WP)', () =>
     }
 
     /*
-     * The hero's SECOND cta: pin the ACCEPTED halfway outcome, do not skip it.
+     * PAIR CONSISTENCY (#554) — the property the loop above cannot state on its own.
      *
-     * Its own [0,7,0] rules never routed the global tier (rest or hover), but the SHARED
-     * premium rule still resolves `background: var(--btn-hover-bg, ...)` to a flat colour for
-     * it, which clears the gradient background-IMAGE. Its own background-COLOR keeps winning.
-     * Net: gradient gone, fill still the theme accent-hover, not the operator's colour.
-     *
-     * This is pre-existing, not introduced here: --btn-bg alone already does exactly this to
-     * the cta2's REST state. The hover knob mirrors it so the button is consistent with itself.
-     * Pinning it means the day someone routes the global tier through the cta2's own chains,
-     * this assertion fails and gets updated on purpose instead of the behaviour drifting.
+     * Each surface is asserted against the sentinel individually, so a regression that split
+     * the hero's two buttons apart again would surface as two separate failures rather than as
+     * the thing that actually matters: the pair no longer matching. Assert it directly, so the
+     * failure message names the defect.
      */
-    const accentHover = await page.evaluate(() => {
-      const el = document.createElement('div');
-      el.style.setProperty('background-color', 'var(--color-accent-hover)');
-      document.body.appendChild(el);
-      const v = getComputedStyle(el).backgroundColor;
-      el.remove();
-      return v;
-    });
-
-    await page.locator(SEL.heroCta2).first().hover();
-    const cta2 = await page
-      .locator(SEL.heroCta2)
-      .first()
-      .evaluate((el) => {
-        const cs = getComputedStyle(el);
-        return { bgColor: cs.backgroundColor, bgImage: cs.backgroundImage };
-      });
-    expect(cta2.bgColor, 'hero cta2 keeps its own accent fill, NOT the global knob').toBe(
-      accentHover,
+    // Sampled ONE AT A TIME, each while it is the hovered element. Only one element can be
+    // :hover at a time, so a single evaluate() comparing both buttons would read them BOTH at
+    // rest — which passes even if the hover chains are deleted outright. The pointer is over
+    // panelCta when the loop above ends, so without an explicit hover per read this measures
+    // the resting state and cannot fail.
+    const readHovered = async (sel: string) => {
+      await page.locator(sel).first().hover();
+      return page
+        .locator(sel)
+        .first()
+        .evaluate((el) => {
+          const cs = getComputedStyle(el);
+          return { bgColor: cs.backgroundColor, border: cs.borderTopColor };
+        });
+    };
+    const pair = {
+      primary: await readHovered(SEL.heroPrimary),
+      cta2: await readHovered(SEL.heroCta2),
+    };
+    // Guard the guard: prove these are hover reads, not rest reads. The sentinel only appears
+    // in the hover chains, so a rest sample cannot produce it.
+    expect(pair.primary.bgColor, 'sanity: primary sampled while hovered').toBe('rgb(1, 2, 3)');
+    expect(pair.cta2.bgColor, 'hero pair hover fill must match under a site-wide retheme').toBe(
+      pair.primary.bgColor,
     );
-    expect(cta2.bgImage, 'hero cta2 gradient is cleared by the shared premium rule').toBe('none');
+    expect(pair.cta2.border, 'hero pair hover ring must match under a site-wide retheme').toBe(
+      pair.primary.border,
+    );
   });
 
   test('a per-instance hover slot still beats the global --btn-hover-bg @smoke', async ({
