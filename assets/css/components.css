@@ -1673,14 +1673,18 @@
   color: var(--section-text, var(--color-bg));
 }
 
-.pp-section--inverted a {
+/* PANEL CTA CARVE-OUT (#551) — see the shared block above `.section--has-bg-image a`
+   for the full rationale. The band's link ink is an ON-BAND role; the panel is a
+   self-contained LIGHT surface, and `.section__panel-cta` is the only anchor the
+   section renderer can put inside it, so the band role must not reach it. */
+.pp-section--inverted a:not(.section__panel-cta) {
   /* On the dark band the light-surface accent fails WCAG AA (3.23:1), so links
      fall back to the on-inverted accent role (issue 437). An explicit
      --section-accent slot still wins. */
   color: var(--section-accent, var(--color-accent-on-inverted));
 }
 
-.pp-section--inverted a:hover {
+.pp-section--inverted a:not(.section__panel-cta):hover {
   color: var(--section-accent-hover, var(--color-accent-on-inverted-hover));
 }
 
@@ -1729,11 +1733,52 @@
    (#461); an explicit --section-accent slot still wins. Mirrors the inverted-band
    pattern above, but with the overlay role (on-inverted is tuned to the solid
    inverted bg, not the arbitrary-image overlay). */
-.section--has-bg-image a {
+/* PANEL CTA CARVE-OUT (#551) — the load-bearing scope call for the whole band-ink family.
+
+   These band rules are ON-BAND roles: they exist because the band is a DARK surface. But
+   the selector is band-WIDE, and `.section__panel` is a self-contained LIGHT surface
+   (--color-surface, #f4f7fb) sitting ON that dark band with its own --space-lg of padding.
+   The section renderer emits exactly ONE anchor inside it (section.php:270,
+   `.section__panel-cta`), so before this carve-out the band's near-white overlay ink
+   painted a transparent panel button's label onto the light panel:
+
+     specificity map (the issue's own [0,2,0] figure was wrong — `a` is a TYPE selector):
+       .btn--outline / .btn--ghost / .btn--secondary        [0,1,0]
+       .section--has-bg-image a                             [0,1,1]  <- outranked them
+       .section--has-bg-image a:not(.section__panel-cta)    [0,2,1]  <- this rule
+       main .btn:not(x):not(y):not(z)                       [0,4,1]  <- filled CTA, untouched
+
+     measured on the light panel, worst-case white bg image (rendered, headless Chromium):
+       bg-image  outline/ghost/secondary  rest 1.04:1   hover ghost 1.07 / secondary 1.33
+       inverted  outline/ghost/secondary  rest 1.99:1   hover ghost 1.46 / secondary 1.18
+       default band (the correct control)  rest 5.14 / 16.52   hover 5.43 / 5.14 / 13.36
+     After the carve-out every band matches the default-band control exactly.
+
+   This is the same carve-out class #424 made for the panel HEADING (`h2,h3:not(
+   .section__panel-heading)` above), #463 made for the panel LIST MARKERS (by scoping the
+   marker remap to .section__content — "Panel markers stay bare accent"), and #542 made for
+   the panel CTA's FOCUS RING (by refusing to route section bands at all). This is that same
+   call one layer down, on the ink.
+
+   Why `:not(.section__panel-cta)` and not a panel-wide `:not(.section__panel *)`: both were
+   prototyped and render byte-identically, because the CTA is the ONLY anchor the panel can
+   contain (panel_heading/panel_body/panel_items are all esc_html — pinned in
+   SectionTextPanelTest). But a complex `:not()` is a Selectors-4 feature, and an engine that
+   does not support it drops the ENTIRE rule — which would strip the on-overlay ink from real
+   on-band links, a worse failure than the bug. The compound `:not()` has no such mode.
+   Durability against FUTURE band rules comes from the closed-set css-lint pin, not from the
+   selector shape: any new band-WIDE anchor rule that sets `color` must carry this carve-out.
+
+   The filled (primary) panel CTA is deliberately untouched: its ink comes from the premium
+   chain at [0,4,1], which already outranked these rules, so --section-panel-cta-color (#536)
+   keeps winning everywhere. NOTE: this raises these rules from [0,1,1] to [0,2,1], so custom
+   CSS overriding them at [0,1,1] would now lose — the supported override path is the
+   --section-accent / --section-accent-hover slot, which is unchanged and still wins. */
+.section--has-bg-image a:not(.section__panel-cta) {
   color: var(--section-accent, var(--color-accent-on-overlay));
 }
 
-.section--has-bg-image a:hover {
+.section--has-bg-image a:not(.section__panel-cta):hover {
   color: var(--section-accent-hover, var(--color-accent-on-overlay-hover));
 }
 
