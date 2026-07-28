@@ -95,16 +95,24 @@
      hover would change rendered output for sites that already set it, so they are tracked as
      their own issues rather than riding along here.
 
-     The hero's SECOND cta gets no hover link here because its own chains never routed --btn-bg
-     either. Be precise about what that does and does not mean: the global knob still reaches
-     that button through the SHARED premium rule, where it resolves the `background` shorthand
-     to a flat colour and so CLEARS the gradient — while the cta2's own [0,7,0]
-     background-color rule keeps painting --color-accent-hover. So a site-wide hover fill turns
-     a filled hero cta2 flat-accent rather than brand-coloured. That is not new and not this
-     tier's doing: --btn-bg already does exactly this to the cta2's REST state today. Mirroring
-     it onto hover makes the button consistent with itself (both states flat) instead of
-     stripped at rest and gradient on hover. The real fix is to route the global tier through
-     the cta2's own chains in BOTH states, which is tracked separately. */
+     The hero's SECOND cta was once the exception here: its own chains routed neither --btn-bg
+     nor this hover twin, so a site-wide retheme left it behind — and visibly, because the
+     global knob still reached it through the SHARED premium rule, where it resolves the
+     `background` shorthand to a flat colour and so CLEARS the gradient, while the cta2's own
+     [0,7,0] background-color rule kept painting --color-accent. A rethemed hero rendered a
+     FLAT ACCENT second button beside a brand-coloured primary. Issue 554 closed that: hero
+     cta2 now routes --btn-bg / --btn-border-color / --btn-hover-bg / --btn-hover-border-color
+     through its OWN chains in BOTH states, so no filled surface is carved out of this tier any
+     more. "Not carved out" is not "always wins": these knobs sit BELOW the per-instance slots
+     everywhere, so a hero that authors --hero-accent still takes the accent on BOTH its
+     buttons and neither reads --btn-bg / --btn-border-color at all. That is the tier working
+     as designed — authored beats global — and it is why the pair stays consistent either way.
+
+     ORDER, worth knowing before you "unify" the two components: within a border chain the hero
+     ranks --hero-accent ABOVE --btn-border-color, while the cta family ranks --btn-border-color
+     above --cta-accent. That is not drift. Each component matches its OWN primary, which is
+     what keeps each PAIR of buttons consistent with itself; making the two components agree
+     with each other would split one of the pairs. Pinned in css-lint and StyleSlotContractTest. */
   --btn-bg:           initial;         /* color: Global button fill. Unset = each rule's own default (bare .btn: --color-accent; composed primary: the accent gradient). Set to recolor every button fill. */
   --btn-text:         var(--color-bg); /* color: Button label ink. Defaults to the PAGE BACKGROUND token, not a text token — buttons invert: a light page yields light text on the accent fill. Change --color-bg and button text follows unless pinned here. */
   --btn-border-color: initial;         /* color: Global button border. Unset = each rule's own default (--color-accent, or --color-accent-strong on the premium primary). Set to recolor every button border. */

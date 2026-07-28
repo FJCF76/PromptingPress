@@ -3592,10 +3592,13 @@ describe('CSS lint: the filled second button is ringed on overlay bands (#543)',
           // --btn-hover-bg at the tail of the border-follows-fill link. #538's Option-3 order
           // (--cta-accent-hover ahead of the hover fill) is preserved verbatim between them.
           leading: ['--cta-button2-hover-border', '--btn-hover-border-color', '--cta-accent-hover', '--cta-button2-hover-bg', '--btn-hover-bg'] },
+        // #554 added the global tier to the hero cta2 base chains, so it joins these twins in
+        // the same positions — "verbatim" is the contract. Without it the cover band would be
+        // the one band where a site-wide button retheme still failed to reach cta2.
         { sel: HERO2_RING, base: HERO2_BASE, terminal: '--color-accent',
-          leading: ['--hero-cta2-border', '--hero-accent', '--hero-cta2-bg'] },
+          leading: ['--hero-cta2-border', '--hero-accent', '--btn-border-color', '--hero-cta2-bg', '--btn-bg'] },
         { sel: HERO2_RING + ':hover', base: HERO2_BASE + ':hover', terminal: '--color-accent-hover',
-          leading: ['--hero-cta2-hover-border', '--hero-accent-hover', '--hero-cta2-hover-bg'] },
+          leading: ['--hero-cta2-hover-border', '--hero-accent-hover', '--btn-hover-border-color', '--hero-cta2-hover-bg', '--btn-hover-bg'] },
     ];
 
     const chainOf = (rule) => {
@@ -4017,6 +4020,17 @@ describe('CSS lint: global button hover tier (#539)', () => {
             ],
         },
         {
+            what: 'hero second button (joined the tier in #554, closing the last filled surface)',
+            sel: '.hero .hero__cta-group .hero__cta--secondary' + NOT3 + ':hover',
+            decls: [
+                'background-color: var(--hero-cta2-hover-bg, var(--hero-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));',
+                // --hero-accent-hover leads, matching the hero PRIMARY's hover ring (the cta
+                // family puts the global knob first instead — see the pair-structure test).
+                // #538's Option-3 accent-above-fill order survives between the global links.
+                'border-color: var(--hero-cta2-hover-border, var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-cta2-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))));',
+            ],
+        },
+        {
             what: 'the shared premium hover rule (background-IMAGE winner; the panel CTA\'s only fill winner)',
             sel: 'main .btn' + NOT3 + ':hover',
             decls: [
@@ -4047,6 +4061,9 @@ describe('CSS lint: global button hover tier (#539)', () => {
         { sel: '.cta .btn' + NOT3 + ':hover', fill: '--cta-button-hover-bg', own: '--cta-button-hover-border' },
         { sel: '.cta .cta__buttons .cta__button--secondary' + NOT3 + ':hover', fill: '--cta-button2-hover-bg', own: '--cta-button2-hover-border' },
         { sel: '.hero .btn' + NOT3 + ':hover', fill: '--hero-button-hover-bg', own: null },
+        // Joined the tier in #554, so it joins this precedence pin too.
+        { sel: '.hero .hero__cta-group .hero__cta--secondary' + NOT3 + ':hover',
+          fill: '--hero-cta2-hover-bg', own: '--hero-cta2-hover-border' },
     ];
 
     BORDER_ORDER.forEach(({ sel, fill, own }) => {
@@ -4115,38 +4132,200 @@ describe('CSS lint: global button hover tier (#539)', () => {
     });
 
     /*
-     * NEGATIVE PIN — the hero's SECOND cta's OWN chains stay out of the global tier, in BOTH
-     * states.
+     * REST/HOVER SYMMETRY on the hero's SECOND cta — the pin #539 left behind, now flipped
+     * positive by #554.
      *
-     * Read this pin precisely, because the rendered behaviour is NOT "the global tier does not
-     * reach that button". It does reach it, through the SHARED premium rule, where a flat
-     * value resolves the `background` shorthand and clears the gradient background-IMAGE —
-     * while this button's own [0,7,0] background-COLOR rule keeps painting --color-accent /
-     * --color-accent-hover. Net: a site-wide retheme renders a filled hero cta2 flat-accent,
-     * not brand-coloured. Verified in a browser, both states.
+     * #539 shipped this as a NEGATIVE pin: hero cta2's own chains carried NEITHER global tier,
+     * and the pin asserted that absence, because wiring only the HOVER half would have made a
+     * site setting both knobs render --color-accent at rest and FLASH to the operator's colour
+     * on hover. Symmetry was the invariant; absence was merely how it was satisfied then.
      *
-     * That is pre-existing and not this tier's doing: --btn-bg alone already strips the cta2's
-     * REST gradient today. What the hover knob adds is the same treatment on hover, so the
-     * button is at least consistent with itself instead of stripped at rest and gradient on
-     * hover. The real fix routes the global tier through the cta2's OWN chains in BOTH states
-     * and is tracked separately; when it lands, this pin must be updated deliberately.
+     * #554 satisfies the same invariant from the other side: both halves are now wired. The
+     * assertion is therefore inverted, deliberately, and the invariant it protects is
+     * unchanged — rest and hover must never disagree about whether the global tier is routed.
      *
-     * So what is asserted here is chain MEMBERSHIP, not rendered isolation: hover must not
-     * gain a global link while rest lacks one, which would make a site setting both knobs
-     * render --color-accent at rest and flash to the operator's colour on hover.
+     * Why this mattered enough to fix rather than leave: the tier ALREADY reached this button's
+     * background-IMAGE through the shared premium rule (a flat --btn-bg resolves the
+     * `background` shorthand and clears the gradient) while its own [0,7,0] background-COLOR
+     * rule kept painting --color-accent. A rethemed cta2 rendered a FLAT ACCENT pill beside a
+     * brand-coloured primary — half-stripped, not merely unthemed. Verified in a browser before
+     * and after, both states, both bands.
      */
-    test('hero cta2 own chains stay free of the global tier while their rest twins are', () => {
+    test('hero cta2 own chains route the global tier in BOTH states, never one alone', () => {
         const restBody = bodyFor('.hero .hero__cta-group .hero__cta--secondary' + NOT3);
         const hoverBody = bodyFor('.hero .hero__cta-group .hero__cta--secondary' + NOT3 + ':hover');
         expect(restBody).not.toBeNull();
         expect(hoverBody).not.toBeNull();
 
-        // Premise: the REST twin routes neither global resting knob.
-        expect(restBody).not.toContain('--btn-bg');
-        expect(restBody).not.toContain('--btn-border-color');
-        // Therefore the hover twin routes neither global hover knob.
-        expect(hoverBody).not.toContain('--btn-hover-bg');
-        expect(hoverBody).not.toContain('--btn-hover-border-color');
+        // Rest routes both resting knobs (fill chain and ring chain respectively).
+        expect(restBody).toContain('--btn-bg');
+        expect(restBody).toContain('--btn-border-color');
+        // ...and therefore hover routes both hover knobs. Asserting the pair TOGETHER is the
+        // point: either one alone is the rest-vs-hover flash #539 refused to ship.
+        expect(hoverBody).toContain('--btn-hover-bg');
+        expect(hoverBody).toContain('--btn-hover-border-color');
+    });
+
+    /*
+     * PAIR STRUCTURE (#554) — the hero's two filled buttons resolve their fill and ring through
+     * chains of the same SHAPE, and so do the cta's two.
+     *
+     * This is the property the issue actually established. The original defect was not "a token
+     * is missing" but "the two buttons of one band answer to different sources", which is
+     * invisible to any single-chain assertion: every chain was individually well-formed.
+     *
+     * Same shape is not same colour. Each button still reads its OWN per-instance slots, so the
+     * pair matches wherever the winning link is a shared knob (--hero-accent, --btn-bg) and
+     * differs wherever it is a per-button one (--hero-cta2-bg). What must never return is the
+     * pair disagreeing about WHICH KINDS of link participate at all.
+     */
+    const PAIRS = [
+        {
+            what: 'hero, rest fill',
+            primary: '.hero .btn' + NOT3,
+            second: '.hero .hero__cta-group .hero__cta--secondary' + NOT3,
+            prop: 'background-color',
+            shared: ['--btn-bg'],
+        },
+        {
+            what: 'hero, rest ring',
+            primary: '.hero .btn' + NOT3,
+            second: '.hero .hero__cta-group .hero__cta--secondary' + NOT3,
+            prop: 'border-color',
+            shared: ['--hero-accent', '--btn-border-color', '--btn-bg'],
+        },
+        {
+            what: 'hero, hover fill',
+            primary: '.hero .btn' + NOT3 + ':hover',
+            second: '.hero .hero__cta-group .hero__cta--secondary' + NOT3 + ':hover',
+            prop: 'background-color',
+            shared: ['--btn-hover-bg'],
+        },
+        {
+            what: 'hero, hover ring',
+            primary: '.hero .btn' + NOT3 + ':hover',
+            second: '.hero .hero__cta-group .hero__cta--secondary' + NOT3 + ':hover',
+            prop: 'border-color',
+            shared: ['--hero-accent-hover', '--btn-hover-border-color', '--btn-hover-bg'],
+        },
+        // The cta pair is asserted too, not assumed. Each cta rule is pinned individually
+        // elsewhere, but nothing compared the two to each other — so a COORDINATED reorder of
+        // both (exactly the "make it consistent" cleanup this block exists to stop) passed.
+        {
+            what: 'cta, rest fill',
+            primary: '.cta .btn' + NOT3,
+            second: '.cta .cta__buttons .cta__button--secondary' + NOT3,
+            prop: 'background-color',
+            shared: ['--btn-bg'],
+        },
+        {
+            what: 'cta, rest ring',
+            primary: '.cta .btn' + NOT3,
+            second: '.cta .cta__buttons .cta__button--secondary' + NOT3,
+            prop: 'border-color',
+            shared: ['--btn-border-color', '--cta-accent', '--btn-bg'],
+        },
+        {
+            what: 'cta, hover fill',
+            primary: '.cta .btn' + NOT3 + ':hover',
+            second: '.cta .cta__buttons .cta__button--secondary' + NOT3 + ':hover',
+            prop: 'background-color',
+            shared: ['--btn-hover-bg'],
+        },
+        {
+            what: 'cta, hover ring',
+            primary: '.cta .btn' + NOT3 + ':hover',
+            second: '.cta .cta__buttons .cta__button--secondary' + NOT3 + ':hover',
+            prop: 'border-color',
+            shared: ['--btn-hover-border-color', '--cta-accent-hover', '--btn-hover-bg'],
+        },
+    ];
+
+    /*
+     * Resolved through the media-aware parseRules(), NOT the flat bodyFor() the rest of this
+     * describe uses. bodyFor returns the LAST textual match and cannot see @media, so a
+     * regression that strips the tier from the top-level rule and re-adds it inside a
+     * never-matching @media reads as green — verified by mutation. Uniqueness and top-level
+     * placement are asserted here rather than assumed, the #542 idiom.
+     */
+    const pairRules = parseRules();
+    const uniqueTopLevelRule = (sel) => {
+        const found = pairRules.filter(r => r.selectors.includes(sel));
+        expect(found.length, `${sel} must be declared exactly once`).toBe(1);
+        expect(found[0].media, `${sel} must be top level, not inside @media`).toBeNull();
+        return found[0].body;
+    };
+    const chainTokens = (body, prop, map = {}) => {
+        const m = body.match(new RegExp(prop + '\\s*:([^;}]+)'));
+        expect(m, `${prop} not declared`).not.toBeNull();
+        return m[1].match(/--[a-z0-9-]+/g).map(t => map[t] || t);
+    };
+
+    PAIRS.forEach(({ what, primary, second, prop, shared }) => {
+        test(`${what}: the second button routes every shared link its primary does`, () => {
+            const pChain = chainTokens(uniqueTopLevelRule(primary), prop);
+            const sChain = chainTokens(uniqueTopLevelRule(second), prop);
+            shared.forEach(tok => {
+                expect(pChain, `primary lost ${tok}`).toContain(tok);
+                expect(sChain, `second button lost ${tok} — the #554 split`).toContain(tok);
+            });
+            // Relative ORDER of the shared links must agree too. A site setting two of them at
+            // once is exactly where a reordered chain splits the pair again, which is how the
+            // accent-vs-global-knob ordering was chosen (the hero puts its accent first; the
+            // cta family puts the global ring knob first — each pair is internally consistent).
+            const idx = (chain) => shared.map(t => chain.indexOf(t));
+            const pOrder = idx(pChain), sOrder = idx(sChain);
+            const rank = (a) => a.map((_, i) => i).sort((x, y) => a[x] - a[y]).join(',');
+            expect(rank(sOrder), `${what}: shared links rank differently on the two buttons`)
+                .toBe(rank(pOrder));
+        });
+    });
+
+    /*
+     * The cta component is the stated parity model (#554): after this change hero cta2 and cta
+     * button2 must carry structurally EQUIVALENT chains — the same kinds of link, in the same
+     * roles. They are not token-identical (each reads its own component's slots), so the
+     * comparison is made on the chain's SHAPE with the component-specific names normalised.
+     */
+    test('hero cta2 and cta button2 carry structurally equivalent chains', () => {
+        const norm = chainTokens;
+        const heroMap = {
+            '--hero-cta2-border': 'OWN-BORDER', '--hero-cta2-bg': 'OWN-FILL',
+            '--hero-accent': 'ACCENT',
+            '--hero-cta2-hover-border': 'OWN-HOVER-BORDER', '--hero-cta2-hover-bg': 'OWN-HOVER-FILL',
+            '--hero-accent-hover': 'ACCENT-HOVER',
+        };
+        const ctaMap = {
+            '--cta-button2-border': 'OWN-BORDER', '--cta-button2-bg': 'OWN-FILL',
+            '--cta-accent': 'ACCENT',
+            '--cta-button2-hover-border': 'OWN-HOVER-BORDER', '--cta-button2-hover-bg': 'OWN-HOVER-FILL',
+            '--cta-accent-hover': 'ACCENT-HOVER',
+        };
+        const heroRest = uniqueTopLevelRule('.hero .hero__cta-group .hero__cta--secondary' + NOT3);
+        const ctaRest = uniqueTopLevelRule('.cta .cta__buttons .cta__button--secondary' + NOT3);
+        const heroHover = uniqueTopLevelRule('.hero .hero__cta-group .hero__cta--secondary' + NOT3 + ':hover');
+        const ctaHover = uniqueTopLevelRule('.cta .cta__buttons .cta__button--secondary' + NOT3 + ':hover');
+
+        // Fill chains are identical in shape, both states.
+        expect(norm(heroRest, 'background-color', heroMap))
+            .toEqual(norm(ctaRest, 'background-color', ctaMap));
+        expect(norm(heroHover, 'background-color', heroMap))
+            .toEqual(norm(ctaHover, 'background-color', ctaMap));
+
+        // Ring chains carry the same SET of links. The one documented divergence is where the
+        // component accent sits relative to the global ring knob: the hero hoists its accent
+        // above it (its primary does), the cta does not (its primary does not). That is what
+        // keeps each PAIR consistent, and it is asserted here rather than silently tolerated.
+        const setOf = (a) => [...a].sort().join(',');
+        expect(setOf(norm(heroRest, 'border-color', heroMap)))
+            .toBe(setOf(norm(ctaRest, 'border-color', ctaMap)));
+        expect(setOf(norm(heroHover, 'border-color', heroMap)))
+            .toBe(setOf(norm(ctaHover, 'border-color', ctaMap)));
+
+        expect(norm(heroRest, 'border-color', heroMap)).toEqual(
+            ['OWN-BORDER', 'ACCENT', '--btn-border-color', 'OWN-FILL', '--btn-bg', '--color-accent']);
+        expect(norm(ctaRest, 'border-color', ctaMap)).toEqual(
+            ['OWN-BORDER', '--btn-border-color', 'OWN-FILL', 'ACCENT', '--btn-bg', '--color-accent']);
     });
 });
 

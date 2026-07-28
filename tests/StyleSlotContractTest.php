@@ -1182,27 +1182,37 @@ class StyleSlotContractTest extends TestCase
         // The cta2 rest rule still consumes --hero-cta2-bg directly (background-color), so
         // the slot keeps its in-block, type-compatible consumption for the keystone checks.
         $this->assertStringContainsString(
-            'background-color: var(--hero-cta2-bg, var(--hero-accent, var(--color-accent)))',
+            'background-color: var(--hero-cta2-bg, var(--hero-accent, var(--btn-bg, var(--color-accent))))',
             $block,
-            'The filled cta2 rest rule must keep routing --hero-cta2-bg (issue 111/526).'
+            'The filled cta2 rest rule must keep routing --hero-cta2-bg (issue 111/526), then '
+            . 'the global --btn-bg (issue 554) at the position the hero PRIMARY holds it.'
         );
         // Border FOLLOWS the fill when its own knobs are unset — the #514 idiom the primary
         // uses, extended to cta2 by the issue 526 decision. Without --hero-cta2-bg in this
         // chain a fill-only recolor renders a --color-accent ring around a brand-colored
         // button; --hero-cta2-border / --hero-accent still win first, and the chain still
         // bottoms out at --color-accent so an unset cta2 is byte-identical.
+        // Issue 554 inserted the global tier at the hero PRIMARY's positions: the ring knob
+        // after --hero-accent, --btn-bg at the tail of the border-follows-fill link. The
+        // ordering is load-bearing — putting --btn-border-color ahead of --hero-accent (the
+        // cta component's order) would split the hero PAIR on any site setting both, which is
+        // the exact defect this issue closed.
         $this->assertStringContainsString(
-            'border-color: var(--hero-cta2-border, var(--hero-accent, var(--hero-cta2-bg, var(--color-accent))))',
+            'border-color: var(--hero-cta2-border, var(--hero-accent, var(--btn-border-color, var(--hero-cta2-bg, var(--btn-bg, var(--color-accent))))))',
             $block,
             'The filled cta2 border must FOLLOW --hero-cta2-bg when --hero-cta2-border and '
-            . '--hero-accent are unset (issue 526, mirroring the primary at #514).'
+            . '--hero-accent are unset (issue 526, mirroring the primary at #514), and must '
+            . 'route the global tier at the primary\'s positions (issue 554).'
         );
         // The hover half of both chains (issue 530), mirroring the rest chains above with
         // each knob swapped for its hover equivalent.
         $this->assertStringContainsString(
-            'background-color: var(--hero-cta2-hover-bg, var(--hero-accent-hover, var(--color-accent-hover)))',
+            'background-color: var(--hero-cta2-hover-bg, var(--hero-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))))',
             $block,
-            'The filled cta2 hover rule must keep routing --hero-cta2-hover-bg (issue 530).'
+            'The filled cta2 hover rule must keep routing --hero-cta2-hover-bg (issue 530), '
+            . 'then the global --btn-hover-bg (issue 554). Rest and hover gained the tier '
+            . 'together on purpose: either half alone renders the accent at rest and flashes '
+            . 'to the operator colour on hover, which is why #539 wired neither.'
         );
         // Same contract as the cta's button2: the hover border FOLLOWS the hover fill, but only
         // from the last fallback position (issue 538, Option 3 — the flipped #530 negative pin).
@@ -1212,7 +1222,7 @@ class StyleSlotContractTest extends TestCase
         $this->assertHoverBorderChain(
             $block,
             '.hero .hero__cta-group .hero__cta--secondary',
-            ['--hero-cta2-hover-border', '--hero-accent-hover', '--hero-cta2-hover-bg', '--color-accent-hover'],
+            ['--hero-cta2-hover-border', '--hero-accent-hover', '--btn-hover-border-color', '--hero-cta2-hover-bg', '--btn-hover-bg', '--color-accent-hover'],
             'cta2'
         );
         // The hero PRIMARY's new hover fill slot keeps an in-block, type-compatible
