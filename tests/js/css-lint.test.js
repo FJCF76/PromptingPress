@@ -4593,3 +4593,213 @@ describe('CSS lint: band link ink is carved out of the light panel CTA (#551)', 
         expect(BASE_CSS).toMatch(/--color-accent-on-inverted:\s*#[0-9a-fA-F]{6}/);
     });
 });
+
+
+/**
+ * Per-instance button slots never reach an author-written nested `.btn` (#545).
+ *
+ * The per-instance filled-button slot families are emitted on the COMPONENT ROOT and consumed
+ * by selector shapes that match ANY composed button — `main .btn:not(...)`, `.hero .btn:not(...)`
+ * and `.cta .btn:not(...)`. Custom properties inherit, so before #545 those slots repainted a
+ * `.btn` an author hand-writes into a wp_kses_post rich-text prop (`section.body`, `hero.proof`).
+ * The fix neutralises them (`--slot: initial`, the guaranteed-invalid value) on every composed
+ * button that is not a renderer-owned button element.
+ *
+ * The load-bearing, otherwise-invisible half is COMPLETENESS, and this pin derives it
+ * STRUCTURALLY rather than from a name pattern:
+ *
+ *   leak-capable  =  { schema-declared style_slot }  ∩  { slot read by a rule whose selector
+ *                     mentions .btn and does NOT require an owned button class }
+ *
+ * Every leak-capable slot must then be either NEUTRALISED by the rule or on the short,
+ * documented list of band-level slots we deliberately let reach a nested button. A new slot in
+ * a new family is caught by construction — a prefix regex would not have caught it, which was
+ * the whole justification for preferring this mechanism over per-slot private twins.
+ */
+describe('CSS lint: per-instance button slots are neutralised on non-owned buttons (#545)', () => {
+    const fsq = require('fs');
+    const pathq = require('path');
+
+    // The renderer-owned button elements: hero.php:126,130 (.hero__cta, incl. the cta2
+    // modifier), cta.php:112,116 (.cta__button, incl. the button2 modifier),
+    // section.php:270 (.section__panel-cta).
+    const OWNED_BUTTON_CLASSES = ['.hero__cta', '.cta__button', '.section__panel-cta'];
+
+    /**
+     * Band-level slots that are leak-capable AND deliberately NOT neutralised. They colour every
+     * accented element in the band by design, and a nested button is one of those elements.
+     * Adding to this list is a conscious product call, which is exactly the point: a NEW BUTTON
+     * slot cannot be added here by reflex without someone reading this comment.
+     */
+    const INTENTIONALLY_REACHING = [
+        '--cta-accent',        // band accent: fills/rings every accented element in the cta
+        '--cta-accent-hover',
+        '--hero-accent',       // same, on the hero band
+        '--hero-accent-hover',
+        '--hero-text',         // band ink: the outline variant's foreground
+        '--hero-bg',           // the outline variant's hover ink, per hero/schema.json
+    ].sort();
+
+    const STRIPPED = stripComments(COMPONENTS_CSS);
+
+    /** Every style slot every component schema declares, mapped to its component. */
+    function schemaSlots() {
+        const out = {};
+        const dir = path.resolve(__dirname, '../../components');
+        fsq.readdirSync(dir).forEach((name) => {
+            const file = pathq.join(dir, name, 'schema.json');
+            if (!fsq.existsSync(file)) return;
+            const schema = JSON.parse(fsq.readFileSync(file, 'utf-8'));
+            const slots = (schema.styling && schema.styling.style_slots) || {};
+            Object.keys(slots).forEach((slot) => {
+                out[slot] = name;
+            });
+        });
+        return out;
+    }
+
+    /**
+     * Slots a NON-OWNED composed button can inherit: read inside a rule whose selector mentions
+     * `.btn` without requiring one of the owned classes. Takes css + slot map as arguments so
+     * the detection proofs below can run it against a mutated stylesheet/schema pair.
+     */
+    function leakCapableSlots(css, slots) {
+        const found = new Set();
+        const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+        let m;
+        while ((m = ruleRe.exec(css)) !== null) {
+            // Evaluate each ARM of a selector list separately. Testing the whole string would
+            // skip `.section .btn, .hero__cta { … }` entirely because one arm names an owned
+            // class, silently blessing the leaking arm.
+            const leaks = m[1]
+                .split(',')
+                .map((arm) => arm.trim())
+                .some((arm) =>
+                    arm.includes('.btn') && !OWNED_BUTTON_CLASSES.some((cls) => arm.includes(cls)),
+                );
+            if (!leaks) continue;
+            const varRe = /var\(\s*(--[a-z0-9-]+)/g;
+            let v;
+            while ((v = varRe.exec(m[2])) !== null) {
+                if (Object.prototype.hasOwnProperty.call(slots, v[1])) found.add(v[1]);
+            }
+        }
+        return [...found].sort();
+    }
+
+    /** The neutralisation rule's selector and the properties it sets to `initial`. */
+    function neutralisationRule(css) {
+        const blocks = css.match(/main\s+\.btn(?::not\(\.[a-z0-9_-]+\))+\s*\{[^}]*\}/gi);
+        if (!blocks) return null;
+        const hit = blocks.find((block) => {
+            const body = block.slice(block.indexOf('{') + 1, -1).trim();
+            return (
+                body.length > 0 &&
+                body
+                    .split(';')
+                    .map((d) => d.trim())
+                    .filter(Boolean)
+                    .every((d) => /^--[a-z0-9-]+:\s*initial$/.test(d))
+            );
+        });
+        if (!hit) return null;
+        return {
+            selector: hit.slice(0, hit.indexOf('{')).trim(),
+            props: [...hit.matchAll(/(--[a-z0-9-]+):\s*initial/g)].map((x) => x[1]).sort(),
+        };
+    }
+
+    test('the neutralisation rule exists and excludes exactly the owned button classes', () => {
+        const rule = neutralisationRule(STRIPPED);
+        expect(rule, 'no `main .btn:not(...) { --slot: initial }` rule found').not.toBeNull();
+
+        const excluded = [...rule.selector.matchAll(/:not\((\.[a-z0-9_-]+)\)/g)]
+            .map((m) => m[1])
+            .sort();
+        expect(excluded).toEqual([...OWNED_BUTTON_CLASSES].sort());
+    });
+
+    test('the derivation finds the shipped families (the pin is not vacuous)', () => {
+        const leaky = leakCapableSlots(STRIPPED, schemaSlots());
+        ['--hero-button-bg', '--hero-button-hover-bg', '--cta-button-bg', '--cta-button-hover-bg',
+            '--section-panel-cta-bg'].forEach((slot) => {
+            expect(leaky, `${slot} must be visible to the derivation`).toContain(slot);
+        });
+    });
+
+    test('every leak-capable schema slot is neutralised, or deliberately left reaching', () => {
+        const rule = neutralisationRule(STRIPPED);
+        const stillReaching = leakCapableSlots(STRIPPED, schemaSlots())
+            .filter((slot) => !rule.props.includes(slot));
+
+        expect(
+            stillReaching,
+            'these slots still inherit onto an author-written nested .btn — neutralise them, or '
+            + 'add them to INTENTIONALLY_REACHING with a reason',
+        ).toEqual(INTENTIONALLY_REACHING);
+    });
+
+    test('it neutralises nothing outside the per-instance button families', () => {
+        const rule = neutralisationRule(STRIPPED);
+        const strays = rule.props.filter(
+            (p) => !/^--(?:hero-button|hero-cta2|cta-button|cta-button2|section-panel-cta)-/.test(p),
+        );
+        expect(strays, 'the global --btn-* tier and band accents must keep reaching nested buttons')
+            .toEqual([]);
+    });
+
+    test('the global button tier is deliberately NOT neutralised', () => {
+        const rule = neutralisationRule(STRIPPED);
+        ['--btn-bg', '--btn-text', '--btn-border-color', '--btn-shadow', '--btn-hover-bg',
+            '--btn-hover-border-color'].forEach((token) => {
+            expect(rule.props).not.toContain(token);
+        });
+    });
+
+    test('detection proof: a slot in a BRAND-NEW family left out of the rule is caught', () => {
+        // The case a name-prefix guard would miss entirely: a future component ships its own
+        // button slot under a prefix nobody has seen, and wires it into a leak-capable chain.
+        const rule = neutralisationRule(STRIPPED);
+        // Global replace: the FIRST occurrence lives in the owned `.section__panel-cta` rule,
+        // which the derivation correctly skips, so a first-match mutation would prove nothing.
+        const mutatedCss = STRIPPED.split('var(--section-panel-cta-bg')
+            .join('var(--faq-answer-cta-bg, var(--section-panel-cta-bg');
+        const mutatedSlots = Object.assign(schemaSlots(), { '--faq-answer-cta-bg': 'faq' });
+        const stillReaching = leakCapableSlots(mutatedCss, mutatedSlots)
+            .filter((slot) => !rule.props.includes(slot));
+        expect(stillReaching).toContain('--faq-answer-cta-bg');
+    });
+
+    test('detection proof: a leaking arm of a selector LIST is not blessed by a sibling arm', () => {
+        // The grouped-selector blind spot: if the scan tested the whole selector string, one arm
+        // naming an owned class would hide the leaking arm next to it.
+        const rule = neutralisationRule(STRIPPED);
+        const mutatedCss = STRIPPED
+            + '\n.section__panel-cta, .section__content .btn { color: var(--faq-answer-cta-color); }';
+        const mutatedSlots = Object.assign(schemaSlots(), { '--faq-answer-cta-color': 'faq' });
+        const stillReaching = leakCapableSlots(mutatedCss, mutatedSlots)
+            .filter((slot) => !rule.props.includes(slot));
+        expect(stillReaching).toContain('--faq-answer-cta-color');
+    });
+
+    test('detection proof: dropping an exclusion is caught', () => {
+        const rule = neutralisationRule(STRIPPED);
+        const broken = neutralisationRule(
+            STRIPPED.replace(rule.selector, 'main .btn:not(.hero__cta):not(.cta__button)'),
+        );
+        const excluded = [...broken.selector.matchAll(/:not\((\.[a-z0-9_-]+)\)/g)]
+            .map((m) => m[1])
+            .sort();
+        // Re-run the PRODUCTION assertion against the mutation, not a restatement of it: the
+        // shipped test must be what goes red, or this proves only that a string lost a substring.
+        expect(() => expect(excluded).toEqual([...OWNED_BUTTON_CLASSES].sort())).toThrow();
+    });
+
+    test('no per-instance button slot is read outside components.css', () => {
+        // The derivation scans components.css. A family slot consumed from base.css or
+        // utilities.css would satisfy it while still leaking, so pin that it cannot happen.
+        const FAMILY = /var\(\s*--(?:hero-button|hero-cta2|cta-button|cta-button2|section-panel-cta)-/;
+        expect(FAMILY.test(stripComments(BASE_CSS))).toBe(false);
+        expect(FAMILY.test(stripComments(UTILITIES_CSS))).toBe(false);
+    });
+});

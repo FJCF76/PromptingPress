@@ -57,8 +57,10 @@
      literal and an unset button is byte-identical; SET any of these at :root (via
      update_design_token) to restyle EVERY composed primary button site-wide — including the
      premium `main .btn` primary, which reaches them through these tokens (#458). Per-component
-     slots (--cta-button-* / --cta-accent / --hero-accent) still win when set; --btn-* sits
-     between those slots and the literal fallback. --btn-text keeps a concrete default because
+     slots (--cta-button-* / --cta-accent / --hero-accent) still win when set, ON THE BUTTON THE
+     COMPONENT OWNS; --btn-* sits between those slots and the literal fallback. On any other
+     composed button — a `.btn` an author hand-writes into a rich-text prop — the per-instance
+     button slots are neutralised (#545) and --btn-* is the tier that reaches it. --btn-text keeps a concrete default because
      its value already equals the universal ink literal (--color-bg) every button rule falls
      back to, so it stays discoverable AND overridable. Effective unset defaults differ by
      rule: --btn-bg = --color-accent on the bare .btn / accent gradient on the composed
