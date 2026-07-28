@@ -386,8 +386,12 @@ flat `--cta-button-bg` recolors the RESTING primary only, so add `--cta-button-h
 (and `--cta-button2-hover-bg` for the second button) when a filled button should stay
 on-brand through the hover instead of returning to the premium gradient. Setting the
 primary's hover fill never touches the second button's. Pair each hover slot with its
-resting slot: with only the hover slot set, the button drops the gradient layer instantly
-while the color animates, which reads as a brief off-brand wash. On a dark band
+resting slot when you want the button to look branded BEFORE the pointer arrives — with
+only the hover slot set the resting button keeps the premium gradient, and the brand fill
+appears on hover. The swap itself is clean either way: on a `primary` button the fill and its
+ring change instantly rather than animating, so no unchosen in-between colour renders. That
+snap applies to the primary variant only, and to both its rest-and-hover-paired and
+hover-only forms; `outline`, `ghost` and `secondary` keep the shared button cross-fade. On a dark band
 (`theme: "inverted"` or a `background_image`) the default outline/ghost ink of BOTH buttons
 already routes to the AA-safe on-dark accent role, so each is readable without any slot;
 set `--cta-button-color` / `--cta-button2-color` only to override that. The same holds for
