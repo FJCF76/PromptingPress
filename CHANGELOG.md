@@ -24,7 +24,7 @@ Nothing unless you set a global button fill token AND render a photo or cover ba
 | `--btn-bg` set, any light or inverted band | global fill colour became the ring | unchanged — #554's coverage contract holds |
 | nothing set | theme default | unchanged |
 
-This is a deliberate behaviour change, not only hardening: if you were using `--btn-bg` to colour the rings on your photo bands, that now needs the per-instance slot for the band you want to change. The global fill tokens still paint those buttons' FILL exactly as before; it is only the separation ring they no longer drag along. Rest and hover moved together, so no configuration can produce a ring that changes colour when the pointer lands.
+This is a deliberate behaviour change, not only hardening: if you were using `--btn-bg` to colour the rings on your photo bands, that now needs the per-instance slot for the band you want to change. The global fill tokens still paint those buttons' FILL exactly as before; it is only the separation ring they no longer drag along. Rest and hover moved together, so this change cannot create an unintended rest-to-hover ring split. An author who deliberately sets different rest and hover values still gets the change they asked for.
 
 ### Fixed
 
