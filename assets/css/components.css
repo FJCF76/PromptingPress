@@ -930,10 +930,24 @@
    it; its border followed the fill, so it added nothing. Here the border stops following
    the fill and bottoms out at the on-overlay role (4.59:1, base.css) — the "border falling
    back to a role token distinct from the fill" the recorded direction names.
-   Only the TERMINAL fallback changes: --hero-accent, --btn-border-color and the fill chain
-   (--hero-button-bg -> --btn-bg) all stay ahead of it in `.hero .btn:not(...)`'s exact
-   order, so a cover hero flattened to a brand colour with --hero-button-bg keeps its
-   MATCHING ring rather than gaining a near-white one.
+   --hero-accent and the fill chain (--hero-button-bg -> --btn-bg) stay ahead of the role in
+   `.hero .btn:not(...)`'s exact order, so a cover hero flattened to a brand colour with
+   --hero-button-bg keeps its MATCHING ring rather than gaining a near-white one.
+   The GLOBAL ring knob --btn-border-color is deliberately ABSENT from this chain (issue
+   564). On a cover band the terminal is not a bare default, it is a measured 4.59:1
+   separation role; leaving the global knob above it let a site-wide ring retheme silently
+   defeat the one thing this rule exists to guarantee. --color-accent-on-overlay is declared
+   at :root (base.css), so it is always set — parking the knob BELOW it would have been
+   provably dead code rather than a demotion, which is why the link is removed outright
+   instead of reordered. A site that genuinely wants its own ring on this band still has the
+   per-instance slots above, which is the documented escape hatch. Only configurations that
+   author the global knob ON a cover band change: the unset render is byte-identical, and so is
+   every single-knob render EXCEPT the global ring knob itself, which is precisely the one this
+   rule stops honouring. (Unlike the cta twins, nothing else moved in this chain — the hero
+   already ranked --hero-accent above its fill link, so #564 only deleted a link here.)
+   The 4.59:1 figure is the UNAUTHORED default, not an invariant: --hero-accent and the fill
+   chain still sit above the role and can put an author's colour on this ring, which is how
+   #535 shipped it. What changed is that a knob nobody aimed at THIS band no longer can.
    [0,5,0], the SAME as `.hero .btn:not(...)` above, so it wins only by following it in
    source order (pinned in css-lint) — not by outranking it. `.hero__cta` is used rather
    than the bare `.btn` the two rules above use so the ring stays on the hero's own CTA
@@ -941,14 +955,16 @@
    is [0,6,0] to beat `.hero .btn:not(...):hover`, whose border also follows the fill.
    There is no `theme: inverted` hero, so the Q2 not-ringed case does not arise here. */
 .hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  border-color: var(--hero-accent, var(--btn-border-color, var(--hero-button-bg, var(--btn-bg, var(--color-accent-on-overlay)))));
+  border-color: var(--hero-accent, var(--hero-button-bg, var(--btn-bg, var(--color-accent-on-overlay))));
 }
 .hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  /* Global hover tier (issue 539) in the same slot its resting counterpart holds in the rest
-     twin directly above: --btn-hover-border-color after --hero-accent-hover, --btn-hover-bg
-     at the tail of the border-follows-fill link. Only the terminal on-overlay fallback stays
-     last, exactly as at rest. */
-  border-color: var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-button-hover-bg, var(--btn-hover-bg, var(--color-accent-on-overlay)))));
+  /* The rest twin's chain with every knob swapped for its hover equivalent, so the two are
+     positional twins and the ring cannot change role on pointer-enter. --btn-hover-border-color
+     is absent for the same reason --btn-border-color is absent at rest (issue 564): the
+     global ring knob must not defeat the measured on-overlay separation role. Dropping it
+     from ONE state only would have produced exactly the rest->hover flip the #543 twins
+     exist to prevent, so both halves move together. */
+  border-color: var(--hero-accent-hover, var(--hero-button-hover-bg, var(--btn-hover-bg, var(--color-accent-on-overlay))));
 }
 
 /* Second CTA button (cta2): per-instance bg/border/color override, independent
@@ -983,12 +999,15 @@
      --btn-border-color / --btn-bg sit at exactly the positions they hold in the hero
      PRIMARY's rest ring (`.hero .btn:not(...)` above): the global ring knob AFTER
      --hero-accent, --btn-bg at the tail of the border-follows-fill link (issue 554).
-     ORDERING IS LOAD-BEARING, and it is the hero primary's order, not the cta's. The cta
-     family puts --btn-border-color ahead of its component accent; the hero puts --hero-accent
-     first. Following the cta here would SPLIT the very pair this issue exists to join: on a
-     site setting both --hero-accent and --btn-border-color, the primary rings itself with
-     --hero-accent while cta2 would ring itself with --btn-border-color. Each component stays
-     internally consistent with its own primary, which is what pair consistency requires. */
+     ORDERING IS LOAD-BEARING: the band accent must stay ahead of --btn-border-color, or a
+     site setting both --hero-accent and --btn-border-color SPLITS the very pair this issue
+     exists to join (the primary would ring itself with --hero-accent while cta2 rang itself
+     with the global knob). This used to be the hero's order ALONE — the cta family ranked
+     --btn-border-color ahead of its own accent, and each component was merely
+     self-consistent. Issue 564 moved the cta family onto this order too, because that split
+     was letting a site-wide ring retheme defeat an authored --cta-accent and, on photo
+     bands, the measured on-overlay separation role. Both components now rank the band accent
+     first, so the order is consistent WITHIN each pair and ACROSS the two families. */
   border-color: var(--hero-cta2-border, var(--hero-accent, var(--btn-border-color, var(--hero-cta2-bg, var(--btn-bg, var(--color-accent))))));
   color: var(--hero-cta2-color, var(--btn-text, var(--color-bg)));
 }
@@ -1117,26 +1136,31 @@
    Note the block right above deliberately left the filled cta2 alone ("an explicit author
    choice, not a default ... out of scope"). That scoping is what this issue reverses, with
    the gate's approval: the defect is the PAIR's asymmetry, not the variant's default.
-   Both chains are the base cta2 chains verbatim with the terminal --color-accent /
-   --color-accent-hover swapped for --color-accent-on-overlay (4.59:1). --hero-cta2-border,
-   --hero-accent, the global ring knob and the fill still win at rest;
-   --hero-cta2-hover-border, --hero-accent-hover, the global hover ring knob and then the
-   hover fill (#538's Option 3 order) still win on hover.
-   "Verbatim" is the contract, not a description: when issue 554 added the global tier to the
-   base chains it had to be added here in the same positions, or a cover hero would have been
-   the one band where a site-wide button retheme still failed to reach cta2 — re-opening this
-   issue's own defect on the band #543 exists to fix. Only the terminal is ever this rule's
-   to change.
+   Both chains are the base cta2 chains with the terminal --color-accent /
+   --color-accent-hover swapped for --color-accent-on-overlay (4.59:1) AND the global ring
+   knob removed (issue 564). --hero-cta2-border, --hero-accent and the fill still win at
+   rest; --hero-cta2-hover-border, --hero-accent-hover and then the hover fill still win on
+   hover.
+   The contract used to be "the base chain VERBATIM, only the terminal changes" — #554 added
+   the global tier here on exactly that reasoning, so a cover hero would not be the one band a
+   site-wide retheme failed to reach. #564 narrows it: base chain verbatim MINUS the global
+   ring knob. On this band the terminal is a measured 4.59:1 separation role rather than an
+   ordinary default, and a site-wide ring retheme sitting above it defeated the guarantee the
+   rule exists to make. The knob is REMOVED rather than demoted because
+   --color-accent-on-overlay is declared at :root (base.css) and therefore always set, so any
+   link below it is dead code. Per-instance slots stay above everything as the escape hatch.
+   Both halves move together: dropping the knob from hover only would re-open the rest->hover
+   flip these twins exist to prevent.
    [0,6,0] rest / [0,7,0] hover — equal to the base cta2 rules, so these win by SOURCE
    ORDER only and must stay below them (pinned in css-lint). The hover twin is not
    optional: #538 made the base hover ring follow the hover fill, so a rest-only ring
    would dissolve again the moment the pointer landed — the same WCAG 1.4.11 hole
    #535's rendered inspection caught on the primary. */
 .hero--cover .hero__cta-group .hero__cta--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  border-color: var(--hero-cta2-border, var(--hero-accent, var(--btn-border-color, var(--hero-cta2-bg, var(--btn-bg, var(--color-accent-on-overlay))))));
+  border-color: var(--hero-cta2-border, var(--hero-accent, var(--hero-cta2-bg, var(--btn-bg, var(--color-accent-on-overlay)))));
 }
 .hero--cover .hero__cta-group .hero__cta--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  border-color: var(--hero-cta2-hover-border, var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-cta2-hover-bg, var(--btn-hover-bg, var(--color-accent-on-overlay))))));
+  border-color: var(--hero-cta2-hover-border, var(--hero-accent-hover, var(--hero-cta2-hover-bg, var(--btn-hover-bg, var(--color-accent-on-overlay)))));
 }
 
 /* cta2 slot isolation + premium fill routing (issue 526). Style slots are emitted as
@@ -2637,11 +2661,33 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 .cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
   /* Global button surface routed under the cta slots (#458): component slots (--cta-button-*
      / --cta-accent) still win; unset, fill falls to --btn-bg then --color-accent
-     (byte-identical). Border honors --cta-button-border, then its own --btn-border-color knob,
-     else FOLLOWS the fill chain (so a flat --cta-button-bg OR a global --btn-bg keeps no accent
-     ring, issue 420 preserved). */
+     (byte-identical). Border honors --cta-button-border, then the BAND ACCENT, then the
+     global --btn-border-color knob, else FOLLOWS the fill chain (so a flat --cta-button-bg
+     OR a global --btn-bg keeps no accent ring, issue 420 preserved).
+     ORDER (issue 564): --cta-accent outranks --btn-border-color, and this chain is now the
+     POSITIONAL TWIN of its :hover rule below — every link sits at the same rank as its hover
+     equivalent. That is the whole point: with rest and hover positionally identical, no
+     authoring configuration can make the ring change ROLE on pointer-enter — whichever kind of
+     link wins at rest, its hover twin wins on hover. (The ring can still change COLOUR, of
+     course, whenever the author gives a knob and its hover twin different values. That is the
+     hover state doing its job; what is gone is the ring jumping to a different KIND of link.)
+     It also puts
+     this family on the hero's shipped order (`.hero .btn` and `.hero__cta--secondary`, whose
+     border-color declarations sit above this one in this file), so a narrower authored band
+     accent is not defeated by a broader site-wide knob.
+     Two of #564's three repainted configurations touch THIS chain — the letters below are
+     #564's own enumeration, and (b) is missing here on purpose: (b) is the overlay-band case,
+     which belongs to the ring twins further down, not to this plain-band rule. (a) --cta-accent
+     WITH --btn-border-color (the accent now wins, matching the fill side and the hero), and
+     (c) --cta-accent WITH --cta-button-bg (the accent now wins at rest, which is what
+     RETIRES the old rest->hover flip — the hover chain already resolved to the accent
+     there, so rest and hover disagreed on one band). (c) is #538's Option 2, reopened
+     DELIBERATELY by the maintainer on #564 (issuecomment-5106604500) after #538 reserved
+     it. Unset and every single-knob configuration are byte-identical, verified by rendered
+     resolution across all ten configurations. --btn-border-color still outranks the fill
+     link, so #554's "a global knob reaches this button" contract is untouched. */
   background-color: var(--cta-button-bg, var(--cta-accent, var(--btn-bg, var(--color-accent))));
-  border-color: var(--cta-button-border, var(--btn-border-color, var(--cta-button-bg, var(--cta-accent, var(--btn-bg, var(--color-accent))))));
+  border-color: var(--cta-button-border, var(--cta-accent, var(--btn-border-color, var(--cta-button-bg, var(--btn-bg, var(--color-accent))))));
 }
 .cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   /* Global hover tier (issue 539) mirrors the rest chain above: --btn-hover-bg last before
@@ -2650,30 +2696,31 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      decorative — this rule is [0,6,0] and decides background-COLOR, while the premium
      [0,5,1] hover rule decides background-IMAGE; once the global knob clears the gradient
      there, this declaration is what actually paints.
-     ORDER (issue 548): --cta-accent-hover outranks the hover FILL in the BORDER chain, which
-     is #538's Option-3 order. Accent-above-own-FILL is now uniform across every filled hover
-     chain this theme ships — hero primary, hero cta2, cta button2, this one and their
-     overlay/cover twins. (Uniform on THAT property only. Since issue 554 every filled chain
-     also carries #539's global tier — hero cta2 was the last holdout. What still differs
-     between the two components is the ORDER of the accent vs the global ring knob: the hero
-     ranks --hero-accent first, this family ranks --btn-border-color first, each matching its
-     own primary so neither PAIR can disagree with itself.)
-     This chain used to be the one exception
-     (fill ahead of the accent), so a site authoring --cta-accent-hover plus both hover
-     fills rendered two different ring colours on one band, side by side. Note the
-     invariant is narrower than "accent first": --cta-button-hover-border and the global
-     --btn-hover-border-color both still outrank --cta-accent-hover. What is now uniform is
-     accent-above-per-instance-FILL. Only the both-authored case changes; with the accent
-     knob unset the fill still rings itself from its later position, and with both unset the
-     chain reaches the same literal, so fill-only and unset renders are untouched.
-     The REST chain above is deliberately NOT reordered, so this button now carries the same
-     rest/hover asymmetry button2 has carried since #538: with --cta-accent, --cta-accent-hover
-     and both fill slots authored, the ring matches the FILL at rest and flips to the ACCENT
-     on pointer-enter. That is a state TRANSITION, not a static repaint — worth looking at
-     under a real pointer, not only at the settled hover value. Reordering rest to match is
-     #538's rejected Option 2. */
+     ORDER (issue 548, extended by issue 564): --cta-accent-hover outranks the hover FILL in
+     the BORDER chain (#538's Option-3 order) AND, since #564, the global
+     --btn-hover-border-color knob as well. Accent-above-own-FILL is uniform across every
+     filled hover chain this theme ships — hero primary, hero cta2, cta button2, this one and
+     their overlay/cover twins. Since #564 accent-above-the-GLOBAL-knob is uniform across them
+     too: the cta family used to rank --btn-hover-border-color first while the hero ranked
+     --hero-accent-hover first, and that split is what let a site-wide ring knob defeat an
+     authored band accent on cta bands only. Both components now rank the band accent first.
+     The invariant is still narrower than "accent leads": --cta-button-hover-border, the
+     per-instance ring slot, remains above everything. It is the escape hatch for a site that
+     genuinely wants a different ring here.
+     --btn-hover-border-color keeps its position ABOVE the per-instance hover FILL link, so
+     #539's "an explicitly authored global ring beats one merely inferred from a fill" still
+     holds and #554's coverage contract is untouched. Only the accent/global pair moved.
+     The REST chain above is now this chain's POSITIONAL TWIN (issue 564): every link holds
+     the same rank as its resting equivalent, so the rest/hover ring FLIP this comment used to
+     document is gone rather than merely tolerated. With --cta-accent, --cta-accent-hover and
+     both fill slots authored, the ring is the ACCENT in both states instead of matching the
+     fill at rest and flipping on pointer-enter. Retiring that flip is #538's Option 2, which
+     #538 reserved to the maintainer and #564 reopened deliberately
+     (issuecomment-5106604500). Verified under a real pointer, not only at the settled hover
+     value: the #540 snap transition-property contract is untouched, so both states are
+     settled states. */
   background-color: var(--cta-button-hover-bg, var(--cta-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));
-  border-color: var(--cta-button-hover-border, var(--btn-hover-border-color, var(--cta-accent-hover, var(--cta-button-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))));
+  border-color: var(--cta-button-hover-border, var(--cta-accent-hover, var(--btn-hover-border-color, var(--cta-button-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))));
 }
 
 /* CTA button (single button): per-instance bg/border/color override,
@@ -2779,15 +2826,16 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      second fell through to --color-accent. Unset, both bottom out identically. */
   background-color: var(--cta-button2-bg, var(--cta-accent, var(--btn-bg, var(--color-accent))));
   /* Border FOLLOWS the fill when its own knobs are unset (the #514/#526 idiom, in the
-     PRIMARY's exact order AT REST — the hover twin below deliberately diverges from THIS
-     REST order, see #538; since #548 it no longer diverges from the primary's HOVER chain,
-     which now uses the same accent-above-fill order):
-     --cta-button2-border wins, then the global
+     PRIMARY's exact order AT REST — and since #564 the hover twin below no longer diverges
+     from THIS rest order either, so this button's two states are positional twins):
+     --cta-button2-border wins, then the BAND ACCENT (#564), then the global
      --btn-border-color knob, then the fill chain — so a filled second button recolored
-     with the fill slot alone keeps a MATCHING ring rather than an --cta-accent one
-     around a brand-colored button. Unset, the chain still bottoms out at
-     --color-accent, byte-identical. */
-  border-color: var(--cta-button2-border, var(--btn-border-color, var(--cta-button2-bg, var(--cta-accent, var(--btn-bg, var(--color-accent))))));
+     with the fill slot alone still keeps a MATCHING ring, while one recolored with
+     --cta-accent gets the accent ring in BOTH states rather than the fill at rest and the
+     accent on hover. Unset, the chain still bottoms out at --color-accent, byte-identical;
+     so is every single-knob configuration. See the primary's rest chain above for the two
+     repainted configurations, both recorded on #564. */
+  border-color: var(--cta-button2-border, var(--cta-accent, var(--btn-border-color, var(--cta-button2-bg, var(--btn-bg, var(--color-accent))))));
   color: var(--cta-button2-color, var(--btn-text, var(--color-bg)));
 }
 .cta .cta__buttons .cta__button--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
@@ -2803,14 +2851,14 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      used to get a --color-accent-hover ring around a brand-colored pill. Authored values
      still win in their existing order, and unset the chain still bottoms out at
      --color-accent-hover (byte-identical).
-     REST-vs-HOVER ASYMMETRY, deliberate and cta-only: this hover chain puts the fill BEHIND
-     the accent knob, while the REST chain above puts --cta-button2-bg AHEAD of --cta-accent.
-     So a site that sets --cta-accent, --cta-accent-hover AND both fill slots gets a ring that
-     matches the fill at rest and returns to the accent on hover. That is the accepted cost of
-     #538 Option 3: --cta-accent-hover is an already-authored knob on this shipped surface, and
-     putting the fill ahead of it (matching rest) is Option 2, which was rejected precisely
-     because it repaints those rings. Do NOT "fix" this into rest/hover parity — the
-     StyleSlotContractTest pin will stop you, on purpose.
+     REST-vs-HOVER PARITY (issue 564): this hover chain and the REST chain above are now
+     POSITIONAL TWINS — each link holds the same rank as its resting equivalent. The
+     asymmetry this comment used to document (fill-coloured ring at rest, accent-coloured
+     ring on hover, for a site setting --cta-accent, --cta-accent-hover AND both fill slots)
+     is gone. Closing it required moving the REST chain onto the accent-above-fill order,
+     i.e. #538's Option 2 — reserved to the maintainer by #538 and reopened deliberately on
+     #564 (issuecomment-5106604500). The StyleSlotContractTest pin that used to STOP this
+     reorder is now a positive pin OF it; do not re-invert it without a new decision.
      What is NOT asymmetric any more is the pair: issue 548 moved the cta PRIMARY's filled
      hover rule onto this same accent-above-fill order, so both buttons of a cta band now resolve
      their rings in the same ORDER. Same order is not the same colour: each button still reads
@@ -2830,10 +2878,12 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      comment above for the two separate reasons (ghost bottoms out at `transparent`;
      outline/secondary don't follow the fill in either state). */
   /* Global hover tier (issue 539) takes the position --btn-border-color holds in this
-     button's rest chain: after its own hover border slot, ahead of #538's Option-3
-     accent-then-fill link, which is preserved verbatim. --btn-hover-bg joins the tail of
-     that link so a site-wide hover fill still rings itself. */
-  border-color: var(--cta-button2-hover-border, var(--btn-hover-border-color, var(--cta-accent-hover, var(--cta-button2-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))));
+     button's rest chain: after its own hover border slot and after the BAND ACCENT (#564
+     moved the accent above the global knob in both states), ahead of the per-instance hover
+     fill link. --btn-hover-bg joins the tail of that link so a site-wide hover fill still
+     rings itself, and the global ring knob still outranks the fill link so #539's
+     authored-beats-inferred rule and #554's coverage contract both hold. */
+  border-color: var(--cta-button2-hover-border, var(--cta-accent-hover, var(--btn-hover-border-color, var(--cta-button2-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))));
   color: var(--cta-button2-hover-color, var(--btn-text, var(--color-bg)));
 }
 
@@ -2964,12 +3014,36 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    border FOLLOWED the fill, so it added nothing. Here the border stops following the fill
    and bottoms out at the on-overlay role (4.59:1, base.css) instead, giving the pill a
    visible edge.
-   Only the TERMINAL fallback changes. Every authored link ahead of it is preserved in the
-   `.cta .btn:not(...)` order — --cta-button-border, then the global --btn-border-color,
-   then the fill chain (--cta-button-bg -> --cta-accent -> --btn-bg) — so a button whose
-   ring an author already colours keeps exactly the colour it had. Dropping those links
-   and jumping straight to the role would have silently repainted every authored
-   --cta-accent ring on a photo band near-white.
+   Every authored link ahead of the role is preserved in the `.cta .btn:not(...)` order —
+   --cta-button-border, then --cta-accent, then the fill chain (--cta-button-bg -> --btn-bg)
+   — so a button whose ring an author already colours keeps exactly the colour it had.
+   Dropping those links and jumping straight to the role would silently repaint every
+   authored --cta-accent ring on a photo band near-white.
+   The GLOBAL ring knob --btn-border-color is deliberately ABSENT here (issue 564). On this
+   band the terminal is a measured 4.59:1 separation role, not an ordinary default, and a
+   site-wide ring retheme sitting above it defeated the guarantee this rule exists to make
+   (the defect #564 was filed for). --color-accent-on-overlay is declared at :root
+   (base.css) and therefore always set, so parking the knob below it would be dead code
+   rather than a demotion — hence removal. Per-instance slots remain above everything as the
+   escape hatch. The unset render is byte-identical, and so is every single-knob render EXCEPT
+   the global ring knob itself — which is the one this rule deliberately stops honouring here.
+   One more configuration moved on this chain, and it is not a global-knob case: --cta-accent
+   also rose above --cta-button-bg (mirroring the base rest chain), so a band authoring the
+   accent AND the per-instance fill now rings on the accent at rest instead of the fill. That
+   is #564's class (c), the same repaint the plain band takes, and it is what keeps this rule a
+   positional twin of its :hover below.
+   SCOPE OF THE HARDENING, stated so it is not over-read: only the global RING knob left this
+   chain. The global FILL knob --btn-bg is still routed here, below the accent, because the
+   border-follows-fill link is what lets a flattened button keep a matching ring (#535) and
+   removing it would repaint the single-knob --btn-bg render this rule shipped with. So a
+   site-wide FILL retheme can still pull this ring off the measured role, exactly as it could
+   before #564. That is a pre-existing gap in the same family, tracked separately — #564
+   deliberately did not widen its own blast radius to cover it.
+   So read the 4.59:1 figure as the UNAUTHORED default, not an invariant: every link above the
+   role (the per-instance ring slot, the band accent, the fill chain) can still put a colour of
+   the author's choosing on this ring, by design — #535 shipped it that way so a flattened
+   brand button keeps a matching ring. What #564 changed is only that a knob nobody aimed at
+   THIS band can no longer do it.
    [0,5,0] matches `.cta .btn:not(...)` above, so this wins only by staying AFTER it in
    source order (pinned in css-lint). The :hover twin is [0,6,0] to beat
    `.cta .btn:not(...):hover`, whose border also follows the fill — without it the ring
@@ -2986,15 +3060,17 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    issue 548 moved this rule onto #538's Option-3 order (--cta-accent-hover AHEAD of the hover
    fill), which button2's twin below already used. Before that, a site authoring
    --cta-accent-hover TOGETHER with both per-button hover fills hovered to two different ring
-   colours on this one band, side by side; that residue is gone. Only the both-authored case
-   moved — with the accent knob unset the fill still rings itself from its later position, and
-   with both unset the chain reaches the same on-overlay role, so the fill-only and unset
-   renders this rule shipped with are unchanged. StyleSlotContractTest pins both orders. */
+   colours on this one band, side by side; that residue is gone. Issue 564 completed the
+   alignment: the rest twin now carries the accent-above-fill order too, so the two states are
+   positional twins and the ring cannot change role on pointer-enter. With the accent knob
+   unset the fill still rings itself from its later position, and with both unset the chain
+   reaches the same on-overlay role, so the fill-only and unset renders this rule shipped with
+   are unchanged. StyleSlotContractTest pins both orders. */
 .cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  border-color: var(--cta-button-border, var(--btn-border-color, var(--cta-button-bg, var(--cta-accent, var(--btn-bg, var(--color-accent-on-overlay))))));
+  border-color: var(--cta-button-border, var(--cta-accent, var(--cta-button-bg, var(--btn-bg, var(--color-accent-on-overlay)))));
 }
 .cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  border-color: var(--cta-button-hover-border, var(--btn-hover-border-color, var(--cta-accent-hover, var(--cta-button-hover-bg, var(--btn-hover-bg, var(--color-accent-on-overlay))))));
+  border-color: var(--cta-button-hover-border, var(--cta-accent-hover, var(--cta-button-hover-bg, var(--btn-hover-bg, var(--color-accent-on-overlay)))));
 }
 
 /* The SAME separation ring for the filled SECOND button (issue 543). #535 scoped its ring
@@ -3005,13 +3081,17 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    Mechanism, rationale and measured ratios are the PRIMARY's above, unchanged: the fill
    is under 2:1 against the worst-case overlay-over-white composite, so the border stops
    following it and bottoms out at the on-overlay role (4.59:1, base.css).
-   Only the TERMINAL fallback moves. Both chains are their base rules' chains verbatim
-   (`.cta .cta__buttons .cta__button--secondary:not(...)` and its :hover, above) with
-   --color-accent / --color-accent-hover swapped for the role token, so every authored
-   link keeps winning in its existing position: --cta-button2-border, --btn-border-color
-   and the rest fill chain at rest; --cta-button2-hover-border then --cta-accent-hover
-   then the hover fill on hover. That hover ORDER is #538's Option 3 and is deliberately
-   NOT re-sorted here to match the rest chain — see the base rule's comment.
+   Both chains are their base rules' chains (`.cta .cta__buttons .cta__button--secondary:not(...)`
+   and its :hover, above) with --color-accent / --color-accent-hover swapped for the role
+   token AND the global ring knob removed (issue 564), so every other authored link keeps
+   winning in its existing position: --cta-button2-border, --cta-accent and the rest fill
+   chain at rest; --cta-button2-hover-border, --cta-accent-hover then the hover fill on
+   hover. Since #564 those two orders are positional twins rather than the deliberate
+   asymmetry this comment used to record — see the base rule's comment.
+   The global knob is absent for the reason the primary's ring above spells out: on this band
+   the terminal is a measured 4.59:1 role, --color-accent-on-overlay is always set at :root,
+   so the knob could only sit above the role (defeating it) or below it (dead). Removing it
+   from BOTH halves keeps the twins from disagreeing across the pointer transition.
    Consequence, accepted with the fix and identical to the primary's: an author who
    recolours only the FILL still gets a ring matching that fill rather than a near-white
    one. The ring follows an authored brand colour; it bottoms out at the role token only
@@ -3032,10 +3112,10 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    scrim an author LIGHTENS with --cta-overlay-bg still carries this class and still gets
    the near-white ring, whose 4.59:1 is measured against the default scrim. */
 .cta--has-bg-image .cta__buttons .cta__button--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  border-color: var(--cta-button2-border, var(--btn-border-color, var(--cta-button2-bg, var(--cta-accent, var(--btn-bg, var(--color-accent-on-overlay))))));
+  border-color: var(--cta-button2-border, var(--cta-accent, var(--cta-button2-bg, var(--btn-bg, var(--color-accent-on-overlay)))));
 }
 .cta--has-bg-image .cta__buttons .cta__button--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  border-color: var(--cta-button2-hover-border, var(--btn-hover-border-color, var(--cta-accent-hover, var(--cta-button2-hover-bg, var(--btn-hover-bg, var(--color-accent-on-overlay))))));
+  border-color: var(--cta-button2-hover-border, var(--cta-accent-hover, var(--cta-button2-hover-bg, var(--btn-hover-bg, var(--color-accent-on-overlay)))));
 }
 
 /* button2 slot isolation + premium fill routing (the issue 526 mechanism applied

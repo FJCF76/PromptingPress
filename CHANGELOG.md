@@ -4,6 +4,45 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.1] — 2026-07-28 — a site-wide ring colour no longer overrules the ring a band already chose (#564)
+
+**Set one global button-border token and it quietly took over rings it had no business touching: the brand colour a cta band had explicitly chosen, and the near-white ring that is the only thing keeping a button's shape visible on a photo.** Both are now safe from it.
+
+Button borders resolve through a fallback chain, and the order of that chain is the whole behaviour. The hero component has always ranked its band accent above the site-wide `--btn-border-color`; the cta component ranked them the other way round. Nothing compared the two, so the split survived. Its consequence surfaced in the v1.12.0 release smoke: on a cta band a global `--btn-hover-border-color` beat an authored `--cta-accent-hover`, and on a `background_image` band it beat `--color-accent-on-overlay` — the near-white role measured at 4.59:1 against the worst-case scrim, which exists precisely so a filled button does not dissolve into the photo behind it. A broad default was overruling two narrower, deliberate choices.
+
+The cta family now ranks the band accent first, matching the hero, so the two components agree instead of each merely being self-consistent. On `background_image` cta bands and `cover` heroes the global ring knobs are removed from the chain outright: that terminal is a measured contrast guarantee, and since `--color-accent-on-overlay` is declared at `:root` it is always set, so a knob above it defeats the measurement and a knob below it is dead code. Per-instance ring slots stay above everything as the escape hatch.
+
+Closing this also retired a rest-to-hover flip. The cta rest chain used to rank the per-instance fill above the band accent while its hover chain ranked the accent above the fill, so a band setting both showed a fill-coloured ring that jumped to the accent the moment a pointer landed. Rest and hover are now positional twins on every filled button, so no authoring configuration can make a ring change which link it resolves through on pointer-enter.
+
+### What changes on an existing site
+
+Nothing at all unless you set a global button-border token, or set a band accent and a per-instance fill together. Every unset button and every single-knob configuration renders byte-identically, verified by resolving all ten configurations in a browser and by a rendered before/after at 1280 and 375.
+
+| Configuration | Before | After |
+|---|---|---|
+| `--btn-border-color` + `--cta-accent` both set | global colour won | the band accent wins, matching the hero |
+| `--btn-border-color` set, `background_image` band | global colour replaced the 4.59:1 ring | near-white separation role restored |
+| `--cta-accent` + `--cta-button-bg` both set | fill colour at rest, accent on hover | the accent in both states |
+| global token set, nothing narrower authored | global colour won | unchanged — #554's coverage contract holds |
+| nothing set | theme default | unchanged |
+
+The global ring knobs still reach every non-overlay button, still outrank a ring merely inferred from someone's fill, and still sit exactly where #539 and #554 put them relative to the fill link. The one narrowing worth planning for: because they no longer reach photo bands, a ring correction there is now per band rather than one global edit.
+
+### Fixed
+
+- Reordered the four cta border chains so `--cta-accent` / `--cta-accent-hover` outrank `--btn-border-color` / `--btn-hover-border-color`, matching the hero's shipped order and making rest and hover positional twins (#564). This reopens #538's Option 2 deliberately, by maintainer decision.
+- Removed the global ring knobs from all eight overlay/cover separation-ring chains, so a site-wide retheme cannot defeat the measured 4.59:1 `--color-accent-on-overlay` role (#564).
+
+### Docs
+
+- Corrected the precedence contract everywhere it was stated: `assets/css/base.css` (which previously warned against exactly this change), `components/cta/schema.json` (three slot descriptions described their chains backwards, and they reach the chat AI at runtime), `components/cta/README.md`, `components/hero/README.md`, `ai-instructions/retheme.md` and `ai-instructions/style-component.md`, including the global-tier quick-reference tables.
+
+### Tests
+
+- Extended #548's eight-chain property test with `testIssue564AccentOutranksTheGlobalRingKnob` (accent-above-global on the base chains, knob absent on the overlay twins) and `testIssue564FillChainsRankTheAccentAboveTheGlobalFillKnobToo` (the fill-side symmetry the border side now shares).
+- Flipped rather than deleted every pin encoding the old order, the #538/#530 pattern: the literal chain pins, the #535/#543 ring `leading` tables, the #539 global-tier table, and the hero-vs-cta pair-structure test, which now pins convergence instead of divergence.
+- Added rendered pins for all three repainted configurations at 1280 and 375, including the overlay ring at rest and on hover, and a no-flip pin under a real pointer.
+
 ## [v1.12.0] — 2026-07-28 — button interaction & accessibility: every button state is consistent, legible, and honest (rollup)
 
 **v1.12.0 is the rollup release of the Button Interaction & Accessibility gate — nine working versions (1.11.1–1.11.9) verified as one line.** The second buttons' hover ring follows their hover fill (#538) and the cta primary's hover chain now agrees with every sibling (#548); the keyboard focus ring routes through the dark-band accent roles, taking it from sub-3:1 to 8.33:1 / 4.59:1 (#542); the filled second button gains the same overlay separation ring as its primary, rest and hover (#543); the global tier gains `--btn-hover-bg` / `--btn-hover-border-color` so a site-wide retheme survives hover (#539), and the hero's cta2 chains carry the global links its siblings already had (#554); the outline/ghost/secondary panel CTA is legible on dark bands (~1.02:1 → 5.14:1, #551); author-written `.btn` markup inside rich-text props no longer inherits component fill slots (#545); and a hover-only fill no longer flashes an off-brand colour mid-transition — fill and ring snap on filled premium buttons while shadow, ink and lift keep animating (#540).

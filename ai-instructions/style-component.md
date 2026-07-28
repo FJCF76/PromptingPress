@@ -439,27 +439,33 @@ gradient. These slots target the PRIMARY button only: the second CTA (`cta2`) ne
 and `--hero-cta2-color` for its border and ink. On a FILLED cta2 an unset border FOLLOWS the
 fill in BOTH states, so `--hero-cta2-bg` and `--hero-cta2-hover-bg` alone already give matching
 rings — provided the site-wide `--btn-border-color` / `--btn-hover-border-color` are unset,
-since since #554 those sit between the accent and the fill here exactly as they already did on
-every other button. Set `--hero-cta2-hover-border` (or `--hero-accent-hover`) only when the hover ring should
+since #554 those sit between the accent and the fill here exactly as they already do on
+every other non-overlay button (on `cover` heroes and `background_image` cta bands they are
+not in the chain at all since #564 — see the photo-band note below).
+Set `--hero-cta2-hover-border` (or `--hero-accent-hover`) only when the hover ring should
 DIFFER from the hover fill — either slot still wins over it. Since #554 the hero's cta2 also
 routes the site-wide tier through its OWN chains in both states — `--hero-cta2-border`, then
 `--hero-accent`, then `--btn-border-color`, then its fill (`--hero-cta2-bg`, then `--btn-bg`),
 and the same shape on hover — which is the hero PRIMARY's order, so a site-wide button
 retheme moves the hero pair together instead of leaving the second button on the theme accent.
-Note the hero puts `--hero-accent` ABOVE the global ring knob while the cta puts the global
-knob above `--cta-accent`; each follows its own primary, which is what keeps each pair
-consistent. BOTH of the cta component's
-buttons behave the same way on hover — its own hover-border slot
-(`--cta-button-hover-border` / `--cta-button2-hover-border`), then the site-wide
-`--btn-hover-border-color`, then `--cta-accent-hover`, then its own hover fill
-(`--cta-button-hover-bg` / `--cta-button2-hover-bg`) — so both buttons resolve in the same
-ORDER. That is not the same as the same color: the shared knobs (`--cta-accent-hover`,
+Since #564 the cta family uses that same order, so the band accent sits above the global ring
+knob on BOTH components. BOTH of the cta component's buttons behave the same way in BOTH
+states — its own border slot (`--cta-button-hover-border` / `--cta-button2-hover-border`),
+then `--cta-accent-hover`, then the site-wide `--btn-hover-border-color`, then its own hover
+fill (`--cta-button-hover-bg` / `--cta-button2-hover-bg`) — so both buttons resolve in the
+same ORDER. That is not the same as the same color: the shared knobs (`--cta-accent-hover`,
 `--btn-hover-border-color`) ring the pair together, while the per-button fill slots ring each
-button on its own. There is one asymmetry worth knowing: at REST the
-cta's fill slot is resolved BEFORE `--cta-accent`, while on hover `--cta-accent-hover` is
-resolved before the fill. So on a cta whose accent knobs are set, each button's ring matches
-its fill at rest and returns to the accent on hover; set the button's own hover-border slot
-if you want it to match the fill in both states.
+button on its own. The rest chains are the positional twins of these hover chains, so a
+button's ring cannot change colour when the pointer lands. (Before #564 the cta resolved its
+fill slot before `--cta-accent` at rest but the accent before the fill on hover, so a cta
+whose accent and fill knobs were both set showed a fill-coloured ring at rest that flipped to
+the accent on hover. That flip is gone.)
+
+On `background_image` cta bands and `cover` heroes the global ring knobs are not in the chain
+at all (#564): those bands bottom out at `--color-accent-on-overlay`, a role measured at
+4.59:1 against the worst-case scrim, and a site-wide default sitting above it cancelled the
+guarantee. Per-instance slots and the band accent still win there.
+
 This fill-follow is specific to the FILLED (`primary`) variant; an `outline`, `ghost`, or
 `secondary` second button keeps its own variant default on hover, so give those an explicit
 `--hero-cta2-hover-border` / `--cta-button2-hover-border` if their ring must track a recolored

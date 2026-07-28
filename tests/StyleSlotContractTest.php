@@ -824,11 +824,13 @@ class StyleSlotContractTest extends TestCase
             $block,
             '.cta .cta__buttons .cta__button--secondary',
             // The global hover tier (issue 539) takes the position --btn-border-color holds in
-            // this button's REST chain — straight after its own hover border slot, ahead of
-            // #538's Option-3 accent-then-fill link, which is preserved verbatim between them.
+            // this button's REST chain — and since issue 564 that position is BELOW the band
+            // accent on both states, so a site-wide ring knob no longer defeats an authored
+            // --cta-accent-hover. It still outranks the per-instance hover FILL link, keeping
+            // #539's authored-beats-inferred rule and #554's coverage contract intact.
             // --btn-hover-bg closes the border-follows-fill link so a site-wide hover fill
             // still rings itself, exactly as --btn-bg does at rest.
-            ['--cta-button2-hover-border', '--btn-hover-border-color', '--cta-accent-hover', '--cta-button2-hover-bg', '--btn-hover-bg', '--color-accent-hover'],
+            ['--cta-button2-hover-border', '--cta-accent-hover', '--btn-hover-border-color', '--cta-button2-hover-bg', '--btn-hover-bg', '--color-accent-hover'],
             'button2'
         );
     }
@@ -874,15 +876,18 @@ class StyleSlotContractTest extends TestCase
         $this->assertHoverBorderChain(
             $block,
             '.cta .btn',
-            ['--cta-button-hover-border', '--btn-hover-border-color', '--cta-accent-hover', '--cta-button-hover-bg', '--btn-hover-bg', '--color-accent-hover'],
+            ['--cta-button-hover-border', '--cta-accent-hover', '--btn-hover-border-color', '--cta-button-hover-bg', '--btn-hover-bg', '--color-accent-hover'],
             'cta primary'
         );
 
-        // The overlay separation-ring twin: same chain, on-overlay terminal (#535, #543).
+        // The overlay separation-ring twin: the same chain MINUS the global ring knob, with the
+        // on-overlay terminal (#535, #543, narrowed by #564). The knob is absent rather than
+        // demoted because --color-accent-on-overlay is a :root token (base.css:30) and always
+        // set, so any link below it would be dead code — see the rule's comment.
         $this->assertHoverBorderChain(
             $block,
             '.cta--has-bg-image .cta__button',
-            ['--cta-button-hover-border', '--btn-hover-border-color', '--cta-accent-hover', '--cta-button-hover-bg', '--btn-hover-bg', '--color-accent-on-overlay'],
+            ['--cta-button-hover-border', '--cta-accent-hover', '--cta-button-hover-bg', '--btn-hover-bg', '--color-accent-on-overlay'],
             'cta primary (overlay band)'
         );
     }
@@ -893,14 +898,16 @@ class StyleSlotContractTest extends TestCase
      * button's own per-instance hover FILL in the border chain.
      *
      * Stated narrowly on purpose. It is NOT "the accent knob leads the chain" — a dedicated
-     * hover-border slot and the global --btn-hover-border-color both still sit above the
-     * accent on three of these four. The invariant that #548 actually establishes, and the
+     * hover-border slot still sits above the accent wherever one exists. (Until #564 the
+     * global --btn-hover-border-color did too, on three of these eight; it now ranks BELOW
+     * the accent on the four base chains and is absent from the four overlay twins — see
+     * testIssue564AccentOutranksTheGlobalRingKnob.) The invariant #548 establishes, and the
      * one a future tidy-up could silently invert, is accent-above-per-instance-fill.
      *
-     * Reading the order out of the live CSS (rather than pinning four literal strings) is
-     * what makes this a real cross-chain proof: the four chains have four different lengths,
-     * two different terminals and two different global-tier shapes, so a literal pin per
-     * chain proves each one in isolation and their AGREEMENT not at all.
+     * Reading the order out of the live CSS (rather than pinning eight literal strings) is
+     * what makes this a real cross-chain proof: the eight chains have different lengths, two
+     * different terminals and two different global-tier shapes, so a literal pin per chain
+     * proves each one in isolation and their AGREEMENT not at all.
      *
      * @dataProvider filledHoverBorderChains
      */
@@ -908,32 +915,15 @@ class StyleSlotContractTest extends TestCase
         string $component,
         string $selector,
         string $accent,
-        string $fill
+        string $fill,
+        bool $isOverlayRing // Unread here: the #548 property holds identically on the overlay
+                            // twins. The column exists for the #564 tests on the shared provider.
     ): void {
-        $block = $this->stripComments($this->componentBlock($component));
-
-        $rulePattern = '/' . preg_quote($selector, '/')
-            . '(?::not\(\.btn--(?:outline|ghost|secondary)\)){3}:hover\s*\{(.*?)\}/s';
-        $this->assertSame(
-            1,
-            preg_match_all($rulePattern, $block, $m),
-            "Expected exactly ONE filled :hover rule for {$selector}."
-        );
-
-        // Same guard assertHoverBorderChain carries, for the same reason: a SECOND
-        // border-color in the rule wins the cascade, so reading the first one would assert
-        // the order of a declaration that never paints.
-        $body = $m[1][0] ?? '';
-        $this->assertSame(
-            1,
-            preg_match_all('/border-color\s*:/', $body),
-            "{$selector}:hover must declare border-color exactly once, or the chain read "
-            . 'below is not the one that paints.'
-        );
-
-        preg_match('/border-color\s*:([^;]+);/', $body, $decl);
-        preg_match_all('/--[a-z0-9-]+/', $decl[1] ?? '', $tokens);
-        $order = $tokens[0];
+        // Shares hoverBorderOrder() with the #564 pins below, which carries the same
+        // exactly-one-border-color guard assertHoverBorderChain does, for the same reason: a
+        // SECOND border-color in the rule wins the cascade, so reading the first one would
+        // assert the order of a declaration that never paints.
+        $order = $this->hoverBorderOrder($component, $selector);
 
         $iAccent = array_search($accent, $order, true);
         $iFill   = array_search($fill, $order, true);
@@ -952,24 +942,224 @@ class StyleSlotContractTest extends TestCase
         );
     }
 
-    /** @return array<string, array{0:string,1:string,2:string,3:string}> */
+    /**
+     * @return array<string, array{0:string,1:string,2:string,3:string,4:bool}>
+     *
+     * The fifth column marks the OVERLAY RING twins. Since issue 564 they differ from their
+     * base rules by more than the terminal: the global ring knob is removed from them, because
+     * their terminal is a measured 4.59:1 separation role rather than an ordinary default and
+     * a site-wide retheme sitting above it defeated the guarantee. See
+     * testIssue564AccentOutranksTheGlobalRingKnob.
+     */
     public static function filledHoverBorderChains(): array
     {
         return [
             // The plain bands.
-            'hero primary'          => ['hero', '.hero .btn', '--hero-accent-hover', '--hero-button-hover-bg'],
-            'hero cta2'             => ['hero', '.hero .hero__cta-group .hero__cta--secondary', '--hero-accent-hover', '--hero-cta2-hover-bg'],
-            'cta primary'           => ['cta', '.cta .btn', '--cta-accent-hover', '--cta-button-hover-bg'],
-            'cta button2'           => ['cta', '.cta .cta__buttons .cta__button--secondary', '--cta-accent-hover', '--cta-button2-hover-bg'],
+            'hero primary'          => ['hero', '.hero .btn', '--hero-accent-hover', '--hero-button-hover-bg', false],
+            'hero cta2'             => ['hero', '.hero .hero__cta-group .hero__cta--secondary', '--hero-accent-hover', '--hero-cta2-hover-bg', false],
+            'cta primary'           => ['cta', '.cta .btn', '--cta-accent-hover', '--cta-button-hover-bg', false],
+            'cta button2'           => ['cta', '.cta .cta__buttons .cta__button--secondary', '--cta-accent-hover', '--cta-button2-hover-bg', false],
             // And the overlay/cover TWINS. Each is a physically separate declaration that
-            // re-states its base rule's chain with only the terminal swapped for the
-            // on-overlay role (#535, #543), so each can drift from its base independently.
-            // "Every filled button this theme ships" is only true with these four included.
-            'hero primary (cover)'  => ['hero', '.hero--cover .hero__cta', '--hero-accent-hover', '--hero-button-hover-bg'],
-            'hero cta2 (cover)'     => ['hero', '.hero--cover .hero__cta-group .hero__cta--secondary', '--hero-accent-hover', '--hero-cta2-hover-bg'],
-            'cta primary (overlay)' => ['cta', '.cta--has-bg-image .cta__button', '--cta-accent-hover', '--cta-button-hover-bg'],
-            'cta button2 (overlay)' => ['cta', '.cta--has-bg-image .cta__buttons .cta__button--secondary', '--cta-accent-hover', '--cta-button2-hover-bg'],
+            // re-states its base rule's chain (with the terminal swapped for the on-overlay
+            // role, #535/#543, and the global ring knob dropped, #564), so each can drift from
+            // its base independently. "Every filled button this theme ships" is only true with
+            // these four included.
+            'hero primary (cover)'  => ['hero', '.hero--cover .hero__cta', '--hero-accent-hover', '--hero-button-hover-bg', true],
+            'hero cta2 (cover)'     => ['hero', '.hero--cover .hero__cta-group .hero__cta--secondary', '--hero-accent-hover', '--hero-cta2-hover-bg', true],
+            'cta primary (overlay)' => ['cta', '.cta--has-bg-image .cta__button', '--cta-accent-hover', '--cta-button-hover-bg', true],
+            'cta button2 (overlay)' => ['cta', '.cta--has-bg-image .cta__buttons .cta__button--secondary', '--cta-accent-hover', '--cta-button2-hover-bg', true],
         ];
+    }
+
+    /**
+     * Issue 564, stated as one property across the same eight chains #548 established.
+     *
+     * #548 pinned accent-above-own-FILL. It left the OTHER pair unpinned: where the band accent
+     * sits relative to the GLOBAL ring knob (--btn-hover-border-color, #539). That gap was the
+     * defect. The hero family ranked its accent first; the cta family ranked the global knob
+     * first; nothing compared them. So on cta bands a site setting the global knob defeated an
+     * authored --cta-accent-hover, and on the overlay twins it defeated --color-accent-on-overlay
+     * — the 4.59:1 separation ring whose entire purpose is surviving the scrim (#543).
+     *
+     * The property now has two halves, because the answer differs by what the chain's terminal
+     * MEANS:
+     *
+     *   BASE bands      accent > global knob > own fill. The knob still participates (a site-wide
+     *                   retheme still reaches these buttons, #554) but no longer outranks a
+     *                   narrower authored role. It stays ABOVE the fill link, so #539's
+     *                   "authored ring beats one inferred from a fill" is untouched.
+     *   OVERLAY rings   the knob is ABSENT. Its terminal is a measured contrast role, and
+     *                   --color-accent-on-overlay is declared at :root (base.css:30) so it is
+     *                   always set — a knob below it would be dead code, and a knob above it
+     *                   would defeat the measurement. Removal is the only honest position. The
+     *                   per-instance ring slot remains above everything as the escape hatch.
+     *
+     * Read out of the live CSS rather than pinned as eight literal strings, for the same reason
+     * #548 gave: the chains have different lengths, two terminals and now two global-tier
+     * shapes, so per-chain literals prove each in isolation and their AGREEMENT not at all.
+     *
+     * @dataProvider filledHoverBorderChains
+     */
+    public function testIssue564AccentOutranksTheGlobalRingKnob(
+        string $component,
+        string $selector,
+        string $accent,
+        string $fill,
+        bool $isOverlayRing
+    ): void {
+        $order = $this->hoverBorderOrder($component, $selector);
+
+        $iAccent = array_search($accent, $order, true);
+        $iGlobal = array_search('--btn-hover-border-color', $order, true);
+
+        $this->assertNotFalse($iAccent, "{$selector}:hover must route {$accent} into its border chain.");
+
+        if ($isOverlayRing) {
+            $this->assertFalse(
+                $iGlobal,
+                "{$selector}:hover must NOT route --btn-hover-border-color: this chain bottoms out "
+                . 'at --color-accent-on-overlay, a measured 4.59:1 separation role, and that role '
+                . 'is declared at :root so it is always set. A global knob ABOVE it defeats the '
+                . 'contrast guarantee (the issue 564 defect); BELOW it the knob is dead code. '
+                . 'Authors who want their own ring on this band use the per-instance slot, which '
+                . 'still leads the chain.'
+            );
+            $this->assertSame(
+                '--color-accent-on-overlay',
+                $order[array_key_last($order)],
+                "{$selector}:hover must still bottom out at the on-overlay role."
+            );
+            return;
+        }
+
+        $this->assertNotFalse(
+            $iGlobal,
+            "{$selector}:hover must keep --btn-hover-border-color in its border chain — issue 554's "
+            . 'contract is that a site-wide button retheme reaches every filled surface. Issue 564 '
+            . 'reordered that knob; it did not remove it from the base bands.'
+        );
+        $this->assertLessThan(
+            $iGlobal,
+            $iAccent,
+            "{$selector}:hover ranks --btn-hover-border-color ahead of {$accent}. Issue 564 made "
+            . 'accent-above-the-global-knob uniform across every filled button this theme ships, so '
+            . 'a broad site-wide default cannot silently defeat a narrower authored band role. '
+            . 'Reordering this repaints the both-authored case and is a maintainer decision, not a '
+            . 'cleanup — see issue 564 (issuecomment-5106604500).'
+        );
+        $iFill = array_search($fill, $order, true);
+        $this->assertNotFalse($iFill, "{$selector}:hover must keep {$fill} in its border chain.");
+        $this->assertLessThan(
+            $iFill,
+            $iGlobal,
+            "{$selector}:hover ranks the per-instance hover FILL ahead of --btn-hover-border-color. "
+            . 'An explicitly authored global ring must still beat one merely INFERRED from someone '
+            . "'s fill (issue 539). Issue 564 moved the accent above the knob, not the fill."
+        );
+    }
+
+    /**
+     * The fill-side symmetry the border chains now share (issue 564).
+     *
+     * The fill chains have ranked the band accent above the global fill knob (--btn-hover-bg)
+     * since #539 shipped — that is precisely why the fill side never had this defect, and it is
+     * the evidence the recorded decision leaned on. Pinning it here turns "the border side now
+     * matches the fill side" from a claim in a comment into a test that fails if EITHER side
+     * moves. Without it, a future edit could fix the asymmetry by breaking the fill side instead.
+     *
+     * Scoped to the four BASE rules: the overlay ring rules declare border-color only.
+     *
+     * @dataProvider filledHoverBorderChains
+     */
+    public function testIssue564FillChainsRankTheAccentAboveTheGlobalFillKnobToo(
+        string $component,
+        string $selector,
+        string $accent,
+        string $fill,
+        bool $isOverlayRing
+    ): void {
+        if ($isOverlayRing) {
+            // Not a skip: PIN the reason these rows are out of scope. An overlay ring rule
+            // that grew a background-color would otherwise sail past this test forever.
+            $this->assertSame(
+                0,
+                preg_match_all('/background-color\s*:/', $this->hoverRuleBody($component, $selector)),
+                "{$selector}:hover is a separation-RING rule and must declare border-color only. "
+                . 'It overrides one property of the base rule; a fill here would silently take '
+                . 'over the band and escape the fill-side pins below.'
+            );
+            return;
+        }
+
+        $order = $this->hoverChainOrder($component, $selector, 'background-color');
+
+        $iAccent = array_search($accent, $order, true);
+        $iGlobal = array_search('--btn-hover-bg', $order, true);
+        $iFill   = array_search($fill, $order, true);
+
+        $this->assertNotFalse($iAccent, "{$selector}:hover fill chain must route {$accent}.");
+        $this->assertNotFalse($iGlobal, "{$selector}:hover fill chain must route --btn-hover-bg (issue 539).");
+        $this->assertNotFalse($iFill, "{$selector}:hover fill chain must route {$fill}.");
+
+        $this->assertLessThan(
+            $iGlobal,
+            $iAccent,
+            "{$selector}:hover ranks --btn-hover-bg ahead of {$accent} in the FILL chain. The fill "
+            . 'side has ranked the band accent above the global knob since issue 539, and issue 564 '
+            . 'brought the BORDER side onto that same order. Inverting the fill side would restore '
+            . 'the very asymmetry 564 removed, from the other direction.'
+        );
+        $this->assertLessThan(
+            $iAccent,
+            $iFill,
+            "{$selector}:hover must keep its per-instance hover fill slot ahead of {$accent}."
+        );
+    }
+
+    /** The hover rule body for a filled button selector, comments stripped. */
+    private function hoverRuleBody(string $component, string $selector): string
+    {
+        $block = $this->stripComments($this->componentBlock($component));
+
+        $rulePattern = '/' . preg_quote($selector, '/')
+            . '(?::not\(\.btn--(?:outline|ghost|secondary)\)){3}:hover\s*\{(.*?)\}/s';
+        $this->assertSame(
+            1,
+            preg_match_all($rulePattern, $block, $m),
+            "Expected exactly ONE filled :hover rule for {$selector}."
+        );
+
+        return $m[1][0] ?? '';
+    }
+
+    /** The ORDER of custom properties in a filled button's hover border chain. */
+    private function hoverBorderOrder(string $component, string $selector): array
+    {
+        return $this->hoverChainOrder($component, $selector, 'border-color');
+    }
+
+    /**
+     * The ORDER of custom properties in one declaration of a filled button's hover rule.
+     *
+     * The exactly-once guard is the load-bearing part: a SECOND declaration of the same
+     * property later in the block wins the cascade, so reading the first one would assert the
+     * order of a chain that never paints.
+     */
+    private function hoverChainOrder(string $component, string $selector, string $property): array
+    {
+        $body = $this->hoverRuleBody($component, $selector);
+
+        $this->assertSame(
+            1,
+            preg_match_all('/' . preg_quote($property, '/') . '\s*:/', $body),
+            "{$selector}:hover must declare {$property} exactly once, or the chain read below is "
+            . 'not the one that paints.'
+        );
+
+        preg_match('/' . preg_quote($property, '/') . '\s*:([^;]+);/', $body, $decl);
+        preg_match_all('/--[a-z0-9-]+/', $decl[1] ?? '', $tokens);
+
+        return $tokens[0];
     }
 
     /**
@@ -1118,9 +1308,12 @@ class StyleSlotContractTest extends TestCase
             $body,
             "The filled {$label} hover border must resolve in exactly this order and stop there: "
             . implode(' -> ', $chain) . '. The hover FILL sits BEHIND the accent knob on '
-            . 'purpose (issue 538, Option 3; extended to the cta primary by issue 548): ahead '
-            . 'of it — the rejected Option 2 — it would repaint a ring an author explicitly '
-            . 'set, on compositions that already ship. '
+            . 'purpose (issue 538, Option 3; extended to the cta primary by issue 548), and '
+            . 'since issue 564 the global --btn-hover-border-color knob sits behind it too, so '
+            . 'a site-wide ring retheme cannot defeat an authored band accent or the measured '
+            . 'on-overlay separation role. Both orderings repaint rings on compositions that '
+            . 'already ship, so both are maintainer decisions rather than cleanups — see '
+            . 'issue 564 (issuecomment-5106604500). '
             . 'The terminal is pinned too: anything appended after the theme literal would '
             . 'break the byte-identical-when-unset guarantee.'
         );
@@ -1194,9 +1387,11 @@ class StyleSlotContractTest extends TestCase
         // bottoms out at --color-accent so an unset cta2 is byte-identical.
         // Issue 554 inserted the global tier at the hero PRIMARY's positions: the ring knob
         // after --hero-accent, --btn-bg at the tail of the border-follows-fill link. The
-        // ordering is load-bearing — putting --btn-border-color ahead of --hero-accent (the
-        // cta component's order) would split the hero PAIR on any site setting both, which is
-        // the exact defect this issue closed.
+        // ordering is load-bearing — putting --btn-border-color ahead of --hero-accent would
+        // split the hero PAIR on any site setting both, the exact defect #554 closed. That was
+        // the cta component's order until issue 564 moved the cta onto this one, for the same
+        // reason at component scope: the broader global knob was defeating the narrower
+        // authored band accent. Both families now rank the accent first.
         $this->assertStringContainsString(
             'border-color: var(--hero-cta2-border, var(--hero-accent, var(--btn-border-color, var(--hero-cta2-bg, var(--btn-bg, var(--color-accent))))))',
             $block,

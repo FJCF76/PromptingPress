@@ -47,9 +47,11 @@ state only — on hover each variant paints its own contrasting fill. On a
 `background_image` band every filled button — the primary and `button2` alike —
 DEFAULTS its border to that role so its shape stays visible against the band and an
 unstyled `primary` + `primary` pair reads as a matched pair. The role is the last link
-in the chain: `--cta-button2-border`, the global `--btn-border-color`, and the fill
-chain (`--cta-button2-bg` → `--cta-accent` → `--btn-bg`) all still win ahead of it, so a
-ring you author keeps the colour you gave it. The solid `inverted` band does not get
+in the chain: `--cta-button2-border`, `--cta-accent`, and the fill chain
+(`--cta-button2-bg` → `--btn-bg`) all still win ahead of it, so a ring you author keeps
+the colour you gave it. The site-wide `--btn-border-color` / `--btn-hover-border-color`
+are deliberately NOT in these chains since #564: the role carries a measured 4.59:1
+contrast guarantee, and a global ring retheme sitting above it cancelled that guarantee. The solid `inverted` band does not get
 this ring (its fill already clears the 3:1 non-text bar); a band carrying both classes
 does, because the overlay role is the safe one over an arbitrary image.
 
