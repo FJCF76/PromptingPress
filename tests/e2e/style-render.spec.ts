@@ -8599,7 +8599,13 @@ test.describe('#551 panel CTA ink resolves against the light panel, not the band
   // control: the premium chain [0,4,1] always outranked the band rule, so it never moved.
   for (const variant of ['outline', 'ghost', 'secondary']) {
     for (const width of [1280, 375]) {
-      test(`${variant} panel CTA takes panel ink on every band (${width}px)`, async ({ page }) => {
+      // One case is promoted to @smoke so this accessibility defect is guarded on EVERY
+      // PR, not only in the nightly full run: `ghost` at 1280 is the worst of the set —
+      // it has no border either, so before the fix the button disappeared completely
+      // (1.04:1 label on a transparent fill). The remaining variants and the 375 width
+      // stay in the full suite to keep the smoke subset fast.
+      const smoke = variant === 'ghost' && width === 1280 ? ' @smoke' : '';
+      test(`${variant} panel CTA takes panel ink on every band (${width}px)${smoke}`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
 
         // Control: the DEFAULT band, where no band ink rule applies at all.
