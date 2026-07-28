@@ -4,6 +4,49 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.11.6] — 2026-07-28 — an outline or ghost panel button is readable again on a dark section band (#551)
+
+**A `text-panel` section with `theme: "inverted"` or a `background_image`, whose `panel_cta_variant` was `outline`, `ghost` or `secondary`, rendered its button label at 1.04:1 — effectively invisible. The button shape was there; the words were not.**
+
+A dark section band recolours its links so they stay legible on the dark surface. That rule was written band-wide, but a `text-panel` section's panel is not part of the dark band — it is a self-contained LIGHT card sitting on top of it, and the panel's button is the only link inside it. So the band's near-white link colour was painted onto the near-white panel. On a `background_image` band an `outline` button rendered as an empty blue rectangle and a `ghost` button vanished entirely; on an `inverted` band all three transparent-or-light variants rendered as a pale wash at 1.99:1. Hover was worse, not better: a `ghost` button measured 1.07:1 and a `secondary` button 1.33:1 mid-interaction. The panel's heading, its list markers and its focus ring had each already been carved out of the band's styling for exactly this reason; its ink had not been.
+
+The panel button now takes its colour from the panel it sits on, on every band. An `outline` or `ghost` panel button measures 5.14:1 and a `secondary` one 16.52:1 whether the band is default, inverted, has a background image, or is both — identical to what the same button always rendered on a plain band.
+
+### What changes on an existing site
+
+Only the panel button on a dark band moves, and only in the direction of being readable:
+
+| Section band | `panel_cta_variant` | Label contrast before | After |
+|---|---|---|---|
+| `background_image` | `outline` / `ghost` / `secondary` | 1.04:1 | 5.14:1 / 5.14:1 / 16.52:1 |
+| `inverted` | `outline` / `ghost` / `secondary` | 1.99:1 | 5.14:1 / 5.14:1 / 16.52:1 |
+| any | `primary` (filled) | unchanged | unchanged |
+| default (no dark band) | any | unchanged | unchanged |
+
+Links in the section's own body copy are untouched on every band and keep the dark-band colour they have always had — that is what the band rule is for, and it still does exactly that job everywhere it was already right. The filled `primary` panel button never had the defect, and `--section-panel-cta-color` still sets its ink exactly as before.
+
+### What this means for anyone styling a section
+
+Pick `panel_cta_variant` for its shape, not for the band underneath it. A panel button is read against the panel, so the one thing to keep legible is `--color-accent` against `--color-surface` — the dark-band accent roles do not reach it and never needed to. If you deliberately darken the panel itself with `--section-panel-bg`, that is still your call to make together with the button's colour. The AI retheme and composition instructions now say so.
+
+### Fixed
+
+- Carved `.section__panel-cta` out of the band-wide link-ink rules on both dark section bands (`.section--has-bg-image` and `.pp-section--inverted`), for the resting and hover states, so a transparent or light panel button resolves its ink against the light panel instead of the band (#551). The same carve-out class `#424` made for the panel heading, `#463` for the panel list markers and `#542` for the panel button's focus ring.
+
+### Docs
+
+- `ai-instructions/retheme.md`: the existing panel exclusion now states that it covers the button's INK as well as its focus ring, and the inverted and bg-image accent sections both name the panel CTA as excluded.
+- `ai-instructions/composition.md`: `panel_cta_variant` records that the transparent and light variants read against the panel on every band.
+
+### Tests
+
+- `tests/js/css-lint.test.js`: pins the carve-out on all four band rules (declared once, top level, still routing through `--section-accent` / `--section-accent-hover` and the on-overlay / on-inverted roles), asserts the uncarved forms are gone, and adds a fail-closed detector that flags ANY rule painting uncarved ink on an anchor that can reach the panel CTA — across `components.css`, `base.css` and `utilities.css`, and through `:is()` / `:where()` band groups, child combinators, compound band selectors and `-webkit-text-fill-color`. The detector is exercised by 12 dangerous and 6 safe selectors, and by a scoped mutation of the shipped rules so it cannot go vacuous.
+- `tests/SectionTextPanelTest.php`: pins that the panel contains exactly one anchor and that it is the CTA — the structural fact the carve-out relies on — by feeding every other panel field markup that would become an anchor if it were ever rendered unescaped.
+- `tests/ActionsTest.php`: authoring-path proof that every `panel_cta_variant`, on a default and an `inverted` band, is accepted through `create_page` alongside `--section-panel-cta-color`.
+- `tests/e2e/style-render.spec.ts`: rendered pins at 1280 and 375 asserting the panel CTA's computed ink matches the default-band control on both dark bands and clears 4.5:1, plus a byte-identity control that the on-band link keeps its dark-band colour.
+
+---
+
 ## [v1.11.5] — 2026-07-28 — a CTA's two buttons now follow the same hover-ring rule (#548)
 
 **Set `--cta-accent-hover` and a hover fill on a CTA and both buttons follow the accent. Until now one did and the other didn't, side by side on the same band.**
