@@ -25,8 +25,10 @@
    default (its value equals the universal ink literal). Per-component slots
    (--cta-button-* / --cta-accent / --hero-button-* / --hero-accent) still win over the
    global tokens when set — --btn-* sits between those slots and the literal fallback. These tokens are NOT
-   exposed as component style_slots: per-instance button color stays on component-scoped
-   rules (e.g. .cta .btn), so a section's __pp_style cannot leak into nested buttons.
+   exposed as component style_slots: they are the site-wide tier, and a nested .btn an author
+   hand-writes into a rich-text prop is MEANT to follow them. What a section's __pp_style cannot
+   leak into a nested button is the PER-INSTANCE slot families, which issue 545 neutralises on
+   every composed .btn that is not a renderer-owned button element (see that block below).
    ========================================================================== */
 
 .btn {
@@ -4503,6 +4505,102 @@ main > .grid .grid__item-link::after {
   }
 }
 
+/* Per-instance button slots reach the component's OWN buttons and nothing else (issue 545).
+
+   THE DEFECT. Every per-instance filled-button slot family (--hero-button-* / --hero-cta2-* /
+   --cta-button-* / --cta-button2-* / --section-panel-cta-*) is emitted by the renderer as an
+   inline custom property on the COMPONENT ROOT, and the three selector shapes that consume
+   them — `main .btn:not(...)` (the premium winner below), `.hero .btn:not(...)` and
+   `.cta .btn:not(...)` — read them by INHERITANCE rather than through the component's own
+   button class. Custom properties inherit to every descendant, so those slots also reached a
+   `.btn` an AUTHOR hand-writes into a rich-text prop, and the component's per-instance button
+   styling repainted it. Two surfaces INSIDE A BAND THAT EMITS BUTTON SLOTS can hold such a button
+   today, both filtered by wp_kses_post (which permits `class` on `<a>`): `section.body`
+   (section.php:209,232,301) and `hero.proof` (hero.php:138,144). Three other components have a
+   wp_kses_post surface — faq.answer (faq.php:52), table cells (table.php:47), embed.content
+   (embed.php:37) — and they are inert rather than excluded: none emits a button slot family, and
+   components never nest (no component template calls pp_get_component), so a `.btn` written there
+   has nothing to inherit in the first place. The cta component has no such surface at all —
+   `cta.text` goes through pp_kses_inline (helpers.php:141), whose `a` allowlist is href/title
+   only, so a class cannot survive there. Consequently only 14 of the 26 properties below are
+   load-bearing (--hero-button-* / --cta-button-* / --section-panel-cta-*); the 12 cta2 entries
+   (--hero-cta2-* / --cta-button2-*) are inert by SCOPING — every chain that reads them is already
+   selector-scoped to an owned button — and the --cta-button-* seven are inert by SANITIZER. All
+   are kept for the same reason #526 resets slots on every cta2 variant: the isolation should hold
+   on its own terms, not on a sanitizer's current allowlist or on another rule's current selector.
+
+   THE FIX, and why it is shaped this way. A declaration ON the element beats an inherited
+   value regardless of source order, and `initial` IS the guaranteed-invalid value for a custom
+   property — so every downstream `var(--slot, <fallback>)` takes its fallback and the button
+   resolves exactly what an unset button resolves. That is the #526/#530 isolation idiom
+   (which re-points a slot on a SECOND button) generalised one step: here it neutralises the
+   whole family on any composed `.btn` that is not one of the three button elements a renderer
+   owns. Nothing above is touched — no chain, no fallback order, no literal — so every OWNED
+   button is byte-identical BY CONSTRUCTION rather than by argument: this selector cannot match
+   one. That is what keeps #530/#535/#536/#538/#539/#542/#543/#548/#551/#554 intact.
+
+   The alternative shape (a private --pp-* twin per slot, re-pointed on each owned button, so
+   the public slot is never read by an inheriting selector) was prototyped side by side and
+   renders pixel-identically. It was rejected on two counts: it rewrites all ten tuned chains
+   plus their pins for no rendering difference, and it moves each slot's only consumption onto
+   a custom-property target, which the StyleSlotContractTest keystone (slots must be consumed
+   on a type-COMPATIBLE property inside the component block) would have had to be weakened to
+   accept. Its one advantage — a forgotten new slot fails DEAD instead of leaking — is bought
+   back by the css-lint pin that derives this list from components.css itself, so a new family
+   slot that is missing here fails the build.
+
+   The global --btn-* tier is deliberately NOT neutralised. A site-wide button token is
+   site-wide by definition: an author-written .btn SHOULD follow a --btn-bg retheme exactly as
+   the bare .btn primitive and every composed button do. What must not reach it is the
+   PER-INSTANCE styling of the band that happens to contain it. Nor are the band-level accent
+   slots (--hero-accent / --cta-accent / --hero-text) neutralised: they colour every accented
+   element in the band by design, and a nested button is one of those elements. Concretely and
+   REACHABLY: `.hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)` is [0,5,0],
+   which outranks the premium winner at [0,4,1], so on a hero with --hero-accent set an
+   author-written .btn in `proof` takes the accent as its ring (and its hover ring from the
+   [0,6,0] twin). That is the band accent doing its job — the same treatment every other
+   accented element in the band gets — and it is pinned as intended behaviour in css-lint's
+   INTENTIONALLY_REACHING list and in the e2e band-accent case. The cta family has the same
+   shape one tier down (the border chains fall past the neutralised --cta-button-border to
+   --cta-accent), though it is unreachable today: a .cta has no prop that can carry a nested
+   .btn.
+
+   Escape hatch, accepted: an author who hand-writes one of the excluded classes onto their own
+   button opts back into whichever band's slots that button sits inside (`class="btn hero__cta"`
+   in a hero's proof, `class="btn section__panel-cta"` in a section's body). The component classes
+   are internal, and treating a deliberate copy of one as intent is better than out-guessing it. The same holds for a hand-written
+   `style="--hero-button-bg: …"` — wp_kses_post permits `style`, and an inline declaration beats
+   this rule, so the author's own value paints their own button. Neither is the leak: the leak
+   was the BAND's styling arriving somewhere nobody asked for it. */
+main .btn:not(.hero__cta):not(.cta__button):not(.section__panel-cta) {
+  --hero-button-bg: initial;
+  --hero-button-color: initial;
+  --hero-button-hover-bg: initial;
+  --hero-button-shadow: initial;
+  --hero-cta2-bg: initial;
+  --hero-cta2-border: initial;
+  --hero-cta2-color: initial;
+  --hero-cta2-hover-bg: initial;
+  --hero-cta2-hover-border: initial;
+  --hero-cta2-hover-color: initial;
+  --cta-button-bg: initial;
+  --cta-button-border: initial;
+  --cta-button-color: initial;
+  --cta-button-hover-bg: initial;
+  --cta-button-hover-border: initial;
+  --cta-button-hover-color: initial;
+  --cta-button-shadow: initial;
+  --cta-button2-bg: initial;
+  --cta-button2-border: initial;
+  --cta-button2-color: initial;
+  --cta-button2-hover-bg: initial;
+  --cta-button2-hover-border: initial;
+  --cta-button2-hover-color: initial;
+  --section-panel-cta-bg: initial;
+  --section-panel-cta-color: initial;
+  --section-panel-cta-shadow: initial;
+}
+
 /* True final cascade: premium CTA treatment.
    Layout/typography apply to every button. The FILLED treatment (gradient
    background-image, accent border, light text) applies to primary buttons only:
@@ -4519,7 +4617,9 @@ main > .grid .grid__item-link::after {
    color), --cta-button-color (ink), or --cta-button-shadow: none gets a FLAT primary
    button on the DEFAULT variant. The --cta-button-* custom properties are emitted
    inline only on the .cta root, and custom-property inheritance is DOM-scoped, so a
-   hero/standalone `.btn` (never inside a .cta) never inherits them — no leak. */
+   hero/standalone `.btn` (never inside a .cta) never inherits them. That covers the
+   CROSS-component case only: a `.btn` INSIDE the .cta does inherit them, and the issue 545
+   neutralisation rule above is what keeps them off any button the renderer does not own. */
 main .btn {
   display: inline-flex;
   align-items: center;
@@ -4566,9 +4666,10 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
      head of the chain (issue 536): --section-panel-cta-color is emitted only on a .section
      root, and the section RENDERER emits exactly ONE button surface (.section__panel-cta),
      so no #526-style isolation rule is needed. Like every root-emitted button slot,
-     --hero-button-* included, it does inherit onto a `.btn` an author hand-writes into the
-     wp_kses_post `body` HTML — the pre-existing trait of the whole family, not something
-     this slot introduces. */
+     --hero-button-* included, it used to inherit onto a `.btn` an author hand-writes into the
+     wp_kses_post `body` HTML — the pre-existing trait of the whole family. Issue 545 closed
+     that for all five families at once by neutralising them on non-owned composed buttons
+     (see the block above this one), so the slot now reaches exactly .section__panel-cta. */
   color: var(--section-panel-cta-color, var(--hero-button-color, var(--cta-button-color, var(--btn-text, var(--color-bg)))));
 }
 
@@ -4763,7 +4864,10 @@ main .btn:focus-visible {
    Scoped to `.btn` on the roots whose RENDERERS put a button ON the band: cover hero and cta.
    A dark band that renders no on-band button (grid/stats/faq/logos/embed/testimonials, and
    section per the paragraph above) can only receive a `.btn` through author-written rich-text
-   HTML — the #545 class, deliberately not covered here. Non-button focusables on dark bands
+   HTML — the author-written nested button of #545, deliberately not covered here. That issue
+   neutralised the per-instance FILL slots on such a button; its focus ring is a separate
+   surface with no per-instance slot at all, and it keeps the bare accent, as it always has.
+   Non-button focusables on dark bands
    (a link in `.cta__body`, nav) also keep the bare accent ring: #437/#461 routed their INK,
    not their outline, and widening this to every focusable is a separate blast radius.
 

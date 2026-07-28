@@ -1854,7 +1854,76 @@ class StyleSlotContractTest extends TestCase
         // --cta-button-hover-bg at --cta-button2-hover-bg both unmasks button2's hover fill
         // and kills the cross-button hover coupling found in #474's review.
         '.cta .cta__buttons .cta__button--secondary declares --cta-button-hover-bg',
+        // issue 545 — the same isolation mechanism widened from "the second button" to
+        // "every composed button this theme does not own". The five per-instance button slot
+        // families are emitted on the COMPONENT ROOT, and three of their consumers select by
+        // descent (`main .btn:not(...)`, `.hero .btn:not(...)`, `.cta .btn:not(...)`), so they
+        // also inherited onto a `.btn` an AUTHOR hand-writes into a wp_kses_post rich-text prop
+        // (section.body, hero.proof) and repainted it with the band's button styling.
+        // Neutralising the families to the guaranteed-invalid `initial` on
+        // `main .btn:not(.hero__cta):not(.cta__button):not(.section__panel-cta)` is the fix.
+        // It deadens nothing author-facing, for a stronger reason than the entries above: the
+        // rule matches ONLY buttons no renderer owns, and a style slot can be authored only on
+        // a component — there is no authoring surface that targets a nested button, so no
+        // author-set value is being overridden. The three owned button elements are excluded by
+        // selector, which is why every shipped chain is untouched and byte-identical.
+        // Its 26 entries are appended from NESTED_BTN_ISOLATION_* below rather than spelled out
+        // here, so widening the exclusion list is one edit instead of 26. The ledger stays
+        // exact either way; tests/js/css-lint.test.js derives the same completeness requirement
+        // structurally (schema style_slots read by a leak-capable selector), so a missing slot
+        // cannot merely be forgotten.
     ];
+
+    /**
+     * The issue 545 neutralisation rule. Kept as data, not as 26 literal ledger strings: the
+     * exclusion list changes whenever a fourth component gains its own button (a change
+     * NestedButtonSlotIsolationTest::testEveryRendererThatEmitsAButtonIsExcluded forces), and a
+     * one-character selector edit should not read as 26 unexpected plus 26 missing entries.
+     */
+    private const NESTED_BTN_ISOLATION_SELECTOR =
+        'main .btn:not(.hero__cta):not(.cta__button):not(.section__panel-cta)';
+
+    private const NESTED_BTN_ISOLATION_SLOTS = [
+        '--hero-button-bg',
+        '--hero-button-color',
+        '--hero-button-hover-bg',
+        '--hero-button-shadow',
+        '--hero-cta2-bg',
+        '--hero-cta2-border',
+        '--hero-cta2-color',
+        '--hero-cta2-hover-bg',
+        '--hero-cta2-hover-border',
+        '--hero-cta2-hover-color',
+        '--cta-button-bg',
+        '--cta-button-border',
+        '--cta-button-color',
+        '--cta-button-hover-bg',
+        '--cta-button-hover-border',
+        '--cta-button-hover-color',
+        '--cta-button-shadow',
+        '--cta-button2-bg',
+        '--cta-button2-border',
+        '--cta-button2-color',
+        '--cta-button2-hover-bg',
+        '--cta-button2-hover-border',
+        '--cta-button2-hover-color',
+        '--section-panel-cta-bg',
+        '--section-panel-cta-color',
+        '--section-panel-cta-shadow',
+    ];
+
+    /** The full exemption ledger: the hand-listed entries plus the issue 545 rule's. */
+    private static function slotDeclarationExemptions(): array
+    {
+        return array_merge(
+            self::SLOT_DECLARATION_EXEMPTIONS,
+            array_map(
+                static fn(string $slot): string =>
+                    self::NESTED_BTN_ISOLATION_SELECTOR . ' declares ' . $slot,
+                self::NESTED_BTN_ISOLATION_SLOTS
+            )
+        );
+    }
 
     public function testNoStylesheetRuleDeclaresASchemaSlot(): void
     {
@@ -1881,7 +1950,7 @@ class StyleSlotContractTest extends TestCase
         // exemption, so a SECOND rule with the same selector re-declaring the same slot
         // would slip through the slot-deadening guard entirely.
         $seen     = array_count_values($offenders);
-        $expected = array_count_values(self::SLOT_DECLARATION_EXEMPTIONS);
+        $expected = array_count_values(self::slotDeclarationExemptions());
 
         $unexpected = [];
         foreach ($seen as $decl => $count) {

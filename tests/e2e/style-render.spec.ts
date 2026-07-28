@@ -8704,3 +8704,346 @@ test.describe('#551 panel CTA ink resolves against the light panel, not the band
     });
   }
 });
+
+/**
+ * Per-instance button slots never reach an author-written nested `.btn` (#545, real WP).
+ *
+ * The five slot families are emitted on the COMPONENT ROOT and three of their consumers
+ * (`main .btn:not(...)`, `.hero .btn:not(...)`, `.cta .btn:not(...)`) read them by INHERITANCE,
+ * so before this fix a `.btn` an author hand-writes into a wp_kses_post rich-text prop —
+ * `section.body` and `hero.proof` — was repainted by the band's own button styling. The fix
+ * neutralises the families on any composed `.btn` that is not a renderer-owned button element.
+ *
+ * This is a browser-cascade defect: the leak lives in custom-property inheritance and in which
+ * rule wins the `background` SHORTHAND, so only a rendered pin can see it. Every assertion below
+ * is paired — the nested button must resolve the theme default AND the component's own button
+ * must still resolve the authored slot, so a fix that killed both would fail here.
+ */
+test.describe('#545 per-instance button slots stay off nested author buttons (real WP)', () => {
+  let pageId = 0;
+
+  const PURPLE = '#7c3aed';
+  const INK = '#fffbe6';
+
+  test.afterEach(async () => {
+    if (pageId) {
+      deletePage(pageId);
+      pageId = 0;
+    }
+  });
+
+  function sectionPage(title: string, style?: Record<string, string>): number {
+    const id = createPage(title);
+    setComposition(id, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-545-section',
+          layout: 'text-panel',
+          title: 'Plans',
+          // The author-written button, in the real rich-text prop.
+          // Two nested author buttons: the filled default (the leak surface) and an outline
+          // variant, which the new rule also matches and must leave completely inert.
+          body: '<p>Pick a plan. <a class="btn" href="/x">Inline CTA</a> '
+            + '<a class="btn btn--outline" href="/y">Outline CTA</a></p>',
+          panel_heading: 'Starter',
+          panel_cta_text: 'Book a call',
+          panel_cta_url: '/contact',
+        },
+        ...(style ? { style } : {}),
+      },
+    ]);
+    return id;
+  }
+
+  function heroPage(title: string, style?: Record<string, string>): number {
+    const id = createPage(title);
+    setComposition(id, [
+      {
+        component: 'hero',
+        props: {
+          id: 'pp-545-hero',
+          layout: 'centered',
+          title: 'Ship faster',
+          cta_text: 'Start now',
+          cta_url: '/start',
+          proof: '<p>Trusted by teams <a class="btn" href="/x">Inline CTA</a></p>',
+        },
+        ...(style ? { style } : {}),
+      },
+    ]);
+    return id;
+  }
+
+  /** Reads a button plus the theme literals it must (or must not) resolve to. */
+  async function readButtons(page: any, ownedSel: string, nestedSel: string) {
+    return page.evaluate(
+      ({ owned, nested }: { owned: string; nested: string }) => {
+        const resolve = (prop: string, value: string) => {
+          const el = document.createElement('div');
+          el.style.setProperty(prop, value);
+          document.body.appendChild(el);
+          const out = getComputedStyle(el).getPropertyValue(prop);
+          el.remove();
+          return out.trim();
+        };
+        const read = (sel: string) => {
+          const el = document.querySelector(sel) as HTMLElement;
+          const cs = getComputedStyle(el);
+          return {
+            bgColor: cs.backgroundColor,
+            bgImage: cs.backgroundImage,
+            borderColor: cs.borderTopColor,
+            color: cs.color,
+            shadow: cs.boxShadow,
+          };
+        };
+        return {
+          owned: read(owned),
+          nested: read(nested),
+          premiumGradient: resolve(
+            'background-image',
+            'linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%)',
+          ),
+          premiumHoverGradient: resolve(
+            'background-image',
+            'linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%)',
+          ),
+          purple: resolve('background-color', '#7c3aed'),
+          colorBg: resolve('background-color', 'var(--color-bg)'),
+        };
+      },
+      { owned: ownedSel, nested: nestedSel },
+    );
+  }
+
+  for (const width of [1280, 375]) {
+    test(`section: the panel fill slots paint the panel CTA and not the body button (${width}px) @smoke`, async ({
+      page,
+    }) => {
+      pageId = sectionPage('E2E 545 section', {
+        '--section-panel-cta-bg': PURPLE,
+        '--section-panel-cta-color': INK,
+        '--section-panel-cta-shadow': 'none',
+      });
+
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('.section__panel-cta')).toBeVisible({ timeout: 10000 });
+
+      const got = await readButtons(page, '.section__panel-cta', '.section__content .btn');
+
+      // The slot still does its job (#536 stays green).
+      expect(got.owned.bgColor, `@${width}: the panel CTA must still paint the fill slot`).toBe(
+        got.purple,
+      );
+      expect(got.owned.shadow, `@${width}: the panel CTA must still flatten`).toBe('none');
+
+      // The defect: the body button used to be purple, yellow-inked and flat.
+      expect(
+        got.nested.bgImage,
+        `@${width}: the nested button must keep the premium gradient, not the panel fill`,
+      ).toBe(got.premiumGradient);
+      expect(got.nested.bgColor, `@${width}: the nested button must not take the fill slot`).not.toBe(
+        got.purple,
+      );
+      expect(got.nested.borderColor, `@${width}: the nested ring must not follow the fill`).not.toBe(
+        got.purple,
+      );
+      expect(got.nested.color, `@${width}: the nested button must keep the theme ink`).toBe(
+        got.colorBg,
+      );
+      expect(got.nested.shadow, `@${width}: the elevation slot must not flatten it`).not.toBe('none');
+    });
+
+    test(`hero: the hero button slots paint the hero CTA and not the proof button (${width}px) @smoke`, async ({
+      page,
+    }) => {
+      pageId = heroPage('E2E 545 hero', {
+        '--hero-button-bg': PURPLE,
+        '--hero-button-color': INK,
+        '--hero-button-shadow': 'none',
+        '--hero-button-hover-bg': '#4c1d95',
+      });
+
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('.hero__cta')).toBeVisible({ timeout: 10000 });
+
+      const got = await readButtons(page, '.hero__cta', '.hero__proof .btn');
+
+      expect(got.owned.bgColor, `@${width}: the hero CTA must still paint the fill slot`).toBe(
+        got.purple,
+      );
+      expect(got.nested.bgImage, `@${width}: the proof button must keep the premium gradient`).toBe(
+        got.premiumGradient,
+      );
+      expect(got.nested.bgColor, `@${width}: the proof button must not take the fill slot`).not.toBe(
+        got.purple,
+      );
+      expect(got.nested.color, `@${width}: the proof button must keep the theme ink`).toBe(
+        got.colorBg,
+      );
+
+      // HOVER is a separate winner chain (#530 routed --hero-button-hover-bg through the
+      // premium hover rule), and it leaked exactly like rest did.
+      await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
+      await page.locator('.hero__proof .btn').hover();
+      const hoveredNested = await readButtons(page, '.hero__cta', '.hero__proof .btn');
+      // Positive control, not just `not.toBe('none')`: any gradient would satisfy a negative
+      // assertion, including a wrong one.
+      expect(
+        hoveredNested.nested.bgImage,
+        `@${width}: the proof button must resolve the premium HOVER gradient exactly`,
+      ).toBe(hoveredNested.premiumHoverGradient);
+      expect(
+        hoveredNested.nested.bgColor,
+        `@${width}: the hero hover fill slot must not reach the proof button`,
+      ).not.toBe('rgb(76, 29, 149)');
+
+      // The paired half: the hero's OWN button must still take the hover slot, so a fix that
+      // killed both would fail here.
+      await page.locator('.hero__cta').first().hover();
+      const hoveredOwned = await readButtons(page, '.hero__cta', '.hero__proof .btn');
+      expect(
+        hoveredOwned.owned.bgColor,
+        `@${width}: the hero CTA must still paint --hero-button-hover-bg`,
+      ).toBe('rgb(76, 29, 149)');
+    });
+  }
+
+  // Unset: a nested button must render exactly like a composed button with no band styling,
+  // and the owned buttons must be untouched too.
+  test('with no slots set, nested and owned buttons are both the theme default @smoke', async ({
+    page,
+  }) => {
+    pageId = sectionPage('E2E 545 unset');
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('.section__panel-cta')).toBeVisible({ timeout: 10000 });
+
+    const got = await readButtons(page, '.section__panel-cta', '.section__content .btn');
+
+    expect(got.nested.bgImage, 'unset: the nested button is the premium gradient').toBe(
+      got.premiumGradient,
+    );
+    expect(got.owned.bgImage, 'unset: the panel CTA is the premium gradient').toBe(
+      got.premiumGradient,
+    );
+    expect(got.nested.color).toBe(got.owned.color);
+    expect(got.nested.borderColor).toBe(got.owned.borderColor);
+    expect(got.nested.shadow).toBe(got.owned.shadow);
+  });
+
+  // The rule matches transparent-variant nested buttons too. Those never read a per-instance
+  // slot (every variant chain is scoped to an owned class), so neutralising must be inert:
+  // the outline button keeps its transparent fill whether or not the band is styled.
+  // The scope BOUNDARY, pinned as intended behaviour rather than left implicit: band-level
+  // accents are deliberately NOT neutralised. `.hero .btn:not(...)` is [0,5,0], which outranks
+  // the premium winner at [0,4,1], so a hero band accent rings an author-written proof button
+  // exactly as it accents every other element in the band. If a future change decides that is
+  // wrong, this test is where the decision gets revisited — it is not an accident.
+  test('a hero BAND ACCENT still reaches a nested author button (deliberate) @smoke', async ({
+    page,
+  }) => {
+    const ACCENT_545 = '#c2410c';
+    pageId = heroPage('E2E 545 band accent', { '--hero-accent': ACCENT_545 });
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('.hero__proof .btn')).toBeVisible({ timeout: 10000 });
+
+    const got = await page.evaluate(() => {
+      const resolve = (value: string) => {
+        const el = document.createElement('div');
+        el.style.setProperty('background-color', value);
+        document.body.appendChild(el);
+        const out = getComputedStyle(el).backgroundColor;
+        el.remove();
+        return out;
+      };
+      const nested = document.querySelector('.hero__proof .btn') as HTMLElement;
+      const owned = document.querySelector('.hero__cta') as HTMLElement;
+      return {
+        nestedBorder: getComputedStyle(nested).borderTopColor,
+        ownedBorder: getComputedStyle(owned).borderTopColor,
+        accent: resolve('#c2410c'),
+      };
+    });
+
+    expect(got.nestedBorder, 'the band accent is not neutralised — it rings the nested button too')
+      .toBe(got.accent);
+    expect(got.ownedBorder, 'and it rings the hero CTA the same way').toBe(got.accent);
+  });
+
+  test('a nested OUTLINE author button is unaffected, styled band or not @smoke', async ({
+    page,
+  }) => {
+    const read = async () =>
+      page.evaluate(() => {
+        const el = document.querySelector('.section__content .btn--outline') as HTMLElement;
+        const cs = getComputedStyle(el);
+        return {
+          bgColor: cs.backgroundColor,
+          bgImage: cs.backgroundImage,
+          borderColor: cs.borderTopColor,
+          color: cs.color,
+        };
+      });
+
+    pageId = sectionPage('E2E 545 nested outline unset');
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('.section__content .btn--outline')).toBeVisible({ timeout: 10000 });
+    const unset = await read();
+    deletePage(pageId);
+
+    pageId = sectionPage('E2E 545 nested outline styled', {
+      '--section-panel-cta-bg': PURPLE,
+      '--section-panel-cta-color': INK,
+      '--section-panel-cta-shadow': 'none',
+    });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('.section__content .btn--outline')).toBeVisible({ timeout: 10000 });
+    const styled = await read();
+
+    expect(styled, 'the band fill slots must not reach a nested outline button').toEqual(unset);
+    expect(unset.bgImage, 'an outline button keeps no gradient').toBe('none');
+    expect(unset.bgColor, 'an outline button keeps a transparent fill').toBe('rgba(0, 0, 0, 0)');
+  });
+
+  // The GLOBAL tier is deliberately NOT neutralised: a site-wide button retheme must still
+  // reach an author-written button, exactly as it reaches every composed one.
+  test('a site-wide --btn-bg still repaints a nested author button @smoke', async ({ page }) => {
+    pageId = sectionPage('E2E 545 global tier', { '--section-panel-cta-bg': PURPLE });
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('.section__panel-cta')).toBeVisible({ timeout: 10000 });
+
+    // Seed the global knob at :root — pp_render_style_vars() drops keys outside a
+    // component's declared style_slots, so the global tier cannot be seeded per component.
+    // Kill transitions in the SAME tag: .btn transitions background-color, so recolouring a
+    // painted button mid-test reads back an interpolated value (observed: the teal at 11%
+    // alpha) rather than the settled one.
+    await page.addStyleTag({
+      content: '*,*::before,*::after{transition:none !important;} :root { --btn-bg: #0e7490; }',
+    });
+
+    const got = await readButtons(page, '.section__panel-cta', '.section__content .btn');
+    const teal = await page.evaluate(() => {
+      const el = document.createElement('div');
+      el.style.setProperty('background-color', '#0e7490');
+      document.body.appendChild(el);
+      const out = getComputedStyle(el).backgroundColor;
+      el.remove();
+      return out;
+    });
+
+    expect(got.nested.bgColor, 'the global tier must still reach the nested button').toBe(teal);
+    expect(got.nested.bgImage, 'a flat global fill clears the gradient there too').toBe('none');
+    // The per-instance slot still outranks the global tier on the button that owns it.
+    expect(got.owned.bgColor, 'the panel CTA keeps its per-instance fill').toBe(got.purple);
+  });
+});
