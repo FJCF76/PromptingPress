@@ -650,7 +650,7 @@ describe('CSS lint: primary-button background-color routes through --cta-button-
         expect(body).toMatch(/border-color:\s*var\(--cta-button-border,\s*var\(--btn-border-color,\s*var\(--cta-button-bg,\s*var\(--cta-accent,\s*var\(--btn-bg,\s*var\(--color-accent\)\)\)\)\)\)/);
     });
 
-    test('hover rule: fill routes through --cta-button-hover-bg, border through --cta-button-hover-border then the fill, accent-hover chain as fallback', () => {
+    test('hover rule: fill routes through --cta-button-hover-bg, border through --cta-button-hover-border then --cta-accent-hover then the fill', () => {
         const body = bodyOf(HOVER_SEL);
         expect(body).not.toBeNull();
         // #539 completes the rest chain's shape above at the hover tier: --btn-hover-bg and
@@ -658,7 +658,12 @@ describe('CSS lint: primary-button background-color routes through --cta-button-
         // hold at rest — between the per-component slots and the --color-accent-hover literal.
         // Border still FOLLOWS the fill chain after honouring its own global knob.
         expect(body).toMatch(/background-color:\s*var\(--cta-button-hover-bg,\s*var\(--cta-accent-hover,\s*var\(--btn-hover-bg,\s*var\(--color-accent-hover\)\)\)\)/);
-        expect(body).toMatch(/border-color:\s*var\(--cta-button-hover-border,\s*var\(--btn-hover-border-color,\s*var\(--cta-button-hover-bg,\s*var\(--cta-accent-hover,\s*var\(--btn-hover-bg,\s*var\(--color-accent-hover\)\)\)\)\)\)/);
+        // #548 flipped ONE link pair in the border chain: --cta-accent-hover now outranks
+        // --cta-button-hover-bg, the order button2 has used since #538. This pin previously
+        // asserted the opposite order; it is flipped deliberately, not deleted, exactly as
+        // #538 flipped #530's pins. The fill stays IN the chain (a fill-only recolor still
+        // rings itself) and the terminal is unchanged, so only the both-authored case moves.
+        expect(body).toMatch(/border-color:\s*var\(--cta-button-hover-border,\s*var\(--btn-hover-border-color,\s*var\(--cta-accent-hover,\s*var\(--cta-button-hover-bg,\s*var\(--btn-hover-bg,\s*var\(--color-accent-hover\)\)\)\)\)\)/);
     });
 });
 
@@ -3232,8 +3237,12 @@ describe('CSS lint: dark-band buttons route through the AA accent roles (#535)',
         {
             sel: '.cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover',
             // --btn-hover-border-color / --btn-hover-bg join at the positions their resting
-            // counterparts hold in the rest twin above (#539).
-            leading: ['--cta-button-hover-border', '--btn-hover-border-color', '--cta-button-hover-bg', '--cta-accent-hover', '--btn-hover-bg'],
+            // counterparts hold in the rest twin above (#539). --cta-accent-hover sits ahead
+            // of --cta-button-hover-bg since #548 (the rest twin keeps the opposite order,
+            // because at rest --cta-button-bg leads --cta-accent — that rest/hover asymmetry
+            // is #538 Option 3 and is deliberate). Every authored link still precedes the
+            // role token, which is all this ring rule is allowed to replace.
+            leading: ['--cta-button-hover-border', '--btn-hover-border-color', '--cta-accent-hover', '--cta-button-hover-bg', '--btn-hover-bg'],
         },
         {
             sel: '.hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)',
@@ -3989,7 +3998,9 @@ describe('CSS lint: global button hover tier (#539)', () => {
             sel: '.cta .btn' + NOT3 + ':hover',
             decls: [
                 'background-color: var(--cta-button-hover-bg, var(--cta-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));',
-                'border-color: var(--cta-button-hover-border, var(--btn-hover-border-color, var(--cta-button-hover-bg, var(--cta-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))))));',
+                // #548: --cta-accent-hover ahead of --cta-button-hover-bg. The global tier's
+                // positions are untouched — that is the property this table exists to pin.
+                'border-color: var(--cta-button-hover-border, var(--btn-hover-border-color, var(--cta-accent-hover, var(--cta-button-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))));',
             ],
         },
         {
