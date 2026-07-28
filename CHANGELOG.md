@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [v1.11.5] — 2026-07-28 — a CTA's two buttons now hover to the same ring colour (#548)
+## [v1.11.5] — 2026-07-28 — a CTA's two buttons now follow the same hover-ring rule (#548)
 
 **Set `--cta-accent-hover` and a hover fill on a CTA and both buttons follow the accent. Until now one did and the other didn't, side by side on the same band.**
 
@@ -27,7 +27,7 @@ Everything below the first row is untouched, including the separation ring a fil
 
 ### What this means for anyone styling a CTA
 
-The rule to carry is short: on a filled button, an authored accent-hover beats that button's own hover fill, and a dedicated hover-border slot beats both. It now reads the same way on all four filled surfaces, so a CTA pair can no longer disagree with itself. The component's schema, its README and the AI styling instructions all describe the single rule.
+The rule to carry is short, and it is about the hover RING only: on a filled button, an authored accent-hover beats that button's own hover fill, and a dedicated hover-border slot beats both. Resting rings are unchanged and still follow the fill first. The hover rule now reads the same way on all four filled surfaces, so a CTA pair can no longer disagree about which knob wins. The component's schema, its README and the AI styling instructions all describe the single rule.
 
 ### Itemized changes
 
