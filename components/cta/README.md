@@ -97,13 +97,20 @@ site-wide hover twin of `--btn-bg`, so a theme-level button retheme now survives
 pointer on both of this component's buttons without per-instance slots; the per-instance
 slots above still win wherever they are set.
 
-On the filled SECOND button the hover BORDER follows that hover fill when neither
-`--cta-button2-hover-border` nor `--cta-accent-hover` is set, so a hover-fill-only recolor
-keeps a matching ring (issue 538). Either of those two slots still wins where set — note
+On a filled button — primary or second — the hover BORDER follows that button's hover fill
+when neither its own hover-border slot (`--cta-button-hover-border` /
+`--cta-button2-hover-border`) nor `--cta-accent-hover` is set, so a hover-fill-only recolor
+keeps a matching ring (issues 538, 548). Either of those slots still wins where set — as
+does the site-wide `--btn-hover-border-color`, which sits between them (issue 539) — and
+both buttons resolve their chains in the same ORDER. Same order is not the same color: each
+button reads its own hover-border and hover-fill slots, so the pair matches wherever the
+winning link is a shared knob (`--cta-accent-hover`, `--btn-hover-border-color`, the theme
+default) and differs wherever it is a per-button one. Note
 the hover chain resolves `--cta-accent-hover` BEFORE the fill, while the resting chain
-resolves `--cta-button2-bg` before `--cta-accent`, so a CTA with accent knobs set can match
-its fill at rest and return to the accent on hover. The `outline`, `ghost` and `secondary`
-variants do not follow the hover fill; give those `--cta-button2-hover-border` explicitly.
+resolves `--cta-button-bg` / `--cta-button2-bg` before `--cta-accent`, so a CTA with accent
+knobs set can match its fill at rest and return to the accent on hover. The `outline`,
+`ghost` and `secondary` variants do not follow the hover fill; give those an explicit
+hover-border slot.
 
 At mobile widths the pair stacks one button per row.
 

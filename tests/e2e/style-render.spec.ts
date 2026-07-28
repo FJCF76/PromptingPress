@@ -7669,6 +7669,303 @@ test.describe('#538 filled second-button hover ring follows the hover fill (real
 });
 
 /**
+ * #548 — the cta PRIMARY joins #538's Option-3 order, so a cta button PAIR rings ONE way.
+ *
+ * #538 deliberately stopped at the two SECOND buttons: reordering the primary repaints a
+ * shipped render, so it needed its own maintainer decision rather than a silent cleanup.
+ * The cost of stopping there was visible on a single band — a site authoring
+ * --cta-accent-hover plus BOTH per-button hover fills hovered its primary to a fill-coloured
+ * ring and its neighbour to an accent-coloured one, side by side, same component.
+ *
+ * The decision (recorded on #548) accepts exactly one rendered change: in the both-authored
+ * configuration the primary's ring moves from the fill to the authored accent. Everything
+ * else must be untouched, and "untouched" is the harder half of this issue — which is why
+ * the fill-only and unset controls below assert ABSOLUTE resolved values (the fill literal,
+ * the theme literal, the on-overlay role) rather than comparing against a sibling that
+ * would move with them.
+ *
+ * Why these are render tests and not CSS-text pins: the contract is directional and lives in
+ * a cascade. StyleSlotContractTest proves the token ORDER in the source; only a real :hover
+ * in a real browser proves that the rule carrying that order is the one that paints, over
+ * the premium [0,5,1] gradient rule, the #535/#543 separation rings and the #542 focus
+ * routing that all target these same buttons.
+ */
+test.describe('#548 cta primary hover ring ranks the accent above the fill (real WP)', () => {
+  let pageId = 0;
+
+  const FILL = 'rgb(124, 58, 237)'; // #7c3aed, the hover fill
+  const ACCENT = 'rgb(255, 136, 0)'; // #ff8800, the authored accent-hover
+  const BORDER = 'rgb(16, 185, 129)'; // #10b981, the dedicated hover-border slot
+  const GLOBAL_RING = 'rgb(7, 8, 9)'; // the #539 global --btn-hover-border-color
+  const IMG = 'https://example.com/nonexistent.jpg'; // triggers .cta--has-bg-image, no upload
+  const ON_OVERLAY = 'rgb(250, 251, 255)'; // #fafbff, the overlay twin's terminal
+
+  const PRIMARY = '.cta__button:not(.cta__button--secondary)';
+  const SECOND = '.cta__button--secondary';
+
+  test.afterEach(async () => {
+    if (pageId) {
+      deletePage(pageId);
+      pageId = 0;
+    }
+  });
+
+  /** A filled PAIR so the primary can be compared against its neighbour on one band. */
+  const ctaPair = (
+    title: string,
+    style?: Record<string, string>,
+    props: Record<string, unknown> = {},
+  ) => ({
+    component: 'cta',
+    props: {
+      title,
+      button_text: 'Primary action', button_url: '/start',
+      button2_text: 'Second action', button2_url: '/learn',
+      button2_variant: 'primary',
+      ...props,
+    },
+    ...(style ? { style } : {}),
+  });
+
+  async function open(page: any, id: number, width: number) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/?page_id=${id}`);
+    await expect(page.locator(PRIMARY).first()).toBeVisible({ timeout: 10000 });
+    // The .btn colour transition is 150ms; a read straight after hover() samples a
+    // mid-flight blend. The assertion is about which value the CASCADE resolves.
+    await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; }' });
+  }
+
+  const prop = (loc: any, name: string) =>
+    loc.evaluate((el: Element, p: string) => getComputedStyle(el).getPropertyValue(p), name);
+
+  /** Probe-resolve a literal through the browser (the #458 idiom), never a hardcoded hex. */
+  const resolve = (page: any, value: string) =>
+    page.evaluate((v: string) => {
+      const el = document.createElement('div');
+      el.style.setProperty('background-color', v);
+      document.body.appendChild(el);
+      const out = getComputedStyle(el).getPropertyValue('background-color').trim();
+      el.remove();
+      return out;
+    }, value);
+
+  for (const width of [1280, 375]) {
+    /*
+     * THE CHANGE, and the reason the issue was filed: one band, two filled buttons, both
+     * knobs authored. Before #548 these two rings resolved to DIFFERENT colours. The pair
+     * equality assertion is the contract; the absolute ACCENT assertions say which way it
+     * was resolved, so a future regression that made both follow the FILL would still fail.
+     */
+    test(`both knobs authored: the pair rings identically, on the accent (${width}px) @smoke`, async ({
+      page,
+    }) => {
+      pageId = createPage('E2E 548 both authored');
+      setComposition(pageId, [
+        ctaPair('Ready to start?', {
+          '--cta-accent-hover': ACCENT,
+          '--cta-button-hover-bg': FILL,
+          '--cta-button2-hover-bg': FILL,
+        }),
+      ]);
+      await open(page, pageId, width);
+
+      const primary = page.locator(PRIMARY).first();
+      const second = page.locator(SECOND);
+
+      await primary.hover();
+      expect(await prop(primary, 'background-color'), `@${width}: the hover fill still paints`).toBe(FILL);
+      expect(
+        await prop(primary, 'border-top-color'),
+        `@${width}: the authored --cta-accent-hover must win the primary's ring (#548). ` +
+          'Before this change it resolved to the hover FILL.',
+      ).toBe(ACCENT);
+
+      // A ring with no width is not a ring — every colour assertion above stays green
+      // under `border-width: 0`. Read it while the PRIMARY is still hovered: moving the
+      // pointer to the second button first would measure the primary's REST width and let
+      // a hover-state `border-width: 0` regression through.
+      expect(
+        parseFloat(await prop(primary, 'border-top-width')),
+        `@${width}: the ring must have a width under the pointer`,
+      ).toBeGreaterThan(0);
+
+      await second.hover();
+      expect(await prop(second, 'border-top-color'), `@${width}: button2 unchanged (#538)`).toBe(ACCENT);
+    });
+
+    /*
+     * CONTROL 1 — the fill-only author. The border-follows-fill link SURVIVED the reorder,
+     * one slot further down, so this render is unchanged. If the reorder had dropped the
+     * fill instead of demoting it, this is the test that catches it.
+     */
+    test(`fill only: the ring still follows the fill, unchanged (${width}px) @smoke`, async ({
+      page,
+    }) => {
+      pageId = createPage('E2E 548 fill only');
+      setComposition(pageId, [ctaPair('Ready to start?', { '--cta-button-hover-bg': FILL })]);
+      await open(page, pageId, width);
+
+      const primary = page.locator(PRIMARY).first();
+      await primary.hover();
+      expect(await prop(primary, 'background-color'), `@${width}: the fill paints`).toBe(FILL);
+      expect(
+        await prop(primary, 'border-top-color'),
+        `@${width}: with no accent knob authored the ring must still follow the fill`,
+      ).toBe(FILL);
+    });
+  }
+
+  /*
+   * CONTROL 2 — nothing authored. Pinned against the probe-resolved theme literal rather
+   * than against the second button, because a change that moved BOTH terminals together
+   * would sail through a sibling comparison.
+   */
+  test('unset: the hover ring is still the theme default @smoke', async ({ page }) => {
+    pageId = createPage('E2E 548 unset');
+    setComposition(pageId, [ctaPair('Ready to start?')]);
+    await open(page, pageId, 1280);
+
+    const primary = page.locator(PRIMARY).first();
+    await primary.hover();
+    expect(
+      await prop(primary, 'border-top-color'),
+      'an unset primary must still hover to --color-accent-hover',
+    ).toBe(await resolve(page, 'var(--color-accent-hover)'));
+  });
+
+  // The author's dedicated ring knob is still the strongest link, ahead of both.
+  test('an authored --cta-button-hover-border beats the accent and the fill @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 548 border wins');
+    setComposition(pageId, [
+      ctaPair('Ready to start?', {
+        '--cta-button-hover-border': BORDER,
+        '--cta-accent-hover': ACCENT,
+        '--cta-button-hover-bg': FILL,
+      }),
+    ]);
+    await open(page, pageId, 1280);
+
+    const primary = page.locator(PRIMARY).first();
+    await primary.hover();
+    expect(await prop(primary, 'border-top-color'), 'the dedicated slot must win').toBe(BORDER);
+  });
+
+  /*
+   * #539's global tier keeps its POSITION through the reorder: --btn-hover-border-color sits
+   * under the per-instance ring slot and above the accent/fill link. An explicitly authored
+   * global ring beats a ring merely inferred from someone's fill — and beats the accent knob
+   * too, which is the half of the order #548 did NOT touch.
+   */
+  test('the global --btn-hover-border-color still outranks the accent and the fill @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 548 global ring');
+    setComposition(pageId, [
+      ctaPair('Ready to start?', {
+        '--cta-accent-hover': ACCENT,
+        '--cta-button-hover-bg': FILL,
+      }),
+    ]);
+    await open(page, pageId, 1280);
+    // The global tier is a THEME-level token, not a cta style slot: pp_render_style_vars()
+    // renders only keys declared in the component's schema (lib/wp.php), so seeding
+    // --btn-hover-border-color through the composition would be silently dropped and this
+    // test would assert the accent while believing it asserted the global. Set it at :root,
+    // the same idiom the #539 tests use.
+    await page.addStyleTag({ content: `:root{--btn-hover-border-color:${GLOBAL_RING};}` });
+
+    const primary = page.locator(PRIMARY).first();
+    await primary.hover();
+    expect(
+      await prop(primary, 'border-top-color'),
+      "#539's global ring keeps its position above the accent-then-fill link",
+    ).toBe(GLOBAL_RING);
+  });
+
+  /*
+   * THE OVERLAY TWIN. The second of the two edited declarations: same chain, different
+   * terminal (--color-accent-on-overlay, the #535/#543 separation ring). It is a physically
+   * separate rule, so it can drift from the plain one — both are pinned here and in
+   * StyleSlotContractTest.
+   */
+  test('overlay band: the accent wins the primary ring, and the unset terminal is untouched @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 548 overlay band');
+    setComposition(pageId, [
+      ctaPair('Authored', {
+        '--cta-accent-hover': ACCENT,
+        '--cta-button-hover-bg': FILL,
+      }, { background_image: IMG }),
+      ctaPair('Fill only', { '--cta-button-hover-bg': FILL }, { background_image: IMG }),
+      ctaPair('Unset', undefined, { background_image: IMG }),
+    ]);
+    await open(page, pageId, 1280);
+
+    const bands = page.locator('.cta--has-bg-image');
+    await expect(bands).toHaveCount(3, { timeout: 10000 });
+
+    const authored = bands.nth(0).locator(PRIMARY).first();
+    await authored.hover();
+    expect(
+      await prop(authored, 'border-top-color'),
+      'on a photo band the authored accent-hover must win the primary ring too (#548)',
+    ).toBe(ACCENT);
+    expect(await prop(authored, 'border-top-color'), 'and must NOT be the fill').not.toBe(FILL);
+
+    // The fill-only control on THIS declaration too: the border-follows-fill link must
+    // still sit ahead of the on-overlay terminal, or a fill-only recolor would snap to the
+    // near-white role token instead of matching its own fill.
+    const fillOnly = bands.nth(1).locator(PRIMARY).first();
+    await fillOnly.hover();
+    expect(
+      await prop(fillOnly, 'border-top-color'),
+      'on a photo band a fill-only recolor must still ring itself, not the role token',
+    ).toBe(FILL);
+
+    const unset = bands.nth(2).locator(PRIMARY).first();
+    await unset.hover();
+    expect(
+      await prop(unset, 'border-top-color'),
+      'with nothing authored the separation ring still bottoms out at the on-overlay role — ' +
+        'only the ORDER of the authored links moved, never the terminal (#535, #543)',
+    ).toBe(ON_OVERLAY);
+  });
+
+  /*
+   * 14.1 AUTHORING PATH. Every case above seeds _pp_composition directly. This one drives
+   * the REAL surface — style_component, through validation — so the reordered contract is
+   * proven on the path an operator actually uses, not only on a hand-written fixture.
+   */
+  test('the reordered ring holds for slots written through style_component @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 548 authoring path');
+    setComposition(pageId, [ctaPair('Ready to start?')]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await styleComponent(page, pageId, {
+      '--cta-accent-hover': ACCENT,
+      '--cta-button-hover-bg': FILL,
+    });
+    expect(res.success, 'style_component must accept both hover slots').toBe(true);
+
+    await open(page, pageId, 1280);
+    const primary = page.locator(PRIMARY).first();
+    await primary.hover();
+    expect(await prop(primary, 'background-color'), 'the action-written fill must paint').toBe(FILL);
+    expect(
+      await prop(primary, 'border-top-color'),
+      'and the action-written accent-hover must win the ring',
+    ).toBe(ACCENT);
+  });
+});
+
+/**
  * #543 — the filled SECOND button gets #535's separation ring on the two OVERLAY bands.
  *
  * #535 scoped that ring to the filled PRIMARY. The second button's own rules are one class
