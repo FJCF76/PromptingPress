@@ -8507,3 +8507,161 @@ test.describe('#536 section panel-CTA fill slots paint (real WP)', () => {
     });
   }
 });
+
+/**
+ * #551 — a transparent/light panel CTA on a DARK band must take its ink from the panel,
+ * not from the band.
+ *
+ * `.section--has-bg-image a` [0,1,1] and `.pp-section--inverted a` [0,1,1] are band-WIDE,
+ * and they outranked `.btn--outline` / `.btn--ghost` / `.btn--secondary` [0,1,0]. But the
+ * only anchor those selectors reach inside the band is `.section__panel-cta`, which sits on
+ * `.section__panel` — a self-contained LIGHT surface (--color-surface). So the band's
+ * near-white overlay role (or the pale on-inverted tint) painted the button label onto a
+ * near-white panel:
+ *
+ *   bg-image band   #fafbff on #f4f7fb = 1.04:1     inverted band  #9dafee on #f4f7fb = 1.99:1
+ *
+ * This is a CASCADE-REACH defect, so CSS-text pins can pass while the rendered button stays
+ * invisible. getComputedStyle in a real browser is the acceptance surface (the same reason
+ * #536 and #424 assert here). Assertions are written against the DEFAULT band as the control
+ * rather than hardcoded hexes: the whole contract is "the panel CTA renders the same ink on
+ * every band", so a theme retint moves control and subject together.
+ */
+test.describe('#551 panel CTA ink resolves against the light panel, not the band (rendered)', () => {
+  const pageIds: number[] = [];
+
+  // Worst case for the overlay role: the scrim over a pure-WHITE image.
+  const WHITE_PNG =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
+
+  test.afterEach(async () => {
+    while (pageIds.length) deletePage(pageIds.pop() as number);
+  });
+
+  // One text-panel section: a band link in the body (the byte-identity control) and a
+  // panel CTA in the panel (the subject).
+  function bandPage(title: string, variant: string, band: 'default' | 'inverted' | 'bgimage'): number {
+    const id = createPage(title);
+    pageIds.push(id);
+    setComposition(id, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-551-section',
+          layout: 'text-panel',
+          title: 'Plans',
+          body: '<p>Body copy with an <a href="/pricing">on-band link</a>.</p>',
+          panel_heading: 'Starter',
+          panel_body: 'Everything a small team needs.',
+          panel_cta_text: 'Book a strategy call with our solutions team',
+          panel_cta_url: '/contact',
+          panel_cta_variant: variant,
+          ...(band === 'inverted' ? { theme: 'inverted' } : {}),
+          ...(band === 'bgimage' ? { background_image: WHITE_PNG } : {}),
+        },
+      },
+    ]);
+    return id;
+  }
+
+  const colorOf = (page: any, selector: string) =>
+    page.locator(selector).first().evaluate((el: Element) => getComputedStyle(el).color);
+
+  // Contrast of an element's ink against the first opaque painted ancestor background.
+  const contrastOf = (page: any, selector: string) =>
+    page.evaluate((sel: string) => {
+      const parseRgb = (s: string): number[] => (s.match(/[\d.]+/g) || []).map(Number);
+      const lum = (rgb: number[]): number => {
+        const f = (v: number) => {
+          v /= 255;
+          return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+        };
+        return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]);
+      };
+      const el = document.querySelector(sel);
+      if (!el) return 0;
+      const fg = parseRgb(getComputedStyle(el).color);
+      let node: Element | null = el;
+      let bg = [255, 255, 255];
+      while (node) {
+        const c = parseRgb(getComputedStyle(node).backgroundColor);
+        if (c.length >= 3 && (c.length < 4 || c[3] > 0)) {
+          bg = c.slice(0, 3);
+          break;
+        }
+        node = node.parentElement;
+      }
+      const [l1, l2] = [lum(fg), lum(bg)];
+      return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+    }, selector);
+
+  // The transparent/light variants are the ones the band rule broke. `primary` is the
+  // control: the premium chain [0,4,1] always outranked the band rule, so it never moved.
+  for (const variant of ['outline', 'ghost', 'secondary']) {
+    for (const width of [1280, 375]) {
+      // One case is promoted to @smoke so this accessibility defect is guarded on EVERY
+      // PR, not only in the nightly full run: `ghost` at 1280 is the worst of the set —
+      // it has no border either, so before the fix the button disappeared completely
+      // (1.04:1 label on a transparent fill). The remaining variants and the 375 width
+      // stay in the full suite to keep the smoke subset fast.
+      const smoke = variant === 'ghost' && width === 1280 ? ' @smoke' : '';
+      test(`${variant} panel CTA takes panel ink on every band (${width}px)${smoke}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+
+        // Control: the DEFAULT band, where no band ink rule applies at all.
+        const defaultId = bandPage(`E2E 551 ${variant} default ${width}`, variant, 'default');
+        await page.goto(`/?page_id=${defaultId}`);
+        await expect(page.locator('.section__panel-cta')).toBeVisible({ timeout: 10000 });
+        const controlInk = await colorOf(page, '.section__panel-cta');
+
+        for (const band of ['inverted', 'bgimage'] as const) {
+          const id = bandPage(`E2E 551 ${variant} ${band} ${width}`, variant, band);
+          await page.goto(`/?page_id=${id}`);
+          await expect(page.locator('.section__panel-cta')).toBeVisible({ timeout: 10000 });
+
+          const ink = await colorOf(page, '.section__panel-cta');
+          const ratio = await contrastOf(page, '.section__panel-cta');
+
+          expect(
+            ink,
+            `@${width} ${band}/${variant}: panel CTA ink ${ink} must match the default-band control ${controlInk} — the panel is a LIGHT surface on every band`,
+          ).toBe(controlInk);
+          expect(
+            ratio,
+            `@${width} ${band}/${variant}: panel CTA contrast ${ratio.toFixed(2)} on the light panel (was 1.04 bg-image / 1.99 inverted before #551)`,
+          ).toBeGreaterThanOrEqual(4.5);
+        }
+      });
+    }
+  }
+
+  // BYTE-IDENTITY CONTROL. The carve-out narrows the band rule's REACH and must not touch
+  // its behaviour where it still applies: an on-band link keeps the band role, and that
+  // role must remain visibly different from the panel CTA's panel-resolved ink.
+  for (const band of ['inverted', 'bgimage'] as const) {
+    test(`${band} band link keeps its on-band ink after the carve-out`, async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+
+      const defaultId = bandPage(`E2E 551 bandlink default ${band}`, 'outline', 'default');
+      await page.goto(`/?page_id=${defaultId}`);
+      await expect(page.locator('.section__content a')).toBeVisible({ timeout: 10000 });
+      const defaultBandLink = await colorOf(page, '.section__content a');
+
+      const id = bandPage(`E2E 551 bandlink ${band}`, 'outline', band);
+      await page.goto(`/?page_id=${id}`);
+      await expect(page.locator('.section__content a')).toBeVisible({ timeout: 10000 });
+
+      const bandLink = await colorOf(page, '.section__content a');
+      const panelCta = await colorOf(page, '.section__panel-cta');
+
+      expect(
+        bandLink,
+        `${band}: the on-band link must still take the dark-band accent role, not the light-surface accent ${defaultBandLink}`,
+      ).not.toBe(defaultBandLink);
+      expect(
+        bandLink,
+        `${band}: the band link and the panel CTA must resolve against DIFFERENT surfaces`,
+      ).not.toBe(panelCta);
+    });
+  }
+});

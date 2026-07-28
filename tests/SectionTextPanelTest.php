@@ -762,6 +762,88 @@ class SectionTextPanelTest extends TestCase
     }
 
     /**
+     * #551's load-bearing structural claim: `.section__panel-cta` is the ONLY anchor the
+     * panel can contain. That is what makes the compound `a:not(.section__panel-cta)`
+     * carve-out equivalent to a panel-wide one, and it is only true because every other
+     * panel field is escaped text — panel_heading/panel_body/panel_items all go through
+     * esc_html (section.php:239,242,263), so none of them can emit markup.
+     *
+     * If a future change gives any panel field a wp_kses_post treatment (rich text with
+     * links), this fails — and the carve-out must widen to the panel before that ships,
+     * or the band's near-white overlay ink lands on the light panel again at ~1.04:1.
+     */
+    public function testPanelContainsNoAnchorOtherThanTheCta(): void
+    {
+        foreach (['primary', 'secondary', 'outline', 'ghost'] as $variant) {
+            $html = $this->render($this->fullPanelProps([
+                'panel_cta_variant' => $variant,
+                // Feed every panel text field something that WOULD become an anchor if the
+                // field were ever rendered as raw HTML instead of escaped text.
+                'panel_heading'     => 'Plans <a href="/x">link</a>',
+                'panel_body'        => 'Copy <a href="/y">link</a>',
+                'panel_items'       => ['Item <a href="/z">link</a>'],
+            ]));
+
+            // Isolate the panel subtree, then count anchors inside it.
+            $start = strpos($html, '<div class="section__panel">');
+            $this->assertNotFalse($start, "panel must render (panel_cta_variant=$variant)");
+            $panel = substr($html, $start);
+
+            $this->assertSame(
+                1,
+                preg_match_all('/<a\b/', $panel),
+                "the panel must contain exactly ONE anchor (panel_cta_variant=$variant) — "
+                . '#551 carves `.section__panel-cta` out of the band-wide `a` ink rule, which '
+                . 'only covers the whole panel while the CTA is its only anchor.'
+            );
+            $this->assertStringContainsString(
+                'section__panel-cta',
+                $panel,
+                "the panel's single anchor must be the CTA (panel_cta_variant=$variant)."
+            );
+        }
+    }
+
+    /**
+     * #551: the four band-wide link-ink rules must carry the panel-CTA carve-out, so a
+     * transparent panel CTA on a dark band resolves its ink against the LIGHT panel
+     * instead of the band's overlay/inverted accent role. Rendered measurements on the
+     * light panel before the carve-out: 1.04:1 (bg-image) and 1.99:1 (inverted).
+     */
+    public function testBandLinkInkIsCarvedOutOfThePanelCta(): void
+    {
+        $css = $this->sectionBlock();
+
+        foreach ([
+            '.section--has-bg-image a',
+            '.pp-section--inverted a',
+        ] as $band) {
+            $escaped = preg_quote($band, '/');
+
+            // The carved form exists, for both rest and hover.
+            $this->assertMatchesRegularExpression(
+                '/' . $escaped . ':not\(\.section__panel-cta\)\s*\{/s',
+                $css,
+                "$band must carve the panel CTA out of the band link ink (#551)."
+            );
+            $this->assertMatchesRegularExpression(
+                '/' . $escaped . ':not\(\.section__panel-cta\):hover\s*\{/s',
+                $css,
+                "$band:hover must carry the same carve-out — the hover role is near-white too."
+            );
+
+            // And the UNCARVED form is gone: a bare rule would re-break the CTA. The
+            // trailing class matches `{` (own rule) OR `,` (re-added inside a GROUPED
+            // selector, which is just as live and would otherwise slip past).
+            $this->assertDoesNotMatchRegularExpression(
+                '/' . $escaped . '\s*(?::hover\s*)?[{,]/s',
+                $css,
+                "the uncarved `$band` rule must not exist — it reaches inside .section__panel."
+            );
+        }
+    }
+
+    /**
      * The section RENDERER emits exactly ONE button surface, which is why #536 needs no
      * #526-style isolation rule. Pin that structural fact across every panel_cta_variant:
      * if a second button surface is ever added to the section, this fails and the isolation

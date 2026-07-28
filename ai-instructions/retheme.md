@@ -48,7 +48,9 @@ therefore route through `--color-accent-on-inverted` (default `#9dafee`, 8.33:1 
 default inverted bg) with `--color-accent-on-inverted-hover` for hover. The same applies
 to any BUTTON whose variant paints ink straight onto the band: an `outline` or `ghost`
 button on an inverted cta takes its default ink and ring from `--color-accent-on-inverted`
-too (the bare accent measured 3.23:1 there). Only the RESTING state routes this way —
+too (the bare accent measured 3.23:1 there). A section's `panel_cta` is NOT included: it
+sits inside the light panel, not on the band (see the panel exclusion below).
+Only the RESTING state routes this way —
 on hover both variants paint their own contrasting fill, so the ink reverts to the
 variant's normal hover colour. The FOCUS RING is routed through the same role on an
 inverted cta, for EVERY button variant including the filled one: the ring is drawn
@@ -71,7 +73,8 @@ EVERY button variant on a bg-image cta or cover hero — drawn outside the butto
 lands on the scrim, and applying to any `cover` hero whether or not it has an
 `image_url`, because the scrim is painted either way) routes through a SEPARATE role,
 `--color-accent-on-overlay` (default `#fafbff`), with `--color-accent-on-overlay-hover`
-(default `#ffffff`) for hover. This is NOT the same as `--color-accent-on-inverted`:
+(default `#ffffff`) for hover. A section's `panel_cta` is NOT included here either — it
+sits inside the light panel, not on the scrim (see the panel exclusion below). This is NOT the same as `--color-accent-on-inverted`:
 on-inverted is tuned to the SOLID `--color-bg-inverted`, but the overlay sits over an
 unknown image, so its worst case is the overlay composited over a pure-WHITE image
 (effective bg ≈ `rgb(115,115,115)`). **Pairing contract:** the default must be ≥ 4.5:1
@@ -105,7 +108,12 @@ Focus-ring routing covers the cta and the cover hero, the two components that pu
 button ON the band. A `text-panel` SECTION is deliberately excluded even on those bands:
 its `panel_cta` sits inside the panel, which is a self-contained LIGHT surface, so its
 ring already contrasts there and the dark-band roles would make it worse. Same reasoning
-as the panel's list markers. A dark band you produce yourself with `--cta-bg` /
+as the panel's list markers. That exclusion covers the button's INK as well as its ring:
+an `outline` / `ghost` / `secondary` `panel_cta` keeps the ordinary light-surface accent
+(or `--color-text` for `secondary`) on EVERY band, because it is read against the panel,
+never against the band behind it. So a retheme that makes a band darker does not need a
+matching panel-CTA adjustment — keep `--color-accent` legible against
+`--color-surface`, which is the surface that button actually sits on. A dark band you produce yourself with `--cta-bg` /
 `--section-bg` rather than `theme: "inverted"` or a `background_image` carries no band
 class, so it gets no routing at all; keep `--color-accent` legible against any band
 colour you author, and note the reverse also holds — if you LIGHTEN a scrim with

@@ -2760,7 +2760,10 @@ describe('CSS lint: inverted dark-band links route through the on-inverted accen
     // (hover → on-inverted-hover). Buttons (.btn) are never affected — the premium
     // `main .btn` cascade out-orders these (0,1,1) rules.
     const DARK_BAND_LINK_VARIANTS = [
-        '.pp-section--inverted a',
+        // #551 carved the panel CTA out of the band-wide anchor rule (the panel is a
+        // LIGHT surface). The on-inverted ROUTING this describe pins is unchanged — only
+        // the selector's reach narrowed, so the pin follows the selector.
+        '.pp-section--inverted a:not(.section__panel-cta)',
         '.embed--inverted a',
         // #439: inline-HTML supporting-text surfaces that sit directly on the dark band.
         '.cta--inverted .cta__body a',
@@ -3028,8 +3031,11 @@ describe('CSS lint: bg-image band accent routes through --color-accent-on-overla
 
     // Each entry: selector, the slot it must route through, and the overlay role fallback.
     const ROUTES = [
-        { sel: '.section--has-bg-image a', slot: '--section-accent', role: '--color-accent-on-overlay' },
-        { sel: '.section--has-bg-image a:hover', slot: '--section-accent-hover', role: '--color-accent-on-overlay-hover' },
+        // #551 carved the panel CTA out of the band-wide anchor rule (the panel is a LIGHT
+        // surface). The overlay ROUTING pinned here is unchanged — only the selector's reach
+        // narrowed, so the pin follows the selector.
+        { sel: '.section--has-bg-image a:not(.section__panel-cta)', slot: '--section-accent', role: '--color-accent-on-overlay' },
+        { sel: '.section--has-bg-image a:not(.section__panel-cta):hover', slot: '--section-accent-hover', role: '--color-accent-on-overlay-hover' },
         { sel: '.cta--has-bg-image .cta__body a', slot: '--cta-body-color', role: '--color-accent-on-overlay' },
         { sel: '.cta--has-bg-image .cta__body a:hover', slot: '--cta-body-color', role: '--color-accent-on-overlay-hover' },
         { sel: '.stats--has-bg-image .stats__number', slot: '--stats-number-color', role: '--color-accent-on-overlay' },
@@ -4141,5 +4147,270 @@ describe('CSS lint: global button hover tier (#539)', () => {
         // Therefore the hover twin routes neither global hover knob.
         expect(hoverBody).not.toContain('--btn-hover-bg');
         expect(hoverBody).not.toContain('--btn-hover-border-color');
+    });
+});
+
+/**
+ * CSS lint: band-wide link ink must not reach the LIGHT panel CTA (#551).
+ *
+ * `.section--has-bg-image a` and `.pp-section--inverted a` are ON-BAND roles — they exist
+ * because the band is a dark surface. But the selector is band-WIDE, and `.section__panel`
+ * is a self-contained LIGHT surface (--color-surface, #f4f7fb) sitting on that dark band.
+ * The section renderer emits exactly ONE anchor inside it (section.php:270,
+ * `.section__panel-cta`), so the band role painted a transparent panel button's label onto
+ * the light panel:
+ *
+ *     .btn--outline / .btn--ghost / .btn--secondary      [0,1,0]
+ *     .section--has-bg-image a                           [0,1,1]  <- outranked them
+ *     .section--has-bg-image a:not(.section__panel-cta)  [0,2,1]  <- after the carve-out
+ *
+ * Measured on the light panel (rendered, headless Chromium, worst-case white bg image):
+ *   bg-image  outline/ghost/secondary  rest 1.04:1  |  hover ghost 1.07, secondary 1.33
+ *   inverted  outline/ghost/secondary  rest 1.99:1  |  hover ghost 1.46, secondary 1.18
+ * After the carve-out every band matches the default-band control (5.14 / 16.52 at rest).
+ *
+ * Same carve-out class as #424 (panel heading out of the band h2/h3 rules), #463 (panel
+ * markers stay bare accent by scoping the remap to .section__content) and #542 (section
+ * bands deliberately not routed for the focus ring, because that ring lands on the panel).
+ *
+ * The DURABILITY pin is the closed-set scan at the bottom: it fails on any FUTURE band-WIDE
+ * anchor rule that sets `color` without the carve-out. That scan — not the selector shape —
+ * is what makes this survive the next band rule someone adds.
+ */
+describe('CSS lint: band link ink is carved out of the light panel CTA (#551)', () => {
+    const rules = parseRules();
+    const blocksFor = (sel) => rules.filter(r => r.selectors.includes(sel));
+    const blockFor = (sel) => blocksFor(sel)[0];
+    const esc = (s) => s.replace(/[-]/g, '\\-');
+
+    const CARVE = ':not(.section__panel-cta)';
+
+    // Every band-WIDE anchor ink rule, with the slot + role it must keep routing.
+    const BAND_LINK_RULES = [
+        { sel: `.section--has-bg-image a${CARVE}`, slot: '--section-accent', role: '--color-accent-on-overlay' },
+        { sel: `.section--has-bg-image a${CARVE}:hover`, slot: '--section-accent-hover', role: '--color-accent-on-overlay-hover' },
+        { sel: `.pp-section--inverted a${CARVE}`, slot: '--section-accent', role: '--color-accent-on-inverted' },
+        { sel: `.pp-section--inverted a${CARVE}:hover`, slot: '--section-accent-hover', role: '--color-accent-on-inverted-hover' },
+    ];
+
+    BAND_LINK_RULES.forEach(({ sel, slot, role }) => {
+        test(`${sel} carries the panel-CTA carve-out`, () => {
+            const rule = blockFor(sel);
+            expect(rule, `missing rule: ${sel}`).toBeDefined();
+        });
+
+        // The carve-out must NARROW the reach without changing the on-band routing —
+        // that is the whole "byte-identical where the rule still reaches" claim.
+        test(`${sel} still routes through ${slot} then ${role}`, () => {
+            const rule = blockFor(sel);
+            expect(rule).toBeDefined();
+            expect(rule.body).toMatch(new RegExp(
+                'color\\s*:\\s*var\\(\\s*' + esc(slot) + '\\s*,\\s*var\\(\\s*' + esc(role) + '\\s*\\)\\s*\\)'
+            ));
+        });
+
+        test(`${sel} is declared exactly once (a later duplicate would silently win)`, () => {
+            expect(blocksFor(sel).length).toBe(1);
+        });
+
+        // A rule moved into a media block applies only at that width; every other pin
+        // here still reads green because the rule text is unchanged.
+        test(`${sel} is declared at the top level, not inside a media block`, () => {
+            expect(blockFor(sel).media).toBeNull();
+        });
+    });
+
+    // The UNCARVED forms must be gone. Without this, someone re-adding the bare rule
+    // later (which would win on source order at lower specificity for non-CTA anchors,
+    // and re-break the CTA) passes every pin above.
+    ['.section--has-bg-image a', '.pp-section--inverted a',
+     '.section--has-bg-image a:hover', '.pp-section--inverted a:hover'].forEach(bare => {
+        test(`the uncarved \`${bare}\` rule no longer exists`, () => {
+            expect(blocksFor(bare)).toEqual([]);
+        });
+    });
+
+    /*
+     * CLOSED-SET DURABILITY PIN — the point of this describe.
+     *
+     * A band-WIDE anchor selector is one whose LAST compound is a bare `a` sitting
+     * DIRECTLY under a band class, with no intervening container compound. Those are
+     * exactly the selectors that can reach inside `.section__panel`. A rule already
+     * scoped to a band-only container (`.section--has-bg-image .section__content a`)
+     * is NOT band-wide and correctly needs no carve-out — so this scan does not
+     * overfire on legitimate scoped rules.
+     *
+     * `:is()` / `:where()` / `:matches()` wrapping an `a` counts too: `:where(a)` has
+     * the same reach as a bare `a` and would otherwise slip past a naive check.
+     */
+    // Properties that paint anchor INK. -webkit-text-fill-color wins over `color` on
+    // Blink/WebKit, so a rule using it would defeat the carve-out on the majority engine.
+    const INK_PROP = /(?<![-a-z])(?:color|-webkit-text-fill-color)\s*:/i;
+
+    // A band class appearing ANYWHERE in a compound (`.pp-section.pp-section--inverted`
+    // and `main .pp-section--inverted` both carry the band).
+    const BAND_IN_COMPOUND = /\.(pp-section--inverted|section--has-bg-image)(?![\w-])/;
+
+    // Compounds that are band-ONLY containers. `.section__content` / `.section__body` /
+    // `.section__header` and friends live in the text column, a SIBLING of
+    // `.section__panel` (section.php:231-236 vs 237), so an anchor scoped under one of
+    // them cannot reach the panel CTA and correctly needs no carve-out.
+    //
+    // This list is deliberately an ALLOWLIST, so the scan fails CLOSED: an unknown
+    // intervening compound (`.container`, `.section__grid`, `.section__panel` itself)
+    // counts as panel-reaching and gets flagged. Adding to this list is a deliberate act.
+    const BAND_ONLY_CONTAINERS = [
+        '.section__content', '.section__body', '.section__header',
+        '.section__inline-items', '.section__title', '.section__subheading',
+        '.section__eyebrow',
+    ];
+
+    // `:is(.a, .b) a` has exactly the reach of `.a a` and `.b a`, and de-duping the two
+    // band rules into one `:is()` is the single most likely future edit to these lines.
+    // Expand one level of :is()/:where()/:matches() groups into concrete selectors.
+    const expandGroups = (sel) => {
+        const m = sel.match(/:(?:is|where|matches)\(([^()]*)\)/);
+        if (!m) return [sel];
+        return m[1].split(',').flatMap(alt =>
+            expandGroups(sel.slice(0, m.index) + alt.trim() + sel.slice(m.index + m[0].length))
+        );
+    };
+
+    // Split a selector into descendant compounds, treating >, + and ~ as separators
+    // (a child combinator does not make a rule safe).
+    const compounds = (sel) => sel.replace(/\s*[>+~]\s*/g, ' ').trim().split(/\s+/).filter(Boolean);
+
+    // Does this compound match an <a>? A bare `a` type selector, with or without pseudos.
+    // `:not(...)` contents are stripped first so `a:not(.x)` still reads as an anchor.
+    const isAnchorCompound = (c) => /(?:^|[^\w.#-])a(?![\w-])/.test(' ' + c.replace(/:not\([^)]*\)/g, ''));
+
+    // The carve-out, matched as a precise token — a substring test would accept
+    // `:not(.section__panel-cta-x)`, a class that does not exist.
+    const CARVED = /:not\(\s*\.section__panel-cta\s*\)/;
+
+    /**
+     * Every selector that can paint ink on `.section__panel-cta` without the carve-out.
+     * Scans components.css AND base.css AND utilities.css — a band anchor rule added to
+     * any sheet reaches the same element.
+     */
+    // parseRules splits a grouped selector on every comma, which also splits INSIDE
+    // `:is(a, b)`. Rejoin fragments until their parentheses balance, so a functional
+    // pseudo-class group survives as one selector.
+    const rejoinGroups = (selectors) => {
+        const out = [];
+        let buf = '';
+        selectors.forEach(part => {
+            buf = buf ? `${buf}, ${part}` : part;
+            const open = (buf.match(/\(/g) || []).length;
+            const close = (buf.match(/\)/g) || []).length;
+            if (open === close) {
+                out.push(buf);
+                buf = '';
+            }
+        });
+        if (buf) out.push(buf);
+        return out;
+    };
+
+    const uncarvedPanelReachingInkRules = (sheets) => {
+        const offenders = [];
+        sheets.forEach(css => {
+            parseRules(stripComments(css)).forEach(r => {
+                if (!INK_PROP.test(r.body)) return;
+                rejoinGroups(r.selectors).forEach(rawSel => {
+                    expandGroups(rawSel).forEach(sel => {
+                        const parts = compounds(sel);
+                        const bandAt = parts.findIndex(p => BAND_IN_COMPOUND.test(p));
+                        if (bandAt === -1) return;                 // not a band rule
+                        const last = parts[parts.length - 1];
+                        if (bandAt === parts.length - 1) return;   // band compound IS the target
+                        if (!isAnchorCompound(last)) return;       // not anchor ink
+                        if (CARVED.test(last)) return;             // carved out — fine
+                        // Scoped under a container that cannot contain the panel?
+                        const between = parts.slice(bandAt + 1, parts.length - 1);
+                        if (between.some(p => BAND_ONLY_CONTAINERS.some(c => p.startsWith(c)))) return;
+                        offenders.push(rawSel);
+                    });
+                });
+            });
+        });
+        return [...new Set(offenders)];
+    };
+
+    test('no band rule paints uncarved ink on an anchor that can reach the panel CTA', () => {
+        expect(uncarvedPanelReachingInkRules([COMPONENTS_CSS, BASE_CSS, UTILITIES_CSS])).toEqual([]);
+    });
+
+    /*
+     * The detector is the durability claim, so it gets its own tests — and they call the
+     * REAL detector, never a copy. (A re-implemented copy silently drifts from the thing
+     * it claims to prove, and both then read green forever.)
+     *
+     * Every DANGEROUS case below reaches `.section__panel-cta` and paints ink on it.
+     */
+    const DANGEROUS = [
+        // The literal bug this issue fixes.
+        { sel: '.section--has-bg-image a', prop: 'color' },
+        { sel: '.pp-section--inverted a:hover', prop: 'color' },
+        // De-duping the two band rules into one :is() — the most plausible future edit.
+        { sel: ':is(.section--has-bg-image, .pp-section--inverted) a', prop: 'color' },
+        { sel: ':where(.pp-section--inverted) a', prop: 'color' },
+        // The panel itself, and any container that CONTAINS the panel.
+        { sel: '.section--has-bg-image .section__panel a', prop: 'color' },
+        { sel: '.section--has-bg-image > .container a', prop: 'color' },
+        { sel: '.section--has-bg-image .section__grid a', prop: 'color' },
+        // Band class in a compound, or with an ancestor prefix.
+        { sel: '.pp-section.pp-section--inverted a', prop: 'color' },
+        { sel: 'main .pp-section--inverted a', prop: 'color' },
+        // Anchor inside a group.
+        { sel: '.pp-section--inverted :is(a, button)', prop: 'color' },
+        // A carve-out that names a class which does not exist.
+        { sel: '.section--has-bg-image a:not(.section__panel-cta-x)', prop: 'color' },
+        // The Blink/WebKit ink property, which wins over `color` on the majority engine.
+        { sel: '.section--has-bg-image a', prop: '-webkit-text-fill-color' },
+    ];
+
+    // Every SAFE case either cannot reach the panel CTA or is correctly carved out.
+    const SAFE = [
+        '.section--has-bg-image a:not(.section__panel-cta)',
+        '.pp-section--inverted a:not(.section__panel-cta):hover',
+        '.section--has-bg-image .section__content a',   // text column, sibling of the panel
+        '.section--has-bg-image .section__body a:hover',
+        '.section--has-bg-image .section__title-accent', // not an anchor
+        '.cta--has-bg-image .cta__body a',               // different component entirely
+    ];
+
+    DANGEROUS.forEach(({ sel, prop }) => {
+        test(`detector FLAGS a panel-reaching band ink rule: \`${sel}\` via ${prop}`, () => {
+            expect(uncarvedPanelReachingInkRules([`${sel} { ${prop}: red; }`])).toEqual([sel]);
+        });
+    });
+
+    SAFE.forEach(sel => {
+        test(`detector PASSES a rule that cannot reach the panel CTA: \`${sel}\``, () => {
+            expect(uncarvedPanelReachingInkRules([`${sel} { color: red; }`])).toEqual([]);
+        });
+    });
+
+    // Anti-vacuity: the real detector must be looking at real rules. Strip the carve-out
+    // from the shipped stylesheet and the scan must light up on all four.
+    test('the scan is not vacuous — removing the carve-out flags all four shipped rules', () => {
+        // Mutate ONLY the four selectors under test, not every carve-out in the sheet:
+        // a global replace could stay green off some unrelated rule's carve-out.
+        const reverted = BAND_LINK_RULES.reduce(
+            (css, { sel }) => css.split(sel).join(sel.replace(CARVE, '')),
+            COMPONENTS_CSS
+        );
+        expect(uncarvedPanelReachingInkRules([reverted]).sort()).toEqual([
+            '.pp-section--inverted a',
+            '.pp-section--inverted a:hover',
+            '.section--has-bg-image a',
+            '.section--has-bg-image a:hover',
+        ]);
+    });
+
+    test('the roles these rules depend on are declared in base.css :root', () => {
+        expect(BASE_CSS).toMatch(/--color-accent-on-overlay:\s*#[0-9a-fA-F]{6}/);
+        expect(BASE_CSS).toMatch(/--color-accent-on-inverted:\s*#[0-9a-fA-F]{6}/);
     });
 });

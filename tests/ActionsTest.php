@@ -3937,6 +3937,60 @@ class ActionsTest extends TestCase
     }
 
     /**
+     * #551 authoring-path proof. The panel CTA variants whose ink the band rules broke
+     * (outline / ghost / secondary — every TRANSPARENT-or-light variant) must be reachable
+     * through the REAL write surface, not just constructible as a render fixture. Raw
+     * _pp_composition seeding would bypass the schema-derived enum entirely and prove
+     * nothing about whether a site-builder AI can actually author the affected state.
+     *
+     * The filled variant is the control: it is the one the carve-out does NOT touch,
+     * because its ink comes from the premium chain via --section-panel-cta-color.
+     */
+    public function testCreatePageAcceptsEveryPanelCtaVariantWithTheInkSlot(): void
+    {
+        // The defect needs BOTH halves: a transparent/light variant AND a dark band. The
+        // `theme` half is authored here so the actual broken state — not just the variant
+        // in isolation — is proven reachable through the real write surface.
+        foreach (['primary', 'secondary', 'outline', 'ghost'] as $variant) {
+            foreach ([null, 'inverted'] as $theme) {
+                $label  = $theme ? "$variant/$theme" : "$variant/default";
+                $result = pp_execute_action('create_page', [
+                    'title'       => "Panel CTA variant $label",
+                    'composition' => [[
+                        'component' => 'section',
+                        'props'     => array_merge([
+                            'layout'            => 'text-panel',
+                            'title'             => 'Plans',
+                            'body'              => 'Pick a plan.',
+                            'panel_heading'     => 'Starter',
+                            'panel_cta_text'    => 'Book a call',
+                            'panel_cta_url'     => '/contact',
+                            'panel_cta_variant' => $variant,
+                        ], $theme ? ['theme' => $theme] : []),
+                        // The #536 per-instance ink slot must keep authoring cleanly
+                        // alongside every variant — the carve-out must not disturb the
+                        // slot contract on the one variant the slot actually reaches.
+                        'style'     => ['--section-panel-cta-color' => '#0b7a3b'],
+                    ]],
+                ]);
+
+                $this->assertTrue(
+                    $result['ok'],
+                    "panel_cta_variant=$label must be accepted through create_page: "
+                    . ($result['error'] ?? '')
+                );
+
+                $comp = pp_get_composition((int) $result['target']['post_id']);
+                $this->assertSame($variant, $comp[0]['props']['panel_cta_variant']);
+                $this->assertSame('#0b7a3b', $comp[0]['style']['--section-panel-cta-color']);
+                if ($theme) {
+                    $this->assertSame($theme, $comp[0]['props']['theme']);
+                }
+            }
+        }
+    }
+
+    /**
      * The `color`-typed --section-panel-cta-bg goes through the same shared validator as
      * every other color slot: a non-color value is rejected with the standard code
      * (authoring-path negative branch, issue 536).
