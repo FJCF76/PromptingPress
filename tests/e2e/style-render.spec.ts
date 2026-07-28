@@ -1853,6 +1853,159 @@ test.describe('Safe-surface rendered proof', () => {
     expect(primary1.img).not.toBe('none'); // primary keeps its gradient
   });
 
+  /*
+   * #540 — the hover-fill flash. The FIRST test in this file that asserts a transition,
+   * and it has to be: every other hover test here kills transitions or reads the settled
+   * value, which is precisely how a 7-8 frame off-brand flash shipped through review.
+   *
+   * A hover fill slot set WITHOUT its resting counterpart used to ramp the button through
+   * a colour the author never chose and never saw. The resting fill is a gradient
+   * background-IMAGE; that layer is not interpolable, so it drops to `none` the instant the
+   * flat hover slot resolves the `background` shorthand, exposing the background-COLOR it
+   * had been masking — and THAT masked colour is where the tween starts. Measured before
+   * the fix: rgb(80, 74, 195) violet on a button authored blue-at-rest, red-on-hover, with
+   * the 1px ring crossing the same unchosen ground one layer out.
+   *
+   * The fix scopes a `transition-property` to the filled premium selector that drops
+   * background-color and border-color, so both swap instantly between the two authored
+   * states. What this test proves that a settled-value assertion structurally cannot:
+   * every SAMPLED FRAME of the fill and the ring is one of the two endpoints. The settled
+   * assertions are here too, because the whole point is that they were ALWAYS green — the
+   * byte-identity bar this repo holds is untouched, only the in-between is.
+   */
+  test('#540 a hover-only fill slot never renders an unchosen colour, fill or ring @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Hover Fill Flash');
+    setComposition(pageId, [
+      // 0: the reported repro — hover fill authored, resting fill left at the gradient.
+      {
+        component: 'hero',
+        props: { title: 'Hover only', cta_text: 'Get started', cta_url: '/a' },
+        style: { '--hero-button-hover-bg': 'rgb(185, 28, 28)' },
+      },
+      // 1: an OUTLINE second button in the same page. Its fill and border are visible at
+      // rest, so its tween is honest and must survive the fix untouched.
+      {
+        component: 'cta',
+        props: {
+          title: 'Outline second',
+          button_text: 'Primary',
+          button_url: '/a',
+          button2_text: 'Second',
+          button2_url: '/b',
+          button2_variant: 'outline',
+        },
+      },
+    ]);
+
+    /* The whole point of this test is that the 150ms tween RUNS, so the reduced-motion
+       preference has to be pinned. base.css clamps transition-duration to 0.01ms under
+       `reduce`, which would collapse every sample and fail the outline control with a
+       confusing message if a future config turns it on suite-wide. */
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const filled = page.locator('.hero__cta').first();
+    const outline = page.locator('.cta__button--secondary');
+    await expect(filled).toBeVisible({ timeout: 10000 });
+
+    const read = (loc: any) =>
+      loc.evaluate((n: Element) => {
+        const s = getComputedStyle(n);
+        return { bg: s.backgroundColor, img: s.backgroundImage, ring: s.borderTopColor };
+      });
+
+    /* Sample the computed fill and ring on every animation frame across the hover window.
+       Two things this helper is careful about, both of which would otherwise turn a real
+       regression into a green run (or a green tree into a red one) on a loaded CI worker:
+
+       1. The settled hover value is READ BACK after the pointer has landed and the window
+          has closed, never taken from the last sampled frame. The rAF loop self-terminates
+          on its own clock, so on a slow worker its final frame can predate the hover.
+       2. Every frame is stamped, and the caller asserts that frames actually fell INSIDE
+          the transition window. rAF can be throttled or coalesced to a single tick; a
+          bare "we collected some frames" check passes on that, with zero tween coverage. */
+    const sampleHover = async (loc: any) => {
+      const handle = await loc.elementHandle();
+      const rest = await read(loc);
+      const box = (await loc.boundingBox())!;
+      await page.evaluate((n: Element) => {
+        (window as any).__f = [];
+        (window as any).__hoverAt = null;
+        const t0 = performance.now();
+        const tick = () => {
+          const s = getComputedStyle(n);
+          (window as any).__f.push({
+            t: performance.now(),
+            bg: s.backgroundColor,
+            img: s.backgroundImage,
+            ring: s.borderTopColor,
+          });
+          if (performance.now() - t0 < 1200) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }, handle);
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      // Stamp the moment the pointer landed, from the PAGE clock the frames are stamped on.
+      const hoverAt = await page.evaluate(() => performance.now());
+      await page.waitForTimeout(600);
+      const frames = await page.evaluate(() => (window as any).__f);
+      const hover = await read(loc); // settled, read by state and not by wall clock
+      await page.mouse.move(0, 0);
+      await page.waitForTimeout(400);
+      // The transition is 150ms; allow a frame of slack on each side.
+      const inWindow = frames.filter((fr: any) => fr.t >= hoverAt && fr.t <= hoverAt + 180);
+      return { rest, hover, frames, inWindow };
+    };
+
+    const f = await sampleHover(filled);
+
+    // Settled states: the authored hover fill wins and clears the gradient, exactly as
+    // before the fix. These pass on BOTH sides of #540 — that is the point.
+    expect(f.rest.img).not.toBe('none'); // resting slot unset -> premium gradient
+    expect(f.hover.bg).toBe('rgb(185, 28, 28)');
+    expect(f.hover.img).toBe('none');
+
+    /* The tween window was genuinely sampled. Without this the two assertions below can
+       filter an empty (or entirely post-settle) frame set and pass for the wrong reason. */
+    expect(f.inWindow.length).toBeGreaterThanOrEqual(3);
+
+    /* The guarantee: once the gradient mask is gone, the only fill colour that may render
+       is the authored one. Pre-fix this collected 7-8 frames of blue-to-red blend. */
+    const offBrandFill = f.frames.filter(
+      (fr: any) => fr.img === 'none' && fr.bg !== 'rgb(185, 28, 28)',
+    );
+    expect(offBrandFill).toEqual([]);
+
+    /* The ring rides the same swap (the #540 decision took border-color out of the list
+       too). Every frame must be one of the two authored endpoints, never between them.
+       The endpoints must actually DIFFER, or the two-element set collapses to one and the
+       ring half of the decision goes unverified while the assertion still passes. */
+    expect(f.rest.ring).not.toBe(f.hover.ring);
+    const ringEndpoints = new Set([f.rest.ring, f.hover.ring]);
+    const offBrandRing = f.frames.filter((fr: any) => !ringEndpoints.has(fr.ring));
+    expect(offBrandRing).toEqual([]);
+
+    // The narrowed list is scoped to the filled premium button...
+    expect(await filled.evaluate((n: Element) => getComputedStyle(n).transitionProperty)).toBe(
+      'box-shadow, color, transform',
+    );
+    // ...and the transparent variants keep the full five-property list, tween intact.
+    expect(await outline.evaluate((n: Element) => getComputedStyle(n).transitionProperty)).toBe(
+      'background-color, border-color, box-shadow, color, transform',
+    );
+    const o = await sampleHover(outline);
+    // Same window guard on the control, so a collapsed sampler fails as a sampler problem
+    // rather than as a bogus "the outline stopped animating".
+    expect(o.inWindow.length).toBeGreaterThanOrEqual(3);
+    const outlineRamp = o.inWindow.filter(
+      (fr: any) => fr.bg !== o.rest.bg && fr.bg !== o.hover.bg,
+    );
+    expect(outlineRamp.length).toBeGreaterThanOrEqual(2); // still genuinely animating
+  });
+
   test('#474 an unset second button leaves the cta byte-identical; a set one renders the pair', async ({
     page,
   }) => {

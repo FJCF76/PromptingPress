@@ -520,6 +520,214 @@ describe('CSS lint: premium primary-button fill routes through the fill-slot cha
 });
 
 /**
+ * The filled premium button's fill and ring SNAP; nothing else about its motion changes (#540).
+ *
+ * `main .btn` declares a five-property transition. On a FILLED premium button two of those
+ * five animate values the author never chose and never saw. The resting fill is a gradient
+ * background-IMAGE, which is not interpolable, so it drops to `none` the moment a flat hover
+ * slot resolves the shorthand — exposing the background-COLOR underneath, which the
+ * HIGHER-specificity component rules `.hero .btn:not(...)` / `.cta .btn:not(...)` [0,5,0]
+ * declare and the gradient had been masking. That masked colour is where the tween starts, in
+ * full view. Measured: 7-8 frames (~120ms) across seven flashing configurations spanning the
+ * five composed button surfaces. The 1px ring rides the same tween one layer out. The fix
+ * scopes a `transition-property` to the filled premium selector that drops BOTH, so the two
+ * swap instantly between the two authored states, while box-shadow / color / transform ease on.
+ *
+ * What this guard defends, in order of how easy it is to lose:
+ *   1. the property list itself — re-adding background-color or border-color brings the flash
+ *      straight back, and no computed-value test would notice (the SETTLED states are and must
+ *      stay identical either way, which is exactly why the flash escaped review for so long);
+ *   2. the three properties that must KEEP animating — dropping box-shadow/color/transform here
+ *      would silently kill the bevel fade, the ink fade and the hover lift;
+ *   3. the SCOPE — outline/ghost/secondary must keep the full five-property list. Their fill and
+ *      border are visible at rest, so their tweens ramp between two states the author can see.
+ *      Widening this rule to reach them (dropping a `:not()`, or writing the same declaration on
+ *      a bare `main .btn`) would freeze honest animation across every non-filled button.
+ *
+ * Two bypasses this guard was rebuilt to close, both reproduced against the shipping tree:
+ *   a. a SECOND declaration in the same rule. `transition: all var(--transition)` written under
+ *      the narrowed list re-animates everything and fully restores the flash; a guard that reads
+ *      only the first declaration stays green. So every declaration on every matching rule is
+ *      checked, and the fix site may carry exactly one.
+ *   b. a HIGHER-specificity sibling. The filled treatment is not owned by `main .btn:not(...)`
+ *      [0,4,1] alone: `.hero .btn:not(...)` and `.cta .btn:not(...)` sit at [0,5,0] and already
+ *      own the background-COLOR half (see the two-rule split documented at components.css:820).
+ *      A `transition-property` restored on either of THOSE re-animates the fill and outranks the
+ *      fix. So the surface is matched by its `.btn` compound and the three variant `:not()`s, in
+ *      any ancestor context, not by a literal `main .btn` prefix.
+ */
+describe('CSS lint: filled premium button snaps fill + ring, keeps bevel/ink/lift (#540)', () => {
+    const VARIANTS = ['.btn--outline', '.btn--ghost', '.btn--secondary'];
+
+    // Split a selector into its COMPOUNDS (whitespace-separated, ignoring spaces inside
+    // `:not(...)`). Substring matching is not enough: `.a:not(.btn--outline) .b:not(.btn--ghost)
+    // .btn:not(.btn--secondary)` contains `.btn` and all three exclusions yet excludes nothing
+    // from the button itself, and would be mistaken for the fix site.
+    function compounds(sel) {
+        const out = [];
+        let buf = '', depth = 0;
+        for (const ch of sel.trim()) {
+            if (ch === '(') depth++;
+            else if (ch === ')') depth--;
+            if (/\s/.test(ch) && depth === 0) { if (buf) out.push(buf); buf = ''; continue; }
+            buf += ch;
+        }
+        if (buf) out.push(buf);
+        return out;
+    }
+    // A selector targets the FILLED premium surface when SOME SINGLE compound is `.btn`
+    // carrying all three variant exclusions — in ANY ancestor context (`main`, `.hero`,
+    // `.cta`, a future one). Order-insensitive: the cascade ignores the :not() order too.
+    function isFilledPremium(sel) {
+        return compounds(sel).some(c =>
+            /(^|[^\w-])\.btn(?=[:.]|$)/.test(c) && VARIANTS.every(v => c.includes(`:not(${v})`)),
+        );
+    }
+    // A selector REACHES the transparent variants when it targets the shared `.btn` surface
+    // without excluding them. The boundary matters: `main .btn__icon` is an inner element, not
+    // a button surface, and flagging it would train contributors to weaken this guard.
+    function reachesVariants(sel) {
+        const btnCompounds = compounds(sel).filter(c => /(^|[^\w-])\.btn(?=[:.]|$)/.test(c));
+        if (!btnCompounds.length) return false;
+        return btnCompounds.some(c => !VARIANTS.every(v => c.includes(`:not(${v})`)));
+    }
+
+    // Property names a `transition` / `transition-property` value sets: the first token of each
+    // comma-separated part (everything after it is duration/timing/delay).
+    function propsOf(decl) {
+        return decl
+            .replace(/^transition(?:-property)?\s*:/i, '')
+            .split(',')
+            .map(part => (part.trim().split(/\s+/)[0] || '').toLowerCase())
+            .filter(Boolean);
+    }
+    function transitionDecls(body) {
+        return (body.match(/(?<![-a-z])transition(?:-property)?\s*:[^;}]+/gi) || []).map(d => d.trim());
+    }
+    // Built on the SHARED parseRules(), not a private regex: it is media-aware, and
+    // components.css already redeclares `main .btn` inside a max-width block. A media-blind
+    // scan would mis-attribute a mobile-scoped rule to the top-level surface.
+    function collectTransitionRules(rules) {
+        const out = [];
+        rules.forEach(r => {
+            const decls = transitionDecls(r.body);
+            if (decls.length) out.push({ selectors: r.selectors, media: r.media, decls });
+        });
+        return out;
+    }
+    // Same collection from raw CSS text, for the synthetic fixtures in the detector self-proof.
+    const collectFromCss = css => collectTransitionRules(parseRules(stripComments(css)));
+
+    const transitionRules = collectTransitionRules(parseRules());
+    const filledRules = transitionRules.filter(r => r.selectors.some(isFilledPremium));
+
+    // Guard against a vacuous pass: delete the declaration and every assertion below would
+    // iterate an empty array and pass. Exactly one rule carries the narrowed list today.
+    test('exactly one rule declares a transition list on the filled premium surface', () => {
+        expect(filledRules.length).toBe(1);
+    });
+
+    // Bypass (a): one declaration per rule, so a later shorthand cannot quietly win.
+    test('the fix site carries exactly one transition declaration', () => {
+        expect(filledRules[0].decls.length).toBe(1);
+    });
+
+    // Every declaration on every filled-premium rule, in every media context — this is what
+    // closes bypasses (a) and (b) together.
+    const filledProps = filledRules.flatMap(r => r.decls.flatMap(propsOf));
+
+    test('no filled premium transition list animates background-color or border-color', () => {
+        expect(filledProps).not.toContain('background-color');
+        expect(filledProps).not.toContain('border-color');
+        // `all` / `background` would re-animate the fill through the back door.
+        expect(filledProps).not.toContain('all');
+        expect(filledProps).not.toContain('background');
+    });
+
+    test('the filled premium list keeps box-shadow, color and transform animating', () => {
+        expect(filledProps).toContain('box-shadow');
+        expect(filledProps).toContain('color');
+        expect(filledProps).toContain('transform');
+    });
+
+    // The shared `main .btn` list is what outline/ghost/secondary inherit. If the fill/ring were
+    // dropped THERE instead, the filled-button pins above would still pass while every
+    // transparent variant silently lost its honest tween.
+    test('the shared .btn transition still animates background-color and border-color', () => {
+        const shared = transitionRules.filter(r =>
+            r.selectors.some(sel => /(^|\s)main\s+\.btn\s*$/.test(sel.trim())),
+        );
+        expect(shared.length).toBeGreaterThanOrEqual(1);
+        const props = shared.flatMap(r => r.decls.flatMap(propsOf));
+        expect(props).toContain('background-color');
+        expect(props).toContain('border-color');
+    });
+
+    test('no rule reaching outline/ghost/secondary narrows the transition away from the fill', () => {
+        const offenders = [];
+        transitionRules.forEach(r => {
+            r.selectors.forEach(sel => {
+                if (!reachesVariants(sel)) return;
+                r.decls.forEach(d => {
+                    const props = propsOf(d);
+                    // A rule that names properties but omits the fill/ring would strip the
+                    // transparent variants' tween. `all` is fine here — it covers both.
+                    if (props.includes('all')) return;
+                    if (!props.includes('background-color') || !props.includes('border-color')) {
+                        offenders.push(`${sel.trim()} { ${d} }`.slice(0, 140));
+                    }
+                });
+            });
+        });
+        expect(offenders).toEqual([]);
+    });
+
+    // Detector self-proof. Each shape below is a way the fix can be silently undone; the
+    // last two are the bypasses that got past the first version of this guard.
+    test('detector catches the pre-fix, over-broad, and both bypass shapes', () => {
+        const SEL = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)';
+        const SHARED = 'main .btn { transition: background-color 1ms, border-color 1ms, box-shadow 1ms, color 1ms, transform 1ms; }';
+        const filledOf = css => collectFromCss(css).filter(r => r.selectors.some(isFilledPremium));
+
+        // pre-fix: no list on the filled surface at all -> the vacuous-pass guard fires.
+        expect(filledOf(SHARED).length).toBe(0);
+
+        // fixed: exactly one filled rule, one declaration, fill and ring absent.
+        const fixed = filledOf(`${SHARED}\n${SEL} { transition-property: box-shadow, color, transform; }`);
+        expect(fixed.length).toBe(1);
+        expect(fixed[0].decls.length).toBe(1);
+        expect(fixed.flatMap(r => r.decls.flatMap(propsOf))).not.toContain('background-color');
+
+        // over-broad: the same narrowing on the SHARED selector reaches outline/ghost/secondary.
+        const broad = collectFromCss('main .btn { transition-property: box-shadow, color, transform; }')
+            .filter(r => r.selectors.some(reachesVariants) &&
+                r.decls.some(d => !propsOf(d).includes('background-color')));
+        expect(broad.length).toBe(1);
+
+        // bypass (a): a second declaration on the fix site re-animates everything.
+        const twoDecls = filledOf(`${SEL} { transition-property: box-shadow, color, transform; transition: all 1ms; }`);
+        expect(twoDecls[0].decls.length).toBe(2);
+        expect(twoDecls.flatMap(r => r.decls.flatMap(propsOf))).toContain('all');
+
+        // bypass (b): the fill re-animated on the [0,5,0] component twin, which OUTRANKS the fix.
+        const sibling = filledOf(
+            '.hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) { transition-property: background-color, border-color, box-shadow, color, transform; }',
+        );
+        expect(sibling.length).toBe(1);
+        expect(sibling.flatMap(r => r.decls.flatMap(propsOf))).toContain('background-color');
+
+        // and a button INNER ELEMENT is not mistaken for the shared button surface.
+        expect(reachesVariants('main .btn__icon')).toBe(false);
+
+        // Compound-awareness: exclusions scattered across ANCESTOR compounds exclude nothing
+        // from the button itself, so this is NOT the filled premium surface.
+        expect(isFilledPremium('.a:not(.btn--outline) .b:not(.btn--ghost) .btn:not(.btn--secondary)')).toBe(false);
+        expect(isFilledPremium('main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)')).toBe(true);
+        expect(isFilledPremium('.cta .btn:not(.btn--ghost):not(.btn--secondary):not(.btn--outline):hover')).toBe(true);
+    });
+});
+
+/**
  * Primary-button FILL also honors the slot through the background-COLOR longhand (#420).
  *
  * The #412 guard above covers the `background`/`background-image` layer-defeat but
