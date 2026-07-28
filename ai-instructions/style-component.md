@@ -426,13 +426,18 @@ gradient. These slots target the PRIMARY button only: the second CTA (`cta2`) ne
 and `--hero-cta2-color` for its border and ink. On a FILLED cta2 an unset border FOLLOWS the
 fill in BOTH states, so `--hero-cta2-bg` and `--hero-cta2-hover-bg` alone already give matching
 rings. Set `--hero-cta2-hover-border` (or `--hero-accent-hover`) only when the hover ring should
-DIFFER from the hover fill — either slot still wins over it. The cta component's second
-button behaves the same way on hover (`--cta-button2-hover-border`, then
-`--cta-accent-hover`, then `--cta-button2-hover-bg`), with one asymmetry worth knowing: at
-REST the cta's fill slot is resolved BEFORE `--cta-accent`, while on hover
-`--cta-accent-hover` is resolved before the fill. So on a cta whose accent knobs are set,
-the second button's ring matches the fill at rest and returns to the accent on hover; set
-`--cta-button2-hover-border` if you want it to match the fill in both states.
+DIFFER from the hover fill — either slot still wins over it. BOTH of the cta component's
+buttons behave the same way on hover — its own hover-border slot
+(`--cta-button-hover-border` / `--cta-button2-hover-border`), then the site-wide
+`--btn-hover-border-color`, then `--cta-accent-hover`, then its own hover fill
+(`--cta-button-hover-bg` / `--cta-button2-hover-bg`) — so both buttons resolve in the same
+ORDER. That is not the same as the same color: the shared knobs (`--cta-accent-hover`,
+`--btn-hover-border-color`) ring the pair together, while the per-button fill slots ring each
+button on its own. There is one asymmetry worth knowing: at REST the
+cta's fill slot is resolved BEFORE `--cta-accent`, while on hover `--cta-accent-hover` is
+resolved before the fill. So on a cta whose accent knobs are set, each button's ring matches
+its fill at rest and returns to the accent on hover; set the button's own hover-border slot
+if you want it to match the fill in both states.
 This fill-follow is specific to the FILLED (`primary`) variant; an `outline`, `ghost`, or
 `secondary` second button keeps its own variant default on hover, so give those an explicit
 `--hero-cta2-hover-border` / `--cta-button2-hover-border` if their ring must track a recolored

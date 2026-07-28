@@ -249,6 +249,16 @@ from someone's fill. So a component that sets only `--cta-button-hover-bg` keeps
 ring until you set a global `--btn-hover-border-color`, at which point it takes the global
 ring. Set that component's `--cta-button-hover-border` to opt back out.
 
+On the **cta**, one more link sits between the global ring and the per-instance fill:
+`--cta-accent-hover`. Since #548 both of that component's buttons rank it above their own
+hover fill (`--cta-button-hover-bg` / `--cta-button2-hover-bg`), so on a cta where you have
+set the accent knob, a hover-fill recolor alone will NOT move the ring — the ring stays on
+`--cta-accent-hover` and you get a brand fill inside an accent ring. That is the intended
+contract (an authored knob outranks an inferred one) and it is the same on both buttons, so
+the pair cannot disagree. If you want the ring to track the fill on a cta whose accent knob
+is set, set that button's own `--cta-button-hover-border` / `--cta-button2-hover-border` to
+the fill colour.
+
 The **section-panel CTA** has no per-instance hover fill slot of its own
 (`--section-panel-cta-bg` is resting-state only), so the global knob is the only way to move
 its hover fill. That is intended, not an oversight.
