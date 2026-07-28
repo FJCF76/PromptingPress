@@ -72,15 +72,17 @@
      --btn-bg / --btn-border-color, and complete #530's rest/hover parity at the GLOBAL tier:
      before them, a site-wide fill or border retheme reverted to the theme's premium accent
      gradient the moment a pointer touched any button. They sit in the hover chains at exactly
-     the position their resting counterparts occupy in the rest chains, and above the literal.
-     Both are `initial`, so an unset button is byte-identical.
+     the position their resting counterparts occupy in the rest chains, and above the literal
+     (with one exception since issue 564: the overlay/cover ring chains carry neither knob —
+     see PHOTO-BAND CARVE-OUT below). Both are `initial`, so an unset button is byte-identical.
 
      Precedence, stated exactly, because "below the per-instance slots" is only half true.
      Each knob sits below the per-instance slots FOR ITS OWN PROPERTY and above everything
      else, mirroring rest:
        fill    --hero-button-hover-bg / --cta-button-hover-bg / --cta-button2-hover-bg
                -> --btn-hover-bg -> literal
-       border  --*-hover-border (the per-instance BORDER slots) -> --btn-hover-border-color
+       border  --*-hover-border (the per-instance BORDER slots) -> the BAND ACCENT
+               (--hero-accent-hover / --cta-accent-hover, issue 564) -> --btn-hover-border-color
                -> the border-follows-fill link -> literal
      So --btn-hover-border-color DOES outrank the per-instance hover FILL slots in a border
      chain. That is deliberate and matches --btn-border-color at rest: an explicitly authored
@@ -105,16 +107,31 @@
      FLAT ACCENT second button beside a brand-coloured primary. Issue 554 closed that: hero
      cta2 now routes --btn-bg / --btn-border-color / --btn-hover-bg / --btn-hover-border-color
      through its OWN chains in BOTH states, so no filled surface is carved out of this tier any
-     more. "Not carved out" is not "always wins": these knobs sit BELOW the per-instance slots
+     more. (Issue 564 reintroduced ONE deliberate carve-out, for the RING knobs only, on
+     overlay/cover bands — see PHOTO-BAND CARVE-OUT below.)
+     "Not carved out" is not "always wins": these knobs sit BELOW the per-instance slots
      everywhere, so a hero that authors --hero-accent still takes the accent on BOTH its
      buttons and neither reads --btn-bg / --btn-border-color at all. That is the tier working
      as designed — authored beats global — and it is why the pair stays consistent either way.
 
-     ORDER, worth knowing before you "unify" the two components: within a border chain the hero
-     ranks --hero-accent ABOVE --btn-border-color, while the cta family ranks --btn-border-color
-     above --cta-accent. That is not drift. Each component matches its OWN primary, which is
-     what keeps each PAIR of buttons consistent with itself; making the two components agree
-     with each other would split one of the pairs. Pinned in css-lint and StyleSlotContractTest. */
+     ORDER: within a border chain BOTH components rank the band accent (--hero-accent /
+     --cta-accent) ABOVE --btn-border-color, and the same on hover. This block used to record
+     the opposite for the cta family and warn against "unifying" the two components; issue 564
+     reversed that. The old split was not harmless drift: because the cta ranked the global knob
+     first, a site-wide ring retheme silently defeated an authored --cta-accent, and on photo
+     bands it defeated --color-accent-on-overlay, the measured 4.59:1 separation role. The
+     narrower authored role now wins on both components, each pair is still internally
+     consistent, and the two families agree with each other. Pinned in css-lint and
+     StyleSlotContractTest.
+
+     PHOTO-BAND CARVE-OUT (issue 564): on `background_image` cta bands and `cover` heroes the
+     two RING knobs (--btn-border-color / --btn-hover-border-color) are not in the filled
+     buttons' border chains at all. Those chains bottom out at --color-accent-on-overlay, which
+     is declared at :root below and therefore ALWAYS set, so a knob above it defeats a measured
+     contrast guarantee and a knob below it is dead code. Removal was the only honest position.
+     The per-instance ring slots remain above everything there as the escape hatch. Note this
+     is a real exception to the "no filled surface is carved out of this tier" sentence above:
+     the FILL knobs still reach those buttons, the RING knobs no longer do. */
   --btn-bg:           initial;         /* color: Global button fill. Unset = each rule's own default (bare .btn: --color-accent; composed primary: the accent gradient). Set to recolor every button fill. */
   --btn-text:         var(--color-bg); /* color: Button label ink. Defaults to the PAGE BACKGROUND token, not a text token — buttons invert: a light page yields light text on the accent fill. Change --color-bg and button text follows unless pinned here. */
   --btn-border-color: initial;         /* color: Global button border. Unset = each rule's own default (--color-accent, or --color-accent-strong on the premium primary). Set to recolor every button border. */

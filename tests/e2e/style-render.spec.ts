@@ -8046,17 +8046,25 @@ test.describe('#548 cta primary hover ring ranks the accent above the fill (real
   });
 
   /*
-   * #539's global tier keeps its POSITION through the reorder: --btn-hover-border-color sits
-   * under the per-instance ring slot and above the accent/fill link. An explicitly authored
-   * global ring beats a ring merely inferred from someone's fill — and beats the accent knob
-   * too, which is the half of the order #548 did NOT touch.
+   * #564 INVERTED the half of the order #548 did not touch. #539's global ring tier still sits
+   * under the per-instance ring slot and above the per-instance FILL link — an explicitly
+   * authored global ring still beats one merely inferred from someone's fill — but it no
+   * longer outranks the BAND ACCENT. This pin previously asserted GLOBAL_RING here; it is
+   * flipped deliberately, not deleted (the #538/#530 pattern), per the maintainer decision on
+   * issue 564 (issuecomment-5106604500). A narrower authored band role is not defeated by a
+   * broader site-wide default; the escape hatch is the per-instance slot, pinned above.
+   *
+   * This is the RENDERED half of the contract. The CSS-text pins in css-lint.test.js and
+   * StyleSlotContractTest prove the declaration order; only this proves what the browser
+   * actually paints once the whole cascade has run.
    */
-  test('the global --btn-hover-border-color still outranks the accent and the fill @smoke', async ({
+  test('the band accent outranks the global --btn-hover-border-color, which still outranks the fill @smoke', async ({
     page,
   }) => {
-    pageId = createPage('E2E 548 global ring');
+    pageId = createPage('E2E 564 accent beats global ring');
     setComposition(pageId, [
       ctaPair('Ready to start?', {
+        '--cta-accent': ACCENT,
         '--cta-accent-hover': ACCENT,
         '--cta-button-hover-bg': FILL,
       }),
@@ -8067,14 +8075,180 @@ test.describe('#548 cta primary hover ring ranks the accent above the fill (real
     // --btn-hover-border-color through the composition would be silently dropped and this
     // test would assert the accent while believing it asserted the global. Set it at :root,
     // the same idiom the #539 tests use.
+    await page.addStyleTag({
+      content: `:root{--btn-border-color:${GLOBAL_RING};--btn-hover-border-color:${GLOBAL_RING};}`,
+    });
+
+    const primary = page.locator(PRIMARY).first();
+    const second = page.locator(SECOND);
+
+    // REST is asserted too: #564 reordered the rest chain as well, and only a real browser
+    // proves which of the competing rules actually paints.
+    expect(
+      await prop(primary, 'border-top-color'),
+      'the authored band accent must beat the site-wide ring knob AT REST (issue 564)',
+    ).toBe(ACCENT);
+    expect(
+      await prop(second, 'border-top-color'),
+      'button2 resolves the same way at rest — the pair cannot disagree',
+    ).toBe(ACCENT);
+
+    await primary.hover();
+    expect(
+      await prop(primary, 'border-top-color'),
+      'the authored band accent must beat the site-wide ring knob ON HOVER (issue 564)',
+    ).toBe(ACCENT);
+
+    await second.hover();
+    expect(
+      await prop(second, 'border-top-color'),
+      'button2 resolves the same way on hover',
+    ).toBe(ACCENT);
+  });
+
+  /*
+   * The other half of the same order, still pinned in the LOSING direction: with NO band accent
+   * authored, the global ring knob must still win over the per-instance hover fill. #564 moved
+   * the accent above the knob; it did not move the fill above it, and #554's contract (a
+   * site-wide retheme reaches these buttons) depends on the knob still engaging here.
+   */
+  test('with no band accent, the global --btn-hover-border-color still outranks the fill @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 564 global ring beats fill');
+    setComposition(pageId, [ctaPair('Ready to start?', { '--cta-button-hover-bg': FILL })]);
+    await open(page, pageId, 1280);
     await page.addStyleTag({ content: `:root{--btn-hover-border-color:${GLOBAL_RING};}` });
 
     const primary = page.locator(PRIMARY).first();
     await primary.hover();
     expect(
       await prop(primary, 'border-top-color'),
-      "#539's global ring keeps its position above the accent-then-fill link",
+      "#539's global ring still beats a ring inferred from a fill (issue 554 coverage)",
     ).toBe(GLOBAL_RING);
+  });
+
+  /*
+   * THE REPORTED DEFECT, rendered (issue 564, found by the v1.12.0 release smoke).
+   *
+   * On a `background_image` cta band the filled buttons are ringed with
+   * --color-accent-on-overlay: near-white, measured at 4.59:1 against the worst-case
+   * overlay-over-white composite, which is the only thing keeping the button's SHAPE visible
+   * over an arbitrary photo (#535/#543, WCAG 1.4.11). A site-wide --btn-border-color /
+   * --btn-hover-border-color used to sit ABOVE that role and repaint the ring — the smoke
+   * measured the amber rgb(255,171,0) where the near-white role belonged. #564 removed the
+   * global knobs from these chains entirely: above the role they defeat a measured guarantee,
+   * below it they are dead code (--color-accent-on-overlay is a :root token, always set).
+   *
+   * Both buttons and BOTH states are asserted, because the twins are what keep the ring from
+   * changing colour under the pointer.
+   */
+  for (const width of [1280, 375]) {
+    test(`a global ring knob does not defeat the on-overlay separation ring (${width}px) @smoke`, async ({
+      page,
+    }) => {
+      pageId = createPage('E2E 564 overlay role beats global ring');
+      setComposition(pageId, [
+        ctaPair('Ready to start?', undefined, {
+          background_image: 'https://example.com/nonexistent.jpg',
+        }),
+      ]);
+      await open(page, pageId, width);
+      await page.addStyleTag({
+        content: `:root{--btn-border-color:${GLOBAL_RING};--btn-hover-border-color:${GLOBAL_RING};}`,
+      });
+
+      const ON_OVERLAY = 'rgb(250, 251, 255)'; // #fafbff, 4.59:1 on the worst-case scrim
+      const primary = page.locator(PRIMARY).first();
+      const second = page.locator(SECOND);
+
+      expect(
+        await prop(primary, 'border-top-color'),
+        `@${width}: the primary's REST ring must stay on the measured on-overlay role`,
+      ).toBe(ON_OVERLAY);
+      expect(
+        await prop(second, 'border-top-color'),
+        `@${width}: button2's REST ring must stay on the measured on-overlay role`,
+      ).toBe(ON_OVERLAY);
+
+      await primary.hover();
+      expect(
+        await prop(primary, 'border-top-color'),
+        `@${width}: the primary's HOVER ring must stay on the role — this is the exact ` +
+          'reading the v1.12.0 smoke caught as the amber global knob',
+      ).toBe(ON_OVERLAY);
+      expect(
+        parseFloat(await prop(primary, 'border-top-width')),
+        `@${width}: the ring must have a width under the pointer`,
+      ).toBeGreaterThan(0);
+
+      await second.hover();
+      expect(
+        await prop(second, 'border-top-color'),
+        `@${width}: button2's HOVER ring must stay on the role`,
+      ).toBe(ON_OVERLAY);
+    });
+  }
+
+  /*
+   * A per-instance ring slot is the documented ESCAPE HATCH on these bands: #564 removed the
+   * GLOBAL knobs from the overlay chains, not the author's own. Pinned so a future tightening
+   * of the role cannot quietly take the hatch away too.
+   */
+  test('a per-instance ring slot still beats the on-overlay role on a photo band @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 564 overlay escape hatch');
+    setComposition(pageId, [
+      ctaPair(
+        'Ready to start?',
+        { '--cta-button-border': BORDER, '--cta-button-hover-border': BORDER },
+        { background_image: 'https://example.com/nonexistent.jpg' },
+      ),
+    ]);
+    await open(page, pageId, 1280);
+    await page.addStyleTag({
+      content: `:root{--btn-border-color:${GLOBAL_RING};--btn-hover-border-color:${GLOBAL_RING};}`,
+    });
+
+    const primary = page.locator(PRIMARY).first();
+    expect(await prop(primary, 'border-top-color'), 'the authored slot wins at rest').toBe(BORDER);
+    await primary.hover();
+    expect(await prop(primary, 'border-top-color'), 'the authored slot wins on hover').toBe(BORDER);
+  });
+
+  /*
+   * The positional-twin property, rendered (issue 564): in the configuration that repaints —
+   * band accent AND per-instance fill both authored, no global knob — the ring must resolve to
+   * the SAME role at rest and under the pointer. Before #564 the cta rest chain ranked the fill
+   * above the accent while its hover chain ranked the accent above the fill, so this exact
+   * configuration showed a fill-coloured ring that flipped to the accent on pointer-enter.
+   * Retiring that flip is #538's Option 2, reopened deliberately on #564.
+   */
+  test('band accent + per-instance fill: the ring does not change colour on pointer-enter @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 564 no rest-hover flip');
+    setComposition(pageId, [
+      ctaPair('Ready to start?', {
+        '--cta-accent': ACCENT,
+        '--cta-accent-hover': ACCENT,
+        '--cta-button-bg': FILL,
+        '--cta-button-hover-bg': FILL,
+      }),
+    ]);
+    await open(page, pageId, 1280);
+
+    const primary = page.locator(PRIMARY).first();
+    const rest = await prop(primary, 'border-top-color');
+    await primary.hover();
+    const hover = await prop(primary, 'border-top-color');
+
+    // Equality FIRST, so a future regression surfaces as "the ring flipped" rather than as a
+    // colour mismatch. Asserted before the absolute pins, or it could never fail on its own.
+    expect(hover, 'rest and hover must resolve to the SAME role — no flip under the pointer').toBe(rest);
+    expect(rest, 'the accent must win at rest too since #564 (it used to be the fill)').toBe(ACCENT);
+    expect(await prop(primary, 'background-color'), 'the authored fill still paints').toBe(FILL);
   });
 
   /*
