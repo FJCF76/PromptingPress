@@ -237,6 +237,22 @@ Multi-step proposals show numbered steps with "Apply All." After applying, the A
 
 ---
 
+### 🔌 WordPress MCP and agent-access layers
+
+PromptingPress is designed to complement agent-access layers like the [WordPress MCP Adapter](https://github.com/WordPress/mcp-adapter), not replace them. MCP can expose WordPress capabilities to an external agent; PromptingPress gives that agent a structured frontend composition surface to inspect and maintain.
+
+A practical MCP-ready loop looks like this:
+
+1. The agent uses WordPress/MCP access to discover the site, pages, and available tools.
+2. The agent reads `AI_CONTEXT.md` and component `schema.json` files to understand the PromptingPress contract.
+3. For page changes, the agent uses `wp pp operate inspect-composition` and typed `wp pp action preview` commands instead of editing theme files.
+4. After a human approves the plan, the agent executes through the same validated action layer used by CLI, chat, and the editor.
+5. The agent captures screenshots and hands back evidence before the change is treated as done.
+
+This is not a claim that PromptingPress ships a dedicated MCP server today. The point is narrower and more useful: when WordPress gives agents a cleaner access path, PromptingPress gives those agents a safer page-composition model to operate.
+
+---
+
 ### 🔒 Agent operating framework — safety-gated autonomous work
 
 The intended operator is an autonomous coding agent (Claude Code or similar) with
