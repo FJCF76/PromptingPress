@@ -4357,6 +4357,254 @@ test.describe('#333 chrome site options render', () => {
     expect(rowColor).toBe('rgb(34, 211, 238)');
   });
 
+  // #568 — a paired row had NO mobile rule: it kept its two-column geometry at every
+  // width, so at 375 the value was squeezed into ~170px of a 247px row content box and a
+  // 5-12 word comparison value wrapped to four RIGHT-aligned lines beside a one-word
+  // label. (The operator who hit this on live production content abandoned paired rows
+  // for plain string bullets to keep shipping.) The ruled default stacks the pair below
+  // the mobile breakpoint, with five properties, and leaves >=768px alone.
+  //
+  // Declaration-level pins for all five live in SectionTextPanelTest. What only a
+  // rendered box can prove is that the cascade DELIVERS them, and two of the five are
+  // exactly the kind that go green on a declaration and wrong on the page:
+  //
+  //   * Property 4 (inter-pair rhythm). `.section__panel-list li` (0,1,1) owns
+  //     margin-bottom and `:last-child` (0,1,2) zeroes it, so the obvious
+  //     `.section__panel-row { margin-bottom }` (0,1,0) is a silent no-op and the
+  //     (0,2,0) fix that beats it ALSO beats the last-child zero, hanging 16px of dead
+  //     space above the panel CTA. The shipped answer is an adjacent-sibling margin-top.
+  //     Both failures are invisible in the CSS text and obvious in a rendered margin.
+  //   * Property 5 (the stacked pair reads as label-then-fact). The theme ships no
+  //     webfont (--font-body is `system-ui, sans-serif`), so which weights exist is the
+  //     client's business: in a bare Linux/CI font environment 600 resolves to the same
+  //     face as 400 and renders PIXEL-IDENTICAL — the 375px A/B for this issue produced
+  //     byte-identical PNGs for a weight-only treatment. So the font-SIZE step, which
+  //     always renders, is what stands for the distinction here; the weight assertion
+  //     pins the declaration only and is explicitly not the visual proof.
+  //
+  // The fixture is stressed on purpose: a long value (the reported defect), a long
+  // LABEL, a long URL-ish value, a mixed string bullet, a label-only and a value-only
+  // half-row, a per-row recolour, and a separate single-row panel whose one row is both
+  // first and last child (the margin-top edge) sitting above a panel CTA.
+  //
+  // What this test does NOT pin, deliberately: containment of a value with NO line-break
+  // opportunity at all (a hex digest, a long camelCase run). base.css sets overflow-wrap
+  // only on p and h1-h6, so such a value paints outside the panel and scrolls the page —
+  // at 375 that is document.scrollWidth 654 against a 375 client. That is PRE-EXISTING
+  // and this change strictly improves it (742 before, 654 after: stacking widens the box
+  // the text starts from), but it does not close it, and closing it is a sixth property
+  // the #568 ruling does not carry. Filed as a follow-up. The URL value above is not
+  // that case — it breaks at every `/` and `-` and wraps cleanly. Note also that the
+  // valueWidth/rowWidth assertion below reads the BORDER box of a stretched flex item,
+  // so it is structurally blind to overflowing text; it proves the value gets the full
+  // measure, not that the text stays inside it.
+  test('#568 paired rows stack below 767px and give the value the full measure; desktop unchanged @smoke', async ({
+    page,
+  }, testInfo) => {
+    pageId = createPage('E2E Panel Row Mobile Stack');
+    setComposition(pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec-stack',
+          layout: 'text-panel',
+          title: 'Project shape',
+          body: '<p>Left.</p>',
+          panel_heading: 'At a glance',
+          panel_items_marker: 'check',
+          panel_items: [
+            'All checks passing',
+            { label: 'Timeline', value: 'Six to eight weeks from kickoff to launch' },
+            { label: 'Included', value: 'Discovery, design, build, QA and a handover session' },
+            { label: 'Support and maintenance retainer', value: 'Optional' },
+            { label: 'Docs', value: 'https://example.com/a-very-long-unbreakable-documentation-path' },
+            // Half-rows: the renderer emits BOTH spans even when one side is empty
+            // (section.php:259-261), so an empty span is still a flex item and still
+            // takes the column gap. Supported shapes, so their stacked geometry is
+            // pinned too.
+            { label: 'Notes' },
+            { value: 'Standalone' },
+            { label: 'Uptime', value: '99.9%', style: { '--section-panel-text': '#1d4ed8' } },
+          ],
+        },
+      },
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec-stack-one',
+          layout: 'text-panel',
+          title: 'Single row',
+          body: '<p>Left.</p>',
+          panel_heading: 'Only one',
+          panel_items: [
+            { label: 'Plan', value: 'A single paired row is both the first and the last child of its list' },
+          ],
+          panel_cta_text: 'Get started',
+          panel_cta_url: 'https://example.com',
+        },
+      },
+    ]);
+
+    // One row's geometry + type, plus the per-row margins of a whole list. Line count
+    // is derived from the value box height over its line-height: the value span is a
+    // flex ITEM, so it is blockified and getClientRects() collapses to a single rect —
+    // counting rects would silently report 1 for a four-line value.
+    const readPanel = (sectionId: string) =>
+      page.locator(`#${sectionId} .section__panel-list`).evaluate((ul: HTMLElement) => {
+        const rows = Array.from(ul.querySelectorAll('.section__panel-row')) as HTMLElement[];
+        const read = (li: HTMLElement) => {
+          const lab = li.querySelector('.section__panel-row-label') as HTMLElement;
+          const val = li.querySelector('.section__panel-row-value') as HTMLElement;
+          const vcs = getComputedStyle(val);
+          const lcs = getComputedStyle(lab);
+          const lics = getComputedStyle(li);
+          const vr = val.getBoundingClientRect();
+          const lr = lab.getBoundingClientRect();
+          const lir = li.getBoundingClientRect();
+          return {
+            direction: lics.flexDirection,
+            marginTop: parseFloat(lics.marginTop),
+            marginBottom: parseFloat(lics.marginBottom),
+            valueAlign: vcs.textAlign,
+            valueSize: parseFloat(vcs.fontSize),
+            labelSize: parseFloat(lcs.fontSize),
+            valueWeight: vcs.fontWeight,
+            labelWeight: lcs.fontWeight,
+            labelColor: lcs.color,
+            valueColor: vcs.color,
+            labelTracking: lcs.letterSpacing,
+            valueTracking: vcs.letterSpacing,
+            labelLeft: lr.left,
+            valueLeft: vr.left,
+            valueWidth: vr.width,
+            // CONTENT width: on a marker list `.pp-marker-list > li` carries a
+            // 1.5rem marker indent even on a markerless paired row (pre-existing,
+            // both breakpoints), so the border box is not the measure the value
+            // can occupy.
+            rowWidth: lir.width - parseFloat(lics.paddingLeft) - parseFloat(lics.paddingRight),
+            valueLines: Math.round(vr.height / parseFloat(vcs.lineHeight)),
+          };
+        };
+        return { rows: rows.map(read) };
+      });
+
+    // ── DESKTOP: #568 changes nothing at >=768px ───────────────────────────────
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('#pp-sec-stack .section__panel-row')).toHaveCount(7, {
+      timeout: 10000,
+    });
+
+    const desktop = await readPanel('pp-sec-stack');
+    for (const r of desktop.rows) {
+      expect(r.direction).toBe('row');
+      expect(r.valueAlign).toBe('right');
+      // Label and value stay one type: same size, weight and tracking.
+      expect(r.labelSize).toBe(r.valueSize);
+      expect(r.labelWeight).toBe(r.valueWeight);
+      expect(r.labelTracking).toBe(r.valueTracking);
+      // The label sits BESIDE the value, not above it.
+      expect(r.valueLeft).toBeGreaterThan(r.labelLeft);
+      // No inter-pair rhythm at desktop — the list's own 4px is the whole story.
+      expect(r.marginTop).toBe(0);
+    }
+    expect(desktop.rows.slice(0, -1).every((r) => r.marginBottom === 4)).toBe(true);
+    expect(desktop.rows[desktop.rows.length - 1].marginBottom).toBe(0);
+
+    const desktopOne = await readPanel('pp-sec-stack-one');
+    expect(desktopOne.rows[0].direction).toBe('row');
+    expect(desktopOne.rows[0].marginTop).toBe(0);
+    expect(desktopOne.rows[0].marginBottom).toBe(0);
+
+    // ── MOBILE: the ruled five-property stack ──────────────────────────────────
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('#pp-sec-stack .section__panel-row')).toHaveCount(7, {
+      timeout: 10000,
+    });
+
+    const mobile = await readPanel('pp-sec-stack');
+    for (const r of mobile.rows) {
+      expect(r.direction).toBe('column'); // 1
+      expect(r.valueAlign).toBe('left'); // 2
+      // 2 (the point of it): ONE shared left edge, not a ragged one.
+      expect(Math.abs(r.valueLeft - r.labelLeft)).toBeLessThanOrEqual(0.5);
+      // The value gets the FULL row measure, not a share of it.
+      expect(Math.abs(r.valueWidth - r.rowWidth)).toBeLessThanOrEqual(0.5);
+      // 5: an explicit, always-rendered SIZE step marks the label as a label. This
+      // is the assertion that stands for the visual distinction — see the header.
+      expect(r.labelSize).toBeLessThan(r.valueSize);
+      expect(r.labelTracking).not.toBe(r.valueTracking);
+      // The weight split follows .hero__surface-key / -value. Computed weight is
+      // reported from the DECLARATION, not from the face that got picked, so this
+      // pins the declaration's presence; it is NOT the proof of distinction.
+      expect(Number(r.valueWeight)).toBeGreaterThan(Number(r.labelWeight));
+      // The distinction stays typographic: nothing here may recolour the label
+      // away from the row's --section-panel-text.
+      expect(r.labelColor).toBe(r.valueColor);
+    }
+
+    // The per-row --section-panel-text override still recolours the WHOLE pair at
+    // mobile (the last row carries it), so the new label rule has not stolen the
+    // item_eligible slot from the label half.
+    expect(mobile.rows[mobile.rows.length - 1].labelColor).toBe('rgb(29, 78, 216)');
+    expect(mobile.rows[mobile.rows.length - 1].valueColor).toBe('rgb(29, 78, 216)');
+
+    // 4: the inter-pair rhythm is 16px BETWEEN pairs, and nowhere else. Row 0 follows
+    // the string bullet, so it keeps the list's own rhythm (accepted: the ruling is
+    // about the gap between PAIRS); rows 1..n follow a row and take the wider step.
+    expect(mobile.rows[0].marginTop).toBe(0);
+    for (const r of mobile.rows.slice(1)) {
+      expect(r.marginTop).toBe(16);
+    }
+    // No dead space under the last row.
+    expect(mobile.rows[mobile.rows.length - 1].marginBottom).toBe(0);
+
+    // 3 vs 4: the intra-pair gap must be visibly TIGHTER than the inter-pair one, or
+    // four pairs read as one eight-line block.
+    const gap = await page
+      .locator('#pp-sec-stack .section__panel-row')
+      .first()
+      .evaluate((el) => parseFloat(getComputedStyle(el).rowGap));
+    expect(gap).toBe(4);
+    expect(gap).toBeLessThan(mobile.rows[1].marginTop);
+
+    // The reported defect, measured: the longest value takes FEWER lines at the full
+    // stacked measure than it did in the old ~170px column. Measured as a difference
+    // against the SAME text in the SAME font at the two widths, not as an absolute
+    // line count — the theme ships no webfont, so an absolute count is a hostage to
+    // whichever face `system-ui` resolves to on the machine running the suite, and
+    // would go red on a font change that has nothing to do with this CSS.
+    const wrap = await page
+      .locator('#pp-sec-stack .section__panel-row-value')
+      .nth(1) // "Discovery, design, build, QA and a handover session" — the longest
+      .evaluate((el: HTMLElement) => {
+        const lh = parseFloat(getComputedStyle(el).lineHeight);
+        const lines = () => Math.round(el.getBoundingClientRect().height / lh);
+        const atFullMeasure = lines();
+        const prior = el.style.width;
+        el.style.width = '170px'; // the pre-#568 column this value was squeezed into
+        const atOldColumn = lines();
+        el.style.width = prior;
+        return { atFullMeasure, atOldColumn };
+      });
+    expect(wrap.atFullMeasure).toBeLessThan(wrap.atOldColumn);
+
+    // The single-row panel: nothing to follow, so no margin-top, and no trailing gap
+    // hanging above the panel CTA.
+    const mobileOne = await readPanel('pp-sec-stack-one');
+    expect(mobileOne.rows[0].direction).toBe('column');
+    expect(mobileOne.rows[0].marginTop).toBe(0);
+    expect(mobileOne.rows[0].marginBottom).toBe(0);
+
+    for (const id of ['pp-sec-stack', 'pp-sec-stack-one']) {
+      await testInfo.attach(`panel-row-stack-375-${id}`, {
+        body: await page.locator(`#${id} .section__panel`).screenshot(),
+        contentType: 'image/png',
+      });
+    }
+  });
+
   // #354 — a section with layout:centered centered its heading but LEFT-PINNED its body
   // copy. The outer .section__body centers itself (max-width --measure-centered = 56rem,
   // margin auto) but the inner .section__content carried a narrower cap (42rem) with NO
