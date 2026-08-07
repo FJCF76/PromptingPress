@@ -4,6 +4,65 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.4] — 2026-08-07 — component schemas can now declare when a slot applies, what a fill is, and which legacy names still work (#575)
+
+**Four pieces of declaration-level metadata were designed in isolation. They land together, before anything populates them, so the schema surface cannot drift the way the slot surface already did.**
+
+A component's `schema.json` describes what it accepts, but until now it could not describe the conditions around that. It could not say a slot only applies when `image_treatment` is `icon`, could not mark which colour slot is a button's fill, and could not name a legacy value it still accepts without also advertising it. Each gap had a workaround: a naming convention, a prose description, a hardcoded list somewhere else. Every workaround is a second source of truth, which is exactly the defect this contract removes one layer down.
+
+The definition object on a slot or a prop is now a closed, machine-readable surface. `applies_when` carries conditionality as an ANDed list of exactly four clause forms, and `conditionality_note` carries the three classes those forms deliberately cannot express (a disjunction, a composed-page scope, an interaction state). A slot can declare `role: "fill"` as a real key rather than being guessed at from a `-bg` suffix. A prop can declare `aliases` — legacy values it still accepts without ever advertising them. Every one of these reaches an agent at runtime, because a field an agent never sees is not in the baseline.
+
+Alongside the fields, two mechanisms that let a name change without breaking an already-stored page. A legacy style-slot name resolves at render, above the filter that would otherwise drop it silently. A legacy prop key now resolves on **every** composition read, not just the two front-end renderers that resolved it on their own — so the editor, `inspect`, the admin preview and restore's own fetch all finally agree on what a page says.
+
+**Nothing renders differently. Nothing is renamed. Nothing is populated.** This release is the contract; the gates that follow populate it.
+
+### The numbers that matter
+
+Measured against the shipped schemas and suites on this branch.
+
+| | Before | After |
+|---|---|---|
+| definition keys a schema may declare | undefined (anything accepted) | **closed set, unknown keys fail CI** |
+| definition objects checked | 0 | **383 slot, prop and nested-item definitions** |
+| `applies_when` clause forms | — | **exactly 4, no growth path** |
+| components whose `variant_classes` told the truth | 8 of 12 | **12 of 12** |
+| read paths that resolve a legacy prop key | 2 of 6 | **6 of 6** |
+| PHP tests | 2587 | **2642 (+55)** |
+
+`faq` declared an empty `variant_classes` while its renderer emits `faq--dark` and `faq--inverted`; `cta`, `section` and `stats` each omitted their `--has-bg-image` modifier. All four are corrected, and the expectation is now derived from each component's own template rather than hand-maintained, so it cannot drift back.
+
+### What this means for the gates that follow
+
+Every later gate that carries a canonical name, a populated `applies_when`, a strict enum, or a fill-aware warning depends on the shapes landed here. They were designed apart and would have arrived apart; landing them together means the first one to populate the surface finds it already coherent. If the bounded grammar ever needs a fifth clause form, that growth lands in this contract first, while nothing depends on it.
+
+### Added
+
+- `applies_when` and `conditionality_note` on the slot/prop definition object. `applies_when` is an array of ANDed clauses in exactly four forms: `{prop, equals}`, `{prop, in[]}`, `{prop, present:true}`, `{slot, present:true}`. There is deliberately no `any_of`, no `context`, and no free-form structure — the three condition classes those forms cannot express (disjunction, composed-page context, interaction state) stay prose in `conditionality_note`, which is bounded to one line of 400 characters.
+- `role: "fill"` on the slot definition object, as a declared key rather than a `-bg` / `-hover-bg` name convention. A naming convention is not machine-readable without a second source of truth.
+- `aliases` on the prop definition object: legacy values accepted without being advertised. `theme` declares `"aliases": ["dark"]` on all eight band components while `values` still advertises only `default | muted | inverted`. Declaring `aliases` beside `strict: true` is rejected until the strict-enum write path consumes it, so the surface can never advertise a value the writer refuses.
+- `pp_legacy_slot_aliases()` (`lib/wp.php`), the static legacy → canonical style-slot name map, resolved inside `pp_render_style_vars()` immediately above the declared-slot filter. It ships **empty**: this release lands the mechanism, and the vocabulary gate moves real names through it. The map is shape-sanitized, and identity and chained entries are discarded — both reproduce the silent unstyled-page failure the mechanism exists to prevent.
+- The runtime AI catalog emits every new field. A prop alias is phrased as legacy input that is accepted on stored pages and must never be written on new content, so the disclosure and the warning travel on the same line.
+
+### Fixed
+
+- A composition storing a legacy prop key rendered its authored value on the public site but looked legacy to every action, because only `pp_composition()` and `pp_resolve_front_page_render()` resolved the alias map. `pp_migrate_stored_composition()` now applies it, so all six read paths agree.
+- `styling.variant_classes` lied in four of twelve schemas. All twelve now list exactly the root-element modifiers their template can emit, derived from the template itself.
+
+### Changed
+
+- A legacy prop key now heals to canonical on any whole-array write-back, including on components a call never named — the same property the `variant` key migration has had since #400. The heal is key-only and preserves the authored value, except where an item stores both names and canonical-wins drops the legacy one. **No `changes` entry is emitted for a heal**, so `changes` records what you asked for, not a byte diff of stored meta. This supersedes the incremental-heal model recorded with #495.
+
+### Docs
+
+- `ai-instructions/add-component.md` carries the field-by-field definition-object contract, the phrasing rule for `conditionality_note`, the bounded mechanism-trust rule verbatim, and an explicit table of how the two name maps differ.
+- `AI_CONTEXT.md` states the read-path resolution and its unreported-heal consequence at the action boundary.
+
+### Tests
+
+- A new stored-composition render suite asserts that an aliased document still **paints** — not that a map has an entry. It covers the synthetic slot pair end to end, canonical-wins, the fallback when a canonical declaration cannot render, malformed filter input, identity and cyclic entries, and the live `cta_text` → `button_text` mapping rendering its authored value instead of the `Get Started` default.
+- `SchemaValidationTest` drives the shape engine over every shipped definition object including nested `items` sub-definitions, accepts the four clause forms, and rejects thirteen shapes outside them.
+- The render-only asymmetry of the slot-name map is pinned deliberately, so the gate that lands the first real rename cannot ship a page that paints and cannot be saved.
+
 ## [v1.12.3] — 2026-08-07 — a panel's label/value rows stack on phones, so a long value gets the whole column (#568)
 
 **A spec-sheet row used to squeeze its value into a 170px sliver on a phone. It now gets the full width of the panel.**
