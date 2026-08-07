@@ -95,7 +95,7 @@ worst-case composite, so without that ring the button's shape disappears into th
 and only its label carries it. The solid inverted band does NOT
 get this ring — the same fill measures 3.23:1 there, which already clears the 3:1
 non-text bar. Per-instance slots (`--cta-button-border`, `--hero-accent`, and
-`--cta-button2-border` / `--hero-cta2-border` for the second button) still win, so
+`--cta-button2-border` / `--hero-button2-border` for the second button) still win, so
 you can recolour the ring; a band you darken yourself with `--cta-bg` gets no automatic
 ring, because nothing in CSS can compare your authored band colour to the button fill.
 
@@ -219,13 +219,13 @@ renders byte-identically to today.
 | `--btn-shadow` | change every button's elevation (a `--shadow-*` preset, or `none` to flatten) | bare `.btn`, premium primary | `none` (bare) / premium bevel (composed primary) |
 
 **Per-component slots still win.** `--btn-*` sits BETWEEN the per-component slots
-(`--cta-button-*`, `--cta-button2-*`, `--cta-accent`, `--hero-button-*`, `--hero-cta2-*`,
+(`--cta-button-*`, `--cta-button2-*`, `--cta-accent`, `--hero-button-*`, `--hero-button2-*`,
 `--hero-accent`, `--section-panel-cta-*`) and the literal fallback. A component that sets its own slot keeps
 overriding the global token, so a site-wide `--btn-bg` recolors every button that has not
 been individually restyled.
 (The hero's per-instance FILLED-primary slots are `--hero-button-bg` / `--hero-button-hover-bg`
 / `--hero-button-color` / `--hero-button-shadow`; `--hero-accent` recolors only its border. A
-cta or hero SECOND button has its own family — `--cta-button2-*` / `--hero-cta2-*` — which the
+cta or hero SECOND button has its own family — `--cta-button2-*` / `--hero-button2-*` — which the
 primary's slots never reach in rest OR hover, so restyling the primary alone leaves the second
 button on the global token. Since #554 that holds for BOTH second buttons: the cta block's and
 the hero's each route `--btn-bg` / `--btn-hover-bg` through their own chains, so neither is an
@@ -250,8 +250,8 @@ gradient the moment a pointer lands.
 | `--btn-hover-border-color` | recolor every button's hover border | same surfaces as above, with the same `background_image` / `cover` carve-out (#564) | `--color-accent-hover` (bare/`.cta`/`.hero`) / `--color-accent` (premium) |
 
 Per-instance hover slots still win **for their own property**: `--hero-button-hover-bg`,
-`--cta-button-hover-bg`, `--hero-cta2-hover-bg`, `--cta-button2-hover-bg` beat
-`--btn-hover-bg` for the fill; `--cta-button-hover-border`, `--hero-cta2-hover-border`,
+`--cta-button-hover-bg`, `--hero-button2-hover-bg`, `--cta-button2-hover-bg` beat
+`--btn-hover-bg` for the fill; `--cta-button-hover-border`, `--hero-button2-hover-border`,
 `--cta-button2-hover-border` beat `--btn-hover-border-color` for the border.
 
 One cross-property note, same as at rest: `--btn-hover-border-color` outranks the per-instance
@@ -272,7 +272,7 @@ brand fill inside an accent ring. That is the intended contract (a narrower auth
 outranks a broader one), and it is now the same on the hero and the cta, so neither the pair
 nor the two components can disagree. To move the ring on a band whose accent knob is set, set
 that button's own `--cta-button-hover-border` / `--cta-button2-hover-border` /
-`--hero-cta2-hover-border` — the per-instance slot still leads every chain.
+`--hero-button2-hover-border` — the per-instance slot still leads every chain.
 
 **On `background_image` cta bands and `cover` heroes NO global button token reaches the RING**
 (#564 for the ring knobs, #565 for the fill knobs). Those bands ring their filled buttons with
@@ -288,7 +288,7 @@ the ring they no longer reach.
 Your per-instance ring slots, the band accent, and that band's OWN fill slot still win there;
 the global ones are simply
 not in the chain. To set a specific ring on a photo band, use the per-instance slot where the
-button has one (`--cta-button-border` / `--cta-button2-border` / `--hero-cta2-border` and their
+button has one (`--cta-button-border` / `--cta-button2-border` / `--hero-button2-border` and their
 hover twins). The hero PRIMARY ships no per-instance ring slot, so steer its cover-band ring
 with `--hero-accent` / `--hero-accent-hover`. One consequence worth planning for: because the
 site-wide knob no longer reaches these bands, a ring correction that used to be a single global
@@ -301,7 +301,7 @@ its hover fill. That is intended, not an oversight.
 **The hero's second CTA is no longer an exception (#554).** It used to be the one filled
 surface on the theme whose OWN chains never routed the global tier, so a site-wide button
 retheme left it behind — visibly, because the global knob still reached it through the shared
-premium rule (a flat value there clears the theme gradient) while the cta2's own
+premium rule (a flat value there clears the theme gradient) while the second button's own
 higher-specificity rule kept painting `--color-accent` / `--color-accent-hover`. A rethemed
 hero rendered a FLAT ACCENT second button beside a brand-coloured primary. Its rest AND hover
 chains now route `--btn-bg` / `--btn-border-color` / `--btn-hover-bg` /
@@ -311,8 +311,8 @@ either button's BORDER chain any more (ring knobs removed in #564, fill knobs in
 site-wide retheme does not move that pair's RINGS there — but it does not split them either,
 since both buttons lost each knob together. Their FILLS still follow the global tokens as
 everywhere else; it is only the separation ring that holds the measured role. You no
-longer need to set `--hero-cta2-bg` /
-`--hero-cta2-hover-bg` merely to keep the pair consistent — set them when you want that button
+longer need to set `--hero-button2-bg` /
+`--hero-button2-hover-bg` merely to keep the pair consistent — set them when you want that button
 to DIFFER.
 
 **Watch hover contrast: there is no global hover INK token.** `--btn-text` sets label ink at
@@ -320,7 +320,7 @@ rest, but the bare `.btn` and the premium primary hard-code hover ink to `--colo
 the two SECOND buttons fall back through `--btn-text` on hover). So if you pin a custom
 `--btn-text`, hover ink still reverts to `--color-bg`. When choosing `--btn-hover-bg`, check
 it against **`--color-bg`**, not against `--btn-text` (≥ 4.5:1) — or pin the per-instance
-hover ink slots (`--cta-button-hover-color`, `--hero-cta2-hover-color`,
+hover ink slots (`--cta-button-hover-color`, `--hero-button2-hover-color`,
 `--cta-button2-hover-color`).
 
 **There is no global hover ELEVATION token either.** `--btn-shadow: none` flattens rest and
@@ -332,7 +332,7 @@ cover rest AND hover.
 its own fill but declares no border, so the global hover ring reaches it — exactly as
 `--btn-border-color` reaches its resting border. Its hover FILL is not routed by any global
 knob, so an outline button hovers to the theme accent wearing your ring. Set
-`--cta-button-hover-border` / `--hero-cta2-hover-border` per instance if that pairing matters
+`--cta-button-hover-border` / `--hero-button2-hover-border` per instance if that pairing matters
 on a given button.
 
 **Fill and border are independent knobs.** `--btn-bg` recolors the fill; `--btn-border-color`
@@ -342,10 +342,10 @@ the section-panel CTA) keeps its own `--color-accent-strong` border until you se
 `--btn-border-color` — matching the bare `.btn` primitive, where fill and border are separate.
 Set both when recoloring buttons site-wide so every context stays consistent. The same
 border-follows-fill idiom applies to the hero's per-instance slots: a filled second CTA
-recolored with `--hero-cta2-bg` alone keeps a matching ring (`--hero-cta2-border`,
+recolored with `--hero-button2-bg` alone keeps a matching ring (`--hero-button2-border`,
 `--hero-accent` and the site-wide `--btn-border-color` still win where set), and since issue
-538 the same holds on HOVER — `--hero-cta2-hover-bg` alone gives a matching hover ring, behind
-`--hero-cta2-hover-border`, `--hero-accent-hover` and `--btn-hover-border-color`. Note the
+538 the same holds on HOVER — `--hero-button2-hover-bg` alone gives a matching hover ring, behind
+`--hero-button2-hover-border`, `--hero-accent-hover` and `--btn-hover-border-color`. Note the
 global ring knobs joined those lists in #554: a fill-only recolor keeps its matching ring only
 while the global ring knob is UNSET, which is the same cross-property rule that already
 applied to every other button (an explicitly authored global ring beats one inferred from
@@ -353,7 +353,7 @@ someone's fill). **On `cover` heroes and `background_image` cta bands the whole 
 scoped to PER-INSTANCE fills.** There the ring bottoms out at `--color-accent-on-overlay`, a
 measured 4.59:1 separation role, and no global token sits above it (#564 removed the ring
 knobs, #565 the fill knobs). So flattening one of those bands with `--cta-button-bg` /
-`--hero-cta2-bg` still gives a matching ring, but a site-wide `--btn-bg` recolors those
+`--hero-button2-bg` still gives a matching ring, but a site-wide `--btn-bg` recolors those
 buttons' FILLS while leaving their rings on the role — deliberately, because a token aimed at
 no band in particular must not cancel a contrast guarantee. Set the per-instance ring slot if
 you want a specific ring colour on a photo band. The cta's own second button works the same way
