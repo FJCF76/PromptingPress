@@ -4,6 +4,43 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.3] — 2026-08-07 — a panel's label/value rows stack on phones, so a long value gets the whole column (#568)
+
+**A spec-sheet row used to squeeze its value into a 170px sliver on a phone. It now gets the full width of the panel.**
+
+A `text-panel` panel row is a `{ label, value }` pair, and it rendered as two columns at every width. On a 375px screen that leaves the value about 170px of a 247px row, right-aligned, so "Six to eight weeks from kickoff to launch" broke into four ragged lines beside a one-word label. There was no mobile rule at all. An operator maintaining live production content hit this and gave up on paired rows, switching to plain string bullets to keep shipping.
+
+Below 768px the pair now stacks: label on top, value under it, both starting from the same left edge. The value gets the full 247px, a 45% wider column, and the same copy lands in three lines instead of four. The label is set a step smaller and lightly tracked while the value carries the weight, so the pair still reads as label-then-fact once position is no longer doing that job. Pairs sit 16px apart and each label sits 4px above its own value, so four rows read as four facts rather than one eight-line block. This is a fixed default, not a new knob: there is no slot, no prop, and nothing to configure.
+
+### What changes on an existing site
+
+Every paired row on every screen narrower than 768px, whether or not you authored anything. This is a deliberate render change on live content, and it is the only one in this release. Desktop is untouched and pinned by test.
+
+| | Before | After |
+|---|---|---|
+| value column at 375px | 170px | **247px (+45%)** |
+| longest value | 4 lines | **3 lines** |
+| alignment | right, ragged left edge | **left, one shared edge** |
+| gap between pairs | 4px | **16px** |
+| label vs value | identical type | **label smaller and tracked, value heavier** |
+| 768px and wider | — | **unchanged** |
+
+Write panel values in real words now. A long `value` is safe on a phone, so there is no reason to trim one to fit a column that no longer exists.
+
+### Fixed
+
+- `.section__panel-row` stacks to `flex-direction: column` at `≤767px`, the stacked value is left-aligned, the intra-pair gap is `--space-xs` and the inter-pair rhythm is `--space-md`, and the stacked label takes an explicit type treatment so it still reads as a label. The inter-pair rhythm is an adjacent-sibling `margin-top`, which cannot leave a trailing gap above a panel CTA the way a `margin-bottom` answer would.
+- The label/value split mirrors the theme's existing stacked key/value idiom (`.hero__surface-key` / `.hero__surface-value`) rather than inventing a second convention. The distinction is typographic, never colour: a panel row's colour routes through the per-row `--section-panel-text` slot and a panel background can be dark, so a hardcoded label colour would fight both.
+
+### Docs
+
+- `ai-instructions/composition.md`, `components/section/README.md`, and `components/section/schema.json` state the mobile degradation, so the site-building AI stops treating a paired row as two columns at every width.
+
+### Tests
+
+- A rendered Playwright test drives long values, a long label, a label-only and a value-only half-row, a mixed string bullet, a per-row recolour, and a single-row panel above a CTA — at 1280 (desktop unchanged) and 375 (the stack). The wrap win is measured as the same text at the new measure versus the old 170px column, so it does not depend on which font `system-ui` resolves to.
+- PHPUnit pins all five properties at the source level plus the desktop rules, and fails if any new declaration escapes the mobile at-rule or if a paired-row style slot appears.
+
 ## [v1.12.2] — 2026-07-29 — a site-wide button fill no longer erases the ring that keeps buttons visible on photos (#565)
 
 **Recolor every button on your site with one token and the rings on your photo bands used to go with it, unmeasured, sometimes to a colour that vanished into the image.** They now hold the contrast role instead.
