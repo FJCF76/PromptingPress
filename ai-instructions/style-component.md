@@ -227,6 +227,15 @@ slot leaves the eyebrow byte-identically uppercase.
 > role (`text_role`: mono/meta/label/kicker) are set with `update_component` (props),
 > not `style_component`. `style_component` only accepts schema-declared style slots.
 
+**Links inside `section.body` have their own pair (#576).** `--section-body-link-color` and
+`--section-body-link-hover-color` colour the anchors the rich-text `body` surface can carry.
+Set them together — a hover colour with no resting colour reads as a bug the first time a
+pointer touches it. Scope worth knowing before you reach for them: both are consumed on the
+`inverted` and `background_image` bands only, where the default link colour is re-routed for
+contrast. On a default or `muted` band the anchors take the global accent and these two slots
+do nothing, so use them to correct a link that a dark or photographic band made hard to read,
+not as the general way to colour section links.
+
 ---
 
 ## Fusing adjacent components into one colored band
