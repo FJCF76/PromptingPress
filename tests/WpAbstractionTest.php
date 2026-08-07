@@ -229,13 +229,24 @@ class WpAbstractionTest extends TestCase
         );
     }
 
-    public function testPpCompositionDoesNotResolveHeroCtaProps(): void
+    /**
+     * SUPERSEDES testPpCompositionDoesNotResolveHeroCtaProps (#495 -> #576).
+     *
+     * hero.cta_text/cta_url were the hero's CURRENT canonical props until the
+     * canonical-vocabulary gate renamed them to button_text/button_url. The pin used to
+     * assert the per-component map must NOT touch them; now it must resolve them, while
+     * still leaving an authored CANONICAL name exactly as written.
+     */
+    public function testPpCompositionResolvesHeroLegacyButtonPropsAndPreservesCanonicalOnes(): void
     {
-        // hero.cta_text/cta_url are CURRENT canonical props, not aliases — the
-        // per-component map must leave them exactly as authored.
         $GLOBALS['_pp_test_store']['post_meta'][0]['_pp_composition'] = wp_json_encode([
             ['component' => 'hero', 'props' => [
-                'title'    => 'Hi',
+                'title'       => 'Hi',
+                'button_text' => 'Get Started',
+                'button_url'  => '/docs',
+            ]],
+            ['component' => 'hero', 'props' => [
+                'title'    => 'Legacy',
                 'cta_text' => 'Get Started',
                 'cta_url'  => '/docs',
             ]],
@@ -243,9 +254,13 @@ class WpAbstractionTest extends TestCase
 
         $result = pp_composition();
 
-        $this->assertSame('Get Started', $result[0]['props']['cta_text'], 'hero cta_text is canonical and must be preserved.');
-        $this->assertSame('/docs', $result[0]['props']['cta_url'], 'hero cta_url is canonical and must be preserved.');
-        $this->assertArrayNotHasKey('button_text', $result[0]['props'], 'hero must not gain a cta-only canonical prop.');
+        $this->assertSame('Get Started', $result[0]['props']['button_text'], 'hero button_text is canonical and must be preserved.');
+        $this->assertSame('/docs', $result[0]['props']['button_url'], 'hero button_url is canonical and must be preserved.');
+
+        $this->assertSame('Get Started', $result[1]['props']['button_text'], 'legacy hero cta_text must resolve to button_text.');
+        $this->assertSame('/docs', $result[1]['props']['button_url'], 'legacy hero cta_url must resolve to button_url.');
+        $this->assertArrayNotHasKey('cta_text', $result[1]['props'], 'the legacy key resolves away on render.');
+        $this->assertArrayNotHasKey('cta_url', $result[1]['props'], 'the legacy key resolves away on render.');
     }
 
     public function testPpCompositionLeavesNonListShapeUnchanged(): void

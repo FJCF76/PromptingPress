@@ -112,16 +112,16 @@ site-customization permission.
 
 | Component | File                           | Description                                      | Key props                                          |
 |-----------|--------------------------------|--------------------------------------------------|----------------------------------------------------|
-| hero      | components/hero/hero.php       | Full-width headline + optional CTA and image     | title (req), title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, layout, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof, id |
-| section   | components/section/section.php | Text + optional image or content panel. 5 structural layouts. Needs one of body / body_items / panel content (#488) | body, body_items, title, title_accent, eyebrow, subheading, heading_align, image_url, image_id, image_alt, layout, theme, background_image, panel_heading, panel_body, panel_items, panel_items_marker, panel_cta_text, panel_cta_url, panel_cta_variant, body_marker, id |
+| hero      | components/hero/hero.php       | Full-width headline + optional CTA and image     | title (req), title_accent, eyebrow, subheading, button_text, button_url, button2_text, button2_url, button_variant, button2_variant, layout, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof, id |
+| section   | components/section/section.php | Text + optional image or content panel. 5 structural layouts. Needs one of body / body_items / panel content (#488) | body, body_items, title, title_accent, eyebrow, subheading, title_align, image_url, image_id, image_alt, layout, theme, background_image, panel_heading, panel_body, panel_items, panel_items_marker, panel_cta_text, panel_cta_url, panel_cta_variant, body_marker, id |
 | faq       | components/faq/faq.php         | Native details/summary accordion. Zero JS. Auto-emits FAQPage JSON-LD. | items[] (req) {question, answer}, title, title_accent, eyebrow, theme, id |
-| grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {number, title, text, text_role, bullets[], image_url, image_alt, link_url, link_text, style (per-card style overrides — card-scoped grid slots, set in composition not style_component)}, title, title_accent, eyebrow, subheading, heading_align, layout, card_emphasis, theme, columns, image_treatment, id |
+| grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {number, title, text, text_role, bullets[], image_url, image_alt, link_url, link_text, style (per-card style overrides — card-scoped grid slots, set in composition not style_component)}, title, title_accent, eyebrow, subheading, title_align, layout, card_emphasis, theme, columns, image_treatment, id |
 | table     | components/table/table.php     | Data/comparison table, horizontal scroll mobile  | headers[] (req), rows[][] (req), title, caption    |
-| cta       | components/cta/cta.php         | Call-to-action block. Layout + color + bg-image  | title, title_accent, eyebrow, button_text (req), button_url (req), button_variant, button2_text, button2_url, button2_variant, text, layout, theme, background_image, id |
+| cta       | components/cta/cta.php         | Call-to-action block. Layout + color + bg-image  | title, title_accent, eyebrow, button_text (req), button_url (req), button_variant, button2_text, button2_url, button2_variant, body, layout, theme, background_image, id |
 | stats     | components/stats/stats.php     | Horizontal row of large-number metrics + labels  | items[] (req) {number, label}, title, title_accent, theme, background_image, id |
 | logos     | components/logos/logos.php     | Flex-wrap image grid — logo strips or icon tiles | items[] (req) {image_url, image_alt, image_id?, label?}, title, theme, id |
 | embed     | components/embed/embed.php     | WP shortcode / plugin content wrapper            | content (req), title, theme, id                    |
-| testimonials | components/testimonials/testimonials.php | Customer quotes with attribution — card grid or single-column stack | items[] (req) {quote (req), author, role, company, image_url, image_alt}, title, title_accent, eyebrow, subheading, heading_align, layout, theme, id |
+| testimonials | components/testimonials/testimonials.php | Customer quotes with attribution — card grid or single-column stack | items[] (req) {quote (req), author, role, company, image_url, image_alt}, title, title_accent, eyebrow, subheading, title_align, layout, theme, id |
 
 ### Site chrome — rendered by the template, NOT composable (#223)
 
@@ -158,7 +158,7 @@ If adding background-image support to another component, follow this exact patte
 
 **Anchor IDs:** All 8 section-level components (hero, section, stats, grid, logos, cta, embed, testimonials) accept an `id` prop that renders as the HTML `id` attribute on the root `<section>` element. Use for anchor navigation.
 
-**Hero:** `layout` = `left`, `centered`, `split` (inline image), `cover` (fullscreen background-image with overlay). A `split` hero with neither an image (`image_url`/`image_id`) nor `proof` has nothing for the second column and degrades to the single-column `left` layout (text at full content width); add an image or proof to get the two-column split. Supports dual CTA buttons (`cta_text` + `cta2_text`), each with an independent `cta_variant`/`cta2_variant` (`primary`/`secondary`/`outline`/`ghost`; secondary defaults to `outline` — these are button-style props, unrelated to the layout `layout`). Composition props: `spacing` (compact/default/spacious), `width` (narrow/default/full), `split_ratio` (50-50/60-40/40-60, split layout only), `vertical_align` (top/center/bottom/stretch, cover and split only; `stretch` is split-only — the media column fills the content column's height so one asset balances any headline length, and renders like `center` on cover), `proof` (HTML string for trust signals like logos/ratings, rendered after CTA group). Hero content uses `--measure-centered` (56rem) as default max-width.
+**Hero:** `layout` = `left`, `centered`, `split` (inline image), `cover` (fullscreen background-image with overlay). A `split` hero with neither an image (`image_url`/`image_id`) nor `proof` has nothing for the second column and degrades to the single-column `left` layout (text at full content width); add an image or proof to get the two-column split. Supports dual CTA buttons (`button_text` + `button2_text`), each with an independent `button_variant`/`button2_variant` (`primary`/`secondary`/`outline`/`ghost`; secondary defaults to `outline` — these are button-style props, unrelated to the layout `layout`). Composition props: `spacing` (compact/default/spacious), `width` (narrow/default/full), `split_ratio` (50-50/60-40/40-60, split layout only), `vertical_align` (top/center/bottom/stretch, cover and split only; `stretch` is split-only — the media column fills the content column's height so one asset balances any headline length, and renders like `center` on cover), `proof` (HTML string for trust signals like logos/ratings, rendered after CTA group). Hero content uses `--measure-centered` (56rem) as default max-width.
 
 **Nav/Footer:** Supports image logos via `logo_id` (Media Library attachment ID, not a URL) + `logo_alt`. Both the `logo_id` component prop and the `pp_logo_id` site option must be an **image** attachment; a non-image or non-existent ID is rejected when the action is validated (`update_component`/`add_component`/`update_composition` for the prop, `update_site_option` for the option). Resolution: `logo_id` prop → `pp_logo_id` site option → WP `custom_logo` theme-mod → `logo_text` (text) wordmark. Footer logo is off by default; turn it on with the `pp_footer_show_logo` site option (a boolean `1`/`0`/`true`/`false`) via `update_site_option` — composing a `footer` to pass `show_logo` is rejected (#223). Set the site-wide logo through the `update_site_option` action with key `pp_logo_id`; the footer can override it with `pp_footer_logo_id` (#335) — an image attachment ID (not a URL, same rule as `pp_logo_id`) so a light logo variant can serve a dark footer while `pp_logo_id` stays the header logo (unset falls back to `pp_logo_id`). **Dark marketing footer (#300):** the footer is template-owned (no composition style slots), so its look is set through site options — `pp_footer_bg` / `pp_footer_text` / `pp_footer_link_color` (rendered as inline `--footer-*` custom properties) for a dark band, plus `pp_footer_blurb` (brand line under the logo), `pp_footer_contact` (contact/secondary text), and `pp_footer_copyright` (replaces the default copyright line; empty keeps `© <year> <site title>. All rights reserved.`). **Footer structure (#335):** `pp_footer_menu_label` and `pp_footer_contact_label` add optional column headings above the footer menu and contact block; `pp_footer_note`, when set, moves the copyright into its own delimited bottom bar and renders a secondary line opposite it (empty keeps the copyright inline). **Second footer menu column (#469):** assign a menu to the `footer_secondary` theme location (`assign_menu_location` / `set_menu`) to render a second footer menu column (e.g. a distinct Legal column) alongside the primary footer menu; `pp_footer_secondary_label` is its optional heading (empty = a headless column). With no menu assigned to `footer_secondary`, the footer is byte-identical to the single-menu layout. **Social-icon row (#382):** `pp_footer_social` surfaces the near-universal footer social row. It is a JSON string, an ordered list of `{network, url}` objects (e.g. `[{"network":"x","url":"https://x.com/acme"},{"network":"linkedin","url":"https://linkedin.com/company/acme"}]`), where `network` is one of a CLOSED set of known networks (`x`, `linkedin`, `facebook`, `instagram`, `youtube`, `github`, `tiktok`, `mastodon`) and `url` is an http(s) profile URL. It renders under the brand blurb as accessible inline-SVG icon links (one `aria-label` per link, decorative `aria-hidden` SVG), color following `pp_footer_link_color`. The network glyphs ship inline with the theme (no icon font, no external requests, no arbitrary icon URLs). Unknown networks, non-URL / non-http(s) values, and malformed JSON are rejected with the standard envelope; empty/unset renders no row and leaves the footer byte-identical. Unset, the footer renders exactly as before.
 
@@ -170,9 +170,9 @@ If adding background-image support to another component, follow this exact patte
 
 **FAQ structured data (#3):** The FAQ component always emits a `<script type="application/ld+json">` FAQPage schema block inside its own `<section>` (as the section's last child, so it does not interrupt the adjacent-sibling band rhythm of a following component — #432), derived from `items` — zero-config, no toggle prop. `question`/`answer` are stripped of HTML (`wp_strip_all_tags()`) before encoding, since Google's FAQPage schema expects plain text; items missing a question or answer are skipped. Nothing is emitted if there are no complete items.
 
-**Section headers (hero, section, faq, grid, cta, testimonials):** `eyebrow` renders a short kicker label as a pill above the title on all six. The pill is styled through per-component eyebrow style slots — color, bg, radius, border, and casing: the `text-transform`-typed `--<component>-eyebrow-text-transform` slot defaults to `uppercase`; set it to `none` for a sentence-case kicker (or `lowercase`/`capitalize`). `subheading` (section, grid, testimonials only) renders a supporting line below the title — hero uses `subtitle` and cta uses `text` for the same concept, so neither has a `subheading` prop. `heading_align` (`start` default, or `center`; section, grid, testimonials only) centers the eyebrow/title/subheading block, independent of the component's own `layout`.
+**Section headers (hero, section, faq, grid, cta, testimonials):** `eyebrow` renders a short kicker label as a pill above the title on all six. The pill is styled through per-component eyebrow style slots — color, bg, radius, border, and casing: the `text-transform`-typed `--<component>-eyebrow-text-transform` slot defaults to `uppercase`; set it to `none` for a sentence-case kicker (or `lowercase`/`capitalize`). `subheading` (section, grid, testimonials only) renders a supporting line below the title — hero uses `subheading` and cta uses `body` for the same concept, so neither has a `subheading` prop. `title_align` (`start` default, or `center`; section, grid, testimonials only) centers the eyebrow/title/subheading block, independent of the component's own `layout`.
 
-**title_accent (hero, section, grid, cta, faq, stats, testimonials):** All seven heading-bearing components accept `title_accent` — an exact, case-sensitive substring of `title` rendered in a per-component accent color slot (e.g. `--hero-title-accent-color`). It is a structured plain-text mechanism, not an HTML allowlist: if `title_accent` isn't a literal substring of `title`, it is silently ignored and `title` renders in full.
+**title_accent (hero, section, grid, cta, faq, stats, testimonials):** All seven heading-bearing components accept `title_accent` — an exact, case-sensitive substring of `title` rendered in a per-component accent color slot (e.g. `--hero-heading-accent-color`). It is a structured plain-text mechanism, not an HTML allowlist: if `title_accent` isn't a literal substring of `title`, it is silently ignored and `title` renders in full.
 
 **CSS invariant:** Component CSS in `components.css` must use only CSS variables from `base.css` — never raw hex values. Color decisions belong to the design tokens, not to individual components.
 
@@ -218,9 +218,9 @@ Every visual change maps to one surface. Writing to the wrong surface creates sp
 ```php
 pp_get_component('hero', [
     'title'    => pp_field('hero_title') ?: 'Welcome',
-    'subtitle' => pp_field('hero_subtitle'),
-    'cta_text' => pp_field('hero_cta_text') ?: 'Get Started',
-    'cta_url'  => pp_field('hero_cta_url')  ?: '#',
+    'subheading' => pp_field('hero_subtitle'),
+    'button_text' => pp_field('hero_cta_text') ?: 'Get Started',
+    'button_url'  => pp_field('hero_cta_url')  ?: '#',
     'layout'   => 'centered',
 ]);
 ```
@@ -257,9 +257,9 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_render_responsive_image($url, $alt, $class, $loading, $attachment_id)` | Renders `wp_get_attachment_image()` (real srcset/sizes) when `$attachment_id` resolves to an image attachment; plain escaped `<img src="$url">` otherwise |
 | `pp_render_faq_schema($items)` | Returns the FAQPage JSON-LD `<script>` block for faq items (plain-text-stripped), or `''` when no complete items |
 | `pp_default_homepage_composition()` | Curated branded multi-band starter composition (split hero, audience section, mechanism text-panel, speed/trust grid, proof section, closing CTA), styled via validated per-component style slots — single source of truth for activation seeding and blank-page fallback |
-| `pp_get_composition($post_id)` | Composition array for any page by ID (returns [] if absent, corrupt, or non-list). Legacy key names are resolved on read (#575): the retired `variant` prop becomes `layout`/`theme`, and legacy prop keys become canonical — so what you read is the canonical shape, which may differ from the stored bytes |
+| `pp_get_composition($post_id)` | Composition array for any page by ID (returns [] if absent, corrupt, or non-list). Legacy key names are resolved on read (#575/#594): the retired `variant` prop becomes `layout`/`theme`, legacy prop keys become canonical, and legacy style-slot names become canonical (the component-level `style` map and every per-item style map) — so what you read is the canonical shape, which may differ from the stored bytes |
 | `pp_get_composition_result($post_id)` | State-classifying read: `['ok'=>bool,'composition'=>array,'error'=>?string,'raw'=>?string]`. Distinguishes absent vs empty `[]` vs `decode_error` (undecodable JSON) vs `unexpected_shape` (valid JSON that isn't a list, e.g. an object). Use this (not `pp_get_composition`) when a check must tell a corrupted page apart from a blank one; `wp pp check page`/`validate site`/`validate page` and `pp_inspect_site()` all surface its error (issue 144) |
-| `pp_legacy_slot_aliases()` | The static legacy → canonical STYLE SLOT NAME map (#575), resolved inside `pp_render_style_vars()` above the declared-slot filter so an already-stored page still paints after a rename. Ships **empty**. Distinct from `pp_legacy_prop_aliases()` (legacy prop KEY → canonical KEY) and from a prop's schema `aliases` array (legacy accepted VALUES) |
+| `pp_legacy_slot_aliases()` | The static legacy → canonical STYLE SLOT NAME map (#575), carrying the **51 canonical-vocabulary renames** (#576). Resolved on every composition **read** (`pp_migrate_stored_composition` → `pp_normalize_legacy_slots`) so a stored legacy name is editable and saveable, and again inside `pp_render_style_vars()` above the declared-slot filter so it still paints. A **new** write naming a legacy slot is still rejected — resolution covers the already-stored document, not new authoring. Distinct from `pp_legacy_prop_aliases()` (legacy prop KEY → canonical KEY) and from a prop's schema `aliases` array (legacy accepted VALUES) |
 | `pp_style_declaration_renders($name, $value, $slots)` | Whether one stored style declaration will actually be emitted: the slot is declared AND the value clears the #330 render boundary. The single predicate behind "does this paint?" — call it rather than re-deriving either gate |
 | `pp_composition_pages()`       | All composition pages: [{id, title, status, url}, ...] (static cached) |
 | `pp_get_menus()`               | All navigation menus: [{id, name, location (registered theme location or null), items: [{title, url}, ...]}, ...] (issue 132) |
@@ -397,7 +397,7 @@ Token overrides survive theme updates — `base.css` is overwritten on update, b
 
 Style slots allow per-instance visual customization of components without CSS edits. Each component declares allowed CSS custom properties in its `schema.json` under `styling.style_slots`. Only declared slots are accepted — arbitrary CSS is rejected.
 
-**232 style slots** across 10 components: hero (45), section (43), cta (37), grid (37), testimonials (26), faq (18), stats (14), embed (4), logos (4), table (4).
+**233 style slots** across 10 components: hero (45), section (44), cta (37), grid (37), testimonials (26), faq (18), stats (14), embed (4), logos (4), table (4).
 
 **How it works:**
 1. Composition entries gain an optional `style` key alongside `props`
@@ -410,7 +410,7 @@ Style slots allow per-instance visual customization of components without CSS ed
 {
   "component": "hero",
   "props": { "id": "pp-a1b2c3d4", "title": "Welcome" },
-  "style": { "--hero-padding-top": "8rem", "--hero-bg": "#1a1a2e", "--hero-text": "#f0f0f0" }
+  "style": { "--hero-padding-top": "8rem", "--hero-bg": "#1a1a2e", "--hero-heading-color": "#f0f0f0" }
 }
 ```
 
@@ -422,7 +422,7 @@ Style slots allow per-instance visual customization of components without CSS ed
 wp pp action execute style_component --run-id=<uuid> --params='{"post_id":19,"component_id":"pp-a1b2c3d4","style":{"--hero-bg":"#1a1a2e","--hero-padding-top":"8rem"}}'
 
 # Apply a recipe + override
-wp pp action execute style_component --run-id=<uuid> --params='{"post_id":19,"component_id":"pp-a1b2c3d4","recipe":"dark-spacious","style":{"--hero-title-size":"clamp(3rem, 6vw, 5rem)"}}'
+wp pp action execute style_component --run-id=<uuid> --params='{"post_id":19,"component_id":"pp-a1b2c3d4","recipe":"dark-spacious","style":{"--hero-heading-size":"clamp(3rem, 6vw, 5rem)"}}'
 
 # Inspect available slots and recipes per component
 wp pp operate inspect-composition 19
@@ -506,7 +506,7 @@ These are the keys every action returns, not the complete set for every action. 
 
 **`pp_validate_action()` also enforces the composition-presence precondition (#358/#387).** Component-level actions (`add_component`, `remove_component`, `reorder_components`, `update_component`, `style_component`) operate on existing components, so they require a non-empty composition on the target page. Called on a composition-less page, they fail with `error_code: composition_required` — before any write, and via the same shared validator no matter the caller (AI chat, WP-CLI, the batch executor, `pp_patch_composition()`). Populate/lifecycle/metadata actions (`update_composition`, `trash_page`, `publish_page`, restore) opt out (`requires_composition => false`), so a page created empty by `create_page` can still be populated or deleted; site-scoped actions are exempt by scope. The check is gated on the page existing, so a nonexistent page still reports `not_found` rather than the composition error.
 
-**Legacy key names are canonicalized on read, and that heal is not reported in `changes` (#575).** Every composition read routes through `pp_migrate_stored_composition()` (`lib/wp.php`), which resolves both legacy surfaces: the retired `variant` prop → `layout`/`theme` (#400) and the legacy prop-key alias map (`cta_text` → `button_text`, #495). Because the whole-array rewrite actions (`update_component`, `add_component`, `remove_component`, `reorder_components`, `style_component`) read the entire composition and write it back, a legacy-shaped component heals to canonical prop keys on **any** such action — including components the call never named. The heal is key-only and preserves the authored value, except when an item stores **both** the legacy and the canonical key, where canonical-wins keeps the canonical value and drops the legacy one. **No `changes` entry is emitted for a heal**, so `changes` is a complete record of what you *asked* for, not a byte-level diff of stored meta. Compare stored state directly, or use the history ring (#133), if you need that. Rendered output is unaffected either way — both shapes already resolved to the same canonical props at render.
+**Legacy key names are canonicalized on read, and that heal is not reported in `changes` (#575).** Every composition read routes through `pp_migrate_stored_composition()` (`lib/wp.php`), which resolves all three legacy surfaces: the retired `variant` prop → `layout`/`theme` (#400), the legacy prop-key alias map (`cta_text` → `button_text`, #495/#576), and the legacy style-SLOT name map (`--hero-text` → `--hero-heading-color`, #576/#594 — covering the component-level `style` map and every per-item style map the schema declares). Because the whole-array rewrite actions (`update_component`, `add_component`, `remove_component`, `reorder_components`, `style_component`) read the entire composition and write it back, a legacy-shaped component heals to canonical prop keys on **any** such action — including components the call never named. The heal is key-only and preserves the authored value, except when an item stores **both** the legacy and the canonical key, where canonical-wins keeps the canonical value and drops the legacy one. **No `changes` entry is emitted for a heal**, so `changes` is a complete record of what you *asked* for, not a byte-level diff of stored meta. Compare stored state directly, or use the history ring (#133), if you need that. Rendered output is unaffected either way — both shapes already resolved to the same canonical props at render.
 
 **Registry functions:**
 - `pp_get_registered_actions()` — all 20 actions
@@ -557,11 +557,11 @@ wp pp validate page --post_id=42                      # rendered-HTML validation
 
 # Semantic composition operator
 wp pp operate inspect-composition <page>              # editable targets with selectors and current values
-wp pp operate patch <page> --target=hero.subtitle --value="New" --preview  # field-level diff, no write (no run-id)
-wp pp operate patch <page> --target=hero.subtitle --value="New" --run-id=<uuid>  # mutates: needs INSPECT + a covering PREFLIGHT
+wp pp operate patch <page> --target=hero.subheading --value="New" --preview  # field-level diff, no write (no run-id)
+wp pp operate patch <page> --target=hero.subheading --value="New" --run-id=<uuid>  # mutates: needs INSPECT + a covering PREFLIGHT
 
 # Component ID targeting (alternative to index)
-wp pp action execute update_component --run-id=<uuid> --params='{"post_id":19,"component_id":"pp-a1b2c3d4","props":{"subtitle":"Via ID"}}'
+wp pp action execute update_component --run-id=<uuid> --params='{"post_id":19,"component_id":"pp-a1b2c3d4","props":{"subheading":"Via ID"}}'
 
 # Theme integrity
 wp pp integrity check                                 # compare live files against shipped manifest (exit 0/1/2/3)
@@ -574,9 +574,9 @@ The `inspect-composition` and `patch` commands use semantic selectors to target 
 
 | Pattern | Example | Target |
 |---|---|---|
-| `type.field` | `hero.subtitle` | Top-level field on the only component of that type |
+| `type.field` | `hero.subheading` | Top-level field on the only component of that type |
 | `type[match="val"].field` | `section[title="About"].body` | Field on a matched component |
-| `type[id="..."].field` | `hero[id="home-hero"].subtitle` | Field on component by id (authored ids are durable; auto-generated `pp-<hex8>` ids are regenerated on full re-apply) |
+| `type[id="..."].field` | `hero[id="home-hero"].subheading` | Field on component by id (authored ids are durable; auto-generated `pp-<hex8>` ids are regenerated on full re-apply) |
 | `type[match="val"].items[match="val"].field` | `grid[title="Features"].items[title="Speed"].text` | Nested item field |
 
 **Flow:** `inspect-composition` → identify target → `patch --preview` → `patch` (apply) → `validate`

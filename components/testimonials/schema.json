@@ -32,7 +32,7 @@
       "default": "",
       "description": "Optional supporting line below the title. Plain text — HTML is escaped."
     },
-    "heading_align": {
+    "title_align": {
       "type": "enum",
       "values": ["start", "center"],
       "required": false,
@@ -90,12 +90,12 @@
       "--testimonials-subheading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space between the subheading and the content below it" },
       "--testimonials-heading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space between the heading and the subheading below it" },
       "--testimonials-gap": { "type": "length", "default": "var(--space-lg)", "description": "Gap between testimonial cards (grid layout) or between stacked quotes (stack layout)" },
-      "--testimonials-card-bg": { "type": "gradient", "default": "var(--color-surface)", "description": "Card background color or gradient" },
-      "--testimonials-card-border": { "type": "color", "default": "var(--color-border)", "description": "Card border color" },
-      "--testimonials-card-border-width": { "type": "length", "default": "1px", "description": "Card border width" },
-      "--testimonials-card-radius": { "type": "length", "default": "var(--radius)", "description": "Card border radius" },
-      "--testimonials-card-shadow": { "type": "shadow", "default": "none", "description": "Card box shadow / glow (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" },
-      "--testimonials-card-padding": { "type": "length", "default": "var(--space-lg)", "description": "Card padding" },
+      "--testimonials-item-bg": { "type": "gradient", "default": "var(--color-surface)", "description": "Card background color or gradient" },
+      "--testimonials-item-border-color": { "type": "color", "default": "var(--color-border)", "description": "Card border color" },
+      "--testimonials-item-border-width": { "type": "length", "default": "1px", "description": "Card border width" },
+      "--testimonials-item-radius": { "type": "length", "default": "var(--radius)", "description": "Card border radius" },
+      "--testimonials-item-shadow": { "type": "shadow", "default": "none", "description": "Card box shadow / glow (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" },
+      "--testimonials-item-padding": { "type": "length", "default": "var(--space-lg)", "description": "Card padding" },
       "--testimonials-quote-color": { "type": "color", "default": "var(--color-text)", "description": "Quote text color" },
       "--testimonials-quote-mark-color": { "type": "color", "default": "var(--color-accent)", "description": "Decorative opening quote-mark glyph color" },
       "--testimonials-author-color": { "type": "color", "default": "var(--color-text)", "description": "Author name text color" },
@@ -107,9 +107,9 @@
         "slots": {
           "--testimonials-bg": "#1a1a2e",
           "--testimonials-heading-color": "#f0f0f0",
-          "--testimonials-card-bg": "#ffffff",
+          "--testimonials-item-bg": "#ffffff",
           "--testimonials-gap": "2.5rem",
-          "--testimonials-card-radius": "1rem"
+          "--testimonials-item-radius": "1rem"
         }
       }
     }

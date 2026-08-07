@@ -98,7 +98,7 @@ function pp_footer_linkify_contact(string $contact): string {
  * the middle one:
  *   - Rich HTML   — section.body / faq.answer, sanitized by wp_kses_post (block
  *                   elements, lists, headings: the section's main prose surface).
- *   - Inline HTML — supporting-text props (cta.text, grid.items[].text,
+ *   - Inline HTML — supporting-text props (cta.body, grid.items[].text,
  *                   testimonials.items[].quote): a link + light emphasis is normal
  *                   marketing copy, but a block element is not. THIS helper.
  *   - Plain text  — short label-class props (stats.items[].label, titles,

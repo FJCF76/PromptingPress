@@ -11,7 +11,7 @@ Generic text + optional image section. Use this for "what is this", "how it work
 | `title_accent`     | string | No       | `''`          | Exact substring of `title` to render in an accent color |
 | `eyebrow`          | string | No       | `''`          | Short kicker/label rendered as a pill above the title |
 | `subheading`       | string | No       | `''`          | Supporting line below the title |
-| `heading_align`    | enum   | No       | `'start'`     | Header block alignment: `start` / `center` |
+| `title_align`    | enum   | No       | `'start'`     | Header block alignment: `start` / `center` |
 | `body`             | string | No¹      | `''`          | HTML body content (wp_kses_post filtered). Optional since #488 — omit for a `body_items`-only or panel-only band |
 | `image_url`        | string | No       | `''`          | Image URL (required for image-left / image-right) |
 | `image_id`         | int    | No       | `0`           | Media Library attachment ID for the image. When set and it resolves, renders responsively (`srcset`/`sizes`) via `wp_get_attachment_image()`; falls back to `image_url` otherwise |

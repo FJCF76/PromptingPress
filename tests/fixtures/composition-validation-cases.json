@@ -1,17 +1,17 @@
 {
-  "_doc": "Shared PHP<->JS composition-validation contract (D5). Both pp_validate_composition (lib/admin.php) and validateCompositionData (assets/js/pp-editor-logic.js) MUST agree valid/invalid on every case here. If one validator drifts on a shared-contract rule, its test fails. Anchored on the real `hero` component (title required, subtitle optional) and the real template-owned chrome `nav`/`footer`, which both sides resolve: PHP via pp_get_registered_components() + pp_template_owned_components(), JS via the `registry` field below (the `templateOwned` flag mirrors what lib/admin.php localizes into ppAdminEditor.components).",
+  "_doc": "Shared PHP<->JS composition-validation contract (D5). Both pp_validate_composition (lib/admin.php) and validateCompositionData (assets/js/pp-editor-logic.js) MUST agree valid/invalid on every case here. If one validator drifts on a shared-contract rule, its test fails. Anchored on the real `hero` component (title required, subheading optional) and the real template-owned chrome `nav`/`footer`, which both sides resolve: PHP via pp_get_registered_components() + pp_template_owned_components(), JS via the `registry` field below (the `templateOwned` flag mirrors what lib/admin.php localizes into ppAdminEditor.components).",
   "_known_asymmetries": [
     "BLANK required prop: JS rejects a present-but-blank required prop ('' / null / false); PHP only checks presence (array_key_exists). Intentional — the client gives friendlier UX, the server treats blank as a provided value. NOT a shared-contract case; do not add blank-prop cases here.",
     "STYLE slots: PHP additionally validates the optional `style` slot map + token values (injection guard); JS ignores `style`. Intentional — the server is authoritative on style-slot security. Covered by SchemaValidationTest's style-slot tests, not by this shared set."
   ],
   "registry": [
-    { "name": "hero", "schema": { "props": { "title": { "required": true }, "subtitle": { "required": false } } } },
+    { "name": "hero", "schema": { "props": { "title": { "required": true }, "subheading": { "required": false } } } },
     { "name": "nav", "templateOwned": true, "schema": { "props": {} } },
     { "name": "footer", "templateOwned": true, "schema": { "props": {} } }
   ],
   "cases": [
     { "name": "valid: hero with required title", "composition": [{ "component": "hero", "props": { "title": "Hello" } }], "expectValid": true },
-    { "name": "valid: hero with title + optional subtitle", "composition": [{ "component": "hero", "props": { "title": "Hi", "subtitle": "Sub" } }], "expectValid": true },
+    { "name": "valid: hero with title + optional subheading", "composition": [{ "component": "hero", "props": { "title": "Hi", "subheading": "Sub" } }], "expectValid": true },
     { "name": "valid: empty composition", "composition": [], "expectValid": true },
     { "name": "invalid: item missing component key", "composition": [{ "props": { "title": "x" } }], "expectValid": false },
     { "name": "invalid: unknown component", "composition": [{ "component": "nonexistent_xyz", "props": {} }], "expectValid": false },

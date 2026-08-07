@@ -11,7 +11,7 @@ Responsive card grid for discrete content objects. Use this for blog post listin
 | `title_accent`  | string | No       | `''`      | Exact substring of `title` to render in an accent color |
 | `eyebrow`       | string | No       | `''`      | Short kicker/label rendered as a pill above the title |
 | `subheading`    | string | No       | `''`      | Supporting line below the title |
-| `heading_align` | enum   | No       | `'start'` | Header block alignment: `start` / `center` |
+| `title_align` | enum   | No       | `'start'` | Header block alignment: `start` / `center` |
 | `layout`        | enum   | No       | `'cards'`   | Structural layout: `cards` (card grid) / `steps` (numbered process cards) |
 | `card_emphasis` | enum   | No       | `'featured'` | First-card emphasis: `featured` (default — first card gets an accent bar, tinted fill, larger title, extra top padding, muted-theme lift) / `uniform` (every card identical). Use `uniform` for a symmetric/peer card row (see below). Cards-layout concept; ignored on `steps`. |
 | `theme`         | enum   | No       | `'default'` | Background color: `default` / `muted` (light tinted surface band) / `inverted` (genuinely dark band) (independent of `layout`) |
@@ -131,7 +131,7 @@ Cards in this component must represent real content objects. If you're placing i
 Styles in `assets/css/components.css` under `/* === COMPONENT: grid === */`.
 
 Card hover state: `translateY(-2px)` — subtle lift. No shadow by default; set a
-`--grid-card-shadow` style slot (e.g. `var(--shadow-md)`) for elevated cards.
+`--grid-item-shadow` style slot (e.g. `var(--shadow-md)`) for elevated cards.
 
 ## Card content alignment
 

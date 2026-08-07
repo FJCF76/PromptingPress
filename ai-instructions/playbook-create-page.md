@@ -75,7 +75,7 @@ Produce the handoff report with:
 
 ## Common Failure Modes
 
-- **Empty hero**: Composition has a hero but no title/subtitle props → appears blank
+- **Empty hero**: Composition has a hero but no title/subheading props → appears blank
 - **Missing CTA**: Brief mentions CTA but it wasn't mapped to a button prop
 - **Text overflow on mobile**: Long headings or wide grid layouts break at 375px
 - **Token mismatch**: Brief specifies brand colors but tokens weren't updated

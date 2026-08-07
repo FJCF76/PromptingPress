@@ -4,7 +4,7 @@
  *
  * Per-instance button slots reach the component's OWN buttons and nothing else (issue 545).
  *
- * The five per-instance filled-button slot families (--hero-button-* / --hero-cta2-* /
+ * The five per-instance filled-button slot families (--hero-button-* / --hero-button2-* /
  * --cta-button-* / --cta-button2-* / --section-panel-cta-*) are emitted by the renderer as
  * inline custom properties on the COMPONENT ROOT, and three of their consumers select by
  * DESCENT rather than by the component's own button class: `main .btn:not(...)` (the premium
@@ -17,7 +17,7 @@
  * This file pins the parts of that contract that span PHP and CSS, which neither layer can see
  * alone:
  *   1. WHICH SURFACES can hold a nested `.btn` at all — derived from the renderers, so the fix
- *      is scoped to reality rather than to assumption (cta.text cannot: pp_kses_inline's `a`
+ *      is scoped to reality rather than to assumption (cta.body cannot: pp_kses_inline's `a`
  *      allowlist is href/title, so the class never survives; section panel_body/panel_items are
  *      esc_html, the #551 finding).
  *   2. WHICH CLASSES the renderers put on the buttons they own — the exact set the CSS rule must
@@ -119,8 +119,8 @@ class NestedButtonSlotIsolationTest extends TestCase
     {
         $html = $this->render('hero', [
             'title'    => 'Ship faster',
-            'cta_text' => 'Start',
-            'cta_url'  => '/start',
+            'button_text' => 'Start',
+            'button_url'  => '/start',
             'proof'    => 'Trusted by teams <a class="btn" href="/x">Inline CTA</a>',
         ]);
         $this->assertStringContainsString('<a class="btn" href="/x">Inline CTA</a>', $html);
@@ -129,14 +129,14 @@ class NestedButtonSlotIsolationTest extends TestCase
 
     public function testCtaTextCannotCarryAnAuthorWrittenButton(): void
     {
-        // cta.text goes through pp_kses_inline (helpers.php:141), whose `a` allowlist is
+        // cta.body goes through pp_kses_inline (helpers.php:141), whose `a` allowlist is
         // href/title only. The anchor survives; the class does not — so the --cta-button-*
         // half of the neutralisation rule is defensive, not load-bearing. Scoping the fix
         // honestly depends on this staying true.
         $html = $this->render('cta', [
             'button_text' => 'Go',
             'button_url'  => '/go',
-            'text'        => 'Read <a class="btn" href="/x">this</a>.',
+            'body'        => 'Read <a class="btn" href="/x">this</a>.',
         ]);
         $this->assertStringContainsString('<a href="/x">this</a>', $html);
         $this->assertStringNotContainsString('class="btn"', str_replace(
@@ -172,8 +172,8 @@ class NestedButtonSlotIsolationTest extends TestCase
     {
         $cases = [
             ['hero', [
-                'title' => 'T', 'cta_text' => 'A', 'cta_url' => '/a',
-                'cta2_text' => 'B', 'cta2_url' => '/b',
+                'title' => 'T', 'button_text' => 'A', 'button_url' => '/a',
+                'button2_text' => 'B', 'button2_url' => '/b',
             ], ['hero__cta']],
             ['cta', [
                 'button_text' => 'A', 'button_url' => '/a',

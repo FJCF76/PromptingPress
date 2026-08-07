@@ -224,12 +224,12 @@ test.describe('Preflight-before-mutation gate (#96)', () => {
     ppPreflight(runId);
     const created = ppAction('create_page', {
       title: 'Patch Gate Page',
-      composition: [{ component: 'hero', props: { title: 'Seed', subtitle: 'before' } }],
+      composition: [{ component: 'hero', props: { title: 'Seed', subheading: 'before' } }],
     }, runId);
     pageId = (created.target as any).post_id;
 
     const err = wpCliExpectFail(
-      `wp pp operate patch ${pageId} --target=hero.subtitle --value="after" --run-id=${runId}`,
+      `wp pp operate patch ${pageId} --target=hero.subheading --value="after" --run-id=${runId}`,
     );
     expect(err).toContain('no completed PREFLIGHT covering post ' + pageId);
   });
@@ -239,12 +239,12 @@ test.describe('Preflight-before-mutation gate (#96)', () => {
     ppPreflight(runId);
     const created = ppAction('create_page', {
       title: 'Patch Preview Page',
-      composition: [{ component: 'hero', props: { title: 'Seed', subtitle: 'before' } }],
+      composition: [{ component: 'hero', props: { title: 'Seed', subheading: 'before' } }],
     }, runId);
     pageId = (created.target as any).post_id;
 
     // No run-id, no preflight — preview must still work.
-    const raw = wpCli(`wp pp operate patch ${pageId} --target=hero.subtitle --value="after" --preview`);
+    const raw = wpCli(`wp pp operate patch ${pageId} --target=hero.subheading --value="after" --preview`);
     const result = parseCliJson(raw, 'patch preview');
     expect(result.ok).toBe(true);
   });
@@ -463,7 +463,7 @@ test.describe('Preflight composition freshness (#113)', () => {
     ppPreflight(runId);
     const created = ppAction('create_page', {
       title,
-      composition: [{ component: 'hero', props: { title: 'Seed', subtitle: 'before' } }],
+      composition: [{ component: 'hero', props: { title: 'Seed', subheading: 'before' } }],
       status: 'publish',
     }, runId);
     expect(created.ok).toBe(true);
@@ -484,7 +484,7 @@ test.describe('Preflight composition freshness (#113)', () => {
     ppPreflight(runId, pageId);
     // No intervening change → the update lands.
     const ok = ppAction('update_component', {
-      post_id: pageId, component_index: 0, props: { subtitle: 'after' },
+      post_id: pageId, component_index: 0, props: { subheading: 'after' },
     }, runId);
     expect(ok.ok).toBe(true);
   });
@@ -500,12 +500,12 @@ test.describe('Preflight composition freshness (#113)', () => {
     const runB = ppOperateInspect();
     ppPreflight(runB, pageId);
     const bWrite = ppAction('update_component', {
-      post_id: pageId, component_index: 0, props: { subtitle: 'changed-by-B' },
+      post_id: pageId, component_index: 0, props: { subheading: 'changed-by-B' },
     }, runB);
     expect(bWrite.ok).toBe(true);
 
     // Run A's mutation now sees a stale baseline → rejected with a distinct conflict.
-    const json = JSON.stringify({ post_id: pageId, component_index: 0, props: { subtitle: 'A-too-late' } }).replace(/'/g, "'\\''");
+    const json = JSON.stringify({ post_id: pageId, component_index: 0, props: { subheading: 'A-too-late' } }).replace(/'/g, "'\\''");
     const err = wpCliExpectFail(`wp pp action execute update_component --run-id=${runA} --params='${json}'`);
     expect(err).toContain('Stale preflight for post ' + pageId);
     expect(err).toContain('composition_conflict');
@@ -524,7 +524,7 @@ test.describe('Preflight composition freshness (#113)', () => {
 
     // Second mutation in the SAME run must still pass despite the marker having moved.
     const second = ppAction('update_component', {
-      post_id: pageId, component_index: 0, props: { subtitle: 'after' },
+      post_id: pageId, component_index: 0, props: { subheading: 'after' },
     }, runId);
     expect(second.ok).toBe(true);
   });
@@ -537,10 +537,10 @@ test.describe('Preflight composition freshness (#113)', () => {
     // External change via a second run.
     const runB = ppOperateInspect();
     ppPreflight(runB, pageId);
-    ppAction('update_component', { post_id: pageId, component_index: 0, props: { subtitle: 'b' } }, runB);
+    ppAction('update_component', { post_id: pageId, component_index: 0, props: { subheading: 'b' } }, runB);
 
     const err = wpCliExpectFail(
-      `wp pp operate patch ${pageId} --target=hero.subtitle --value="a" --run-id=${runA}`,
+      `wp pp operate patch ${pageId} --target=hero.subheading --value="a" --run-id=${runA}`,
     );
     expect(err).toContain('Stale preflight for post ' + pageId);
   });
@@ -552,10 +552,10 @@ test.describe('Preflight composition freshness (#113)', () => {
     // Change the composition after seeding, without any preflight for a preview run.
     const runB = ppOperateInspect();
     ppPreflight(runB, pageId);
-    ppAction('update_component', { post_id: pageId, component_index: 0, props: { subtitle: 'b' } }, runB);
+    ppAction('update_component', { post_id: pageId, component_index: 0, props: { subheading: 'b' } }, runB);
 
     // Preview needs no run-id and must still work despite the marker having moved.
-    const raw = wpCli(`wp pp operate patch ${pageId} --target=hero.subtitle --value="preview-only" --preview`);
+    const raw = wpCli(`wp pp operate patch ${pageId} --target=hero.subheading --value="preview-only" --preview`);
     const result = parseCliJson(raw, 'patch preview');
     expect(result.ok).toBe(true);
   });

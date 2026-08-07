@@ -13,7 +13,7 @@ $title            = $props['title']            ?? '';
 $title_accent     = $props['title_accent']     ?? '';
 $eyebrow          = $props['eyebrow']          ?? '';
 $subheading       = $props['subheading']       ?? '';
-$heading_align    = $props['heading_align']    ?? 'start';
+$title_align    = $props['title_align']    ?? 'start';
 $body             = $props['body']             ?? '';
 $image_url        = $props['image_url']        ?? '';
 $image_alt        = $props['image_alt']        ?? '';
@@ -120,11 +120,11 @@ if ($layout === 'text-panel') {
     $layout = 'text-only';
 }
 
-$allowed_heading_aligns = ['start', 'center'];
-if (!in_array($heading_align, $allowed_heading_aligns, true)) {
-    $heading_align = 'start';
+$allowed_title_aligns = ['start', 'center'];
+if (!in_array($title_align, $allowed_title_aligns, true)) {
+    $title_align = 'start';
 }
-$header_align_class = $heading_align === 'center' ? ' section__header--center' : '';
+$header_align_class = $title_align === 'center' ? ' section__header--center' : '';
 
 // theme coercion + the deprecated 'dark' -> 'muted' alias live in pp_theme_class() (#442).
 $theme_class = pp_theme_class($theme, 'pp-section');

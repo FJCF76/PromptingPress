@@ -90,13 +90,43 @@ class GuardrailsTest extends TestCase
         $this->assertSame([], $conflicts);
     }
 
-    public function testDetectsTableSectionClass(): void
+    /**
+     * A-24 (#576): matching still keys on the ROOT CLASS `.table-section` — that is what
+     * the operator's CSS contains — but the report names the REGISTERED COMPONENT,
+     * `table`. Before #576 the `--table-section-*` slot family spoke the same name; the
+     * canonical vocabulary renamed those to `--table-*`, which would have left this
+     * detector as the only surface handing an agent a name that appears in no schema,
+     * no slot and no action parameter.
+     */
+    public function testDetectsTableSectionClassAndReportsTheComponentName(): void
     {
         $GLOBALS['_pp_test_store']['custom_css'] = '.table-section { border: 1px solid red; }';
         $conflicts = pp_check_custom_css_conflicts();
 
         $this->assertCount(1, $conflicts);
-        $this->assertEquals('table-section', $conflicts[0]['component']);
+        $this->assertEquals('.table-section { border: 1px solid red; }', trim($conflicts[0]['selector']) . ' { border: 1px solid red; }');
+        $this->assertEquals('table', $conflicts[0]['component'], 'the report names the component, not the root class');
+    }
+
+    /**
+     * The mapping is derived from each schema's own `styling.root_class`, so it is
+     * identity wherever the two already agree, and it resolves the THREE components
+     * whose root class differs from their name — table (.table-section) plus the two
+     * chrome components, nav (.site-header) and footer (.site-footer). Reporting the
+     * component name for the chrome classes is the same win as for table: `nav` and
+     * `footer` are names an agent can act on; `site-header` is not.
+     */
+    public function testComponentNameForClassIsDerivedFromRootClass(): void
+    {
+        foreach (['hero', 'section', 'cta', 'grid', 'faq', 'stats', 'logos', 'embed'] as $component) {
+            $this->assertSame($component, pp_component_name_for_class($component));
+        }
+        $this->assertSame('table', pp_component_name_for_class('table-section'));
+        $this->assertSame('nav', pp_component_name_for_class('site-header'));
+        $this->assertSame('footer', pp_component_name_for_class('site-footer'));
+
+        // A class no component owns reports itself rather than guessing.
+        $this->assertSame('not-a-component', pp_component_name_for_class('not-a-component'));
     }
 
     // ── Composition Styling Validation ──────────────────────────────────────

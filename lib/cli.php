@@ -1460,7 +1460,7 @@ class PP_Operate_Command extends WP_CLI_Command {
      * : Post ID or slug of the page to patch.
      *
      * --target=<selector>
-     * : Semantic selector (e.g. hero.subtitle, section[title="About"].body).
+     * : Semantic selector (e.g. hero.subheading, section[title="About"].body).
      *
      * --value=<value>
      * : The new value for the targeted field.
@@ -1473,8 +1473,8 @@ class PP_Operate_Command extends WP_CLI_Command {
      *
      * ## EXAMPLES
      *
-     *     wp pp operate patch 19 --target=hero.subtitle --value="New Subtitle" --preview
-     *     wp pp operate patch 19 --target=hero.subtitle --value="New Subtitle" --run-id=<uuid>
+     *     wp pp operate patch 19 --target=hero.subheading --value="New Subtitle" --preview
+     *     wp pp operate patch 19 --target=hero.subheading --value="New Subtitle" --run-id=<uuid>
      *
      */
     public function patch($args, $assoc_args) {

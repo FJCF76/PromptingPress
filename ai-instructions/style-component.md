@@ -25,7 +25,7 @@ wp pp action execute style_component --run-id=<uuid> --params='{
   "component_id": "pp-a1b2c3d4",
   "style": {
     "--hero-bg": "#1a1a2e",
-    "--hero-text": "#f0f0f0",
+    "--hero-heading-color": "#f0f0f0",
     "--hero-padding-top": "8rem"
   }
 }'
@@ -47,7 +47,7 @@ wp pp action execute style_component --run-id=<uuid> --params='{
   "component_id": "pp-a1b2c3d4",
   "recipe": "dark-spacious",
   "style": {
-    "--hero-title-size": "clamp(3rem, 6vw, 5rem)"
+    "--hero-heading-size": "clamp(3rem, 6vw, 5rem)"
   }
 }'
 ```
@@ -146,11 +146,11 @@ The `--stats-label-*` text is a sibling element and never follows the number's f
 
 The grid's **featured first-card treatment** (accent top bar, texture stripe, blue
 glow on card 1 of a cards-layout grid) is slot-controllable (#293):
-`--grid-card-bar-color`/`--grid-card-bar-height` pin one top bar on EVERY card
+`--grid-item-bar-color`/`--grid-item-bar-height` pin one top bar on EVERY card
 (height `0` removes it everywhere); `--grid-featured-texture-color: transparent`
 removes the card-1 texture stripe; `--grid-featured-shadow` overrides the shared
-`--grid-card-shadow` on card 1 only (`none` removes the glow, or set
-`--grid-card-shadow` for one identical shadow on all cards). For a uniform row in
+`--grid-item-shadow` on card 1 only (`none` removes the glow, or set
+`--grid-item-shadow` for one identical shadow on all cards). For a uniform row in
 one step, apply the `uniform-cards` recipe instead of setting the slots by hand.
 
 For a fully uniform card row, prefer the grid **`card_emphasis: uniform`** PROP
@@ -186,7 +186,7 @@ concept and is ignored on the `steps` layout.
 To style **one card differently from its siblings** (a dark CTA panel beside light
 checklist cards, or a green-on-dark terminal card), set a per-card `style` object on
 that grid item — `props.items[].style` — with the **card-scoped** grid slots (e.g.
-`--grid-card-bg`, `--grid-card-border`, `--grid-item-title-color`,
+`--grid-item-bg`, `--grid-item-border-color`, `--grid-item-title-color`,
 `--grid-item-text-color`). It is validated by the same shared engine and overrides
 the grid-level value for that card only. Container/heading slots (`--grid-bg`,
 `--grid-gap`, `--grid-heading-*`, `--grid-padding-*`) render on the section, not a
@@ -227,6 +227,15 @@ slot leaves the eyebrow byte-identically uppercase.
 > role (`text_role`: mono/meta/label/kicker) are set with `update_component` (props),
 > not `style_component`. `style_component` only accepts schema-declared style slots.
 
+**Links inside `section.body` have their own pair (#576).** `--section-body-link-color` and
+`--section-body-link-hover-color` colour the anchors the rich-text `body` surface can carry.
+Set them together — a hover colour with no resting colour reads as a bug the first time a
+pointer touches it. Scope worth knowing before you reach for them: both are consumed on the
+`inverted` and `background_image` bands only, where the default link colour is re-routed for
+contrast. On a default or `muted` band the anchors take the global accent and these two slots
+do nothing, so use them to correct a link that a dark or photographic band made hard to read,
+not as the general way to colour section links.
+
 ---
 
 ## Fusing adjacent components into one colored band
@@ -247,7 +256,7 @@ To make two adjacent same-background bands read as **one continuous, seamless ba
    `--*-padding-top` slot governs its adjacent-top edge too, so this is all it takes;
    the default bottom padding stays non-zero until you override it.
 3. Zero the bottom margin on the **last element of the upper component** — for a
-   `section` whose title is its last visible element, `--section-title-margin-bottom: 0`.
+   `section` whose title is its last visible element, `--section-heading-margin-bottom: 0`.
 
 Step 3 is the one that is easy to miss. Once the upper band's bottom padding is zero,
 its trailing element's bottom margin is no longer held inside the band: it escapes the
@@ -395,14 +404,14 @@ hover-only forms; `outline`, `ghost` and `secondary` keep the shared button cros
 (`theme: "inverted"` or a `background_image`) the default outline/ghost ink of BOTH buttons
 already routes to the AA-safe on-dark accent role, so each is readable without any slot;
 set `--cta-button-color` / `--cta-button2-color` only to override that. The same holds for
-a `cover` hero's two CTAs (`--hero-text` for the first, `--hero-cta2-color` for the
+a `cover` hero's two CTAs (`--hero-heading-color` for the first, `--hero-button2-color` for the
 second). On a `background_image` cta or a `cover` hero EVERY filled button additionally
 DEFAULTS its border to that role — the primary and the second button alike, so an
 unstyled `primary` + `primary` pair carries one matched edge rather than one ringed
 button beside one that dissolves into the band. The role is the LAST link in the chain,
 so anything you author still wins ahead of it: set `--cta-button-border` /
 `--hero-accent` to colour the primary's edge, `--cta-button2-border` /
-`--hero-cta2-border` for the second button's. Recolouring only a button's FILL slot also
+`--hero-button2-border` for the second button's. Recolouring only a button's FILL slot also
 wins, and gives it a ring matching that fill rather than the near-white role token. The routing only
 covers bands the theme can identify — a band you darken yourself with `--cta-bg` or
 `--hero-bg` gets no automatic treatment, so set the slots there.
@@ -431,27 +440,27 @@ the gradient bevel/drop shadow on BOTH rest and hover. Unset, all of these fall 
 premium look byte-identically — they add the branded/flat-button capability, not a new
 default. `--hero-button-bg` governs the RESTING fill only: add `--hero-button-hover-bg` when
 the button should stay on-brand through the hover, otherwise hover returns to the premium
-gradient. These slots target the PRIMARY button only: the second CTA (`cta2`) never picks up
+gradient. These slots target the PRIMARY button only: the second button (`button2_*`) never picks up
 `--hero-button-*` in rest OR hover, whatever variant it renders as. Style it with its own
-`--hero-cta2-*` slots — on a filled (`primary`) cta2, `--hero-cta2-bg` and
-`--hero-cta2-hover-bg` replace the premium gradient with a flat fill exactly the way
-`--hero-button-bg` / `--hero-button-hover-bg` do for the primary, with `--hero-cta2-border`
-and `--hero-cta2-color` for its border and ink. On a FILLED cta2 an unset border FOLLOWS the
-fill in BOTH states, so `--hero-cta2-bg` and `--hero-cta2-hover-bg` alone already give matching
+`--hero-button2-*` slots — on a filled (`primary`) second button, `--hero-button2-bg` and
+`--hero-button2-hover-bg` replace the premium gradient with a flat fill exactly the way
+`--hero-button-bg` / `--hero-button-hover-bg` do for the primary, with `--hero-button2-border`
+and `--hero-button2-color` for its border and ink. On a FILLED second button an unset border FOLLOWS the
+fill in BOTH states, so `--hero-button2-bg` and `--hero-button2-hover-bg` alone already give matching
 rings — provided the site-wide `--btn-border-color` / `--btn-hover-border-color` are unset,
 since #554 those sit between the accent and the fill here exactly as they already do on
 every other non-overlay button (on `cover` heroes and `background_image` cta bands no global
 token is in the ring chain at all — ring knobs removed in #564, fill knobs `--btn-bg` /
 `--btn-hover-bg` in #565 — so on those bands the matching-ring idiom is driven by the
 PER-INSTANCE fill slots only; see the photo-band note below).
-Set `--hero-cta2-hover-border` (or `--hero-accent-hover`) only when the hover ring should
-DIFFER from the hover fill — either slot still wins over it. Since #554 the hero's cta2 also
-routes the site-wide tier through its OWN chains in both states — `--hero-cta2-border`, then
-`--hero-accent`, then `--btn-border-color`, then its fill (`--hero-cta2-bg`, then `--btn-bg`),
+Set `--hero-button2-hover-border` (or `--hero-accent-hover`) only when the hover ring should
+DIFFER from the hover fill — either slot still wins over it. Since #554 the hero's second button also
+routes the site-wide tier through its OWN chains in both states — `--hero-button2-border`, then
+`--hero-accent`, then `--btn-border-color`, then its fill (`--hero-button2-bg`, then `--btn-bg`),
 and the same shape on hover — which is the hero PRIMARY's order, so a site-wide button
 retheme moves the hero pair together instead of leaving the second button on the theme accent.
 That order is the NON-cover one; on a `cover` hero both global links are gone from the ring
-chain (`--hero-cta2-border`, `--hero-accent`, `--hero-cta2-bg`, then the on-overlay role).
+chain (`--hero-button2-border`, `--hero-accent`, `--hero-button2-bg`, then the on-overlay role).
 Since #564 the cta family uses that same order, so the band accent sits above the global ring
 knob on BOTH components. BOTH of the cta component's buttons behave the same way in BOTH
 states — its own border slot (`--cta-button-hover-border` / `--cta-button2-hover-border`),
@@ -476,7 +485,7 @@ paints these buttons' fill; it just no longer drags the ring along with it.
 
 This fill-follow is specific to the FILLED (`primary`) variant; an `outline`, `ghost`, or
 `secondary` second button keeps its own variant default on hover, so give those an explicit
-`--hero-cta2-hover-border` / `--cta-button2-hover-border` if their ring must track a recolored
+`--hero-button2-hover-border` / `--cta-button2-hover-border` if their ring must track a recolored
 hover fill.
 
 The section's `text-panel` CTA carries the SAME premium gradient and the same masking

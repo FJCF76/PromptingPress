@@ -23,9 +23,9 @@ pp_base_template(function () {
     // Hero — the first thing visitors see
     pp_get_component('hero', [
         'title'    => pp_field('lp_hero_title')    ?: 'Your Compelling Headline Here',
-        'subtitle' => pp_field('lp_hero_subtitle') ?: 'One sentence that explains what you do and who it is for.',
-        'cta_text' => pp_field('lp_cta_text')      ?: 'Get Started',
-        'cta_url'  => pp_field('lp_cta_url')       ?: '#contact',
+        'subheading' => pp_field('lp_hero_subtitle') ?: 'One sentence that explains what you do and who it is for.',
+        'button_text' => pp_field('lp_cta_text')      ?: 'Get Started',
+        'button_url'  => pp_field('lp_cta_url')       ?: '#contact',
         'layout'   => 'centered',
     ]);
 
@@ -83,7 +83,7 @@ pp_base_template(function () {
     // Final CTA — make it easy to take the next step
     pp_get_component('cta', [
         'title'       => pp_field('lp_final_cta_title')  ?: 'Ready to get started?',
-        'text'        => pp_field('lp_final_cta_text')   ?: 'One sentence reinforcing the value.',
+        'body'        => pp_field('lp_final_cta_text')   ?: 'One sentence reinforcing the value.',
         'button_text' => pp_field('lp_final_cta_button') ?: 'Start Now',
         'button_url'  => pp_field('lp_final_cta_url')    ?: '#contact',
         'layout'      => 'full-width',

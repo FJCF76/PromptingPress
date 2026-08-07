@@ -58,7 +58,7 @@ class GridItemStyleTest extends TestCase
         $html = $this->render('grid', [
             'items' => [
                 ['title' => 'Plain'],
-                ['title' => 'Dark', 'style' => ['--grid-card-bg' => '#0f172a']],
+                ['title' => 'Dark', 'style' => ['--grid-item-bg' => '#0f172a']],
             ],
         ]);
 
@@ -66,7 +66,7 @@ class GridItemStyleTest extends TestCase
         $this->assertCount(2, $cards, 'Expected exactly two rendered cards.');
 
         // The styled card carries its inline custom property.
-        $this->assertStringContainsString('style="--grid-card-bg: #0f172a;"', $cards[1]);
+        $this->assertStringContainsString('style="--grid-item-bg: #0f172a;"', $cards[1]);
 
         // The sibling card has no inline style at all.
         $this->assertStringNotContainsString('style=', $cards[0], 'Only the styled card should carry inline custom properties.');
@@ -74,30 +74,30 @@ class GridItemStyleTest extends TestCase
 
     public function testItemStyleWinsOverGridLevelStyle(): void
     {
-        // Grid-level --grid-card-bg is set on the <section>; one card overrides it.
+        // Grid-level --grid-item-bg is set on the <section>; one card overrides it.
         // Both must be present, each on its own element — the item value on the
         // .grid__item (nearer in the cascade) is what wins for that card.
         $html = $this->render('grid', [
-            '__pp_style' => ['--grid-card-bg' => 'var(--color-surface)'],
+            '__pp_style' => ['--grid-item-bg' => 'var(--color-surface)'],
             'items'      => [
                 ['title' => 'Default card'],
-                ['title' => 'Panel', 'style' => ['--grid-card-bg' => '#0f172a']],
+                ['title' => 'Panel', 'style' => ['--grid-item-bg' => '#0f172a']],
             ],
         ]);
 
         // Grid-level value lives on the section wrapper.
         $this->assertMatchesRegularExpression(
-            '/<section[^>]*style="[^"]*--grid-card-bg: var\(--color-surface\);?"/',
+            '/<section[^>]*style="[^"]*--grid-item-bg: var\(--color-surface\);?"/',
             $html,
             'Grid-level slot must render on the section element.'
         );
 
         // Item-level override lives on the panel card's <li>.
         $cards = $this->cards($html);
-        $this->assertStringContainsString('style="--grid-card-bg: #0f172a;"', $cards[1]);
+        $this->assertStringContainsString('style="--grid-item-bg: #0f172a;"', $cards[1]);
         // The default card does NOT re-declare the slot inline, so it inherits the
         // grid-level value — proving the override is per-card, not global.
-        $this->assertStringNotContainsString('--grid-card-bg', $cards[0]);
+        $this->assertStringNotContainsString('--grid-item-bg', $cards[0]);
     }
 
     public function testDarkPanelCardExpressible(): void
@@ -107,7 +107,7 @@ class GridItemStyleTest extends TestCase
             'items' => [
                 ['title' => 'Para equipos', 'bullets' => ['Rápido', 'Honesto']],
                 ['title' => '¿Para quién es?', 'text' => 'Empezá hoy', 'style' => [
-                    '--grid-card-bg'          => '#0f172a',
+                    '--grid-item-bg'          => '#0f172a',
                     '--grid-item-title-color' => '#f8fafc',
                     '--grid-item-text-color'  => '#cbd5e1',
                 ]],
@@ -115,7 +115,7 @@ class GridItemStyleTest extends TestCase
         ]);
 
         $panel = $this->cards($html)[1];
-        $this->assertStringContainsString('--grid-card-bg: #0f172a', $panel);
+        $this->assertStringContainsString('--grid-item-bg: #0f172a', $panel);
         $this->assertStringContainsString('--grid-item-title-color: #f8fafc', $panel);
         $this->assertStringContainsString('--grid-item-text-color: #cbd5e1', $panel);
     }
@@ -128,14 +128,14 @@ class GridItemStyleTest extends TestCase
             'items' => [
                 ['title' => 'Feature'],
                 ['text' => '$ deploy --now', 'text_role' => 'mono', 'style' => [
-                    '--grid-card-bg'         => '#0b0f0a',
+                    '--grid-item-bg'         => '#0b0f0a',
                     '--grid-item-text-color' => '#22c55e',
                 ]],
             ],
         ]);
 
         $terminal = $this->cards($html)[1];
-        $this->assertStringContainsString('--grid-card-bg: #0b0f0a', $terminal);
+        $this->assertStringContainsString('--grid-item-bg: #0b0f0a', $terminal);
         $this->assertStringContainsString('--grid-item-text-color: #22c55e', $terminal);
         $this->assertStringContainsString('class="grid__item-text text-mono"', $terminal);
     }
@@ -160,7 +160,7 @@ class GridItemStyleTest extends TestCase
         // The render-time injection guard rejects values with { } ; < >.
         $html = $this->render('grid', [
             'items' => [
-                ['title' => 'Card', 'style' => ['--grid-card-bg' => '#000; } body { display:none']],
+                ['title' => 'Card', 'style' => ['--grid-item-bg' => '#000; } body { display:none']],
             ],
         ]);
 

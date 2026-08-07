@@ -442,10 +442,10 @@ class ComponentPropsTest extends TestCase
         // #230: an accepted value must SURVIVE to CSS output — esc_attr touches
         // none of ( ) - so the reference reaches the browser intact.
         $result = pp_render_style_vars(
-            ['--hero-cta2-bg' => 'transparent', '--hero-accent' => 'var(--color-accent)'],
+            ['--hero-button2-bg' => 'transparent', '--hero-accent' => 'var(--color-accent)'],
             'hero'
         );
-        $this->assertStringContainsString('--hero-cta2-bg: transparent', $result);
+        $this->assertStringContainsString('--hero-button2-bg: transparent', $result);
         $this->assertStringContainsString('--hero-accent: var(--color-accent)', $result);
     }
 
@@ -496,10 +496,10 @@ class ComponentPropsTest extends TestCase
     public function testRenderStyleVarsGradientSurvivesUnmangledForGrid(): void
     {
         $result = pp_render_style_vars(
-            ['--grid-card-bg' => 'linear-gradient(180deg, #fff, #eee)'],
+            ['--grid-item-bg' => 'linear-gradient(180deg, #fff, #eee)'],
             'grid'
         );
-        $this->assertStringContainsString('--grid-card-bg: linear-gradient(180deg, #fff, #eee)', $result);
+        $this->assertStringContainsString('--grid-item-bg: linear-gradient(180deg, #fff, #eee)', $result);
     }
 
     public function testRenderStyleVarsGradientSurvivesUnmangledForSection(): void
@@ -667,7 +667,7 @@ class ComponentPropsTest extends TestCase
 
     public function testCtaButton2UrlWithoutTextRendersNoSecondButton(): void
     {
-        // button2_text is the gate (mirroring hero, where cta2_text gates cta2_url), so
+        // button2_text is the gate (mirroring hero, where button2_text gates button2_url), so
         // a URL authored without a label is a silent no-op rather than an empty button.
         $html = $this->render('cta', $this->ctaProps(['button2_url' => '/contacto']));
         $this->assertStringNotContainsString('cta__buttons', $html);
@@ -692,7 +692,7 @@ class ComponentPropsTest extends TestCase
 
     public function testCtaButton2DefaultsToOutline(): void
     {
-        // Mirrors hero's cta2_variant default: the pair reads as one filled action
+        // Mirrors hero's button2_variant default: the pair reads as one filled action
         // and one outlined action without the author selecting a variant.
         $html = $this->render('cta', $this->ctaProps(['button2_text' => 'Secondary']));
         $this->assertStringContainsString('cta__button--secondary btn btn--outline', $html);
@@ -838,12 +838,12 @@ class ComponentPropsTest extends TestCase
     // ── Hero CTA variants (props, set via update_component) — #93 ───────────
     // Extends the shared .btn--*/--btn-* primitive (established for CTA above)
     // to hero's two CTA buttons, which previously hardcoded bare .btn / .btn--outline
-    // with no way to select secondary/ghost. cta2_variant defaults to 'outline'
+    // with no way to select secondary/ghost. button2_variant defaults to 'outline'
     // to preserve the historical always-outline second button.
 
     private function heroProps(array $extra = []): array
     {
-        return array_merge(['title' => 'T', 'cta_text' => 'Go', 'cta2_text' => 'Learn more'], $extra);
+        return array_merge(['title' => 'T', 'button_text' => 'Go', 'button2_text' => 'Learn more'], $extra);
     }
 
     public function testHeroCtaVariantDefaultsToPrimary(): void
@@ -854,26 +854,26 @@ class ComponentPropsTest extends TestCase
 
     public function testHeroCta2VariantDefaultsToOutline(): void
     {
-        // Preserves pre-#93 behavior: an unset cta2_variant still renders outline.
+        // Preserves pre-#93 behavior: an unset button2_variant still renders outline.
         $html = $this->render('hero', $this->heroProps());
         $this->assertStringContainsString('class="hero__cta hero__cta--secondary btn btn--outline"', $html);
     }
 
     public function testHeroCtaVariantSecondary(): void
     {
-        $html = $this->render('hero', $this->heroProps(['cta_variant' => 'secondary']));
+        $html = $this->render('hero', $this->heroProps(['button_variant' => 'secondary']));
         $this->assertStringContainsString('class="hero__cta btn btn--secondary"', $html);
     }
 
     public function testHeroCtaVariantGhost(): void
     {
-        $html = $this->render('hero', $this->heroProps(['cta_variant' => 'ghost']));
+        $html = $this->render('hero', $this->heroProps(['button_variant' => 'ghost']));
         $this->assertStringContainsString('class="hero__cta btn btn--ghost"', $html);
     }
 
     public function testHeroCta2VariantPrimary(): void
     {
-        $html = $this->render('hero', $this->heroProps(['cta2_variant' => 'primary']));
+        $html = $this->render('hero', $this->heroProps(['button2_variant' => 'primary']));
         $this->assertStringContainsString('class="hero__cta btn"', $html);
         // Neither button should carry a btn-- modifier now.
         $this->assertSame(0, substr_count($html, 'btn--'));
@@ -881,13 +881,13 @@ class ComponentPropsTest extends TestCase
 
     public function testHeroCtaVariantInvalidFallsBackToPrimary(): void
     {
-        $html = $this->render('hero', $this->heroProps(['cta_variant' => 'neon']));
+        $html = $this->render('hero', $this->heroProps(['button_variant' => 'neon']));
         $this->assertMatchesRegularExpression('/class="hero__cta btn"[^-]/', $html . ' ');
     }
 
     public function testHeroCta2VariantInvalidFallsBackToOutline(): void
     {
-        $html = $this->render('hero', $this->heroProps(['cta2_variant' => 'neon']));
+        $html = $this->render('hero', $this->heroProps(['button2_variant' => 'neon']));
         $this->assertStringContainsString('class="hero__cta hero__cta--secondary btn btn--outline"', $html);
     }
 
@@ -956,7 +956,7 @@ class ComponentPropsTest extends TestCase
     {
         $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/hero/schema.json'), true);
         $slots = $schema['styling']['style_slots'];
-        foreach (['--hero-cta2-bg', '--hero-cta2-border', '--hero-cta2-color', '--hero-cta2-hover-bg', '--hero-cta2-hover-border', '--hero-cta2-hover-color'] as $name) {
+        foreach (['--hero-button2-bg', '--hero-button2-border', '--hero-button2-color', '--hero-button2-hover-bg', '--hero-button2-hover-border', '--hero-button2-hover-color'] as $name) {
             $this->assertArrayHasKey($name, $slots, "hero must declare {$name}.");
             $this->assertSame('color', $slots[$name]['type']);
         }
@@ -978,9 +978,9 @@ class ComponentPropsTest extends TestCase
         // the primary button — even when the override is set, the primary's
         // rendered class list carries no such class.
         $html = $this->render('hero', $this->heroProps([
-            '__pp_style' => ['--hero-cta2-color' => '#00ff00'],
+            '__pp_style' => ['--hero-button2-color' => '#00ff00'],
         ]));
-        $this->assertStringContainsString('--hero-cta2-color: #00ff00', $html);
+        $this->assertStringContainsString('--hero-button2-color: #00ff00', $html);
         $this->assertStringContainsString('hero__cta hero__cta--secondary btn', $html);
         // Only ONE button should carry the secondary class.
         $this->assertSame(1, substr_count($html, 'hero__cta--secondary'));
@@ -1000,7 +1000,7 @@ class ComponentPropsTest extends TestCase
     {
         // Comprehensive coverage beyond the keystone contract test's "at least
         // one compatible consumption" check — every one of the 4 variant-specific
-        // rule blocks must reference --hero-cta2-bg, not just one of them. Count the FILL
+        // rule blocks must reference --hero-button2-bg, not just one of them. Count the FILL
         // consumptions specifically: issue 526 adds a SECOND kind of reference (the cta2
         // isolation rule re-points --hero-button-bg at this slot, routing it into the
         // premium gradient-clearing chain), and one combined total would let a deleted
@@ -1011,8 +1011,8 @@ class ComponentPropsTest extends TestCase
         $css = preg_replace('#/\*.*?\*/#s', '', $css);
         $this->assertSame(
             4,
-            substr_count($css, 'background-color: var(--hero-cta2-bg'),
-            '--hero-cta2-bg must be consumed as the fill in exactly 4 rules: the '
+            substr_count($css, 'background-color: var(--hero-button2-bg'),
+            '--hero-button2-bg must be consumed as the fill in exactly 4 rules: the '
             . 'primary-shape rule plus outline/secondary/ghost — one per variant (#111).'
         );
     }
@@ -1498,8 +1498,8 @@ class ComponentPropsTest extends TestCase
             '--faq-heading-color' => 'color',
             '--faq-question-color' => 'color',
             '--faq-answer-color' => 'color',
-            '--faq-border-color' => 'color',
-            '--faq-accent' => 'color',
+            '--faq-item-border-color' => 'color',
+            '--faq-question-open-color' => 'color',
         ];
         foreach ($expected as $name => $type) {
             $this->assertArrayHasKey($name, $slots, "faq must declare {$name}.");
@@ -1515,7 +1515,7 @@ class ComponentPropsTest extends TestCase
         $slots = $schema['styling']['style_slots'];
         $expected = [
             '--stats-bg' => 'gradient',
-            '--stats-title-color' => 'color',
+            '--stats-heading-color' => 'color',
             '--stats-number-color' => 'color',
             '--stats-label-color' => 'color',
         ];
@@ -1545,8 +1545,8 @@ class ComponentPropsTest extends TestCase
             '--faq-heading-color' => '#ffffff',
             '--faq-question-color' => '#eeeeee',
             '--faq-answer-color' => '#cccccc',
-            '--faq-border-color' => '#333333',
-            '--faq-accent' => '#ea3900',
+            '--faq-item-border-color' => '#333333',
+            '--faq-question-open-color' => '#ea3900',
         ];
         $html = $this->render('faq', array_merge($this->faqProps(), ['__pp_style' => $overrides]));
         foreach ($overrides as $slot => $value) {
@@ -1672,7 +1672,7 @@ class ComponentPropsTest extends TestCase
     {
         $overrides = [
             '--stats-bg' => 'radial-gradient(#fff, #000)',
-            '--stats-title-color' => '#111111',
+            '--stats-heading-color' => '#111111',
             '--stats-number-color' => '#ea3900',
             '--stats-label-color' => '#666666',
         ];
@@ -1697,7 +1697,7 @@ class ComponentPropsTest extends TestCase
     public function testStatsRejectsInjectionInStyleSlot(): void
     {
         $html = $this->render('stats', array_merge($this->statsProps(), [
-            '__pp_style' => ['--stats-title-color' => '#fff; background:url(evil)'],
+            '__pp_style' => ['--stats-heading-color' => '#fff; background:url(evil)'],
         ]));
         $this->assertStringNotContainsString('url(evil)', $html);
     }
@@ -1813,7 +1813,7 @@ class ComponentPropsTest extends TestCase
             'title' => 'Heading',
             'eyebrow' => 'KICKER',
             'subheading' => 'Supporting line',
-            'heading_align' => 'center',
+            'title_align' => 'center',
         ]));
         $this->assertStringContainsString('class="grid__header grid__header--center"', $html);
         $this->assertStringContainsString('class="grid__eyebrow">KICKER<', $html);
@@ -1830,7 +1830,7 @@ class ComponentPropsTest extends TestCase
 
     public function testGridHeaderAlignInvalidFallsBackToStart(): void
     {
-        $html = $this->render('grid', $this->gridProps(['title' => 'Heading', 'heading_align' => 'end']));
+        $html = $this->render('grid', $this->gridProps(['title' => 'Heading', 'title_align' => 'end']));
         $this->assertStringNotContainsString('grid__header--center', $html);
     }
 
@@ -1846,7 +1846,7 @@ class ComponentPropsTest extends TestCase
             'title' => 'Heading',
             'eyebrow' => 'KICKER',
             'subheading' => 'Supporting line',
-            'heading_align' => 'center',
+            'title_align' => 'center',
         ]));
         $this->assertStringContainsString('class="section__header section__header--center"', $html);
         $this->assertStringContainsString('class="section__eyebrow">KICKER<', $html);
@@ -2054,12 +2054,12 @@ class ComponentPropsTest extends TestCase
     public function testAllSixComponentsDeclareTitleAccentSlot(): void
     {
         $expected = [
-            'hero'    => '--hero-title-accent-color',
+            'hero'    => '--hero-heading-accent-color',
             'grid'    => '--grid-heading-accent-color',
-            'section' => '--section-title-accent-color',
-            'cta'     => '--cta-title-accent-color',
+            'section' => '--section-heading-accent-color',
+            'cta'     => '--cta-heading-accent-color',
             'faq'     => '--faq-heading-accent-color',
-            'stats'   => '--stats-title-accent-color',
+            'stats'   => '--stats-heading-accent-color',
         ];
         foreach ($expected as $component => $slot) {
             $schema = json_decode(file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"), true);
@@ -2142,21 +2142,21 @@ class ComponentPropsTest extends TestCase
     {
         $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/grid/schema.json'), true);
         $slots = $schema['styling']['style_slots'];
-        $this->assertArrayHasKey('--grid-bullet-color', $slots);
-        $this->assertSame('color', $slots['--grid-bullet-color']['type']);
+        $this->assertArrayHasKey('--grid-item-bullet-color', $slots);
+        $this->assertSame('color', $slots['--grid-item-bullet-color']['type']);
     }
 
     public function testGridSchemaDeclaresStepTextColorSlot(): void
     {
         // #473: the step numeral color is its own slot (default var(--color-bg) so
-        // unset is byte-identical), separate from --grid-step-color (the fill), so a
+        // unset is byte-identical), separate from --grid-step-bg (the fill), so a
         // light-fill steps badge can pair a light fill with ink numerals.
         $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/grid/schema.json'), true);
         $slots = $schema['styling']['style_slots'];
         $this->assertArrayHasKey('--grid-step-text-color', $slots);
         $this->assertSame('color', $slots['--grid-step-text-color']['type']);
         $this->assertSame('var(--color-bg)', $slots['--grid-step-text-color']['default']);
-        $this->assertTrue($slots['--grid-step-text-color']['item_eligible'], 'The numeral color is consumed on the .pp-step-number child of .grid__item, so it is card-scoped like --grid-step-color.');
+        $this->assertTrue($slots['--grid-step-text-color']['item_eligible'], 'The numeral color is consumed on the .pp-step-number child of .grid__item, so it is card-scoped like --grid-step-bg.');
     }
 
     // ── Testimonials component (#1) ─────────────────────────────────────
@@ -2259,7 +2259,7 @@ class ComponentPropsTest extends TestCase
             'title' => 'Heading',
             'eyebrow' => 'KICKER',
             'subheading' => 'Supporting line',
-            'heading_align' => 'center',
+            'title_align' => 'center',
         ]));
         $this->assertStringContainsString('class="testimonials__header testimonials__header--center"', $html);
         $this->assertStringContainsString('class="testimonials__eyebrow">KICKER<', $html);
@@ -2327,9 +2327,9 @@ class ComponentPropsTest extends TestCase
             '--testimonials-padding-top', '--testimonials-padding-bottom', '--testimonials-bg',
             '--testimonials-heading-color', '--testimonials-heading-accent-color',
             '--testimonials-eyebrow-color', '--testimonials-eyebrow-bg', '--testimonials-subheading-color',
-            '--testimonials-gap', '--testimonials-card-bg', '--testimonials-card-border',
-            '--testimonials-card-border-width', '--testimonials-card-radius', '--testimonials-card-shadow',
-            '--testimonials-card-padding', '--testimonials-quote-color', '--testimonials-quote-mark-color',
+            '--testimonials-gap', '--testimonials-item-bg', '--testimonials-item-border-color',
+            '--testimonials-item-border-width', '--testimonials-item-radius', '--testimonials-item-shadow',
+            '--testimonials-item-padding', '--testimonials-quote-color', '--testimonials-quote-mark-color',
             '--testimonials-author-color', '--testimonials-meta-color',
         ] as $slot) {
             $this->assertArrayHasKey($slot, $slots, "testimonials must declare {$slot}.");

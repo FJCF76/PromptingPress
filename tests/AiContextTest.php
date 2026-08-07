@@ -555,7 +555,7 @@ class AiContextTest extends TestCase
     public function testSystemPromptContainsGridHeadingMaxWidthSlot(): void
     {
         $prompt = pp_ai_system_prompt();
-        $this->assertStringContainsString('--grid-heading-max-width', $prompt);
+        $this->assertStringContainsString('--grid-heading-measure', $prompt);
     }
 
     public function testSystemPromptContainsRecipesForStyledComponents(): void
@@ -604,7 +604,7 @@ class AiContextTest extends TestCase
         $expected = [
             'embed' => '--embed-heading-size',
             'logos' => '--logos-heading-size',
-            'table' => '--table-section-heading-size',
+            'table' => '--table-heading-size',
         ];
         foreach ($expected as $name => $slot) {
             $found = false;
@@ -681,8 +681,8 @@ class AiContextTest extends TestCase
         $GLOBALS['_pp_test_store']['post_meta'][60]['_pp_composition'] = wp_json_encode([
             [
                 'component' => 'hero',
-                'props' => ['id' => 'pp-test123', 'title' => 'Welcome', 'layout' => 'split', 'cta_url' => '/go'],
-                'style' => ['--hero-bg' => '#0d1117', '--hero-text' => '#f0f0f0', '__recipe' => 'dark-spacious'],
+                'props' => ['id' => 'pp-test123', 'title' => 'Welcome', 'layout' => 'split', 'button_url' => '/go'],
+                'style' => ['--hero-bg' => '#0d1117', '--hero-heading-color' => '#f0f0f0', '__recipe' => 'dark-spacious'],
             ],
         ]);
 
@@ -695,8 +695,8 @@ class AiContextTest extends TestCase
         $this->assertStringContainsString('Editable:', $system);
         $this->assertStringContainsString('title (string)', $system);
         // A prop with a schema format shows its family so the AI patches valid
-        // values (#509): cta_url is a link_url-format string.
-        $this->assertStringContainsString('cta_url (string, link_url)', $system);
+        // values (#509): button_url is a link_url-format string.
+        $this->assertStringContainsString('button_url (string, link_url)', $system);
     }
 
     public function testFormatMessagesPageContextHandlesNoStyleOverrides(): void
@@ -1046,8 +1046,8 @@ class AiContextTest extends TestCase
         );
 
         $this->assertSame(
-            '; applies when --grid-card-bar-color is set',
-            pp_ai_definition_suffix(['applies_when' => [['slot' => '--grid-card-bar-color', 'present' => true]]])
+            '; applies when --grid-item-bar-color is set',
+            pp_ai_definition_suffix(['applies_when' => [['slot' => '--grid-item-bar-color', 'present' => true]]])
         );
 
         $this->assertSame(

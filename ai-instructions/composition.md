@@ -17,7 +17,7 @@ The format is AI-native: the same JSON a human edits in the admin meta box is wh
 
 ```json
 [
-  { "component": "hero",    "props": { "title": "Welcome", "layout": "centered" }, "style": { "--hero-bg": "#0d1117", "--hero-text": "#f0f0f0" } },
+  { "component": "hero",    "props": { "title": "Welcome", "layout": "centered" }, "style": { "--hero-bg": "#0d1117", "--hero-heading-color": "#f0f0f0" } },
   { "component": "section", "props": { "body": "<p>Content.</p>" } },
   { "component": "faq",     "props": { "items": [{ "question": "Q?", "answer": "A." }] } },
   { "component": "cta",     "props": { "title": "Go", "button_text": "Click", "button_url": "/" } }
@@ -43,16 +43,16 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 
 | Name    | Required props                          | Optional props (selection)                              |
 |---------|-----------------------------------------|---------------------------------------------------------|
-| hero    | title                                   | title_accent, eyebrow, subtitle, cta_text, cta_url, cta2_text, cta2_url, cta_variant, cta2_variant, layout, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof |
-| section | one of: body / body_items / panel content | body, title, title_accent, eyebrow, subheading, heading_align, layout, theme, image_url, image_id, image_alt, background_image, body_marker, body_items |
+| hero    | title                                   | title_accent, eyebrow, subheading, button_text, button_url, button2_text, button2_url, button_variant, button2_variant, layout, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof |
+| section | one of: body / body_items / panel content | body, title, title_accent, eyebrow, subheading, title_align, layout, theme, image_url, image_id, image_alt, background_image, body_marker, body_items |
 | faq     | items[] {question, answer}              | title, title_accent, eyebrow, theme, id                 |
-| grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, heading_align, layout, card_emphasis, theme, columns, image_treatment |
+| grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, title_align, layout, card_emphasis, theme, columns, image_treatment |
 | table   | headers[], rows[][]                     | title, caption                                          |
-| cta     | button_text, button_url                 | title, title_accent, eyebrow, text, button2_text, button2_url, button2_variant, layout, theme, background_image, button_variant |
+| cta     | button_text, button_url                 | title, title_accent, eyebrow, body, button2_text, button2_url, button2_variant, layout, theme, background_image, button_variant |
 | stats   | items[] {number, label}                 | title, title_accent, theme, background_image            |
 | logos   | items[] {image_url, image_alt, image_id?, label?} | title, theme                                  |
 | embed   | content                                 | title, theme                                            |
-| testimonials | items[] {quote}                    | title, title_accent, eyebrow, subheading, heading_align, layout, theme |
+| testimonials | items[] {quote}                    | title, title_accent, eyebrow, subheading, title_align, layout, theme |
 
 ## Text content model: which props accept HTML
 
@@ -63,7 +63,7 @@ next. The rule (#439):
 | Contract | Props | What you may write |
 |----------|-------|--------------------|
 | **Rich HTML** (`wp_kses_post`) | `section.body`, `faq.items[].answer` | Block markup: paragraphs, lists, headings, links, `strong`/`em`. These are the main prose surfaces. |
-| **Inline HTML** (`a, strong, em, br`) | `cta.text`, `grid.items[].text`, `testimonials.items[].quote` | Supporting copy with a link or light emphasis, e.g. `Read our <a href="/terms">terms</a>.` No block elements — `<p>`, `<ul>`, `<h2>` are stripped. |
+| **Inline HTML** (`a, strong, em, br`) | `cta.body`, `grid.items[].text`, `testimonials.items[].quote` | Supporting copy with a link or light emphasis, e.g. `Read our <a href="/terms">terms</a>.` No block elements — `<p>`, `<ul>`, `<h2>` are stripped. |
 | **Plain text** (escaped) | Titles, eyebrows, subheadings, `button_text`, `button2_text`, `stats.items[].label`, `stats.items[].number`, `grid.items[].title`, `testimonials.items[].author`, `faq.items[].question`, and all URLs | Text only. Any `<...>` renders as visible characters, not markup. |
 
 Both HTML contracts are allowlist-sanitized: `script`, `style`, `iframe`, event
@@ -74,7 +74,7 @@ plain-text prop (it will show as literal `<a href=...>` text on the page).
 
 ### cta: standalone button (heading-less)
 
-`cta.title` is optional. Omit `title` (and `text`) to render just the button row with no heading element — the sanctioned way to place a standalone button, e.g. a centered "closing" button after a steps or feature section. `button_text` and `button_url` are still required, and `id`, `layout`, `theme`, and all style slots keep working.
+`cta.title` is optional. Omit `title` (and `body`) to render just the button row with no heading element — the sanctioned way to place a standalone button, e.g. a centered "closing" button after a steps or feature section. `button_text` and `button_url` are still required, and `id`, `layout`, `theme`, and all style slots keep working.
 
 ```json
 { "component": "cta", "props": { "button_text": "Get started free →", "button_url": "/signup" } }
@@ -85,7 +85,7 @@ plain-text prop (it will show as literal `<a href=...>` text on the page).
 A closing CTA can offer two actions instead of forcing a choice between them. Set
 `button2_text` (and `button2_url`) alongside the primary button props; `button2_variant`
 defaults to `outline`, so the pair reads as one filled action and one outlined
-action without setting it. This is the `cta` equivalent of the hero's `cta2_text` / `cta2_url`,
+action without setting it. This is the `cta` equivalent of the hero's `button2_text` / `button2_url`,
 so a closing band does not have to become a `hero` just to offer a secondary action.
 
 ```json
@@ -359,15 +359,15 @@ Style ONE card differently from its siblings. A grid item may carry an optional 
 
 Set it in the composition (`create_page` / `update_composition` / `update_component`), NOT via `style_component` — `style_component` targets a whole component instance, not one item. Use it for the standard "one distinct card in a row" patterns: a dark CTA panel beside light checklist cards, or a green-on-dark terminal/code card (pair with `text_role: "mono"`).
 
-The **card-scoped** slots accepted here: `--grid-card-bg`, `--grid-card-border`, `--grid-card-border-width`, `--grid-card-radius`, `--grid-card-shadow`, `--grid-card-bar-color`, `--grid-card-bar-height`, `--grid-featured-texture-color`, `--grid-featured-shadow`, `--grid-card-padding`, `--grid-card-gap`, `--grid-item-text-align`, `--grid-item-title-size`, `--grid-item-title-color`, `--grid-item-text-color`, `--grid-bullet-color`, `--grid-link-color`, `--grid-step-color`, `--grid-step-text-color`. (`--grid-item-text-align` sets the card's alignment — a `text-align` keyword, e.g. `center` — and aligns the title/text/bullets AND the `Read more` link/button together, so a centered card is fully centered.) Container/heading slots (`--grid-bg`, `--grid-gap`, `--grid-heading-*`, `--grid-eyebrow-*`, `--grid-subheading-*`, `--grid-padding-*`) are read on the section/list/header, not the card, so a per-card override would render nothing — they are **rejected** here with `invalid_style_slot` naming the card. Put those on the grid-level `style` instead.
+The **card-scoped** slots accepted here: `--grid-item-bg`, `--grid-item-border-color`, `--grid-item-border-width`, `--grid-item-radius`, `--grid-item-shadow`, `--grid-item-bar-color`, `--grid-item-bar-height`, `--grid-featured-texture-color`, `--grid-featured-shadow`, `--grid-item-padding`, `--grid-item-gap`, `--grid-item-text-align`, `--grid-item-title-size`, `--grid-item-title-color`, `--grid-item-text-color`, `--grid-item-bullet-color`, `--grid-item-link-color`, `--grid-step-bg`, `--grid-step-text-color`. (`--grid-item-text-align` sets the card's alignment — a `text-align` keyword, e.g. `center` — and aligns the title/text/bullets AND the `Read more` link/button together, so a centered card is fully centered.) Container/heading slots (`--grid-bg`, `--grid-gap`, `--grid-heading-*`, `--grid-eyebrow-*`, `--grid-subheading-*`, `--grid-padding-*`) are read on the section/list/header, not the card, so a per-card override would render nothing — they are **rejected** here with `invalid_style_slot` naming the card. Put those on the grid-level `style` instead.
 
 ```json
 { "component": "grid", "props": { "items": [
   { "title": "Checklist", "bullets": ["Fast", "Honest"] },
   { "title": "Get started", "text": "Empezá hoy",
-    "style": { "--grid-card-bg": "#0f172a", "--grid-item-title-color": "#f8fafc", "--grid-item-text-color": "#cbd5e1" } },
+    "style": { "--grid-item-bg": "#0f172a", "--grid-item-title-color": "#f8fafc", "--grid-item-text-color": "#cbd5e1" } },
   { "text": "$ deploy --now", "text_role": "mono",
-    "style": { "--grid-card-bg": "#0b0f0a", "--grid-item-text-color": "#22c55e" } }
+    "style": { "--grid-item-bg": "#0b0f0a", "--grid-item-text-color": "#22c55e" } }
 ]}}
 ```
 
@@ -379,9 +379,9 @@ All seven heading-bearing components accept `title_accent`: an exact, case-sensi
 { "component": "hero", "props": { "title": "Fast and Safe WordPress", "title_accent": "Fast" } }
 ```
 
-### eyebrow / subheading / heading_align (hero, section, faq, grid, cta, testimonials)
+### eyebrow / subheading / title_align (hero, section, faq, grid, cta, testimonials)
 
-`eyebrow` renders a short kicker label as a pill above the title (e.g. `"NEW"`) on all six; the pill defaults to uppercase, overridable per component via the `text-transform`-typed `--<component>-eyebrow-text-transform` style slot (`none` for sentence case, or `lowercase`/`capitalize`). `subheading` renders a supporting line below the title on section, grid, and testimonials only — hero uses `subtitle` and cta uses `text` for the same concept, so neither has a `subheading` prop. `heading_align` (`start` default, or `center`; section, grid, testimonials only) centers the eyebrow/title/subheading header block — independent of the component's overall layout.
+`eyebrow` renders a short kicker label as a pill above the title (e.g. `"NEW"`) on all six; the pill defaults to uppercase, overridable per component via the `text-transform`-typed `--<component>-eyebrow-text-transform` style slot (`none` for sentence case, or `lowercase`/`capitalize`). `subheading` renders a supporting line below the title on section, grid, and testimonials only — hero uses `subheading` and cta uses `body` for the same concept, so neither has a `subheading` prop. `title_align` (`start` default, or `center`; section, grid, testimonials only) centers the eyebrow/title/subheading header block — independent of the component's overall layout.
 
 ### image_id (hero, section, logos items) — responsive images (#107)
 
@@ -493,9 +493,9 @@ wp post meta update 42 _pp_composition '[
     "component": "hero",
     "props": {
       "title": "Build AI-Ready Sites",
-      "subtitle": "A theme designed for AI-first editing.",
-      "cta_text": "Get Started",
-      "cta_url": "/docs",
+      "subheading": "A theme designed for AI-first editing.",
+      "button_text": "Get Started",
+      "button_url": "/docs",
       "layout": "centered"
     }
   },

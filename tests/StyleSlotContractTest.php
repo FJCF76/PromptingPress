@@ -300,7 +300,7 @@ class StyleSlotContractTest extends TestCase
      *   ENFORCE — every rule in the whole stylesheet whose subject matches a derived
      *   triple and re-declares its property must route the value through the slot.
      *   A value routing through ANY OTHER declared slot of the same component is
-     *   allowed (`.faq__item[open] > .faq__question { color: var(--faq-accent) }` is
+     *   allowed (`.faq__item[open] > .faq__question { color: var(--faq-question-open-color) }` is
      *   an intentional state handoff to a sibling slot, still author-controllable).
      *   Anything else is a bypass: the exact mechanism of #226/#292/#302/#61.
      *
@@ -328,14 +328,14 @@ class StyleSlotContractTest extends TestCase
      */
     private const KNOWN_DEAD_SLOT_WAIVERS = [
         // issue 309 PERMANENT WAIVER — grid link hover (decision-flagged group 1).
-        // Base .grid__item-link { color: var(--grid-link-color, ...) } is the resting
+        // Base .grid__item-link { color: var(--grid-item-link-color, ...) } is the resting
         // color; .grid__item-link:hover { color: var(--color-accent-hover) } is the
         // hover state, which MUST visually override the slotted resting value.
         // Routing the hover through the slot would make hover render identical to
-        // rest whenever an author sets --grid-link-color, destroying the hover
+        // rest whenever an author sets --grid-item-link-color, destroying the hover
         // feedback — the exact "hover state that must override the slot" case the
         // decision names as a permanent exception.
-        '--grid-link-color|.grid__item-link|color'                       => 1,
+        '--grid-item-link-color|.grid__item-link|color'                       => 1,
         // issue 309 PERMANENT WAIVER — testimonials --stack variant resets
         // (decision-flagged group 2). The .testimonials--stack variant is a
         // card-LESS presentation by design (components.css: "single centered column,
@@ -345,11 +345,11 @@ class StyleSlotContractTest extends TestCase
         // card chrome back into the stack variant, changing what "stack" renders —
         // the "variant reset that exists to neutralize a slot by design" case the
         // decision names as a permanent exception.
-        '--testimonials-card-bg|.testimonials__item|background'          => 2,
-        '--testimonials-card-border-width|.testimonials__item|border'    => 1,
-        '--testimonials-card-border|.testimonials__item|border'          => 1,
-        '--testimonials-card-padding|.testimonials__item|padding'        => 1,
-        '--testimonials-card-shadow|.testimonials__item|box-shadow'      => 1,
+        '--testimonials-item-bg|.testimonials__item|background'          => 2,
+        '--testimonials-item-border-width|.testimonials__item|border'    => 1,
+        '--testimonials-item-border-color|.testimonials__item|border'          => 1,
+        '--testimonials-item-padding|.testimonials__item|padding'        => 1,
+        '--testimonials-item-shadow|.testimonials__item|box-shadow'      => 1,
     ];
 
     public function testDeclaredSlotsNotBypassedByLiteralReDeclarations(): void
@@ -422,9 +422,9 @@ class StyleSlotContractTest extends TestCase
      * NOT flag — so the detector's power is proven in CI forever, without depending on
      * git history. (The one-time proof against the real pre-#292/#302 tree lives in the
      * PR: run against `git show a6a6bf3:assets/css/components.css`, this guard reports
-     * the #302 padding families, --grid-heading-size, the --section-title-size premium
-     * clobber, and #292's --grid-card-border as direct unwaived offenders, and goes red
-     * on --section-body-width via the ledger. That slot's pre-fix shape — a literal on
+     * the #302 padding families, --grid-heading-size, the --section-heading-size premium
+     * clobber, and #292's --grid-item-border-color as direct unwaived offenders, and goes red
+     * on --section-body-measure via the ledger. That slot's pre-fix shape — a literal on
      * the never-slotted OUTER .section__body capping the slotted inner .section__content
      * — is a parent-constrains-child bug no same-subject textual scan can prove; the
      * rendered-output E2E pins are the layer that owns that class.)
@@ -434,8 +434,8 @@ class StyleSlotContractTest extends TestCase
         $slots = [
             'grid' => [
                 '--grid-padding-top'  => 'length',  // #302 mechanism: later bare re-declaration
-                '--grid-card-border'  => 'color',   // #292 mechanism: higher-specificity literal
-                '--grid-card-bg'      => 'color',   // negative control: type-compatible alt-slot escape
+                '--grid-item-border-color'  => 'color',   // #292 mechanism: higher-specificity literal
+                '--grid-item-bg'      => 'color',   // negative control: type-compatible alt-slot escape
                 '--grid-accent'       => 'color',
                 '--grid-heading-size' => 'length',  // laundering probe: length slot on a color property
             ],
@@ -443,8 +443,8 @@ class StyleSlotContractTest extends TestCase
 
         $fixture = <<<'CSS'
             .grid { padding-top: var(--grid-padding-top, var(--space-xl)); }
-            .grid__item { border-color: var(--grid-card-border, var(--color-border)); }
-            .grid__item { background: var(--grid-card-bg, transparent); }
+            .grid__item { border-color: var(--grid-item-border-color, var(--color-border)); }
+            .grid__item { background: var(--grid-item-bg, transparent); }
             @media (min-width: 768px) {
               .grid { padding-top: clamp(4.25rem, 6vw, 5rem); }          /* #302: bypass */
             }
@@ -469,13 +469,13 @@ class StyleSlotContractTest extends TestCase
             'The guard failed to detect a shorthand reset (padding: kills a padding-top slot).'
         );
         $this->assertArrayHasKey(
-            '--grid-card-border|.grid__item|border-color',
+            '--grid-item-border-color|.grid__item|border-color',
             $offenders,
             'The guard failed to detect the #292 mechanism (higher-specificity literal).'
         );
         // Laundering: a LENGTH sibling slot on a COLOR property is not a state
         // handoff — the type gate must reject it and report the declaration.
-        $launderKey = '--grid-card-border|.grid__item|border-color';
+        $launderKey = '--grid-item-border-color|.grid__item|border-color';
         $this->assertTrue(
             (bool) array_filter($offenders[$launderKey], fn ($d) => str_contains($d, '--grid-heading-size')),
             'The guard let a literal launder through a type-incompatible sibling slot.'
@@ -503,11 +503,11 @@ class StyleSlotContractTest extends TestCase
         $block = $this->stripComments($this->componentBlock('grid'));
 
         // Bar slots, two-tier: base hairline vs featured accent gradient.
-        $this->assertStringContainsString('height: var(--grid-card-bar-height, 2px)', $block);
-        $this->assertStringContainsString('background: var(--grid-card-bar-color, var(--color-border))', $block);
-        $this->assertStringContainsString('height: var(--grid-card-bar-height, 4px)', $block);
+        $this->assertStringContainsString('height: var(--grid-item-bar-height, 2px)', $block);
+        $this->assertStringContainsString('background: var(--grid-item-bar-color, var(--color-border))', $block);
+        $this->assertStringContainsString('height: var(--grid-item-bar-height, 4px)', $block);
         $this->assertStringContainsString(
-            'background: var(--grid-card-bar-color, linear-gradient(90deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 18%, transparent)))',
+            'background: var(--grid-item-bar-color, linear-gradient(90deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 18%, transparent)))',
             $block
         );
 
@@ -520,7 +520,7 @@ class StyleSlotContractTest extends TestCase
         // Featured glow: featured slot first, shared card shadow second (unchanged
         // semantics), original glow literal last.
         $this->assertMatchesRegularExpression(
-            '/box-shadow:\s*var\(--grid-featured-shadow,\s*var\(--grid-card-shadow,\s*inset 0 0 0 1px rgba\(37, 99, 235, 0\.055\),\s*0 18px 42px rgba\(37, 99, 235, 0\.10\)\)\)/',
+            '/box-shadow:\s*var\(--grid-featured-shadow,\s*var\(--grid-item-shadow,\s*inset 0 0 0 1px rgba\(37, 99, 235, 0\.055\),\s*0 18px 42px rgba\(37, 99, 235, 0\.10\)\)\)/',
             $block
         );
 
@@ -529,7 +529,7 @@ class StyleSlotContractTest extends TestCase
         // reports success while mobile renders the old glow.
         $css = $this->stripComments($this->css);
         $this->assertStringContainsString(
-            'box-shadow: var(--grid-featured-shadow, var(--grid-card-shadow, 0 14px 32px rgba(37, 99, 235, 0.09)))',
+            'box-shadow: var(--grid-featured-shadow, var(--grid-item-shadow, 0 14px 32px rgba(37, 99, 235, 0.09)))',
             $css,
             'The mobile featured-glow rule must route through --grid-featured-shadow (issue 293).'
         );
@@ -734,7 +734,7 @@ class StyleSlotContractTest extends TestCase
      * filled `primary` variant also matches the shared premium `main .btn:not(...)`
      * winner, so the primary's fill/elevation repainted it. The fix re-declares the
      * three slots ON the cta2 element:
-     *   - --hero-button-bg: var(--hero-cta2-bg)  — a var() that cannot substitute makes
+     *   - --hero-button-bg: var(--hero-button2-bg)  — a var() that cannot substitute makes
      *     the property guaranteed-invalid, so UNSET falls through the premium chain to
      *     the gradient (byte-identical, leak killed) and SET resolves the premium
      *     `background:` SHORTHAND to a flat color, clearing the masking gradient;
@@ -742,7 +742,7 @@ class StyleSlotContractTest extends TestCase
      *     value) so cta2 keeps its own ink rule and the premium bevel.
      * Pin the whole block: dropping any one line silently restores half the bug, and
      * swapping the var() form for `initial` on --hero-button-bg would kill the leak but
-     * leave --hero-cta2-bg masked again (the pre-existing half).
+     * leave --hero-button2-bg masked again (the pre-existing half).
      */
     /**
      * Issue 474 — the cta's own second button carries the #526 isolation mechanism, and
@@ -964,7 +964,7 @@ class StyleSlotContractTest extends TestCase
         return [
             // The plain bands.
             'hero primary'          => ['hero', '.hero .btn', '--hero-accent-hover', '--hero-button-hover-bg', false],
-            'hero cta2'             => ['hero', '.hero .hero__cta-group .hero__cta--secondary', '--hero-accent-hover', '--hero-cta2-hover-bg', false],
+            'hero cta2'             => ['hero', '.hero .hero__cta-group .hero__cta--secondary', '--hero-accent-hover', '--hero-button2-hover-bg', false],
             'cta primary'           => ['cta', '.cta .btn', '--cta-accent-hover', '--cta-button-hover-bg', false],
             'cta button2'           => ['cta', '.cta .cta__buttons .cta__button--secondary', '--cta-accent-hover', '--cta-button2-hover-bg', false],
             // And the overlay/cover TWINS. Each is a physically separate declaration that
@@ -973,7 +973,7 @@ class StyleSlotContractTest extends TestCase
             // so each can drift from its base independently. "Every filled button this theme
             // ships" is only true with these four included.
             'hero primary (cover)'  => ['hero', '.hero--cover .hero__cta', '--hero-accent-hover', '--hero-button-hover-bg', true],
-            'hero cta2 (cover)'     => ['hero', '.hero--cover .hero__cta-group .hero__cta--secondary', '--hero-accent-hover', '--hero-cta2-hover-bg', true],
+            'hero cta2 (cover)'     => ['hero', '.hero--cover .hero__cta-group .hero__cta--secondary', '--hero-accent-hover', '--hero-button2-hover-bg', true],
             'cta primary (overlay)' => ['cta', '.cta--has-bg-image .cta__button', '--cta-accent-hover', '--cta-button-hover-bg', true],
             'cta button2 (overlay)' => ['cta', '.cta--has-bg-image .cta__buttons .cta__button--secondary', '--cta-accent-hover', '--cta-button2-hover-bg', true],
         ];
@@ -1166,8 +1166,8 @@ class StyleSlotContractTest extends TestCase
             'cta button2 (overlay, hover)'  => ['cta', $ctaSecond, ':hover', '--cta-button2-hover-bg'],
             'hero primary (cover, rest)'    => ['hero', $heroFirst, '', '--hero-button-bg'],
             'hero primary (cover, hover)'   => ['hero', $heroFirst, ':hover', '--hero-button-hover-bg'],
-            'hero cta2 (cover, rest)'       => ['hero', $heroSecond, '', '--hero-cta2-bg'],
-            'hero cta2 (cover, hover)'      => ['hero', $heroSecond, ':hover', '--hero-cta2-hover-bg'],
+            'hero cta2 (cover, rest)'       => ['hero', $heroSecond, '', '--hero-button2-bg'],
+            'hero cta2 (cover, hover)'      => ['hero', $heroSecond, ':hover', '--hero-button2-hover-bg'],
         ];
     }
 
@@ -1227,7 +1227,7 @@ class StyleSlotContractTest extends TestCase
     {
         $restFill = [
             '--hero-button-hover-bg' => '--hero-button-bg',
-            '--hero-cta2-hover-bg'   => '--hero-cta2-bg',
+            '--hero-button2-hover-bg'   => '--hero-button2-bg',
             '--cta-button-hover-bg'  => '--cta-button-bg',
             '--cta-button2-hover-bg' => '--cta-button2-bg',
         ];
@@ -1440,9 +1440,9 @@ class StyleSlotContractTest extends TestCase
         $cta  = '.cta .cta__buttons .cta__button--secondary';
 
         return [
-            'hero cta2 outline'   => ['hero', $hero . '.btn--outline',   '--hero-cta2-hover-border', '--hero-cta2-hover-bg'],
-            'hero cta2 secondary' => ['hero', $hero . '.btn--secondary', '--hero-cta2-hover-border', '--hero-cta2-hover-bg'],
-            'hero cta2 ghost'     => ['hero', $hero . '.btn--ghost',     '--hero-cta2-hover-border', '--hero-cta2-hover-bg'],
+            'hero cta2 outline'   => ['hero', $hero . '.btn--outline',   '--hero-button2-hover-border', '--hero-button2-hover-bg'],
+            'hero cta2 secondary' => ['hero', $hero . '.btn--secondary', '--hero-button2-hover-border', '--hero-button2-hover-bg'],
+            'hero cta2 ghost'     => ['hero', $hero . '.btn--ghost',     '--hero-button2-hover-border', '--hero-button2-hover-bg'],
             'cta button2 outline'   => ['cta', $cta . '.btn--outline',   '--cta-button2-hover-border', '--cta-button2-hover-bg'],
             'cta button2 secondary' => ['cta', $cta . '.btn--secondary', '--cta-button2-hover-border', '--cta-button2-hover-bg'],
             'cta button2 ghost'     => ['cta', $cta . '.btn--ghost',     '--cta-button2-hover-border', '--cta-button2-hover-bg'],
@@ -1565,12 +1565,12 @@ class StyleSlotContractTest extends TestCase
         $isolation = $m[1] ?? '';
 
         $this->assertMatchesRegularExpression(
-            '/--hero-button-bg:\s*var\(--hero-cta2-bg\)\s*;/',
+            '/--hero-button-bg:\s*var\(--hero-button2-bg\)\s*;/',
             $isolation,
-            'The isolation rule must re-point --hero-button-bg at --hero-cta2-bg (issue 526): '
+            'The isolation rule must re-point --hero-button-bg at --hero-button2-bg (issue 526): '
             . 'that single declaration both kills the #514 leak (unset -> guaranteed-invalid -> '
             . 'premium fallback) AND routes the cta2 fill into the gradient-clearing chain. '
-            . 'Plain `initial` here would fix the leak but leave --hero-cta2-bg masked again.'
+            . 'Plain `initial` here would fix the leak but leave --hero-button2-bg masked again.'
         );
         $this->assertMatchesRegularExpression(
             '/--hero-button-color:\s*initial\s*;/',
@@ -1584,28 +1584,28 @@ class StyleSlotContractTest extends TestCase
         );
         // Issue 530: the SAME re-pointing on the hover surface, which makes cta2's isolation
         // symmetric across rest and hover. Without it the premium hover shorthand masks
-        // --hero-cta2-hover-bg on a filled cta2, and the primary's --hero-button-hover-bg
+        // --hero-button2-hover-bg on a filled cta2, and the primary's --hero-button-hover-bg
         // inherits onto cta2 exactly the way --hero-button-bg used to before #526.
         $this->assertMatchesRegularExpression(
-            '/--hero-button-hover-bg:\s*var\(--hero-cta2-hover-bg\)\s*;/',
+            '/--hero-button-hover-bg:\s*var\(--hero-button2-hover-bg\)\s*;/',
             $isolation,
-            'The isolation rule must re-point --hero-button-hover-bg at --hero-cta2-hover-bg '
+            'The isolation rule must re-point --hero-button-hover-bg at --hero-button2-hover-bg '
             . '(issue 530), so hover is isolated the same way rest is and the cta2 hover fill '
             . 'reaches the gradient-clearing premium chain.'
         );
 
-        // The cta2 rest rule still consumes --hero-cta2-bg directly (background-color), so
+        // The cta2 rest rule still consumes --hero-button2-bg directly (background-color), so
         // the slot keeps its in-block, type-compatible consumption for the keystone checks.
         $this->assertStringContainsString(
-            'background-color: var(--hero-cta2-bg, var(--hero-accent, var(--btn-bg, var(--color-accent))))',
+            'background-color: var(--hero-button2-bg, var(--hero-accent, var(--btn-bg, var(--color-accent))))',
             $block,
-            'The filled cta2 rest rule must keep routing --hero-cta2-bg (issue 111/526), then '
+            'The filled cta2 rest rule must keep routing --hero-button2-bg (issue 111/526), then '
             . 'the global --btn-bg (issue 554) at the position the hero PRIMARY holds it.'
         );
         // Border FOLLOWS the fill when its own knobs are unset — the #514 idiom the primary
-        // uses, extended to cta2 by the issue 526 decision. Without --hero-cta2-bg in this
+        // uses, extended to cta2 by the issue 526 decision. Without --hero-button2-bg in this
         // chain a fill-only recolor renders a --color-accent ring around a brand-colored
-        // button; --hero-cta2-border / --hero-accent still win first, and the chain still
+        // button; --hero-button2-border / --hero-accent still win first, and the chain still
         // bottoms out at --color-accent so an unset cta2 is byte-identical.
         // Issue 554 inserted the global tier at the hero PRIMARY's positions: the ring knob
         // after --hero-accent, --btn-bg at the tail of the border-follows-fill link. The
@@ -1615,31 +1615,31 @@ class StyleSlotContractTest extends TestCase
         // reason at component scope: the broader global knob was defeating the narrower
         // authored band accent. Both families now rank the accent first.
         $this->assertStringContainsString(
-            'border-color: var(--hero-cta2-border, var(--hero-accent, var(--btn-border-color, var(--hero-cta2-bg, var(--btn-bg, var(--color-accent))))))',
+            'border-color: var(--hero-button2-border, var(--hero-accent, var(--btn-border-color, var(--hero-button2-bg, var(--btn-bg, var(--color-accent))))))',
             $block,
-            'The filled cta2 border must FOLLOW --hero-cta2-bg when --hero-cta2-border and '
+            'The filled cta2 border must FOLLOW --hero-button2-bg when --hero-button2-border and '
             . '--hero-accent are unset (issue 526, mirroring the primary at #514), and must '
             . 'route the global tier at the primary\'s positions (issue 554).'
         );
         // The hover half of both chains (issue 530), mirroring the rest chains above with
         // each knob swapped for its hover equivalent.
         $this->assertStringContainsString(
-            'background-color: var(--hero-cta2-hover-bg, var(--hero-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))))',
+            'background-color: var(--hero-button2-hover-bg, var(--hero-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))))',
             $block,
-            'The filled cta2 hover rule must keep routing --hero-cta2-hover-bg (issue 530), '
+            'The filled cta2 hover rule must keep routing --hero-button2-hover-bg (issue 530), '
             . 'then the global --btn-hover-bg (issue 554). Rest and hover gained the tier '
             . 'together on purpose: either half alone renders the accent at rest and flashes '
             . 'to the operator colour on hover, which is why #539 wired neither.'
         );
         // Same contract as the cta's button2: the hover border FOLLOWS the hover fill, but only
         // from the last fallback position (issue 538, Option 3 — the flipped #530 negative pin).
-        // --hero-cta2-hover-border and --hero-accent-hover both still win ahead of it, so the
+        // --hero-button2-hover-border and --hero-accent-hover both still win ahead of it, so the
         // only case that changes is fill-set/both-knobs-unset; unset it still reaches
         // --color-accent-hover, byte-identical.
         $this->assertHoverBorderChain(
             $block,
             '.hero .hero__cta-group .hero__cta--secondary',
-            ['--hero-cta2-hover-border', '--hero-accent-hover', '--btn-hover-border-color', '--hero-cta2-hover-bg', '--btn-hover-bg', '--color-accent-hover'],
+            ['--hero-button2-hover-border', '--hero-accent-hover', '--btn-hover-border-color', '--hero-button2-hover-bg', '--btn-hover-bg', '--color-accent-hover'],
             'cta2'
         );
         // The hero PRIMARY's new hover fill slot keeps an in-block, type-compatible
@@ -1672,13 +1672,13 @@ class StyleSlotContractTest extends TestCase
      */
     private const CROSS_BLOCK_SLOT_CONTRACT = [
         '.grid__heading'     => ['--grid-heading-color', 'color'],
-        '.section__title'    => ['--section-title-color', 'color'],
+        '.section__title'    => ['--section-heading-color', 'color'],
         // Body/content + card text slots are ALSO re-declared in the desktop
         // "premium typography" media rules. The original #86 fix only covered
         // the two heading slots above; these four were left clobbered (desktop
         // hardcoded a token, ignoring the per-instance slot) until caught by a
         // dev smoke test against a dark-band benchmark. Same cross-block class.
-        '.section__content'  => ['--section-text', 'color'],
+        '.section__content'  => ['--section-body-color', 'color'],
         '.grid__item-title'  => ['--grid-item-title-color', 'color'],
         '.grid__item-text'   => ['--grid-item-text-color', 'color'],
         '.cta__body'         => ['--cta-body-color', 'color'],
@@ -1688,7 +1688,7 @@ class StyleSlotContractTest extends TestCase
         // same desktop media rules as the slots above.
         // NOTE: .faq__question is deliberately NOT in this map. Its open-accordion
         // state (.faq__item[open] > .faq__question) intentionally uses a DIFFERENT
-        // slot (--faq-accent, not --faq-question-color) — a real, in-component state
+        // slot (--faq-question-open-color, not --faq-question-color) — a real, in-component state
         // change, not a cross-block clobber. This test matches by class substring
         // across the whole stylesheet and can't distinguish "different intentional
         // state" from "accidental override," so .faq__question would false-fail here.
@@ -1707,7 +1707,7 @@ class StyleSlotContractTest extends TestCase
         'color'                      => ['color'],
         'background'                 => ['color', 'gradient'],
         // Deliberately NOT ['color', 'gradient'] — background-color: cannot hold a
-        // gradient in real CSS (that's the exact #99 bug: --hero-bg/--grid-card-bg
+        // gradient in real CSS (that's the exact #99 bug: --hero-bg/--grid-item-bg
         // were consumed via background-color: in some rules, silently invalid for a
         // gradient override). Keeping this list ['color']-only means a future
         // gradient-typed slot wired to background-color: still gets caught here
@@ -2017,13 +2017,14 @@ class StyleSlotContractTest extends TestCase
     {
         foreach (
             [
-                '--grid-card-border-width'   => true,
-                '--faq-border-color'         => true,
+                '--grid-item-border-width'   => true,
+                '--faq-item-border-color'    => true,
+                '--grid-item-border-color'   => true,  // #576 renamed --grid-card-border, ADDING a trigger
                 '--x-border-top-width'       => true,  // core: [style*=border-top-width]
                 '--x-border-left-color'      => true,  // core: [style*=border-left-color]
-                '--grid-card-border'         => false, // no width/color suffix — no core rule
-                '--grid-card-radius'         => false,
-                '--grid-card-bar-height'     => false, // core's [style*=height] is .wp-block-* scoped
+                '--grid-item-border'         => false, // hypothetical: no width/color suffix — no core rule
+                '--grid-item-radius'         => false,
+                '--grid-item-bar-height'     => false, // core's [style*=height] is .wp-block-* scoped
             ] as $slot => $isTrigger
         ) {
             $this->assertSame(
@@ -2229,7 +2230,7 @@ class StyleSlotContractTest extends TestCase
      * 6. Slots may only be SET by the renderer's inline style attribute
      * (issue 305, review finding): `style_component` writes the custom property
      * on the component root, and descendants inherit it. A stylesheet rule that
-     * DECLARES a schema slot (`.grid .grid__item { --grid-card-border: ... }`)
+     * DECLARES a schema slot (`.grid .grid__item { --grid-item-border-color: ... }`)
      * beats that inheritance on every matched descendant and deadens the slot
      * while every consumption still routes through var() — invisible to the
      * bypass guard, which only inspects consumptions.
@@ -2239,8 +2240,8 @@ class StyleSlotContractTest extends TestCase
      * PRIMARY button's #514 --hero-button-* slots; a filled (`primary`) cta2 sits in the
      * same shared premium button cascade and was repainted by them. Re-declaring those
      * three slots on the cta2 element is the fix, and it does not deaden anything an
-     * author can set THERE: cta2's own author-facing slots are --hero-cta2-*, none of
-     * which is declared. --hero-button-bg is re-pointed at --hero-cta2-bg (routing the
+     * author can set THERE: cta2's own author-facing slots are --hero-button2-*, none of
+     * which is declared. --hero-button-bg is re-pointed at --hero-button2-bg (routing the
      * cta2 fill into the premium gradient-clearing chain); the other two are reset to the
      * guaranteed-invalid `initial`. Any OTHER rule/slot pair still fails, and this list is
      * exact — adding or dropping an entry fails until it is updated deliberately.
@@ -2250,10 +2251,10 @@ class StyleSlotContractTest extends TestCase
         '.hero .hero__cta-group .hero__cta--secondary declares --hero-button-color',
         '.hero .hero__cta-group .hero__cta--secondary declares --hero-button-shadow',
         // issue 530 — the hover half of the same mechanism. --hero-button-hover-bg is
-        // re-pointed at --hero-cta2-hover-bg for exactly the reasons above, applied to the
+        // re-pointed at --hero-button2-hover-bg for exactly the reasons above, applied to the
         // hover surface: it routes cta2's hover fill into the premium gradient-clearing
         // chain AND stops the primary's hover fill inheriting down. Nothing author-facing
-        // is deadened — cta2's own hover slot is --hero-cta2-hover-bg, which is not declared.
+        // is deadened — cta2's own hover slot is --hero-button2-hover-bg, which is not declared.
         '.hero .hero__cta-group .hero__cta--secondary declares --hero-button-hover-bg',
         // issue 474 — the SAME isolation mechanism for the cta component's own second
         // button, and exempt for the same reason. .cta__button--secondary is a
@@ -2305,12 +2306,12 @@ class StyleSlotContractTest extends TestCase
         '--hero-button-color',
         '--hero-button-hover-bg',
         '--hero-button-shadow',
-        '--hero-cta2-bg',
-        '--hero-cta2-border',
-        '--hero-cta2-color',
-        '--hero-cta2-hover-bg',
-        '--hero-cta2-hover-border',
-        '--hero-cta2-hover-color',
+        '--hero-button2-bg',
+        '--hero-button2-border',
+        '--hero-button2-color',
+        '--hero-button2-hover-bg',
+        '--hero-button2-hover-border',
+        '--hero-button2-hover-color',
         '--cta-button-bg',
         '--cta-button-border',
         '--cta-button-color',
@@ -2472,7 +2473,7 @@ class StyleSlotContractTest extends TestCase
             'issue 336 sibling reset; no component slots margin-bottom on a blockquote today.',
         // Global link hover state. A component that slots a link colour owns its
         // RESTING colour at its own class specificity and hands the hover off
-        // intentionally (see KNOWN_DEAD_SLOT_WAIVERS `--grid-link-color` hover
+        // intentionally (see KNOWN_DEAD_SLOT_WAIVERS `--grid-item-link-color` hover
         // entry). The hover MUST visually override the resting slot — routing it
         // through the slot would erase hover feedback. Not a silent clobber.
         'base.css|a:hover|color'                       =>

@@ -389,12 +389,12 @@ test.describe('Safe-surface rendered proof', () => {
   });
 
   // #473: the steps badge NUMERAL color is authorable via --grid-step-text-color,
-  // separate from --grid-step-color (the fill). Before #473 the numeral was a
+  // separate from --grid-step-bg (the fill). Before #473 the numeral was a
   // hardcoded `color: var(--color-bg)`, so a light fill (the issue's lime badge)
   // forced a low-contrast light numeral with no way to set ink. The default is
   // var(--color-bg), so an UNSET card must render byte-identically to an EXPLICIT
   // var(--color-bg). Three step cards prove both halves in one render:
-  //   card 0 — per-card light lime fill (--grid-step-color) + per-card ink
+  //   card 0 — per-card light lime fill (--grid-step-bg) + per-card ink
   //            --grid-step-text-color: the issue's exact case. Numeral must be ink,
   //            badge fill must be the lime (proves the two slots are independent).
   //            Both slots are item-eligible, so they ride on the card's own `style`.
@@ -416,7 +416,7 @@ test.describe('Safe-surface rendered proof', () => {
           title: 'How it works',
           layout: 'steps',
           items: [
-            { title: 'Ink on lime', number: '1', style: { '--grid-step-color': LIME, '--grid-step-text-color': INK } },
+            { title: 'Ink on lime', number: '1', style: { '--grid-step-bg': LIME, '--grid-step-text-color': INK } },
             { title: 'Unset', number: '2' },
             { title: 'Explicit default', number: '3', style: { '--grid-step-text-color': 'var(--color-bg)' } },
           ],
@@ -441,7 +441,7 @@ test.describe('Safe-surface rendered proof', () => {
       // The set slot reaches the numeral at BOTH breakpoints — the issue's case.
       expect(await numeralColor(0)).toBe('rgb(16, 16, 16)'); // ink numeral
       // The fill slot is independent of the numeral slot — the per-card
-      // --grid-step-color keeps the badge lime.
+      // --grid-step-bg keeps the badge lime.
       expect(await numeralFill(0)).toBe('rgb(147, 194, 42)');
 
       // Unset numeral renders byte-identically to an explicit var(--color-bg):
@@ -1177,7 +1177,7 @@ test.describe('Safe-surface rendered proof', () => {
           id: 'pp-hero01',
           layout: 'split',
           title: 'A deliberately long hero headline that would be squeezed in a half-band column',
-          subtitle: 'Split was chosen before media was imported.',
+          subheading: 'Split was chosen before media was imported.',
         },
       },
     ]);
@@ -1245,7 +1245,7 @@ test.describe('Safe-surface rendered proof', () => {
           id: 'pp-hero-stretch',
           layout: 'split',
           title: TALL_HEADLINE,
-          subtitle: 'Media should fill this column, not float below center.',
+          subheading: 'Media should fill this column, not float below center.',
           image_url: WIDE_SHORT_PNG,
           image_alt: 'stretch media',
           vertical_align: 'stretch',
@@ -1257,7 +1257,7 @@ test.describe('Safe-surface rendered proof', () => {
           id: 'pp-hero-center',
           layout: 'split',
           title: TALL_HEADLINE,
-          subtitle: 'Media should fill this column, not float below center.',
+          subheading: 'Media should fill this column, not float below center.',
           image_url: WIDE_SHORT_PNG,
           image_alt: 'center media',
           // default vertical_align (center) — the "before" fixed-aspect card.
@@ -1370,10 +1370,10 @@ test.describe('Safe-surface rendered proof', () => {
   // Symptom 2 (issue 412): a full-width CTA authored with an ORDINARY id must center its
   // title/body/button in the BASE rules — the centering must not depend on a reserved
   // demo id. Before the eviction, `.cta--full-width .cta__inner` centered its children and
-  // capped `.cta__title`/`.cta__body` at --cta-content-width, but the `.cta__text` wrapper
+  // capped `.cta__title`/`.cta__body` at --cta-heading-measure, but the `.cta__text` wrapper
   // had no width constraint: a long body stretched it to the full inner width, so the
   // capped title left-pinned inside it (text-align only centers the glyphs WITHIN that
-  // left-pinned box). The base `.cta--full-width .cta__text { max-width: var(--cta-content-width,
+  // left-pinned box). The base `.cta--full-width .cta__text { max-width: var(--cta-heading-measure,
   // 40rem); margin-inline: auto }` rule fixes it for every id. Use a normal authored id
   // (never one of the evicted demo ids) so this proves the BASE behavior, not decoration.
   test('#412 a full-width cta with a normal id centers title/body/button in the base rules @smoke', async ({
@@ -1387,7 +1387,7 @@ test.describe('Safe-surface rendered proof', () => {
           id: 'inicio-analisis',
           layout: 'full-width',
           title: 'A deliberately long closing headline for the full width layout',
-          text: 'Supporting copy that sits below the headline in the full-width layout.',
+          body: 'Supporting copy that sits below the headline in the full-width layout.',
           button_text: 'Get started',
           button_url: '/start',
         },
@@ -1663,14 +1663,14 @@ test.describe('Safe-surface rendered proof', () => {
     pageId = createPage('E2E Cover Hero Button Contrast');
     setComposition(pageId, [
       // 0/1: outline PRIMARY + the DEFAULT (outline) second CTA. Before #535 both painted
-      // var(--hero-text, var(--color-text)) = near-black #101828 on the scrim — the dead
+      // var(--hero-heading-color, var(--color-text)) = near-black #101828 on the scrim — the dead
       // `.hero--cover .btn--outline` rule never won.
       {
         component: 'hero',
         props: {
           title: 'Cover outline', layout: 'cover',
-          cta_text: 'Empezar', cta_url: '/a', cta_variant: 'outline',
-          cta2_text: 'Hablar', cta2_url: '/b',
+          button_text: 'Empezar', button_url: '/a', button_variant: 'outline',
+          button2_text: 'Hablar', button2_url: '/b',
         },
       },
       // 2/3: ghost PRIMARY + ghost second CTA (both fell to --color-accent at 1.17:1).
@@ -1678,20 +1678,20 @@ test.describe('Safe-surface rendered proof', () => {
         component: 'hero',
         props: {
           title: 'Cover ghost', layout: 'cover',
-          cta_text: 'Empezar', cta_url: '/a', cta_variant: 'ghost',
-          cta2_text: 'Hablar', cta2_url: '/b', cta2_variant: 'ghost',
+          button_text: 'Empezar', button_url: '/a', button_variant: 'ghost',
+          button2_text: 'Hablar', button2_url: '/b', button2_variant: 'ghost',
         },
       },
       // 4: FILLED primary — gains the separation ring on the scrim.
-      { component: 'hero', props: { title: 'Cover filled', layout: 'cover', cta_text: 'Empezar', cta_url: '/a' } },
+      { component: 'hero', props: { title: 'Cover filled', layout: 'cover', button_text: 'Empezar', button_url: '/a' } },
       // 5: per-instance slot still wins over the routed fallback.
       {
         component: 'hero',
-        props: { title: 'Cover override', layout: 'cover', cta_text: 'Empezar', cta_url: '/a', cta_variant: 'outline' },
-        style: { '--hero-text': '#ffd166' },
+        props: { title: 'Cover override', layout: 'cover', button_text: 'Empezar', button_url: '/a', button_variant: 'outline' },
+        style: { '--hero-heading-color': '#ffd166' },
       },
       // 6: a NON-cover hero must be untouched (no scrim, no routing).
-      { component: 'hero', props: { title: 'Plain hero', layout: 'centered', cta_text: 'Empezar', cta_url: '/a', cta_variant: 'outline' } },
+      { component: 'hero', props: { title: 'Plain hero', layout: 'centered', button_text: 'Empezar', button_url: '/a', button_variant: 'outline' } },
     ]);
 
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -1711,7 +1711,7 @@ test.describe('Safe-surface rendered proof', () => {
     expect(await prop(0, 'color')).toBe(ON_OVERLAY);
     expect(await prop(0, 'border-top-color')).toBe(ON_OVERLAY);
     expect(await prop(0, 'color')).not.toBe(NEAR_BLACK);
-    // 1: the DEFAULT second CTA (cta2_variant defaults to `outline`) — #535 Q3.
+    // 1: the DEFAULT second CTA (button2_variant defaults to `outline`) — #535 Q3.
     expect(await prop(1, 'color')).toBe(ON_OVERLAY);
     expect(await prop(1, 'border-top-color')).toBe(ON_OVERLAY);
 
@@ -1722,11 +1722,11 @@ test.describe('Safe-surface rendered proof', () => {
     // 4: FILLED primary gains the ring; the fill itself is unchanged.
     expect(await prop(4, 'border-top-color')).toBe(ON_OVERLAY);
 
-    // 5: --hero-text still wins over the routed fallback.
+    // 5: --hero-heading-color still wins over the routed fallback.
     expect(await prop(5, 'color')).toBe('rgb(255, 209, 102)');
     expect(await prop(5, 'border-top-color')).toBe('rgb(255, 209, 102)');
 
-    // 6: a plain (non-cover) hero keeps today's --hero-text -> --color-text outline and
+    // 6: a plain (non-cover) hero keeps today's --hero-heading-color -> --color-text outline and
     // its accent-bordered fill. The routing is scoped to the scrim, nothing else moved.
     expect(await prop(6, 'color')).toBe(NEAR_BLACK);
     expect(await prop(6, 'border-top-color')).toBe(NEAR_BLACK);
@@ -1881,7 +1881,7 @@ test.describe('Safe-surface rendered proof', () => {
       // 0: the reported repro — hover fill authored, resting fill left at the gradient.
       {
         component: 'hero',
-        props: { title: 'Hover only', cta_text: 'Get started', cta_url: '/a' },
+        props: { title: 'Hover only', button_text: 'Get started', button_url: '/a' },
         style: { '--hero-button-hover-bg': 'rgb(185, 28, 28)' },
       },
       // 1: an OUTLINE second button in the same page. Its fill and border are visible at
@@ -2178,7 +2178,7 @@ test.describe('Safe-surface rendered proof', () => {
 
   // Card-border axis (#226/#292): the featured first card (#226) AND cards 2..N (#292)
   // each had their own bypass, fixed separately — so assert BOTH boxes render the slot.
-  test('#305 grid cards honor --grid-card-border on featured AND non-featured cards @smoke', async ({
+  test('#305 grid cards honor --grid-item-border-color on featured AND non-featured cards @smoke', async ({
     page,
   }) => {
     pageId = createPage('E2E Grid Card Border Slot');
@@ -2200,7 +2200,7 @@ test.describe('Safe-surface rendered proof', () => {
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
     // A vivid color no token uses; both accent and neutral fallbacks differ from it.
-    const res = await styleComponent(page, pageId, { '--grid-card-border': '#ff0080' });
+    const res = await styleComponent(page, pageId, { '--grid-item-border-color': '#ff0080' });
     expect(res.success).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -2326,11 +2326,11 @@ test.describe('Safe-surface rendered proof', () => {
   });
 
   // #293: --grid-featured-shadow must have discriminating rendered power of its own.
-  // The uniform-row test neutralizes via --grid-card-shadow, which the PRE-#293 CSS
+  // The uniform-row test neutralizes via --grid-item-shadow, which the PRE-#293 CSS
   // already routed — it would pass with the featured-shadow chain reverted. This
   // test sets the featured slot to a distinctive value and proves it renders on the
   // featured card only, at desktop AND mobile (the two chain sites), and that it
-  // outranks a simultaneously-set --grid-card-shadow.
+  // outranks a simultaneously-set --grid-item-shadow.
   test('#293 --grid-featured-shadow renders on the featured card at both breakpoints', async ({
     page,
   }) => {
@@ -2354,7 +2354,7 @@ test.describe('Safe-surface rendered proof', () => {
 
     const res = await styleComponent(page, pageId, {
       '--grid-featured-shadow': '0 2px 4px rgba(1, 2, 3, 0.5)',
-      '--grid-card-shadow': '0 6px 12px rgba(7, 8, 9, 0.4)',
+      '--grid-item-shadow': '0 6px 12px rgba(7, 8, 9, 0.4)',
     });
     expect(res.success).toBe(true);
 
@@ -2397,8 +2397,8 @@ test.describe('Safe-surface rendered proof', () => {
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
     const res = await styleComponent(page, pageId, {
-      '--grid-card-bar-color': 'rgb(9, 8, 7)',
-      '--grid-card-bar-height': '3px',
+      '--grid-item-bar-color': 'rgb(9, 8, 7)',
+      '--grid-item-bar-height': '3px',
     });
     expect(res.success).toBe(true);
 
@@ -2594,12 +2594,12 @@ test.describe('Safe-surface rendered proof', () => {
     expect(dfFirst).not.toBe(dfSib);
   });
 
-  // Parent-constrains-child axis (#302's --section-body-width): the pre-fix bug
+  // Parent-constrains-child axis (#302's --section-body-measure): the pre-fix bug
   // was a literal max-width on the OUTER .section__body capping the slotted inner
   // .section__content — a shape the static guard's own docblock says no
   // same-subject textual scan can prove. This rendered pin is the layer that owns
   // it: if any ancestor cap returns, the inner box cannot reach the slot value.
-  test('#305 section body honors --section-body-width past its wrapper at 1280px @smoke', async ({
+  test('#305 section body honors --section-body-measure past its wrapper at 1280px @smoke', async ({
     page,
   }) => {
     pageId = createPage('E2E Section Body Width Slot');
@@ -2619,7 +2619,7 @@ test.describe('Safe-surface rendered proof', () => {
 
     // Wider than the 40rem (640px) wrapper default, so a re-introduced ancestor
     // cap fails this loudly instead of hiding inside the old limit.
-    const res = await styleComponent(page, pageId, { '--section-body-width': '700px' });
+    const res = await styleComponent(page, pageId, { '--section-body-measure': '700px' });
     expect(res.success).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -2641,7 +2641,7 @@ test.describe('Safe-surface rendered proof', () => {
     // exceed the old 640px wrapper default — the rendered proof, not just the
     // computed property. The INNER .section__content now honors the slot too:
     // issue 309 routed the text-only 49rem literal (main > .section--text-only
-    // .section__content) through var(--section-body-width, 49rem), so the inner
+    // .section__content) through var(--section-body-measure, 49rem), so the inner
     // content box that used to cap dead at 784px now follows the slot to 700px.
     expect(widths.content).toBe('700px');
     expect(widths.wrapper).toBe('700px');
@@ -2719,12 +2719,12 @@ test.describe('Safe-surface rendered proof', () => {
    *   html :where([style*=border-color]){border-style:solid}
    *
    * Our style slots render as inline CUSTOM PROPERTIES on the component root
-   * (`style="--grid-card-border-width:0px"`). The substring lives in the property
+   * (`style="--grid-item-border-width:0px"`). The substring lives in the property
    * NAME, so the selector matches the root — even when the value is 0 and the
    * border the slot controls actually lives on a DESCENDANT (the card). Roots that
    * declared no border of their own then computed core's injected `solid` at the
    * initial `medium` width: a 3px border nobody asked for. The 1.0-H dogfood hit
-   * this on --grid-card-border-width and --section-panel-border-width and had to
+   * this on --grid-item-border-width and --section-panel-border-width and had to
    * abandon two documented slots.
    *
    * No static check over our own CSS can see this: our stylesheet is correct, the
@@ -2747,7 +2747,7 @@ test.describe('Safe-surface rendered proof', () => {
       component: 'grid',
       props: { id: 'pp-grid01', items: [{ title: 'One', text: 'First' }] },
       slots: {
-        '--grid-card-border-width': '0px',
+        '--grid-item-border-width': '0px',
         '--grid-eyebrow-border-width': '0px',
         '--grid-eyebrow-border-color': 'transparent',
       },
@@ -2756,7 +2756,7 @@ test.describe('Safe-surface rendered proof', () => {
       component: 'faq',
       props: { id: 'pp-faq01', items: [{ question: 'Q?', answer: 'A.' }] },
       slots: {
-        '--faq-border-color': '#ff0080',
+        '--faq-item-border-color': '#ff0080',
         '--faq-eyebrow-border-width': '0px',
         '--faq-eyebrow-border-color': 'transparent',
       },
@@ -2765,7 +2765,7 @@ test.describe('Safe-surface rendered proof', () => {
       component: 'testimonials',
       props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] },
       slots: {
-        '--testimonials-card-border-width': '0px',
+        '--testimonials-item-border-width': '0px',
         '--testimonials-eyebrow-border-width': '0px',
         '--testimonials-eyebrow-border-color': 'transparent',
       },
@@ -2854,7 +2854,7 @@ test.describe('Safe-surface rendered proof', () => {
       await expect(root).toBeVisible({ timeout: 10000 });
 
       // Non-vacuity floor: this pin is only meaningful while WP core actually ships the
-      // substring trigger THIS case depends on. `--faq-border-color` rides the
+      // substring trigger THIS case depends on. `--faq-item-border-color` rides the
       // border-color rule, the width slots ride the border-width rule — so assert the
       // triggers the case's own slot names imply, not a hardcoded one. If core ever drops
       // one, this fails loudly ("the immunity may be removable") instead of passing free.
@@ -2920,7 +2920,7 @@ test.describe('Safe-surface rendered proof', () => {
         props: {
           id: 'pp-grid01',
           items: [
-            { title: 'One', text: 'First', style: { '--grid-card-border-width': '0px' } },
+            { title: 'One', text: 'First', style: { '--grid-item-border-width': '0px' } },
             { title: 'Two', text: 'Second' },
           ],
         },
@@ -2935,7 +2935,7 @@ test.describe('Safe-surface rendered proof', () => {
 
     // The slot really is inline ON THE CARD — otherwise this pin proves nothing.
     const inline = await styledCard.evaluate((el) => el.getAttribute('style'));
-    expect(inline).toContain('--grid-card-border-width');
+    expect(inline).toContain('--grid-item-border-width');
 
     const border = await styledCard.evaluate((el) => {
       const s = getComputedStyle(el);
@@ -2983,7 +2983,7 @@ test.describe('Safe-surface rendered proof', () => {
 
   // The slot must still DO its job — a fix that simply killed all borders would pass
   // the immunity pins above. The dogfood's actual intent: a borderless card.
-  test('#332 --grid-card-border-width still reaches the card (0 = no card border)', async ({
+  test('#332 --grid-item-border-width still reaches the card (0 = no card border)', async ({
     page,
   }) => {
     pageId = createPage('E2E Border Trigger Grid Card Intent');
@@ -2997,7 +2997,7 @@ test.describe('Safe-surface rendered proof', () => {
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    const res = await styleComponent(page, pageId, { '--grid-card-border-width': '0px' });
+    const res = await styleComponent(page, pageId, { '--grid-item-border-width': '0px' });
     expect(res.success).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -3337,10 +3337,10 @@ test.describe('Safe-surface rendered proof', () => {
             id: 'pp-hero01',
             layout,
             title: 'A deliberately long hero headline that widens the content column',
-            cta_text: 'Get started',
-            cta_url: '/start',
-            cta2_text: 'Book a demo',
-            cta2_url: '/contact',
+            button_text: 'Get started',
+            button_url: '/start',
+            button2_text: 'Book a demo',
+            button2_url: '/contact',
           },
         },
       ]);
@@ -3485,7 +3485,7 @@ test.describe('Safe-surface rendered proof', () => {
   // its base var(--space-lg) (32px) is what renders. 1.65rem @ 16px root = 26.4px.
   // Pinned twice: unset -> the real rendered default, and set -> the operator wins.
   for (const { component, locator, slot, expected } of [
-    { component: 'section', locator: '.section__title', slot: '--section-title-margin-bottom', expected: '26.4px' },
+    { component: 'section', locator: '.section__title', slot: '--section-heading-margin-bottom', expected: '26.4px' },
     { component: 'grid', locator: '.grid__heading', slot: '--grid-heading-margin-bottom', expected: '26.4px' },
     { component: 'testimonials', locator: '.testimonials__heading', slot: '--testimonials-heading-margin-bottom', expected: '32px' },
   ]) {
@@ -4192,13 +4192,13 @@ test.describe('#333 chrome site options render', () => {
     expect(listStyle).toBe('disc');
   });
 
-  test('#339 grid bullets still honor --grid-bullet-color after the shared-treatment refactor @smoke', async ({
+  test('#339 grid bullets still honor --grid-item-bullet-color after the shared-treatment refactor @smoke', async ({
     page,
   }) => {
     // Regression proof for the byte-identical grid claim: #339 moved grid's bullet
     // rules into the shared block and rewired the colour through the internal
     // --pp-list-marker-color indirection. StyleSlotContractTest only proves
-    // --grid-bullet-color is *consumed*; only a rendered box proves the grid
+    // --grid-item-bullet-color is *consumed*; only a rendered box proves the grid
     // check mark still paints in the operator's colour after the rewrite.
     pageId = createPage('E2E Grid Bullet Color Regression');
     setComposition(pageId, [
@@ -4214,7 +4214,7 @@ test.describe('#333 chrome site options render', () => {
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    const res = await styleComponent(page, pageId, { '--grid-bullet-color': '#ff0080' });
+    const res = await styleComponent(page, pageId, { '--grid-item-bullet-color': '#ff0080' });
     expect(res.success).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -4700,7 +4700,7 @@ test.describe('#333 chrome site options render', () => {
   });
 
   // #367 — same class as #354, on the stats component. `.stats__heading` is a block <h2>
-  // that carries `max-width: var(--cta-content-width, 40rem)` (the shared cap rule) and
+  // that carries `max-width: var(--cta-heading-measure, 40rem)` (the shared cap rule) and
   // `text-align: center`, but shipped with NO auto inline margins. A block h2 fills to its
   // max-width cap inside the wider .container, so the 40rem box pinned to the container's
   // LEFT edge (measured x 96-736 at 1280px; the container content center is ~x 288-928) and
@@ -4924,7 +4924,7 @@ test.describe('#355 active header link honors pp_header_link_color', () => {
  *      exactly the hardcoded value it rendered before the token existed.
  *
  * The button is a `.cta__button.btn`; the card is a `.grid__item`
- * (`border-radius: var(--grid-card-radius, var(--radius))`). --radius is
+ * (`border-radius: var(--grid-item-radius, var(--radius))`). --radius is
  * 0.375rem = 6px at the default 16px root; the composed button default is 4px.
  */
 test.describe('#369 --btn-radius rendered proof (real WP)', () => {
@@ -4996,7 +4996,7 @@ test.describe('#369 --btn-radius rendered proof (real WP)', () => {
       props: {
         id: 'radius-cta',
         title: 'Get started today',
-        text: 'Supporting copy.',
+        body: 'Supporting copy.',
         button_text: 'Get started',
         button_url: '/start',
       },
@@ -5095,7 +5095,7 @@ test.describe('#369 --btn-radius rendered proof (real WP)', () => {
  * button knob — see ai-instructions/retheme.md). The hero SECONDARY cta, rendered as the
  * PRIMARY variant, is the exception: its ink rule
  * `.hero .hero__cta-group .hero__cta--secondary:not(...)×3` ([0,6,0]) OUTRANKS the
- * premium rule and routes color through `var(--hero-cta2-color, var(--btn-text, var(--color-bg)))`.
+ * premium rule and routes color through `var(--hero-button2-color, var(--btn-text, var(--color-bg)))`.
  * So `--btn-text` is the live fallback there, and registering `--btn-text: var(--color-bg)`
  * must keep that ink at the historical `--color-bg` (#fcfdff). A wrong registration value
  * would move THIS pixel, so the assertion is load-bearing, not a tautology.
@@ -5120,13 +5120,13 @@ test.describe('#441 global button tokens are byte-identical unset (real WP)', ()
         props: {
           id: 'btn441-hero',
           title: 'Ship faster',
-          cta_text: 'Primary action',
-          cta_url: '/start',
-          cta2_text: 'Secondary action',
-          cta2_url: '/learn',
+          button_text: 'Primary action',
+          button_url: '/start',
+          button2_text: 'Secondary action',
+          button2_url: '/learn',
           // PRIMARY variant so the secondary cta matches the [0,6,0] ink rule that
           // routes through --btn-text (the outline default would take a different rule).
-          cta2_variant: 'primary',
+          button2_variant: 'primary',
         },
       },
     ]);
@@ -5187,11 +5187,11 @@ test.describe('#458 the global button surface is a real one-knob (real WP)', () 
         props: {
           id: 'btn458-hero',
           title: 'Ship faster',
-          cta_text: 'Primary',
-          cta_url: '/start',
-          cta2_text: 'Secondary',
-          cta2_url: '/learn',
-          cta2_variant: 'primary', // matches the [0,6,0] ink rule that routes through --btn-text
+          button_text: 'Primary',
+          button_url: '/start',
+          button2_text: 'Secondary',
+          button2_url: '/learn',
+          button2_variant: 'primary', // matches the [0,6,0] ink rule that routes through --btn-text
         },
       },
       {
@@ -5451,11 +5451,11 @@ test.describe('#539 the global button surface survives a hover (real WP)', () =>
         props: {
           id: 'btn539-hero',
           title: 'Ship faster',
-          cta_text: 'Primary',
-          cta_url: '/start',
-          cta2_text: 'Secondary',
-          cta2_url: '/learn',
-          cta2_variant: 'primary',
+          button_text: 'Primary',
+          button_url: '/start',
+          button2_text: 'Secondary',
+          button2_url: '/learn',
+          button2_variant: 'primary',
         },
       },
       {
@@ -6132,7 +6132,7 @@ test.describe('Shared section-band rhythm (#431)', () => {
   // or a cross-wired slot name. This is the render-level proof that the slot the
   // schema declares reaches the DOM through pp_render_style_vars.
   const NEW_BAND_SLOTS = [
-    { comp: 'table', sel: '.table-section', slot: '--table-section-padding-top', px: '5px',
+    { comp: 'table', sel: '.table-section', slot: '--table-padding-top', px: '5px',
       props: { id: 'pp-tbl01', title: 'Table', headers: ['A', 'B'], rows: [['1', '2']] } },
     { comp: 'logos', sel: '.logos', slot: '--logos-padding-top', px: '6px',
       props: { id: 'pp-logo01', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'Logo' }] } },
@@ -6277,11 +6277,11 @@ test.describe('Band heading scale (#436)', () => {
   // section/grid/cta collapsed to 16px body size on mobile (cta at every
   // viewport) and the rest disagreed. Selector + size slot per band.
   const HEADINGS: { band: string; sel: string; slot: string }[] = [
-    { band: 'section', sel: '.section__title', slot: '--section-title-size' },
+    { band: 'section', sel: '.section__title', slot: '--section-heading-size' },
     { band: 'grid', sel: '.grid__heading', slot: '--grid-heading-size' },
-    { band: 'cta', sel: '.cta__title', slot: '--cta-title-size' },
-    { band: 'stats', sel: '.stats__heading', slot: '--stats-title-size' },
-    { band: 'table', sel: '.table-section__heading', slot: '--table-section-heading-size' },
+    { band: 'cta', sel: '.cta__title', slot: '--cta-heading-size' },
+    { band: 'stats', sel: '.stats__heading', slot: '--stats-heading-size' },
+    { band: 'table', sel: '.table-section__heading', slot: '--table-heading-size' },
     { band: 'testimonials', sel: '.testimonials__heading', slot: '--testimonials-heading-size' },
     { band: 'logos', sel: '.logos__heading', slot: '--logos-heading-size' },
     { band: 'embed', sel: '.embed__heading', slot: '--embed-heading-size' },
@@ -6360,8 +6360,8 @@ test.describe('Band heading scale (#436)', () => {
   });
 
   // Slot contract preserved AND every newly-minted slot works end-to-end: the
-  // existing slot (--cta-title-size) plus ALL FOUR slots first introduced by #436
-  // (--table-section-heading-size, --logos-heading-size, --embed-heading-size,
+  // existing slot (--cta-heading-size) plus ALL FOUR slots first introduced by #436
+  // (--table-heading-size, --logos-heading-size, --embed-heading-size,
   // --testimonials-heading-size) must each validate (styleComponent success) and
   // win over the shared scale at mobile AND desktop. This is the only render-level
   // proof that the fresh pp_render_style_vars wiring in table/logos/embed.php uses
@@ -6386,8 +6386,8 @@ test.describe('Band heading scale (#436)', () => {
     // index 0 = cta (existing slot); 1..4 = the slots minted in #436. Distinct px
     // per component so a cross-wired value would be caught.
     const overrides = [
-      { idx: 0, slot: '--cta-title-size', px: '60px', sel: '.cta__title' },
-      { idx: 1, slot: '--table-section-heading-size', px: '61px', sel: '.table-section__heading' },
+      { idx: 0, slot: '--cta-heading-size', px: '60px', sel: '.cta__title' },
+      { idx: 1, slot: '--table-heading-size', px: '61px', sel: '.table-section__heading' },
       { idx: 2, slot: '--logos-heading-size', px: '62px', sel: '.logos__heading' },
       { idx: 3, slot: '--embed-heading-size', px: '63px', sel: '.embed__heading' },
       { idx: 4, slot: '--testimonials-heading-size', px: '64px', sel: '.testimonials__heading' },
@@ -6475,7 +6475,7 @@ test.describe('Band heading scale (#436)', () => {
  *   - Inverted stats numbers (large accent text on the dark band) clear the 3:1
  *     large-text bar with the new default.
  *
- * Since #439, cta.text and testimonials.quote render an inline-HTML subset, so a
+ * Since #439, cta.body and testimonials.quote render an inline-HTML subset, so a
  * body link CAN now exist on them: the cta body link and the testimonials STACK
  * quote link both sit on the dark band and are seeded here (contrast >= 4.5). The
  * grid item-text link and the testimonials GRID quote stay on light cards (accent
@@ -6609,7 +6609,7 @@ test.describe('#437 inverted link contrast (rendered)', () => {
       minRatio: 3.0,
     },
     {
-      // #439: cta.text became an inline-HTML surface, so an inverted CTA can carry
+      // #439: cta.body became an inline-HTML surface, so an inverted CTA can carry
       // a real body link sitting directly on the dark band. It must reach AA.
       name: 'cta body link on the dark band → on-inverted (AA)',
       composition: [
@@ -6619,7 +6619,7 @@ test.describe('#437 inverted link contrast (rendered)', () => {
             id: 'pp-cta01',
             theme: 'inverted',
             title: 'Inverted cta',
-            text: 'Read our <a href="/terms">terms</a> before you sign up.',
+            body: 'Read our <a href="/terms">terms</a> before you sign up.',
             button_text: 'Get started',
             button_url: '/signup',
           },
@@ -6781,7 +6781,7 @@ test.describe('#461 bg-image band accent contrast (rendered)', () => {
         id: 'pp-ov-cta',
         background_image: WHITE_PNG,
         title: 'Overlay cta',
-        text: 'Read our <a href="/terms">terms</a> before you sign up.',
+        body: 'Read our <a href="/terms">terms</a> before you sign up.',
         button_text: 'Go',
         button_url: '/signup',
       },
@@ -6863,7 +6863,7 @@ test.describe('#461 bg-image band accent contrast (rendered)', () => {
     const SLOT = '#00e5ff'; // vivid cyan no token uses — a leak or clobber is obvious
     const b = bands();
     // Attach the per-instance style slot that each band's accent rule reads first.
-    (b[0].props as Record<string, unknown>).__pp_style = { '--section-accent': SLOT };
+    (b[0].props as Record<string, unknown>).__pp_style = { '--section-body-link-color': SLOT };
     (b[1].props as Record<string, unknown>).__pp_style = { '--cta-body-color': SLOT };
     (b[2].props as Record<string, unknown>).__pp_style = { '--stats-number-color': SLOT };
     setComposition(pageId, b);
@@ -6924,7 +6924,7 @@ test.describe('#463 bg-image band title-accent + markers contrast (rendered)', (
         background_image: WHITE_PNG,
         title: 'Overlay accent cta',
         title_accent: 'accent',
-        text: 'Sign up before the deadline.',
+        body: 'Sign up before the deadline.',
         button_text: 'Go',
         button_url: '/signup',
       },
@@ -6954,11 +6954,11 @@ test.describe('#463 bg-image band title-accent + markers contrast (rendered)', (
   // Each accent surface: the selector, an optional ::before pseudo (list marker glyph),
   // the per-instance slot the rule reads first, and the overlay whose rgba() sits behind it.
   const SURFACES = [
-    { name: 'section title-accent', accent: '.section--has-bg-image .section__title-accent', pseudo: '', slot: '--section-title-accent-color', overlay: '.section--has-bg-image .section__overlay' },
+    { name: 'section title-accent', accent: '.section--has-bg-image .section__title-accent', pseudo: '', slot: '--section-heading-accent-color', overlay: '.section--has-bg-image .section__overlay' },
     { name: 'section list marker', accent: '.section--has-bg-image .section__content--marker-check > ul > li', pseudo: '::before', slot: '--section-body-marker-color', overlay: '.section--has-bg-image .section__overlay' },
-    { name: 'cta title-accent', accent: '.cta--has-bg-image .cta__title-accent', pseudo: '', slot: '--cta-title-accent-color', overlay: '.cta--has-bg-image .cta__overlay' },
-    { name: 'stats heading-accent', accent: '.stats--has-bg-image .stats__heading-accent', pseudo: '', slot: '--stats-title-accent-color', overlay: '.stats--has-bg-image .stats__overlay' },
-    { name: 'hero cover title-accent', accent: '.hero--cover .hero__title-accent', pseudo: '', slot: '--hero-title-accent-color', overlay: '.hero--cover .hero__overlay' },
+    { name: 'cta title-accent', accent: '.cta--has-bg-image .cta__title-accent', pseudo: '', slot: '--cta-heading-accent-color', overlay: '.cta--has-bg-image .cta__overlay' },
+    { name: 'stats heading-accent', accent: '.stats--has-bg-image .stats__heading-accent', pseudo: '', slot: '--stats-heading-accent-color', overlay: '.stats--has-bg-image .stats__overlay' },
+    { name: 'hero cover title-accent', accent: '.hero--cover .hero__title-accent', pseudo: '', slot: '--hero-heading-accent-color', overlay: '.hero--cover .hero__overlay' },
   ];
 
   test('every bg-image title-accent + marker clears AA (4.5:1) over the overlay-over-white worst case @375 + @1280', async ({
@@ -7020,12 +7020,12 @@ test.describe('#463 bg-image band title-accent + markers contrast (rendered)', (
     // Attach the per-instance style slot each surface's rule reads first. section band
     // carries both its title-accent and its body-marker slot.
     (b[0].props as Record<string, unknown>).__pp_style = {
-      '--section-title-accent-color': SLOT,
+      '--section-heading-accent-color': SLOT,
       '--section-body-marker-color': SLOT,
     };
-    (b[1].props as Record<string, unknown>).__pp_style = { '--cta-title-accent-color': SLOT };
-    (b[2].props as Record<string, unknown>).__pp_style = { '--stats-title-accent-color': SLOT };
-    (b[3].props as Record<string, unknown>).__pp_style = { '--hero-title-accent-color': SLOT };
+    (b[1].props as Record<string, unknown>).__pp_style = { '--cta-heading-accent-color': SLOT };
+    (b[2].props as Record<string, unknown>).__pp_style = { '--stats-heading-accent-color': SLOT };
+    (b[3].props as Record<string, unknown>).__pp_style = { '--hero-heading-accent-color': SLOT };
     setComposition(pageId, b);
 
     for (const width of [375, 1280]) {
@@ -7045,9 +7045,9 @@ test.describe('#463 bg-image band title-accent + markers contrast (rendered)', (
 });
 
 /*
- * #439 — a link in cta.text renders as a real anchor, not escaped source.
+ * #439 — a link in cta.body renders as a real anchor, not escaped source.
  *
- * Before #439 cta.text was esc_html, so `<a href=...>` written by the AI rendered
+ * Before #439 cta.body was esc_html, so `<a href=...>` written by the AI rendered
  * as visible source code in the CTA band. This proves the upgraded prop now emits a
  * working anchor and that no literal `<a` characters survive in the band's text.
  */
@@ -7075,7 +7075,7 @@ test.describe('#439 cta body link renders as an anchor (rendered)', () => {
           title: 'Sign up',
           // A legitimate link, plus hostile payloads that WordPress core wp_kses
           // (the production sanitizer, not the unit-test stub) must neutralize.
-          text: 'Read our <a href="/terms">terms</a> first. <a href="javascript:alert(1)">x</a><script>alert(2)</script>',
+          body: 'Read our <a href="/terms">terms</a> first. <a href="javascript:alert(1)">x</a><script>alert(2)</script>',
           button_text: 'Get started',
           button_url: '/signup',
         },
@@ -7264,16 +7264,16 @@ test.describe('#424 inverted text-panel heading legibility (rendered)', () => {
     }
   });
 
-  // Slot independence, half 2: an explicit --section-title-color moves the on-band title
+  // Slot independence, half 2: an explicit --section-heading-color moves the on-band title
   // and must NOT reach into the self-contained panel heading.
-  test('--section-title-color moves the band title only @375 + @1280', async ({ page }) => {
+  test('--section-heading-color moves the band title only @375 + @1280', async ({ page }) => {
     pageId = createPage('E2E 424 title-color slot');
     setComposition(pageId, invertedTextPanel());
 
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    const res = await styleComponent(page, pageId, { '--section-title-color': '#00e5ff' });
+    const res = await styleComponent(page, pageId, { '--section-heading-color': '#00e5ff' });
     expect(res.success).toBe(true);
 
     for (const width of [375, 1280]) {
@@ -7283,8 +7283,8 @@ test.describe('#424 inverted text-panel heading legibility (rendered)', () => {
 
       const title = await colorOf(page, '.pp-section--inverted .section__title');
       const heading = await colorOf(page, '.section__panel-heading');
-      expect(title, `@${width}: band title should honor --section-title-color`).toBe('rgb(0, 229, 255)');
-      expect(heading, `@${width}: --section-title-color must not reach the panel heading`).not.toBe('rgb(0, 229, 255)');
+      expect(title, `@${width}: band title should honor --section-heading-color`).toBe('rgb(0, 229, 255)');
+      expect(heading, `@${width}: --section-heading-color must not reach the panel heading`).not.toBe('rgb(0, 229, 255)');
     }
   });
 });
@@ -7296,12 +7296,12 @@ test.describe('#424 inverted text-panel heading legibility (rendered)', () => {
  * Style slots are emitted as inline custom properties on the .hero ROOT, so #514's
  * --hero-button-* slots INHERIT onto the second CTA. A cta2 authored as the filled
  * `primary` variant also matches the shared premium `main .btn:not(...)` winner, so the
- * PRIMARY's fill/elevation repainted it (the leak). Separately, --hero-cta2-bg was
+ * PRIMARY's fill/elevation repainted it (the leak). Separately, --hero-button2-bg was
  * consumed only as `background-color` and the premium gradient background-IMAGE covered
  * it (the mask) — the same defect #514 fixed for the primary.
  *
  * Both halves are invisible to CSS-TEXT pins: the masking bug lived for months while the
- * static --hero-cta2-bg guards stayed green, because a background-color under a gradient
+ * static --hero-button2-bg guards stayed green, because a background-color under a gradient
  * is present in the text and invisible on screen. Only getComputedStyle in a real browser
  * separates "declared" from "painted", so these are the acceptance pins for the fix.
  * Literals are probe-resolved (the #458 idiom) so byte-identical compares against the
@@ -7330,11 +7330,11 @@ test.describe('#526 hero cta2 fill slots are isolated and painted (real WP)', ()
         props: {
           id: 'pp-526-hero',
           title: 'Ship faster',
-          cta_text: 'Primary action',
-          cta_url: '/start',
-          cta2_text: 'Second action',
-          cta2_url: '/learn',
-          cta2_variant: 'primary',
+          button_text: 'Primary action',
+          button_url: '/start',
+          button2_text: 'Second action',
+          button2_url: '/learn',
+          button2_variant: 'primary',
         },
         ...(style ? { style } : {}),
       },
@@ -7388,7 +7388,7 @@ test.describe('#526 hero cta2 fill slots are isolated and painted (real WP)', ()
         // cta2's OWN ink, set so the ink assertion below can prove the positive
         // (cta2 keeps its own slot) and not merely the negative (it is not the
         // primary's ink, which a third unrelated color would also satisfy).
-        '--hero-cta2-color': '#e0f2f1',
+        '--hero-button2-color': '#e0f2f1',
       });
 
       await page.setViewportSize({ width, height: 900 });
@@ -7412,15 +7412,15 @@ test.describe('#526 hero cta2 fill slots are isolated and painted (real WP)', ()
       expect(got.cta2.bgColor, `@${width}: cta2 must not take the primary fill`).not.toBe(
         'rgb(124, 58, 237)',
       );
-      expect(got.cta2.color, `@${width}: cta2 must keep its own --hero-cta2-color`).toBe(
+      expect(got.cta2.color, `@${width}: cta2 must keep its own --hero-button2-color`).toBe(
         'rgb(224, 242, 241)',
       );
       expect(got.cta2.shadow, `@${width}: cta2 must keep the premium bevel`).not.toBe('none');
     });
 
-    // Half 2 — the MASK. --hero-cta2-bg must clear the gradient and actually paint.
-    test(`--hero-cta2-bg paints a filled cta2 (${width}px) @smoke`, async ({ page }) => {
-      pageId = filledCta2Page('E2E 526 fill', { '--hero-cta2-bg': CTA2_TEAL });
+    // Half 2 — the MASK. --hero-button2-bg must clear the gradient and actually paint.
+    test(`--hero-button2-bg paints a filled cta2 (${width}px) @smoke`, async ({ page }) => {
+      pageId = filledCta2Page('E2E 526 fill', { '--hero-button2-bg': CTA2_TEAL });
 
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/?page_id=${pageId}`);
@@ -7431,8 +7431,8 @@ test.describe('#526 hero cta2 fill slots are isolated and painted (real WP)', ()
       expect(got.cta2.bgImage, `@${width}: the gradient must be cleared, not covering the slot`).toBe(
         'none',
       );
-      expect(got.cta2.bgColor, `@${width}: cta2 must paint --hero-cta2-bg`).toBe(got.teal);
-      // Border FOLLOWS the fill when --hero-cta2-border / --hero-accent are unset (issue 526,
+      expect(got.cta2.bgColor, `@${width}: cta2 must paint --hero-button2-bg`).toBe(got.teal);
+      // Border FOLLOWS the fill when --hero-button2-border / --hero-accent are unset (issue 526,
       // the #514 idiom): a fill-only recolor must not leave a --color-accent ring around a
       // brand-colored button.
       expect(got.cta2.borderColor, `@${width}: cta2 border must follow the fill`).toBe(got.teal);
@@ -7470,7 +7470,7 @@ test.describe('#526 hero cta2 fill slots are isolated and painted (real WP)', ()
  *
  * The shared premium hover rule paints a `background:` SHORTHAND carrying a gradient
  * background-IMAGE. Every component-level hover rule sets only `background-color`, which
- * that image covers, so --hero-cta2-hover-bg / --cta-button2-hover-bg rendered NOTHING on a
+ * that image covers, so --hero-button2-hover-bg / --cta-button2-hover-bg rendered NOTHING on a
  * filled button and the hero primary had no hover fill slot at all. Separately, the #514/#526
  * isolation rules re-pointed only the REST slot, so the primary's hover fill leaked onto the
  * second button (the coupling found in #474's review).
@@ -7508,11 +7508,11 @@ test.describe('#530 hover fill slots paint and stay isolated (real WP)', () => {
         props: {
           id: 'pp-530-hero',
           title: 'Ship faster',
-          cta_text: 'Primary action',
-          cta_url: '/start',
-          cta2_text: 'Second action',
-          cta2_url: '/learn',
-          cta2_variant: 'primary',
+          button_text: 'Primary action',
+          button_url: '/start',
+          button2_text: 'Second action',
+          button2_url: '/learn',
+          button2_variant: 'primary',
         },
         ...(style ? { style } : {}),
       },
@@ -7626,7 +7626,7 @@ test.describe('#530 hover fill slots paint and stay isolated (real WP)', () => {
     }) => {
       pageId = heroPage('E2E 530 hero cta2', {
         '--hero-button-hover-bg': PRIMARY_HOVER,
-        '--hero-cta2-hover-bg': SECOND_HOVER,
+        '--hero-button2-hover-bg': SECOND_HOVER,
       });
 
       await page.setViewportSize({ width, height: 900 });
@@ -7637,11 +7637,11 @@ test.describe('#530 hover fill slots paint and stay isolated (real WP)', () => {
       const got = await readOnHover(page, HERO_SECOND, HERO_PRIMARY, HERO_SECOND);
 
       expect(got.second.bgImage, `@${width}: cta2's hover gradient must be cleared`).toBe('none');
-      expect(got.second.bgColor, `@${width}: cta2 must paint --hero-cta2-hover-bg`).toBe(
+      expect(got.second.bgColor, `@${width}: cta2 must paint --hero-button2-hover-bg`).toBe(
         got.secondHover,
       );
       // The hover BORDER now FOLLOWS the hover fill (issue 538, Option 3). #530 pinned the
-      // negative here; that pin is flipped, not deleted. With --hero-cta2-hover-border and
+      // negative here; that pin is flipped, not deleted. With --hero-button2-hover-border and
       // --hero-accent-hover both unset, the fill is the last link before the theme default,
       // so a fill-only recolor gets a MATCHING ring instead of a --color-accent-hover one.
       expect(got.second.borderColor, `@${width}: cta2 hover border must follow the fill`).toBe(
@@ -7691,7 +7691,7 @@ test.describe('#530 hover fill slots paint and stay isolated (real WP)', () => {
   test('cta2 hover fill alone clears the gradient (primary hover slot unset) @smoke', async ({
     page,
   }) => {
-    pageId = heroPage('E2E 530 cta2 alone', { '--hero-cta2-hover-bg': SECOND_HOVER });
+    pageId = heroPage('E2E 530 cta2 alone', { '--hero-button2-hover-bg': SECOND_HOVER });
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
@@ -7724,7 +7724,7 @@ test.describe('#530 hover fill slots paint and stay isolated (real WP)', () => {
   });
 
   // The HERO half of the isolation fix, at render level. Without this test, deleting
-  // `--hero-button-hover-bg: var(--hero-cta2-hover-bg)` from the hero isolation rule would
+  // `--hero-button-hover-bg: var(--hero-button2-hover-bg)` from the hero isolation rule would
   // fail only the CSS-TEXT pin in StyleSlotContractTest — the exact pin class this block's
   // header says cannot see the defect. Note the other hero tests do NOT cover it: the primary
   // test reads cta2 at REST, and the cta2 test sets BOTH slots (cta2's own higher-specificity
@@ -7830,7 +7830,7 @@ test.describe('#530 hover fill slots paint and stay isolated (real WP)', () => {
  * the hover border chain, because unlike the hover FILL (which the premium gradient masked,
  * so it rendered nothing and no shipped composition could depend on it) the hover BORDER has
  * always painted. Inserting the fill AHEAD of the accent knob would therefore have repainted
- * an explicitly authored ring on live sites — --hero-cta2-hover-bg and --cta-button2-hover-bg
+ * an explicitly authored ring on live sites — --hero-button2-hover-bg and --cta-button2-hover-bg
  * both shipped in v1.10.0. Option 3 puts the fill BEHIND the accent knob instead.
  *
  * That makes the contract directional, and direction is exactly what a CSS-text pin proves
@@ -7865,11 +7865,11 @@ test.describe('#538 filled second-button hover ring follows the hover fill (real
         props: {
           id: 'pp-538-hero',
           title: 'Ship faster',
-          cta_text: 'Primary action',
-          cta_url: '/start',
-          cta2_text: 'Second action',
-          cta2_url: '/learn',
-          cta2_variant: 'primary',
+          button_text: 'Primary action',
+          button_url: '/start',
+          button2_text: 'Second action',
+          button2_url: '/learn',
+          button2_variant: 'primary',
         },
         ...(style ? { style } : {}),
       },
@@ -7939,7 +7939,7 @@ test.describe('#538 filled second-button hover ring follows the hover fill (real
     // THE DEFECT. Exactly the configuration the v1.11.0 dev smoke rendered: a purple hover
     // fill under a --color-accent-hover blue ring. Post-#538 the ring must be purple too.
     test(`hero cta2 fill-only hover ring matches the fill (${width}px) @smoke`, async ({ page }) => {
-      pageId = heroPage('E2E 538 hero fill only', { '--hero-cta2-hover-bg': FILL });
+      pageId = heroPage('E2E 538 hero fill only', { '--hero-button2-hover-bg': FILL });
       await open(page, pageId, HERO_SECOND, width);
 
       const got = await ringOnHover(page, HERO_SECOND);
@@ -7970,7 +7970,7 @@ test.describe('#538 filled second-button hover ring follows the hover fill (real
     page,
   }) => {
     pageId = heroPage('E2E 538 hero accent wins', {
-      '--hero-cta2-hover-bg': FILL,
+      '--hero-button2-hover-bg': FILL,
       '--hero-accent-hover': ACCENT,
     });
     await open(page, pageId, HERO_SECOND, 1280);
@@ -7997,11 +7997,11 @@ test.describe('#538 filled second-button hover ring follows the hover fill (real
   });
 
   // The dedicated hover-border slot stays the strongest link in the chain.
-  test('hero cta2: an authored --hero-cta2-hover-border beats both @smoke', async ({ page }) => {
+  test('hero cta2: an authored --hero-button2-hover-border beats both @smoke', async ({ page }) => {
     pageId = heroPage('E2E 538 hero border wins', {
-      '--hero-cta2-hover-bg': FILL,
+      '--hero-button2-hover-bg': FILL,
       '--hero-accent-hover': ACCENT,
-      '--hero-cta2-hover-border': BORDER,
+      '--hero-button2-hover-border': BORDER,
     });
     await open(page, pageId, HERO_SECOND, 1280);
 
@@ -8082,7 +8082,7 @@ test.describe('#538 filled second-button hover ring follows the hover fill (real
 
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    const res = await styleComponent(page, pageId, { '--hero-cta2-hover-bg': FILL });
+    const res = await styleComponent(page, pageId, { '--hero-button2-hover-bg': FILL });
     expect(res.success, 'style_component must accept the hover fill slot').toBe(true);
 
     await open(page, pageId, HERO_SECOND, 1280);
@@ -8631,9 +8631,9 @@ test.describe('#543 filled second button is ringed on overlay bands (real WP)', 
     component: 'hero',
     props: {
       title,
-      cta_text: 'Primary action', cta_url: '/start',
-      cta2_text: 'Second action', cta2_url: '/learn',
-      cta2_variant: 'primary',
+      button_text: 'Primary action', button_url: '/start',
+      button2_text: 'Second action', button2_url: '/learn',
+      button2_variant: 'primary',
       ...props,
     },
     ...(style ? { style } : {}),
@@ -8830,8 +8830,8 @@ test.describe('#543 filled second button is ringed on overlay bands (real WP)', 
         '--cta-button2-hover-border': RING,
       }),
       heroPair('Authored rings', { layout: 'cover' }, {
-        '--hero-cta2-border': RING,
-        '--hero-cta2-hover-border': RING,
+        '--hero-button2-border': RING,
+        '--hero-button2-hover-border': RING,
       }),
     ]);
     await open(page, pageId, 1280);
@@ -9104,8 +9104,8 @@ test.describe('#543 filled second button is ringed on overlay bands (real WP)', 
         {
           '--hero-button-bg': FILL,
           '--hero-button-hover-bg': FILL,
-          '--hero-cta2-bg': FILL,
-          '--hero-cta2-hover-bg': FILL,
+          '--hero-button2-bg': FILL,
+          '--hero-button2-hover-bg': FILL,
         },
       ),
     ]);
@@ -9608,8 +9608,8 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
           id: 'pp-545-hero',
           layout: 'centered',
           title: 'Ship faster',
-          cta_text: 'Start now',
-          cta_url: '/start',
+          button_text: 'Start now',
+          button_url: '/start',
           proof: '<p>Trusted by teams <a class="btn" href="/x">Inline CTA</a></p>',
         },
         ...(style ? { style } : {}),
@@ -9906,7 +9906,7 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
  *
  *   BAND (padding edges)          <- already covered by #431/#430; re-asserted here
  *     |                              so the baseline is self-contained
- *     +-- heading  --------------- max-width: var(--cta-content-width, 40rem)  <- #578 severs this
+ *     +-- heading  --------------- max-width: var(--cta-heading-measure, 40rem)  <- #578 severs this
  *     +-- body / per-item surface
  *          table : .table-wrap > .table > thead/th, tbody/td, caption
  *          embed : .embed__content (max-width: 40rem)                          <- #578 + #577
@@ -9920,7 +9920,7 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
  *
  * MEASURE PINS ASSERT THE ROUTE, NOT ONLY THE NUMBER. A pin that only checks
  * "the heading is 640px wide" survives the deletion of the slot it is supposed to
- * protect: replacing `var(--cta-content-width, 40rem)` with a bare `40rem` keeps the
+ * protect: replacing `var(--cta-heading-measure, 40rem)` with a bare `40rem` keeps the
  * number and loses the capability. Each long-heading case therefore ALSO drives the
  * slot to a second value and re-measures, so #578 cannot sever the route without
  * this block noticing.
@@ -10199,13 +10199,13 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
 
   /**
    * The direct net for the measure-surface severance (#578). All three headings cap
-   * through the SHARED `var(--cta-content-width, 40rem)` rule, and after severance
+   * through the SHARED `var(--cta-heading-measure, 40rem)` rule, and after severance
    * each gets its own `var(--<c>-heading-measure, 40rem)`.
    *
    * Three things are pinned, because only the third survives a bad severance:
    *   1. the cap resolves to 40rem and binds at desktop (the number),
    *   2. the title actually wraps inside it (the fixture is genuinely stressed),
-   *   3. driving `--cta-content-width` MOVES the heading (the route still exists).
+   *   3. driving `--cta-heading-measure` MOVES the heading (the route still exists).
    *
    * Without (3) a rewrite to a literal `max-width: 40rem` — the exact regression #578
    * could ship — keeps every number and loses the authorable slot silently.
@@ -10274,12 +10274,12 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
       // The ROUTE, not the number: drive the slot and the heading must follow. This
       // pins that an AUTHORABLE measure still reaches the heading — it deliberately
       // does not pin the variable's spelling, so #578 severing the shared slot into a
-      // per-component `var(--<c>-heading-measure, var(--cta-content-width, 40rem))`
+      // per-component `var(--<c>-heading-measure, var(--cta-heading-measure, 40rem))`
       // still passes, while a rewrite to a bare `max-width: 40rem` fails here.
       // Verified by mutation: replacing the var() with the literal turns this red.
       // Back to 1280 first — at 375 the container binds and no cap value is observable.
       await open(page, 1280, heading.selector);
-      await page.addStyleTag({ content: ':root { --cta-content-width: 30rem; }' });
+      await page.addStyleTag({ content: ':root { --cta-heading-measure: 30rem; }' });
       const driven = await measureHeadingBox(page, heading.selector);
       const drivenCap = Math.round((desktop.capPx / 40) * 30);
       expect(driven.maxWidth, 'the heading measure is still slot-routed, not a literal').toBe(

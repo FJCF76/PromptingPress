@@ -137,7 +137,7 @@ precisely so the machine-readable grammar never has to grow to swallow them:
 
 - **Disjunction** — a slot that applies on dark bands only, i.e. `theme:
   inverted` **or** `background_image` present.
-- **Composed-page context** — `--grid-card-bar-*` / `--grid-featured-*` apply
+- **Composed-page context** — `--grid-item-bar-*` / `--grid-featured-*` apply
   only under a `main >` scope, which is not a prop, not a slot and not a value.
 - **Interaction state** — a question's open state.
 
@@ -183,12 +183,19 @@ Names freeze at the first stable contract. A later rename uses the
 | `pp_legacy_prop_aliases()` | `lib/admin.php` | legacy prop **key** → canonical prop **key** |
 | `props.<p>.aliases` | `schema.json` | legacy prop **value** (accepted, never advertised) |
 
-The two name maps are **not symmetric**, and the difference matters:
+The two name maps are **symmetric** as of #576/#594 — both resolve on every composition
+**read**, and the slot map resolves again at the render boundary as belt-and-braces:
 
 | Map | Resolves at | Consequence |
 |---|---|---|
 | `pp_legacy_prop_aliases()` | every composition **read** | a legacy-shaped band heals to canonical keys on any whole-array write-back, including bands you did not touch. Value-preserving except when an item stores **both** names, where canonical-wins drops the legacy value. The heal is **not** reported in the action's `changes`. |
-| `pp_legacy_slot_aliases()` | **render only** | a stored legacy slot name paints, but every whole-composition validation still rejects it, so the page cannot be edited or saved. The map ships empty; the gate that lands the first real slot rename must close this in the same change. |
+| `pp_legacy_slot_aliases()` | every composition **read**, and again at **render** | same heal semantics, over the component-level `style` map and every per-item style map the schema declares. Before #576 this resolved at render ONLY, so a stored legacy slot name painted but every whole-composition validation rejected it and the page could not be edited or saved — closed by #594 in the same change as the first rename. |
+
+**One asymmetry remains, and it is deliberate.** Resolution covers the ALREADY-STORED
+document. A *new* write naming a legacy **slot** is still rejected with
+`invalid_style_slot`, whereas a new write naming a legacy **prop** key is accepted and
+silently stored under the canonical key (the #495 heal-on-write model). Author with
+canonical names: every read path hands you those.
 
 Both resolve under one bounded rule:
 

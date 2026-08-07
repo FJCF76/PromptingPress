@@ -144,7 +144,7 @@ describe what you want.
 **Revise a section:**
 
 ```text
-On the homepage (post 74), rewrite the hero subtitle to "Structured WordPress for AI
+On the homepage (post 74), rewrite the hero subheading to "Structured WordPress for AI
 agents" and cut the features grid to its three strongest items. Hand off with desktop
 and mobile screenshots.
 ```

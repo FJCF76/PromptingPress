@@ -1,6 +1,6 @@
 {
   "component": "hero",
-  "description": "Full-width hero section with headline, optional subtitle, optional CTA buttons (primary + secondary), and optional image. Supports four structural layouts.",
+  "description": "Full-width hero section with headline, optional subheading, optional CTA buttons (primary + secondary), and optional image. Supports four structural layouts.",
   "props": {
     "id": {
       "type": "string",
@@ -25,51 +25,51 @@
       "default": "",
       "description": "Optional short kicker/label rendered as a pill above the title (e.g. \"NEW\", \"PLUGIN OFICIAL\")."
     },
-    "subtitle": {
+    "subheading": {
       "type": "string",
       "required": false,
       "default": "",
       "description": "Supporting subheadline shown below the title."
     },
-    "cta_text": {
+    "button_text": {
       "type": "string",
       "required": false,
       "default": "",
       "description": "Primary CTA button label. Leave empty to hide both buttons."
     },
-    "cta_url": {
+    "button_url": {
       "type": "string",
       "required": false,
       "default": "#",
       "format": "link_url",
       "description": "Primary CTA button URL. Accepts an absolute URL, a site-relative /path, an #anchor, mailto:, or tel:; a disallowed protocol (javascript:, data:) is rejected at write time."
     },
-    "cta2_text": {
+    "button2_text": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Secondary CTA button label. Renders as outline/ghost style. Only shown when cta_text is also set."
+      "description": "Secondary CTA button label. Renders as outline/ghost style. Only shown when button_text is also set."
     },
-    "cta2_url": {
+    "button2_url": {
       "type": "string",
       "required": false,
       "default": "#",
       "format": "link_url",
       "description": "Secondary CTA button URL. Accepts an absolute URL, a site-relative /path, an #anchor, mailto:, or tel:; a disallowed protocol (javascript:, data:) is rejected at write time."
     },
-    "cta_variant": {
+    "button_variant": {
       "type": "enum",
       "values": ["primary", "secondary", "outline", "ghost"],
       "required": false,
       "default": "primary",
-      "description": "Primary CTA button style. 'primary' = filled accent (bare .btn). 'secondary' = muted surface fill. 'outline' = accent border, transparent fill. 'ghost' = borderless text button. Set via update_component (a prop, not a style slot)."
+      "description": "Primary button style. 'primary' = filled accent (bare .btn). 'secondary' = muted surface fill. 'outline' = accent border, transparent fill. 'ghost' = borderless text button. Set via update_component (a prop, not a style slot)."
     },
-    "cta2_variant": {
+    "button2_variant": {
       "type": "enum",
       "values": ["primary", "secondary", "outline", "ghost"],
       "required": false,
       "default": "outline",
-      "description": "Secondary CTA button style — defaults to 'outline' to match the historical always-outline second button. 'primary' = filled accent. 'secondary' = muted surface fill. 'ghost' = borderless text button. Set via update_component (a prop, not a style slot)."
+      "description": "Second button style — defaults to 'outline' so a primary + secondary pair reads as one filled action and one outlined action. 'primary' = filled accent. 'secondary' = muted surface fill. 'outline' = accent border, transparent fill. 'ghost' = borderless text button. Set via update_component (a prop, not a style slot). Only rendered when button2_text is set."
     },
     "layout": {
       "type": "enum",
@@ -140,8 +140,8 @@
       "--hero-padding-top": { "type": "length", "default": "var(--space-xl)", "description": "Top padding of the hero section" },
       "--hero-padding-bottom": { "type": "length", "default": "var(--space-xl)", "description": "Bottom padding of the hero section" },
       "--hero-bg": { "type": "gradient", "default": "var(--color-bg)", "description": "Background color or gradient. Note: also used as the outline button's hover text color, which is invalid CSS if set to a gradient — that hover color falls back to inherited text color when this is a gradient (a narrow, isolated cosmetic limitation, not a broken page)." },
-      "--hero-text": { "type": "color", "default": "var(--color-text)", "description": "Title and subtitle text color" },
-      "--hero-title-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the title, if set" },
+      "--hero-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Hero title text color. It ALSO drives the outline/ghost button ink and ring inside the hero — a residue of this slot's pre-rename band-ink role (#576) that the name does not describe. The subheading is NOT one of its jobs; that is --hero-subheading-color." },
+      "--hero-heading-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the title, if set" },
       "--hero-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color" },
       "--hero-eyebrow-bg": { "type": "color", "default": "var(--color-surface-accent)", "description": "Eyebrow pill background color" },
       "--hero-eyebrow-radius": { "type": "length", "default": "3px", "description": "Eyebrow pill corner radius. Set a large value (e.g. 999px) for a fully rounded pill." },
@@ -149,21 +149,21 @@
       "--hero-eyebrow-border-color": { "type": "color", "default": "transparent", "description": "Eyebrow pill border color. Takes effect when --hero-eyebrow-border-width is non-zero." },
       "--hero-eyebrow-text-transform": { "type": "text-transform", "default": "uppercase", "description": "Eyebrow pill letter-casing. Default uppercase renders the kicker in caps; set none to keep it as authored (e.g. sentence case), or lowercase / capitalize." },
       "--hero-accent": { "type": "color", "default": "var(--color-accent)", "description": "Primary button BORDER color (and the outline CTA's hover fill). Does NOT recolor the filled primary button's visible gradient fill on its own — set --hero-button-bg for that (the filled primary ships a premium gradient the accent border sits around)." },
-      "--hero-accent-hover": { "type": "color", "default": "var(--color-accent-hover)", "description": "Primary button hover BORDER color (and the outline CTA's hover fill), mirroring --hero-accent at rest. Does NOT recolor the filled primary button's visible hover fill on its own — set --hero-button-hover-bg for that (the filled primary ships a premium hover gradient the accent border sits around). It also outranks --hero-cta2-hover-bg on the SECOND CTA, so setting it keeps that button's hover ring on the accent even when its hover fill is recolored (#538)." },
-      "--hero-button-bg": { "type": "color", "default": "(premium accent gradient)", "description": "Primary (filled) button RESTING fill color, independent of --hero-accent (which only recolors the border). Set a flat color to replace the premium gradient with a solid brand fill; pair with --hero-accent (border) and optionally --hero-button-color (ink) for a fully brand-colored filled hero CTA. Unset, the button keeps the premium gradient. This slot governs the RESTING state only — set --hero-button-hover-bg for the hover fill, otherwise hover keeps the premium gradient. Applies to the PRIMARY button only — it never reaches the second CTA, which has its own --hero-cta2-* slots." },
-      "--hero-button-hover-bg": { "type": "color", "default": "(premium accent gradient)", "description": "Primary (filled) button HOVER fill color. Set a flat color to replace the premium hover gradient with a solid brand fill, the way --hero-button-bg does for the resting state; pair the two for a filled hero CTA that stays on-brand through the hover. Unset, hover keeps the premium gradient. Set it TOGETHER with --hero-button-bg when the button should already look branded at rest; with only the hover slot set the resting button keeps the premium gradient and the brand fill appears on hover. Either way the swap is clean: on a PRIMARY button the fill and its ring change instantly instead of animating, so no unchosen in-between color renders; the outline/ghost/secondary variants keep the shared button cross-fade. When --hero-accent-hover is also unset, the hover border FOLLOWS this fill so a fill-only recolor keeps a matching ring. Applies to the PRIMARY button only — it never reaches the second CTA, which has --hero-cta2-hover-bg." },
-      "--hero-button-color": { "type": "color", "default": "var(--color-bg)", "description": "Primary (filled) button text (ink) color, independent of --hero-accent. Reverts to the default light ink on hover. Applies to the PRIMARY button only — it never reaches the second CTA, which has --hero-cta2-color." },
-      "--hero-button-shadow": { "type": "shadow", "default": "(premium bevel)", "description": "Primary (filled) button box shadow. Set to `none` for a FLAT button (removes the gradient bevel/drop shadow on rest AND hover); pair with --hero-button-bg (a flat color) and --hero-button-color (ink) for a flat primary hero CTA. Applies to the PRIMARY button only — it never reaches the second CTA (which has no elevation slot: a filled cta2 keeps the premium bevel)." },
-      "--hero-cta2-bg": { "type": "color", "default": "(varies by cta2_variant)", "description": "Second CTA button RESTING background color, independent of the primary button (the cta2 slots are never affected by --hero-button-*, in rest or hover). Applies whatever cta2_variant is set to: on a filled (primary) cta2 it replaces the premium gradient with a flat fill, exactly as --hero-button-bg does for the primary button. This slot governs the RESTING state only — set --hero-cta2-hover-bg for the hover fill, otherwise hover keeps the premium gradient." },
-      "--hero-cta2-border": { "type": "color", "default": "(varies by cta2_variant)", "description": "Second CTA button border color, independent of the primary button. Leave unset and the border FOLLOWS --hero-cta2-bg (after --hero-accent), so a fill-only recolor keeps a matching ring; set this only when the ring should differ from the fill." },
-      "--hero-cta2-color": { "type": "color", "default": "(varies by cta2_variant)", "description": "Second CTA button text color, independent of the primary button." },
-      "--hero-cta2-hover-bg": { "type": "color", "default": "(varies by cta2_variant)", "description": "Second CTA button hover background color, independent of the primary button's --hero-button-hover-bg. Applies whatever cta2_variant is set to: on a filled (primary) cta2 it replaces the premium hover gradient with a flat fill, exactly as --hero-button-hover-bg does for the primary button. Pair with --hero-cta2-bg for a second CTA that stays on-brand through the hover. On a PRIMARY button the fill and its ring change instantly rather than animating, so no unchosen in-between color renders; the outline/ghost/secondary variants keep the shared button cross-fade." },
-      "--hero-cta2-hover-border": { "type": "color", "default": "(varies by cta2_variant)", "description": "Second CTA button hover border color. Unset, it falls to --hero-accent-hover, then to --hero-cta2-hover-bg, then to the theme default — so on a FILLED cta2 a recolored hover fill already carries a matching ring with no border slot set, mirroring --hero-cta2-border at rest. Set this (or --hero-accent-hover) only when the hover ring should DIFFER from the hover fill. The outline/ghost/secondary variants do not follow the hover fill: on those, set this slot explicitly for a ring that tracks a recolored hover fill." },
-      "--hero-cta2-hover-color": { "type": "color", "default": "(varies by cta2_variant)", "description": "Second CTA button hover text color." },
-      "--hero-title-size": { "type": "length", "default": "clamp(2.5rem, 5vw, 4rem)", "description": "Title font size" },
-      "--hero-title-weight": { "type": "number", "default": "var(--font-weight-heading)", "description": "Title font weight" },
-      "--hero-subtitle-size": { "type": "length", "default": "1.0625rem", "description": "Subtitle font size" },
-      "--hero-subtitle-color": { "type": "color", "default": "var(--color-muted)", "description": "Subtitle text color" },
+      "--hero-accent-hover": { "type": "color", "default": "var(--color-accent-hover)", "description": "Primary button hover BORDER color (and the outline CTA's hover fill), mirroring --hero-accent at rest. Does NOT recolor the filled primary button's visible hover fill on its own — set --hero-button-hover-bg for that (the filled primary ships a premium hover gradient the accent border sits around). It also outranks --hero-button2-hover-bg on the SECOND CTA, so setting it keeps that button's hover ring on the accent even when its hover fill is recolored (#538)." },
+      "--hero-button-bg": { "type": "color", "default": "(premium accent gradient)", "description": "Primary (filled) button RESTING fill color, independent of --hero-accent (which only recolors the border). Set a flat color to replace the premium gradient with a solid brand fill; pair with --hero-accent (border) and optionally --hero-button-color (ink) for a fully brand-colored filled hero CTA. Unset, the button keeps the premium gradient. This slot governs the RESTING state only — set --hero-button-hover-bg for the hover fill, otherwise hover keeps the premium gradient. Applies to the PRIMARY button only — it never reaches the second CTA, which has its own --hero-button2-* slots." },
+      "--hero-button-hover-bg": { "type": "color", "default": "(premium accent gradient)", "description": "Primary (filled) button HOVER fill color. Set a flat color to replace the premium hover gradient with a solid brand fill, the way --hero-button-bg does for the resting state; pair the two for a filled hero CTA that stays on-brand through the hover. Unset, hover keeps the premium gradient. Set it TOGETHER with --hero-button-bg when the button should already look branded at rest; with only the hover slot set the resting button keeps the premium gradient and the brand fill appears on hover. Either way the swap is clean: on a PRIMARY button the fill and its ring change instantly instead of animating, so no unchosen in-between color renders; the outline/ghost/secondary variants keep the shared button cross-fade. When --hero-accent-hover is also unset, the hover border FOLLOWS this fill so a fill-only recolor keeps a matching ring. Applies to the PRIMARY button only — it never reaches the second CTA, which has --hero-button2-hover-bg." },
+      "--hero-button-color": { "type": "color", "default": "var(--color-bg)", "description": "Primary (filled) button text (ink) color, independent of --hero-accent. Reverts to the default light ink on hover. Applies to the PRIMARY button only — it never reaches the second CTA, which has --hero-button2-color." },
+      "--hero-button-shadow": { "type": "shadow", "default": "(premium bevel)", "description": "Primary (filled) button box shadow. Set to `none` for a FLAT button (removes the gradient bevel/drop shadow on rest AND hover); pair with --hero-button-bg (a flat color) and --hero-button-color (ink) for a flat primary hero CTA. Applies to the PRIMARY button only — it never reaches the second CTA (which has no elevation slot: a filled second button keeps the premium bevel)." },
+      "--hero-button2-bg": { "type": "color", "default": "(varies by button2_variant)", "description": "Second CTA button RESTING background color, independent of the primary button (the --hero-button2-* slots are never affected by --hero-button-*, in rest or hover). Applies whatever button2_variant is set to: on a filled (primary) second button it replaces the premium gradient with a flat fill, exactly as --hero-button-bg does for the primary button. This slot governs the RESTING state only — set --hero-button2-hover-bg for the hover fill, otherwise hover keeps the premium gradient." },
+      "--hero-button2-border": { "type": "color", "default": "(varies by button2_variant)", "description": "Second CTA button border color, independent of the primary button. Leave unset and the border FOLLOWS --hero-button2-bg (after --hero-accent), so a fill-only recolor keeps a matching ring; set this only when the ring should differ from the fill." },
+      "--hero-button2-color": { "type": "color", "default": "(varies by button2_variant)", "description": "Second CTA button text color, independent of the primary button." },
+      "--hero-button2-hover-bg": { "type": "color", "default": "(varies by button2_variant)", "description": "Second CTA button hover background color, independent of the primary button's --hero-button-hover-bg. Applies whatever button2_variant is set to: on a filled (primary) second button it replaces the premium hover gradient with a flat fill, exactly as --hero-button-hover-bg does for the primary button. Pair with --hero-button2-bg for a second CTA that stays on-brand through the hover. On a PRIMARY button the fill and its ring change instantly rather than animating, so no unchosen in-between color renders; the outline/ghost/secondary variants keep the shared button cross-fade." },
+      "--hero-button2-hover-border": { "type": "color", "default": "(varies by button2_variant)", "description": "Second CTA button hover border color. Unset, it falls to --hero-accent-hover, then to --hero-button2-hover-bg, then to the theme default — so on a FILLED second button a recolored hover fill already carries a matching ring with no border slot set, mirroring --hero-button2-border at rest. Set this (or --hero-accent-hover) only when the hover ring should DIFFER from the hover fill. The outline/ghost/secondary variants do not follow the hover fill: on those, set this slot explicitly for a ring that tracks a recolored hover fill." },
+      "--hero-button2-hover-color": { "type": "color", "default": "(varies by button2_variant)", "description": "Second CTA button hover text color." },
+      "--hero-heading-size": { "type": "length", "default": "clamp(2.5rem, 5vw, 4rem)", "description": "Title font size" },
+      "--hero-heading-weight": { "type": "number", "default": "var(--font-weight-heading)", "description": "Title font weight" },
+      "--hero-subheading-size": { "type": "length", "default": "1.0625rem", "description": "Subheading font size" },
+      "--hero-subheading-color": { "type": "color", "default": "var(--color-muted)", "description": "Subheading text color" },
       "--hero-proof-color": { "type": "color", "default": "var(--color-muted)", "description": "Proof line text color (trust signals below the CTA); route it to a light value on dark heroes so it is not dark-on-dark" },
       "--hero-content-gap": { "type": "length", "default": "var(--space-md)", "description": "Gap between content elements" },
       "--hero-content-width": { "type": "length", "default": "var(--measure-centered)", "description": "Max width of the content column" },
@@ -188,8 +188,8 @@
         "description": "Dark background with generous padding and light text",
         "slots": {
           "--hero-bg": "#0d1117",
-          "--hero-text": "#f0f0f0",
-          "--hero-subtitle-color": "#8b949e",
+          "--hero-heading-color": "#f0f0f0",
+          "--hero-subheading-color": "#8b949e",
           "--hero-padding-top": "6rem",
           "--hero-padding-bottom": "6rem"
         }
@@ -205,8 +205,8 @@
       "bold-headline": {
         "description": "Oversized title with narrow content column",
         "slots": {
-          "--hero-title-size": "clamp(3rem, 6vw, 5rem)",
-          "--hero-title-weight": "900",
+          "--hero-heading-size": "clamp(3rem, 6vw, 5rem)",
+          "--hero-heading-weight": "900",
           "--hero-content-width": "36rem"
         }
       }

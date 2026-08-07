@@ -221,7 +221,7 @@ function ppChatBuildCompositionSummary(from, to) {
             var fromProps = (fromArr[i] && fromArr[i].props) || {};
             var toProps = (toArr[i] && toArr[i].props) || {};
             // Check key text fields for changes
-            var textKeys = ['title', 'heading', 'text', 'content', 'description', 'subtitle', 'label'];
+            var textKeys = ['title', 'heading', 'text', 'body', 'content', 'description', 'subheading', 'label'];
             for (var k = 0; k < textKeys.length; k++) {
                 var key = textKeys[k];
                 if (fromProps[key] !== toProps[key] && (fromProps[key] || toProps[key])) {
