@@ -4,6 +4,59 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.7] — 2026-08-08 — a write that says "ok" now means the page does that (#579)
+
+**Every enum prop rejects a value it used to accept-and-quietly-ignore, the write path stops accepting CSS the renderer was always going to throw away, and a logo entry that renders nothing can no longer be saved. Zero rendered pixels change.**
+
+The write path and the render path had been running two different rulebooks. Twenty-eight of the twenty-nine enum props accepted any string at write and let the renderer coerce it to the default, so `button2_variant: "neon"` returned `ok:true` and drew an outline button. `--stats-number-font: "serif /*"` passed validation, persisted, and then opened a CSS comment inside the band's inline style that swallowed every declaration after it — the number colour and the background image vanished while the scrim kept painting over nothing. A `logos` entry carrying a `label` and no `image_url` validated, saved, reported success, and rendered nothing at all, and the empty-band warning stayed silent because one *other* logo in the strip still had an image. In every case the action reported success and the page did something else.
+
+This closes the gap by making the two rulebooks one. The value grammar the write path accepts is now equal to the value grammar the render path acts on.
+
+### The numbers that matter
+
+Measured against the shipped schemas and the full local suite (`./vendor/bin/phpunit --configuration phpunit.xml`, `npm test`).
+
+| | before | after |
+|---|---|---|
+| Enum props validated at write | 1 of 29 | 29 of 29 (top-level) |
+| CSS reject sets in the codebase | 2, divergent | 1, two callers |
+| `items[]` `required` declarations enforced | 0 of 7 | 7 of 7 |
+| Style-slot scope enforced at render | 1 of 2 call sites (neither) | 2 of 2 |
+| PHP tests | 2674 | 2749 |
+
+The reject-set count is the one to read. Two sets meant a value could clear the write boundary and be silently dropped at the render boundary, which is the whole failure class in one sentence.
+
+### What this means for anyone authoring pages with an agent
+
+Wrong values now come back as a named error at the moment you write them, instead of as a page that looks wrong later. `theme: "dark"` keeps working forever — it is a declared alias, accepted at write and never advertised — so pages authored before the rename stay editable. `--stats-max-width` can finally be set to `none`, the value its own schema has declared as the default since it shipped; the workaround of writing `100%` is retired. And two new advisories warn without ever blocking: a band that renders no content, and a button whose fill is `transparent` (present, focusable, clickable, invisible).
+
+### Itemized changes
+
+### Fixed
+
+- Every top-level enum prop declares `strict: true` (28 newly). An out-of-set value is rejected with `invalid_prop_value` naming the accepted set, instead of persisting and coercing at render. Render output is unchanged by construction — the renderer already coerced.
+- The `theme` prop's declared `aliases: ["dark"]` is consumed by the write path. Without it the strict gate would have been destructive rather than strict: every action validates the *whole* composition, so one untouched band still carrying `theme: "dark"` would have blocked edits to a different band on the same page — and that value is also manufactured at read time from a stored `variant: "dark"`, so it appears on pages where the string is nowhere in storage.
+- The write-time and render-time CSS reject sets are one set with two callers. The write path adopts the render boundary's class verbatim (backslashes, control characters, `url()`, `expression()`, `@import`) and both additionally reject the CSS comment delimiters `/*` and `*/`. `calc(4rem * 2 / 3)` and every other legal multiplication still validate.
+- `--stats-max-width` accepts `none`. The new `length-or-none` slot type is the `length` grammar plus that one keyword, scoped to band-geometry width caps — a padding, radius, font-size or text-measure slot still rejects it.
+- Per-item style maps only emit item-scoped slots. `pp_render_style_vars()` takes an item-scope parameter and both call sites pass it, so a container-scoped slot that reached storage through a raw write or a restore is dropped from the `<li>` instead of emitted onto it. Write and render read one shared predicate.
+- `required: true` on an `items[]` field is enforced by the shared validator instead of being decoration — seven declarations across `logos`, `stats`, `testimonials` and `faq`. A logos entry with a `label` and no `image_url` is now a named error rather than a silent disappearance.
+- `table.rows` rejects a scalar row, which the renderer used to cast into a one-cell row; `table.headers` and `grid.items[].bullets` type-check their entries.
+- The empty-band advisory covers `testimonials`, `embed`, `section`, `cta` and `hero`, not just the five structured-content components. `section` reads its own schema `content_requirement`, so the warn set and the write-time reject set cannot drift.
+- New non-blocking `transparent_fill` advisory when a slot declaring `role: "fill"` resolves to `transparent` or `currentColor`. Resting fills are pointed at the `outline` button variant; hover fills get their own wording, because telling an author already on `outline` to use `outline` is not advice.
+
+### Docs
+
+- `AI_CONTEXT.md`, `docs/reference-apply-cli.md`, `ai-instructions/add-component.md`, `ai-instructions/style-component.md`, `ai-instructions/composition.md` and the runtime AI prompt (`lib/ai-context.php`) all carry the new grammars, the two new advisories, and the `length-or-none` type.
+- The remaining known gap is stated rather than left to be discovered: nested `items[]` enums (`grid.items[].text_role`) are still accept-and-coerce, and declaring `strict` on one is a no-op.
+
+### Tests
+
+- New `tests/WriteRenderGrammarTest.php` pins the convergence itself: for every construct the render boundary drops, the write engine rejects. Plus the `serif /*` defect end-to-end, the raw-meta item-scope seeds for both grid and section, the nested-required walk driven from the schemas, and the fill advisory across all nine marked slots.
+- `restore_composition` is proved to still never block, for each new rejection class.
+- 2674 to 2749 PHP tests; JS unchanged at 1050.
+
+---
+
 ## [v1.12.6] — 2026-08-07 — every slot and prop now says what it is, and a renamed page stays editable (#576)
 
 **Fifty-one style slots and eleven props move to the canonical vocabulary, and the alias mechanism that makes stored pages survive it stops being render-only. A page carrying a legacy name now both paints AND saves — before this change it did exactly one of the two.**
