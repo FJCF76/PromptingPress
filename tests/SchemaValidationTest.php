@@ -2736,6 +2736,527 @@ class SchemaValidationTest extends TestCase
         return array_merge($props, $overrides);
     }
 
+    // ── The definition surface (issue #575) ───────────────────────────────
+    //
+    // Every field below is declared ON the slot/prop definition object in
+    // schema.json, never inferred from a name and never stored anywhere else. The
+    // surface is CLOSED: an unlisted key fails CI rather than being ignored, so the
+    // definition surface cannot drift the way the slot surface already did.
+    //
+    // #575 lands the SHAPES; it populates nothing. `applies_when` and the fill-role
+    // marker therefore have no real declarations yet, so their accept/reject cases
+    // run against synthetic definitions — the grammar is pinned before ~90 pairs
+    // depend on it, which is the whole point of landing the contract first.
+
+    /** @return array<string, array<string, mixed>> component => decoded schema */
+    private function allSchemas(): array
+    {
+        $schemas = [];
+        foreach (glob($this->themeRoot . '/components/*/schema.json') as $file) {
+            $schemas[basename(dirname($file))] = json_decode(file_get_contents($file), true);
+        }
+        $this->assertNotEmpty($schemas, 'no component schemas found');
+        return $schemas;
+    }
+
+    /**
+     * THE drift catcher. Every slot and prop definition object in every shipped
+     * schema conforms to the closed contract — no unknown keys, and every declared
+     * #575 field is well-shaped. A typo'd or half-landed definition key fails here
+     * instead of being silently ignored at runtime forever.
+     */
+    public function testEveryShippedDefinitionObjectConformsToTheClosedContract(): void
+    {
+        $errors = [];
+        foreach ($this->allSchemas() as $component => $schema) {
+            foreach (($schema['styling']['style_slots'] ?? []) as $name => $def) {
+                $errors = array_merge($errors, \pp_schema_definition_errors($def, 'slot', "{$component} {$name}"));
+            }
+            foreach (($schema['props'] ?? []) as $name => $def) {
+                $errors = array_merge($errors, \pp_schema_definition_errors($def, 'prop', "{$component}.{$name}"));
+                // Nested per-item definitions (props.<p>.items.<sub>) are definition
+                // objects too. Checking only the top level would leave the exact
+                // "typo'd key ignored forever" hole the closed surface exists to
+                // remove — grid.items alone carries 10+ sub-definitions. `style` is
+                // a per-item style-map marker, not a definition object.
+                foreach (($def['items'] ?? []) as $sub => $subDef) {
+                    if ($sub === 'style' || !is_array($subDef)) {
+                        continue;
+                    }
+                    $errors = array_merge(
+                        $errors,
+                        \pp_schema_definition_errors($subDef, 'prop', "{$component}.{$name}.items.{$sub}")
+                    );
+                }
+            }
+        }
+        $this->assertSame([], $errors, "definition-surface violations:\n" . implode("\n", $errors));
+    }
+
+    /** An unknown key on a definition object is REJECTED, not ignored. */
+    public function testUnknownDefinitionKeyIsRejected(): void
+    {
+        $slot = ['type' => 'color', 'default' => '#fff', 'description' => 'x', 'appliesWhen' => []];
+        $errors = \pp_schema_definition_errors($slot, 'slot', 'test --x');
+        $this->assertNotEmpty($errors, 'a misspelled definition key must be rejected');
+        $this->assertStringContainsString('unknown slot definition key `appliesWhen`', $errors[0]);
+
+        $prop = ['type' => 'string', 'required' => false, 'description' => 'x', 'alias' => ['dark']];
+        $propErrors = \pp_schema_definition_errors($prop, 'prop', 'test.x');
+        $this->assertNotEmpty($propErrors, 'a misspelled prop definition key must be rejected');
+        $this->assertStringContainsString('unknown prop definition key `alias`', $propErrors[0]);
+    }
+
+    /**
+     * The four clause forms of `applies_when`, and nothing else. The grammar is
+     * BOUNDED: it does not grow in #575, and if it ever needs to, the growth lands
+     * in the contract before anything populates it.
+     *
+     * @dataProvider validAppliesWhenClauses
+     */
+    public function testAppliesWhenAcceptsExactlyTheFourClauseForms(string $label, array $clause): void
+    {
+        $def = ['type' => 'length', 'default' => '48px', 'description' => 'x', 'applies_when' => [$clause]];
+        $this->assertSame([], \pp_schema_definition_errors($def, 'slot', 'test --x'), "clause form '{$label}' must be accepted");
+    }
+
+    public static function validAppliesWhenClauses(): array
+    {
+        return [
+            'prop equals'  => ['prop equals',  ['prop' => 'image_treatment', 'equals' => 'icon']],
+            'prop in'      => ['prop in',      ['prop' => 'layout', 'in' => ['cards', 'steps']]],
+            'prop present' => ['prop present', ['prop' => 'background_image', 'present' => true]],
+            'slot present' => ['slot present', ['slot' => '--grid-card-bar-color', 'present' => true]],
+        ];
+    }
+
+    /**
+     * Everything outside the four forms is rejected. Each case is a shape somebody
+     * would plausibly reach for — which is exactly why the grammar has to say no in
+     * CI rather than accept it and grow by accretion.
+     *
+     * @dataProvider invalidAppliesWhenClauses
+     */
+    public function testAppliesWhenRejectsEverythingOutsideTheGrammar(string $label, $clause): void
+    {
+        $def = ['type' => 'length', 'default' => '48px', 'description' => 'x', 'applies_when' => [$clause]];
+        $this->assertNotEmpty(
+            \pp_schema_definition_errors($def, 'slot', 'test --x'),
+            "clause '{$label}' is outside the bounded grammar and must be rejected"
+        );
+    }
+
+    public static function invalidAppliesWhenClauses(): array
+    {
+        return [
+            'any_of disjunction'   => ['any_of disjunction',   ['any_of' => [['prop' => 'theme', 'equals' => 'inverted']]]],
+            'context clause'       => ['context clause',       ['context' => 'main >']],
+            'unknown clause key'   => ['unknown clause key',   ['prop' => 'theme', 'equals' => 'inverted', 'unless' => 'x']],
+            'no subject'           => ['no subject',           ['equals' => 'icon']],
+            'no predicate'         => ['no predicate',         ['prop' => 'image_treatment']],
+            'two predicates'       => ['two predicates',       ['prop' => 'layout', 'equals' => 'cards', 'present' => true]],
+            'both subjects'        => ['both subjects',        ['prop' => 'layout', 'slot' => '--x', 'present' => true]],
+            'slot without dashes'  => ['slot without dashes',  ['slot' => 'grid-card-bar-color', 'present' => true]],
+            'slot with equals'     => ['slot with equals',     ['slot' => '--x', 'equals' => 'y']],
+            'negated present'      => ['negated present',      ['prop' => 'background_image', 'present' => false]],
+            'empty in list'        => ['empty in list',        ['prop' => 'layout', 'in' => []]],
+            'non-scalar in member' => ['non-scalar in member', ['prop' => 'layout', 'in' => [['cards']]]],
+            'not an object'        => ['not an object',        'image_treatment = icon'],
+        ];
+    }
+
+    /** `applies_when` is an ARRAY of ANDed clauses — never a bare clause object. */
+    public function testAppliesWhenMustBeANonEmptyArrayOfClauses(): void
+    {
+        foreach ([[], ['prop' => 'x', 'equals' => 'y'], 'x'] as $bad) {
+            $def = ['type' => 'length', 'default' => '1px', 'description' => 'x', 'applies_when' => $bad];
+            $this->assertNotEmpty(
+                \pp_schema_definition_errors($def, 'slot', 'test --x'),
+                'applies_when must be a non-empty array of clauses'
+            );
+        }
+    }
+
+    /**
+     * `conditionality_note` is BOUNDED prose — a non-empty string under a hard
+     * length cap. Unbounded prose in a machine-read field is a second grammar
+     * nobody validates.
+     */
+    public function testConditionalityNoteIsBoundedProse(): void
+    {
+        $ok = ['type' => 'color', 'default' => '#fff', 'description' => 'x',
+               'conditionality_note' => 'Applies on dark bands only: theme "inverted" OR a background_image.'];
+        $this->assertSame([], \pp_schema_definition_errors($ok, 'slot', 'test --x'));
+
+        foreach (['', '   ', 123, str_repeat('a', \PP_CONDITIONALITY_NOTE_MAX + 1)] as $bad) {
+            $def = ['type' => 'color', 'default' => '#fff', 'description' => 'x', 'conditionality_note' => $bad];
+            $this->assertNotEmpty(\pp_schema_definition_errors($def, 'slot', 'test --x'));
+        }
+
+        // The cap is CHARACTERS, as the error message says. Counting bytes would
+        // reject accented or non-Latin prose at roughly half the stated budget,
+        // with a count the note never had.
+        $multibyte = str_repeat('é', \PP_CONDITIONALITY_NOTE_MAX - 1);
+        $this->assertGreaterThan(\PP_CONDITIONALITY_NOTE_MAX, strlen($multibyte), 'fixture must exceed the BYTE cap');
+        $this->assertSame(
+            [],
+            \pp_schema_definition_errors(
+                ['type' => 'color', 'default' => '#fff', 'description' => 'x', 'conditionality_note' => $multibyte],
+                'slot',
+                'test --x'
+            ),
+            'a multibyte note under the CHARACTER cap must be accepted'
+        );
+
+        // Single line: the AI catalog is line-oriented, so an embedded newline in a
+        // schema-declared string forges catalog lines. Bound the shape at authoring
+        // time rather than papering over it in the emitter.
+        foreach (["dark bands\nStyle slots: --forged (color, default: #000)", "a\tb"] as $multiline) {
+            $this->assertNotEmpty(
+                \pp_schema_definition_errors(
+                    ['type' => 'color', 'default' => '#fff', 'description' => 'x', 'conditionality_note' => $multiline],
+                    'slot',
+                    'test --x'
+                ),
+                'a note spanning lines must be rejected'
+            );
+        }
+    }
+
+    /**
+     * `aliases` names legacy members of a BOUNDED set, and its write-path consumer
+     * lands with the strict-enum gate. Two contract holes are closed until then:
+     * it is meaningless on a non-enum prop, and declaring it beside `strict` would
+     * make the runtime catalog advertise a legacy value the writer refuses.
+     */
+    public function testAliasesRequireAnEnumAndCannotOutrunTheirWritePathConsumer(): void
+    {
+        $this->assertNotEmpty(
+            \pp_schema_definition_errors(
+                ['type' => 'string', 'required' => false, 'description' => 'x', 'aliases' => ['dark']],
+                'prop',
+                'test.x'
+            ),
+            '`aliases` on a non-enum prop emits a catalog line an agent cannot act on'
+        );
+
+        $errors = \pp_schema_definition_errors(
+            ['type' => 'enum', 'required' => false, 'default' => 'a', 'description' => 'x',
+             'values' => ['a', 'b'], 'aliases' => ['dark'], 'strict' => true],
+            'prop',
+            'test.x'
+        );
+        $this->assertNotEmpty($errors, 'advertise-but-reject must be rejected at the schema surface');
+        $this->assertStringContainsString('strict', implode(' ', $errors));
+
+        // No shipped schema hits either case today.
+        foreach ($this->allSchemas() as $component => $schema) {
+            foreach (($schema['props'] ?? []) as $name => $def) {
+                if (!isset($def['aliases'])) {
+                    continue;
+                }
+                $this->assertSame('enum', $def['type'] ?? null, "{$component}.{$name}");
+                $this->assertEmpty($def['strict'] ?? null, "{$component}.{$name}");
+            }
+        }
+    }
+
+    /**
+     * The three condition classes that stay PROSE must be named explicitly by the
+     * field's own documentation, or the next author guesses which side of the line
+     * their condition falls on and the grammar grows to swallow it.
+     */
+    public function testConditionalityNoteDocumentationNamesTheThreeProseClasses(): void
+    {
+        $doc = file_get_contents($this->themeRoot . '/lib/admin.php');
+        $start = strpos($doc, 'function pp_applies_when_clause_errors');
+        $this->assertNotFalse($start, 'the clause validator must exist');
+        $block = substr($doc, max(0, $start - 3000), 3000);
+
+        foreach (['DISJUNCTION', 'COMPOSED-PAGE CONTEXT', 'INTERACTION STATE'] as $class) {
+            $this->assertStringContainsString(
+                $class,
+                $block,
+                "the prose-only class '{$class}' must be named explicitly where the grammar is defined"
+            );
+        }
+    }
+
+    /**
+     * The fill marker is a DECLARED key with a bounded value, not a `-bg` /
+     * `-hover-bg` name convention. A naming convention is not machine-readable
+     * without a second source of truth, which is the defect this contract fixes one
+     * layer down.
+     */
+    public function testFillRoleMarkerIsADeclaredKeyWithABoundedValue(): void
+    {
+        $ok = ['type' => 'color', 'default' => 'var(--color-accent)', 'description' => 'x', 'role' => 'fill'];
+        $this->assertSame([], \pp_schema_definition_errors($ok, 'slot', 'test --x'));
+
+        foreach (['background', 'Fill', '', true] as $bad) {
+            $def = ['type' => 'color', 'default' => '#fff', 'description' => 'x', 'role' => $bad];
+            $this->assertNotEmpty(\pp_schema_definition_errors($def, 'slot', 'test --x'), 'role is a bounded set');
+        }
+
+        // `role` is a SLOT-definition key. On a prop it is an unknown key.
+        $this->assertNotEmpty(\pp_schema_definition_errors(
+            ['type' => 'string', 'required' => false, 'description' => 'x', 'role' => 'fill'],
+            'prop',
+            'test.x'
+        ));
+    }
+
+    /**
+     * #575 lands the marker; it applies it to nothing. The fill-slot family the
+     * marker must be able to describe lands in the write/render convergence gate.
+     */
+    public function testNoSlotDeclaresTheFillMarkerYet(): void
+    {
+        foreach ($this->allSchemas() as $component => $schema) {
+            foreach (($schema['styling']['style_slots'] ?? []) as $name => $def) {
+                $this->assertArrayNotHasKey('role', $def, "#575 populates no fill markers ({$component} {$name})");
+            }
+        }
+    }
+
+    /**
+     * The `theme` prop accepts the legacy value `dark` at write and NEVER advertises
+     * it. Dropping the alias is byte-identical at render (pp_theme_class() coerces
+     * `dark` forever) but breaks the WRITE path: the enum check runs on the WHOLE
+     * composition, so an untouched band's theme:"dark" would block an edit to a
+     * DIFFERENT band on the same page. This is the hard prerequisite for making enum
+     * props strict in a later gate.
+     */
+    public function testEveryThemePropDeclaresTheDarkAliasAndAdvertisesOnlyCanonicalValues(): void
+    {
+        $seen = 0;
+        foreach ($this->allSchemas() as $component => $schema) {
+            $theme = $schema['props']['theme'] ?? null;
+            if ($theme === null) {
+                continue;
+            }
+            $seen++;
+            $this->assertSame(['default', 'muted', 'inverted'], $theme['values'] ?? null,
+                "{$component}.theme must advertise only the canonical values");
+            $this->assertSame(['dark'], $theme['aliases'] ?? null,
+                "{$component}.theme must accept the legacy `dark` value as an alias");
+            $this->assertNotContains('dark', $theme['values'],
+                "{$component}.theme must never advertise `dark`");
+            $this->assertStringNotContainsString('"dark"', $theme['description'] ?? '',
+                "{$component}.theme description must not advertise `dark` either");
+        }
+        $this->assertSame(8, $seen, 'all eight theme-bearing components must declare the alias');
+    }
+
+    /** An alias is ACCEPTED, never ADVERTISED — declaring it in both lists is rejected. */
+    public function testAliasThatIsAlsoAdvertisedIsRejected(): void
+    {
+        $def = [
+            'type' => 'enum', 'required' => false, 'default' => 'a', 'description' => 'x',
+            'values' => ['a', 'b'], 'aliases' => ['b'],
+        ];
+        $errors = \pp_schema_definition_errors($def, 'prop', 'test.x');
+        $this->assertNotEmpty($errors);
+        $this->assertStringContainsString('accepted, never advertised', $errors[0]);
+    }
+
+    /** `aliases` is a non-empty list of non-empty strings, and is prop-only. */
+    public function testAliasesShapeIsEnforced(): void
+    {
+        foreach ([[], 'dark', ['legacy' => 'dark'], [''], [123]] as $bad) {
+            $def = ['type' => 'enum', 'required' => false, 'default' => 'a', 'description' => 'x',
+                    'values' => ['a'], 'aliases' => $bad];
+            $this->assertNotEmpty(\pp_schema_definition_errors($def, 'prop', 'test.x'));
+        }
+        // `aliases` is a PROP-definition key. On a slot it is an unknown key.
+        $this->assertNotEmpty(\pp_schema_definition_errors(
+            ['type' => 'color', 'default' => '#fff', 'description' => 'x', 'aliases' => ['dark']],
+            'slot',
+            'test --x'
+        ));
+    }
+
+    /**
+     * AUTHORING-PATH proof (Section 14.1) that the `dark` VALUE survives the REAL
+     * write surface, not just a schema-shape assertion.
+     *
+     * SCOPE, stated precisely: this pins the BEHAVIOUR the alias declaration
+     * describes, not the declaration's enforcement. Nothing reads
+     * `props.theme.aliases` yet — `dark` is accepted today because `theme` is a
+     * NON-STRICT enum, and pp_theme_class() (lib/helpers.php) coerces it at render.
+     * Deleting the `aliases` key from every schema would leave this test green. That
+     * is correct for #575, which lands the declaration and explicitly defers the
+     * consumer to the strict-enum gate; it is the reason
+     * pp_schema_definition_errors() rejects `aliases` alongside `strict` until that
+     * consumer exists, so the surface can never advertise what the writer refuses.
+     * The strict-enum gate owns the discriminating test.
+     *
+     * Why the value must keep working at all: the enum check runs on the WHOLE
+     * composition, so an untouched band's theme:"dark" would otherwise block an edit
+     * to a DIFFERENT band on the same page.
+     *
+     * Three things are asserted, because validating is not the same as storing and
+     * storing is not the same as rendering:
+     *   1. create_page ACCEPTS the legacy value alongside a canonical sibling;
+     *   2. the value is STORED as authored (an accepted alias is not silently
+     *      rewritten at write — pp_theme_class() is what resolves it);
+     *   3. the band RENDERS the tinted `--dark` class, byte-identical to `muted`.
+     */
+    public function testThemeDarkAliasSurvivesTheRealAuthoringSurface(): void
+    {
+        $GLOBALS['_pp_test_store'] = [
+            'post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100, 'custom_css' => '',
+        ];
+
+        $composition = [
+            ['component' => 'section', 'props' => ['theme' => 'dark', 'body' => 'Legacy band.']],
+            ['component' => 'section', 'props' => ['theme' => 'inverted', 'body' => 'Canonical band.']],
+        ];
+
+        $this->assertTrue(
+            \pp_validate_action('create_page', ['title' => 'Legacy theme page', 'composition' => $composition]),
+            'a stored theme:"dark" must not block authoring — that is what the alias is for.'
+        );
+
+        $id = \pp_create_page('Legacy theme page', 'draft');
+        \pp_update_composition($id, $composition);
+        $stored = \pp_get_composition($id);
+        $this->assertSame('dark', $stored[0]['props']['theme'], 'an accepted alias is stored as authored, not rewritten');
+
+        ob_start();
+        \pp_get_component('section', $stored[0]['props']);
+        $html = ob_get_clean();
+        $this->assertStringContainsString('pp-section--dark', $html, 'the legacy value renders the tinted band');
+        $this->assertStringNotContainsString('pp-section--inverted', $html, '`dark` is the LIGHT tinted band, not the dark one');
+    }
+
+    /** #575 populates no `applies_when` — that is the next gate down. */
+    public function testNoDefinitionDeclaresAppliesWhenYet(): void
+    {
+        foreach ($this->allSchemas() as $component => $schema) {
+            foreach (($schema['styling']['style_slots'] ?? []) as $name => $def) {
+                $this->assertArrayNotHasKey('applies_when', $def, "#575 populates nothing ({$component} {$name})");
+            }
+            foreach (($schema['props'] ?? []) as $name => $def) {
+                $this->assertArrayNotHasKey('applies_when', $def, "#575 populates nothing ({$component}.{$name})");
+            }
+        }
+    }
+
+    // ── styling.variant_classes truthfulness (issue #575) ─────────────────
+
+    /**
+     * `styling.variant_classes` must list EXACTLY the root-element modifier classes
+     * the component's template can emit. It used to lie: `faq` declared [] while the
+     * renderer emits faq--dark / faq--inverted, and `stats`/`cta`/`section` all
+     * omitted their --has-bg-image modifier.
+     *
+     * The expectation is DERIVED FROM THE TEMPLATE, never a second hand-maintained
+     * copy of the answer — a pinned literal list would drift again the moment a
+     * template changed. Three derivation rules, matching the three ways a template
+     * emits a root modifier:
+     *
+     *   1. THEME    a pp_theme_class($theme, 'PREFIX') call contributes exactly
+     *               PREFIX--dark and PREFIX--inverted (the helper's only two
+     *               non-empty outputs; `muted` shares the legacy --dark class).
+     *   2. LAYOUT   an interpolated `class="ROOT ROOT--<?php … $layout …`
+     *               contributes ROOT--<v> for every declared layout enum value.
+     *   3. LITERAL  any `'ROOT--x'` / `'PREFIX--x'` string in the template
+     *               (the conditional modifiers: --steps, --uniform, --image-icon,
+     *               --stack, --has-bg-image).
+     *
+     * A component with no root modifiers declares [] — and must, so "empty" stays a
+     * claim the test checks rather than a gap nobody noticed.
+     */
+    public function testVariantClassesListExactlyWhatTheTemplateCanEmit(): void
+    {
+        foreach ($this->allSchemas() as $component => $schema) {
+            $template = file_get_contents($this->themeRoot . "/components/{$component}/{$component}.php");
+            $root     = $schema['styling']['root_class'] ?? $component;
+            $expected = [];
+            $prefixes = [$root];
+
+            // 1. Theme classes, from the actual pp_theme_class() prefix.
+            if (preg_match('/pp_theme_class\(\s*\$theme\s*,\s*\'([a-z0-9-]+)\'\s*\)/', $template, $m)) {
+                $prefixes[] = $m[1];
+                foreach (['dark', 'inverted'] as $slug) {
+                    $expected[] = "{$m[1]}--{$slug}";
+                }
+            }
+
+            // 2. Interpolated layout classes, one per declared enum value.
+            $interpolated = '/class="' . preg_quote($root, '/') . '\s+' . preg_quote($root, '/') . '--<\?php/';
+            if (preg_match($interpolated, $template)) {
+                foreach (($schema['props']['layout']['values'] ?? []) as $value) {
+                    $expected[] = "{$root}--{$value}";
+                }
+            }
+
+            // 3. Literal modifier strings anywhere in the template.
+            foreach (array_unique($prefixes) as $prefix) {
+                if (preg_match_all('/\'\s*(' . preg_quote($prefix, '/') . '--[a-z0-9-]+)\'/', $template, $lit)) {
+                    $expected = array_merge($expected, $lit[1]);
+                }
+            }
+
+            $expected = array_values(array_unique($expected));
+
+            // TRIPWIRE. The three rules above recognize today's template idioms. A
+            // template using a shape they miss (a double-quoted literal, a
+            // concatenation) would UNDER-derive, and the test would then go green
+            // while forcing the schema to omit a class the component really emits —
+            // the precise untruthfulness it exists to prevent. So: every
+            // root-prefixed modifier token that appears anywhere in the template
+            // must be accounted for. An unrecognized idiom fails loudly here
+            // instead of silently shrinking the expectation.
+            foreach (array_unique($prefixes) as $prefix) {
+                if (!preg_match_all('/(' . preg_quote($prefix, '/') . '--[a-z0-9-]+)/', $template, $seen)) {
+                    continue;
+                }
+                foreach (array_unique($seen[1]) as $token) {
+                    $this->assertContains(
+                        $token,
+                        $expected,
+                        "{$component}.php contains the root modifier '{$token}' but the derivation rules "
+                        . 'did not produce it — the template uses an idiom this test does not recognize. '
+                        . 'Extend the derivation rather than editing the schema to match.'
+                    );
+                }
+            }
+
+            $declared = $schema['styling']['variant_classes'] ?? null;
+            $this->assertIsArray($declared, "{$component} must declare styling.variant_classes");
+
+            sort($expected);
+            $sortedDeclared = $declared;
+            sort($sortedDeclared);
+            $this->assertSame(
+                $expected,
+                $sortedDeclared,
+                "{$component}.styling.variant_classes must list exactly the root modifiers "
+                . "{$component}.php can emit (derived from the template, not from a pinned list)."
+            );
+        }
+    }
+
+    /**
+     * The `section` trap, pinned by name because it is the one place the two
+     * spellings diverge: the root class is `section` but pp_theme_class() is called
+     * with the `pp-section` prefix, so the theme classes are pp-section--*. A
+     * "consistency cleanup" that renames them to section--* would silently unstyle
+     * every muted and inverted section band.
+     */
+    public function testSectionThemeClassesKeepThePpSectionPrefix(): void
+    {
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+        $declared = $schema['styling']['variant_classes'];
+        $this->assertContains('pp-section--dark', $declared);
+        $this->assertContains('pp-section--inverted', $declared);
+        $this->assertNotContains('section--dark', $declared);
+        $this->assertNotContains('section--inverted', $declared);
+        $this->assertSame('section', $schema['styling']['root_class'], 'the root class itself is unprefixed');
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
 
     private function removeDir(string $dir): void

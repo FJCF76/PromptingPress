@@ -967,6 +967,178 @@ class AiContextTest extends TestCase
         $this->assertStringNotContainsString('share background', $system);
     }
 
+    // ── Definition-surface emission (issue #575) ──────────────────────────
+    //
+    // A field an agent never sees is not in the baseline — it is a comment in a
+    // JSON file. These pin that every declared definition-surface field reaches the
+    // runtime catalog, and that the one field with a wording trap (`aliases`) is
+    // phrased so an agent reads it as "accepted legacy input", never as a value to
+    // choose.
+
+    /**
+     * The `theme` prop's `dark` alias reaches the catalog as an ACCEPTED LEGACY
+     * value, next to (never inside) the advertised value set. If it were folded
+     * into the enum list the agent would start writing `dark` on new bands, which
+     * is exactly the misnomer the #442 migration removed — `dark` renders a LIGHT
+     * band; `inverted` is the dark one.
+     */
+    public function testSystemPromptSurfacesThePropAliasAsAcceptedNotAdvertised(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        $this->assertStringContainsString(
+            'theme?: "default"|"muted"|"inverted" (still accepts the legacy value "dark" '
+            . 'on already-stored pages — never write it on new content; use the canonical values above)',
+            $prompt,
+            'the catalog must advertise only canonical values and disclose the alias as legacy input.'
+        );
+    }
+
+    /**
+     * The caveat is not decoration. `dark` is a documented trap: it renders the
+     * LIGHT muted band, and ai-instructions/style-component.md tells agents "never
+     * `theme: \"dark\"`". The runtime catalog is always in context and that
+     * instruction file is read on demand, so a bare "also accepts dark" would put
+     * the trap in front of the agent with the warning left behind in a file it may
+     * never open. Pin that the disclosure and the warning travel together.
+     */
+    public function testAliasDisclosureCarriesItsOwnDoNotWriteWarning(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        $themeLines = array_values(array_filter(
+            explode("\n", $prompt),
+            static fn ($l) => strpos($l, 'legacy value "dark"') !== false
+        ));
+        $this->assertNotEmpty($themeLines, 'the alias must be disclosed at all');
+        foreach ($themeLines as $line) {
+            $this->assertStringContainsString('never write it on new content', $line,
+                'every alias disclosure must carry the do-not-write warning on the SAME line');
+        }
+    }
+
+    /** Every definition-surface field the emitter can render, pinned at the emitter. */
+    public function testDefinitionSuffixRendersEveryNewField(): void
+    {
+        $this->assertSame('', pp_ai_definition_suffix(['type' => 'color']), 'a bare definition adds nothing');
+
+        $this->assertSame(
+            '; role: fill (this is the component\'s fill colour)',
+            pp_ai_definition_suffix(['type' => 'color', 'role' => 'fill'])
+        );
+
+        $this->assertSame(
+            '; still accepts the legacy value "dark" on already-stored pages — '
+            . 'never write it on new content; use the canonical values above',
+            pp_ai_definition_suffix(['type' => 'enum', 'aliases' => ['dark']])
+        );
+
+        $this->assertSame(
+            '; applies when image_treatment = "icon"',
+            pp_ai_definition_suffix(['applies_when' => [['prop' => 'image_treatment', 'equals' => 'icon']]])
+        );
+
+        $this->assertSame(
+            '; applies when layout is one of "cards", "steps" AND background_image is set',
+            pp_ai_definition_suffix(['applies_when' => [
+                ['prop' => 'layout', 'in' => ['cards', 'steps']],
+                ['prop' => 'background_image', 'present' => true],
+            ]]),
+            'clauses are ANDed, and the catalog must say so'
+        );
+
+        $this->assertSame(
+            '; applies when --grid-card-bar-color is set',
+            pp_ai_definition_suffix(['applies_when' => [['slot' => '--grid-card-bar-color', 'present' => true]]])
+        );
+
+        $this->assertSame(
+            '; applies when the band is dark',
+            pp_ai_definition_suffix(['conditionality_note' => 'the band is dark.']),
+            'the prose escape hatch reads the same way as a machine-readable condition'
+        );
+    }
+
+    /**
+     * A definition may declare BOTH forms — clauses for what the grammar expresses,
+     * a note for the classes it deliberately cannot. They are a CONJUNCTION, so they
+     * must render as ONE condition. Two separate "applies when" phrases would read
+     * to an agent as two unrelated, competing conditions.
+     */
+    public function testDefinitionSuffixMergesClausesAndNoteIntoOneCondition(): void
+    {
+        $out = pp_ai_definition_suffix([
+            'applies_when'        => [['prop' => 'layout', 'equals' => 'cover']],
+            'conditionality_note' => 'the band is dark.',
+        ]);
+        $this->assertSame('; applies when layout = "cover" AND the band is dark', $out);
+        $this->assertSame(1, substr_count($out, 'applies when'),
+            'two independent "applies when" phrases read as two unrelated conditions');
+    }
+
+    /**
+     * The prop list is joined with ', ' and a suffix can contain ', ' (a multi-value
+     * alias list, an `in` clause). Without a delimiter an agent cannot split the
+     * line back into props.
+     */
+    public function testPropSuffixIsParenthesizedSoThePropListStaysSplittable(): void
+    {
+        $condensed = pp_ai_condense_schema(['props' => [
+            'tone'  => ['type' => 'enum', 'values' => ['a', 'b'], 'aliases' => ['x', 'y'], 'required' => false],
+            'title' => ['type' => 'string', 'required' => false],
+        ]]);
+        $this->assertStringContainsString('tone?: "a"|"b" (', $condensed);
+        $this->assertStringContainsString('), title?: string', $condensed,
+            'the suffix must be bracketed so the comma that ends it is unambiguous');
+    }
+
+    /**
+     * A malformed clause renders as nothing rather than a guess. The schema-shape
+     * test is what fails on a bad clause; the catalog must never invent a condition
+     * an agent would then design around.
+     */
+    public function testDefinitionSuffixNeverInventsAConditionFromAMalformedClause(): void
+    {
+        $this->assertSame('', pp_ai_definition_suffix(['applies_when' => [['any_of' => ['a', 'b']]]]));
+        $this->assertSame('', pp_ai_definition_suffix(['applies_when' => ['image_treatment = icon']]));
+        $this->assertSame('', pp_ai_definition_suffix(['applies_when' => [['prop' => 'x']]]));
+        // Shapes the formatter used to render by re-deriving the grammar itself:
+        // two subjects, a non-scalar `in` member (which also emitted a PHP
+        // "Array to string conversion" warning into the prompt buffer), two
+        // predicates, and a non-string `equals`. It now delegates to the validator,
+        // so every one of them renders nothing.
+        $this->assertSame('', pp_ai_definition_suffix(['applies_when' => [['prop' => 'x', 'slot' => '--y', 'present' => true]]]));
+        $this->assertSame('', pp_ai_definition_suffix(['applies_when' => [['prop' => 'x', 'in' => [['a']]]]]));
+        $this->assertSame('', pp_ai_definition_suffix(['applies_when' => [['prop' => 'x', 'equals' => 'a', 'in' => ['b']]]]));
+        $this->assertSame('', pp_ai_definition_suffix(['applies_when' => [['prop' => 'x', 'equals' => false]]]));
+    }
+
+    /**
+     * The delegation must not emit PHP notices into the prompt buffer either — the
+     * catalog string is assembled inside an output-sensitive path.
+     */
+    public function testMalformedClauseEmitsNoPhpWarningIntoThePrompt(): void
+    {
+        $seen = null;
+        set_error_handler(static function ($_no, $str) use (&$seen) { $seen = $str; return true; });
+        pp_ai_definition_suffix(['applies_when' => [['prop' => 'x', 'in' => [['a']]]]]);
+        restore_error_handler();
+        $this->assertNull($seen, 'a malformed clause must render nothing, silently');
+    }
+
+    /**
+     * Slot definitions carry the suffix too — one emitter, both surfaces, so a field
+     * can never reach the prop catalog and silently miss the slot catalog.
+     */
+    public function testSlotCatalogCarriesTheDefinitionSuffix(): void
+    {
+        $slot = pp_ai_definition_suffix([
+            'type' => 'color',
+            'role' => 'fill',
+            'applies_when' => [['prop' => 'layout', 'equals' => 'cover']],
+        ]);
+        $this->assertStringContainsString('role: fill', $slot);
+        $this->assertStringContainsString('applies when layout = "cover"', $slot);
+    }
+
     /**
      * Extracts just the adjacency-hint lines from the system content so a negative
      * assertion about them can't be fooled by the component index (which also

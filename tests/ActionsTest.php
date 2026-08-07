@@ -773,16 +773,39 @@ class ActionsTest extends TestCase
         $this->assertContains('invalid_prop_value', array_column($result['findings'], 'type'), 'the dead-button link is reported as a finding');
     }
 
-    // ── Bounded legacy prop-rename alias map (issue #495) ──
+    // ── Bounded legacy prop-rename alias map (issue #495, revised by #575) ──
     //
     // Pre-1.0, `cta` renamed cta_text->button_text and cta_url->button_url (both
     // now REQUIRED). Stored legacy compositions still carry the old names, which
     // used to block a targeted edit to ANY component because the whole composition
     // is validated. The map makes validation + rendering accept exactly those
-    // mapped names and normalizes them on a write that touches the component;
-    // untouched components keep their stored shape (incremental heal). The #147
-    // strict gate is otherwise unchanged — genuinely unknown keys still reject.
-    // These exercise the REAL action surface (Section 14.1), not raw-meta unit calls.
+    // mapped names. The #147 strict gate is otherwise unchanged — genuinely unknown
+    // keys still reject. These exercise the REAL action surface (Section 14.1), not
+    // raw-meta unit calls.
+    //
+    // SUPERSESSION, RECORDED (#575, ruling #570 DG-9 / A-37, orchestrator resolution
+    // 2026-08-08). #495 shipped an INCREMENTAL-HEAL model: the composition read path
+    // did not resolve prop aliases, so a whole-array write-back preserved untouched
+    // components' legacy keys, and only a component you actually touched healed.
+    // #575 routes the prop-alias map through pp_migrate_stored_composition()
+    // (lib/wp.php), so EVERY read resolves and the whole-array write-back stores
+    // every band canonical. The two pins below asserted the incremental model and
+    // are rewritten here to assert the unified one.
+    //
+    // Why the newer ruling wins, so no future iteration re-litigates it in reverse:
+    //   1. #570 DG-9 is explicit and later than #495 — render-time resolution
+    //      applies to slots AND props alike, with the prop route named at
+    //      pp_migrate_stored_composition(). It is mechanism trust, not
+    //      compatibility: a legacy name resolves IFF a shipped mechanism promises
+    //      the already-stored document renders, and restore_composition (#233) is
+    //      exactly that mechanism.
+    //   2. #400 decides the tie. pp_migrate_legacy_variant_keys() has had the
+    //      IDENTICAL mass-heal-on-write-back property since #400, so keeping #495's
+    //      model would perpetuate a split contract between two legacy surfaces —
+    //      the divergence class this gate exists to remove.
+    //   3. Rendered output is unchanged either way: both shapes already resolved to
+    //      the same canonical props at render, so the gate's byte-identity story
+    //      is unaffected.
 
     /** A legacy-shaped composition: a section plus a cta carrying the old prop names. */
     private function seedLegacyCtaComposition(): int
@@ -811,10 +834,13 @@ class ActionsTest extends TestCase
         $this->assertTrue($result['ok'], 'a targeted edit must succeed despite an untouched legacy-prop component');
         $comp = pp_get_composition($id);
         $this->assertSame('Updated intro', $comp[0]['props']['title'], 'the targeted edit landed');
-        // The untouched cta keeps its STORED (legacy) prop shape — incremental heal,
-        // not a whole-composition migration.
-        $this->assertArrayHasKey('cta_text', $comp[1]['props'], 'untouched component keeps its legacy prop key');
-        $this->assertArrayNotHasKey('button_text', $comp[1]['props'], 'untouched component is NOT normalized');
+        // Supersedes the #495 incremental-heal pin per #570 DG-9 / A-37 (#575,
+        // orchestrator resolution 2026-08-08). The read now resolves prop aliases,
+        // so the whole-array write-back stores the untouched cta canonical too.
+        // Value-preserving: the authored label survives, only the KEY changes.
+        $this->assertArrayHasKey('button_text', $comp[1]['props'], 'the untouched component heals to the canonical key');
+        $this->assertArrayNotHasKey('cta_text', $comp[1]['props'], 'the legacy key does not survive the write-back');
+        $this->assertSame('View on GitHub', $comp[1]['props']['button_text'], 'the authored value is carried across, never lost');
     }
 
     public function testWriteTouchingLegacyComponentNormalizesItToCanonical(): void
@@ -948,10 +974,17 @@ class ActionsTest extends TestCase
         $this->assertStringNotContainsString('cta_text', $encoded, 'preview does not show the legacy alias');
     }
 
-    public function testReorderPreservesUntouchedLegacyProps(): void
+    /**
+     * Supersedes the #495 "reorder must not heal untouched legacy props" pin per
+     * #570 DG-9 / A-37 (#575, orchestrator resolution 2026-08-08).
+     *
+     * A whole-array rewrite action that authors NO props (reorder / remove / style)
+     * still heals legacy prop keys, because the read it rewrites from now resolves
+     * them. The heal is value-preserving — same content, canonical keys — and is the
+     * same property pp_migrate_legacy_variant_keys() has had since #400.
+     */
+    public function testReorderHealsUntouchedLegacyProps(): void
     {
-        // Whole-array rewrite actions that do not author props (reorder/remove/style)
-        // must not heal legacy props: they preserve the stored shape.
         $id = $this->seedLegacyCtaComposition(); // [section, cta(legacy)]
 
         $result = pp_execute_action('reorder_components', [
@@ -961,10 +994,65 @@ class ActionsTest extends TestCase
 
         $this->assertTrue($result['ok'], 'reorder must succeed on a legacy-shaped composition');
         $comp = pp_get_composition($id);
-        // cta is now at index 0 after the reorder; it keeps its stored legacy props.
+        // cta is now at index 0 after the reorder, and it healed to the canonical key.
         $this->assertSame('cta', $comp[0]['component']);
-        $this->assertArrayHasKey('cta_text', $comp[0]['props'], 'reorder must not heal untouched legacy props');
-        $this->assertArrayNotHasKey('button_text', $comp[0]['props']);
+        $this->assertArrayHasKey('button_text', $comp[0]['props'], 'the whole-array rewrite heals legacy prop keys');
+        $this->assertArrayNotHasKey('cta_text', $comp[0]['props']);
+        $this->assertSame('View on GitHub', $comp[0]['props']['button_text'], 'the authored value survives the heal');
+    }
+
+    /**
+     * The heal is INTENTIONAL, and this pin exists so no future iteration re-reads
+     * it as an accident and "fixes" it back to the #495 incremental model.
+     *
+     * Both legacy surfaces — the #400 `variant` KEY migration and the #575 prop-KEY
+     * alias map — heal on the same whole-array write-back, from the same read. A
+     * change that makes either one stop healing has re-split a contract that #575
+     * deliberately unified, and this test is where that lands.
+     *
+     * Known and accepted (recorded in the #575 PR body): neither heal produces a
+     * `changes` entry, so the mutation of an untouched band is unreported. That is
+     * pre-existing #400 behavior, not something #575 introduced; disclosing both is
+     * a candidate follow-up, deliberately out of this gate's scope.
+     */
+    public function testLegacyVariantAndPropHealsAreBothIntentionalAndConsistent(): void
+    {
+        $id = pp_create_page('Both legacy surfaces', 'draft');
+        // A pre-#69 `variant` band and a pre-#495 legacy-prop band on one page.
+        pp_update_composition($id, [
+            ['component' => 'section', 'props' => ['variant' => 'inverted', 'body' => 'Old tone key.']],
+            ['component' => 'cta',     'props' => ['cta_text' => 'View on GitHub', 'cta_url' => 'https://example.com/repo']],
+            ['component' => 'section', 'props' => ['title' => 'Target', 'body' => 'Edit me.']],
+        ]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 2, // touch ONLY the third band
+            'props'           => ['title' => 'Edited'],
+        ]);
+        $this->assertTrue($result['ok'], $result['error'] ?? 'the targeted edit must succeed');
+
+        $comp = pp_get_composition($id);
+        // #400 surface: the legacy `variant` KEY healed to `theme`, value carried.
+        $this->assertArrayNotHasKey('variant', $comp[0]['props'], '#400: the legacy variant key heals');
+        $this->assertSame('inverted', $comp[0]['props']['theme'], '#400: the tone value is carried across');
+        // #575 surface: the legacy prop KEY healed to canonical, value carried.
+        $this->assertArrayNotHasKey('cta_text', $comp[1]['props'], '#575: the legacy prop key heals');
+        $this->assertSame('View on GitHub', $comp[1]['props']['button_text'], '#575: the authored value is carried across');
+        // Both untouched bands changed KEYS only — no content was invented or lost.
+        $this->assertSame('Old tone key.', $comp[0]['props']['body']);
+        $this->assertSame('https://example.com/repo', $comp[1]['props']['button_url']);
+
+        // THE DISCLOSURE GAP, PINNED RATHER THAN NARRATED. Neither heal produces a
+        // `changes` entry, so the mutation of an untouched band is unreported. This
+        // is accepted and pre-existing (#400's variant heal has always behaved this
+        // way); #575 makes the prop surface match it. Asserting it means a future
+        // change that starts — or stops — reporting the heal fails here and gets a
+        // deliberate decision, instead of passing silently in either direction.
+        $reported = json_encode($result['changes'] ?? []);
+        $this->assertStringNotContainsString('cta_text', $reported, 'the prop heal is (deliberately) unreported');
+        $this->assertStringNotContainsString('variant', $reported, 'the variant heal is (deliberately) unreported');
+        $this->assertStringContainsString('composition[2]', $reported, 'only the touched band is reported');
     }
 
     public function testRestoreCompositionHealsLegacyProps(): void
