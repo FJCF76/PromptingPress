@@ -136,6 +136,326 @@ function pp_template_owned_component_message(string $name): string {
     );
 }
 
+// ── Schema definition surface (issue #575) ───────────────────────────────────
+
+/**
+ * The keys a component `schema.json` may declare on a STYLE SLOT definition object.
+ *
+ * The definition surface is closed (issue #575). An unlisted key is a typo, a
+ * half-landed feature, or a second source of truth — all three are the drift the
+ * slot surface already suffered, so the schema-shape validator rejects them rather
+ * than ignoring them.
+ *
+ * ENFORCEMENT REACH, stated so nobody reads more into it than is true: the closed
+ * set is a REPO-CI INVARIANT, not a runtime gate. pp_schema_definition_errors() is
+ * driven by SchemaValidationTest over the twelve shipped schemas; nothing calls it
+ * on a live request. That is sufficient today because components are discovered
+ * only from get_template_directory().'/components/' (pp_get_registered_components,
+ * above) — there is no child-theme or plugin registration path, so the only schemas
+ * that exist are the ones CI already checks. A hand-edited schema on a live install
+ * is NOT validated. Wiring this engine to a runtime findings surface is a candidate
+ * follow-up, not a gap in the contract as scoped.
+ *
+ * @return string[]
+ */
+function pp_slot_definition_keys(): array {
+    return [
+        'type',                 // required — the value grammar (color, length, enum, …)
+        'default',              // required — the rendered fallback
+        'description',          // required — the agent-facing explanation
+        'values',               // enum slots only — the bounded value set
+        'item_eligible',        // grid per-item scope flag (#323)
+        'applies_when',         // #575 — machine-readable conditionality
+        'conditionality_note',  // #575 — the prose escape hatch, bounded and named
+        'role',                 // #575 — the declared fill-role marker
+    ];
+}
+
+/**
+ * The keys a component `schema.json` may declare on a PROP definition object.
+ *
+ * @return string[]
+ */
+function pp_prop_definition_keys(): array {
+    return [
+        'type', 'required', 'default', 'description',
+        'format', 'values', 'strict',
+        'item_type', 'items', 'min', 'max', 'max_items', 'item_max_length',
+        'aliases',              // #575 — legacy VALUES, DECLARED here; consumed by the strict-enum gate
+        'applies_when',         // #575
+        'conditionality_note',  // #575
+    ];
+}
+
+/**
+ * The bounded value set for the slot definition's `role` marker (issue #575).
+ *
+ * `fill` marks a colour slot as a component's BUTTON/SURFACE FILL, so the warning
+ * engine can tell a fill slot from any other colour slot. It is a DECLARED key, not
+ * a `-bg` / `-hover-bg` name convention: a naming convention is not machine-readable
+ * without a second source of truth, which is the defect this whole contract fixes
+ * one layer down. Nothing declares it yet — #575 lands the field, the write/render
+ * convergence gate lands the consumer.
+ *
+ * @return string[]
+ */
+function pp_slot_roles(): array {
+    return ['fill'];
+}
+
+/**
+ * Maximum length of a `conditionality_note` string.
+ *
+ * "Bounded prose" has to be bounded by something or the word is decoration. A note
+ * is one or two sentences naming a condition the four `applies_when` clause forms
+ * cannot express; anything longer belongs in the slot `description` or in a doc.
+ */
+const PP_CONDITIONALITY_NOTE_MAX = 400;
+
+/**
+ * Validates ONE `applies_when` clause against the closed four-form grammar (#575).
+ *
+ * The grammar is BOUNDED and does not grow in #575. Exactly four forms exist:
+ *
+ *     { "prop": "<name>", "equals": "<value>" }
+ *     { "prop": "<name>", "in": ["<v>", …] }
+ *     { "prop": "<name>", "present": true }
+ *     { "slot": "--<name>", "present": true }
+ *
+ * Clauses in an `applies_when` array are ANDed. There is deliberately NO `any_of`
+ * clause, NO `context` clause and NO free-form structure: three condition classes
+ * stay PROSE in `conditionality_note` precisely so the machine-readable grammar
+ * never has to grow to swallow them —
+ *
+ *   - DISJUNCTION — e.g. a slot that applies on dark bands only, i.e.
+ *     `theme: inverted` OR `background_image` present.
+ *   - COMPOSED-PAGE CONTEXT — `--grid-card-bar-*` / `--grid-featured-*` apply only
+ *     under a `main >` scope, which is not a prop, not a slot and not a value.
+ *   - INTERACTION STATE — a question's open state.
+ *
+ * (Viewport-scoped behaviour is neither: responsive slot values are out of scope by
+ * ruling, and breakpoint families are DEFAULTS, not authored conditions.)
+ *
+ * If the grammar ever needs to grow, that growth lands HERE, in a future revision of
+ * this contract, BEFORE anything populates it.
+ *
+ * @param  mixed  $clause  One clause from an `applies_when` array.
+ * @param  string $label   Caller-supplied context for the error message.
+ * @return string[]        Human-readable errors; empty when the clause is valid.
+ */
+function pp_applies_when_clause_errors($clause, string $label): array {
+    if (!is_array($clause) || $clause === []) {
+        return ["{$label}: each applies_when clause must be a non-empty object."];
+    }
+
+    $errors  = [];
+    $subject = null;
+    foreach (['prop', 'slot'] as $key) {
+        if (array_key_exists($key, $clause)) {
+            if ($subject !== null) {
+                return ["{$label}: a clause declares exactly one subject — `prop` or `slot`, never both."];
+            }
+            $subject = $key;
+        }
+    }
+    if ($subject === null) {
+        return ["{$label}: a clause must declare a `prop` or a `slot` subject."];
+    }
+    if (!is_string($clause[$subject]) || $clause[$subject] === '') {
+        $errors[] = "{$label}: `{$subject}` must be a non-empty string.";
+    }
+    if ($subject === 'slot' && is_string($clause['slot']) && strpos($clause['slot'], '--') !== 0) {
+        $errors[] = "{$label}: a `slot` subject must be a custom-property name starting with `--`.";
+    }
+
+    $predicates = array_values(array_intersect(['equals', 'in', 'present'], array_keys($clause)));
+    if (count($predicates) !== 1) {
+        // Report the unknown keys TOO, rather than returning early: a clause that
+        // misspells its predicate (`{prop, iss}`) would otherwise be told only that
+        // a predicate is missing, hiding the actual typo it contains.
+        $errors[] = "{$label}: a clause must declare exactly one predicate — `equals`, `in` or `present`.";
+        foreach (array_keys($clause) as $key) {
+            if (!in_array($key, ['prop', 'slot', 'equals', 'in', 'present'], true)) {
+                $errors[] = "{$label}: unknown clause key `{$key}` (the grammar is bounded to prop/slot + equals/in/present).";
+            }
+        }
+        return $errors;
+    }
+    $predicate = $predicates[0];
+
+    // The sibling-slot form is presence-only: a slot has no comparable authored
+    // value at schema-declaration time, only "set or unset".
+    if ($subject === 'slot' && $predicate !== 'present') {
+        $errors[] = "{$label}: a `slot` subject supports only the `present` predicate.";
+    }
+
+    if ($predicate === 'equals'
+        && ((!is_string($clause['equals']) && !is_int($clause['equals'])) || $clause['equals'] === '')) {
+        $errors[] = "{$label}: `equals` must be a non-empty string or an integer value.";
+    }
+    // Every string this grammar carries is rendered into the AI catalog inside
+    // double quotes, so a quote character in any of them forges catalog syntax.
+    foreach (['prop', 'slot', 'equals'] as $quoted) {
+        if (isset($clause[$quoted]) && is_string($clause[$quoted]) && strpos($clause[$quoted], '"') !== false) {
+            $errors[] = "{$label}: `{$quoted}` must not contain a double quote.";
+        }
+    }
+    if ($predicate === 'in') {
+        if (!is_array($clause['in']) || $clause['in'] === [] || !pp_is_list($clause['in'])) {
+            $errors[] = "{$label}: `in` must be a non-empty LIST of values.";
+        } else {
+            foreach ($clause['in'] as $value) {
+                if ((!is_string($value) && !is_int($value)) || $value === '') {
+                    $errors[] = "{$label}: every `in` member must be a non-empty string or an integer value.";
+                    break;
+                }
+                if (is_string($value) && strpos($value, '"') !== false) {
+                    $errors[] = "{$label}: an `in` member must not contain a double quote.";
+                    break;
+                }
+            }
+        }
+    }
+    if ($predicate === 'present' && $clause['present'] !== true) {
+        // `present: false` would be a NEGATION — a fifth clause form. Not in this
+        // grammar; express the inverse with the positive condition on the sibling.
+        $errors[] = "{$label}: `present` accepts only the literal true (there is no negated form).";
+    }
+
+    // Closed clause shape: subject + predicate and nothing else.
+    $allowed = [$subject, $predicate];
+    foreach (array_keys($clause) as $key) {
+        if (!in_array($key, $allowed, true)) {
+            $errors[] = "{$label}: unknown clause key `{$key}` (the grammar is bounded to prop/slot + equals/in/present).";
+        }
+    }
+
+    return $errors;
+}
+
+/**
+ * Validates ONE slot or prop DEFINITION OBJECT from a component `schema.json`.
+ *
+ * The single shared engine for the definition surface (issue #575) — the schema
+ * counterpart of pp_validate_composition_errors(), which validates the documents
+ * schemas describe. Both the slot surface and the prop surface run THIS function;
+ * there is deliberately no second, surface-specific definition validator.
+ *
+ *     schema.json
+ *        │
+ *        ├── styling.style_slots.<name>  ──┐
+ *        │                                 ├──►  pp_schema_definition_errors()
+ *        └── props.<name>  ────────────────┘        │
+ *                                                   ├─ closed key set (rejects unknown keys)
+ *                                                   ├─ applies_when → pp_applies_when_clause_errors()
+ *                                                   ├─ conditionality_note → bounded string
+ *                                                   ├─ role → pp_slot_roles()      (slots only)
+ *                                                   └─ aliases → value list        (props only)
+ *
+ * @param  array  $definition  The decoded definition object.
+ * @param  string $kind        'slot' or 'prop'.
+ * @param  string $label       Context for error messages, e.g. 'hero --hero-bg'.
+ * @return string[]            Human-readable errors; empty when the definition is valid.
+ */
+function pp_schema_definition_errors(array $definition, string $kind, string $label): array {
+    $errors  = [];
+    $allowed = $kind === 'slot' ? pp_slot_definition_keys() : pp_prop_definition_keys();
+
+    foreach (array_keys($definition) as $key) {
+        if (!in_array($key, $allowed, true)) {
+            $errors[] = "{$label}: unknown {$kind} definition key `{$key}`.";
+        }
+    }
+
+    if (array_key_exists('applies_when', $definition)) {
+        $clauses = $definition['applies_when'];
+        if (!is_array($clauses) || $clauses === [] || !pp_is_list($clauses)) {
+            $errors[] = "{$label}: `applies_when` must be a non-empty ARRAY of clauses (ANDed).";
+        } else {
+            foreach ($clauses as $i => $clause) {
+                $errors = array_merge($errors, pp_applies_when_clause_errors($clause, "{$label} applies_when[{$i}]"));
+            }
+        }
+    }
+
+    if (array_key_exists('conditionality_note', $definition)) {
+        $note = $definition['conditionality_note'];
+        if (!is_string($note) || trim($note) === '') {
+            $errors[] = "{$label}: `conditionality_note` must be a non-empty string.";
+        } elseif (mb_strlen($note) > PP_CONDITIONALITY_NOTE_MAX) {
+            // Characters, not bytes: the message says "characters" and the field is
+            // prose, so a note of accented or non-Latin text must not be rejected at
+            // half the stated budget with a count it never had.
+            $errors[] = sprintf(
+                '%s: `conditionality_note` is bounded prose — %d characters exceeds the %d-character limit.',
+                $label,
+                mb_strlen($note),
+                PP_CONDITIONALITY_NOTE_MAX
+            );
+        }
+        if (is_string($note) && preg_match('/[\r\n\t]/', $note)) {
+            // The AI catalog is line-oriented; an embedded newline forges catalog
+            // lines. Bound the shape at authoring time, not at the emitter.
+            $errors[] = "{$label}: `conditionality_note` must be a single line (no newlines or tabs).";
+        }
+    }
+
+    if ($kind === 'slot' && array_key_exists('role', $definition)) {
+        if (!is_string($definition['role']) || !in_array($definition['role'], pp_slot_roles(), true)) {
+            $errors[] = sprintf(
+                '%s: `role` must be one of: %s.',
+                $label,
+                implode(', ', pp_slot_roles())
+            );
+        }
+    }
+
+    if ($kind === 'prop' && array_key_exists('aliases', $definition)) {
+        $aliases = $definition['aliases'];
+        if (!is_array($aliases) || $aliases === [] || !pp_is_list($aliases)) {
+            $errors[] = "{$label}: `aliases` must be a non-empty ARRAY of accepted legacy values.";
+        } else {
+            // `aliases` names legacy members of a BOUNDED value set, so it is
+            // meaningless on a prop that has no value set to be outside of. A
+            // `{"type":"string","aliases":[...]}` declaration would validate clean
+            // and emit a catalog line an agent cannot act on.
+            if (($definition['type'] ?? null) !== 'enum' || !is_array($definition['values'] ?? null)) {
+                $errors[] = "{$label}: `aliases` applies only to an enum prop that declares `values`.";
+            }
+            // ADVERTISE-BUT-REJECT GUARD. `aliases` is a DECLARATION in this gate;
+            // its write-path consumer lands with the strict-enum gate. Until then a
+            // strict enum checks membership against `values` alone, so declaring
+            // both would make the runtime catalog advertise a legacy value the
+            // write path refuses. Reject the combination rather than ship the lie;
+            // the strict-enum gate lifts this by wiring the consumer.
+            if (!empty($definition['strict'])) {
+                $errors[] = "{$label}: `aliases` cannot be declared alongside `strict` until the strict-enum write path consumes aliases.";
+            }
+            $values = $definition['values'] ?? [];
+            foreach ($aliases as $alias) {
+                if (!is_string($alias) || $alias === '') {
+                    $errors[] = "{$label}: every `aliases` member must be a non-empty string.";
+                    continue;
+                }
+                // The AI catalog renders alias members inside double quotes; a value
+                // carrying one would forge the quoting an agent parses. Bound the
+                // shape at authoring time, not in the emitter.
+                if (strpos($alias, '"') !== false) {
+                    $errors[] = "{$label}: an `aliases` member must not contain a double quote.";
+                }
+                // Canonical values stay clean: an alias is accepted at write and
+                // NEVER advertised. A value that appears in both lists is not an
+                // alias, it is an advertised value with a duplicate declaration.
+                if (is_array($values) && in_array($alias, $values, true)) {
+                    $errors[] = "{$label}: alias `{$alias}` is also advertised in `values` — an alias is accepted, never advertised.";
+                }
+            }
+        }
+    }
+
+    return $errors;
+}
+
 // ── Validation ───────────────────────────────────────────────────────────────
 
 /**
@@ -309,8 +629,18 @@ function pp_legacy_prop_aliases(): array {
  *     data is never mutated by validation.
  *   - write (pp_normalize_composition + the touched item in update_component /
  *     add_component): persists the canonical form so a touched component heals.
- *   - render (pp_composition): a transient resolved view so a legacy-shaped
- *     stored cta renders its authored button; never written back.
+ *   - READ, all paths (pp_migrate_stored_composition, lib/wp.php) — as of #575.
+ *     Every decode resolves: the front-end renderers, the editor, `inspect`,
+ *     restore's current-composition fetch and the admin preview. Before #575 only
+ *     the two front-end renderers resolved, so a legacy-shaped stored cta rendered
+ *     its authored button on the site but appeared legacy to every action.
+ *
+ * Read-path resolution has a deliberate WRITE consequence (#575): the read-modify-
+ * write actions read the whole composition and write the whole array back, so an
+ * untouched legacy component now heals on any targeted edit rather than only when
+ * itself touched. Rendered output is identical either way — both shapes already
+ * resolved to the same canonical props at render — and this is the same
+ * mass-heal-on-write-back property the `variant` key migration has had since #400.
  *
  * @param  array $item  One composition item ({component|type, props}).
  * @return array        The item with any recognized legacy prop keys canonicalized.
@@ -352,12 +682,17 @@ function _pp_apply_legacy_prop_aliases(array $item): array {
  * Array wrapper for _pp_apply_legacy_prop_aliases() (issue #495): canonicalizes
  * recognized legacy prop keys across every item of a composition.
  *
- * This is the WRITE-PATH normalizer for the full-replace surfaces
+ * This is the normalizer for the full-replace WRITE surfaces
  * (pp_normalize_composition, and thereby create_page / update_composition /
- * restore_composition). The single-component read-then-write actions
- * (update_component / add_component) normalize only the touched item directly,
- * so untouched components keep their stored (legacy) prop shape and the
- * composition heals incrementally rather than all at once.
+ * restore_composition) AND, since #575, for every composition READ
+ * (pp_migrate_stored_composition, lib/wp.php).
+ *
+ * The single-component read-then-write actions (update_component / add_component)
+ * still normalize the touched item explicitly — that call is what makes an incoming
+ * legacy-NAMED patch land on the canonical key. Untouched components are no longer
+ * left legacy-shaped, though: they arrive already resolved from the read, so the
+ * whole-array write-back stores them canonical. #495's incremental healing was a
+ * property of the read path not resolving; #575 made every read resolve.
  *
  * @param  array $items  Composition array.
  * @return array         Items with recognized legacy prop keys canonicalized.

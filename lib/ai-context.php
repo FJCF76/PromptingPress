@@ -85,10 +85,15 @@ function pp_ai_system_prompt(): string {
                     // accepted, not just that the slot is "enum".
                     if (($slot_def['type'] ?? null) === 'enum' && !empty($slot_def['values']) && is_array($slot_def['values'])) {
                         $enum_str = '"' . implode('"|"', $slot_def['values']) . '"';
-                        $slot_parts[] = "{$slot_name} (enum: {$enum_str}, default: {$slot_def['default']})";
+                        $facts = "enum: {$enum_str}, default: {$slot_def['default']}";
                     } else {
-                        $slot_parts[] = "{$slot_name} ({$slot_def['type']}, default: {$slot_def['default']})";
+                        $facts = "{$slot_def['type']}, default: {$slot_def['default']}";
                     }
+                    // Definition-surface metadata (#575). A field an agent never sees
+                    // is not in the baseline, so every declared definition key that
+                    // changes what an agent should DO reaches the runtime catalog.
+                    $facts .= pp_ai_definition_suffix($slot_def);
+                    $slot_parts[] = "{$slot_name} ({$facts})";
                 }
                 $parts[] = "  Style slots: " . implode(', ', $slot_parts);
 
@@ -251,6 +256,132 @@ function pp_ai_system_prompt(): string {
 }
 
 /**
+ * Renders the DEFINITION-SURFACE metadata of one slot or prop definition object
+ * into the runtime AI catalog (issue #575).
+ *
+ * One emitter for both surfaces, so a field can never reach the slot catalog and
+ * silently miss the prop catalog (or vice versa). A field an agent never sees is
+ * not in the baseline — it is a comment in a JSON file.
+ *
+ * Four fields, four jobs:
+ *
+ *   applies_when         when the declaration does anything at all. Rendered as the
+ *                        ANDed clause list so the agent can check the condition
+ *                        against the composition it is about to write, instead of
+ *                        setting a value that renders nothing.
+ *   conditionality_note  the same job for the three condition classes the clause
+ *                        grammar deliberately cannot express (disjunction,
+ *                        composed-page context, interaction state).
+ *   role                 marks a slot as a component's FILL, so "make the button
+ *                        blue" resolves to the fill slot and not to some other
+ *                        colour slot that happens to be nearby.
+ *   aliases              legacy VALUES still accepted at write. Phrased as
+ *                        "also accepts legacy", never as part of the value set:
+ *                        canonical values stay clean and an agent must never read
+ *                        this as a value to choose. (The `theme` prop advertises
+ *                        default|muted|inverted and accepts the legacy `dark`.)
+ *
+ * @param  array $definition  A slot or prop definition object from schema.json.
+ * @return string             A leading-space suffix, or '' when nothing is declared.
+ */
+function pp_ai_definition_suffix(array $definition): string {
+    $bits = [];
+
+    if (!empty($definition['aliases']) && is_array($definition['aliases'])) {
+        // ACCEPTED ON READ, NEVER A VALUE TO CHOOSE. The runtime catalog is always
+        // in context; ai-instructions/style-component.md is read on demand. If this
+        // line said only "also accepts legacy dark" it would put the deprecated
+        // value in front of the agent, adjacent to `inverted`, with none of the
+        // warning the instruction file carries ("renders LIGHT ... never
+        // theme:\"dark\""). An agent asked for a dark band would have a brand-new
+        // reason to write the one value that silently produces a light one. So the
+        // caveat travels WITH the disclosure, not in a file that may never be read.
+        $bits[] = 'still accepts the legacy value'
+            . (count($definition['aliases']) === 1 ? ' ' : 's ')
+            . '"' . implode('", "', $definition['aliases']) . '"'
+            . ' on already-stored pages — never write ' . (count($definition['aliases']) === 1 ? 'it' : 'them')
+            . ' on new content; use the canonical values above';
+    }
+    if (($definition['role'] ?? null) === 'fill') {
+        $bits[] = 'role: fill (this is the component\'s fill colour)';
+    }
+
+    // ONE condition, however it is expressed. `applies_when` carries the clauses the
+    // bounded grammar can express and `conditionality_note` carries the classes it
+    // deliberately cannot (disjunction, composed-page context, interaction state).
+    // A definition may declare both, and when it does they are a CONJUNCTION — so
+    // they must render as one "applies when A AND B" phrase. Emitting two separate
+    // "applies when" bits would read as two unrelated, competing conditions.
+    $conditions = [];
+    if (!empty($definition['applies_when']) && is_array($definition['applies_when'])) {
+        foreach ($definition['applies_when'] as $clause) {
+            $rendered = pp_ai_format_applies_when_clause($clause);
+            if ($rendered !== '') {
+                $conditions[] = $rendered;
+            }
+        }
+    }
+    if (!empty($definition['conditionality_note']) && is_string($definition['conditionality_note'])) {
+        // Emitted VERBATIM (bar a trailing period), never behind a forced "applies
+        // when" prefix. The note is free prose: prefixing "This slot has no effect
+        // unless the band is dark." yields "applies when this slot has no effect
+        // unless the band is dark", which states the OPPOSITE of the author's
+        // intent. add-component.md documents the phrasing contract — write the note
+        // as a condition clause that completes "applies when ...".
+        $conditions[] = rtrim(trim($definition['conditionality_note']), '.');
+    }
+    if ($conditions) {
+        $bits[] = 'applies when ' . implode(' AND ', $conditions);
+    }
+
+    return $bits ? '; ' . implode('; ', $bits) : '';
+}
+
+/**
+ * Formats one `applies_when` clause for the runtime catalog (issue #575).
+ *
+ * ONE SOURCE OF TRUTH for the grammar: this function does not re-derive what a
+ * valid clause looks like, it ASKS pp_applies_when_clause_errors() (lib/admin.php)
+ * and renders nothing when that engine reports anything. Re-deriving is how the
+ * two drifted in the first draft — the formatter accepted a two-subject clause the
+ * validator rejects, accepted a bool/float `equals` the validator rejects, and
+ * rendered `equals` when both `equals` and `in` were present. It also emitted a PHP
+ * "Array to string conversion" warning into the prompt buffer on a nested `in`
+ * member, while its own docblock promised it never guesses.
+ *
+ * The delegation makes the promise true and keeps it true: a future clause form is
+ * added to the validator, and the formatter cannot silently disagree — it can only
+ * fail to render, which is the safe direction. The catalog must never invent a
+ * condition an agent would then design around.
+ *
+ * Guarded with function_exists so a partial include (lib/ai-context.php without
+ * lib/admin.php) degrades to rendering nothing rather than fataling.
+ *
+ * @param  mixed  $clause
+ * @return string
+ */
+function pp_ai_format_applies_when_clause($clause): string {
+    if (!is_array($clause)) {
+        return '';
+    }
+    if (!function_exists('pp_applies_when_clause_errors')
+        || pp_applies_when_clause_errors($clause, 'catalog') !== []) {
+        return '';
+    }
+
+    // Validated: exactly one subject, exactly one predicate, all scalars.
+    $subject = $clause['prop'] ?? $clause['slot'];
+
+    if (array_key_exists('equals', $clause)) {
+        return "{$subject} = \"{$clause['equals']}\"";
+    }
+    if (array_key_exists('in', $clause)) {
+        return "{$subject} is one of \"" . implode('", "', $clause['in']) . '"';
+    }
+    return "{$subject} is set";
+}
+
+/**
  * Condenses a component schema to a short string of required + key optional props.
  */
 function pp_ai_condense_schema(array $schema): string {
@@ -270,11 +401,19 @@ function pp_ai_condense_schema(array $schema): string {
         // Per-prop 'required' (PromptingPress) or top-level array (JSON Schema)
         $is_required = !empty($prop_def['required']) || in_array($prop_name, $top_required, true);
         $marker = $is_required ? '' : '?';
+        // The prop list is joined with ', ' and the definition suffix can itself
+        // contain ', ' (a multi-value alias list, an `in` clause). Parenthesize the
+        // suffix — as the slot catalog already does — so the prop boundaries stay
+        // unambiguous and an agent can still split the line back into props.
+        $suffix = pp_ai_definition_suffix($prop_def);
+        if ($suffix !== '') {
+            $suffix = ' (' . ltrim($suffix, '; ') . ')';
+        }
         if ($type === 'enum' && !empty($prop_def['values']) && is_array($prop_def['values'])) {
             $enum_str = '"' . implode('"|"', $prop_def['values']) . '"';
-            $parts[] = "{$prop_name}{$marker}: {$enum_str}";
+            $parts[] = "{$prop_name}{$marker}: {$enum_str}{$suffix}";
         } else {
-            $parts[] = "{$prop_name}{$marker}: {$type}";
+            $parts[] = "{$prop_name}{$marker}: {$type}{$suffix}";
         }
     }
 

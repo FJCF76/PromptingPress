@@ -2388,15 +2388,24 @@ pp_register_action('update_component', [
 
         $composition[$params['component_index']]['props'] = $after_props;
 
-        // Then canonicalize any legacy prop keys the STORED component still carries
-        // (untouched by the patch), so the touched component heals to the current
-        // shape. Only this touched item is normalized — untouched components keep
-        // their stored props, so a targeted edit heals incrementally.
+        // Belt-and-braces since #575: pp_get_composition() already resolved the whole
+        // stored composition through pp_migrate_stored_composition(), so this item
+        // arrives canonical and this call is a no-op on stored props. It is retained
+        // because it is NOT a no-op on the merged result when the incoming PATCH
+        // introduced a legacy key (handled above), and because it keeps this write
+        // correct if the read path ever stops resolving.
+        //
+        // The pre-#575 comment here said untouched components keep their stored
+        // props and a targeted edit heals incrementally. That is no longer true:
+        // every band arrives resolved from the read, so the whole-array write-back
+        // stores them all canonical. Consequence, accepted and unchanged by design:
+        // a heal produces NO `changes` entry — not for untouched bands, and not for
+        // this one either, because $before_props is already canonical. #400's
+        // `variant` key migration has always had the same unreported property.
+        // Pinned by ActionsTest::testLegacyVariantAndPropHealsAreBothIntentionalAndConsistent().
         $composition[$params['component_index']] = _pp_apply_legacy_prop_aliases(
             $composition[$params['component_index']]
         );
-        // Reflect the normalization in the reported diff so `changes` matches what
-        // is actually stored (a touched legacy cta stores button_text, not cta_text).
         $after_props = $composition[$params['component_index']]['props'];
 
         $changes = _pp_diff_props($before_props, $after_props, $params['component_index']);

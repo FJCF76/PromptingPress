@@ -78,6 +78,7 @@
     "theme": {
       "type": "enum",
       "values": ["default", "muted", "inverted"],
+      "aliases": ["dark"],
       "required": false,
       "default": "default",
       "description": "Background color/tone for this band. 'default' = the band's own default background (no tone override). 'muted' = light tinted surface band (renders the --color-surface background with framing top and bottom borders). 'inverted' = inverted dark background for strong contrast; use 'inverted' for a genuinely dark band."
@@ -158,7 +159,7 @@
   },
   "styling": {
     "root_class": "section",
-    "variant_classes": ["section--text-only", "section--image-left", "section--image-right", "section--centered", "section--text-panel", "pp-section--dark", "pp-section--inverted"],
+    "variant_classes": ["section--text-only", "section--image-left", "section--image-right", "section--centered", "section--text-panel", "section--has-bg-image", "pp-section--dark", "pp-section--inverted"],
     "tokens": ["--space-xl", "--space-2xl", "--space-3xl", "--color-bg", "--color-bg-inverted", "--overlay-bg"],
     "style_slots": {
       "--section-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
