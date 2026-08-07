@@ -4,6 +4,39 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.5] — 2026-08-07 — table, embed and logos get the regression net the CSS gates will diff against (#583)
+
+**Three components were about to receive CSS and schema changes from four separate gates while having no component-level test of any kind. This adds the net first, and every number in it was measured in a browser rather than traced through a stylesheet.**
+
+`table`, `embed` and `logos` were the only components with zero coverage of their own internals. The shared band suites rendered them incidentally and checked their outer edges — padding, heading scale — but nothing anywhere touched a table cell, a caption, the horizontal-scroll shell, the embed content measure, a logos item, a label, or either of the two logo height caps. Four issues in this milestone route exactly those literals through new slots. Shipping into that with no net is the specific risk this closes.
+
+Twelve rendered cases and fourteen markup cases now pin what those three components actually produce, at 1280 and at 375, in stressed states: headings long enough to wrap, a four-column comparison table with a long cell and a long caption, embed body copy on both the light and the inverted band, and a logos strip mixing labeled and unlabeled items. **No production code changed** — not a rule, not a schema, not a default.
+
+### Assertions that survive the change they are meant to catch
+
+A measure pin that only checks "the heading is 640px wide" survives the deletion of the slot it exists to protect: rewriting `var(--cta-content-width, 40rem)` as a bare `40rem` keeps the number and silently removes the authorable capability. Each long-heading case therefore drives the slot to a second value and re-measures, so the route is pinned rather than the pixel. Verified by mutation: the rewrite turns the pin red, and the same mutation left the suites green before this change.
+
+### What the browser said that the documents did not
+
+| Claim on record | What rendered |
+|---|---|
+| the table's horizontal scroll is mobile behaviour | it is **viewport-independent** — `width: max-content` engages it at 1280 too, asserted at both widths |
+| `.table__cell`'s `overflow-wrap: anywhere` wraps long cells | **inert in practice**: probed with a 300-character unbroken token, the cell rendered 2550px wide on one line. The declared asymmetry against the `nowrap` header is real in the cascade and invisible in the render |
+| the `<caption>` wraps to the band width | it is laid out against the **table's max-content box** and scrolls sideways with the table |
+| logos label ink renders 3.09:1, table cells 18.2:1 | against the **shipped** tokens they are **5.66:1** and **17.44:1**. The quoted figures came from a differently-tokenized install, so the label clears AA on a default install |
+| a dark band kills the heading default at 1.02:1 | reproducible only by **injecting** a paint no slot can set; `theme: "inverted"` re-routes both headings and renders 17.54:1 |
+
+The last two are recorded, not corrected — a deferred gate owns the band-background question, and this net exists so it argues from generated evidence instead of citation.
+
+### Tests
+
+- `tests/e2e/style-render.spec.ts` gains a `#583` block: baseline, long-heading, long-content and 375px degradation cases for each of the three components, plus the mixed labeled/unlabeled logos strip that pins both `max-height` caps and the list gap in one render, and three contrast cases. Eleven are `@smoke`; the injected-dark-paint case is deliberately not, because it simulates a state the product cannot reach.
+- `tests/TableEmbedLogosMarkupTest.php` covers the emit-or-not branches a rendered test can only reach vacuously: the table's empty-data paragraph, the optional heading and caption, the `--labeled` modifier, the label-only logos item that renders nothing at all, and which text props route through `esc_html()` versus `wp_kses_post()` — an asymmetry no test in the repo held.
+- The fixtures are seeded through raw `_pp_composition` meta, which bypasses validation, and the block says so. Exactly one seeded shape is not authorable through the action surface, and it is called out where it is used: the label-only logos item, which raw meta can store and `#579` will reject on write.
+- PHPUnit test count 2642 → **2656** (+14: eleven test methods plus one data-provided method with three cases).
+
+---
+
 ## [v1.12.4] — 2026-08-07 — component schemas can now declare when a slot applies, what a fill is, and which legacy names still work (#575)
 
 **Four pieces of declaration-level metadata were designed in isolation. They land together, before anything populates them, so the schema surface cannot drift the way the slot surface already did.**
