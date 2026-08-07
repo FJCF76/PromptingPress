@@ -15,7 +15,7 @@
       "description": "Optional section heading above the grid."
     },
     "theme": {
-      "type": "enum",
+      "type": "enum", "strict": true,
       "values": ["default", "muted", "inverted"],
       "aliases": ["dark"],
       "required": false,

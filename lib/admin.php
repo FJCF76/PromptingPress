@@ -189,7 +189,7 @@ function pp_prop_definition_keys(): array {
         'type', 'required', 'default', 'description',
         'format', 'values', 'strict',
         'item_type', 'items', 'min', 'max', 'max_items', 'item_max_length',
-        'aliases',              // #575 — legacy VALUES, DECLARED here; consumed by the strict-enum gate
+        'aliases',              // #575 — legacy VALUES, accepted at write, never advertised (#579 wired the consumer)
         'applies_when',         // #575
         'conditionality_note',  // #575
     ];
@@ -430,15 +430,12 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
             if (($definition['type'] ?? null) !== 'enum' || !is_array($definition['values'] ?? null)) {
                 $errors[] = "{$label}: `aliases` applies only to an enum prop that declares `values`.";
             }
-            // ADVERTISE-BUT-REJECT GUARD. `aliases` is a DECLARATION in this gate;
-            // its write-path consumer lands with the strict-enum gate. Until then a
-            // strict enum checks membership against `values` alone, so declaring
-            // both would make the runtime catalog advertise a legacy value the
-            // write path refuses. Reject the combination rather than ship the lie;
-            // the strict-enum gate lifts this by wiring the consumer.
-            if (!empty($definition['strict'])) {
-                $errors[] = "{$label}: `aliases` cannot be declared alongside `strict` until the strict-enum write path consumes aliases.";
-            }
+            // The advertise-but-reject guard that stood here in #575 is GONE, and
+            // its removal is the point of #579: the strict-enum check in
+            // pp_validate_composition_errors() now consults `aliases`, so declaring
+            // both is not a lie any more, it is the whole contract —
+            // `theme` is strict AND still accepts the legacy `dark` it never
+            // advertises. Any future strict enum may declare aliases the same way.
             $values = $definition['values'] ?? [];
             foreach ($aliases as $alias) {
                 if (!is_string($alias) || $alias === '') {
@@ -810,10 +807,9 @@ function _pp_validate_style_slot_map(array $style, array $available_slots, strin
     // (pre-323 behavior) so a component that gains a per-item style without being
     // annotated is not wholesale rejected by this shared validator. Strict
     // !== null so item index 0 (a falsy int, the featured first card) still enforces.
-    $item_eligible_slots = array_filter(
-        $available_slots,
-        static fn ($def) => !empty($def['item_eligible'])
-    );
+    // Shared with the RENDER boundary since #579 (pp_item_eligible_slots, lib/wp.php)
+    // so "which slots may a single item carry?" has one answer on both paths.
+    $item_eligible_slots = pp_item_eligible_slots($available_slots);
     $enforce_item_scope = $item_index !== null && !empty($item_eligible_slots);
     // At item level the operator may only draw from the card-scoped set, so the
     // "available" list in both the unknown-slot and section-scoped errors names the
@@ -1204,21 +1200,48 @@ function pp_validate_composition_errors(array $items): array {
             }
         }
 
-        // Strict enum props (issue 380). An enum prop MAY opt into write-time value
-        // validation by declaring `strict: true` in its schema (today only
-        // grid.image_treatment). When it does, a supplied value must be one of the
-        // declared `values` — otherwise the write is rejected with the standard
-        // envelope instead of the renderer silently coercing an unknown value to the
-        // default (the reported-success-without-effect class, same rationale as the
-        // issue 379 numeric-bounds check above). This is deliberately OPT-IN, not
-        // applied to every enum: enum props WITHOUT `strict` keep their historical
-        // render-time coercion (layout/theme/card_emphasis/title_align accept-and-
-        // coerce as before), so this does not change validation for any prop beyond
-        // the one that opts in. Generic + schema-driven: no per-component branch, no
-        // second validator. "Unset" is the key being absent, null, or the empty
-        // string — that preserves the prop's default behavior (image_treatment unset
-        // => banner). Runs in the shared validator; restore_composition (#233)
-        // reports it via _pp_composition_findings() but never blocks on it.
+        // Strict enum props (issue 380, made universal by issue #579 A-32). Every
+        // TOP-LEVEL enum prop declares `strict: true` now. A supplied value
+        // must be one of the declared `values` (or one of the prop's declared
+        // legacy `aliases`, below) — otherwise the write is rejected with the
+        // standard envelope instead of the renderer silently coercing an unknown
+        // value to the default (the reported-success-without-effect class, same
+        // rationale as the issue 379 numeric-bounds check above).
+        //
+        // WHY UNIVERSAL NOW. `strict` shipped in #380 as opt-in, and exactly one
+        // prop ever opted in, so twenty-eight enums stayed accept-at-write /
+        // coerce-at-render: `theme: "muted "` (trailing space), `layout: "split "`,
+        // `button_variant: "primary-outline"` all returned ok:true and rendered the
+        // default. The mechanism was never the missing piece; the declarations were.
+        // Render output is unchanged BY CONSTRUCTION — the renderer already coerced
+        // every one of these — so this moves the write path from silent coercion to
+        // a named error and changes no pixel.
+        //
+        // ALIASES ARE PART OF THE MEMBERSHIP TEST (#579 lands #575's consumer). A
+        // prop may declare `aliases`: legacy values accepted at write and NEVER
+        // advertised in `values`. `theme` declares `["dark"]`. Without this the gate
+        // would be actively destructive rather than merely strict: the block runs
+        // inside pp_validate_composition_errors()'s per-item loop, while
+        // update_component validates the WHOLE composition (lib/actions.php), so one
+        // untouched band still carrying `theme: "dark"` would block an edit to a
+        // DIFFERENT band on the same page — and `dark` is also MANUFACTURED at read
+        // time by pp_migrate_legacy_variant_keys() from a stored `variant: "dark"`,
+        // so it materialises on pages where the string never appears in storage.
+        // `dark` keeps rendering identically (pp_theme_class, lib/helpers.php).
+        //
+        // SCOPE, stated so nobody reads more into it than is true: this walks
+        // $schema['props'], i.e. TOP-LEVEL props only, exactly as the #379/#475
+        // families beside it do. NESTED item-field enums (today only
+        // grid.items[].text_role) are NOT covered and remain accept-and-coerce; they
+        // are outside #579's recorded scope, which enumerated the 28 top-level enums.
+        // The CI tripwire (SchemaValidationTest::testEveryTopLevelEnumPropDeclaresStrict)
+        // is scoped to match, so the invariant it asserts is the one that holds.
+        //
+        // Generic + schema-driven: no per-component branch, no second validator.
+        // "Unset" is the key being absent, null, or the empty string — that
+        // preserves the prop's default behavior (image_treatment unset => banner).
+        // Runs in the shared validator; restore_composition (#233) reports it via
+        // _pp_composition_findings() but never blocks on it.
         if (isset($item['props']) && is_array($item['props']) && !empty($schema['props'])) {
             foreach ($schema['props'] as $prop_name => $prop_def) {
                 if (($prop_def['type'] ?? null) !== 'enum'
@@ -1235,7 +1258,14 @@ function pp_validate_composition_errors(array $items): array {
                 if ($value === null || $value === '') {
                     continue; // unset sentinel — keeps the prop's default behavior
                 }
-                if (!in_array($value, $prop_def['values'], true)) {
+                // Accepted set = advertised values + declared legacy aliases. The
+                // error message names only `values`: an alias is accepted, never
+                // advertised, so an agent reading the error is told what to WRITE.
+                $accepted = $prop_def['values'];
+                if (!empty($prop_def['aliases']) && is_array($prop_def['aliases'])) {
+                    $accepted = array_merge($accepted, $prop_def['aliases']);
+                }
+                if (!in_array($value, $accepted, true)) {
                     $errors[] = new WP_Error(
                         'invalid_prop_value',
                         sprintf(
@@ -1434,6 +1464,135 @@ function pp_validate_composition_errors(array $items): array {
                                     )
                                 );
                                 continue 3;
+                            }
+                        }
+                    }
+                    // Array-item arrays opt in with `item_type: "array"` (issue #579,
+                    // A-27 — today only table.rows). Every entry must itself be an
+                    // array. The defect: table.php renders `foreach ((array) $row as
+                    // $cell)`, so a scalar row is CAST and silently becomes a
+                    // one-cell row — a write that reports ok:true and produces a
+                    // visibly broken table. This is the MECHANICAL half only: what a
+                    // row's internal shape should be (flat scalars vs cell objects,
+                    // short-row padding, a max column count) is deliberately NOT
+                    // decided here and stays a needs-own-design child.
+                    if (($prop_def['item_type'] ?? null) === 'array' && is_array($value)) {
+                        foreach ($value as $entry_index => $entry) {
+                            if (!is_array($entry)) {
+                                $errors[] = new WP_Error(
+                                    'invalid_prop_value',
+                                    sprintf(
+                                        'Component "%s" prop "%s" item %s must be an array; got %s.',
+                                        $name,
+                                        $prop_name,
+                                        is_scalar($entry_index) ? (string) $entry_index : gettype($entry_index),
+                                        gettype($entry)
+                                    )
+                                );
+                                continue 3;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // NESTED item-field contracts (issue #579, A-27). The families above walk
+        // TOP-LEVEL props only, so two schema annotations one level down were
+        // DECLARED and enforced by NOTHING:
+        //
+        //   1. `required: true` on an items[] field — declared on SEVEN fields today:
+        //      logos.items[].image_url / image_alt, stats.items[].number / label,
+        //      testimonials.items[].quote and faq.items[].question / answer.
+        //      (grid.items[].number is NOT among them — it ships `required: false`
+        //      and is only conditionally required by prose, "when layout is steps";
+        //      making it a real declaration would reject every ordinary card grid,
+        //      so it stays out until a conditional-required contract exists.)
+        //      The required-prop loop near the top of this function walks
+        //      $schema['props'] only, so every one of these was
+        //      decoration. The sharpest consequence: a logos entry carrying a `label`
+        //      and no `image_url` validates, persists, returns ok:true, and renders
+        //      NOTHING — and the `empty_section` smell stays silent because it fires
+        //      only when NO entry has an image, so a strip of four logos that lost one
+        //      URL warns about nothing at all.
+        //   2. `item_type: "string"` on a NESTED array field (grid.items[].bullets).
+        //      The #475 bounded-string-array family is top-level-only, so a bullets
+        //      array of objects/numbers reached the renderer, which escapes each entry
+        //      and prints "Array".
+        //
+        // Enforced HERE, in the shared validator — no second validator, no
+        // per-component branch. Walked at the SAME one-items-level depth as the #154
+        // media-URL and #507 link_url families.
+        //
+        // `required` semantics MIRROR the top-level rule exactly: the key being ABSENT
+        // is the violation. A present-but-empty string is not treated as missing,
+        // because the top-level rule does not treat it that way either and because
+        // over-rejecting here is not a local inconvenience — every action validates
+        // the WHOLE composition, so a newly-rejected stored shape blocks edits to
+        // unrelated bands on the same page. restore_composition (#233) reports these
+        // via _pp_composition_findings() but never blocks on them.
+        if (isset($item['props']) && is_array($item['props']) && !empty($schema['props'])) {
+            foreach ($schema['props'] as $prop_name => $prop_def) {
+                if (!is_array($prop_def)
+                    || ($prop_def['type'] ?? null) !== 'array'
+                    || !isset($prop_def['items'])
+                    || !is_array($prop_def['items'])
+                ) {
+                    continue;
+                }
+                $entries = $item['props'][$prop_name] ?? null;
+                if (!is_array($entries)) {
+                    continue; // absent / scalar — the type pass above owns that error
+                }
+                foreach ($entries as $entry_index => $entry) {
+                    if (!is_array($entry)) {
+                        continue; // non-object entry — item_type: "object" owns that error
+                    }
+                    foreach ($prop_def['items'] as $field_name => $field_def) {
+                        // The `items` key carries two shapes across the shipped
+                        // schemas: a FIELD MAP (grid.items => {title: {...}, ...})
+                        // and the JSON-Schema-ish scalar form
+                        // (bullets.items => {"type": "string"}). Only a field map's
+                        // values are definition arrays, so this guard is what keeps
+                        // the scalar form from being read as a field called "type".
+                        if (!is_array($field_def)) {
+                            continue;
+                        }
+                        if (!empty($field_def['required'])
+                            && !array_key_exists($field_name, $entry)
+                        ) {
+                            $errors[] = new WP_Error(
+                                'invalid_composition',
+                                sprintf(
+                                    'Component "%s" prop "%s" item %s is missing required field "%s".',
+                                    $name,
+                                    $prop_name,
+                                    is_scalar($entry_index) ? (string) $entry_index : gettype($entry_index),
+                                    $field_name
+                                )
+                            );
+                            continue 4;
+                        }
+                        if (($field_def['type'] ?? null) === 'array'
+                            && ($field_def['item_type'] ?? null) === 'string'
+                            && array_key_exists($field_name, $entry)
+                            && is_array($entry[$field_name])
+                        ) {
+                            foreach ($entry[$field_name] as $bullet) {
+                                if (!is_string($bullet)) {
+                                    $errors[] = new WP_Error(
+                                        'invalid_prop_value',
+                                        sprintf(
+                                            'Component "%s" prop "%s" item %s field "%s" items must be strings; got %s.',
+                                            $name,
+                                            $prop_name,
+                                            is_scalar($entry_index) ? (string) $entry_index : gettype($entry_index),
+                                            $field_name,
+                                            gettype($bullet)
+                                        )
+                                    );
+                                    continue 5;
+                                }
                             }
                         }
                     }

@@ -271,11 +271,17 @@ class ApplyTest extends TestCase
     public function testColorRejectsVarWithFallback(): void
     {
         // The fallback-smuggling vector the strict pattern exists to block.
-        foreach (['var(--color-accent, #fff)', 'var(--color-accent, url(evil))'] as $value) {
-            $result = pp_validate_apply('update_design_token', ['token' => '--color-bg', 'value' => $value]);
-            $this->assertInstanceOf(WP_Error::class, $result, $value);
-            $this->assertEquals('invalid_color', $result->get_error_code(), $value);
-        }
+        $result = pp_validate_apply('update_design_token', ['token' => '--color-bg', 'value' => 'var(--color-accent, #fff)']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_color', $result->get_error_code());
+
+        // Same vector carrying url(): still rejected, but now by the SHARED reject
+        // set that runs ahead of the type switch (#579, A-33), so the code is
+        // `injection` rather than `invalid_color`. Both are rejections; the earlier,
+        // blunter one wins because it is the one the render boundary also applies.
+        $result = pp_validate_apply('update_design_token', ['token' => '--color-bg', 'value' => 'var(--color-accent, url(evil))']);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('injection', $result->get_error_code());
     }
 
     public function testColorRejectsMultipleOrNestedVar(): void

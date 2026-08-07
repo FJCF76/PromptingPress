@@ -396,17 +396,88 @@ function pp_validate_composition_styling(array $composition): array {
 }
 
 /**
- * Returns true when a structured-content component's configured items would
- * render no useful frontend output (issue 87) — either the items array is
- * empty, or every item is missing the one subfield its render path requires
- * to produce output at all (mirrors each component's own render-time skip
- * logic in components/*.php, not a duplicate/independent content check).
+ * Trimmed-non-empty test for a content prop, used by the empty-band cases below
+ * (issue #579). Mirrors the loose "did the author put content here?" rule the
+ * #488 `content_requirement` gate applies in pp_validate_composition_errors(): a
+ * trimmed non-empty string, or a non-empty array.
+ *
+ * ONE DELIBERATE DIVERGENCE from that gate, and it is load-bearing: **numeric zero
+ * counts as EMPTY here.** The attachment-id props (`image_id`) declare `0` as their
+ * schema DEFAULT meaning "no image", and they are routinely written as a literal
+ * `0` rather than omitted — so treating `0` as content made the hero arm below
+ * silently unreachable for the most common stored shape of a blank hero. The write
+ * gate cannot adopt this: its `any_of` lists name only text and array props, none
+ * of which can be a meaningful zero, and loosening a REJECT rule is a behaviour
+ * change this issue does not carry. The string `"0"` is still content (a title of
+ * "0" is a legitimate stat), so only the int/float zero is excluded.
+ *
+ * Kept as a separate predicate from the write gate's inline copy for that reason.
+ * If the two ever need to converge, converge them deliberately — do not delete this
+ * note and assume they were always the same rule.
+ *
+ * @param  mixed $value
+ * @return bool
+ */
+function _pp_content_prop_is_filled($value): bool {
+    if (is_string($value)) {
+        return trim($value) !== '';
+    }
+    if (is_array($value)) {
+        return $value !== [];
+    }
+    if (is_int($value) || is_float($value)) {
+        return (float) $value !== 0.0; // an `image_id` of 0 is "no image", not content
+    }
+    return $value !== null && $value !== false && $value !== '';
+}
+
+/**
+ * Returns true when a component's configured content would render no useful
+ * frontend output (issue 87, widened to every band component by issue #579) —
+ * either the items array is empty, or every item is missing the one subfield its
+ * render path requires to produce output at all (mirrors each component's own
+ * render-time skip logic in components/*.php, not a duplicate/independent content
+ * check).
+ *
+ * #579, A-27 added `testimonials`, `embed`, `section`, `cta` and `hero`. Before
+ * that the smell covered five components and the `default: return false` arm made
+ * the other seven unwarnable — a testimonials band whose every item had lost its
+ * `quote` renders an empty grid and reported clean, which is the same class of dead
+ * band the check was built for. Each new arm mirrors its renderer:
+ *
+ *   testimonials  components/testimonials/testimonials.php — `if (!$quote) continue;`
+ *   embed         components/embed/embed.php — the block is `content`; a title-only
+ *                 embed is a heading over nothing
+ *   section       needs no arm — it declares `content_requirement.any_of` (#488), so
+ *                 the schema-driven branch answers for it and the warn set reads the
+ *                 same ONE list the write-time reject set does
+ *   cta           components/cta/cta.php — the text block is skipped unless
+ *                 eyebrow/title/body, and the button is the band's remaining job
+ *   hero          components/hero/hero.php — the `<h1>` renders unconditionally, so
+ *                 an all-blank hero paints an empty heading and nothing else
  *
  * @param  string $component  Component slug.
  * @param  array  $props      Component props.
  * @return bool
  */
 function _pp_component_is_empty(string $component, array $props): bool {
+    // SCHEMA-DRIVEN ARM FIRST. A component that declares `content_requirement.any_of`
+    // (#488) has already told the write path what counts as content, so the warn set
+    // reads that ONE list rather than a second copy of it. Hoisted above the switch
+    // and keyed on $component so ANY component that gains the annotation is covered
+    // the day it lands — inside the switch this could only ever have served the one
+    // component whose name was hardcoded there. Components without the annotation
+    // fall through to their render-mirroring arms below.
+    $any_of = pp_get_registered_components()[$component]['content_requirement']['any_of'] ?? null;
+    if (is_array($any_of) && $any_of !== []) {
+        foreach ($any_of as $content_prop) {
+            if (_pp_content_prop_is_filled($props[$content_prop] ?? null)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     switch ($component) {
         case 'faq':
             $items = is_array($props['items'] ?? null) ? $props['items'] : [];
@@ -432,12 +503,57 @@ function _pp_component_is_empty(string $component, array $props): bool {
             }
             return true;
 
+        case 'testimonials':
+            $items = is_array($props['items'] ?? null) ? $props['items'] : [];
+            if (empty($items)) {
+                return true;
+            }
+            foreach ($items as $item) {
+                if (is_array($item) && !empty($item['quote'] ?? '')) {
+                    return false;
+                }
+            }
+            return true;
+
         case 'grid':
         case 'stats':
             return empty($props['items'] ?? []);
 
         case 'table':
             return empty($props['headers'] ?? []) || empty($props['rows'] ?? []);
+
+        case 'embed':
+            return !_pp_content_prop_is_filled($props['content'] ?? '');
+
+        // `section` needs no arm: it declares `content_requirement.any_of`, so the
+        // schema-driven branch above already answered for it.
+
+        case 'cta':
+            // The primary button renders unconditionally with the 'Get Started'
+            // default when `button_text` is ABSENT, so an absent key is not empty.
+            // Only an explicitly blanked label plus no eyebrow/title/body leaves the
+            // band painting a bare empty <a>.
+            $has_button = !array_key_exists('button_text', $props)
+                || _pp_content_prop_is_filled($props['button_text']);
+            if ($has_button) {
+                return false;
+            }
+            foreach (['eyebrow', 'title', 'body'] as $content_prop) {
+                if (_pp_content_prop_is_filled($props[$content_prop] ?? null)) {
+                    return false;
+                }
+            }
+            return true;
+
+        case 'hero':
+            // `image_id` counts alongside `image_url`: the renderer resolves either
+            // into the same media, so a media-only hero is not a dead band.
+            foreach (['title', 'eyebrow', 'subheading', 'button_text', 'image_url', 'image_id', 'proof'] as $content_prop) {
+                if (_pp_content_prop_is_filled($props[$content_prop] ?? null)) {
+                    return false;
+                }
+            }
+            return true;
 
         default:
             return false;
@@ -635,6 +751,77 @@ function pp_validate_composition_smells(array $composition): array {
                 'index' => $i,
             ];
             $consecutive_compact_spacing = 0; // Reset to avoid repeated warnings.
+        }
+
+        // Transparent fill on a fill-role slot (issue #579, A-34). A NON-BLOCKING
+        // warning, by ruling: `transparent` and `currentColor` are well-formed,
+        // legal, and useful values for most colour slots — they are only
+        // INEFFECTIVE in this one context, which is exactly the "plausible but
+        // ineffective" class the smells channel exists for. Rejecting them would
+        // break the split the #570 decision record draws between "provably dead"
+        // (reject at write) and "plausible but ineffective" (warn, never block).
+        //
+        // The observed failure it names: fill=rgba(0,0,0,0) ring=rgba(0,0,0,0)
+        // ink=rgb(252,253,255) on a white page — a button that is present, focusable,
+        // clickable, and completely invisible. An author who wants a see-through
+        // button wants the `outline` variant, which keeps a visible border and
+        // readable ink; the message says so rather than just naming the problem.
+        //
+        // Reads the DECLARED `role: "fill"` marker from the schema (#575's field,
+        // consumed here), never a `-bg` name convention: a convention is a second
+        // source of truth, which is the defect the definition-surface contract fixes
+        // one layer down. Legacy slot NAMES are resolved first so a stored
+        // `--hero-cta2-bg` warns the same as its canonical twin.
+        $style_map = is_array($item['style'] ?? null) ? $item['style'] : [];
+        if ($style_map !== []) {
+            $fill_slots   = [];
+            foreach (pp_get_style_slots($component) as $slot_name => $slot_def) {
+                if (is_array($slot_def) && ($slot_def['role'] ?? null) === 'fill') {
+                    $fill_slots[$slot_name] = true;
+                }
+            }
+            $slot_aliases = pp_legacy_slot_aliases()[$component] ?? [];
+            foreach ($style_map as $slot_name => $slot_value) {
+                if (!is_string($slot_name) || !is_scalar($slot_value)) {
+                    continue;
+                }
+                $canonical = $slot_aliases[$slot_name] ?? $slot_name;
+                if (!isset($fill_slots[$canonical])) {
+                    continue;
+                }
+                $normalized = strtolower(trim((string) $slot_value));
+                if ($normalized !== 'transparent' && $normalized !== 'currentcolor') {
+                    continue;
+                }
+                // RESTING vs HOVER get different advice, because the same value means
+                // two different things. On a resting fill it is the invisible-button
+                // defect. On a HOVER fill it only flattens the pointer state — and
+                // pointing an author who is already on the `outline` variant at the
+                // `outline` variant is advice that cannot be acted on. The hover
+                // wording says what actually happens instead.
+                $is_hover = strpos($canonical, '-hover-') !== false;
+                $warning  = [
+                    'type'    => 'transparent_fill',
+                    'message' => $is_hover
+                        ? sprintf(
+                            'Style slot "%s" on this "%s" component is set to "%s", so the button gets no fill on hover — the hover state will look identical to the resting state unless another hover slot (border or label colour) carries the change. That is correct for a deliberately flat "outline" or "ghost" button; set a visible colour here if the button is meant to respond to the pointer.',
+                            $slot_name,
+                            $component,
+                            (string) $slot_value
+                        )
+                        : sprintf(
+                            'Style slot "%s" on this "%s" component is set to "%s", which removes the button\'s fill entirely — the button stays clickable but has no visible surface. For a see-through button use the "outline" button variant, which keeps a visible border and readable label.',
+                            $slot_name,
+                            $component,
+                            (string) $slot_value
+                        ),
+                    'index'   => $i,
+                ];
+                if (!empty($props['id'] ?? '')) {
+                    $warning['id'] = $props['id'];
+                }
+                $warnings[] = $warning;
+            }
         }
 
         // Empty structured-content section (schema-valid, no useful output)

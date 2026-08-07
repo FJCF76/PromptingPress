@@ -16,11 +16,13 @@
     },
     "headers": {
       "type": "array",
+      "item_type": "string",
       "required": true,
       "description": "Array of column header strings."
     },
     "rows": {
       "type": "array",
+      "item_type": "array",
       "required": true,
       "description": "Array of rows. Each row is an array of cell values (strings, HTML allowed)."
     },

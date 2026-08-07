@@ -90,7 +90,29 @@ class AiContextTest extends TestCase
             $prompt
         );
         $this->assertStringContainsString(
-            'the `length`, `number`, `duration`, `position`, and `ratio` types are literal-only',
+            'the `length`, `length-or-none`, `number`, `duration`, `position`, and `ratio` types are literal-only',
+            $prompt
+        );
+    }
+
+    /**
+     * #579 — the `length-or-none` band-geometry grammar must be surfaced, and the
+     * "how do I remove a max-width" guidance must route to the slot's own removal
+     * value instead of the pre-#579 `100%` workaround, which existed only because
+     * the type could not express `none`.
+     */
+    public function testSystemPromptStatesTheLengthOrNoneGrammar(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        $this->assertStringContainsString('A `length-or-none`-typed slot', $prompt);
+        $this->assertStringContainsString('PLUS the keyword `none`', $prompt);
+        $this->assertStringContainsString(
+            'a plain `length` slot (padding, font-size, radius, a text measure) still rejects it',
+            $prompt,
+            'the widening must be stated as bounded, or the AI will try `none` everywhere'
+        );
+        $this->assertStringContainsString(
+            'use the slot\'s own removal value when its type has one',
             $prompt
         );
     }

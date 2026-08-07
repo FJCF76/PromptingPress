@@ -115,7 +115,7 @@ never stored anywhere else.
 |---|---|---|
 | `type` / `default` / `description` | slot + prop | required on every definition |
 | `values` | slot + prop | the bounded value set for an `enum` |
-| `item_eligible` | slot | the slot is card-scoped (grid per-item style) |
+| `item_eligible` | slot | the slot is item-scoped (a grid card, a section panel row) — enforced at **write and at render**, so a container-scoped slot never reaches the item element even from a non-validating write |
 | `applies_when` | slot + prop | machine-readable conditionality (below) |
 | `conditionality_note` | slot + prop | the bounded prose escape hatch (below) |
 | `role` | slot | `"fill"` — this slot is the component's fill colour |
@@ -156,15 +156,27 @@ condition.
 
 `role: "fill"` is a **declared key, not a `-bg` / `-hover-bg` name convention**: a
 naming convention is not machine-readable without a second source of truth, which
-is the same defect this contract fixes one layer down.
+is the same defect this contract fixes one layer down. Mark a colour slot `fill`
+when it paints a **button or surface fill**; the composition-smell channel reads
+the marker to warn (never block) when such a slot resolves to `transparent` or
+`currentColor`, which renders an invisible-but-clickable button.
 
 `aliases` lists legacy **values** of a bounded set. Canonical values stay clean —
 an alias is **accepted, never advertised**, so it must not also appear in `values`,
 and it is valid only on an `enum` prop. The `theme` prop advertises
-`["default","muted","inverted"]` and declares `"aliases": ["dark"]`. The field is a
-**declaration**: its write-path consumer lands with the strict-enum gate, so
-declaring `aliases` beside `strict: true` is rejected until then — otherwise the
-runtime catalog would advertise a legacy value the write path refuses.
+`["default","muted","inverted"]` and declares `"aliases": ["dark"]`. The write path
+**consumes** `aliases`, so an alias is part of the strict-enum membership test:
+declaring `aliases` beside `strict: true` is the contract, not an error.
+
+**Every TOP-LEVEL enum prop must declare `strict: true`.** Without it the write path
+accepts any string and the renderer coerces it to the default, so the action reports
+`ok:true` and the page shows something else. A schema that ships a top-level enum
+without `strict` fails CI.
+
+Nested `items[]` enums are a **known remaining gap**, stated here rather than left to
+be discovered: the strict gate and its CI tripwire both walk top-level props only, so
+`grid.items[].text_role` is still accept-at-write / coerce-at-render. Declaring
+`strict` on a nested enum today has no effect. Closing that gap is its own change.
 
 **Enforcement reach:** the closed key set is a **repo-CI invariant**, not a runtime
 gate. `SchemaValidationTest` runs `pp_schema_definition_errors()` over every shipped

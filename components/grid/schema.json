@@ -33,28 +33,28 @@
       "description": "Optional supporting line below the title. Plain text — HTML is escaped."
     },
     "title_align": {
-      "type": "enum",
+      "type": "enum", "strict": true,
       "values": ["start", "center"],
       "required": false,
       "default": "start",
       "description": "Alignment of the eyebrow/title/subheading header block. 'start' = left-aligned (default, unchanged historical behavior). 'center' = centered."
     },
     "layout": {
-      "type": "enum",
+      "type": "enum", "strict": true,
       "values": ["cards", "steps"],
       "required": false,
       "default": "cards",
       "description": "Structural layout. 'cards' = standard card grid. 'steps' = numbered process cards with visual connectors at desktop. Use 'steps' for How-it-works / process flows."
     },
     "card_emphasis": {
-      "type": "enum",
+      "type": "enum", "strict": true,
       "values": ["featured", "uniform"],
       "required": false,
       "default": "featured",
       "description": "Whether the first card gets the emphasized 'featured' treatment (accent top bar, tinted fill, larger title, extra top padding, and — on dark theme — a lift). 'featured' (default, unchanged historical behavior) emphasizes the first card, drawing the eye to a lead item. 'uniform' renders every card identically — use it for a symmetric/peer card row where all cards are equal (e.g. three specification cards whose checklists must line up, or an equal-weight feature/plan row). Cards-layout concept; ignored on 'steps'."
     },
     "theme": {
-      "type": "enum",
+      "type": "enum", "strict": true,
       "values": ["default", "muted", "inverted"],
       "aliases": ["dark"],
       "required": false,
@@ -86,7 +86,7 @@
         "title":     { "type": "string", "required": false, "description": "Card heading. Plain text — HTML is escaped." },
         "text":      { "type": "string", "required": false, "description": "Card body / supporting text. Inline HTML allowed: a, strong, em, br." },
         "text_role": { "type": "enum", "values": ["mono", "meta", "label", "kicker"], "required": false, "description": "Optional typography role for the card text: 'mono' (code), 'meta' (captions), 'label', or 'kicker' (eyebrow). Adds a .text-<role> class. Invalid/absent → default body text. Set via update_component. 'meta'/'kicker' also set a preset text color; an explicit --grid-item-text-color style slot overrides that preset color at ALL breakpoints (the explicit slot always wins), while the role's size/weight/letter-spacing/transform still apply." },
-        "bullets":   { "type": "array", "required": false, "description": "Optional checklist lines rendered below text, each prefixed with a check mark. Plain text only — no HTML/markdown; each line is escaped independently. Use for scannable feature/benefit lists instead of cramming items into one text sentence.", "items": { "type": "string" } },
+        "bullets":   { "type": "array", "item_type": "string", "required": false, "description": "Optional checklist lines rendered below text, each prefixed with a check mark. Plain text only — no HTML/markdown; each line is escaped independently. Use for scannable feature/benefit lists instead of cramming items into one text sentence.", "items": { "type": "string" } },
         "image_url": { "type": "string", "required": false, "format": "image_url" },
         "image_alt": { "type": "string", "required": false, "default": "", "description": "Alt text for the card image. Leave empty only if the image is purely decorative." },
         "link_url":  { "type": "string", "required": false, "format": "link_url", "description": "Optional card link destination. Accepts an absolute URL, a site-relative /path, an #anchor, mailto:, or tel:; a disallowed protocol (javascript:, data:) is rejected at write time." },

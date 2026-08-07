@@ -140,7 +140,9 @@ $style_attr = $grid_style_parts ? ' style="' . implode('; ', $grid_style_parts) 
                     // .grid__item so it overrides any grid-level companion by
                     // cascade proximity, exactly like the text-align slot itself.
                     $item_style       = is_array($item['style'] ?? null) ? $item['style'] : [];
-                    $item_style_vars  = pp_render_style_vars($item_style, 'grid');
+                    // Item scope (#579): only the card-scoped (item_eligible) slots
+                    // may be emitted here, matching what the write path accepts.
+                    $item_style_vars  = pp_render_style_vars($item_style, 'grid', true);
                     $item_link_align  = pp_grid_link_align_decl($item_style);
                     $item_style_parts = [];
                     if ($item_style_vars !== '') {

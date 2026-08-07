@@ -27,7 +27,7 @@
       "description": "Optional short kicker/label rendered as a pill above the title."
     },
     "theme": {
-      "type": "enum",
+      "type": "enum", "strict": true,
       "values": ["default", "muted", "inverted"],
       "aliases": ["dark"],
       "required": false,

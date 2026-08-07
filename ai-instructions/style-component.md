@@ -79,6 +79,7 @@ Check that `current` values reflect your changes and the `active_recipe` shows c
 |------|----------|-----------|
 | `color` | `#1a1a2e`, `rgb(26, 26, 46)`, `transparent`, `currentColor`, `var(--color-accent)` | `_pp_validate_color()` |
 | `length` | `8rem`, `50%`, `clamp(3rem, 6vw, 5rem)`, `calc(100% - 2rem)`, `0` | `_pp_validate_length()` |
+| `length-or-none` | `none`, `60rem`, `100%` — the `length` grammar plus the keyword `none` ("no cap"). Band-geometry width caps only; today just `--stats-max-width`, whose declared default IS `none`. A plain `length` slot still rejects `none`. | `_pp_validate_length()` (with the `none` keyword) |
 | `number` | `700`, `1.5` | `_pp_validate_number()` |
 | `duration` | `250ms`, `0.3s` | `_pp_validate_duration()` |
 | `font-family` | `"Inter", sans-serif` | `_pp_validate_font_family()` |
@@ -94,7 +95,7 @@ Check that `current` values reflect your changes and the `active_recipe` shows c
 > `var()` *inside* a `linear-gradient()`/`radial-gradient()`, and never a "gradient
 > token"), `shadow` (only the fixed presets `var(--shadow-none|sm|md|lg)`, never
 > an arbitrary token), and `font-family` (a font token such as `var(--font-mono)`).
-> Every other type — `length`, `number`, `duration`, `position`,
+> Every other type — `length`, `length-or-none`, `number`, `duration`, `position`,
 > and `ratio` — is **literal-only**: `var()` is rejected in every form, bare or
 > nested. Look up the token's current value (`inspect-composition`, or the
 > design-token registry) and pass that literal value. Passing a literal **freezes**
@@ -123,13 +124,16 @@ cta, and testimonials (card) components each expose namespaced `*-border-color`,
 `*-border-width`, `*-radius`, and `*-shadow` slots.
 
 The `stats` band exposes two of these framing slots — `--stats-radius` (length,
-default `0`) and `--stats-max-width` (length, default `none`) — for a **contained,
-rounded metrics card** (#383). Set both together: `--stats-max-width` caps the band
-and centers it with auto side margins, and `--stats-radius` rounds the band's
-background. Unset, the band spans full width with square corners exactly as before.
-To "remove" the max-width, set `100%` (the type has no `none` input) — the slot's
-`none` default is the built-in full-bleed. Stats does not expose `*-border-*` or
-`*-shadow` slots.
+default `0`) and `--stats-max-width` (**length-or-none**, default `none`) — for a
+**contained, rounded metrics card** (#383). Set both together: `--stats-max-width`
+caps the band and centers it with auto side margins, and `--stats-radius` rounds the
+band's background. Unset, the band spans full width with square corners exactly as
+before. To remove the max-width, set `none` — the `length-or-none` type accepts the
+same keyword the slot declares as its default, so the built-in full-bleed is
+authorable (#579). `none` is accepted **only** on a `length-or-none` slot; a plain
+`length` slot (padding, font-size, radius, a text measure like
+`--section-body-measure`) still rejects it, and there `100%` remains the way to
+widen a cap. Stats does not expose `*-border-*` or `*-shadow` slots.
 
 **Stats display numbers follow the heading system only when you ask (#472).** The big
 metric values are the largest text in the component, but by default they take the page

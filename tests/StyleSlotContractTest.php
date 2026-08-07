@@ -1738,7 +1738,10 @@ class StyleSlotContractTest extends TestCase
         'column-gap'                 => ['length'],
         'width'                      => ['length'],
         'min-width'                  => ['length'],
-        'max-width'                  => ['length'],
+        // `max-width` is the one CSS property whose "remove the cap" value is the
+        // keyword `none`, so it is the only property the #579 `length-or-none`
+        // grammar drives. Plain `length` stays compatible: --*-measure slots keep it.
+        'max-width'                  => ['length', 'length-or-none'],
         'height'                     => ['length'],
         'font-size'                  => ['length'],
         'border-width'               => ['length'],

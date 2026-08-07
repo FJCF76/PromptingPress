@@ -20,7 +20,7 @@
       "description": "WP shortcode string or pre-rendered HTML. Passed through do_shortcode() and wp_kses_post(). Example: '[contact-form-7 id=\"123\"]'."
     },
     "theme": {
-      "type": "enum",
+      "type": "enum", "strict": true,
       "values": ["default", "muted", "inverted"],
       "aliases": ["dark"],
       "required": false,

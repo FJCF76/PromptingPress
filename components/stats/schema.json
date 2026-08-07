@@ -21,7 +21,7 @@
       "description": "Optional exact substring of title to render in an accent color. Must match title exactly (case-sensitive) or it is ignored."
     },
     "theme": {
-      "type": "enum",
+      "type": "enum", "strict": true,
       "values": ["default", "muted", "inverted"],
       "aliases": ["dark"],
       "required": false,
@@ -64,7 +64,7 @@
       "--stats-label-color": { "type": "color", "default": "var(--color-muted)", "description": "Stat label text color" },
       "--stats-bg-position": { "type": "position", "default": "center", "description": "background_image focal point" },
       "--stats-radius": { "type": "length", "default": "0", "description": "Border radius of the stats band. Pair with --stats-max-width for a contained, rounded metrics card." },
-      "--stats-max-width": { "type": "length", "default": "none", "description": "Maximum width of the stats band. When set, the band is capped to this width and centered (auto side margins), producing a contained card; the default 'none' spans full width unchanged." }
+      "--stats-max-width": { "type": "length-or-none", "default": "none", "description": "Maximum width of the stats band. When set, the band is capped to this width and centered (auto side margins), producing a contained card; the default 'none' spans full width unchanged." }
     }
   },
   "safe_to_edit": ["stats.php", "../../assets/css/components.css (COMPONENT: stats section)"],

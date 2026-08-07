@@ -33,21 +33,21 @@
       "description": "Optional supporting line below the title. Plain text — HTML is escaped."
     },
     "title_align": {
-      "type": "enum",
+      "type": "enum", "strict": true,
       "values": ["start", "center"],
       "required": false,
       "default": "start",
       "description": "Alignment of the eyebrow/title/subheading header block. 'start' = left-aligned (default, unchanged historical behavior). 'center' = centered."
     },
     "layout": {
-      "type": "enum",
+      "type": "enum", "strict": true,
       "values": ["grid", "stack"],
       "required": false,
       "default": "grid",
       "description": "Structural layout. 'grid' = card grid, 1-col mobile / 2-3 col desktop. 'stack' = single centered column, for one or two large pull-quotes."
     },
     "theme": {
-      "type": "enum",
+      "type": "enum", "strict": true,
       "values": ["default", "muted", "inverted"],
       "aliases": ["dark"],
       "required": false,
