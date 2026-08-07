@@ -103,6 +103,109 @@ Create `/components/mycomponent/schema.json`:
 
 **Required keys:** `component`, `description`, `props`.
 
+### The definition-object contract (issue #575)
+
+A slot or prop **definition object** is a closed surface: `SchemaValidationTest`
+rejects any key not on this list, so a typo or a half-landed field fails CI
+instead of being ignored at runtime forever. Every piece of declaration-level
+metadata is declared **on the definition object**, never inferred from a name and
+never stored anywhere else.
+
+| Key | Surface | What it declares |
+|---|---|---|
+| `type` / `default` / `description` | slot + prop | required on every definition |
+| `values` | slot + prop | the bounded value set for an `enum` |
+| `item_eligible` | slot | the slot is card-scoped (grid per-item style) |
+| `applies_when` | slot + prop | machine-readable conditionality (below) |
+| `conditionality_note` | slot + prop | the bounded prose escape hatch (below) |
+| `role` | slot | `"fill"` — this slot is the component's fill colour |
+| `aliases` | prop | legacy **values** accepted at write, never advertised |
+
+`applies_when` is an **array of clauses, ANDed**. **Exactly four clause forms
+exist and the grammar does not grow:**
+
+```jsonc
+{ "prop": "<name>", "equals": "<value>" }
+{ "prop": "<name>", "in": ["<v>", "…"] }
+{ "prop": "<name>", "present": true }    // non-empty string, or non-empty array
+{ "slot": "--<name>", "present": true }  // sibling-slot case
+```
+
+Do **not** add an `any_of` clause, a `context` clause, or any free-form
+structure. Three condition classes stay **prose**, in `conditionality_note`,
+precisely so the machine-readable grammar never has to grow to swallow them:
+
+- **Disjunction** — a slot that applies on dark bands only, i.e. `theme:
+  inverted` **or** `background_image` present.
+- **Composed-page context** — `--grid-card-bar-*` / `--grid-featured-*` apply
+  only under a `main >` scope, which is not a prop, not a slot and not a value.
+- **Interaction state** — a question's open state.
+
+(Viewport-scoped behaviour is neither: responsive slot values are out of scope by
+ruling, and breakpoint families are *defaults*, not authored conditions.) If the
+grammar ever needs to grow, that growth lands in this contract **before** anything
+populates it.
+
+**Phrasing contract for `conditionality_note`:** write it as a condition clause
+that completes the sentence "applies when ...", on a single line, under 400
+characters. The runtime AI catalog emits it verbatim inside that phrase, so
+"the band is dark" reads correctly while "This slot has no effect unless the band
+is dark." renders as the **opposite** of what you meant. When a definition
+declares both `applies_when` and a note, the catalog joins them with `AND` as one
+condition.
+
+`role: "fill"` is a **declared key, not a `-bg` / `-hover-bg` name convention**: a
+naming convention is not machine-readable without a second source of truth, which
+is the same defect this contract fixes one layer down.
+
+`aliases` lists legacy **values** of a bounded set. Canonical values stay clean —
+an alias is **accepted, never advertised**, so it must not also appear in `values`,
+and it is valid only on an `enum` prop. The `theme` prop advertises
+`["default","muted","inverted"]` and declares `"aliases": ["dark"]`. The field is a
+**declaration**: its write-path consumer lands with the strict-enum gate, so
+declaring `aliases` beside `strict: true` is rejected until then — otherwise the
+runtime catalog would advertise a legacy value the write path refuses.
+
+**Enforcement reach:** the closed key set is a **repo-CI invariant**, not a runtime
+gate. `SchemaValidationTest` runs `pp_schema_definition_errors()` over every shipped
+schema (including nested `items` sub-definitions). Nothing checks a schema on a live
+request. That is sufficient because components are discovered only from the theme's
+own `components/` directory — there is no child-theme or plugin registration path.
+
+### Renaming a slot or a prop later
+
+Names freeze at the first stable contract. A later rename uses the
+**alias-and-keep** model — add the old name to the legacy map, never delete it:
+
+| Map | Lives in | Maps |
+|---|---|---|
+| `pp_legacy_slot_aliases()` | `lib/wp.php` | legacy slot **name** → canonical slot **name** |
+| `pp_legacy_prop_aliases()` | `lib/admin.php` | legacy prop **key** → canonical prop **key** |
+| `props.<p>.aliases` | `schema.json` | legacy prop **value** (accepted, never advertised) |
+
+The two name maps are **not symmetric**, and the difference matters:
+
+| Map | Resolves at | Consequence |
+|---|---|---|
+| `pp_legacy_prop_aliases()` | every composition **read** | a legacy-shaped band heals to canonical keys on any whole-array write-back, including bands you did not touch. Value-preserving except when an item stores **both** names, where canonical-wins drops the legacy value. The heal is **not** reported in the action's `changes`. |
+| `pp_legacy_slot_aliases()` | **render only** | a stored legacy slot name paints, but every whole-composition validation still rejects it, so the page cannot be edited or saved. The map ships empty; the gate that lands the first real slot rename must close this in the same change. |
+
+Both resolve under one bounded rule:
+
+> A legacy name resolves at render **iff** a shipped mechanism promises that the
+> already-stored document will render. Today exactly one mechanism makes that
+> promise (`restore_composition`, #233 — it restores the snapshot verbatim and
+> reports findings, and it never blocks). No other legacy surface qualifies.
+
+That is **mechanism trust, not backward compatibility**. Under a clean break
+`restore_composition` would *succeed* and render a page stripped of its styling:
+`pp_render_style_vars()` drops an undeclared slot with a bare `continue` — no
+finding, no warning, no log, no admin notice — and every action still returns
+`ok:true`. A durability mechanism that returns success and produces an unstyled
+page has not restored anything. Both maps apply **canonical-wins**: if a stored
+document carries both names, the canonical value is the author's explicit one and
+the stale legacy one is dropped.
+
 ---
 
 ## Step 4 — Create README.md
@@ -231,3 +334,11 @@ Add a row to the Component index table in `AI_CONTEXT.md`:
       class is missing from the `:not()` list gets its own slots neutralised. `NestedButtonSlotIsolationTest`
       and the `#545` css-lint pin both fail until this is done.
 - [ ] `AI_CONTEXT.md` component index updated
+- [ ] Every slot/prop definition object uses only the keys in the definition-object
+      contract (Step 3); `SchemaValidationTest` rejects anything else
+- [ ] `styling.variant_classes` lists **exactly** the root-element modifier classes
+      the template can emit. It is derived from the template by
+      `SchemaValidationTest::testVariantClassesListExactlyWhatTheTemplateCanEmit`,
+      so an empty array is a claim the test checks, not a gap nobody noticed. Watch
+      the `section` trap: its root class is `section` but `pp_theme_class()` is
+      called with the `pp-section` prefix, so its theme classes are `pp-section--*`
