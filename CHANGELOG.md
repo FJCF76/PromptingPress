@@ -4,6 +4,51 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.6] — 2026-08-07 — every slot and prop now says what it is, and a renamed page stays editable (#576)
+
+**Fifty-one style slots and eleven props move to the canonical vocabulary, and the alias mechanism that makes stored pages survive it stops being render-only. A page carrying a legacy name now both paints AND saves — before this change it did exactly one of the two.**
+
+The names were not arbitrary but they were not derivable either. `--hero-title-size` and `--section-title-color` sat beside `--grid-heading-size`; `--hero-text` and `--section-text` carried colours; `--grid-card-*` and `--testimonials-card-*` described the same "one item in a list" the `--grid-item-*` family already named; `--cta-content-width` and `--section-body-width` measured text while `--stats-max-width` measured a band. On the prop side `section` declared `title`, `title_accent` **and** `heading_align` — three segments for one element, on the three components an agent touches most. A rule stops being derivable the moment it ships an exception.
+
+Every rename is byte-identical for already-stored pages, and that claim states its condition: it is true **because** legacy names resolve, at render and now on read. Measured on dev, without resolution this would have been ~167 declarations across 83% of the corpus — subtitles vanishing, hero buttons reverting to unset, heading alignment snapping back to `start`.
+
+### The bug that had to close in the same commit
+
+`pp_legacy_slot_aliases()` shipped in v1.12.4 resolving at **render only**. That was harmless while the map was empty and a trap the moment it was not: every action validates the *whole* composition, and the slot validator never consulted the map, so one legacy name on one band made a targeted edit to **any other** band fail with `invalid_style_slot`, naming a slot the operator never typed. The page rendered correctly, could not be edited, previewed or saved, and never healed. `restore_composition` would have returned `ok:true` and produced exactly that. Slot names now resolve on every composition read — component-level `style` and every per-item style map the schema declares — so validation, preview and the whole-array write-back all see canonical names.
+
+The boundary is deliberate and pinned: resolution covers the **already-stored** document. A *new* write naming a legacy slot is still rejected. Nothing promises anything about a name an agent chooses to type today, and every read path now hands it the canonical one.
+
+### One entry the rename table asked for is not here
+
+The table specified a two-name **swap** on the steps badge — `--grid-step-color` → `--grid-step-bg` for the fill, and `--grid-step-text-color` → `--grid-step-color` for the ink. A swap cannot be carried by a single-hop alias map. The chain sanitizer discards it; forcing it past the sanitizer makes the new canonical `--grid-step-color` permanently un-authorable, because every read would rewrite it. The fill rename ships and `--grid-step-text-color` keeps its name, which fixes the defect the table actually named — no `-color` slot means a fill any more — using the convention already shipped one line away in `--grid-item-text-color`.
+
+### Fixed
+
+- Slot-alias resolution is no longer render-only (#594): a page carrying a legacy slot name is editable and saveable again, and heals to canonical names on the next write-back.
+- `--section-body-link-hover-color` is **declared**. It was consumed at two places in `components.css` and declared in no schema, so the link hover colour was unreachable from every authoring path — a real intended surface hiding in plain sight.
+- The Custom-CSS conflict detector reports the **registered component name** instead of the matched root class, derived from each schema's own `root_class`. It was the last surface handing an agent `table-section`, a name that now appears in no schema, no slot and no action parameter; `site-header`/`site-footer` likewise resolve to `nav`/`footer`.
+- `hero` and `cta` now share one description for `button_variant` and `button2_variant`. The rename collapsed two separately-worded props into one shared enum, which the #442 rule requires be documented identically.
+- `restore_composition` resolves legacy slot names before computing `findings`. It builds its target explicitly (it is a decode path that does not route through the read shim) and applied only two of the three decode surfaces, so restoring a pre-rename snapshot reported `invalid_style_slot` for names this release deliberately supports — a false failure on the *one* mechanism the whole alias rule is premised on, visible in the preview, where an agent could abort a legitimate restore.
+- The read path refuses to heal when the schema is unreadable. With an empty slot set the canonical-wins test inverts (nothing "paints", so the stale legacy value would overwrite the author's canonical value) and, unlike the render path, the read path's answer is written back to the database. Reachable via a partial theme deploy, a `template_directory` filter, or one malformed `schema.json`. Now: no schema, no heal.
+- `pp_get_registered_components()` keys its cache by theme root. The single unkeyed slot returned the previous root's scan after a swap, and the invalidate flag was checked *before* the directory was read, so the handshake could not close the gap. Behaviour-identical in production (one theme root per request); it is the tests that swap roots, and #576 made the registry a read-path dependency.
+- The AI chat's change summary counts CTA body edits again (`textKeys` gained `body` alongside the renamed `subheading`).
+
+### Docs
+
+- `AI_CONTEXT.md`, `README.md` and the four `ai-instructions/` files that name slots move with the rename; the slot total goes 232 → 233.
+- `--section-body-link-hover-color` supersedes the undeclared `--section-accent-hover`, and the Custom-CSS conflict detector's `component` value changes (`table-section`→`table`, `site-header`→`nav`, `site-footer`→`footer`) — both greppable for anyone upgrading a child theme or reading `pp_inspect_site()`'s envelope. No consumer branches on that value.
+- Internal plumbing moves to the `--pp-` namespace: six `--<component>-*-theme-color` properties plus `--header-height`. This is what makes "declared or absent, there is no third state" mechanically checkable — afterwards, any `--<component>-*` property consumed in CSS without a schema declaration is a defect by definition.
+
+### Tests
+
+- `tests/StoredCompositionAliasRenderTest.php` records two supersessions rather than deletions. The render-only asymmetry pin becomes the symmetry pin it told its successor to write; the ships-empty pin becomes an alias-coherence pin that walks all 51 entries and fails on a dangling target or a legacy name still declared. That pin caught a real bug during this change: the prop-rename pass rewrote two legacy *keys* inside the alias map, turning them into identity pairs the sanitizer then silently discarded.
+- New coverage: real renamed pairs (not the synthetic one), per-item legacy slots on grid cards, canonical-wins on read including the case where the canonical declaration cannot paint, the three heaviest prop renames proven by render, authoring-path reachability for the new slot, and the write-surface boundary.
+- `ActionsTest` and `WpAbstractionTest` invert their hero pins: `hero.cta_text`/`cta_url` were canonical and are now legacy, so both directions are asserted — the legacy names resolve AND the canonical ones survive a write untouched.
+- Both regression fixes above are mutation-proved: reverting either turns its pin red with the exact reported failure, and green again with the fix in.
+- PHPUnit 2656 → **2674**; vitest 1049 → **1050**.
+
+---
+
 ## [v1.12.5] — 2026-08-07 — table, embed and logos get the regression net the CSS gates will diff against (#583)
 
 **Three components were about to receive CSS and schema changes from four separate gates while having no component-level test of any kind. This adds the net first, and every number in it was measured in a browser rather than traced through a stylesheet.**
