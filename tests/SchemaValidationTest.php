@@ -331,7 +331,7 @@ class SchemaValidationTest extends TestCase
     public function testStyleSlotStructure(): void
     {
         $components = ['hero', 'section', 'grid', 'cta'];
-        $validTypes = ['color', 'length', 'number', 'shadow', 'gradient', 'position', 'ratio', 'align', 'text-transform', 'font-family', 'enum'];
+        $validTypes = ['color', 'length', 'length-or-none', 'number', 'shadow', 'gradient', 'position', 'ratio', 'align', 'text-transform', 'font-family', 'enum'];
 
         foreach ($components as $component) {
             $schemaFile = $this->themeRoot . "/components/{$component}/schema.json";
@@ -630,25 +630,152 @@ class SchemaValidationTest extends TestCase
     }
 
     /**
-     * The strict-enum check is OPT-IN (only enum props with strict:true). It must
-     * NOT ripple to ordinary enum props: an invalid `layout` value keeps its
-     * historical accept-and-coerce-at-render behavior and still VALIDATES here, so
-     * this change did not silently tighten validation for props beyond #380's.
+     * #579, A-32 REPLACES the opt-in posture this used to pin. `strict` shipped in
+     * #380 as an opt-in flag and exactly one prop ever opted in, so twenty-eight
+     * enums stayed accept-at-write / coerce-at-render — the write reported ok:true
+     * and the page rendered the default. Every enum declares `strict: true` now, so
+     * an out-of-set value is rejected at write with a named error.
      */
-    public function testNonStrictEnumInvalidValueStillValidates(): void
+    public function testEveryEnumPropRejectsAnOutOfSetValue(): void
     {
         $result = pp_validate_composition([
             ['component' => 'grid', 'props' => [
                 'layout' => 'bogus-not-a-layout',
-                'theme'  => 'not-a-theme',
                 'items'  => [['title' => 'One']],
             ]],
         ]);
-        $this->assertTrue(
-            $result,
-            'A non-strict enum (layout/theme) with an invalid value must still validate '
-            . '(render-time coercion preserved); the #380 strict check must not ripple to it.'
-        );
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_prop_value', $result->get_error_code());
+        $this->assertStringContainsString('cards, steps', $result->get_error_message());
+    }
+
+    /**
+     * The declaration side of the same change: no TOP-LEVEL enum prop may be left
+     * accept-and-coerce. This is the tripwire that keeps a NEW enum from shipping
+     * without `strict`, which is exactly how #380's mechanism sat unused for 199
+     * issues.
+     *
+     * Scoped to top-level props DELIBERATELY, matching the runtime gate
+     * (pp_validate_composition_errors walks $schema['props']). Nested item-field
+     * enums are a known gap pinned by the sibling test below, not an oversight here.
+     */
+    public function testEveryTopLevelEnumPropDeclaresStrict(): void
+    {
+        $missing = [];
+        foreach (glob($this->themeRoot . '/components/*/schema.json') as $file) {
+            $component = basename(dirname($file));
+            $schema    = json_decode(file_get_contents($file), true);
+            foreach ($schema['props'] ?? [] as $propName => $propDef) {
+                if (($propDef['type'] ?? null) === 'enum' && empty($propDef['strict'])) {
+                    $missing[] = "{$component}.{$propName}";
+                }
+            }
+        }
+        $this->assertSame([], $missing, 'every top-level enum prop must declare "strict": true (#579, A-32)');
+    }
+
+    /**
+     * THE KNOWN GAP, pinned so it is a recorded state rather than a surprise.
+     *
+     * #579's A-32 enumerated the 28 TOP-LEVEL enum props and made those strict. A
+     * nested item-field enum is not reached by the gate, so declaring `strict` on
+     * one would do nothing — and the reported-success-without-effect class the gate
+     * closes is still open there. `grid.items[].text_role` is the only one today.
+     *
+     * This test fails the moment someone adds `strict` to a nested enum (which would
+     * be a silent no-op) OR the moment the gate is extended to cover them (at which
+     * point this pin should be deleted, not weakened).
+     */
+    public function testNestedItemEnumsAreAKnownAcceptAndCoerceGap(): void
+    {
+        $nested = [];
+        foreach (glob($this->themeRoot . '/components/*/schema.json') as $file) {
+            $component = basename(dirname($file));
+            $schema    = json_decode(file_get_contents($file), true);
+            foreach ($schema['props'] ?? [] as $propName => $propDef) {
+                foreach (($propDef['items'] ?? []) as $field => $fieldDef) {
+                    if (is_array($fieldDef) && ($fieldDef['type'] ?? null) === 'enum') {
+                        $nested[] = "{$component}.{$propName}[].{$field}";
+                        $this->assertArrayNotHasKey(
+                            'strict',
+                            $fieldDef,
+                            "{$component}.{$propName}[].{$field}: `strict` on a nested enum is a no-op — "
+                            . 'extend pp_validate_composition_errors() to walk nested enums first'
+                        );
+                    }
+                }
+            }
+        }
+        $this->assertSame(['grid.items[].text_role'], $nested, 'the nested-enum inventory changed');
+
+        // And the behaviour that inventory implies: the write path still accepts it.
+        $this->assertTrue(pp_validate_composition([
+            ['component' => 'grid', 'props' => ['items' => [
+                ['title' => 'Card', 'text' => 'x', 'text_role' => 'bogus-not-a-role'],
+            ]]],
+        ]), 'a nested enum is still accept-and-coerce — render-side coercion is pinned in TypographyRoleTest');
+    }
+
+    /**
+     * The unset sentinel is untouched by the universal strict gate: an absent key,
+     * null, or the empty string all keep the prop's declared default behaviour.
+     */
+    public function testStrictEnumUnsetSentinelStillValidates(): void
+    {
+        foreach ([null, ''] as $unset) {
+            $result = pp_validate_composition([
+                ['component' => 'grid', 'props' => [
+                    'layout' => $unset,
+                    'items'  => [['title' => 'One']],
+                ]],
+            ]);
+            $this->assertTrue($result, 'the unset sentinel must preserve the default');
+        }
+    }
+
+    /**
+     * #575 declared `aliases`; #579 wires the consumer. `theme` is strict AND still
+     * accepts `dark`, which it never advertises — without that the strict gate would
+     * reject a value six shipped compositions carry and one MANUFACTURES at read
+     * time from a stored `variant: "dark"`.
+     */
+    public function testStrictEnumAcceptsADeclaredLegacyAlias(): void
+    {
+        $result = pp_validate_composition([
+            ['component' => 'grid', 'props' => ['theme' => 'dark', 'items' => [['title' => 'One']]]],
+        ]);
+        $this->assertTrue($result, 'the declared `dark` alias must remain writable');
+
+        $rejected = pp_validate_composition([
+            ['component' => 'grid', 'props' => ['theme' => 'darkish', 'items' => [['title' => 'One']]]],
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $rejected, 'the alias set is bounded');
+    }
+
+    /**
+     * restore_composition never blocks, for the new rejections too (ruling 2). A
+     * snapshot carrying an out-of-set enum restores verbatim and reports the
+     * violation as a finding through the shared engine.
+     */
+    public function testRestoreNeverBlocksOnTheNewStrictEnumRejection(): void
+    {
+        $post_id = pp_create_page('Strict enum snapshot');
+        pp_update_composition($post_id, [
+            ['component' => 'grid', 'props' => ['items' => [['title' => 'One']]]],
+        ]);
+        // Raw meta write: the value could never get in through the action layer.
+        $raw = pp_get_composition($post_id);
+        $raw[0]['props']['layout'] = 'bogus-not-a-layout';
+        update_post_meta($post_id, '_pp_composition', wp_json_encode($raw));
+        pp_update_composition($post_id, [
+            ['component' => 'grid', 'props' => ['items' => [['title' => 'Two']]]],
+        ]);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? 'restore must never block');
+        $this->assertSame('bogus-not-a-layout', pp_get_composition($post_id)[0]['props']['layout']);
+        $this->assertContains('invalid_prop_value', array_column($result['findings'], 'type'));
     }
 
     // ── Section inline-items row (issue 475) ─────────────────────────────
@@ -1484,9 +1611,14 @@ class SchemaValidationTest extends TestCase
                         $entry[$item_prop] = 'x';
                     }
                     $props[$prop_name] = [$entry === [] ? ['x' => 'x'] : $entry];
+                } elseif ($prop_type === 'array' && ($prop_def['item_type'] ?? null) === 'array') {
+                    // Array-of-arrays prop (issue #579, e.g. table.rows): every entry
+                    // must itself be an array, so a scalar row cannot be cast into a
+                    // one-cell row by the renderer.
+                    $props[$prop_name] = [['x']];
                 } elseif ($prop_type === 'array') {
-                    // Plain array prop (no item contract, e.g. table.rows/headers): an
-                    // array of strings is a valid, non-rejected value.
+                    // Plain array prop (no item contract): an array of strings is a
+                    // valid, non-rejected value.
                     $props[$prop_name] = ['x'];
                 } else {
                     $props[$prop_name] = 'x';
@@ -2976,12 +3108,15 @@ class SchemaValidationTest extends TestCase
     }
 
     /**
-     * `aliases` names legacy members of a BOUNDED set, and its write-path consumer
-     * lands with the strict-enum gate. Two contract holes are closed until then:
-     * it is meaningless on a non-enum prop, and declaring it beside `strict` would
-     * make the runtime catalog advertise a legacy value the writer refuses.
+     * `aliases` names legacy members of a BOUNDED set, so it stays meaningless on a
+     * non-enum prop. #575's OTHER guard — "aliases cannot be declared alongside
+     * strict" — is GONE, and its removal is the point of #579: the guard existed
+     * only because the strict check consulted `values` alone, which would have made
+     * the catalog advertise a legacy value the writer refused. The write path
+     * consumes aliases now, so the combination is the contract rather than a lie,
+     * and every shipped `theme` prop declares both.
      */
-    public function testAliasesRequireAnEnumAndCannotOutrunTheirWritePathConsumer(): void
+    public function testAliasesRequireAnEnumAndCoexistWithStrict(): void
     {
         $this->assertNotEmpty(
             \pp_schema_definition_errors(
@@ -2992,25 +3127,39 @@ class SchemaValidationTest extends TestCase
             '`aliases` on a non-enum prop emits a catalog line an agent cannot act on'
         );
 
-        $errors = \pp_schema_definition_errors(
+        $this->assertSame(
+            [],
+            \pp_schema_definition_errors(
+                ['type' => 'enum', 'required' => false, 'default' => 'a', 'description' => 'x',
+                 'values' => ['a', 'b'], 'aliases' => ['dark'], 'strict' => true],
+                'prop',
+                'test.x'
+            ),
+            'strict + aliases is the shipped contract since #579, not an error'
+        );
+
+        // An alias that is ALSO advertised is still rejected: that is a duplicate
+        // declaration, not an alias.
+        $this->assertNotEmpty(\pp_schema_definition_errors(
             ['type' => 'enum', 'required' => false, 'default' => 'a', 'description' => 'x',
-             'values' => ['a', 'b'], 'aliases' => ['dark'], 'strict' => true],
+             'values' => ['a', 'dark'], 'aliases' => ['dark'], 'strict' => true],
             'prop',
             'test.x'
-        );
-        $this->assertNotEmpty($errors, 'advertise-but-reject must be rejected at the schema surface');
-        $this->assertStringContainsString('strict', implode(' ', $errors));
+        ));
 
-        // No shipped schema hits either case today.
+        // Every shipped prop declaring aliases is a strict enum.
+        $found = 0;
         foreach ($this->allSchemas() as $component => $schema) {
             foreach (($schema['props'] ?? []) as $name => $def) {
                 if (!isset($def['aliases'])) {
                     continue;
                 }
+                $found++;
                 $this->assertSame('enum', $def['type'] ?? null, "{$component}.{$name}");
-                $this->assertEmpty($def['strict'] ?? null, "{$component}.{$name}");
+                $this->assertNotEmpty($def['strict'] ?? null, "{$component}.{$name} must be strict");
             }
         }
+        $this->assertGreaterThan(0, $found, 'no alias-bearing prop found — the walk is broken');
     }
 
     /**
@@ -3059,16 +3208,43 @@ class SchemaValidationTest extends TestCase
     }
 
     /**
-     * #575 lands the marker; it applies it to nothing. The fill-slot family the
-     * marker must be able to describe lands in the write/render convergence gate.
+     * #575 landed the marker and applied it to nothing; #579 (A-34) populates the
+     * fill-slot family and consumes it in the warn channel. The family is the button
+     * FILL of every component that renders a button, plus each one's hover twin —
+     * enumerated here so a new button component cannot quietly ship a fill slot the
+     * transparent-fill advisory is blind to.
      */
-    public function testNoSlotDeclaresTheFillMarkerYet(): void
+    public function testFillMarkerIsDeclaredOnExactlyTheButtonFillFamily(): void
     {
+        $expected = [
+            'cta'     => ['--cta-button-bg', '--cta-button-hover-bg', '--cta-button2-bg', '--cta-button2-hover-bg'],
+            'hero'    => ['--hero-button-bg', '--hero-button-hover-bg', '--hero-button2-bg', '--hero-button2-hover-bg'],
+            'section' => ['--section-panel-cta-bg'],
+        ];
+
+        $actual = [];
         foreach ($this->allSchemas() as $component => $schema) {
             foreach (($schema['styling']['style_slots'] ?? []) as $name => $def) {
-                $this->assertArrayNotHasKey('role', $def, "#575 populates no fill markers ({$component} {$name})");
+                if (($def['role'] ?? null) !== 'fill') {
+                    continue;
+                }
+                $actual[$component][] = $name;
+                // A fill is a colour. The advisory compares the stored value against
+                // `transparent`/`currentColor`, which only a colour grammar accepts.
+                $this->assertSame('color', $def['type'] ?? null, "{$component} {$name} must be a color slot");
             }
         }
+        foreach ($actual as $component => $names) {
+            sort($names);
+            $actual[$component] = $names;
+        }
+        foreach ($expected as $component => $names) {
+            sort($names);
+            $expected[$component] = $names;
+        }
+        ksort($actual);
+        ksort($expected);
+        $this->assertSame($expected, $actual);
     }
 
     /**

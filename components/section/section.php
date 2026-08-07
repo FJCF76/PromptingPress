@@ -249,11 +249,12 @@ if (!empty($body_items)) {
                                     // Paired-row entry (issue 334): label/value, not a bullet.
                                     // Optional per-row style routes through the SAME shared
                                     // engine + slots as grid's per-card style (issue 306); the
-                                    // renderer only echoes item_eligible slots (issue 323).
+                                    // renderer only echoes item_eligible slots (issue 323,
+                                    // actually enforced at render since #579).
                                     $row_label      = isset($panel_item['label']) && is_scalar($panel_item['label']) ? (string) $panel_item['label'] : '';
                                     $row_value      = isset($panel_item['value']) && is_scalar($panel_item['value']) ? (string) $panel_item['value'] : '';
                                     $row_style      = is_array($panel_item['style'] ?? null) ? $panel_item['style'] : [];
-                                    $row_style_vars = pp_render_style_vars($row_style, 'section');
+                                    $row_style_vars = pp_render_style_vars($row_style, 'section', true);
                                     $row_style_attr = $row_style_vars ? ' style="' . $row_style_vars . ';"' : '';
                                     ?>
                                     <li class="section__panel-row"<?php echo $row_style_attr; ?>>

@@ -640,11 +640,17 @@ class GuardrailsTest extends TestCase
         // scalar. Without the props-level guard (not just the item-level
         // guard above), this must still not coerce garbage into
         // $props/$hero_layout/$image_url via string-offset access.
+        //
+        // The corrupt item DOES raise the #579 empty-band advisory — with no
+        // readable props it renders nothing, which is true and is what the advisory
+        // says. What must never appear is a layout smell derived from string-offset
+        // garbage, so that is what this asserts.
         $composition = [
             ['component' => 'hero', 'props' => 'not-an-array'],
-            ['component' => 'hero', 'props' => ['layout' => 'left', 'image_url' => '/img/x.jpg']],
+            ['component' => 'hero', 'props' => ['layout' => 'left', 'title' => 'Test', 'image_url' => '/img/x.jpg']],
         ];
-        $this->assertSame([], pp_validate_composition_smells($composition));
+        $types = array_column(pp_validate_composition_smells($composition), 'type');
+        $this->assertSame(['empty_section'], $types);
     }
 
     public function testSmellsHeroLeftNoImageTriggersWarning(): void
@@ -729,8 +735,10 @@ class GuardrailsTest extends TestCase
 
     public function testSmellsMixedWarnings(): void
     {
+        // `title` is present because hero.title is a REQUIRED prop — a title-less
+        // hero is a separate (and, since #579, warned) defect, not the subject here.
         $composition = [
-            ['component' => 'hero', 'props' => ['layout' => 'left']],
+            ['component' => 'hero', 'props' => ['layout' => 'left', 'title' => 'Test']],
             ['component' => 'section', 'props' => ['body' => 'Content']],
             ['component' => 'section', 'props' => ['body' => 'More content']],
         ];
@@ -1014,18 +1022,115 @@ class GuardrailsTest extends TestCase
         $this->assertArrayNotHasKey('id', $warnings[0]);
     }
 
-    public function testSmellsHeroAndCtaAreNeverFlaggedAsEmpty(): void
+    public function testSmellsEmptyBandComponentsAreFlagged(): void
     {
-        // hero/cta/section have no items/headers-rows structure — the empty
-        // check must not misfire on components it doesn't understand.
+        // #579, A-27: the empty-band smell used to cover five structured-content
+        // components and return false for everything else, so a content-less hero
+        // or section was reported clean. Both now warn — a hero paints a bare empty
+        // <h1>, and a section with none of its content_requirement props renders an
+        // empty container. Neither has a `default` arm to hide behind any more.
         $composition = [
             ['component' => 'hero', 'props' => []],
-            ['component' => 'cta', 'props' => []],
             ['component' => 'section', 'props' => []],
         ];
-        $warnings = pp_validate_composition_smells($composition);
-        $types = array_column($warnings, 'type');
-        $this->assertNotContains('empty_section', $types);
+        $warnings = array_values(array_filter(
+            pp_validate_composition_smells($composition),
+            static fn ($w) => $w['type'] === 'empty_section'
+        ));
+        $this->assertCount(2, $warnings, 'both the hero and the section must warn');
+        $this->assertSame([0, 1], array_column($warnings, 'index'));
+    }
+
+    public function testSmellsHeroWithAZeroImageIdIsStillEmpty(): void
+    {
+        // REGRESSION. `image_id` declares 0 as its schema DEFAULT meaning "no image",
+        // and it is routinely written as a literal 0 rather than omitted. Counting
+        // that 0 as content made the hero arm unreachable for the most common stored
+        // shape of a blank hero — the arm would exist and never fire.
+        $warnings = pp_validate_composition_smells([
+            ['component' => 'hero', 'props' => ['image_id' => 0]],
+        ]);
+        $this->assertContains('empty_section', array_column($warnings, 'type'));
+    }
+
+    public function testSmellsHeroWithARealImageIdIsNotEmpty(): void
+    {
+        $warnings = pp_validate_composition_smells([
+            ['component' => 'hero', 'props' => ['image_id' => 42]],
+        ]);
+        $this->assertNotContains('empty_section', array_column($warnings, 'type'));
+    }
+
+    public function testSmellsStatContentOfLiteralZeroStillCounts(): void
+    {
+        // The zero exclusion is scoped to the NUMERIC zero. A string "0" is real
+        // authored content (a "0 downtime" stat), so it must still count as filled.
+        $warnings = pp_validate_composition_smells([
+            ['component' => 'hero', 'props' => ['title' => '0']],
+        ]);
+        $this->assertNotContains('empty_section', array_column($warnings, 'type'));
+    }
+
+    public function testSmellsCtaWithoutButtonTextIsNotEmpty(): void
+    {
+        // The cta's primary <a> renders UNCONDITIONALLY with the 'Get Started'
+        // default when button_text is absent, so an absent key is a rendered button,
+        // not a dead band. Mirrors components/cta/cta.php, which is the contract
+        // _pp_component_is_empty() follows for every component.
+        $warnings = pp_validate_composition_smells([['component' => 'cta', 'props' => []]]);
+        $this->assertNotContains('empty_section', array_column($warnings, 'type'));
+    }
+
+    public function testSmellsCtaWithBlankedButtonAndNoTextIsEmpty(): void
+    {
+        // Explicitly blanking the label removes the only thing that rendered.
+        $warnings = pp_validate_composition_smells([
+            ['component' => 'cta', 'props' => ['button_text' => '', 'title' => '', 'body' => '']],
+        ]);
+        $this->assertContains('empty_section', array_column($warnings, 'type'));
+    }
+
+    public function testSmellsTestimonialsWithNoQuotesIsEmpty(): void
+    {
+        // Mirrors components/testimonials/testimonials.php — `if (!$quote) continue;`
+        // skips every item, so the band renders a heading over an empty grid.
+        $warnings = pp_validate_composition_smells([
+            ['component' => 'testimonials', 'props' => ['items' => [
+                ['author' => 'Ada'],
+                ['author' => 'Grace', 'quote' => ''],
+            ]]],
+        ]);
+        $this->assertContains('empty_section', array_column($warnings, 'type'));
+    }
+
+    public function testSmellsTestimonialsWithOneQuoteIsNotEmpty(): void
+    {
+        $warnings = pp_validate_composition_smells([
+            ['component' => 'testimonials', 'props' => ['items' => [
+                ['author' => 'Ada'],
+                ['author' => 'Grace', 'quote' => 'It works.'],
+            ]]],
+        ]);
+        $this->assertNotContains('empty_section', array_column($warnings, 'type'));
+    }
+
+    public function testSmellsEmbedWithoutContentIsEmpty(): void
+    {
+        $warnings = pp_validate_composition_smells([
+            ['component' => 'embed', 'props' => ['title' => 'Contact', 'content' => '   ']],
+        ]);
+        $this->assertContains('empty_section', array_column($warnings, 'type'));
+    }
+
+    public function testSmellsSectionWithAnyContentRequirementPropIsNotEmpty(): void
+    {
+        // Driven by the schema's OWN content_requirement.any_of list (#488), so the
+        // warn set and the write-time reject set cannot drift apart. panel_items
+        // alone is enough — exactly as the write gate accepts it.
+        $warnings = pp_validate_composition_smells([
+            ['component' => 'section', 'props' => ['panel_items' => ['One']]],
+        ]);
+        $this->assertNotContains('empty_section', array_column($warnings, 'type'));
     }
 
     public function testHtmlCommentPresentWhenDebugAndConflicts(): void

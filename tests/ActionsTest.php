@@ -482,9 +482,13 @@ class ActionsTest extends TestCase
     public function testRestoreOfValidVarStyleValueReportsNoFindings(): void
     {
         // The mirror case: a snapshot using the newly ACCEPTED forms is clean.
+        // `--hero-button2-color` (the button's INK), not `--hero-button2-bg`: the bg
+        // slot declares `role: "fill"`, and since #579 a transparent fill raises a
+        // non-blocking `transparent_fill` advisory, which would make this findings
+        // assertion about the warn channel instead of about var() acceptance.
         $post_id = pp_create_page('Valid var snapshot');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'A'], 'style' => ['--hero-button2-bg' => 'transparent', '--hero-accent' => 'var(--color-accent)']],
+            ['component' => 'hero', 'props' => ['title' => 'A'], 'style' => ['--hero-button2-color' => 'transparent', '--hero-accent' => 'var(--color-accent)']],
         ]);
         pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
 
@@ -680,12 +684,14 @@ class ActionsTest extends TestCase
         $this->assertStringContainsString('dead link', $result['error']);
     }
 
-    public function testUpdateComponentCoercesOutOfEnumButton2Variant(): void
+    public function testUpdateComponentRejectsOutOfEnumButton2Variant(): void
     {
-        // button2_variant mirrors button_variant (and hero's button2_variant): neither
-        // declares `strict`, so the enum is accept-and-COERCE, not reject. The write
-        // is accepted and the renderer falls back to the secondary default, so the
-        // authored page still renders a real button rather than being locked out.
+        // #579, A-32 INVERTED this. button2_variant used to be one of the 28 enums
+        // that declared no `strict`, so `neon` was accepted at write, persisted, and
+        // silently coerced to `outline` at render — a write that reported ok:true and
+        // did something else. Every enum is strict now, so the write is REJECTED with
+        // a named error instead. Nothing rendered changes: the renderer coerced this
+        // value before and would still coerce it, but the value can no longer get in.
         $id = pp_create_page('Out-of-enum second variant', 'draft');
         pp_update_composition($id, [['component' => 'cta', 'props' => [
             'button_text' => 'Go', 'button_url' => '/',
@@ -697,10 +703,78 @@ class ActionsTest extends TestCase
             'props'           => ['button2_text' => 'Second', 'button2_variant' => 'neon'],
         ]);
 
-        $this->assertTrue($result['ok'], 'a non-strict enum is coerced at render, not rejected at write');
-        $this->assertSame('neon', pp_get_composition($id)[0]['props']['button2_variant']);
-        // The render-side coercion to `outline` is pinned in
+        $this->assertFalse($result['ok'], 'every enum is strict since #579');
+        $this->assertStringContainsString('button2_variant', $result['error']);
+        $this->assertStringContainsString('primary, secondary, outline, ghost', $result['error']);
+        // Nothing persisted.
+        $this->assertArrayNotHasKey('button2_variant', pp_get_composition($id)[0]['props']);
+        // The render-side coercion the strict gate now makes unreachable through the
+        // action layer is still pinned for raw/restore paths in
         // ComponentPropsTest::testCtaButton2VariantInvalidFallsBackToOutline.
+    }
+
+    public function testUpdateComponentAcceptsLegacyThemeAliasOnAnUntouchedBand(): void
+    {
+        // #579, A-32 + #575's `aliases` consumer. `theme` is STRICT and its schema
+        // advertises only default|muted|inverted, yet `dark` must keep writing:
+        // six dev compositions carry it, and pp_migrate_legacy_variant_keys()
+        // MANUFACTURES it at read time from a stored `variant: "dark"`.
+        //
+        // The load-bearing shape is the SECOND band. Every action validates the WHOLE
+        // composition, so if the alias were not part of the strict membership test,
+        // an untouched band's `theme: "dark"` would block an edit to a different band
+        // on the same page — a page that renders correctly and cannot be edited.
+        $id = pp_create_page('Legacy theme alias', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'section', 'props' => ['title' => 'Legacy band', 'body' => 'B', 'theme' => 'dark']],
+            ['component' => 'section', 'props' => ['title' => 'Other band', 'body' => 'C']],
+        ]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 1,
+            'props'           => ['title' => 'Edited'],
+        ]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? 'the untouched dark band must not block this edit');
+        $composition = pp_get_composition($id);
+        $this->assertSame('Edited', $composition[1]['props']['title']);
+        $this->assertSame('dark', $composition[0]['props']['theme'], 'the alias is preserved verbatim, never rewritten');
+    }
+
+    public function testUpdateComponentAcceptsLegacyThemeAliasWrittenDirectly(): void
+    {
+        // The alias is accepted at WRITE, not merely tolerated in storage.
+        $id = pp_create_page('Direct alias write', 'draft');
+        pp_update_composition($id, [['component' => 'section', 'props' => ['title' => 'A', 'body' => 'B']]]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['theme' => 'dark'],
+        ]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? 'the declared alias must be accepted');
+        $this->assertSame('dark', pp_get_composition($id)[0]['props']['theme']);
+    }
+
+    public function testUpdateComponentRejectsAnUndeclaredThemeValue(): void
+    {
+        // The alias set is BOUNDED — `dark` is declared, `darkish` is not.
+        $id = pp_create_page('Undeclared theme', 'draft');
+        pp_update_composition($id, [['component' => 'section', 'props' => ['title' => 'A', 'body' => 'B']]]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['theme' => 'darkish'],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        // The error advertises only the canonical values — an alias is accepted,
+        // never advertised, so an agent reading it is told what to WRITE.
+        $this->assertStringContainsString('default, muted, inverted', $result['error']);
+        $this->assertStringNotContainsString('dark;', $result['error']);
     }
 
     public function testUpdateComponentRejectsNonScalarStringProp(): void
@@ -4944,6 +5018,20 @@ class ActionsTest extends TestCase
     {
         $suggestion = _pp_suggest_alternative_value('length', 'Card border radius', 'var(--radius)');
         $this->assertStringContainsString('"0"', $suggestion);
+    }
+
+    public function testSuggestAlternativeForLengthOrNone(): void
+    {
+        // #579 — the band-geometry width cap can express "remove the cap" directly,
+        // so the chat suggestion must name the keyword and NOT the pre-#579 `100%`
+        // workaround, which existed only because the type could not say `none`.
+        $suggestion = _pp_suggest_alternative_value(
+            'length-or-none',
+            'Maximum width of the stats band.',
+            'none'
+        );
+        $this->assertStringContainsString('"none"', $suggestion);
+        $this->assertStringNotContainsString('100%" to use all available', $suggestion);
     }
 
     public function testSuggestAlternativeForColor(): void

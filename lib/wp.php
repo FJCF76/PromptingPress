@@ -870,6 +870,33 @@ function pp_get_style_slots(string $component_name): array {
 }
 
 /**
+ * The item-scoped subset of a component's declared style slots (issue 323's
+ * `item_eligible` flag), extracted in #579 so write and render read ONE predicate.
+ *
+ * `item_eligible` marked a slot as renderable on a single element of an array prop
+ * (a grid card, a section panel row). Until #579 it was enforced at WRITE only
+ * (_pp_validate_style_slot_map, lib/admin.php) and the renderer took no item-scope
+ * parameter at all — so a container-scoped slot that reached storage by a
+ * NON-validating path (a raw meta write, or `restore_composition`, which by ruling
+ * never blocks) was emitted on the `<li>` anyway. section.php already carried the
+ * comment "the renderer only echoes item_eligible slots (issue 323)" describing
+ * behaviour it did not have.
+ *
+ * Grid is the larger surface by an order of magnitude — 20 of its 37 slots are
+ * item-eligible against section's 1 — so fixing section alone would have left the
+ * component the feature was built for still leaking.
+ *
+ * @param  array $slots  A component's declared style_slots.
+ * @return array         The subset carrying `item_eligible`; empty when none do.
+ */
+function pp_item_eligible_slots(array $slots): array {
+    return array_filter(
+        $slots,
+        static fn ($def) => is_array($def) && !empty($def['item_eligible'])
+    );
+}
+
+/**
  * Returns the declared style recipes for a component type.
  *
  * @param string $component_name  Component name, e.g. 'hero'.
@@ -1265,10 +1292,12 @@ function pp_normalize_legacy_slots(array $items): array {
  *
  * Two layers, no second grammar:
  *   1. A conservative reject set applied to every value regardless of type —
- *      the existing `{ } ; < >` injection guard, plus `url(` / `expression(` /
- *      `@import` (CSS network-request, dynamic-eval, and import primitives),
- *      backslash escapes, and control characters. This is the sole line of
- *      defense for a (hypothetical) slot with no declared type.
+ *      `{ } ; < >`, backslash escapes, control characters, the CSS comment
+ *      delimiters `/ *` / `* /`, and `url(` / `expression(` / `@import` (CSS
+ *      network-request, dynamic-eval, and import primitives). Since #579 this is
+ *      the SHARED set (`_pp_forbidden_css_construct`, lib/apply.php) the write
+ *      engine applies too, not a second, stricter copy of it. It is the sole line
+ *      of defense for a (hypothetical) slot with no declared type.
  *   2. Where the slot type is known, delegation to the SAME shared engine used
  *      at write time (`_pp_validate_token_value`). Only its documented success
  *      shape (`=== true`) passes; any WP_Error drops the declaration.
@@ -1285,12 +1314,15 @@ function pp_normalize_legacy_slots(array $items): array {
  */
 function pp_render_style_value_allowed(string $value, ?string $type, ?array $allowed = null): bool {
     // Layer 1 — conservative reject set (defense-in-depth), every value.
-    // Char class: { } ; < >, a literal backslash, and control chars 0x00-0x1F/0x7F.
-    if (preg_match('/[{};<>\\\\\x00-\x1f\x7f]/', $value)) {
-        return false;
-    }
-    // Function/at-rule primitives: url(...), expression(...), @import.
-    if (preg_match('/url\s*\(|expression\s*\(|@import/i', $value)) {
+    // ONE SET, TWO CALLERS (issue #579, A-33): this class used to be spelled out
+    // here AND, differently, at the top of _pp_validate_token_value(). The gap
+    // between the two spellings was a set of values that validated at write and
+    // were dropped at render. Both callers now read _pp_forbidden_css_construct()
+    // (lib/apply.php), so the write-accept set and the render-reject set cannot
+    // drift apart again. Layer 1 stays a separate call rather than leaning on the
+    // Layer 2 delegation below, because a (hypothetical) slot with no declared
+    // type never reaches Layer 2 and this is its sole line of defense.
+    if (_pp_forbidden_css_construct($value) !== null) {
         return false;
     }
 
@@ -1345,16 +1377,40 @@ function pp_style_declaration_renders(string $name, $value, array $slots): bool 
  * pp_render_style_value_allowed() (issue #330); a rejected value is dropped
  * from the output while its sibling declarations still render.
  *
+ * ITEM SCOPE (issue #579, A-19). Pass `$item_scope = true` when rendering the style
+ * map of ONE element of an array prop (a grid card, a section panel row). The slot
+ * set then narrows to the component's `item_eligible` subset, exactly as
+ * _pp_validate_style_slot_map() narrows it at write time — through the SAME
+ * predicate, pp_item_eligible_slots(), so the two cannot drift. Without this the
+ * narrowing existed only at write, and a container-scoped slot arriving by a
+ * non-validating path (raw meta write, restore_composition) was emitted on the
+ * `<li>`. Opt-in by presence, mirroring the write path: a component whose slots
+ * carry no item_eligible flag keeps the full set, so an un-annotated component that
+ * gains a per-item style is not wholesale stripped by this shared renderer.
+ *
+ * Byte-identical for every validly-authored composition — a valid per-item style
+ * contains only item-eligible slots by construction, because the write path already
+ * rejected the rest.
+ *
  * @param array  $style           Style overrides, e.g. ['--hero-bg' => '#1a1a2e'].
  * @param string $component_name  Component name, e.g. 'hero'.
+ * @param bool   $item_scope      True when this map belongs to ONE item of an array
+ *                                prop (grid card / section panel row); false (default)
+ *                                for a component-level style map.
  * @return string  CSS custom property declarations, e.g. "--hero-bg: #1a1a2e; --hero-padding-top: 8rem"
  */
-function pp_render_style_vars(array $style, string $component_name): string {
+function pp_render_style_vars(array $style, string $component_name, bool $item_scope = false): string {
     if (empty($style)) {
         return '';
     }
 
     $slots      = pp_get_style_slots($component_name);
+    if ($item_scope) {
+        $eligible = pp_item_eligible_slots($slots);
+        if ($eligible !== []) {
+            $slots = $eligible;
+        }
+    }
     $aliases    = pp_legacy_slot_aliases()[$component_name] ?? [];
     $properties = [];
 

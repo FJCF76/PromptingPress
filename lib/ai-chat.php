@@ -646,6 +646,13 @@ function _pp_suggest_alternative_value(string $type, string $description, string
         return 'This slot requires a numeric value with a CSS unit (e.g. 100%, 9999px, 0).';
     }
 
+    if ($type === 'length-or-none') {
+        // The band-geometry width cap (#579). This is the ONE length family whose
+        // grammar can express "remove the cap", so the suggestion is the keyword
+        // itself rather than the `100%` workaround a plain `length` slot needs.
+        return 'Try "none" to remove the cap entirely, or a value with a CSS unit (e.g. 60rem, 100%).';
+    }
+
     if ($type === 'color') {
         return 'Try "transparent" for an invisible color, or a hex/rgb value.';
     }

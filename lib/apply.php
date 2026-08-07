@@ -319,7 +319,16 @@ function _pp_check_token_reference_cycle(string $token, string $value) {
  * Validates a CSS length value.
  * Accepts: numeric value with unit (rem, px, em, %, vw, vh) including a single
  * leading minus for negative lengths (letter-spacing/margins/text-indent go
- * negative), unitless 0, clamp() expressions, and calc() expressions.
+ * negative), unitless 0, clamp() expressions, and calc() expressions — plus, when
+ * and only when $allow_none is set, the keyword `none` (issue #579, A-30).
+ *
+ * @param string $value      The candidate value.
+ * @param bool   $allow_none Accept the keyword `none`. Set ONLY by the
+ *                           `length-or-none` slot type (the band-geometry width cap,
+ *                           today just --stats-max-width), never by plain `length`:
+ *                           `none` on a padding, radius or font-size is a value the
+ *                           browser drops, which is the accepted-but-dead class this
+ *                           whole engine exists to reject.
  *
  * The simple-length number body is a single well-formed number: at least one
  * digit, at most one dot, optional leading minus (#467), and the unit directly
@@ -348,7 +357,17 @@ function _pp_check_token_reference_cycle(string $token, string $value) {
  * doubled operators (`calc(1++2rem)`), and two-operand-no-operator (`calc(1 1)`).
  * A full CSS calc()/clamp() grammar parser is deliberately not built (#151).
  */
-function _pp_validate_length(string $value): bool {
+function _pp_validate_length(string $value, bool $allow_none = false): bool {
+    // `none` — accepted ONLY when the caller's slot declares the band-geometry
+    // grammar `length-or-none` (issue #579, A-30). It is not a global widening:
+    // `none` on a padding, font-size, radius or letter-spacing slot is a value CSS
+    // drops, so those slots keep the plain `length` grammar and keep rejecting it.
+    // The defect this closes: --stats-max-width DECLARED `default: "none"` while
+    // the grammar could not express it, so the documented workaround was to write
+    // `100%` — a declared default no author could author, i.e. a third state.
+    if ($allow_none && strtolower(trim($value)) === 'none') {
+        return true;
+    }
     // Unitless zero.
     if ($value === '0') {
         return true;
@@ -857,14 +876,93 @@ function _pp_validate_text_transform(string $value): bool {
 }
 
 /**
+ * The ONE reject set for a CSS value, shared by the write engine and the render
+ * boundary (issue #579, A-33).
+ *
+ * Before this existed there were TWO sets and they disagreed. The write engine
+ * rejected `{};<>`; the #330 render boundary (pp_render_style_value_allowed,
+ * lib/wp.php) additionally rejected a backslash, control characters, `url(`,
+ * `expression(` and `@import`. Anything in the gap VALIDATED at write, PERSISTED,
+ * and was then DROPPED at render — the reported-success-without-effect class, with
+ * a sibling-destroying twist: `--stats-number-font: "serif /*"` cleared write
+ * validation and then commented out the rest of the inline style attribute, so the
+ * band silently lost its number colour AND its background image while
+ * `.stats--has-bg-image` still painted the scrim over nothing.
+ *
+ * The convergence rule (ruling 6 of the #570 decision record): anywhere the
+ * write-accept set and the render-reject set diverge, the value is REJECTED at
+ * write. So the write engine adopts the render boundary's class verbatim, and BOTH
+ * additionally reject the CSS comment delimiters `/ *` and `* /` — the construct
+ * that made the stats defect destructive rather than merely inert.
+ *
+ * Returns the REASON (so the write engine can name it in an error message) or null
+ * when the value carries none of these constructs. Two callers, one set:
+ *
+ *     _pp_validate_token_value()          write path  -> named WP_Error
+ *     pp_render_style_value_allowed()     render path -> drop the declaration
+ *
+ * TOKEN-SURFACE REACH, enumerated before this widened (#579 acceptance criterion):
+ * this runs ahead of the type switch, so it also governs DESIGN TOKENS, whose six
+ * reachable types are color, length, font-family, number, shadow and raw. Five of
+ * the six already reject every newly-added construct through their own grammar
+ * (color/length/number are closed literal grammars, `shadow` documents "no url()",
+ * and `length`'s calc/clamp body rejects any alpha run that is not a unit word).
+ * The two surfaces the widening actually reaches are `font-family` — the hole this
+ * closes, whose validator accepts any comma-separated text — and `raw`, whose only
+ * shipped token is `--transition: 150ms ease`, a duration-plus-easing grammar with
+ * no legitimate use for a backslash, a comment delimiter, url(), expression() or
+ * @import. No shipped token value and no shipped slot default is newly rejected.
+ *
+ * `*` alone stays legal: `calc(4rem * 2 / 3)` never produces the `* /` adjacency,
+ * which only appears in CSS that is already malformed.
+ *
+ * @param  string      $value  The candidate CSS value.
+ * @return string|null         Reason fragment for an error message, or null when clean.
+ */
+function _pp_forbidden_css_construct(string $value): ?string {
+    // Char class: { } ; < >, a literal backslash, and control chars 0x00-0x1F/0x7F.
+    //
+    // THE `;` REJECT IS LOAD-BEARING BEYOND DECLARATION-SPLITTING, and the coupling
+    // is easy to break by accident, so it is recorded here. The sink for an accepted
+    // value is esc_attr() (pp_render_style_vars, lib/wp.php), i.e. htmlspecialchars()
+    // with double_encode=false — so an HTML entity ALREADY PRESENT in a stored value
+    // is passed through verbatim and decoded by the browser inside the style
+    // attribute. `&#47;&#42;` would decode to `/*` after the raw-byte comment check
+    // below has already looked and found nothing. It is rejected anyway, because a
+    // numeric entity that esc_attr declines to re-encode must terminate in `;` — and
+    // `;` is in this class. The entity forms WITHOUT the terminator (`&#47&#42`) get
+    // re-encoded by esc_attr into inert `&amp;#47&amp;#42`, so both halves are
+    // covered, but only jointly.
+    //
+    // Consequence: do not drop `;` from this class, and do not move an accepted value
+    // to a sink that decodes entities, without replacing this coverage.
+    // WriteRenderGrammarTest::testEntityEncodedCommentDelimitersAreRejected pins it.
+    if (preg_match('/[{};<>\\\\\x00-\x1f\x7f]/', $value)) {
+        return 'must not contain {, }, ;, <, >, a backslash, or control characters';
+    }
+    // CSS comment delimiters — an open comment swallows every sibling declaration
+    // in the same inline style attribute.
+    if (strpos($value, '/*') !== false || strpos($value, '*/') !== false) {
+        return 'must not contain a CSS comment delimiter (/* or */)';
+    }
+    // Function/at-rule primitives: url(...), expression(...), @import.
+    if (preg_match('/url\s*\(|expression\s*\(|@import/i', $value)) {
+        return 'must not contain url(), expression(), or @import';
+    }
+    return null;
+}
+
+/**
  * Validates a token value based on its type.
  *
  * @return true|WP_Error
  */
 function _pp_validate_token_value(string $value, ?string $type, ?array $allowed = null) {
-    // Injection check: reject { } ; < > (prevents CSS injection and style-tag breakout)
-    if (preg_match('/[{};<>]/', $value)) {
-        return new WP_Error('injection', 'Value must not contain {, }, ;, <, or > characters.');
+    // Injection / dead-value check: the SHARED reject set, identical to the one the
+    // #330 render boundary applies (issue #579, A-33 — one set, two callers).
+    $forbidden = _pp_forbidden_css_construct($value);
+    if ($forbidden !== null) {
+        return new WP_Error('injection', 'Value ' . $forbidden . '.');
     }
 
     if ($value === '') {
@@ -899,6 +997,30 @@ function _pp_validate_token_value(string $value, ?string $type, ?array $allowed 
         case 'length':
             if (!_pp_validate_length($value)) {
                 return new WP_Error('invalid_length', 'Value must be a number with a CSS unit (rem, px, em, %, vw, vh), unitless 0, or a clamp()/calc() expression.');
+            }
+            break;
+        case 'length-or-none':
+            // The band-geometry width cap. Today exactly ONE slot declares this
+            // type: --stats-max-width, whose schema default IS `none` — the third
+            // state the plain `length` grammar could not express (issue #579, A-30).
+            // The `*-measure` slots (--cta-heading-measure, --grid-heading-measure,
+            // --section-body-measure) deliberately stay plain `length`: they have
+            // real defaults, no third state, and the shipped friendly-error path
+            // steers "remove this cap" to `100%` for them. Do not widen this type to
+            // a measure, padding, radius or font-size slot without a decision —
+            // lib/ai-context.php and ai-instructions/style-component.md both state
+            // to the authoring AI that those types reject `none`.
+            //
+            // The `length` grammar plus the keyword `none`, which is what "remove
+            // the cap" means in CSS and what this slot already declares as its
+            // built-in default. Deliberately a distinct TYPE
+            // rather than a per-slot flag: the type IS the grammar everywhere else
+            // in this engine, it needs no new signature and no new definition key,
+            // it is honored at the #330 render boundary for free (that boundary
+            // delegates here), and the AI catalog advertises it without a second
+            // source of truth.
+            if (!_pp_validate_length($value, true)) {
+                return new WP_Error('invalid_length', 'Value must be the keyword "none" (no cap), a number with a CSS unit (rem, px, em, %, vw, vh), unitless 0, or a clamp()/calc() expression.');
             }
             break;
         case 'font-family':
