@@ -5,7 +5,7 @@
  * Text-prop markup contract (issue 439). Three contracts, each stated in the
  * schema and enforced by the renderer:
  *   - Rich HTML   (wp_kses_post)  — section.body, faq.answer
- *   - Inline HTML (pp_kses_inline: a, strong, em, br) — cta.text,
+ *   - Inline HTML (pp_kses_inline: a, strong, em, br) — cta.body,
  *                 grid.items[].text, testimonials.items[].quote
  *   - Plain text  (esc_html)      — titles, eyebrows, button/label text, URLs
  *
@@ -43,14 +43,14 @@ class TextPropMarkupContractTest extends TestCase
         return ob_get_clean();
     }
 
-    // ── The defect this fixes: a link in cta.text used to render as escaped source ──
+    // ── The defect this fixes: a link in cta.body used to render as escaped source ──
 
     public function testCtaTextLinkRendersAsAnchorNotEscapedSource(): void
     {
         $html = $this->render('cta', [
             'button_text' => 'Go',
             'button_url'  => '/go',
-            'text'        => 'Read our <a href="/terms">terms</a>.',
+            'body'        => 'Read our <a href="/terms">terms</a>.',
         ]);
         // The would-have-caught assertion: the link is a working anchor, NOT the
         // literal escaped source the esc_html renderer produced before #439.
@@ -63,7 +63,7 @@ class TextPropMarkupContractTest extends TestCase
         $html = $this->render('cta', [
             'button_text' => 'Go',
             'button_url'  => '/go',
-            'text'        => 'Hi<script>alert(1)</script><div>block</div><strong>ok</strong>',
+            'body'        => 'Hi<script>alert(1)</script><div>block</div><strong>ok</strong>',
         ]);
         $this->assertStringNotContainsString('<script', $html);
         $this->assertStringNotContainsString('<div>block', $html);
@@ -75,7 +75,7 @@ class TextPropMarkupContractTest extends TestCase
         $html = $this->render('cta', [
             'button_text' => 'Go',
             'button_url'  => '/go',
-            'text'        => 'Just a plain supporting line.',
+            'body'        => 'Just a plain supporting line.',
         ]);
         $this->assertStringContainsString('<p class="cta__body">Just a plain supporting line.</p>', $html);
     }
@@ -220,7 +220,7 @@ class TextPropMarkupContractTest extends TestCase
             // cta
             ['cta', 'title', 'plain'],
             ['cta', 'eyebrow', 'plain'],
-            ['cta', 'text', 'inline'],
+            ['cta', 'body', 'inline'],
             ['cta', 'button_text', 'plain'],
             // grid (top-level + item props under items.items)
             ['grid', 'title', 'plain'],

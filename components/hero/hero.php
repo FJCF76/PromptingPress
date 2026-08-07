@@ -11,13 +11,13 @@ $id           = $props['id']           ?? '';
 $title        = $props['title']       ?? 'Default Title';
 $title_accent = $props['title_accent'] ?? '';
 $eyebrow   = $props['eyebrow']  ?? '';
-$subtitle  = $props['subtitle'] ?? '';
-$cta_text  = $props['cta_text'] ?? '';
-$cta_url   = $props['cta_url']  ?? '#';
-$cta2_text = $props['cta2_text'] ?? '';
-$cta2_url  = $props['cta2_url']  ?? '#';
-$cta_variant  = $props['cta_variant']  ?? 'primary';
-$cta2_variant = $props['cta2_variant'] ?? 'outline';
+$subheading  = $props['subheading'] ?? '';
+$button_text  = $props['button_text'] ?? '';
+$button_url   = $props['button_url']  ?? '#';
+$button2_text = $props['button2_text'] ?? '';
+$button2_url  = $props['button2_url']  ?? '#';
+$button_variant  = $props['button_variant']  ?? 'primary';
+$button2_variant = $props['button2_variant'] ?? 'outline';
 $layout    = $props['layout']    ?? 'centered';
 $image_url = $props['image_url'] ?? '';
 $image_alt = $props['image_alt'] ?? '';
@@ -36,15 +36,15 @@ if (!in_array($layout, $allowed_layouts, true)) {
 
 // Validate CTA button variants (same shared .btn--* primitive as components/cta/cta.php).
 $allowed_button_variants = ['primary', 'secondary', 'outline', 'ghost'];
-if (!in_array($cta_variant, $allowed_button_variants, true)) {
-    $cta_variant = 'primary';
+if (!in_array($button_variant, $allowed_button_variants, true)) {
+    $button_variant = 'primary';
 }
-if (!in_array($cta2_variant, $allowed_button_variants, true)) {
-    $cta2_variant = 'outline';
+if (!in_array($button2_variant, $allowed_button_variants, true)) {
+    $button2_variant = 'outline';
 }
 // primary is the bare .btn; other variants add a .btn--{variant} modifier.
-$cta_variant_class  = $cta_variant !== 'primary' ? ' btn--' . $cta_variant : '';
-$cta2_variant_class = $cta2_variant !== 'primary' ? ' btn--' . $cta2_variant : '';
+$cta_variant_class  = $button_variant !== 'primary' ? ' btn--' . $button_variant : '';
+$cta2_variant_class = $button2_variant !== 'primary' ? ' btn--' . $button2_variant : '';
 
 // Validate spacing/width props.
 $allowed_spacings = ['default', 'compact', 'spacious'];
@@ -117,18 +117,18 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                 <?php endif; ?>
                 <h1 class="hero__title"><?php echo pp_render_heading_with_accent($title, $title_accent, 'hero__title-accent'); ?></h1>
 
-                <?php if ($subtitle) : ?>
-                    <p class="hero__subtitle"><?php echo esc_html($subtitle); ?></p>
+                <?php if ($subheading) : ?>
+                    <p class="hero__subtitle"><?php echo esc_html($subheading); ?></p>
                 <?php endif; ?>
 
-                <?php if ($cta_text) : ?>
+                <?php if ($button_text) : ?>
                     <div class="hero__cta-group">
-                        <a href="<?php echo esc_url($cta_url); ?>" class="hero__cta btn<?php echo esc_attr($cta_variant_class); ?>">
-                            <?php echo esc_html($cta_text); ?>
+                        <a href="<?php echo esc_url($button_url); ?>" class="hero__cta btn<?php echo esc_attr($cta_variant_class); ?>">
+                            <?php echo esc_html($button_text); ?>
                         </a>
-                        <?php if ($cta2_text) : ?>
-                            <a href="<?php echo esc_url($cta2_url); ?>" class="hero__cta hero__cta--secondary btn<?php echo esc_attr($cta2_variant_class); ?>">
-                                <?php echo esc_html($cta2_text); ?>
+                        <?php if ($button2_text) : ?>
+                            <a href="<?php echo esc_url($button2_url); ?>" class="hero__cta hero__cta--secondary btn<?php echo esc_attr($cta2_variant_class); ?>">
+                                <?php echo esc_html($button2_text); ?>
                             </a>
                         <?php endif; ?>
                     </div>

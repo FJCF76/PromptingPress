@@ -621,7 +621,7 @@ function _pp_summarize_component(array $item, ?array $inspect_target = null): st
                     // Show the schema type, plus the format family (link_url /
                     // image_url) when the prop declares one, so the chat AI knows
                     // the constraint the shared validator will enforce on a patch
-                    // (#506/#507/#509) — e.g. "cta_url (string, link_url)".
+                    // (#506/#507/#509) — e.g. "button_url (string, link_url)".
                     $type_label = $f['field_type'];
                     if (!empty($f['field_format'])) {
                         $type_label .= ", {$f['field_format']}";

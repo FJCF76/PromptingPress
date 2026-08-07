@@ -10,7 +10,7 @@ Call-to-action block. Place at the bottom of a page or between sections to drive
 | `title`       | string | Yes      | —              | CTA headline |
 | `title_accent`| string | No       | `''`           | Exact substring of `title` to render in an accent color |
 | `eyebrow`     | string | No       | `''`           | Short kicker/label rendered as a pill above the title |
-| `text`        | string | No       | `''`           | Supporting body text. Inline HTML allowed: a, strong, em, br. |
+| `body`        | string | No       | `''`           | Supporting body text. Inline HTML allowed: a, strong, em, br. |
 | `button_text` | string | Yes      | —              | Button label |
 | `button_url`  | string | Yes      | —              | Button URL |
 | `button2_text` | string | No      | `''`           | Optional SECOND button label. Empty (default) renders no second button |
@@ -127,7 +127,7 @@ At mobile widths the pair stacks one button per row.
 // End-of-page conversion block
 pp_get_component('cta', [
     'title'       => 'Ready to build your AI-ready site?',
-    'text'        => 'Start with the theme, fill in AI_CONTEXT.md, and let your AI tool do the rest.',
+    'body'        => 'Start with the theme, fill in AI_CONTEXT.md, and let your AI tool do the rest.',
     'button_text' => 'Get Started on GitHub',
     'button_url'  => 'https://github.com/FJCF76/PromptingPress',
     'layout'     => 'full-width',

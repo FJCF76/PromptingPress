@@ -334,8 +334,8 @@ describe('CSS lint: style slot fallback patterns', () => {
         });
     });
 
-    test('hero/section/grid/cta schemas declare 162 style slots (subset of the total)', () => {
-        expect(allSlots.length).toBe(162);
+    test('hero/section/grid/cta schemas declare 163 style slots (subset of the total)', () => {
+        expect(allSlots.length).toBe(163);
     });
 
     allSlots.forEach(({ component, slotName }) => {
@@ -916,12 +916,12 @@ describe('CSS lint: grid--steps only declared inside the COMPONENT: grid block (
 describe('CSS lint: grid steps numeral color routes through --grid-step-text-color (#473)', () => {
     // Regression guard for the #302/#305 dead-slot class. Before #473 the steps
     // badge numeral was `color: var(--color-bg)` — hardcoded, no slot — so a
-    // light-fill badge (a lime --grid-step-color) could not get ink numerals and
+    // light-fill badge (a lime --grid-step-bg) could not get ink numerals and
     // dropped to ~1.9:1 contrast. #473 added --grid-step-text-color (default
     // var(--color-bg), so unset is byte-identical). This pin proves every `color`
     // declaration on the numeral (the base rule and any responsive variant) routes
     // through the slot, so a future bare `color: var(--color-bg)` cannot silently
-    // re-kill it. The fill (`background`) is pinned to --grid-step-color for symmetry.
+    // re-kill it. The fill (`background`) is pinned to --grid-step-bg for symmetry.
     const stripped = stripComments(COMPONENTS_CSS);
     const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
 
@@ -953,11 +953,11 @@ describe('CSS lint: grid steps numeral color routes through --grid-step-text-col
         expect(offenders).toEqual([]);
     });
 
-    test('numeral fill stays routed through var(--grid-step-color …)', () => {
+    test('numeral fill stays routed through var(--grid-step-bg …)', () => {
         const offenders = [];
         numeralRules().forEach(({ sel, body }) => {
             (body.match(/(?<![-a-z])background(?:-color)?\s*:[^;}]+/gi) || []).forEach((d) => {
-                if (!/background(?:-color)?\s*:\s*var\(\s*--grid-step-color\b/.test(d.trim())) {
+                if (!/background(?:-color)?\s*:\s*var\(\s*--grid-step-bg\b/.test(d.trim())) {
                     offenders.push(`${sel} { ${d.trim()} }`);
                 }
             });
@@ -1068,11 +1068,11 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
         // typography block, i.e. it is exposed to the cascade defect. .grid__subheading
         // has no desktop color rule; it was broken at every viewport for a different
         // reason (no inverted rule existed at all), so it is pinned at the base rule only.
-        { el: '.grid__heading', slot: '--grid-heading-color', themeVar: '--grid-heading-theme-color', desktop: true },
-        { el: '.grid__subheading', slot: '--grid-subheading-color', themeVar: '--grid-subheading-theme-color', desktop: false },
-        { el: '.section__title', slot: '--section-title-color', themeVar: '--section-title-theme-color', desktop: true },
-        { el: '.section__content', slot: '--section-text', themeVar: '--section-text-theme-color', desktop: true },
-        { el: '.cta__body', slot: '--cta-body-color', themeVar: '--cta-body-theme-color', desktop: true },
+        { el: '.grid__heading', slot: '--grid-heading-color', themeVar: '--pp-grid-heading-theme-color', desktop: true },
+        { el: '.grid__subheading', slot: '--grid-subheading-color', themeVar: '--pp-grid-subheading-theme-color', desktop: false },
+        { el: '.section__title', slot: '--section-heading-color', themeVar: '--pp-section-title-theme-color', desktop: true },
+        { el: '.section__content', slot: '--section-body-color', themeVar: '--pp-section-text-theme-color', desktop: true },
+        { el: '.cta__body', slot: '--cta-body-color', themeVar: '--pp-cta-body-theme-color', desktop: true },
     ];
 
     // Theme-variant rules (`.grid--inverted .grid__heading`) and page-specific ID
@@ -1170,11 +1170,11 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
     // The --dark variants are deliberately absent: they use a light surface
     // (--color-surface) with dark text, so they must NOT set a theme text default.
     const VARIANT_DECLARES = [
-        { variant: '.grid--inverted', vars: ['--grid-heading-theme-color', '--grid-subheading-theme-color'] },
-        { variant: '.pp-section--inverted', vars: ['--section-title-theme-color', '--section-text-theme-color'] },
-        { variant: '.cta--inverted', vars: ['--cta-body-theme-color'] },
-        { variant: '.section--has-bg-image', vars: ['--section-title-theme-color', '--section-text-theme-color'] },
-        { variant: '.cta--has-bg-image', vars: ['--cta-body-theme-color'] },
+        { variant: '.grid--inverted', vars: ['--pp-grid-heading-theme-color', '--pp-grid-subheading-theme-color'] },
+        { variant: '.pp-section--inverted', vars: ['--pp-section-title-theme-color', '--pp-section-text-theme-color'] },
+        { variant: '.cta--inverted', vars: ['--pp-cta-body-theme-color'] },
+        { variant: '.section--has-bg-image', vars: ['--pp-section-title-theme-color', '--pp-section-text-theme-color'] },
+        { variant: '.cta--has-bg-image', vars: ['--pp-cta-body-theme-color'] },
     ];
 
     VARIANT_DECLARES.forEach(({ variant, vars }) => {
@@ -1189,7 +1189,7 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
         });
     });
 
-    // Inverted grid CARDS keep a light background (`--grid-card-bg: var(--color-bg)`),
+    // Inverted grid CARDS keep a light background (`--grid-item-bg: var(--color-bg)`),
     // so their text must stay DARK. Theming it would be the inverse of #222: an
     // inverted grid would render light-on-light card text. Pin both halves of that.
     // The fallback must be a FIXED global token (never a theme-swapped var): a bare
@@ -1244,13 +1244,13 @@ describe('CSS lint: dark-band heading rules carve out the self-contained panel h
     const DARK_BAND_VARIANTS = ['.pp-section--inverted', '.section--has-bg-image'];
 
     DARK_BAND_VARIANTS.forEach((variant) => {
-        // The heading-color rule for this variant sets `color: var(--section-title-color, ...)`
+        // The heading-color rule for this variant sets `color: var(--section-heading-color, ...)`
         // and targets the variant's headings. Find every rule that both scopes the variant
         // and colours a heading through the title slot.
         const headingRules = rules.filter((r) =>
             r.selector.includes(variant) &&
             /\bh[23]\b/.test(r.selector) &&
-            /color\s*:\s*var\(--section-title-color/.test(r.body)
+            /color\s*:\s*var\(--section-heading-color/.test(r.body)
         );
 
         test(`${variant} has a heading-color rule (guard is not vacuous)`, () => {
@@ -1289,12 +1289,12 @@ describe('CSS lint: dark-band heading rules carve out the self-contained panel h
 });
 
 /**
- * Featured grid card honors the --grid-card-border style slot (#226).
+ * Featured grid card honors the --grid-item-border-color style slot (#226).
  *
  * The first card of a `layout: cards` grid gets an unconditional "featured"
- * treatment. Its sibling slot --grid-card-bg is routed through
- * `var(--grid-card-bg, <default>)` so an author's declared value wins, but the
- * border was hardcoded to an accent token — so a declared --grid-card-border
+ * treatment. Its sibling slot --grid-item-bg is routed through
+ * `var(--grid-item-bg, <default>)` so an author's declared value wins, but the
+ * border was hardcoded to an accent token — so a declared --grid-item-border-color
  * silently no-opped on card 1 while `style_component` reported success.
  *
  * TWO rules set border-color on the featured first card and BOTH must route
@@ -1305,7 +1305,7 @@ describe('CSS lint: dark-band heading rules carve out the self-contained panel h
  * satisfies it), so it cannot catch this first-child-specific gap — hence this
  * targeted pin.
  */
-describe('CSS lint: featured grid card honors --grid-card-border (#226)', () => {
+describe('CSS lint: featured grid card honors --grid-item-border-color (#226)', () => {
     // The featured first-card rules carry a :not(.grid--uniform) guard so the
     // `card_emphasis: uniform` prop can opt out of the whole treatment (#226).
     const SELECTOR = 'main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child';
@@ -1344,12 +1344,12 @@ describe('CSS lint: featured grid card honors --grid-card-border (#226)', () => 
         expect(borderBodies.length).toBeGreaterThanOrEqual(2);
     });
 
-    test('every border-color on the featured first card routes through --grid-card-border', () => {
+    test('every border-color on the featured first card routes through --grid-item-border-color', () => {
         const offenders = [];
         borderBodies.forEach(body => {
             const decls = body.match(/border-color\s*:[^;}]+/g) || [];
             decls.forEach(d => {
-                if (!/border-color\s*:\s*var\(\s*--grid-card-border\b/.test(d)) {
+                if (!/border-color\s*:\s*var\(\s*--grid-item-border-color\b/.test(d)) {
                     offenders.push(d.trim());
                 }
             });
@@ -1360,12 +1360,12 @@ describe('CSS lint: featured grid card honors --grid-card-border (#226)', () => 
     // Fallback integrity: the slot must fall back to an accent token, never to a
     // neutral border, or unset compositions would lose the featured look. Both
     // accent tokens the two rules historically used are acceptable fallbacks.
-    test('--grid-card-border falls back to an accent token, preserving the default look', () => {
+    test('--grid-item-border-color falls back to an accent token, preserving the default look', () => {
         const bad = [];
         borderBodies.forEach(body => {
             const decls = body.match(/border-color\s*:[^;}]+/g) || [];
             decls.forEach(d => {
-                if (!/var\(\s*--grid-card-border\s*,\s*var\(\s*--color-(?:border-accent|accent-strong)\s*\)\s*\)/.test(d)) {
+                if (!/var\(\s*--grid-item-border-color\s*,\s*var\(\s*--color-(?:border-accent|accent-strong)\s*\)\s*\)/.test(d)) {
                     bad.push(d.trim());
                 }
             });
@@ -1375,13 +1375,13 @@ describe('CSS lint: featured grid card honors --grid-card-border (#226)', () => 
 });
 
 /**
- * Non-featured grid cards honor the --grid-card-border style slot (#292).
+ * Non-featured grid cards honor the --grid-item-border-color style slot (#292).
  *
  * Regression of #226, inverted: the #226 fix routed the featured FIRST card's
- * border-color through --grid-card-border, but the "premium" cascade rules that
+ * border-color through --grid-item-border-color, but the "premium" cascade rules that
  * re-declare border-color for ALL cards (`main > .grid .grid__item`, specificity
  * [0,2,1], which beats the base `.grid__item` rule [0,1,0]) kept a bare
- * `var(--color-border)`. So a declared --grid-card-border silently no-opped on
+ * `var(--color-border)`. So a declared --grid-item-border-color silently no-opped on
  * cards 2..N while `style_component` reported success.
  *
  * TWO all-cards rules set border-color and BOTH must route through the slot: the
@@ -1393,7 +1393,7 @@ describe('CSS lint: featured grid card honors --grid-card-border (#226)', () => 
  * in the grid block (the base `.grid__item` rule satisfies it), so it cannot catch
  * this all-cards-specific gap — hence this targeted pin.
  */
-describe('CSS lint: non-featured grid cards honor --grid-card-border (#292)', () => {
+describe('CSS lint: non-featured grid cards honor --grid-item-border-color (#292)', () => {
     const SELECTOR = 'main > .grid .grid__item';
 
     // Brace-matched extraction of every rule whose selector is EXACTLY this
@@ -1431,12 +1431,12 @@ describe('CSS lint: non-featured grid cards honor --grid-card-border (#292)', ()
         expect(borderBodies.length).toBeGreaterThanOrEqual(2);
     });
 
-    test('every border-color on the all-cards rule routes through --grid-card-border', () => {
+    test('every border-color on the all-cards rule routes through --grid-item-border-color', () => {
         const offenders = [];
         borderBodies.forEach(body => {
             const decls = body.match(/border-color\s*:[^;}]+/g) || [];
             decls.forEach(d => {
-                if (!/border-color\s*:\s*var\(\s*--grid-card-border\b/.test(d)) {
+                if (!/border-color\s*:\s*var\(\s*--grid-item-border-color\b/.test(d)) {
                     offenders.push(d.trim());
                 }
             });
@@ -1446,13 +1446,13 @@ describe('CSS lint: non-featured grid cards honor --grid-card-border (#292)', ()
 
     // Fallback integrity: the non-featured card border falls back to the NEUTRAL
     // --color-border, never an accent token — cards 2..N must not adopt the
-    // featured accent look when --grid-card-border is unset.
-    test('--grid-card-border falls back to the neutral --color-border on all cards', () => {
+    // featured accent look when --grid-item-border-color is unset.
+    test('--grid-item-border-color falls back to the neutral --color-border on all cards', () => {
         const bad = [];
         borderBodies.forEach(body => {
             const decls = body.match(/border-color\s*:[^;}]+/g) || [];
             decls.forEach(d => {
-                if (!/var\(\s*--grid-card-border\s*,\s*var\(\s*--color-border\s*\)\s*\)/.test(d)) {
+                if (!/var\(\s*--grid-item-border-color\s*,\s*var\(\s*--color-border\s*\)\s*\)/.test(d)) {
                     bad.push(d.trim());
                 }
             });
@@ -2064,8 +2064,8 @@ describe('CSS lint: hero flex rows declare their justification', () => {
  * "premium" cascade re-declared padding, heading font-size, and section body
  * width with bare literals at [0,1,0]-or-higher specificity / later source
  * order, outranking the base rules that DO route through the slot. So a declared
- * --section-padding-*, --grid-padding-*, --cta-padding-*, --section-title-size,
- * --grid-heading-size, or --section-body-width validated, reported success, and
+ * --section-padding-*, --grid-padding-*, --cta-padding-*, --section-heading-size,
+ * --grid-heading-size, or --section-body-measure validated, reported success, and
  * changed nothing. The fix routes every premium re-declaration through
  * var(--slot, <literal>) with the literal as the fallback (unset output
  * unchanged), and restores the base adjacent-sibling rhythm (now the shared
@@ -2127,8 +2127,8 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
     }
 
     // ---- Heading font-size slots (title-size / heading-size) ----
-    test('section title premium rule routes font-size through --section-title-size', () => {
-        assertPropRoutesThroughSlot('main > .section .section__title', 'font-size', '--section-title-size', 1);
+    test('section title premium rule routes font-size through --section-heading-size', () => {
+        assertPropRoutesThroughSlot('main > .section .section__title', 'font-size', '--section-heading-size', 1);
     });
 
     test('grid heading premium rule routes font-size through --grid-heading-size', () => {
@@ -2136,13 +2136,13 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
     });
 
     // ---- Section body width slot ----
-    test('.section__body caps max-width through --section-body-width (fallback 40rem)', () => {
+    test('.section__body caps max-width through --section-body-measure (fallback 40rem)', () => {
         const bodies = bodiesForExactSelector('.section__body');
         const widthBodies = bodies.filter(b => /max-width\s*:/.test(b));
         expect(widthBodies.length).toBeGreaterThanOrEqual(1);
         widthBodies.forEach(body => {
             (body.match(/max-width\s*:[^;}]+/g) || []).forEach(d => {
-                expect(d).toMatch(/max-width\s*:\s*var\(\s*--section-body-width\s*,\s*40rem\s*\)/);
+                expect(d).toMatch(/max-width\s*:\s*var\(\s*--section-body-measure\s*,\s*40rem\s*\)/);
             });
         });
     });
@@ -2375,9 +2375,11 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
  */
 describe('CSS lint: section-level bands share one rhythm definition (#431)', () => {
     // Nine bands (issue 438 folded table/logos/embed into the contract). Each entry
-    // carries its root class AND slot prefix because table's class (.table-section)
-    // and slot prefix (--table-section) differ from the component name — a naive
-    // `--${comp}-` derivation would assert against a nonexistent `.table` selector.
+    // carries its root class AND slot prefix. Since #576 the two differ ONLY for table:
+    // its slots are `--table-*` (the canonical vocabulary) while its root class stays
+    // `.table-section` (deliberately unchanged — `.table` is already the inner data-table
+    // block), so a naive `--${comp}-` derivation would still assert against a nonexistent
+    // `.table` selector.
     const BAND_COMPONENTS = [
         { comp: 'section', cls: '.section', slot: '--section' },
         { comp: 'grid', cls: '.grid', slot: '--grid' },
@@ -2385,7 +2387,7 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
         { comp: 'stats', cls: '.stats', slot: '--stats' },
         { comp: 'faq', cls: '.faq', slot: '--faq' },
         { comp: 'testimonials', cls: '.testimonials', slot: '--testimonials' },
-        { comp: 'table', cls: '.table-section', slot: '--table-section' },
+        { comp: 'table', cls: '.table-section', slot: '--table' },
         { comp: 'logos', cls: '.logos', slot: '--logos' },
         { comp: 'embed', cls: '.embed', slot: '--embed' },
     ];
@@ -2554,12 +2556,12 @@ describe('CSS lint: band-level headings share one responsive scale (#436)', () =
     // premium rule ([0,2,1]); both must route the slot to the shared scale, so a
     // multi-selector entry pins every declaration site.
     const BAND_HEADINGS = [
-        { selectors: ['.section__title', '.section--text-only .section__title', 'main > .section .section__title'], slot: '--section-title-size' },
+        { selectors: ['.section__title', '.section--text-only .section__title', 'main > .section .section__title'], slot: '--section-heading-size' },
         { selectors: ['.grid__heading', 'main > .grid .grid__heading'], slot: '--grid-heading-size' },
-        { selectors: ['.cta__title'], slot: '--cta-title-size' },
+        { selectors: ['.cta__title'], slot: '--cta-heading-size' },
         { selectors: ['.faq__heading', 'main > .faq .faq__heading'], slot: '--faq-heading-size' },
-        { selectors: ['.stats__heading'], slot: '--stats-title-size' },
-        { selectors: ['.table-section__heading'], slot: '--table-section-heading-size' },
+        { selectors: ['.stats__heading'], slot: '--stats-heading-size' },
+        { selectors: ['.table-section__heading'], slot: '--table-heading-size' },
         { selectors: ['.logos__heading'], slot: '--logos-heading-size' },
         { selectors: ['.embed__heading'], slot: '--embed-heading-size' },
         { selectors: ['.testimonials__heading'], slot: '--testimonials-heading-size' },
@@ -2616,7 +2618,7 @@ describe('CSS lint: band-level headings share one responsive scale (#436)', () =
         const stripped = stripComments(COMPONENTS_CSS);
         expect(stripped).not.toMatch(/clamp\(\s*2\.25rem\s*,\s*3vw\s*,\s*2\.62rem\s*\)/);
         expect(stripped).not.toMatch(/font-size\s*:\s*var\(\s*--[a-z-]+-(?:title|heading)-size\s*,\s*1\.875rem\s*\)/);
-        expect(stripped).not.toMatch(/font-size\s*:\s*var\(\s*--section-title-size\s*,\s*2\.25rem\s*\)/);
+        expect(stripped).not.toMatch(/font-size\s*:\s*var\(\s*--section-heading-size\s*,\s*2\.25rem\s*\)/);
     });
 });
 
@@ -2700,7 +2702,7 @@ describe('CSS lint: band heading-color slots route through the slot (#438)', () 
 
     // selector, its heading-color slot, and the fallback that preserves unset output.
     const HEADING_COLOR_RULES = [
-        { selector: '.table-section__heading', slot: '--table-section-heading-color', fallback: '--color-text' },
+        { selector: '.table-section__heading', slot: '--table-heading-color', fallback: '--color-text' },
         { selector: '.logos__heading', slot: '--logos-heading-color', fallback: '--color-text' },
         { selector: '.embed__heading', slot: '--embed-heading-color', fallback: '--color-text' },
         { selector: '.logos--inverted .logos__heading', slot: '--logos-heading-color', fallback: '--color-bg' },
@@ -2965,7 +2967,7 @@ describe('CSS lint: inverted dark-band links route through the on-inverted accen
     //    light card). Routing them through the on-inverted tint would drop them to
     //    ~2:1. The rendered-contrast E2E covers those directly.
     //
-    // Since #439, cta.text and testimonials.quote render an inline-HTML subset
+    // Since #439, cta.body and testimonials.quote render an inline-HTML subset
     // (a/strong/em/br), so both CAN now carry a real body link. Where that link
     // sits DIRECTLY on the dark band it must be remapped: cta__body always sits on
     // the band, and the testimonials quote sits on the band in the STACK layout
@@ -3252,8 +3254,8 @@ describe('CSS lint: bg-image band accent routes through --color-accent-on-overla
         // #551 carved the panel CTA out of the band-wide anchor rule (the panel is a LIGHT
         // surface). The overlay ROUTING pinned here is unchanged — only the selector's reach
         // narrowed, so the pin follows the selector.
-        { sel: '.section--has-bg-image a:not(.section__panel-cta)', slot: '--section-accent', role: '--color-accent-on-overlay' },
-        { sel: '.section--has-bg-image a:not(.section__panel-cta):hover', slot: '--section-accent-hover', role: '--color-accent-on-overlay-hover' },
+        { sel: '.section--has-bg-image a:not(.section__panel-cta)', slot: '--section-body-link-color', role: '--color-accent-on-overlay' },
+        { sel: '.section--has-bg-image a:not(.section__panel-cta):hover', slot: '--section-body-link-hover-color', role: '--color-accent-on-overlay-hover' },
         { sel: '.cta--has-bg-image .cta__body a', slot: '--cta-body-color', role: '--color-accent-on-overlay' },
         { sel: '.cta--has-bg-image .cta__body a:hover', slot: '--cta-body-color', role: '--color-accent-on-overlay-hover' },
         { sel: '.stats--has-bg-image .stats__number', slot: '--stats-number-color', role: '--color-accent-on-overlay' },
@@ -3308,10 +3310,10 @@ describe('CSS lint: bg-image band title-accent + markers route through --color-a
     // The four accented title substrings on overlay bands. Each carries its own `color`
     // rule that must route slot → overlay role.
     const TITLE_ROUTES = [
-        { sel: '.section--has-bg-image .section__title-accent', slot: '--section-title-accent-color' },
-        { sel: '.cta--has-bg-image .cta__title-accent', slot: '--cta-title-accent-color' },
-        { sel: '.stats--has-bg-image .stats__heading-accent', slot: '--stats-title-accent-color' },
-        { sel: '.hero--cover .hero__title-accent', slot: '--hero-title-accent-color' },
+        { sel: '.section--has-bg-image .section__title-accent', slot: '--section-heading-accent-color' },
+        { sel: '.cta--has-bg-image .cta__title-accent', slot: '--cta-heading-accent-color' },
+        { sel: '.stats--has-bg-image .stats__heading-accent', slot: '--stats-heading-accent-color' },
+        { sel: '.hero--cover .hero__title-accent', slot: '--hero-heading-accent-color' },
     ];
 
     TITLE_ROUTES.forEach(({ sel, slot }) => {
@@ -3389,13 +3391,13 @@ describe('CSS lint: dark-band buttons route through the AA accent roles (#535)',
         // cta PRIMARY, bg-image (overlay) band.
         { sel: '.cta--has-bg-image .cta__button.btn--outline', slot: '--cta-button-color', borderSlot: '--cta-button-border', role: '--color-accent-on-overlay' },
         { sel: '.cta--has-bg-image .cta__button.btn--ghost', slot: '--cta-button-color', borderSlot: null, role: '--color-accent-on-overlay' },
-        // hero PRIMARY on the cover scrim (slot is --hero-text, the surface
+        // hero PRIMARY on the cover scrim (slot is --hero-heading-color, the surface
         // `.hero .btn--outline` already reads — see the rule comment).
-        { sel: '.hero--cover .btn--outline', slot: '--hero-text', borderSlot: '--hero-text', role: '--color-accent-on-overlay' },
-        { sel: '.hero--cover .btn--ghost', slot: '--hero-text', borderSlot: null, role: '--color-accent-on-overlay' },
+        { sel: '.hero--cover .btn--outline', slot: '--hero-heading-color', borderSlot: '--hero-heading-color', role: '--color-accent-on-overlay' },
+        { sel: '.hero--cover .btn--ghost', slot: '--hero-heading-color', borderSlot: null, role: '--color-accent-on-overlay' },
         // hero SECOND CTA on the cover scrim (#535 Q3).
-        { sel: '.hero--cover .hero__cta-group .hero__cta--secondary.btn--outline', slot: '--hero-cta2-color', borderSlot: '--hero-cta2-border', role: '--color-accent-on-overlay' },
-        { sel: '.hero--cover .hero__cta-group .hero__cta--secondary.btn--ghost', slot: '--hero-cta2-color', borderSlot: null, role: '--color-accent-on-overlay' },
+        { sel: '.hero--cover .hero__cta-group .hero__cta--secondary.btn--outline', slot: '--hero-button2-color', borderSlot: '--hero-button2-border', role: '--color-accent-on-overlay' },
+        { sel: '.hero--cover .hero__cta-group .hero__cta--secondary.btn--ghost', slot: '--hero-button2-color', borderSlot: null, role: '--color-accent-on-overlay' },
     ];
 
     const esc = (s) => s.replace(/[-]/g, '\\-');
@@ -3724,8 +3726,8 @@ describe('CSS lint: dark-band buttons route through the AA accent roles (#535)',
  * The isolation re-pointing declarations depend on GUARANTEED-INVALID custom properties
  * (#514/#526/#474/#530).
  *
- * `.hero__cta--secondary { --hero-button-bg: var(--hero-cta2-bg); }` works because, with
- * --hero-cta2-bg unset, the var() cannot substitute and --hero-button-bg becomes
+ * `.hero__cta--secondary { --hero-button-bg: var(--hero-button2-bg); }` works because, with
+ * --hero-button2-bg unset, the var() cannot substitute and --hero-button-bg becomes
  * guaranteed-invalid — so every downstream `var(--hero-button-bg, <fallback>)` takes its
  * fallback and an unset button renders byte-identically.
  *
@@ -3742,13 +3744,13 @@ describe('CSS lint: fill-slot re-pointing targets are never @property-registered
         '--hero-button-hover-bg',
         '--cta-button-bg',
         '--cta-button-hover-bg',
-        // Re-pointing SOURCES: equally load-bearing. `--hero-button-bg: var(--hero-cta2-bg)`
-        // is only guaranteed-invalid because --hero-cta2-bg is ITSELF unregistered. Register
+        // Re-pointing SOURCES: equally load-bearing. `--hero-button-bg: var(--hero-button2-bg)`
+        // is only guaranteed-invalid because --hero-button2-bg is ITSELF unregistered. Register
         // the source and the var() always substitutes (to the registered initial), so the
         // target is never invalid and every unset second button silently leaves the premium
         // gradient for that initial value.
-        '--hero-cta2-bg',
-        '--hero-cta2-hover-bg',
+        '--hero-button2-bg',
+        '--hero-button2-hover-bg',
         '--cta-button2-bg',
         '--cta-button2-hover-bg',
     ];
@@ -3841,9 +3843,9 @@ describe('CSS lint: the filled second button is ringed on overlay bands (#543)',
           // since #564 the rest row uses it too, so the two rows are positional twins.
           leading: ['--cta-button2-hover-border', '--cta-accent-hover', '--cta-button2-hover-bg'] },
         { sel: HERO2_RING, base: HERO2_BASE, terminal: '--color-accent',
-          leading: ['--hero-cta2-border', '--hero-accent', '--hero-cta2-bg'] },
+          leading: ['--hero-button2-border', '--hero-accent', '--hero-button2-bg'] },
         { sel: HERO2_RING + ':hover', base: HERO2_BASE + ':hover', terminal: '--color-accent-hover',
-          leading: ['--hero-cta2-hover-border', '--hero-accent-hover', '--hero-cta2-hover-bg'] },
+          leading: ['--hero-button2-hover-border', '--hero-accent-hover', '--hero-button2-hover-bg'] },
     ];
 
     const chainOf = (rule) => {
@@ -4271,12 +4273,12 @@ describe('CSS lint: global button hover tier (#539)', () => {
             what: 'hero second button (joined the tier in #554, closing the last filled surface)',
             sel: '.hero .hero__cta-group .hero__cta--secondary' + NOT3 + ':hover',
             decls: [
-                'background-color: var(--hero-cta2-hover-bg, var(--hero-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));',
+                'background-color: var(--hero-button2-hover-bg, var(--hero-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));',
                 // --hero-accent-hover leads, matching the hero PRIMARY's hover ring — and since
                 // #564 the cta family leads with its accent too, so this row no longer differs
                 // from the cta rows above (see the pair-structure test).
                 // #538's Option-3 accent-above-fill order survives between the global links.
-                'border-color: var(--hero-cta2-hover-border, var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-cta2-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))));',
+                'border-color: var(--hero-button2-hover-border, var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-button2-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))));',
             ],
         },
         {
@@ -4312,7 +4314,7 @@ describe('CSS lint: global button hover tier (#539)', () => {
         { sel: '.hero .btn' + NOT3 + ':hover', fill: '--hero-button-hover-bg', own: null },
         // Joined the tier in #554, so it joins this precedence pin too.
         { sel: '.hero .hero__cta-group .hero__cta--secondary' + NOT3 + ':hover',
-          fill: '--hero-cta2-hover-bg', own: '--hero-cta2-hover-border' },
+          fill: '--hero-button2-hover-bg', own: '--hero-button2-hover-border' },
     ];
 
     BORDER_ORDER.forEach(({ sel, fill, own }) => {
@@ -4425,7 +4427,7 @@ describe('CSS lint: global button hover tier (#539)', () => {
      *
      * Same shape is not same colour. Each button still reads its OWN per-instance slots, so the
      * pair matches wherever the winning link is a shared knob (--hero-accent, --btn-bg) and
-     * differs wherever it is a per-button one (--hero-cta2-bg). What must never return is the
+     * differs wherever it is a per-button one (--hero-button2-bg). What must never return is the
      * pair disagreeing about WHICH KINDS of link participate at all.
      */
     const PAIRS = [
@@ -4543,9 +4545,9 @@ describe('CSS lint: global button hover tier (#539)', () => {
     test('hero cta2 and cta button2 carry structurally equivalent chains', () => {
         const norm = chainTokens;
         const heroMap = {
-            '--hero-cta2-border': 'OWN-BORDER', '--hero-cta2-bg': 'OWN-FILL',
+            '--hero-button2-border': 'OWN-BORDER', '--hero-button2-bg': 'OWN-FILL',
             '--hero-accent': 'ACCENT',
-            '--hero-cta2-hover-border': 'OWN-HOVER-BORDER', '--hero-cta2-hover-bg': 'OWN-HOVER-FILL',
+            '--hero-button2-hover-border': 'OWN-HOVER-BORDER', '--hero-button2-hover-bg': 'OWN-HOVER-FILL',
             '--hero-accent-hover': 'ACCENT-HOVER',
         };
         const ctaMap = {
@@ -4629,10 +4631,10 @@ describe('CSS lint: band link ink is carved out of the light panel CTA (#551)', 
 
     // Every band-WIDE anchor ink rule, with the slot + role it must keep routing.
     const BAND_LINK_RULES = [
-        { sel: `.section--has-bg-image a${CARVE}`, slot: '--section-accent', role: '--color-accent-on-overlay' },
-        { sel: `.section--has-bg-image a${CARVE}:hover`, slot: '--section-accent-hover', role: '--color-accent-on-overlay-hover' },
-        { sel: `.pp-section--inverted a${CARVE}`, slot: '--section-accent', role: '--color-accent-on-inverted' },
-        { sel: `.pp-section--inverted a${CARVE}:hover`, slot: '--section-accent-hover', role: '--color-accent-on-inverted-hover' },
+        { sel: `.section--has-bg-image a${CARVE}`, slot: '--section-body-link-color', role: '--color-accent-on-overlay' },
+        { sel: `.section--has-bg-image a${CARVE}:hover`, slot: '--section-body-link-hover-color', role: '--color-accent-on-overlay-hover' },
+        { sel: `.pp-section--inverted a${CARVE}`, slot: '--section-body-link-color', role: '--color-accent-on-inverted' },
+        { sel: `.pp-section--inverted a${CARVE}:hover`, slot: '--section-body-link-hover-color', role: '--color-accent-on-inverted-hover' },
     ];
 
     BAND_LINK_RULES.forEach(({ sel, slot, role }) => {
@@ -4899,7 +4901,7 @@ describe('CSS lint: per-instance button slots are neutralised on non-owned butto
         '--cta-accent-hover',
         '--hero-accent',       // same, on the hero band
         '--hero-accent-hover',
-        '--hero-text',         // band ink: the outline variant's foreground
+        '--hero-heading-color',         // band ink: the outline variant's foreground
         '--hero-bg',           // the outline variant's hover ink, per hero/schema.json
     ].sort();
 
@@ -5005,7 +5007,7 @@ describe('CSS lint: per-instance button slots are neutralised on non-owned butto
     test('it neutralises nothing outside the per-instance button families', () => {
         const rule = neutralisationRule(STRIPPED);
         const strays = rule.props.filter(
-            (p) => !/^--(?:hero-button|hero-cta2|cta-button|cta-button2|section-panel-cta)-/.test(p),
+            (p) => !/^--(?:hero-button|hero-button2|cta-button|cta-button2|section-panel-cta)-/.test(p),
         );
         expect(strays, 'the global --btn-* tier and band accents must keep reaching nested buttons')
             .toEqual([]);
@@ -5061,7 +5063,7 @@ describe('CSS lint: per-instance button slots are neutralised on non-owned butto
     test('no per-instance button slot is read outside components.css', () => {
         // The derivation scans components.css. A family slot consumed from base.css or
         // utilities.css would satisfy it while still leaking, so pin that it cannot happen.
-        const FAMILY = /var\(\s*--(?:hero-button|hero-cta2|cta-button|cta-button2|section-panel-cta)-/;
+        const FAMILY = /var\(\s*--(?:hero-button|hero-button2|cta-button|cta-button2|section-panel-cta)-/;
         expect(FAMILY.test(stripComments(BASE_CSS))).toBe(false);
         expect(FAMILY.test(stripComments(UTILITIES_CSS))).toBe(false);
     });

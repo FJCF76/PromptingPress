@@ -22,20 +22,28 @@
  * @return array  Keyed by component name: ['hero' => ['props' => [...]], ...]
  */
 function pp_get_registered_components(): array {
-    static $cache = null;
+    // Keyed by theme root (issue #576). The cache used to be a single unkeyed slot, so a
+    // caller that repointed get_template_directory() kept getting the PREVIOUS root's scan
+    // until something set the invalidate flag — and the flag was checked BEFORE the
+    // directory was read, so the handshake could not close the gap on its own. In
+    // production the theme root is constant per request and this is behaviour-identical;
+    // the tests that swap the root (ApplyTest, PreflightTest, SetupTest, ...) are where an
+    // empty-registry answer used to leak across classes. That matters more since #576,
+    // which consults the registry on every composition read.
+    static $cache = [];
     if (!empty($GLOBALS['_pp_registered_components_invalidate'])) {
-        $cache = null;
+        $cache = [];
         unset($GLOBALS['_pp_registered_components_invalidate']);
     }
-    if ($cache !== null) {
-        return $cache;
-    }
 
-    $base  = get_template_directory() . '/components/';
-    $cache = [];
+    $base = get_template_directory() . '/components/';
+    if (isset($cache[$base])) {
+        return $cache[$base];
+    }
+    $cache[$base] = [];
 
     if (!is_dir($base)) {
-        return $cache;
+        return $cache[$base];
     }
 
     foreach (scandir($base) as $name) {
@@ -54,10 +62,10 @@ function pp_get_registered_components(): array {
                 $schema = $decoded;
             }
         }
-        $cache[$name] = $schema;
+        $cache[$base][$name] = $schema;
     }
 
-    return $cache;
+    return $cache[$base];
 }
 
 /**
@@ -229,7 +237,7 @@ const PP_CONDITIONALITY_NOTE_MAX = 400;
  *
  *   - DISJUNCTION — e.g. a slot that applies on dark bands only, i.e.
  *     `theme: inverted` OR `background_image` present.
- *   - COMPOSED-PAGE CONTEXT — `--grid-card-bar-*` / `--grid-featured-*` apply only
+ *   - COMPOSED-PAGE CONTEXT — `--grid-item-bar-*` / `--grid-featured-*` apply only
  *     under a `main >` scope, which is not a prop, not a slot and not a value.
  *   - INTERACTION STATE — a question's open state.
  *
@@ -574,22 +582,40 @@ function pp_migrate_legacy_variant_keys(array $items): array {
 }
 
 /**
- * The bounded, closed map of pre-1.0 component-scoped prop RENAMES whose old
- * names can still exist in stored compositions (issue #495).
+ * The bounded, closed map of component-scoped prop RENAMES whose old names can
+ * still exist in stored compositions (issue #495, extended by #576).
  *
  * This is NOT a general schema-evolution framework and NOT a forever alias
- * surface. It is a fixed, audited inventory of the pre-1.0 renames the #147
- * strict gate could not have caught (the gate has rejected unknown props since
- * 1.0; the post-1.0 convention ships compatibility WITH every rename — #442).
- * The closed audit found exactly one component with such renames:
+ * surface. It is a fixed, audited inventory, in two generations:
  *
- *   cta: cta_text -> button_text, cta_url -> button_url
+ *   PRE-1.0 (#495) — the renames the #147 strict gate could not have caught. The
+ *   closed audit found exactly one component:
  *
- * The map is deliberately PER-COMPONENT: `hero` declares `cta_text`/`cta_url`
- * as its CURRENT canonical props (the hero's own button), so a global alias
- * would corrupt hero content. The `variant` -> `layout`/`theme` rename is NOT
- * here — it is handled by the separate write-reject + read-migrate mechanism
- * (pp_migrate_legacy_variant_keys, #69/#388), a different contract.
+ *     cta: cta_text -> button_text, cta_url -> button_url
+ *
+ *   CANONICAL VOCABULARY (#576) — the v1.13.0 gate that made every prop segment
+ *   derivable ("the prop is the CONTENT name, not the element name"), shipping
+ *   compatibility WITH the rename per the post-1.0 convention (#442):
+ *
+ *     hero:         subtitle -> subheading; the hero's own button family
+ *                   cta_*  -> button_*  and  cta2_* -> button2_*
+ *     cta:          text -> body
+ *     section/grid/testimonials: heading_align -> title_align
+ *
+ * The map is deliberately PER-COMPONENT and that is now load-bearing in BOTH
+ * directions. `cta_text`/`cta_url` are LEGACY on the cta component and were, until
+ * #576, the hero's CURRENT canonical props — a global alias would have corrupted
+ * hero content. After #576 both components resolve those names to
+ * `button_text`/`button_url`, but they arrive there from opposite directions
+ * (cta pre-1.0, hero at the vocabulary freeze), so the per-component shape is what
+ * keeps each component's history honest rather than collapsing them into a claim
+ * neither one makes.
+ *
+ * The `variant` -> `layout`/`theme` rename is NOT here — it is handled by the
+ * separate write-reject + read-migrate mechanism (pp_migrate_legacy_variant_keys,
+ * #69/#388), a different contract. Style-SLOT names are not here either: they have
+ * their own map (pp_legacy_slot_aliases, lib/wp.php), resolved on the same read
+ * path since #594.
  *
  * Pinned by SchemaValidationTest::testLegacyPropAliasInventoryIsPinned and
  * guarded against silent future drift by the schema-rename drift-catcher
@@ -604,6 +630,25 @@ function pp_legacy_prop_aliases(): array {
         'cta' => [
             'cta_text' => 'button_text',
             'cta_url'  => 'button_url',
+            'text'     => 'body',
+        ],
+        'hero' => [
+            'subtitle'     => 'subheading',
+            'cta_text'     => 'button_text',
+            'cta_url'      => 'button_url',
+            'cta_variant'  => 'button_variant',
+            'cta2_text'    => 'button2_text',
+            'cta2_url'     => 'button2_url',
+            'cta2_variant' => 'button2_variant',
+        ],
+        'section' => [
+            'heading_align' => 'title_align',
+        ],
+        'grid' => [
+            'heading_align' => 'title_align',
+        ],
+        'testimonials' => [
+            'heading_align' => 'title_align',
         ],
     ];
 }
@@ -1167,7 +1212,7 @@ function pp_validate_composition_errors(array $items): array {
         // default (the reported-success-without-effect class, same rationale as the
         // issue 379 numeric-bounds check above). This is deliberately OPT-IN, not
         // applied to every enum: enum props WITHOUT `strict` keep their historical
-        // render-time coercion (layout/theme/card_emphasis/heading_align accept-and-
+        // render-time coercion (layout/theme/card_emphasis/title_align accept-and-
         // coerce as before), so this does not change validation for any prop beyond
         // the one that opts in. Generic + schema-driven: no per-component branch, no
         // second validator. "Unset" is the key being absent, null, or the empty
@@ -1398,7 +1443,7 @@ function pp_validate_composition_errors(array $items): array {
 
         // Link-URL format family (issue 507). A prop MAY declare `format: "link_url"`
         // (the #154 media-URL annotation pattern, applied to the destination-URL
-        // props: cta.button_url/button2_url, hero.cta_url/cta2_url, section.panel_cta_url,
+        // props: cta.button_url/button2_url, hero.button_url/button2_url, section.panel_cta_url,
         // grid.items[].link_url). The renderer runs esc_url() on these, which
         // SILENTLY neuters a disallowed-protocol value (javascript:, data:, ...) into
         // an empty href — a dead button — while still reporting ok:true. This rejects

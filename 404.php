@@ -12,7 +12,7 @@ pp_base_template(function () {
 
     pp_get_component('hero', [
         'title'    => 'Page Not Found',
-        'subtitle' => 'The page you\'re looking for doesn\'t exist or has been moved.',
+        'subheading' => 'The page you\'re looking for doesn\'t exist or has been moved.',
         'layout'  => 'left',
     ]);
 

@@ -198,9 +198,9 @@ class HeroCompositionTest extends TestCase
     {
         $html = $this->render([
             'title'        => 'Test',
-            'cta_text'     => 'Get started',
-            'cta2_text'    => 'Talk to sales',
-            'cta2_variant' => 'primary',
+            'button_text'     => 'Get started',
+            'button2_text'    => 'Talk to sales',
+            'button2_variant' => 'primary',
         ]);
         $this->assertStringContainsString('class="hero__cta hero__cta--secondary btn"', $html);
     }
@@ -210,8 +210,8 @@ class HeroCompositionTest extends TestCase
     {
         $html = $this->render([
             'title'     => 'Test',
-            'cta_text'  => 'Get started',
-            'cta2_text' => 'Talk to sales',
+            'button_text'  => 'Get started',
+            'button2_text' => 'Talk to sales',
         ]);
         $this->assertStringContainsString('class="hero__cta hero__cta--secondary btn btn--outline"', $html);
     }
@@ -225,16 +225,16 @@ class HeroCompositionTest extends TestCase
     {
         $html = $this->render([
             'title'        => 'Test',
-            'cta_text'     => 'Get started',
-            'cta2_text'    => 'Talk to sales',
-            'cta2_variant' => 'primary',
+            'button_text'     => 'Get started',
+            'button2_text'    => 'Talk to sales',
+            'button2_variant' => 'primary',
             '__pp_style'   => [
                 '--hero-button-bg' => '#7c3aed',
-                '--hero-cta2-bg'   => '#0f766e',
+                '--hero-button2-bg'   => '#0f766e',
             ],
         ]);
         $this->assertStringContainsString('--hero-button-bg: #7c3aed', $html);
-        $this->assertStringContainsString('--hero-cta2-bg: #0f766e', $html);
+        $this->assertStringContainsString('--hero-button2-bg: #0f766e', $html);
     }
 
     // ── Proof Slot ────────────────────────────────────────────────────────
@@ -249,7 +249,7 @@ class HeroCompositionTest extends TestCase
     {
         $html = $this->render([
             'title'      => 'Test',
-            'cta_text'   => 'Get started',
+            'button_text'   => 'Get started',
             '__pp_style' => [
                 '--hero-button-bg'     => '#7c3aed',
                 '--hero-button-color'  => '#ffffff',
@@ -268,7 +268,7 @@ class HeroCompositionTest extends TestCase
     {
         $html = $this->render([
             'title'      => 'Test',
-            'cta_text'   => 'Get started',
+            'button_text'   => 'Get started',
             '__pp_style' => ['--hero-bg' => '#0d1117'],
         ]);
         $this->assertStringNotContainsString('--hero-button-bg', $html);

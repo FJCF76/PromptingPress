@@ -31,11 +31,56 @@ function pp_component_classes(): array {
 }
 
 /**
+ * Maps a matched ROOT CLASS back to the REGISTERED COMPONENT NAME (issue #576).
+ *
+ * Matching stays on the root class — that is what a Custom CSS selector actually
+ * contains — but the report speaks the name an agent can act on. THREE classes differ
+ * from their component name today:
+ *
+ *   table-section -> table    `.table` is already the inner data-table block
+ *                             (components/table/table.php), so the root class is
+ *                             deliberately unchanged.
+ *   site-header   -> nav      chrome components; the class names the region, the
+ *   site-footer   -> footer   component name is what an action parameter accepts.
+ *
+ * Before #576 the `--table-section-*` slot family said "table-section" too; the
+ * canonical vocabulary renamed those to `--table-*`, which left this detector as the
+ * LAST surface speaking a name that appears in no schema, no slot and no action
+ * parameter.
+ *
+ * Derived from the registry's own `styling.root_class` rather than a second hardcoded
+ * table, so a future component whose root class diverges is covered without touching
+ * this function. A class no registered component owns reports itself.
+ *
+ * CONSUMER NOTE: this value surfaces in `pp_inspect_site()`'s `conflicts[].component`
+ * (lib/operate.php) and in the CLI/admin notices. No consumer branches on it — they all
+ * print it — but it is a value change in a machine-readable envelope, so it is recorded
+ * in the changelog rather than treated as internal.
+ *
+ * @param  string $class  A root class from pp_component_classes().
+ * @return string         The registered component name, or the class when none owns it.
+ */
+function pp_component_name_for_class(string $class): string {
+    if (!function_exists('pp_get_registered_components')) {
+        return $class;
+    }
+    foreach (pp_get_registered_components() as $name => $schema) {
+        if (($schema['styling']['root_class'] ?? $name) === $class) {
+            return $name;
+        }
+    }
+    return $class;
+}
+
+/**
  * Checks WordPress Custom CSS for selectors that target PP component classes.
  *
  * Minimal selector extractor: splits CSS on `{`, extracts the selector part,
  * then word-boundary matches against known PP component classes. No full CSS
  * parser — this is intentional. Report-only.
+ *
+ * `component` reports the REGISTERED COMPONENT NAME (#576), not the matched class;
+ * see pp_component_name_for_class(). Matching itself is unchanged.
  *
  * @return array[] Each entry: ['selector' => string, 'component' => string]
  */
@@ -77,7 +122,7 @@ function pp_check_custom_css_conflicts(): array {
             if (preg_match($pattern, $selector)) {
                 $conflicts[] = [
                     'selector'  => $selector,
-                    'component' => $class,
+                    'component' => pp_component_name_for_class($class),
                 ];
                 break; // One match per selector is enough.
             }

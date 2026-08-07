@@ -225,8 +225,8 @@ describe('renderPreviewError', function () {
         renderPreviewError(diffArea, {
             error_code: 'invalid_style_slot',
             user_message: 'That style property isn\'t available on the hero component.',
-            alternatives: ['--hero-bg', '--hero-text'],
-            raw_error: 'Component "hero" has no style slot "--hero-display". Available: --hero-bg, --hero-text'
+            alternatives: ['--hero-bg', '--hero-heading-color'],
+            raw_error: 'Component "hero" has no style slot "--hero-display". Available: --hero-bg, --hero-heading-color'
         });
 
         var msgEl = diffArea.querySelector('.pp-ai-preview-error-message');
@@ -240,7 +240,7 @@ describe('renderPreviewError', function () {
         renderPreviewError(diffArea, {
             error_code: 'invalid_style_slot',
             user_message: 'Not available.',
-            alternatives: ['--hero-bg', '--hero-text', '--hero-padding-top'],
+            alternatives: ['--hero-bg', '--hero-heading-color', '--hero-padding-top'],
             cross_component_hints: {},
             raw_error: 'raw'
         });
@@ -248,7 +248,7 @@ describe('renderPreviewError', function () {
         var detailEl = diffArea.querySelector('.pp-ai-preview-error-detail');
         expect(detailEl).not.toBeNull();
         expect(detailEl.textContent).toContain('--hero-bg');
-        expect(detailEl.textContent).toContain('--hero-text');
+        expect(detailEl.textContent).toContain('--hero-heading-color');
         expect(detailEl.textContent).toContain('--hero-padding-top');
         var summary = detailEl.querySelector('summary');
         expect(summary).not.toBeNull();
@@ -325,7 +325,7 @@ describe('renderPreviewError', function () {
         renderPreviewError(diffArea, {
             error_code: 'invalid_style_slot',
             user_message: 'Not available.',
-            alternatives: ['--hero-bg', '--hero-text'],
+            alternatives: ['--hero-bg', '--hero-heading-color'],
             cross_component_hints: {},
             raw_error: 'raw error text'
         });
@@ -333,7 +333,7 @@ describe('renderPreviewError', function () {
         var detailEl = diffArea.querySelector('.pp-ai-preview-error-detail');
         expect(detailEl).not.toBeNull();
         expect(detailEl.textContent).toContain('--hero-bg');
-        expect(detailEl.textContent).toContain('--hero-text');
+        expect(detailEl.textContent).toContain('--hero-heading-color');
     });
 });
 

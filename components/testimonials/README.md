@@ -11,7 +11,7 @@ Customer quotes with attribution, for social-proof sections. Use this instead of
 | `title_accent`  | string | No       | `''`    | Exact substring of `title` to render in an accent color |
 | `eyebrow`       | string | No       | `''`    | Short kicker/label above the title |
 | `subheading`    | string | No       | `''`    | Supporting line below the title |
-| `heading_align` | enum   | No       | `start` | `start` or `center` |
+| `title_align` | enum   | No       | `start` | `start` or `center` |
 | `layout`       | enum   | No       | `grid`  | Layout: `grid` (card grid) or `stack` (single centered column) |
 | `theme`         | enum   | No       | `default` | Background color: `default` / `muted` (light tinted surface band) / `inverted` (genuinely dark band) |
 | `items`         | array  | Yes      | —       | Array of testimonial objects |

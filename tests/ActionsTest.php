@@ -461,7 +461,7 @@ class ActionsTest extends TestCase
         // specific rule path — and never blocks on it.
         $post_id = pp_create_page('Dangling var snapshot');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'A'], 'style' => ['--hero-cta2-bg' => 'var(--nonexistent-token)']],
+            ['component' => 'hero', 'props' => ['title' => 'A'], 'style' => ['--hero-button2-bg' => 'var(--nonexistent-token)']],
         ]);
         pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
 
@@ -469,7 +469,7 @@ class ActionsTest extends TestCase
 
         // The write succeeds and the snapshot is preserved verbatim.
         $this->assertTrue($result['ok'], $result['error'] ?? 'restore failed');
-        $this->assertSame('var(--nonexistent-token)', pp_get_composition($post_id)[0]['style']['--hero-cta2-bg']);
+        $this->assertSame('var(--nonexistent-token)', pp_get_composition($post_id)[0]['style']['--hero-button2-bg']);
 
         // ...and the dangling reference is reported as a blocking-class finding.
         $errors = array_values(array_filter(
@@ -484,7 +484,7 @@ class ActionsTest extends TestCase
         // The mirror case: a snapshot using the newly ACCEPTED forms is clean.
         $post_id = pp_create_page('Valid var snapshot');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'A'], 'style' => ['--hero-cta2-bg' => 'transparent', '--hero-accent' => 'var(--color-accent)']],
+            ['component' => 'hero', 'props' => ['title' => 'A'], 'style' => ['--hero-button2-bg' => 'transparent', '--hero-accent' => 'var(--color-accent)']],
         ]);
         pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
 
@@ -682,7 +682,7 @@ class ActionsTest extends TestCase
 
     public function testUpdateComponentCoercesOutOfEnumButton2Variant(): void
     {
-        // button2_variant mirrors button_variant (and hero's cta2_variant): neither
+        // button2_variant mirrors button_variant (and hero's button2_variant): neither
         // declares `strict`, so the enum is accept-and-COERCE, not reject. The write
         // is accepted and the renderer falls back to the secondary default, so the
         // authored page still renders a real button rather than being locked out.
@@ -935,14 +935,23 @@ class ActionsTest extends TestCase
         $this->assertStringNotContainsString('cta_text', $joined, 'the change log reports the canonical prop, not the legacy alias');
     }
 
-    public function testTargetedEditDoesNotRewriteHeroCurrentProps(): void
+    /**
+     * SUPERSEDES testTargetedEditDoesNotRewriteHeroCurrentProps (#495 -> #576).
+     *
+     * Until #576, hero.cta_text/cta_url were the hero's CURRENT canonical props and the
+     * pin asserted the per-component map must never touch them. The canonical-vocabulary
+     * gate renamed them to button_text/button_url and gave hero its own alias map, so the
+     * contract inverted: the legacy names now RESOLVE on hero, and the canonical names
+     * are the ones that must survive a write untouched. Both halves are pinned here —
+     * asserting only the resolve half would let a map that rewrites canonical names pass.
+     */
+    public function testHeroLegacyButtonPropsResolveAndCanonicalOnesSurviveAWrite(): void
     {
-        // hero.cta_text/cta_url are CURRENT canonical props (not aliases). A write
-        // touching the hero must leave them exactly as authored — the per-component
-        // map must never treat them as legacy.
         $id = pp_create_page('Hero write path', 'draft');
         pp_update_composition($id, [
-            ['component' => 'hero', 'props' => ['title' => 'Hi', 'cta_text' => 'Go', 'cta_url' => '/go']],
+            // Band 0 stores the CANONICAL names, band 1 the LEGACY ones.
+            ['component' => 'hero', 'props' => ['title' => 'Hi', 'button_text' => 'Go', 'button_url' => '/go']],
+            ['component' => 'hero', 'props' => ['title' => 'Legacy', 'cta_text' => 'Old', 'cta_url' => '/old']],
         ]);
 
         $result = pp_execute_action('update_component', [
@@ -950,12 +959,19 @@ class ActionsTest extends TestCase
             'component_index' => 0,
             'props'           => ['title' => 'Hello'],
         ]);
-
         $this->assertTrue($result['ok']);
-        $hero = pp_get_composition($id)[0]['props'];
-        $this->assertSame('Go', $hero['cta_text'], 'hero cta_text is canonical and must survive a write');
-        $this->assertSame('/go', $hero['cta_url'], 'hero cta_url is canonical and must survive a write');
-        $this->assertArrayNotHasKey('button_text', $hero, 'hero must not gain a cta-only canonical prop');
+
+        $canonical = pp_get_composition($id)[0]['props'];
+        $this->assertSame('Go', $canonical['button_text'], 'hero button_text is canonical and must survive a write');
+        $this->assertSame('/go', $canonical['button_url'], 'hero button_url is canonical and must survive a write');
+
+        // The untouched sibling heals on the whole-array write-back, exactly as the cta
+        // surface has since #575.
+        $legacy = pp_get_composition($id)[1]['props'];
+        $this->assertSame('Old', $legacy['button_text'], 'hero cta_text resolves to button_text');
+        $this->assertSame('/old', $legacy['button_url'], 'hero cta_url resolves to button_url');
+        $this->assertArrayNotHasKey('cta_text', $legacy, 'the legacy key does not survive the write-back');
+        $this->assertArrayNotHasKey('cta_url', $legacy, 'the legacy key does not survive the write-back');
     }
 
     public function testAddComponentPreviewReflectsCanonicalShape(): void
@@ -2334,7 +2350,7 @@ class ActionsTest extends TestCase
         $id = pp_create_page('Insert Test', 'draft');
         $existing = [
             ['component' => 'hero', 'props' => ['title' => 'First']],
-            ['component' => 'cta', 'props' => ['title' => 'CTA', 'text' => 'Click', 'button_text' => 'Go', 'button_url' => '#']],
+            ['component' => 'cta', 'props' => ['title' => 'CTA', 'body' => 'Click', 'button_text' => 'Go', 'button_url' => '#']],
         ];
         pp_update_composition($id, $existing);
 
@@ -2542,7 +2558,7 @@ class ActionsTest extends TestCase
         $existing = [
             ['component' => 'hero', 'props' => ['title' => 'A']],
             ['component' => 'section', 'props' => ['body' => 'B']],
-            ['component' => 'cta', 'props' => ['title' => 'C', 'text' => 'Go', 'button_text' => 'Click', 'button_url' => '#']],
+            ['component' => 'cta', 'props' => ['title' => 'C', 'body' => 'Go', 'button_text' => 'Click', 'button_url' => '#']],
         ];
         pp_update_composition($id, $existing);
 
@@ -2595,7 +2611,7 @@ class ActionsTest extends TestCase
     {
         $id = pp_create_page('Patch Test', 'draft');
         pp_update_composition($id, [
-            ['component' => 'hero', 'props' => ['title' => 'Original', 'subtitle' => 'Keep this']],
+            ['component' => 'hero', 'props' => ['title' => 'Original', 'subheading' => 'Keep this']],
         ]);
 
         $result = pp_execute_action('update_component', [
@@ -2606,25 +2622,25 @@ class ActionsTest extends TestCase
         $this->assertTrue($result['ok']);
         $comp = pp_get_composition($id);
         $this->assertEquals('Updated', $comp[0]['props']['title']);
-        $this->assertEquals('Keep this', $comp[0]['props']['subtitle']);
+        $this->assertEquals('Keep this', $comp[0]['props']['subheading']);
     }
 
     public function testUpdateComponentNullRemovesProp(): void
     {
         $id = pp_create_page('Null Test', 'draft');
         pp_update_composition($id, [
-            ['component' => 'hero', 'props' => ['title' => 'Stay', 'subtitle' => 'Remove me']],
+            ['component' => 'hero', 'props' => ['title' => 'Stay', 'subheading' => 'Remove me']],
         ]);
 
         $result = pp_execute_action('update_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'props'           => ['subtitle' => null],
+            'props'           => ['subheading' => null],
         ]);
         $this->assertTrue($result['ok']);
         $comp = pp_get_composition($id);
         $this->assertEquals('Stay', $comp[0]['props']['title']);
-        $this->assertArrayNotHasKey('subtitle', $comp[0]['props']);
+        $this->assertArrayNotHasKey('subheading', $comp[0]['props']);
     }
 
     public function testUpdateComponentRejectsOutOfBounds(): void
@@ -3727,7 +3743,7 @@ class ActionsTest extends TestCase
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-cta2-bg' => 'transparent', '--hero-accent' => 'var(--color-accent)'],
+            'style'           => ['--hero-button2-bg' => 'transparent', '--hero-accent' => 'var(--color-accent)'],
         ]);
         $this->assertTrue($result);
     }
@@ -3742,7 +3758,7 @@ class ActionsTest extends TestCase
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-cta2-bg' => 'var(--nonexistent-token)'],
+            'style'           => ['--hero-button2-bg' => 'var(--nonexistent-token)'],
         ]);
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertEquals('invalid_style_value', $result->get_error_code());
@@ -3831,7 +3847,7 @@ class ActionsTest extends TestCase
 
     /**
      * Authoring path for the issue 526 combination: a filled second CTA styled with its
-     * own --hero-cta2-* slots ALONGSIDE the primary's #514 --hero-button-* slots goes
+     * own --hero-button2-* slots ALONGSIDE the primary's #514 --hero-button-* slots goes
      * through the real validate + apply surface, and both families persist independently.
      * The leak only bites when an author sets --hero-button-* AND makes cta2 a filled
      * `primary`, so the path that PRODUCES that state is exercised here rather than
@@ -3846,9 +3862,9 @@ class ActionsTest extends TestCase
             ['component' => 'hero', 'props' => [
                 'id'           => 'pp-aabb1122',
                 'title'        => 'Hello',
-                'cta_text'     => 'Get started',
-                'cta2_text'    => 'Talk to sales',
-                'cta2_variant' => 'primary',
+                'button_text'     => 'Get started',
+                'button2_text'    => 'Talk to sales',
+                'button2_variant' => 'primary',
             ]],
         ]);
 
@@ -3858,8 +3874,8 @@ class ActionsTest extends TestCase
             'style'           => [
                 '--hero-button-bg'     => '#7c3aed',
                 '--hero-button-shadow' => 'none',
-                '--hero-cta2-bg'       => '#0f766e',
-                '--hero-cta2-color'    => '#ffffff',
+                '--hero-button2-bg'       => '#0f766e',
+                '--hero-button2-color'    => '#ffffff',
             ],
         ]);
         $this->assertTrue($result['ok']);
@@ -3867,9 +3883,9 @@ class ActionsTest extends TestCase
         $comp = pp_get_composition($post_id);
         $this->assertSame('#7c3aed', $comp[0]['style']['--hero-button-bg']);
         $this->assertSame('none', $comp[0]['style']['--hero-button-shadow']);
-        $this->assertSame('#0f766e', $comp[0]['style']['--hero-cta2-bg']);
-        $this->assertSame('#ffffff', $comp[0]['style']['--hero-cta2-color']);
-        $this->assertSame('primary', $comp[0]['props']['cta2_variant']);
+        $this->assertSame('#0f766e', $comp[0]['style']['--hero-button2-bg']);
+        $this->assertSame('#ffffff', $comp[0]['style']['--hero-button2-color']);
+        $this->assertSame('primary', $comp[0]['props']['button2_variant']);
     }
 
     // ── #530 hover fill slots (authoring-path mandate) ───────────────────────
@@ -3892,9 +3908,9 @@ class ActionsTest extends TestCase
             ['component' => 'hero', 'props' => [
                 'id'           => 'pp-aabb1122',
                 'title'        => 'Hello',
-                'cta_text'     => 'Get started',
-                'cta2_text'    => 'Talk to sales',
-                'cta2_variant' => 'primary',
+                'button_text'     => 'Get started',
+                'button2_text'    => 'Talk to sales',
+                'button2_variant' => 'primary',
             ]],
         ]);
 
@@ -3904,8 +3920,8 @@ class ActionsTest extends TestCase
             'style'           => [
                 '--hero-button-bg'        => '#7c3aed',
                 '--hero-button-hover-bg'  => '#6d28d9',
-                '--hero-cta2-bg'          => '#0f766e',
-                '--hero-cta2-hover-bg'    => '#115e59',
+                '--hero-button2-bg'          => '#0f766e',
+                '--hero-button2-hover-bg'    => '#115e59',
             ],
         ]);
         $this->assertTrue($result['ok']);
@@ -3913,8 +3929,8 @@ class ActionsTest extends TestCase
         $comp = pp_get_composition($post_id);
         $this->assertSame('#7c3aed', $comp[0]['style']['--hero-button-bg']);
         $this->assertSame('#6d28d9', $comp[0]['style']['--hero-button-hover-bg']);
-        $this->assertSame('#0f766e', $comp[0]['style']['--hero-cta2-bg']);
-        $this->assertSame('#115e59', $comp[0]['style']['--hero-cta2-hover-bg']);
+        $this->assertSame('#0f766e', $comp[0]['style']['--hero-button2-bg']);
+        $this->assertSame('#115e59', $comp[0]['style']['--hero-button2-hover-bg']);
     }
 
     /** The cta component's two hover fill slots author independently too (issue 530). */
@@ -3964,7 +3980,7 @@ class ActionsTest extends TestCase
         $this->assertInstanceOf(WP_Error::class, $result);
     }
 
-    /** --hero-cta2-bg is a color slot on the shared validator: garbage is rejected (issue 526). */
+    /** --hero-button2-bg is a color slot on the shared validator: garbage is rejected (issue 526). */
     public function testStyleComponentRejectsInvalidHeroCta2Bg(): void
     {
         $post_id = pp_create_page('Hero cta2 fill reject test');
@@ -3975,7 +3991,7 @@ class ActionsTest extends TestCase
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-cta2-bg' => 'not-a-color'],
+            'style'           => ['--hero-button2-bg' => 'not-a-color'],
         ]);
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertEquals('invalid_style_value', $result->get_error_code());
@@ -4153,13 +4169,13 @@ class ActionsTest extends TestCase
         $result = pp_execute_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-bg' => '#0d1117', '--hero-text' => '#f0f0f0'],
+            'style'           => ['--hero-bg' => '#0d1117', '--hero-heading-color' => '#f0f0f0'],
         ]);
         $this->assertTrue($result['ok']);
 
         $comp = pp_get_composition($post_id);
         $this->assertSame('#0d1117', $comp[0]['style']['--hero-bg']);
-        $this->assertSame('#f0f0f0', $comp[0]['style']['--hero-text']);
+        $this->assertSame('#f0f0f0', $comp[0]['style']['--hero-heading-color']);
         $this->assertSame('8rem', $comp[0]['style']['--hero-padding-top']); // preserved
     }
 
@@ -4224,16 +4240,16 @@ class ActionsTest extends TestCase
             ['component' => 'grid', 'props' => ['items' => [['title' => 'A']]]],
         ]);
 
-        // The --grid-heading-max-width slot should be accepted.
+        // The --grid-heading-measure slot should be accepted.
         $result = pp_execute_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--grid-heading-max-width' => '60rem'],
+            'style'           => ['--grid-heading-measure' => '60rem'],
         ]);
         $this->assertTrue($result['ok']);
 
         $comp = pp_get_composition($post_id);
-        $this->assertSame('60rem', $comp[0]['style']['--grid-heading-max-width']);
+        $this->assertSame('60rem', $comp[0]['style']['--grid-heading-measure']);
     }
 
     public function testStyleComponentByComponentId(): void
@@ -4273,7 +4289,7 @@ class ActionsTest extends TestCase
         $comp = pp_get_composition($post_id);
         $style = $comp[0]['style'];
         $this->assertSame('#0d1117', $style['--hero-bg']);
-        $this->assertSame('#f0f0f0', $style['--hero-text']);
+        $this->assertSame('#f0f0f0', $style['--hero-heading-color']);
         $this->assertSame('6rem', $style['--hero-padding-top']);
         $this->assertSame('dark-spacious', $style['__recipe']);
     }
@@ -4296,7 +4312,7 @@ class ActionsTest extends TestCase
         $comp = pp_get_composition($post_id);
         $style = $comp[0]['style'];
         $this->assertSame('#222222', $style['--hero-bg']); // overridden
-        $this->assertSame('#f0f0f0', $style['--hero-text']); // from recipe
+        $this->assertSame('#f0f0f0', $style['--hero-heading-color']); // from recipe
         $this->assertSame('dark-spacious', $style['__recipe']);
     }
 
@@ -4425,16 +4441,16 @@ class ActionsTest extends TestCase
             'post_id'         => $post_id,
             'component_index' => 0,
             'style'           => [
-                '--hero-bg'    => '#ffffff',
-                '--hero-texts' => '#000000', // typo for --hero-text
+                '--hero-bg'           => '#ffffff',
+                '--hero-heading-colr' => '#000000', // typo for --hero-heading-color
             ],
         ]);
 
         $this->assertNotNull($repaired);
         $this->assertArrayHasKey('--hero-bg', $repaired['style']);
-        $this->assertArrayHasKey('--hero-text', $repaired['style']);
+        $this->assertArrayHasKey('--hero-heading-color', $repaired['style']);
         $this->assertSame('#ffffff', $repaired['style']['--hero-bg']);
-        $this->assertSame('#000000', $repaired['style']['--hero-text']);
+        $this->assertSame('#000000', $repaired['style']['--hero-heading-color']);
     }
 
     public function testStyleRepairResolvesComponentIdNotJustIndexZero(): void
@@ -4837,11 +4853,11 @@ class ActionsTest extends TestCase
         ]);
 
         // Simulate validator rejecting "none" for a length slot.
-        $error  = new WP_Error('invalid_style_value', 'Style slot "--grid-heading-max-width": Value must be a number with a CSS unit...');
+        $error  = new WP_Error('invalid_style_value', 'Style slot "--grid-heading-measure": Value must be a number with a CSS unit...');
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--grid-heading-max-width' => 'none'],
+            'style'           => ['--grid-heading-measure' => 'none'],
         ]);
 
         $this->assertSame('invalid_style_value', $result['error_code']);

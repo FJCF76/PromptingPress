@@ -127,7 +127,7 @@ class StatsNumberTypographyTest extends TestCase
     public function testNewSlotsReuseExistingValidationFamilies(): void
     {
         // No new value grammar: `font-family` is the same type --section-panel-font
-        // uses and `number` is the same type --hero-title-weight uses. If either
+        // uses and `number` is the same type --hero-heading-weight uses. If either
         // type disappears from the shared engine, the slots silently become
         // unvalidated — pin the engine's acceptance instead of trusting the name.
         $this->assertTrue(_pp_validate_token_value('var(--font-heading)', 'font-family'));
@@ -219,7 +219,7 @@ class StatsNumberTypographyTest extends TestCase
     public function testKeywordWeightIsRejectedByTheAuthoringSurface(): void
     {
         // `bold` is a legal CSS font-weight but not a unitless number, so the
-        // `number` type rejects it — the same bound --hero-title-weight carries.
+        // `number` type rejects it — the same bound --hero-heading-weight carries.
         // The write is refused at the authoring boundary; nothing persists.
         $composition = [[
             'component' => 'stats',

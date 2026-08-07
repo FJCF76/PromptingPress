@@ -30,7 +30,7 @@ const HERO = {
     schema: {
         props: {
             title:    { type: 'string',  required: true  },
-            subtitle: { type: 'string',  required: false },
+            subheading: { type: 'string',  required: false },
         },
     },
 };
@@ -234,7 +234,7 @@ describe('validateCompositionData', () => {
     });
 
     test('optional prop absent → no error', () => {
-        // hero has subtitle as optional — omitting it is fine
+        // hero has subheading as optional — omitting it is fine
         const json = JSON.stringify([{ component: 'hero', props: { title: 'Hi' } }]);
         expect(validateCompositionData(json, REGISTRY)).toEqual([]);
     });
@@ -377,7 +377,7 @@ describe('buildAccordionData', () => {
     test('schema fields not in JSON get default values and userTouched=false', () => {
         const json = JSON.stringify([{ component: 'hero', props: { title: 'Hi' } }]);
         const result = buildAccordionData(json, REGISTRY);
-        const subtitleField = result.components[0].fields.find(f => f.name === 'subtitle');
+        const subtitleField = result.components[0].fields.find(f => f.name === 'subheading');
         expect(subtitleField.value).toBe('');
         expect(subtitleField.userTouched).toBe(false);
     });
@@ -561,14 +561,14 @@ describe('getCollapsedRowPreview (#76)', () => {
 
 describe('serializeAccordionData', () => {
     test('round-trip: hero parse→build→serialize preserves user-touched props', () => {
-        const original = [{ component: 'hero', props: { title: 'Hello', subtitle: 'World' } }];
+        const original = [{ component: 'hero', props: { title: 'Hello', subheading: 'World' } }];
         const json = JSON.stringify(original);
         const data = buildAccordionData(json, REGISTRY);
         const serialized = serializeAccordionData(data.components);
         const reparsed = JSON.parse(serialized);
         expect(reparsed[0].component).toBe('hero');
         expect(reparsed[0].props.title).toBe('Hello');
-        expect(reparsed[0].props.subtitle).toBe('World');
+        expect(reparsed[0].props.subheading).toBe('World');
     });
 
     test('round-trip: faq with array items', () => {
@@ -581,12 +581,12 @@ describe('serializeAccordionData', () => {
     });
 
     test('user-touched empty string — preserved in output', () => {
-        const json = JSON.stringify([{ component: 'hero', props: { title: 'Hi', subtitle: '' } }]);
+        const json = JSON.stringify([{ component: 'hero', props: { title: 'Hi', subheading: '' } }]);
         const data = buildAccordionData(json, REGISTRY);
         const serialized = serializeAccordionData(data.components);
         const reparsed = JSON.parse(serialized);
-        expect('subtitle' in reparsed[0].props).toBe(true);
-        expect(reparsed[0].props.subtitle).toBe('');
+        expect('subheading' in reparsed[0].props).toBe(true);
+        expect(reparsed[0].props.subheading).toBe('');
     });
 
     test('schema-default never touched — omitted from output', () => {
@@ -594,8 +594,8 @@ describe('serializeAccordionData', () => {
         const data = buildAccordionData(json, REGISTRY);
         const serialized = serializeAccordionData(data.components);
         const reparsed = JSON.parse(serialized);
-        // subtitle was not in original JSON, so userTouched=false, should be omitted
-        expect('subtitle' in reparsed[0].props).toBe(false);
+        // subheading was not in original JSON, so userTouched=false, should be omitted
+        expect('subheading' in reparsed[0].props).toBe(false);
     });
 
     test('empty array items — preserved', () => {
@@ -651,7 +651,7 @@ describe('serializeAccordionData', () => {
 
     test('round-trip: hero + grid mixed — hero edit does not lose grid items', () => {
         const original = [
-            { component: 'hero', props: { title: 'Welcome', subtitle: 'To our site' } },
+            { component: 'hero', props: { title: 'Welcome', subheading: 'To our site' } },
             { component: 'grid', props: { items: [{ title: 'Card 1', text: 'Content 1' }, { title: 'Card 2', text: 'Content 2' }] } },
         ];
         const json = JSON.stringify(original);
@@ -821,7 +821,7 @@ describe('checkSerializationInvariant', () => {
     });
 
     test('absent optional fields NOT materialized — invariant passes', () => {
-        // hero has optional subtitle; omitting it should NOT cause drift
+        // hero has optional subheading; omitting it should NOT cause drift
         const json = JSON.stringify([{ component: 'hero', props: { title: 'Hi' } }]);
         const result = checkSerializationInvariant(json, REGISTRY);
         expect(result.safe).toBe(true);

@@ -40,20 +40,20 @@ describe('sticky header anchor offset (issue 63)', function () {
         delete global.document;
     });
 
-    test('sets --header-height to the real rendered header height on load', function () {
+    test('sets --pp-header-height to the real rendered header height on load', function () {
         const dom = setup(72);
-        const value = dom.window.document.documentElement.style.getPropertyValue('--header-height');
+        const value = dom.window.document.documentElement.style.getPropertyValue('--pp-header-height');
         expect(value).toBe('72px');
     });
 
-    test('updates --header-height on window resize', function () {
+    test('updates --pp-header-height on window resize', function () {
         const dom = setup(72);
         const header = dom.window.document.querySelector('.site-header');
         Object.defineProperty(header, 'offsetHeight', { value: 120, configurable: true });
 
         dom.window.dispatchEvent(new dom.window.Event('resize'));
 
-        const value = dom.window.document.documentElement.style.getPropertyValue('--header-height');
+        const value = dom.window.document.documentElement.style.getPropertyValue('--pp-header-height');
         expect(value).toBe('120px');
     });
 
@@ -66,7 +66,7 @@ describe('sticky header anchor offset (issue 63)', function () {
         Object.defineProperty(header, 'offsetHeight', { value: 240, configurable: true });
         toggle.click();
 
-        const value = dom.window.document.documentElement.style.getPropertyValue('--header-height');
+        const value = dom.window.document.documentElement.style.getPropertyValue('--pp-header-height');
         expect(value).toBe('240px');
     });
 
@@ -102,7 +102,7 @@ describe('sticky header anchor offset (issue 63)', function () {
         Object.defineProperty(header, 'offsetHeight', { value: 65, configurable: true });
         link.click();
 
-        const value = dom.window.document.documentElement.style.getPropertyValue('--header-height');
+        const value = dom.window.document.documentElement.style.getPropertyValue('--pp-header-height');
         expect(value).toBe('65px');
     });
 });

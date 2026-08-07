@@ -116,7 +116,7 @@
 
    Core's intent is the block editor's `style="border-width:2px"` shorthand. But
    our style slots render as inline CUSTOM PROPERTIES on the component root
-   (style="--grid-card-border-width:0px"), and the substring lives in the property
+   (style="--grid-item-border-width:0px"), and the substring lives in the property
    NAME — so the selector matches the root even when the value is 0 and the border
    the slot controls actually lives on a DESCENDANT (the card). A root that
    declared no border of its own then computed core's injected `solid` at the
@@ -175,7 +175,7 @@
      header is proportionally taller. Not a design token: computed, not
      AI-editable via update_design_token.
   */
-  --header-height: 65px;
+  --pp-header-height: 65px;
 }
 
 /* Header chrome slots (issue 333). The header is template-owned (issue 223) and
@@ -491,7 +491,7 @@
 .embed,
 .testimonials,
 .table-section {
-  scroll-margin-top: var(--header-height);
+  scroll-margin-top: var(--pp-header-height);
 }
 
 /* ==========================================================================
@@ -547,14 +547,14 @@
 }
 
 .hero__title {
-  font-size: var(--hero-title-size, clamp(2.5rem, 5vw, 4rem));
-  font-weight: var(--hero-title-weight, var(--font-weight-heading));
-  color: var(--hero-text, inherit);
+  font-size: var(--hero-heading-size, clamp(2.5rem, 5vw, 4rem));
+  font-weight: var(--hero-heading-weight, var(--font-weight-heading));
+  color: var(--hero-heading-color, inherit);
   line-height: 1.03;
 }
 
 .hero__title-accent {
-  color: var(--hero-title-accent-color, var(--color-accent));
+  color: var(--hero-heading-accent-color, var(--color-accent));
 }
 
 /* Constrain heading width for left/split variants; centered uses text-align centering */
@@ -565,13 +565,13 @@
 
 @media (min-width: 768px) {
   .hero__title {
-    font-size: var(--hero-title-size, clamp(3rem, 4.5vw, 4.5rem));
+    font-size: var(--hero-heading-size, clamp(3rem, 4.5vw, 4.5rem));
   }
 }
 
 .hero__subtitle {
-  font-size: var(--hero-subtitle-size, 1.0625rem);
-  color: var(--hero-subtitle-color, var(--color-muted));
+  font-size: var(--hero-subheading-size, 1.0625rem);
+  color: var(--hero-subheading-color, var(--color-muted));
   max-width: 40ch;
   line-height: 1.6;
 }
@@ -687,7 +687,7 @@
 }
 
 .hero--cover .hero__title {
-  color: var(--hero-text, var(--color-bg));
+  color: var(--hero-heading-color, var(--color-bg));
 }
 
 /* .hero--cover lays the same --overlay-bg scrim (via .hero__overlay) over an arbitrary
@@ -695,14 +695,14 @@
    its OWN color (0,1,0) and does NOT inherit the near-white .hero--cover .hero__title
    above, so it renders bare --color-accent at 1.16:1 over the overlay. Route the default
    through the overlay accent role (#463) so the guarantee is uniform across all overlay
-   bands; the per-instance --hero-title-accent-color slot still wins. Scoped to
+   bands; the per-instance --hero-heading-accent-color slot still wins. Scoped to
    .hero--cover — the plain (non-overlay) hero variants keep bare accent. */
 .hero--cover .hero__title-accent {
-  color: var(--hero-title-accent-color, var(--color-accent-on-overlay));
+  color: var(--hero-heading-accent-color, var(--color-accent-on-overlay));
 }
 
 .hero--cover .hero__subtitle {
-  color: var(--hero-subtitle-color, var(--color-bg));
+  color: var(--hero-subheading-color, var(--color-bg));
   opacity: 0.85;
   max-width: none;
 }
@@ -728,7 +728,7 @@
 /* NOTE (issue 535): the cover band's outline/ghost button routing used to live here as
    `.hero--cover .btn--outline` { border-color/color: var(--color-bg) }. It NEVER painted:
    `.hero .btn--outline` below has the IDENTICAL specificity [0,2,0] and wins on source
-   order, so a cover hero's outline primary rendered var(--hero-text, var(--color-text))
+   order, so a cover hero's outline primary rendered var(--hero-heading-color, var(--color-text))
    = near-black ink on the dark scrim (measured ~3.6:1 over the worst-case overlay-over-
    white composite, and far worse over a dark photo). The rules moved DOWN to sit after
    `.hero .btn--outline`, where they actually win, and their literals now route through
@@ -869,13 +869,13 @@
   color: var(--hero-button-color, var(--btn-text, var(--color-bg)));
   box-shadow: var(--hero-button-shadow, none);
 }
-/* Outline (secondary) hero CTA: foreground tracks --hero-text, which is defined
+/* Outline (secondary) hero CTA: foreground tracks --hero-heading-color, which is defined
    to contrast --hero-bg, so the ghost button stays readable on any hero palette
    (the accent is not guaranteed to contrast the hero background). On hover it
    fills with the accent and flips text to the hero background color. */
 .hero .btn--outline {
-  color: var(--hero-text, var(--color-text));
-  border-color: var(--hero-text, var(--color-text));
+  color: var(--hero-heading-color, var(--color-text));
+  border-color: var(--hero-heading-color, var(--color-text));
 }
 .hero .btn--outline:hover {
   background-color: var(--hero-accent, var(--color-accent));
@@ -887,7 +887,7 @@
    the PRIMARY button). `.hero--cover` lays the same --overlay-bg scrim over an ARBITRARY
    image as the section/cta/stats bg-image bands, so a transparent-fill button paints its
    ink and ring straight onto that scrim. Two separate defaults failed there:
-     - outline inherited `.hero .btn--outline`'s var(--hero-text, var(--color-text)) —
+     - outline inherited `.hero .btn--outline`'s var(--hero-heading-color, var(--color-text)) —
        near-black #101828 on the scrim, ~3.6:1 against the worst-case overlay-over-WHITE
        composite and far worse over a dark photo. The older `.hero--cover .btn--outline`
        rule that was meant to handle this never won (identical [0,2,0], earlier in source);
@@ -895,10 +895,10 @@
      - ghost fell all the way to the shared `.btn--ghost` var(--color-accent) at 1.17:1.
    Both now fall back to --color-accent-on-overlay (4.59:1, base.css), the same role
    .hero--cover .hero__title-accent already uses (#463), so no new colour is invented.
-   The per-instance slot still wins: --hero-text is the surface `.hero .btn--outline`
+   The per-instance slot still wins: --hero-heading-color is the surface `.hero .btn--outline`
    already reads, and it also drives .hero--cover .hero__title, so an author who sets it
    has already chosen a colour that reads on their own scrim. Deliberately kept on
-   --hero-text rather than --hero-button-color: that slot is documented in schema.json as
+   --hero-heading-color rather than --hero-button-color: that slot is documented in schema.json as
    the FILLED primary's ink, and widening it to the transparent variants would change a
    published slot's meaning. Scoped to `.hero--cover .btn--*` (not `.hero__cta`) so an
    outline button authored inside the `proof` HTML surface is covered too; the second CTA
@@ -907,11 +907,11 @@
    so the ink leaves the scrim and needs no role token. Outline's hover rule already
    outranks this one; ghost's ties with it and needs the explicit restoration below. */
 .hero--cover .btn--outline {
-  color: var(--hero-text, var(--color-accent-on-overlay));
-  border-color: var(--hero-text, var(--color-accent-on-overlay));
+  color: var(--hero-heading-color, var(--color-accent-on-overlay));
+  border-color: var(--hero-heading-color, var(--color-accent-on-overlay));
 }
 .hero--cover .btn--ghost {
-  color: var(--hero-text, var(--color-accent-on-overlay));
+  color: var(--hero-heading-color, var(--color-accent-on-overlay));
 }
 /* HOVER restoration for the cover ghost (issue 535, the same leak the cta rules below
    document). `.hero--cover .btn--ghost` [0,2,0] ties with the shared `.btn--ghost:hover`
@@ -977,11 +977,11 @@
    class (hero.php) rather than a positional :nth-child selector — this
    codebase's CSS lint guard forbids nth-child/nth-of-type entirely, since a
    position-based selector would silently reattach to the wrong element if
-   composition content were ever reordered. cta_text/cta2_text are fixed,
+   composition content were ever reordered. button_text/button2_text are fixed,
    named props (not a reorderable array), so a dedicated class is both safe
    and simpler than the positional alternative. Applies regardless of which
    variant cta2 renders as — the primary button could independently also be
-   set to any of the 4 variants via cta_variant, and this must not leak onto
+   set to any of the 4 variants via button_variant, and this must not leak onto
    it. One rule per variant, each falling back to that variant's own existing
    default, so an unset override renders byte-identically to today. */
 .hero .hero__cta-group .hero__cta--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
@@ -995,10 +995,10 @@
      re-pointing), clearing the gradient while this rule kept painting the accent, so a
      rethemed cta2 rendered a FLAT ACCENT pill next to a brand-coloured primary. Rendered,
      both states, 1280 and 375. Unset, the chain still bottoms out at --color-accent. */
-  background-color: var(--hero-cta2-bg, var(--hero-accent, var(--btn-bg, var(--color-accent))));
+  background-color: var(--hero-button2-bg, var(--hero-accent, var(--btn-bg, var(--color-accent))));
   /* Border FOLLOWS the fill when its own knobs are unset (issue 526, the #514 idiom the
-     primary already uses above): --hero-cta2-border wins, then --hero-accent, then the
-     global ring knob, then --hero-cta2-bg — so a filled cta2 recolored with the fill slot
+     primary already uses above): --hero-button2-border wins, then --hero-accent, then the
+     global ring knob, then --hero-button2-bg — so a filled cta2 recolored with the fill slot
      alone keeps a matching ring instead of a --color-accent one around a brand-colored
      button. Unset, the chain still bottoms out at --color-accent, byte-identical.
      --btn-border-color / --btn-bg sit at exactly the positions they hold in the hero
@@ -1013,8 +1013,8 @@
      was letting a site-wide ring retheme defeat an authored --cta-accent and, on photo
      bands, the measured on-overlay separation role. Both components now rank the band accent
      first, so the order is consistent WITHIN each pair and ACROSS the two families. */
-  border-color: var(--hero-cta2-border, var(--hero-accent, var(--btn-border-color, var(--hero-cta2-bg, var(--btn-bg, var(--color-accent))))));
-  color: var(--hero-cta2-color, var(--btn-text, var(--color-bg)));
+  border-color: var(--hero-button2-border, var(--hero-accent, var(--btn-border-color, var(--hero-button2-bg, var(--btn-bg, var(--color-accent))))));
+  color: var(--hero-button2-color, var(--btn-text, var(--color-bg)));
 }
 .hero .hero__cta-group .hero__cta--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   /* Global hover tier (issue 554, closing the gap #539 deliberately mirrored onto hover
@@ -1023,18 +1023,18 @@
      PURPOSE while the rest chain lacked its twin — wiring only hover would have made a site
      setting both knobs render --color-accent at rest and FLASH to the operator's colour on
      hover. Both halves land together here, so rest and hover stay symmetric. */
-  background-color: var(--hero-cta2-hover-bg, var(--hero-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));
+  background-color: var(--hero-button2-hover-bg, var(--hero-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));
   /* Border follows the hover fill, but only from the LAST fallback position (issue 538,
      the issue's Option 3 — the recorded decision). #530 left the fill out of this chain
      entirely: unlike the hover FILL, the hover BORDER was never masked by the premium
      gradient, so it has always painted, and inserting the fill AHEAD of --hero-accent-hover
      would have repainted an explicitly authored accent ring on compositions that already
-     ship --hero-cta2-hover-bg (shipped since #111, live in production).
-     Inserting it AFTER --hero-accent-hover changes exactly one case: --hero-cta2-hover-bg
-     SET and both --hero-cta2-hover-border and --hero-accent-hover unset — the common
+     ship --hero-button2-hover-bg (shipped since #111, live in production).
+     Inserting it AFTER --hero-accent-hover changes exactly one case: --hero-button2-hover-bg
+     SET and both --hero-button2-hover-border and --hero-accent-hover unset — the common
      "I only recolored the hover fill" author, who used to get a --color-accent-hover ring
      around a brand-colored pill (the rest-state mismatch #526 removed). Every authored
-     value still wins: --hero-cta2-hover-border first, then --hero-accent-hover, and with
+     value still wins: --hero-button2-hover-border first, then --hero-accent-hover, and with
      the fill slot unset the chain still bottoms out at --color-accent-hover, so an unset
      cta2 renders byte-identically. Same shape and same order as the hero PRIMARY's hover
      ring ABOVE (`.hero .btn:not(...):hover`, and its .hero--cover twin), which already
@@ -1061,59 +1061,59 @@
      paint a real ring, and a fill-only recolor does leave it stale there — but those two
      variants do not follow the fill in EITHER state (their REST borders don't either), so
      they are left whole rather than made half-consistent. On all three, set
-     --hero-cta2-hover-border explicitly for a ring that tracks a recolored hover fill.
+     --hero-button2-hover-border explicitly for a ring that tracks a recolored hover fill.
      GLOBAL HOVER TIER (issue 554): --btn-hover-border-color sits after --hero-accent-hover
      and --btn-hover-bg at the tail of the border-follows-fill link — the same two positions
      their resting twins hold in the rest chain above, and the same two the hero PRIMARY's
      hover ring uses. #538's Option-3 order (accent-hover AHEAD of the hover fill) is
      preserved verbatim between them, so the one case #538 bought is untouched and the #548
      accent-above-own-fill property still holds. */
-  border-color: var(--hero-cta2-hover-border, var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-cta2-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))));
-  color: var(--hero-cta2-hover-color, var(--btn-text, var(--color-bg)));
+  border-color: var(--hero-button2-hover-border, var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-button2-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))));
+  color: var(--hero-button2-hover-color, var(--btn-text, var(--color-bg)));
 }
 
 .hero .hero__cta-group .hero__cta--secondary.btn--outline {
-  background-color: var(--hero-cta2-bg, transparent);
-  color: var(--hero-cta2-color, var(--hero-text, var(--color-text)));
-  border-color: var(--hero-cta2-border, var(--hero-text, var(--color-text)));
+  background-color: var(--hero-button2-bg, transparent);
+  color: var(--hero-button2-color, var(--hero-heading-color, var(--color-text)));
+  border-color: var(--hero-button2-border, var(--hero-heading-color, var(--color-text)));
 }
 .hero .hero__cta-group .hero__cta--secondary.btn--outline:hover {
-  background-color: var(--hero-cta2-hover-bg, var(--hero-accent, var(--color-accent)));
-  border-color: var(--hero-cta2-hover-border, var(--hero-accent, var(--color-accent)));
-  color: var(--hero-cta2-hover-color, var(--hero-bg, var(--color-bg)));
+  background-color: var(--hero-button2-hover-bg, var(--hero-accent, var(--color-accent)));
+  border-color: var(--hero-button2-hover-border, var(--hero-accent, var(--color-accent)));
+  color: var(--hero-button2-hover-color, var(--hero-bg, var(--color-bg)));
 }
 
 .hero .hero__cta-group .hero__cta--secondary.btn--secondary {
-  background-color: var(--hero-cta2-bg, var(--color-surface));
-  color: var(--hero-cta2-color, var(--color-text));
-  border-color: var(--hero-cta2-border, var(--color-border));
+  background-color: var(--hero-button2-bg, var(--color-surface));
+  color: var(--hero-button2-color, var(--color-text));
+  border-color: var(--hero-button2-border, var(--color-border));
 }
 .hero .hero__cta-group .hero__cta--secondary.btn--secondary:hover {
-  background-color: var(--hero-cta2-hover-bg, var(--color-border));
-  border-color: var(--hero-cta2-hover-border, var(--color-border));
-  color: var(--hero-cta2-hover-color, var(--color-text));
+  background-color: var(--hero-button2-hover-bg, var(--color-border));
+  border-color: var(--hero-button2-hover-border, var(--color-border));
+  color: var(--hero-button2-hover-color, var(--color-text));
 }
 
 .hero .hero__cta-group .hero__cta--secondary.btn--ghost {
-  background-color: var(--hero-cta2-bg, transparent);
-  color: var(--hero-cta2-color, var(--color-accent));
-  border-color: var(--hero-cta2-border, transparent);
+  background-color: var(--hero-button2-bg, transparent);
+  color: var(--hero-button2-color, var(--color-accent));
+  border-color: var(--hero-button2-border, transparent);
 }
 .hero .hero__cta-group .hero__cta--secondary.btn--ghost:hover {
-  background-color: var(--hero-cta2-hover-bg, var(--color-surface));
-  border-color: var(--hero-cta2-hover-border, transparent);
-  color: var(--hero-cta2-hover-color, var(--color-accent));
+  background-color: var(--hero-button2-hover-bg, var(--color-surface));
+  border-color: var(--hero-button2-hover-border, transparent);
+  color: var(--hero-button2-hover-color, var(--color-accent));
 }
 
 /* Dark-band routing for the SECOND CTA's transparent-fill variants on the cover band
    (issue 535, Q3). #474 fixed exactly this defect for the cta component's button2 but was
    scoped to that component; hero's cta2 has the same trigger and was left behind.
-   `cta2_variant` DEFAULTS to `outline` (hero.php), so simply setting cta2_text on a cover
+   `button2_variant` DEFAULTS to `outline` (hero.php), so simply setting button2_text on a cover
    hero shipped a sub-AA control without the author ever choosing a variant: the rules
-   above resolve var(--hero-cta2-color, var(--hero-text, var(--color-text))) to near-black
+   above resolve var(--hero-button2-color, var(--hero-heading-color, var(--color-text))) to near-black
    #101828 on the scrim (~3.6:1 measured), and ghost fell to var(--color-accent) at 1.17:1.
    Both defaults now route through --color-accent-on-overlay, matching the primary above
-   and .hero--cover .hero__title-accent (#463). The --hero-cta2-color / --hero-cta2-border
+   and .hero--cover .hero__title-accent (#463). The --hero-button2-color / --hero-button2-border
    slots still win, so the #61/#86 dark-surface-slot contract holds.
    These carry the SAME [0,4,0] specificity as the base cta2 variant rules they override,
    so they depend on following them in source order — do not move them above, and do not
@@ -1126,11 +1126,11 @@
    handled here — it keeps its own [0,6,0]/[0,7,0] rules and gets the separation ring from
    the #543 twin pair below, which is where a change to the filled cta2's border belongs. */
 .hero--cover .hero__cta-group .hero__cta--secondary.btn--outline {
-  color: var(--hero-cta2-color, var(--color-accent-on-overlay));
-  border-color: var(--hero-cta2-border, var(--color-accent-on-overlay));
+  color: var(--hero-button2-color, var(--color-accent-on-overlay));
+  border-color: var(--hero-button2-border, var(--color-accent-on-overlay));
 }
 .hero--cover .hero__cta-group .hero__cta--secondary.btn--ghost {
-  color: var(--hero-cta2-color, var(--color-accent-on-overlay));
+  color: var(--hero-button2-color, var(--color-accent-on-overlay));
 }
 
 /* Separation ring for the FILLED cta2 on the cover band (issue 543), the twin of the
@@ -1144,8 +1144,8 @@
    Both chains are the base cta2 chains with the terminal --color-accent /
    --color-accent-hover swapped for --color-accent-on-overlay (4.59:1) AND the global tier
    removed entirely — the ring knob by issue 564, the fill knob by issue 565.
-   --hero-cta2-border, --hero-accent and the PER-INSTANCE fill still win at rest;
-   --hero-cta2-hover-border, --hero-accent-hover and then the per-instance hover fill still
+   --hero-button2-border, --hero-accent and the PER-INSTANCE fill still win at rest;
+   --hero-button2-hover-border, --hero-accent-hover and then the per-instance hover fill still
    win on hover.
    The contract used to be "the base chain VERBATIM, only the terminal changes" — #554 added
    the global tier here on exactly that reasoning, so a cover hero would not be the one band a
@@ -1156,7 +1156,7 @@
    link. Both are REMOVED rather than demoted because --color-accent-on-overlay is declared at
    :root (base.css) and therefore always set, so any link below it is dead code. Per-instance
    slots stay above everything as the escape hatch, which is why #535's matching-ring promise
-   survives here for an author who flattens THIS button with --hero-cta2-bg.
+   survives here for an author who flattens THIS button with --hero-button2-bg.
    Both halves move together in each case: dropping a knob from hover only would re-open the
    rest->hover flip these twins exist to prevent.
    [0,6,0] rest / [0,7,0] hover — equal to the base cta2 rules, so these win by SOURCE
@@ -1165,10 +1165,10 @@
    would dissolve again the moment the pointer landed — the same WCAG 1.4.11 hole
    #535's rendered inspection caught on the primary. */
 .hero--cover .hero__cta-group .hero__cta--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  border-color: var(--hero-cta2-border, var(--hero-accent, var(--hero-cta2-bg, var(--color-accent-on-overlay))));
+  border-color: var(--hero-button2-border, var(--hero-accent, var(--hero-button2-bg, var(--color-accent-on-overlay))));
 }
 .hero--cover .hero__cta-group .hero__cta--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  border-color: var(--hero-cta2-hover-border, var(--hero-accent-hover, var(--hero-cta2-hover-bg, var(--color-accent-on-overlay))));
+  border-color: var(--hero-button2-hover-border, var(--hero-accent-hover, var(--hero-button2-hover-bg, var(--color-accent-on-overlay))));
 }
 
 /* cta2 slot isolation + premium fill routing (issue 526). Style slots are emitted as
@@ -1177,11 +1177,11 @@
    also matches the shared premium `main .btn:not(...)` winner, and the PRIMARY's fill and
    elevation repainted it (the #514 leak). A declaration ON the cta2 element beats the
    inherited value regardless of source order, so this one rule fixes both halves:
-     - `--hero-button-bg: var(--hero-cta2-bg)` — a var() that fails to substitute makes the
-       custom property GUARANTEED-INVALID, so with --hero-cta2-bg unset every downstream
+     - `--hero-button-bg: var(--hero-button2-bg)` — a var() that fails to substitute makes the
+       custom property GUARANTEED-INVALID, so with --hero-button2-bg unset every downstream
        var(--hero-button-bg, <fallback>) takes its fallback (the premium chain's own
        --cta-button-bg -> --btn-bg -> gradient literal): unset stays byte-identical and the
-       leak is killed. With --hero-cta2-bg SET, the flat color resolves the premium
+       leak is killed. With --hero-button2-bg SET, the flat color resolves the premium
        `background:` SHORTHAND to `background: <color>`, which resets background-image to
        none and CLEARS the gradient that used to MASK the slot (the pre-existing half of
        the bug) — the same mechanism #514 used for the primary: slot leads, then the
@@ -1197,19 +1197,19 @@
    --hero-button-* (all three consumers are :not(.btn--outline):not(.btn--ghost):not(
    .btn--secondary) rules), so those variants stay byte-identical while the isolation
    holds even if a future rule wires the slots more widely.
-     - `--hero-button-hover-bg: var(--hero-cta2-hover-bg)` (issue 530) — the same
+     - `--hero-button-hover-bg: var(--hero-button2-hover-bg)` (issue 530) — the same
        guaranteed-invalid re-pointing applied to the HOVER surface, which closes the last
        half of this defect class. Before #530 the premium hover rule read only
        --cta-button-hover-bg, so a filled cta2 flashed back to the theme gradient on hover
        (the accepted trait #514/#526 shipped) AND the primary's hover fill leaked onto it.
        One declaration fixes both: cta2's own hover fill now resolves the premium
        `background:` SHORTHAND to a flat color (clearing the gradient background-image), and
-       with --hero-cta2-hover-bg unset the chain falls through to the premium literal rather
+       with --hero-button2-hover-bg unset the chain falls through to the premium literal rather
        than to the primary's --hero-button-hover-bg. Rest and hover are now isolated
        symmetrically. */
 .hero .hero__cta-group .hero__cta--secondary {
-  --hero-button-bg: var(--hero-cta2-bg);
-  --hero-button-hover-bg: var(--hero-cta2-hover-bg);
+  --hero-button-bg: var(--hero-button2-bg);
+  --hero-button-hover-bg: var(--hero-button2-hover-bg);
   --hero-button-color: initial;
   --hero-button-shadow: initial;
 }
@@ -1311,12 +1311,12 @@
 }
 
 /* .section__body is the OUTER wrapper of .section__content (section.php). The inner
-   .section__content already routes max-width through --section-body-width, but this
+   .section__content already routes max-width through --section-body-measure, but this
    outer 40rem literal capped it, so the slot silently no-opped (issue 302). Route the
    outer cap through the same slot with 40rem as the fallback (unset stays 40rem, the
    narrower of the two, so output is unchanged). The remaining headings keep 40rem. */
 .section__body {
-  max-width: var(--section-body-width, 40rem);
+  max-width: var(--section-body-measure, 40rem);
 }
 
 .table-section__heading,
@@ -1325,7 +1325,7 @@
 .embed__heading,
 .cta__title,
 .stats__heading {
-  max-width: var(--cta-content-width, 40rem);
+  max-width: var(--cta-heading-measure, 40rem);
 }
 
 .section__header--center {
@@ -1347,18 +1347,18 @@
 }
 
 .section__title {
-  font-size: var(--section-title-size, var(--pp-band-heading-size));
-  color: var(--section-title-color, var(--section-title-theme-color, var(--color-text)));
+  font-size: var(--section-heading-size, var(--pp-band-heading-size));
+  color: var(--section-heading-color, var(--pp-section-title-theme-color, var(--color-text)));
   /* Top-side header rhythm (title -> subheading gap). issue 336 made the subheading's
      BOTTOM margin authorable; this routes the title's own bottom margin through a
      slot so the whole header rhythm is slot-driven (issue 343). No header-scoping
      needed: the title is a heading, not the header's last child, so base.css's
      `p:last-child` reset never reached it. Today's literal stays the fallback. */
-  margin-bottom: var(--section-title-margin-bottom, var(--space-md));
+  margin-bottom: var(--section-heading-margin-bottom, var(--space-md));
 }
 
 .section__title-accent {
-  color: var(--section-title-accent-color, var(--color-accent));
+  color: var(--section-heading-accent-color, var(--color-accent));
 }
 
 .section__subheading {
@@ -1376,8 +1376,8 @@
 
 
 .section__content {
-  color: var(--section-text, var(--section-text-theme-color, var(--color-text)));
-  max-width: var(--section-body-width, 42rem);
+  color: var(--section-body-color, var(--pp-section-text-theme-color, var(--color-text)));
+  max-width: var(--section-body-measure, 42rem);
   /* Body type slots (issue 470): the section body text has no font-size/weight of
      its own here — the `main > .section .section__content` premium/mobile rules
      (further down this file) set it at every breakpoint, and those (0,2,1) rules
@@ -1817,8 +1817,8 @@
   background-color: var(--color-bg-inverted);
   color: var(--color-bg);
   --color-muted: var(--color-bg);
-  --section-title-theme-color: var(--color-bg);
-  --section-text-theme-color: var(--color-bg);
+  --pp-section-title-theme-color: var(--color-bg);
+  --pp-section-text-theme-color: var(--color-bg);
 }
 
 /* The text-panel is a self-contained LIGHT surface sitting on the dark band, with
@@ -1827,15 +1827,15 @@
    through --section-panel-text, but a bare `h3` here (0,1,1) outranks it and paints
    the panel heading in the band's light title color — light-on-light, invisible on
    the panel. Carve the panel heading out so the panel slot wins inside the panel
-   while --section-title-color keeps governing the on-band title. (#424) */
+   while --section-heading-color keeps governing the on-band title. (#424) */
 .pp-section--inverted .section__title,
 .pp-section--inverted h2:not(.section__panel-heading),
 .pp-section--inverted h3:not(.section__panel-heading) {
-  color: var(--section-title-color, var(--color-bg));
+  color: var(--section-heading-color, var(--color-bg));
 }
 
 .pp-section--inverted .section__content {
-  color: var(--section-text, var(--color-bg));
+  color: var(--section-body-color, var(--color-bg));
 }
 
 /* PANEL CTA CARVE-OUT (#551) — see the shared block above `.section--has-bg-image a`
@@ -1845,12 +1845,12 @@
 .pp-section--inverted a:not(.section__panel-cta) {
   /* On the dark band the light-surface accent fails WCAG AA (3.23:1), so links
      fall back to the on-inverted accent role (issue 437). An explicit
-     --section-accent slot still wins. */
-  color: var(--section-accent, var(--color-accent-on-inverted));
+     --section-body-link-color slot still wins. */
+  color: var(--section-body-link-color, var(--color-accent-on-inverted));
 }
 
 .pp-section--inverted a:not(.section__panel-cta):hover {
-  color: var(--section-accent-hover, var(--color-accent-on-inverted-hover));
+  color: var(--section-body-link-hover-color, var(--color-accent-on-inverted-hover));
 }
 
 /* Section with background image. The dark overlay below makes this a dark surface,
@@ -1862,8 +1862,8 @@
   background-size: cover;
   background-position: var(--section-bg-position, center);
   background-repeat: no-repeat;
-  --section-title-theme-color: var(--color-bg);
-  --section-text-theme-color: var(--color-bg);
+  --pp-section-title-theme-color: var(--color-bg);
+  --pp-section-text-theme-color: var(--color-bg);
 }
 
 .section__overlay {
@@ -1884,18 +1884,18 @@
 .section--has-bg-image .section__title,
 .section--has-bg-image h2:not(.section__panel-heading),
 .section--has-bg-image h3:not(.section__panel-heading) {
-  color: var(--section-title-color, var(--color-bg));
+  color: var(--section-heading-color, var(--color-bg));
 }
 
 .section--has-bg-image .section__content,
 .section--has-bg-image .section__body {
-  color: var(--section-text, var(--color-bg));
+  color: var(--section-body-color, var(--color-bg));
 }
 
 /* The dark overlay makes this a dark surface over an arbitrary image, so the
    light-surface accent (--color-accent) is only 1.16:1 over the overlay-over-white
    worst case and fails WCAG AA. Route the default through the overlay accent role
-   (#461); an explicit --section-accent slot still wins. Mirrors the inverted-band
+   (#461); an explicit --section-body-link-color slot still wins. Mirrors the inverted-band
    pattern above, but with the overlay role (on-inverted is tuned to the solid
    inverted bg, not the arbitrary-image overlay). */
 /* PANEL CTA CARVE-OUT (#551) — the load-bearing scope call for the whole band-ink family.
@@ -1938,23 +1938,23 @@
    chain at [0,4,1], which already outranked these rules, so --section-panel-cta-color (#536)
    keeps winning everywhere. NOTE: this raises these rules from [0,1,1] to [0,2,1], so custom
    CSS overriding them at [0,1,1] would now lose — the supported override path is the
-   --section-accent / --section-accent-hover slot, which is unchanged and still wins. */
+   --section-body-link-color / --section-body-link-hover-color slot, which is unchanged and still wins. */
 .section--has-bg-image a:not(.section__panel-cta) {
-  color: var(--section-accent, var(--color-accent-on-overlay));
+  color: var(--section-body-link-color, var(--color-accent-on-overlay));
 }
 
 .section--has-bg-image a:not(.section__panel-cta):hover {
-  color: var(--section-accent-hover, var(--color-accent-on-overlay-hover));
+  color: var(--section-body-link-hover-color, var(--color-accent-on-overlay-hover));
 }
 
 /* The accented title substring paints its OWN color (0,1,0) and does NOT inherit
    the near-white .section--has-bg-image .section__title above, so on the dark
    overlay-over-image band it renders bare --color-accent at 1.16:1 (fails even the
    3:1 large-text bar). Route the default through the overlay accent role (#463,
-   the same fix #461 gave links/numbers); the per-instance --section-title-accent-color
+   the same fix #461 gave links/numbers); the per-instance --section-heading-accent-color
    slot still wins. on-inverted is tuned to the solid inverted bg, not this overlay. */
 .section--has-bg-image .section__title-accent {
-  color: var(--section-title-accent-color, var(--color-accent-on-overlay));
+  color: var(--section-heading-accent-color, var(--color-accent-on-overlay));
 }
 
 /* Body list markers on the overlay band: a non-disc body_marker paints its glyph
@@ -2021,7 +2021,7 @@
      not the header's last child, so base.css's `p:last-child` reset never reached
      it. Today's literal stays the fallback — unset output byte-identical (issue 352). */
   margin-bottom: var(--faq-heading-margin-bottom, var(--space-lg));
-  color: var(--faq-heading-color, var(--faq-heading-theme-color, var(--color-text)));
+  color: var(--faq-heading-color, var(--pp-faq-heading-theme-color, var(--color-text)));
 }
 
 .faq__heading-accent {
@@ -2035,7 +2035,7 @@
 }
 
 .faq__item {
-  border: 1px solid var(--faq-border-color, var(--color-border));
+  border: 1px solid var(--faq-item-border-color, var(--color-border));
   border-radius: var(--radius);
   background: var(--faq-item-bg, var(--color-bg));
   overflow: hidden;
@@ -2074,7 +2074,7 @@
 }
 
 .faq__item[open] > .faq__question {
-  color: var(--faq-accent, var(--color-accent));
+  color: var(--faq-question-open-color, var(--color-accent));
 }
 
 .faq__item[open] > .faq__question::after {
@@ -2123,7 +2123,7 @@
 
 .faq--inverted {
   background: var(--faq-bg, var(--color-bg-inverted));
-  --faq-heading-theme-color: var(--color-bg);
+  --pp-faq-heading-theme-color: var(--color-bg);
 }
 
 .faq--inverted .faq__heading {
@@ -2163,9 +2163,9 @@
 }
 
 .grid__heading {
-  color: var(--grid-heading-color, var(--grid-heading-theme-color, var(--color-text)));
+  color: var(--grid-heading-color, var(--pp-grid-heading-theme-color, var(--color-text)));
   font-size: var(--grid-heading-size, var(--pp-band-heading-size));
-  max-width: var(--grid-heading-max-width, 40rem);
+  max-width: var(--grid-heading-measure, 40rem);
   /* Top-side header rhythm (heading -> subheading gap), mirror of the issue 336
      subheading BOTTOM slot on the adjacent property (issue 343). The heading is
      not the header's last child, so base.css's `p:last-child` reset never won
@@ -2178,13 +2178,13 @@
 }
 
 .grid__header--center .grid__heading {
-  max-width: var(--grid-heading-max-width, 40rem);
+  max-width: var(--grid-heading-measure, 40rem);
   margin-left: auto;
   margin-right: auto;
 }
 
 .grid__subheading {
-  color: var(--grid-subheading-color, var(--grid-subheading-theme-color, var(--color-muted)));
+  color: var(--grid-subheading-color, var(--pp-grid-subheading-theme-color, var(--color-muted)));
   margin-top: 0;
   max-width: 40rem;
 }
@@ -2226,10 +2226,10 @@
 .grid__item {
   display: flex;
   flex-direction: column;
-  background: var(--grid-card-bg, var(--color-surface));
-  border: var(--grid-card-border-width, 1px) solid var(--grid-card-border, var(--color-border));
-  border-radius: var(--grid-card-radius, var(--radius));
-  box-shadow: var(--grid-card-shadow, none);
+  background: var(--grid-item-bg, var(--color-surface));
+  border: var(--grid-item-border-width, 1px) solid var(--grid-item-border-color, var(--color-border));
+  border-radius: var(--grid-item-radius, var(--radius));
+  box-shadow: var(--grid-item-shadow, none);
   overflow: hidden;
   transition: transform var(--transition);
 }
@@ -2287,10 +2287,10 @@
 }
 
 .grid__item-body {
-  padding: var(--grid-card-padding, var(--space-md));
+  padding: var(--grid-item-padding, var(--space-md));
   display: flex;
   flex-direction: column;
-  gap: var(--grid-card-gap, var(--space-sm));
+  gap: var(--grid-item-gap, var(--space-sm));
   flex: 1;
   /* Authorable TEXT alignment (issue 357). The body's text-bearing children
      (title, text, bullets) are full-width flex items (align-items:stretch), so
@@ -2307,7 +2307,7 @@
 
 @media (min-width: 768px) {
   .grid__item-body {
-    padding: var(--grid-card-padding, var(--space-lg));
+    padding: var(--grid-item-padding, var(--space-lg));
   }
 }
 
@@ -2360,7 +2360,7 @@
   /* Map grid's authorable bullet colour onto the shared marker plumbing var.
      Unset resolves to --color-accent, byte-identical to the historical grid
      treatment (issue 339). */
-  --pp-list-marker-color: var(--grid-bullet-color, var(--color-accent));
+  --pp-list-marker-color: var(--grid-item-bullet-color, var(--color-accent));
 }
 
 /* ── Shared list-marker treatment (issue 339) ───────────────────────────────
@@ -2377,7 +2377,7 @@
 
    Colour flows in through --pp-list-marker-color (internal plumbing, NOT a schema
    style_slot): each consuming component maps its own authorable colour slot onto
-   it inside that component's own block (grid: --grid-bullet-color above; section:
+   it inside that component's own block (grid: --grid-item-bullet-color above; section:
    --section-panel-marker-color / --section-body-marker-color).
 
    One definition, three consumers:
@@ -2437,7 +2437,7 @@
 .grid__item-link {
   font-weight: 600;
   font-size: 0.9rem;
-  color: var(--grid-link-color, var(--color-accent));
+  color: var(--grid-item-link-color, var(--color-accent));
   text-decoration: none;
   /* Follows the card's --grid-item-text-align via the derived --pp-grid-link-align
      companion (issue 361): grid.php maps left/start/justify->flex-start,
@@ -2471,7 +2471,7 @@
   height: 2.75rem;
   margin-bottom: var(--space-md);
   border-radius: 50%;
-  background: var(--grid-step-color, var(--color-accent));
+  background: var(--grid-step-bg, var(--color-accent));
   color: var(--grid-step-text-color, var(--color-bg));
   font-size: 1.25rem;
   font-weight: 700;
@@ -2496,7 +2496,7 @@
     left: 100%;
     width: var(--grid-gap, var(--space-lg));
     height: 1px;
-    background: var(--grid-card-border, var(--color-border));
+    background: var(--grid-item-border-color, var(--color-border));
   }
 }
 
@@ -2524,8 +2524,8 @@
    background below, so their text must stay dark. */
 .grid--inverted {
   background: var(--grid-bg, var(--color-bg-inverted));
-  --grid-heading-theme-color: var(--color-bg);
-  --grid-subheading-theme-color: var(--color-bg);
+  --pp-grid-heading-theme-color: var(--color-bg);
+  --pp-grid-subheading-theme-color: var(--color-bg);
 }
 
 .grid--inverted .grid__heading {
@@ -2533,7 +2533,7 @@
 }
 
 .grid--inverted .grid__item {
-  background: var(--grid-card-bg, var(--color-bg));
+  background: var(--grid-item-bg, var(--color-bg));
 }
 
 /* Card top bar + featured first-card treatment (issue 293). These composed-page
@@ -2555,9 +2555,9 @@ main > .grid:not(.grid--steps) .grid__item::before {
      The slots are shared (not featured-only) because the slot-contract guard
      collapses pseudo-classes onto the base subject, so a featured-only slot
      would flag these base literals as unwaivable bypasses. Setting the slots
-     pins one bar on every card; --grid-card-bar-height: 0 removes it. */
-  height: var(--grid-card-bar-height, 2px);
-  background: var(--grid-card-bar-color, var(--color-border));
+     pins one bar on every card; --grid-item-bar-height: 0 removes it. */
+  height: var(--grid-item-bar-height, 2px);
+  background: var(--grid-item-bar-color, var(--color-border));
 }
 
 /* The whole featured first-card treatment below (this block, its ::before bar,
@@ -2568,32 +2568,32 @@ main > .grid:not(.grid--steps) .grid__item::before {
    symmetric/peer card row (issue 226). The DEFAULT (featured) emits no class, so
    the guard never matches an existing page and output stays byte-identical. */
 main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child {
-  /* Featured-card accent border DEFAULT tier; a per-instance --grid-card-border
-     overrides it, mirroring --grid-card-bg below, so a declared style slot never
+  /* Featured-card accent border DEFAULT tier; a per-instance --grid-item-border-color
+     overrides it, mirroring --grid-item-bg below, so a declared style slot never
      silently no-ops on the first card (issue 226). Note: the premium later-cascade
      :first-child rule re-declares border-color with a --color-accent-strong
      fallback and currently wins when the slot is unset; this declaration is the
      base tier that takes over if that premium layer is ever removed. */
-  border-color: var(--grid-card-border, var(--color-border-accent));
-  /* Featured-card accent fill is the DEFAULT; a per-instance --grid-card-bg
+  border-color: var(--grid-item-border-color, var(--color-border-accent));
+  /* Featured-card accent fill is the DEFAULT; a per-instance --grid-item-bg
      overrides it so the first card stays uniform with the rest when an author
      sets an explicit card color (e.g. uniform dark cards on a dark band). The
      texture-stripe line color routes through the issue 293 slot; transparent
      removes the stripe. */
   background:
     linear-gradient(90deg, var(--grid-featured-texture-color, rgba(37, 99, 235, 0.055)) 1px, transparent 1px) 0 0 / 2.75rem 100%,
-    var(--grid-card-bg, linear-gradient(180deg, var(--color-surface-accent) 0%, var(--color-surface) 100%));
+    var(--grid-item-bg, linear-gradient(180deg, var(--color-surface-accent) 0%, var(--color-surface) 100%));
   /* Featured glow: the issue 293 featured-shadow slot wins first, then the shared
-     --grid-card-shadow exactly as before, then the glow literal. The mobile
+     --grid-item-shadow exactly as before, then the glow literal. The mobile
      featured rule in the final cascade re-declares this same chain. */
-  box-shadow: var(--grid-featured-shadow, var(--grid-card-shadow,
+  box-shadow: var(--grid-featured-shadow, var(--grid-item-shadow,
     inset 0 0 0 1px rgba(37, 99, 235, 0.055),
     0 18px 42px rgba(37, 99, 235, 0.10)));
 }
 
 main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::before {
-  height: var(--grid-card-bar-height, 4px);
-  background: var(--grid-card-bar-color, linear-gradient(90deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 18%, transparent)));
+  height: var(--grid-item-bar-height, 4px);
+  background: var(--grid-item-bar-color, linear-gradient(90deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 18%, transparent)));
 }
 
 /* ==========================================================================
@@ -2608,8 +2608,8 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      hardcoding var(--space-xl) (64px), which rendered it 76.8/64 asymmetric when
      adjacent. The adjacent-top edge routes through --pp-band-padding-adjacent-top
      in the shared cascade below. */
-  padding-top: var(--table-section-padding-top, var(--pp-band-padding));
-  padding-bottom: var(--table-section-padding-bottom, var(--pp-band-padding));
+  padding-top: var(--table-padding-top, var(--pp-band-padding));
+  padding-bottom: var(--table-padding-bottom, var(--pp-band-padding));
 }
 
 .table-section__heading {
@@ -2619,8 +2619,8 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      of inheriting the flat h2 element rule (30px). The color slot (issue 438)
      completes the minimal band-heading surface, falling back to the h2 default
      var(--color-text) so unset output is unchanged. */
-  font-size: var(--table-section-heading-size, var(--pp-band-heading-size));
-  color: var(--table-section-heading-color, var(--color-text));
+  font-size: var(--table-heading-size, var(--pp-band-heading-size));
+  color: var(--table-heading-color, var(--color-text));
   margin-bottom: var(--space-lg);
 }
 
@@ -2724,18 +2724,18 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 .cta__title {
-  font-size: var(--cta-title-size, var(--pp-band-heading-size));
-  color: var(--cta-text, inherit);
-  max-width: var(--cta-content-width, 40rem);
+  font-size: var(--cta-heading-size, var(--pp-band-heading-size));
+  color: var(--cta-heading-color, inherit);
+  max-width: var(--cta-heading-measure, 40rem);
   margin-bottom: var(--space-xs);
 }
 
 .cta__title-accent {
-  color: var(--cta-title-accent-color, var(--color-accent));
+  color: var(--cta-heading-accent-color, var(--color-accent));
 }
 
 .cta__body {
-  color: var(--cta-body-color, var(--cta-body-theme-color, var(--color-muted)));
+  color: var(--cta-body-color, var(--pp-cta-body-theme-color, var(--color-muted)));
   font-size: var(--cta-body-size, inherit);
   margin-bottom: 0;
 }
@@ -3287,14 +3287,14 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 /* Full-width centering, in the BASE rules (issue 412, Symptom 2). `.cta__inner` centers
-   its children and caps `.cta__title`/`.cta__body` at --cta-content-width, but the
+   its children and caps `.cta__title`/`.cta__body` at --cta-heading-measure, but the
    `.cta__text` wrapper had no width constraint: a long body stretched it to the full
    inner width, so the capped title left-pinned inside it (text-align only centers the
    glyphs WITHIN that left-pinned box). Cap `.cta__text` at the same content width and
    center it, so an authored full-width CTA with ANY id centers title/body at the
-   default --cta-content-width — no id-scoped rule and no widened max-width needed. */
+   default --cta-heading-measure — no id-scoped rule and no widened max-width needed. */
 .cta--full-width .cta__text {
-  max-width: var(--cta-content-width, 40rem);
+  max-width: var(--cta-heading-measure, 40rem);
   margin-inline: auto;
 }
 
@@ -3337,11 +3337,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    defeat the AA routing. */
 .cta--inverted {
   background: var(--cta-bg, var(--color-bg-inverted));
-  --cta-body-theme-color: var(--color-bg);
+  --pp-cta-body-theme-color: var(--color-bg);
 }
 
 .cta--inverted .cta__title {
-  color: var(--cta-text, var(--color-bg));
+  color: var(--cta-heading-color, var(--color-bg));
 }
 
 .cta--inverted .cta__body {
@@ -3374,7 +3374,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   background-position: var(--cta-bg-position, center);
   background-repeat: no-repeat;
   border: none;
-  --cta-body-theme-color: var(--color-bg);
+  --pp-cta-body-theme-color: var(--color-bg);
 }
 
 .cta__overlay {
@@ -3389,7 +3389,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 .cta--has-bg-image .cta__title {
-  color: var(--cta-text, var(--color-bg));
+  color: var(--cta-heading-color, var(--color-bg));
 }
 
 .cta--has-bg-image .cta__body {
@@ -3416,9 +3416,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    the near-white .cta--has-bg-image .cta__title above, so on the dark overlay-over-
    image band it renders bare --color-accent at 1.16:1. Route the default through the
    overlay accent role (#463, mirroring the cta body-link fix from #461); the
-   per-instance --cta-title-accent-color slot still wins. */
+   per-instance --cta-heading-accent-color slot still wins. */
 .cta--has-bg-image .cta__title-accent {
-  color: var(--cta-title-accent-color, var(--color-accent-on-overlay));
+  color: var(--cta-heading-accent-color, var(--color-accent-on-overlay));
 }
 
 
@@ -3665,10 +3665,10 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   /* Route the heading size through the slot (issue 304). stats has no premium
      typography rule, so the fallback is the h2 base size (base.css) — unset
      output is byte-identical, and an operator can now tune the scale. */
-  font-size: var(--stats-title-size, var(--pp-band-heading-size));
+  font-size: var(--stats-heading-size, var(--pp-band-heading-size));
   margin-bottom: var(--space-lg);
   /* Center the heading BOX, not just its text (issue 367 — same class as issue 354).
-     The shared cap rule gives this h2 max-width: var(--cta-content-width, 40rem);
+     The shared cap rule gives this h2 max-width: var(--cta-heading-measure, 40rem);
      a block h2 fills to that cap inside the wider .container, so without auto
      inline margins the 40rem box pins to the container's left edge (measured
      x 96-736 at 1280px) and text-align: center only centers WITHIN that
@@ -3682,11 +3682,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   margin-left: auto;
   margin-right: auto;
   text-align: center;
-  color: var(--stats-title-color, var(--color-text));
+  color: var(--stats-heading-color, var(--color-text));
 }
 
 .stats__heading-accent {
-  color: var(--stats-title-accent-color, var(--color-accent));
+  color: var(--stats-heading-accent-color, var(--color-accent));
 }
 
 .stats__list {
@@ -3740,7 +3740,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 .stats--inverted .stats__heading {
-  color: var(--stats-title-color, var(--color-bg));
+  color: var(--stats-heading-color, var(--color-bg));
 }
 
 .stats--inverted .stats__number {
@@ -3776,7 +3776,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 .stats--has-bg-image .stats__heading {
-  color: var(--stats-title-color, var(--color-bg));
+  color: var(--stats-heading-color, var(--color-bg));
 }
 
 .stats--has-bg-image .stats__number {
@@ -3796,9 +3796,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    the near-white .stats--has-bg-image .stats__heading above, so on the dark overlay-
    over-image band it renders bare --color-accent at 1.16:1. Route the default through
    the overlay accent role (#463, mirroring the stats-number fix from #461); the
-   per-instance --stats-title-accent-color slot still wins. */
+   per-instance --stats-heading-accent-color slot still wins. */
 .stats--has-bg-image .stats__heading-accent {
-  color: var(--stats-title-accent-color, var(--color-accent-on-overlay));
+  color: var(--stats-heading-accent-color, var(--color-accent-on-overlay));
 }
 
 /* ==========================================================================
@@ -4032,11 +4032,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   flex-direction: column;
   gap: var(--space-md);
   margin: 0;
-  padding: var(--testimonials-card-padding, var(--space-lg));
-  background: var(--testimonials-card-bg, var(--color-surface));
-  border: var(--testimonials-card-border-width, 1px) solid var(--testimonials-card-border, var(--color-border));
-  border-radius: var(--testimonials-card-radius, var(--radius));
-  box-shadow: var(--testimonials-card-shadow, none);
+  padding: var(--testimonials-item-padding, var(--space-lg));
+  background: var(--testimonials-item-bg, var(--color-surface));
+  border: var(--testimonials-item-border-width, 1px) solid var(--testimonials-item-border-color, var(--color-border));
+  border-radius: var(--testimonials-item-radius, var(--radius));
+  box-shadow: var(--testimonials-item-shadow, none);
 }
 
 .testimonials__quote {
@@ -4145,7 +4145,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 .testimonials--inverted .testimonials__item {
-  background: var(--testimonials-card-bg, var(--color-bg));
+  background: var(--testimonials-item-bg, var(--color-bg));
 }
 
 .testimonials--inverted.testimonials--stack .testimonials__item {
@@ -4203,11 +4203,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    ========================================================================== */
 
 .section--text-only .section__title {
-  font-size: var(--section-title-size, var(--pp-band-heading-size));
+  font-size: var(--section-heading-size, var(--pp-band-heading-size));
 }
 
 .section--text-only .section__content {
-  max-width: var(--section-body-width, var(--measure-centered));
+  max-width: var(--section-body-measure, var(--measure-centered));
 }
 
 /* ==========================================================================
@@ -4254,7 +4254,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   text-align: center;
   margin-left: auto;
   margin-right: auto;
-  max-width: var(--section-body-width, var(--measure-centered));
+  max-width: var(--section-body-measure, var(--measure-centered));
 }
 
 .section--centered .section__title {
@@ -4262,7 +4262,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 /* The centered layout centers the OUTER .section__body (max-width --measure-centered,
-   56rem) but its inner .section__content carries a NARROWER cap (--section-body-width,
+   56rem) but its inner .section__content carries a NARROWER cap (--section-body-measure,
    42rem) with no auto margins, so the body copy left-pinned inside the wider centered
    wrapper while the title sat centered — a visible ~112px asymmetry (issue 354). Give
    the inner wrapper auto side-margins so the measure centers under the heading. Scoped
@@ -4339,7 +4339,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      font-size joins the same per-selector split (issue 302): the premium scale used
      to live in the shared rule above as a bare clamp(), outranking the base
      .section__title / .grid__heading rules ([0,1,0]) and silently ignoring a
-     declared --section-title-size / --grid-heading-size. Route each through its
+     declared --section-heading-size / --grid-heading-size. Route each through its
      size slot so a set slot still wins at this [0,2,1] specificity. faq routes
      through --faq-heading-size too (issue 304). The fallback is now the shared
      --pp-band-heading-size (issue 436) instead of a per-rule clamp(): the shared
@@ -4351,7 +4351,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      margin-bottom joins the split for section/grid (issue 343): this premium rule
      hardcoded the title -> subheading gap (1.65rem here, 1.25rem in the max-width
      rule below) at [0,2,1], outranking the base [0,1,0] rules and silently ignoring
-     a declared --section-title-margin-bottom / --grid-heading-margin-bottom. Route
+     a declared --section-heading-margin-bottom / --grid-heading-margin-bottom. Route
      each through its slot with 1.65rem as the fallback so unset output is unchanged.
      faq now routes the same way through --faq-heading-margin-bottom (issue 352);
      faq was left a bare literal in issue 343's scope and is completed here.
@@ -4368,33 +4368,33 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      softening is the deliberate cost of unifying section/grid/faq onto one fluid scale
      (issue 436) and is called out in the CHANGELOG. */
   main > .grid .grid__heading {
-    color: var(--grid-heading-color, var(--grid-heading-theme-color, var(--color-text)));
+    color: var(--grid-heading-color, var(--pp-grid-heading-theme-color, var(--color-text)));
     font-size: var(--grid-heading-size, var(--pp-band-heading-size));
     margin-bottom: var(--grid-heading-margin-bottom, 1.65rem);
   }
 
   main > .section .section__title {
-    color: var(--section-title-color, var(--section-title-theme-color, var(--color-text)));
-    font-size: var(--section-title-size, var(--pp-band-heading-size));
-    margin-bottom: var(--section-title-margin-bottom, 1.65rem);
+    color: var(--section-heading-color, var(--pp-section-title-theme-color, var(--color-text)));
+    font-size: var(--section-heading-size, var(--pp-band-heading-size));
+    margin-bottom: var(--section-heading-margin-bottom, 1.65rem);
   }
 
   main > .faq .faq__heading {
-    color: var(--faq-heading-color, var(--faq-heading-theme-color, var(--color-text)));
+    color: var(--faq-heading-color, var(--pp-faq-heading-theme-color, var(--color-text)));
     font-size: var(--faq-heading-size, var(--pp-band-heading-size));
     margin-bottom: var(--faq-heading-margin-bottom, 1.65rem);
   }
 
   main > .section .section__content,
   main > .section .section__content p {
-    color: var(--section-text, var(--section-text-theme-color, var(--color-text-secondary)));
+    color: var(--section-body-color, var(--pp-section-text-theme-color, var(--color-text-secondary)));
     font-size: var(--section-body-size, 1.065rem);
     font-weight: var(--section-body-weight, 430);
     line-height: 1.76;
   }
 
   main > .section--text-only .section__content {
-    max-width: var(--section-body-width, 49rem);
+    max-width: var(--section-body-measure, 49rem);
   }
 
   main > .section .section__content p + p {
@@ -4421,7 +4421,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
   main > .grid .grid__item-body,
   main > .grid .grid__item-body:first-child {
-    padding: var(--grid-card-padding, 2rem);
+    padding: var(--grid-item-padding, 2rem);
   }
 
   main > .grid--steps .grid__item-title {
@@ -4450,7 +4450,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   }
 
   main > .cta .cta__body {
-    color: var(--cta-body-color, var(--cta-body-theme-color, var(--color-text-secondary)));
+    color: var(--cta-body-color, var(--pp-cta-body-theme-color, var(--color-text-secondary)));
     font-size: var(--cta-body-size, 1.04rem);
     font-weight: 430;
     line-height: 1.66;
@@ -4474,7 +4474,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   }
 
   main > .section .section__title {
-    margin-bottom: var(--section-title-margin-bottom, 1.25rem);
+    margin-bottom: var(--section-heading-margin-bottom, 1.25rem);
   }
 
   main > .faq .faq__heading {
@@ -4510,7 +4510,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
   main > .grid .grid__item-body,
   main > .grid .grid__item-body:first-child {
-    padding: var(--grid-card-padding, 1.55rem);
+    padding: var(--grid-item-padding, 1.55rem);
   }
 
   main > .faq .faq__question {
@@ -4528,21 +4528,21 @@ main > .grid .grid__list {
 main > .grid .grid__item {
   position: relative;
   /* Route the all-cards border through the slot so a per-instance
-     --grid-card-border is honored on cards 2..N, not just the featured
+     --grid-item-border-color is honored on cards 2..N, not just the featured
      first card (issue 292 — regression of issue 226). Unset keeps the
      neutral --color-border default. */
-  border-color: var(--grid-card-border, var(--color-border));
-  box-shadow: var(--grid-card-shadow, 0 12px 28px rgba(15, 23, 42, 0.045));
+  border-color: var(--grid-item-border-color, var(--color-border));
+  box-shadow: var(--grid-item-shadow, 0 12px 28px rgba(15, 23, 42, 0.045));
 }
 
 main > .grid:not(.grid--steps) .grid__item {
   /* The decorative 1px rule stays; the fill layer routes through the
-     per-instance card-bg slot so a set --grid-card-bg (e.g. a dark-band card
+     per-instance card-bg slot so a set --grid-item-bg (e.g. a dark-band card
      color) is honored instead of being clobbered by this late cascade rule.
      Unset keeps the original bg→surface gradient. */
   background:
     linear-gradient(90deg, rgba(37, 99, 235, 0.028) 1px, transparent 1px) 0 0 / 3rem 100%,
-    var(--grid-card-bg, linear-gradient(180deg, var(--color-bg) 0%, var(--color-surface) 100%));
+    var(--grid-item-bg, linear-gradient(180deg, var(--color-bg) 0%, var(--color-surface) 100%));
 }
 
 /* The card top-bar and featured first-card rules moved into the COMPONENT: grid
@@ -4686,13 +4686,13 @@ main > .grid .grid__item-link::after {
   main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child {
     /* Same featured-shadow chain as the component-block rule (issue 293), so the
        slot does not silently no-op below 768px; only the glow literal differs. */
-    box-shadow: var(--grid-featured-shadow, var(--grid-card-shadow, 0 14px 32px rgba(37, 99, 235, 0.09)));
+    box-shadow: var(--grid-featured-shadow, var(--grid-item-shadow, 0 14px 32px rgba(37, 99, 235, 0.09)));
   }
 }
 
 /* Per-instance button slots reach the component's OWN buttons and nothing else (issue 545).
 
-   THE DEFECT. Every per-instance filled-button slot family (--hero-button-* / --hero-cta2-* /
+   THE DEFECT. Every per-instance filled-button slot family (--hero-button-* / --hero-button2-* /
    --cta-button-* / --cta-button2-* / --section-panel-cta-*) is emitted by the renderer as an
    inline custom property on the COMPONENT ROOT, and the three selector shapes that consume
    them — `main .btn:not(...)` (the premium winner below), `.hero .btn:not(...)` and
@@ -4706,10 +4706,10 @@ main > .grid .grid__item-link::after {
    (embed.php:37) — and they are inert rather than excluded: none emits a button slot family, and
    components never nest (no component template calls pp_get_component), so a `.btn` written there
    has nothing to inherit in the first place. The cta component has no such surface at all —
-   `cta.text` goes through pp_kses_inline (helpers.php:141), whose `a` allowlist is href/title
+   `cta.body` goes through pp_kses_inline (helpers.php:141), whose `a` allowlist is href/title
    only, so a class cannot survive there. Consequently only 14 of the 26 properties below are
    load-bearing (--hero-button-* / --cta-button-* / --section-panel-cta-*); the 12 cta2 entries
-   (--hero-cta2-* / --cta-button2-*) are inert by SCOPING — every chain that reads them is already
+   (--hero-button2-* / --cta-button2-*) are inert by SCOPING — every chain that reads them is already
    selector-scoped to an owned button — and the --cta-button-* seven are inert by SANITIZER. All
    are kept for the same reason #526 resets slots on every cta2 variant: the isolation should hold
    on its own terms, not on a sanitizer's current allowlist or on another rule's current selector.
@@ -4738,7 +4738,7 @@ main > .grid .grid__item-link::after {
    site-wide by definition: an author-written .btn SHOULD follow a --btn-bg retheme exactly as
    the bare .btn primitive and every composed button do. What must not reach it is the
    PER-INSTANCE styling of the band that happens to contain it. Nor are the band-level accent
-   slots (--hero-accent / --cta-accent / --hero-text) neutralised: they colour every accented
+   slots (--hero-accent / --cta-accent / --hero-heading-color) neutralised: they colour every accented
    element in the band by design, and a nested button is one of those elements. Concretely and
    REACHABLY: `.hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)` is [0,5,0],
    which outranks the premium winner at [0,4,1], so on a hero with --hero-accent set an
@@ -4762,12 +4762,12 @@ main .btn:not(.hero__cta):not(.cta__button):not(.section__panel-cta) {
   --hero-button-color: initial;
   --hero-button-hover-bg: initial;
   --hero-button-shadow: initial;
-  --hero-cta2-bg: initial;
-  --hero-cta2-border: initial;
-  --hero-cta2-color: initial;
-  --hero-cta2-hover-bg: initial;
-  --hero-cta2-hover-border: initial;
-  --hero-cta2-hover-color: initial;
+  --hero-button2-bg: initial;
+  --hero-button2-border: initial;
+  --hero-button2-color: initial;
+  --hero-button2-hover-bg: initial;
+  --hero-button2-hover-border: initial;
+  --hero-button2-hover-color: initial;
   --cta-button-bg: initial;
   --cta-button-border: initial;
   --cta-button-color: initial;
@@ -4921,7 +4921,7 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
 
      Measured: 7-8 frames (~120ms) of an unchosen colour across SEVEN flashing configurations
      spanning the five composed button surfaces — the four per-instance hover slots
-     (--hero-button-hover-bg, --hero-cta2-hover-bg, --cta-button-hover-bg,
+     (--hero-button-hover-bg, --hero-button2-hover-bg, --cta-button-hover-bg,
      --cta-button2-hover-bg), the section panel CTA, and the hero and cta primaries reached
      through the global --btn-hover-bg tier. Example: rgb(80, 74, 195) violet on a button
      authored blue-at-rest, red-on-hover. The 1px ring rides the same tween one layer out
@@ -4982,7 +4982,7 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
      gradient background-IMAGE covered). Unset, it falls through --cta-button-bg /
      --btn-bg to the gradient literal, so an unset button is byte-identical. Defined only on
      a .hero root by the renderer (cta/section/standalone primaries never inherit it), and
-     re-pointed at --hero-cta2-bg on .hero__cta--secondary by the issue 526 isolation rule —
+     re-pointed at --hero-button2-bg on .hero__cta--secondary by the issue 526 isolation rule —
      which is how a filled second CTA gets its OWN gradient-clearing fill here.
      The section's panel CTA is the last member of that masked-fill class (issue 536):
      .section__panel-cta has no .hero/.cta ancestor, so THIS rule is its only fill winner
@@ -5015,7 +5015,7 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
      per-instance hover fill slot was dead on a filled button. Unset, it falls through
      --cta-button-hover-bg to the gradient literal, so an unset button is byte-identical.
      Defined only on a .hero root by the renderer (cta/section/standalone primaries never
-     inherit it), and re-pointed at --hero-cta2-hover-bg on .hero__cta--secondary (and
+     inherit it), and re-pointed at --hero-button2-hover-bg on .hero__cta--secondary (and
      --cta-button-hover-bg at --cta-button2-hover-bg on .cta__button--secondary) by the
      issue 530 isolation declarations — which is how a filled SECOND button gets its OWN
      gradient-clearing hover fill here, isolated from the primary's.
@@ -5171,7 +5171,7 @@ main .btn:focus-visible {
      their adjacent-top edge tracks the same shared tier AND an explicit
      --<comp>-padding-top wins on that edge too, not just their own base edges. */
   main > [data-pp-component] + .table-section {
-    padding-top: var(--table-section-padding-top, var(--pp-band-padding-adjacent-top));
+    padding-top: var(--table-padding-top, var(--pp-band-padding-adjacent-top));
   }
   main > [data-pp-component] + .logos {
     padding-top: var(--logos-padding-top, var(--pp-band-padding-adjacent-top));
@@ -5211,21 +5211,21 @@ main .btn:focus-visible {
 
 main > .grid .grid__item,
 main > .faq .faq__item {
-  border-radius: var(--grid-card-radius, 4px);
+  border-radius: var(--grid-item-radius, 4px);
 }
 main > .grid .grid__item {
-  /* Later-cascade winner for cards 2..N: route it through --grid-card-border
+  /* Later-cascade winner for cards 2..N: route it through --grid-item-border-color
      too (matching the earlier all-cards rule and the :first-child rule below)
      or the slot stays ignored on every non-featured card (issue 292). */
-  border-color: var(--grid-card-border, var(--color-border));
-  box-shadow: var(--grid-card-shadow, 0 10px 24px rgba(15, 23, 42, 0.055));
+  border-color: var(--grid-item-border-color, var(--color-border));
+  box-shadow: var(--grid-item-shadow, 0 10px 24px rgba(15, 23, 42, 0.055));
 }
 
 main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child {
   /* Later-cascade winner: this is the border-color that actually applies. Route it
-     through --grid-card-border too (matching the earlier rule) or the slot stays
+     through --grid-item-border-color too (matching the earlier rule) or the slot stays
      ignored on the first card (issue 226). */
-  border-color: var(--grid-card-border, var(--color-accent-strong));
+  border-color: var(--grid-item-border-color, var(--color-accent-strong));
 }
 
 main .btn {
@@ -5272,7 +5272,7 @@ main .btn {
   }
   /* table/logos/embed adjacent-top on mobile too (issue 438). */
   main > [data-pp-component] + .table-section {
-    padding-top: var(--table-section-padding-top, var(--pp-band-padding-adjacent-top));
+    padding-top: var(--table-padding-top, var(--pp-band-padding-adjacent-top));
   }
   main > [data-pp-component] + .logos {
     padding-top: var(--logos-padding-top, var(--pp-band-padding-adjacent-top));

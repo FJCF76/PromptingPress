@@ -32,7 +32,7 @@
       "default": "",
       "description": "Optional supporting line below the title. Plain text — HTML is escaped."
     },
-    "heading_align": {
+    "title_align": {
       "type": "enum",
       "values": ["start", "center"],
       "required": false,
@@ -91,7 +91,7 @@
         "image_alt": { "type": "string", "required": false, "default": "", "description": "Alt text for the card image. Leave empty only if the image is purely decorative." },
         "link_url":  { "type": "string", "required": false, "format": "link_url", "description": "Optional card link destination. Accepts an absolute URL, a site-relative /path, an #anchor, mailto:, or tel:; a disallowed protocol (javascript:, data:) is rejected at write time." },
         "link_text": { "type": "string", "required": false, "default": "Read more" },
-        "style":     { "type": "object", "required": false, "description": "Optional per-card style overrides for THIS card only (issue 306). Accepts ONLY the CARD-SCOPED style slots — the ones flagged item_eligible in styling.style_slots because they are consumed on the .grid__item and its contents (issue 323): --grid-card-bg, --grid-card-border, --grid-card-border-width, --grid-card-radius, --grid-card-shadow, --grid-card-bar-color, --grid-card-bar-height, --grid-featured-texture-color, --grid-featured-shadow, --grid-card-padding, --grid-card-gap, --grid-item-text-align, --grid-item-icon-size, --grid-item-title-size, --grid-item-title-color, --grid-item-text-color, --grid-bullet-color, --grid-link-color, --grid-step-color, --grid-step-text-color. Validated by the shared style engine exactly like grid-level slots (unknown slot names and invalid values are rejected). Rendered as inline custom properties on this card's .grid__item, so a per-card slot overrides the grid-level value by cascade proximity. Container/heading slots (--grid-bg, --grid-gap, --grid-heading-*, --grid-heading-accent-color, --grid-eyebrow-*, --grid-subheading-*, --grid-padding-*) are read on the section/list/header, not the card, so a per-card override would render nothing — they are REJECTED here with invalid_style_slot naming the card; set those on the grid-level style instead. Use per-card style for one distinct card in a row: a dark CTA panel beside light checklist cards, or a green-on-dark terminal card. Set via the composition (update_component / update_composition / create_page), not style_component (which is component-scoped)." }
+        "style":     { "type": "object", "required": false, "description": "Optional per-card style overrides for THIS card only (issue 306). Accepts ONLY the CARD-SCOPED style slots — the ones flagged item_eligible in styling.style_slots because they are consumed on the .grid__item and its contents (issue 323): --grid-item-bg, --grid-item-border-color, --grid-item-border-width, --grid-item-radius, --grid-item-shadow, --grid-item-bar-color, --grid-item-bar-height, --grid-featured-texture-color, --grid-featured-shadow, --grid-item-padding, --grid-item-gap, --grid-item-text-align, --grid-item-icon-size, --grid-item-title-size, --grid-item-title-color, --grid-item-text-color, --grid-item-bullet-color, --grid-item-link-color, --grid-step-bg, --grid-step-text-color. Validated by the shared style engine exactly like grid-level slots (unknown slot names and invalid values are rejected). Rendered as inline custom properties on this card's .grid__item, so a per-card slot overrides the grid-level value by cascade proximity. Container/heading slots (--grid-bg, --grid-gap, --grid-heading-*, --grid-heading-accent-color, --grid-eyebrow-*, --grid-subheading-*, --grid-padding-*) are read on the section/list/header, not the card, so a per-card override would render nothing — they are REJECTED here with invalid_style_slot naming the card; set those on the grid-level style instead. Use per-card style for one distinct card in a row: a dark CTA panel beside light checklist cards, or a green-on-dark terminal card. Set via the composition (update_component / update_composition / create_page), not style_component (which is component-scoped)." }
       }
     }
   },
@@ -115,28 +115,28 @@
       "--grid-subheading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space between the subheading and the content below it" },
       "--grid-heading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space between the heading and the subheading below it" },
       "--grid-heading-size": { "type": "length", "default": "inherit", "description": "Heading font size" },
-      "--grid-heading-max-width": { "type": "length", "default": "40rem", "description": "Heading maximum width — increase to let long headings use available horizontal space" },
+      "--grid-heading-measure": { "type": "length", "default": "40rem", "description": "Heading maximum width — increase to let long headings use available horizontal space" },
       "--grid-gap": { "type": "length", "default": "var(--space-lg)", "description": "Gap between grid cards" },
-      "--grid-card-bg": { "item_eligible": true, "type": "gradient", "default": "var(--color-surface)", "description": "Card background color or gradient" },
-      "--grid-card-border": { "item_eligible": true, "type": "color", "default": "var(--color-border)", "description": "Card border color" },
-      "--grid-card-border-width": { "item_eligible": true, "type": "length", "default": "1px", "description": "Card border width" },
-      "--grid-card-radius": { "item_eligible": true, "type": "length", "default": "var(--radius)", "description": "Card border radius" },
-      "--grid-card-shadow": { "item_eligible": true, "type": "shadow", "default": "none", "description": "Card box shadow / glow (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" },
-      "--grid-card-bar-color": { "item_eligible": true, "type": "gradient", "default": "var(--color-border)", "description": "Card top-bar color or gradient (cards layout only; no bar exists on steps). The featured first card defaults to an accent gradient; setting this slot pins one bar color on every card" },
-      "--grid-card-bar-height": { "item_eligible": true, "type": "length", "default": "2px", "description": "Card top-bar height (cards layout only; the featured first card defaults to 4px). 0 removes the bar on every card" },
+      "--grid-item-bg": { "item_eligible": true, "type": "gradient", "default": "var(--color-surface)", "description": "Card background color or gradient" },
+      "--grid-item-border-color": { "item_eligible": true, "type": "color", "default": "var(--color-border)", "description": "Card border color" },
+      "--grid-item-border-width": { "item_eligible": true, "type": "length", "default": "1px", "description": "Card border width" },
+      "--grid-item-radius": { "item_eligible": true, "type": "length", "default": "var(--radius)", "description": "Card border radius" },
+      "--grid-item-shadow": { "item_eligible": true, "type": "shadow", "default": "none", "description": "Card box shadow / glow (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" },
+      "--grid-item-bar-color": { "item_eligible": true, "type": "gradient", "default": "var(--color-border)", "description": "Card top-bar color or gradient (cards layout only; no bar exists on steps). The featured first card defaults to an accent gradient; setting this slot pins one bar color on every card" },
+      "--grid-item-bar-height": { "item_eligible": true, "type": "length", "default": "2px", "description": "Card top-bar height (cards layout only; the featured first card defaults to 4px). 0 removes the bar on every card" },
       "--grid-featured-texture-color": { "item_eligible": true, "type": "color", "default": "rgba(37, 99, 235, 0.055)", "description": "Texture-stripe line color painted on the featured first card only (cards layout on composed pages). transparent removes the stripe" },
-      "--grid-featured-shadow": { "item_eligible": true, "type": "shadow", "default": "var(--grid-card-shadow)", "description": "Box shadow of the featured first card only (cards layout on composed pages); overrides the shared --grid-card-shadow there. When both are unset a built-in blue glow renders. Set none (or set --grid-card-shadow for all cards) to remove the featured glow" },
-      "--grid-card-padding": { "item_eligible": true, "type": "length", "default": "var(--space-md)", "description": "Card body padding" },
-      "--grid-card-gap": { "item_eligible": true, "type": "length", "default": "var(--space-sm)", "description": "Gap between card body elements" },
+      "--grid-featured-shadow": { "item_eligible": true, "type": "shadow", "default": "var(--grid-item-shadow)", "description": "Box shadow of the featured first card only (cards layout on composed pages); overrides the shared --grid-item-shadow there. When both are unset a built-in blue glow renders. Set none (or set --grid-item-shadow for all cards) to remove the featured glow" },
+      "--grid-item-padding": { "item_eligible": true, "type": "length", "default": "var(--space-md)", "description": "Card body padding" },
+      "--grid-item-gap": { "item_eligible": true, "type": "length", "default": "var(--space-sm)", "description": "Gap between card body elements" },
       "--grid-item-text-align": { "item_eligible": true, "type": "align", "default": "left", "description": "Alignment of the card's content within the card body. 'left' (default) is unchanged historical behavior; 'center' centers the content (use for centered emoji/label contact cards); also accepts 'right', 'start', 'end', 'justify'. Governs BOTH the text (title, text, bullets) via text-align AND the 'Read more' link/button, which follows the same alignment via the derived --pp-grid-link-align companion (issue 361: left/start/justify->flex-start, center->center, right/end->flex-end), so a centered card is fully centered. Item-eligible, so settable grid-wide or per-card." },
       "--grid-item-icon-size": { "item_eligible": true, "type": "length", "default": "48px", "description": "Icon size (width and height) of a card image when image_treatment is 'icon' — the fixed box the un-cropped icon renders in, above the title. No effect under the default 'banner' treatment (the 16:9 cover banner ignores it). Item-eligible, so settable grid-wide or per-card." },
       "--grid-item-title-size": { "item_eligible": true, "type": "length", "default": "1.25rem", "description": "Card title font size" },
       "--grid-item-title-color": { "item_eligible": true, "type": "color", "default": "var(--color-text)", "description": "Card title text color" },
       "--grid-item-text-color": { "item_eligible": true, "type": "color", "default": "var(--color-muted)", "description": "Card description text color" },
-      "--grid-bullet-color": { "item_eligible": true, "type": "color", "default": "var(--color-accent)", "description": "Checklist bullet marker color (grid card bullets)" },
-      "--grid-link-color": { "item_eligible": true, "type": "color", "default": "var(--color-accent)", "description": "Card link color" },
-      "--grid-step-color": { "item_eligible": true, "type": "color", "default": "var(--color-accent)", "description": "Step badge background (fill) color (steps layout). The numeral text color is a separate slot, --grid-step-text-color (default var(--color-bg)) — pair the two for a light fill with ink numerals" },
-      "--grid-step-text-color": { "item_eligible": true, "type": "color", "default": "var(--color-bg)", "description": "Step numeral (number text) color (steps layout). Defaults to var(--color-bg) so unset renders byte-identically; set it to an ink color when --grid-step-color is a light fill (e.g. a lime badge) so the numeral stays high-contrast, mirroring the --cta-button-bg/--cta-button-color fill+ink pairing on buttons" }
+      "--grid-item-bullet-color": { "item_eligible": true, "type": "color", "default": "var(--color-accent)", "description": "Checklist bullet marker color (grid card bullets)" },
+      "--grid-item-link-color": { "item_eligible": true, "type": "color", "default": "var(--color-accent)", "description": "Card link color" },
+      "--grid-step-bg": { "item_eligible": true, "type": "color", "default": "var(--color-accent)", "description": "Step badge background (fill) color (steps layout). The numeral text color is a separate slot, --grid-step-text-color (default var(--color-bg)) — pair the two for a light fill with ink numerals" },
+      "--grid-step-text-color": { "item_eligible": true, "type": "color", "default": "var(--color-bg)", "description": "Step numeral (number text) color (steps layout). Defaults to var(--color-bg) so unset renders byte-identically; set it to an ink color when --grid-step-bg is a light fill (e.g. a lime badge) so the numeral stays high-contrast, mirroring the --cta-button-bg/--cta-button-color fill+ink pairing on buttons" }
     },
     "recipes": {
       "dark-showcase": {
@@ -144,27 +144,27 @@
         "slots": {
           "--grid-bg": "#1a1a2e",
           "--grid-heading-color": "#f0f0f0",
-          "--grid-card-bg": "#ffffff",
+          "--grid-item-bg": "#ffffff",
           "--grid-gap": "2.5rem",
-          "--grid-card-radius": "1rem"
+          "--grid-item-radius": "1rem"
         }
       },
       "dense-cards": {
         "description": "Tight card spacing for compact layouts",
         "slots": {
           "--grid-gap": "1rem",
-          "--grid-card-padding": "1rem",
-          "--grid-card-gap": "0.5rem"
+          "--grid-item-padding": "1rem",
+          "--grid-item-gap": "0.5rem"
         }
       },
       "uniform-cards": {
         "description": "Neutralize the featured first-card treatment for a uniform row: removes the top bars, the featured texture stripe, and the featured glow, and pins one shared border, background, shadow, and title size on every card. Residual differences that stay: the faint texture on cards 2+, a 0.25rem body padding-top difference on card 1 at desktop, and the dark-theme lift",
         "slots": {
-          "--grid-card-bar-height": "0",
+          "--grid-item-bar-height": "0",
           "--grid-featured-texture-color": "transparent",
-          "--grid-card-shadow": "0 10px 24px rgba(15, 23, 42, 0.055)",
-          "--grid-card-border": "var(--color-border)",
-          "--grid-card-bg": "var(--color-surface)",
+          "--grid-item-shadow": "0 10px 24px rgba(15, 23, 42, 0.055)",
+          "--grid-item-border-color": "var(--color-border)",
+          "--grid-item-bg": "var(--color-surface)",
           "--grid-item-title-size": "1.25rem"
         }
       }

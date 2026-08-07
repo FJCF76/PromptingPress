@@ -145,14 +145,14 @@ class RenderStyleBoundaryTest extends TestCase
     {
         $result = pp_render_style_vars(
             [
-                '--hero-text'        => 'currentColor',
+                '--hero-heading-color'        => 'currentColor',
                 '--hero-bg'          => 'radial-gradient(circle at 20% 30%, #ffffff, #000000)',
                 '--hero-padding-top' => '8rem',
                 '--hero-shadow'      => '0 4px 12px rgba(0,0,0,0.3)',
             ],
             'hero'
         );
-        $this->assertStringContainsString('--hero-text: currentColor', $result);
+        $this->assertStringContainsString('--hero-heading-color: currentColor', $result);
         $this->assertStringContainsString('--hero-bg: radial-gradient(circle at 20% 30%, #ffffff, #000000)', $result);
         $this->assertStringContainsString('--hero-padding-top: 8rem', $result);
         $this->assertStringContainsString('--hero-shadow: 0 4px 12px rgba(0,0,0,0.3)', $result);
@@ -183,11 +183,11 @@ class RenderStyleBoundaryTest extends TestCase
         // real component and assert the url() never reaches the style attribute.
         $html = $this->render('grid', [
             'title'      => 'Cards',
-            '__pp_style' => ['--grid-card-bg' => 'url(https://example.test/beacon.gif)'],
+            '__pp_style' => ['--grid-item-bg' => 'url(https://example.test/beacon.gif)'],
             'items'      => [['title' => 'A']],
         ]);
         $this->assertStringNotContainsString('url(', $html);
-        $this->assertStringNotContainsString('--grid-card-bg', $html);
+        $this->assertStringNotContainsString('--grid-item-bg', $html);
     }
 
     public function testGridItemStyleDropsStoredUrlSiblingSurvives(): void
@@ -198,14 +198,14 @@ class RenderStyleBoundaryTest extends TestCase
             'items' => [[
                 'title' => 'Card',
                 'style' => [
-                    '--grid-card-bg'     => 'url(https://example.test/x)',
-                    '--grid-card-shadow' => 'var(--shadow-md)',
+                    '--grid-item-bg'     => 'url(https://example.test/x)',
+                    '--grid-item-shadow' => 'var(--shadow-md)',
                 ],
             ]],
         ]);
         $this->assertStringNotContainsString('url(', $html);
-        $this->assertStringNotContainsString('--grid-card-bg', $html);
-        $this->assertStringContainsString('--grid-card-shadow: var(--shadow-md)', $html);
+        $this->assertStringNotContainsString('--grid-item-bg', $html);
+        $this->assertStringContainsString('--grid-item-shadow: var(--shadow-md)', $html);
     }
 
     // ── Footer color sink (components/footer/footer.php) ─────────────────────

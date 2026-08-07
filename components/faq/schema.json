@@ -66,8 +66,8 @@
       "--faq-heading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space below the FAQ heading, before the accordion list (header rhythm). Lower it to tighten the header, raise it for more separation." },
       "--faq-question-color": { "type": "color", "default": "var(--color-text)", "description": "Question (summary) text color" },
       "--faq-answer-color": { "type": "color", "default": "var(--color-muted)", "description": "Answer text color" },
-      "--faq-border-color": { "type": "color", "default": "var(--color-border)", "description": "Accordion item border color" },
-      "--faq-accent": { "type": "color", "default": "var(--color-accent)", "description": "Open-state question text color and chevron color" }
+      "--faq-item-border-color": { "type": "color", "default": "var(--color-border)", "description": "Accordion item border color" },
+      "--faq-question-open-color": { "type": "color", "default": "var(--color-accent)", "description": "Open-state question text color and chevron color" }
     }
   },
   "safe_to_edit": ["faq.php", "../../assets/css/components.css (COMPONENT: faq section)"],

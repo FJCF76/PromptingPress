@@ -1856,10 +1856,10 @@ class OperateTest extends TestCase
 
     public function testParseCompositionSelectorSimple(): void
     {
-        $result = pp_parse_composition_selector('hero.subtitle');
+        $result = pp_parse_composition_selector('hero.subheading');
         $this->assertIsArray($result);
         $this->assertSame('hero', $result['component_type']);
-        $this->assertSame('subtitle', $result['target_field']);
+        $this->assertSame('subheading', $result['target_field']);
         $this->assertArrayNotHasKey('match_field', $result);
         $this->assertArrayNotHasKey('component_id', $result);
     }
@@ -1888,11 +1888,11 @@ class OperateTest extends TestCase
 
     public function testParseCompositionSelectorIdRouting(): void
     {
-        $result = pp_parse_composition_selector('hero[id="pp-a1b2c3d4"].subtitle');
+        $result = pp_parse_composition_selector('hero[id="pp-a1b2c3d4"].subheading');
         $this->assertIsArray($result);
         $this->assertSame('hero', $result['component_type']);
         $this->assertSame('pp-a1b2c3d4', $result['component_id']);
-        $this->assertSame('subtitle', $result['target_field']);
+        $this->assertSame('subheading', $result['target_field']);
         $this->assertArrayNotHasKey('match_field', $result);
     }
 
@@ -1955,9 +1955,9 @@ class OperateTest extends TestCase
         // hero — full coverage now (registry only had 5 of ~20).
         $hero = $this->fieldMap('hero');
         $this->assertSame('string', $hero['title']);
-        $this->assertSame('string', $hero['subtitle']);
-        $this->assertSame('string', $hero['cta_url']);            // was 'url' in the old vocabulary
-        $this->assertSame('link_url', $this->fieldFormat('hero', 'cta_url')); // #507 format inherited
+        $this->assertSame('string', $hero['subheading']);
+        $this->assertSame('string', $hero['button_url']);            // was 'url' in the old vocabulary
+        $this->assertSame('link_url', $this->fieldFormat('hero', 'button_url')); // #507 format inherited
         $this->assertSame('enum', $hero['layout']);              // never patchable before #509
         $this->assertSame('string', $hero['image_url']);
         $this->assertSame('image_url', $this->fieldFormat('hero', 'image_url'));
@@ -2206,7 +2206,7 @@ class OperateTest extends TestCase
                 'title' => 'Features', 'columns' => 2,
                 'items' => [['title' => 'A', 'text' => 'a'], ['title' => 'B', 'text' => 'b']],
             ]],
-            ['component' => 'hero', 'props' => ['title' => 'Welcome', 'cta_url' => '/ok']],
+            ['component' => 'hero', 'props' => ['title' => 'Welcome', 'button_url' => '/ok']],
         ]])['ok']);
 
         // number field: a non-numeric value is rejected (schema type:number).
@@ -2215,9 +2215,9 @@ class OperateTest extends TestCase
         $this->assertSame(2, (int) pp_get_composition($post_id)[0]['props']['columns'], 'rejected number patch must not persist');
 
         // link_url format: a disallowed protocol is rejected (format:link_url, #507).
-        $bad_url = pp_patch_composition($post_id, 'hero.cta_url', 'javascript:alert(1)');
+        $bad_url = pp_patch_composition($post_id, 'hero.button_url', 'javascript:alert(1)');
         $this->assertPatchRejected($bad_url, 'a javascript: URL on a link_url field must be rejected');
-        $this->assertSame('/ok', pp_get_composition($post_id)[1]['props']['cta_url'], 'rejected link_url patch must not persist');
+        $this->assertSame('/ok', pp_get_composition($post_id)[1]['props']['button_url'], 'rejected link_url patch must not persist');
     }
 
     /**
@@ -2246,7 +2246,7 @@ class OperateTest extends TestCase
     {
         $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Fmt', 'post_status' => 'publish']);
         update_post_meta($post_id, '_pp_composition', json_encode([
-            ['component' => 'hero', 'props' => ['id' => 'pp-hero0fmt', 'title' => 'Welcome', 'cta_url' => '/go']],
+            ['component' => 'hero', 'props' => ['id' => 'pp-hero0fmt', 'title' => 'Welcome', 'button_url' => '/go']],
         ]));
 
         $fields = pp_inspect_composition($post_id)[0]['fields'];
@@ -2254,7 +2254,7 @@ class OperateTest extends TestCase
         foreach ($fields as $f) {
             $byField[$f['field']] = $f;
         }
-        $this->assertSame('link_url', $byField['cta_url']['field_format'] ?? null);
+        $this->assertSame('link_url', $byField['button_url']['field_format'] ?? null);
         $this->assertNull($byField['title']['field_format'], 'a prop with no schema format reports null');
     }
 
@@ -2291,7 +2291,7 @@ class OperateTest extends TestCase
     public function testInspectCompositionResolvesRealCtaAndGridValues(): void
     {
         // Regression (#120): the editability map previously declared dead
-        // selectors (cta.subtitle/cta_text/cta_url, grid items[].link) that
+        // selectors (cta.subheading/cta_text/cta_url, grid items[].link) that
         // don't exist on either component, so pp_inspect_composition()
         // always reported current_value: null for them — poisoning the AI
         // context with editable-looking fields that silently no-op on
@@ -2301,7 +2301,7 @@ class OperateTest extends TestCase
             [
                 'component' => 'cta',
                 'props' => [
-                    'id' => 'pp-cta0001', 'title' => 'Join now', 'text' => 'Limited spots',
+                    'id' => 'pp-cta0001', 'title' => 'Join now', 'body' => 'Limited spots',
                     'button_text' => 'Sign up', 'button_url' => '/signup',
                 ],
             ],
@@ -2321,10 +2321,10 @@ class OperateTest extends TestCase
         $cta = $result[0]['fields'];
         $ctaByField = array_column($cta, 'current_value', 'field');
         $this->assertSame('Join now', $ctaByField['title']);
-        $this->assertSame('Limited spots', $ctaByField['text']);
+        $this->assertSame('Limited spots', $ctaByField['body']);
         $this->assertSame('Sign up', $ctaByField['button_text']);
         $this->assertSame('/signup', $ctaByField['button_url']);
-        $this->assertArrayNotHasKey('subtitle', $ctaByField);
+        $this->assertArrayNotHasKey('subheading', $ctaByField);
         $this->assertArrayNotHasKey('cta_text', $ctaByField);
         $this->assertArrayNotHasKey('cta_url', $ctaByField);
 
@@ -2396,7 +2396,7 @@ class OperateTest extends TestCase
             ['component' => 'cta', 'props' => ['id' => 'pp-cta8888', 'title' => 'Join', 'button_text' => 'Go', 'button_url' => '/go']],
         ]));
 
-        foreach (['cta.subtitle', 'cta.cta_text', 'cta.cta_url'] as $selector) {
+        foreach (['cta.subheading', 'cta.cta_text', 'cta.cta_url'] as $selector) {
             $result = pp_patch_composition($post_id, $selector, 'value');
             $this->assertInstanceOf(WP_Error::class, $result, "{$selector} should be field_not_editable, not applied.");
             $this->assertSame('field_not_editable', $result->get_error_code());
@@ -2457,7 +2457,7 @@ class OperateTest extends TestCase
     {
         $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Inspect Test', 'post_status' => 'publish']);
         update_post_meta($post_id, '_pp_composition', json_encode([
-            ['component' => 'hero', 'props' => ['id' => 'pp-hero1111', 'title' => 'Welcome', 'subtitle' => 'Sub']],
+            ['component' => 'hero', 'props' => ['id' => 'pp-hero1111', 'title' => 'Welcome', 'subheading' => 'Sub']],
             ['component' => 'section', 'props' => ['id' => 'pp-sect2222', 'title' => 'About', 'body' => '<p>Hi</p>']],
         ]));
 
@@ -2471,7 +2471,7 @@ class OperateTest extends TestCase
         $this->assertSame('pp-hero1111', $hero['component_id']);
         $this->assertSame(0, $hero['index']);
         $this->assertNotEmpty($hero['fields']);
-        // Check that title and subtitle selectors are present
+        // Check that title and subheading selectors are present
         $selectors = array_column($hero['fields'], 'selector');
         $this->assertTrue(in_array('hero.title', $selectors), 'Hero title selector present');
 
@@ -2522,7 +2522,7 @@ class OperateTest extends TestCase
     {
         $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Patch Test', 'post_status' => 'publish']);
         $composition = [
-            ['component' => 'hero', 'props' => ['id' => 'pp-hero0001', 'title' => 'Welcome', 'subtitle' => 'Old Subtitle']],
+            ['component' => 'hero', 'props' => ['id' => 'pp-hero0001', 'title' => 'Welcome', 'subheading' => 'Old Subtitle']],
             ['component' => 'section', 'props' => ['id' => 'pp-sect0002', 'title' => 'About', 'body' => '<p>About us</p>']],
             ['component' => 'grid', 'props' => ['id' => 'pp-grid0003', 'title' => 'Features', 'items' => [
                 ['title' => 'Speed', 'text' => 'Fast performance'],
@@ -2536,7 +2536,7 @@ class OperateTest extends TestCase
     public function testPatchTopLevelFieldPreview(): void
     {
         $post_id = $this->createPatchTestPage();
-        $result = pp_patch_composition($post_id, 'hero.subtitle', 'New Subtitle', true);
+        $result = pp_patch_composition($post_id, 'hero.subheading', 'New Subtitle', true);
         $this->assertIsArray($result);
         // Preview should have action name and before/after data
         $this->assertSame('update_component', $result['action']);
@@ -2544,19 +2544,19 @@ class OperateTest extends TestCase
         $this->assertArrayHasKey('after', $result);
         // Verify the value was NOT written
         $comp = pp_get_composition($post_id);
-        $this->assertSame('Old Subtitle', $comp[0]['props']['subtitle']);
+        $this->assertSame('Old Subtitle', $comp[0]['props']['subheading']);
     }
 
     public function testPatchTopLevelFieldApply(): void
     {
         $post_id = $this->createPatchTestPage();
-        $result = pp_patch_composition($post_id, 'hero.subtitle', 'New Subtitle');
+        $result = pp_patch_composition($post_id, 'hero.subheading', 'New Subtitle');
         $this->assertIsArray($result);
         $this->assertTrue($result['ok']);
         $this->assertSame('update_component', $result['action']);
         // Verify the value was written
         $comp = pp_get_composition($post_id);
-        $this->assertSame('New Subtitle', $comp[0]['props']['subtitle']);
+        $this->assertSame('New Subtitle', $comp[0]['props']['subheading']);
         // Other props should be unchanged
         $this->assertSame('Welcome', $comp[0]['props']['title']);
     }
@@ -2680,7 +2680,7 @@ class OperateTest extends TestCase
     public function testParseCompositionSelectorTrailingGarbage(): void
     {
         // Extra text after valid field
-        $result = pp_parse_composition_selector('hero.subtitle.extra');
+        $result = pp_parse_composition_selector('hero.subheading.extra');
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertSame('invalid_selector', $result->get_error_code());
     }
@@ -2740,13 +2740,13 @@ class OperateTest extends TestCase
     {
         $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'No Title', 'post_status' => 'publish']);
         update_post_meta($post_id, '_pp_composition', json_encode([
-            ['component' => 'hero', 'props' => ['id' => 'pp-notitle1', 'subtitle' => 'Just a subtitle']],
+            ['component' => 'hero', 'props' => ['id' => 'pp-notitle1', 'subheading' => 'Just a subheading']],
         ]));
 
         $result = pp_inspect_composition($post_id);
         $this->assertIsArray($result);
         $this->assertCount(1, $result);
-        // Without title prop, should produce simple selectors (hero.subtitle, not hero[title="..."].subtitle)
+        // Without title prop, should produce simple selectors (hero.subheading, not hero[title="..."].subheading)
         $selectors = array_column($result[0]['fields'], 'selector');
         foreach ($selectors as $sel) {
             $this->assertStringNotContainsString('[title=', $sel, 'No title bracket match when title prop is absent');
@@ -2756,11 +2756,11 @@ class OperateTest extends TestCase
     public function testPatchWithIdBasedSelector(): void
     {
         $post_id = $this->createPatchTestPage();
-        $result = pp_patch_composition($post_id, 'hero[id="pp-hero0001"].subtitle', 'ID Patched');
+        $result = pp_patch_composition($post_id, 'hero[id="pp-hero0001"].subheading', 'ID Patched');
         $this->assertIsArray($result);
         $this->assertTrue($result['ok']);
         $comp = pp_get_composition($post_id);
-        $this->assertSame('ID Patched', $comp[0]['props']['subtitle']);
+        $this->assertSame('ID Patched', $comp[0]['props']['subheading']);
     }
 
     public function testPatchMatchFieldZeroMatches(): void

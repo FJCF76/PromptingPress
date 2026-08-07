@@ -1842,10 +1842,10 @@ function pp_resolve_component_target(array $composition, array $target) {
  * Parses a semantic composition selector string into a structured target.
  *
  * Supported patterns:
- *   hero.subtitle                              → simple type + field
+ *   hero.subheading                              → simple type + field
  *   section[title="About Us"].body             → type + match + field
  *   grid[title="Features"].items[title="X"].text → nested item targeting
- *   hero[id="pp-a1b2c3d4"].subtitle            → ID-based targeting
+ *   hero[id="pp-a1b2c3d4"].subheading            → ID-based targeting
  *
  * Escape rules: \" for literal quote inside match values, \\ for literal backslash.
  *
@@ -2299,7 +2299,7 @@ function _pp_pick_nested_match_field(string $component_type): ?string {
  * and routes through the update_component action for preview or apply.
  *
  * @param int      $post_id          The WordPress post ID.
- * @param string   $selector_string  Semantic selector (e.g. "hero.subtitle").
+ * @param string   $selector_string  Semantic selector (e.g. "hero.subheading").
  * @param string   $value            The new value for the targeted field.
  * @param bool     $preview          If true, return diff without writing.
  * @param int|null $expected_version Optimistic-locking baseline (#13) threaded into the

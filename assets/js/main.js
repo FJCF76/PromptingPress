@@ -8,7 +8,7 @@
  *      the menu is visible without JS; JS hides it and owns the toggle.
  *   2. Escape key closes the nav menu
  *   3. Closes the mobile menu when a nav link is clicked
- *   4. Sticky header anchor offset (issue 63) — keeps --header-height
+ *   4. Sticky header anchor offset (issue 63) — keeps --pp-header-height
  *      (components.css) in sync with the real rendered header height
  *
  * Active nav link: handled server-side by WordPress (current-menu-item CSS class).
@@ -35,7 +35,7 @@
     // link click, outside click, breakpoint reset) routes through here so
     // aria-expanded and `hidden` can never drift (issue 426). The open menu
     // is an out-of-flow panel, so it does NOT grow the sticky header — but we
-    // keep --header-height in sync anyway (cheap, and robust if header content
+    // keep --pp-header-height in sync anyway (cheap, and robust if header content
     // ever changes on open). A short dropdown panel, so no body scroll-lock.
     function setMenuOpen(open) {
       menu.hidden = !open;
@@ -58,7 +58,7 @@
     // ── 3. Close the menu on link click ────────────────────────────────────
     // A disclosure closes when the user navigates. Runs before the browser's
     // default anchor-scroll for the same click, so the menu is already closed
-    // (and --header-height already resynced) by the time the scroll to a
+    // (and --pp-header-height already resynced) by the time the scroll to a
     // #section-id happens — keeping the issue-63 anchor offset correct.
     menu.addEventListener('click', function (e) {
       if (e.target.tagName === 'A') {
@@ -101,7 +101,7 @@
   //
   // A jump to any #section-id (every content component's `id` prop renders
   // as one) must land with the target heading below the sticky header, not
-  // covered by it (issue 63). components.css's --header-height CSS variable
+  // covered by it (issue 63). components.css's --pp-header-height CSS variable
   // (consumed via scroll-margin-top) has a static fallback; this measures
   // the REAL rendered .site-header height — which varies by content, nav
   // menu open/closed state, breakpoint, and font loading — and keeps it
@@ -111,7 +111,7 @@
 
   function setHeaderHeightVar() {
     if (!header) return;
-    document.documentElement.style.setProperty('--header-height', header.offsetHeight + 'px');
+    document.documentElement.style.setProperty('--pp-header-height', header.offsetHeight + 'px');
   }
 
   if (header) {

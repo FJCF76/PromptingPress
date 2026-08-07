@@ -425,8 +425,8 @@ function pp_get_composition_result(int $post_id): array {
  * guarded so a partial include (some unit tests load lib/wp.php alone) degrades to
  * the raw items instead of fatally.
  *
- * TWO legacy surfaces resolve here (issue #575, ruling "resolution is render-time,
- * for slots AND props alike"):
+ * THREE legacy surfaces resolve here (issue #575, ruling "resolution is render-time,
+ * for slots AND props alike"; the third added by #576/#594):
  *
  *   1. `variant` -> `layout`/`theme` KEY migration (#69/#388) — the original shim.
  *   2. The legacy prop-KEY alias map (`pp_legacy_prop_aliases()`, #495) — added here
@@ -436,6 +436,12 @@ function pp_get_composition_result(int $post_id): array {
  *      (pp_get_composition_result / pp_get_composition) resolved neither, so the
  *      editor, `inspect`, restore's current-composition fetch and the admin preview
  *      all saw a legacy-shaped item that the renderer would have healed.
+ *   3. The legacy slot-NAME alias map (`pp_legacy_slot_aliases()`, #575) — added here
+ *      by #576/#594, in the same change as the first real rename. #575 resolved slot
+ *      names at RENDER only, which was harmless only while that map shipped empty;
+ *      populated, it would have produced pages that paint correctly and cannot be
+ *      edited or saved. Covers the component-level `style` map and every per-item
+ *      style map the schema declares. See pp_normalize_legacy_slots().
  *
  * Why the prop map belongs on the read path and not only at write: a legacy name
  * resolves at render IFF a shipped mechanism promises the already-stored document
@@ -486,6 +492,15 @@ function pp_migrate_stored_composition(array $items): array {
     if (function_exists('pp_normalize_legacy_props')) {
         $items = pp_normalize_legacy_props($items);
     }
+    // #594 surface: the legacy slot-NAME alias map. Added here by #576, in the same
+    // change as the first real rename, because render-only resolution was harmless
+    // ONLY while the map was empty: every action validates the WHOLE composition and
+    // _pp_validate_style_slot_map() does not consult the map, so one legacy slot name
+    // on one band made a targeted edit to ANY OTHER band fail with `invalid_style_slot`
+    // naming a slot the operator never typed. The page rendered and could not be
+    // edited, previewed or saved, and nothing healed it. Same heal semantics as the
+    // two surfaces above: key-only, value-preserving, render-identical, unreported.
+    $items = pp_normalize_legacy_slots($items);
     return $items;
 }
 
@@ -880,10 +895,30 @@ function pp_get_style_recipes(string $component_name): array {
  *   pp_legacy_prop_aliases()      legacy prop KEY   -> canonical prop KEY
  *   schema props.<p>.aliases      legacy prop VALUE  (accepted, never advertised)
  *
- * SHIPS EMPTY. #575 lands the mechanism only; the ~40 real slot renames move
- * through it in the canonical-vocabulary gate that follows. Shipping it empty and
- * proving it against a synthetic pair is deliberate: the mechanism is pinned by a
- * rendered test before any real name depends on it.
+ * POPULATED BY #576 with the 51 canonical-vocabulary renames. #575 shipped this
+ * map EMPTY and proved the mechanism against a synthetic pair on purpose, so the
+ * rendered pin existed before any real name depended on it.
+ *
+ * ONE entry the ratified rename table asked for is deliberately ABSENT. The table
+ * specified a two-name SWAP on the steps badge (`--grid-step-color` -> `--grid-step-bg`
+ * for the fill AND `--grid-step-text-color` -> `--grid-step-color` for the ink). A swap
+ * cannot be carried by this mechanism, for two independent reasons:
+ *
+ *   1. The CHAIN sanitizer below discards it — the second entry's target is the first
+ *      entry's legacy key — so the ink declaration would silently revert.
+ *   2. Even with the sanitizer bypassed it is UNDECIDABLE. After the rename a stored
+ *      `--grid-step-color` is indistinguishable between a legacy FILL declaration
+ *      (must become `--grid-step-bg`) and a canonically-authored INK declaration
+ *      (must stay). Keeping the alias makes the new canonical name permanently
+ *      un-authorable — every read rewrites it; dropping it repaints a legacy fill
+ *      value onto the numerals. There is no third implementation.
+ *
+ * Maintainer ruling (#570 decision record, Addendum #3): rename the FILL only.
+ * `--grid-step-color` -> `--grid-step-bg` ships; `--grid-step-text-color` KEEPS its
+ * name. That fixes the defect the rename table actually named — no `-color` slot
+ * means a fill any more — using the convention already shipped on the same component
+ * (`--grid-item-text-color`), with one sanitizer-clean alias and byte-identity for
+ * BOTH stored names.
  *
  * Why a legacy slot name resolves at all — the bounded rule, verbatim:
  *
@@ -899,20 +934,23 @@ function pp_get_style_recipes(string $component_name): array {
  * ok:true. A durability mechanism that returns success and produces an unstyled
  * page has not restored anything.
  *
- * SCOPE (stated precisely, because the two name maps are NOT symmetric and a
- * loose claim here would mislead the gate that populates this one): this map
- * resolves at RENDER ONLY. The prop-KEY map resolves on every composition READ
- * (pp_migrate_stored_composition), so a legacy-shaped prop heals through the
- * write path; a legacy SLOT name does not. It renders, but every
- * whole-composition validation still rejects it as `invalid_style_slot`, so a
- * document carrying one renders correctly and cannot be edited or saved. That is
- * harmless while the map is empty and no name has been renamed. It is NOT
- * harmless once real names move through it — see the write-path gap tracked for
- * the canonical-vocabulary gate, which must land read-path resolution (or a
- * validation-time alias check) in the SAME change as the first rename.
+ * SCOPE — the two name maps are now SYMMETRIC (issue #594, closed by #576 in the
+ * same change as the first rename). This map resolves on every composition READ
+ * (pp_migrate_stored_composition -> pp_normalize_legacy_slots) AND again at the
+ * render boundary (pp_render_style_vars), exactly as the prop-KEY map does.
+ *
+ * Why the read path is not optional. #575 shipped render-only resolution, which was
+ * harmless only while this map was empty. Every action validates the WHOLE
+ * composition, and _pp_validate_style_slot_map() does not consult this map, so one
+ * legacy slot name on one band made a targeted edit to ANY OTHER band fail with
+ * `invalid_style_slot` naming a slot the operator never typed. The page rendered
+ * correctly and could not be edited, previewed or saved, and nothing healed it —
+ * a different silent failure from the one this mechanism removed, not an
+ * improvement on it. Resolving on read makes validation, preview and the
+ * whole-array write-back all see canonical names.
  *
  * Filterable so the mechanism can be exercised end-to-end against a synthetic
- * alias pair while the shipped map is empty (mirrors the
+ * alias pair independently of the shipped map (mirrors the
  * `pp_allow_unsafe_theme_update` filter in lib/setup.php). The filtered value is
  * SHAPE-SANITIZED, not merely type-checked: a filter is arbitrary third-party
  * code on the public render path, and an unsanitized nested array reaches
@@ -931,7 +969,75 @@ function pp_get_style_recipes(string $component_name): array {
  * @return array<string, array<string, string>>  component => [legacy slot => canonical slot]
  */
 function pp_legacy_slot_aliases(): array {
-    $map = [];
+    $map = [
+        'hero' => [
+            '--hero-title-size'         => '--hero-heading-size',
+            '--hero-title-weight'       => '--hero-heading-weight',
+            '--hero-title-accent-color' => '--hero-heading-accent-color',
+            '--hero-text'               => '--hero-heading-color',
+            '--hero-subtitle-size'      => '--hero-subheading-size',
+            '--hero-subtitle-color'     => '--hero-subheading-color',
+            '--hero-cta2-bg'            => '--hero-button2-bg',
+            '--hero-cta2-border'        => '--hero-button2-border',
+            '--hero-cta2-color'         => '--hero-button2-color',
+            '--hero-cta2-hover-bg'      => '--hero-button2-hover-bg',
+            '--hero-cta2-hover-border'  => '--hero-button2-hover-border',
+            '--hero-cta2-hover-color'   => '--hero-button2-hover-color',
+        ],
+        'section' => [
+            '--section-title-size'          => '--section-heading-size',
+            '--section-title-color'         => '--section-heading-color',
+            '--section-title-accent-color'  => '--section-heading-accent-color',
+            '--section-title-margin-bottom' => '--section-heading-margin-bottom',
+            '--section-text'                => '--section-body-color',
+            '--section-accent'              => '--section-body-link-color',
+            '--section-body-width'          => '--section-body-measure',
+        ],
+        'cta' => [
+            '--cta-title-size'         => '--cta-heading-size',
+            '--cta-title-accent-color' => '--cta-heading-accent-color',
+            '--cta-text'               => '--cta-heading-color',
+            '--cta-content-width'      => '--cta-heading-measure',
+        ],
+        'stats' => [
+            '--stats-title-size'         => '--stats-heading-size',
+            '--stats-title-color'        => '--stats-heading-color',
+            '--stats-title-accent-color' => '--stats-heading-accent-color',
+        ],
+        'grid' => [
+            '--grid-card-bg'           => '--grid-item-bg',
+            '--grid-card-border'       => '--grid-item-border-color',
+            '--grid-card-border-width' => '--grid-item-border-width',
+            '--grid-card-radius'       => '--grid-item-radius',
+            '--grid-card-shadow'       => '--grid-item-shadow',
+            '--grid-card-padding'      => '--grid-item-padding',
+            '--grid-card-gap'          => '--grid-item-gap',
+            '--grid-card-bar-color'    => '--grid-item-bar-color',
+            '--grid-card-bar-height'   => '--grid-item-bar-height',
+            '--grid-bullet-color'      => '--grid-item-bullet-color',
+            '--grid-link-color'        => '--grid-item-link-color',
+            '--grid-heading-max-width' => '--grid-heading-measure',
+            '--grid-step-color'        => '--grid-step-bg',
+        ],
+        'testimonials' => [
+            '--testimonials-card-bg'           => '--testimonials-item-bg',
+            '--testimonials-card-border'       => '--testimonials-item-border-color',
+            '--testimonials-card-border-width' => '--testimonials-item-border-width',
+            '--testimonials-card-padding'      => '--testimonials-item-padding',
+            '--testimonials-card-radius'       => '--testimonials-item-radius',
+            '--testimonials-card-shadow'       => '--testimonials-item-shadow',
+        ],
+        'faq' => [
+            '--faq-border-color' => '--faq-item-border-color',
+            '--faq-accent'       => '--faq-question-open-color',
+        ],
+        'table' => [
+            '--table-section-heading-color'  => '--table-heading-color',
+            '--table-section-heading-size'   => '--table-heading-size',
+            '--table-section-padding-bottom' => '--table-padding-bottom',
+            '--table-section-padding-top'    => '--table-padding-top',
+        ],
+    ];
 
     $filtered = apply_filters('pp_legacy_slot_aliases', $map);
     if (!is_array($filtered)) {
@@ -972,6 +1078,177 @@ function pp_legacy_slot_aliases(): array {
     }
 
     return $clean;
+}
+
+/**
+ * Canonicalizes legacy style-slot NAMES in ONE slot map (issue #594).
+ *
+ * The slot counterpart of _pp_apply_legacy_prop_aliases() (lib/admin.php), and the
+ * READ-path half of the resolution #575 shipped render-only. Together they make the
+ * two name maps symmetric: a legacy name that RENDERS is also a legacy name the
+ * document can be EDITED and SAVED with.
+ *
+ *   stored style map
+ *        │
+ *        ├─ read  → _pp_apply_legacy_slot_aliases()   ← THIS function
+ *        │            → validation / preview / editor / whole-array write-back
+ *        │              all see canonical names
+ *        │
+ *        └─ render → pp_render_style_vars()           ← belt-and-braces, unchanged
+ *
+ * CANONICAL-WINS, mirroring the prop-key contract: a map carrying BOTH names keeps
+ * the canonical value and drops the legacy one. But — exactly as at render —
+ * canonical wins only when it will ACTUALLY PAINT. Presence alone is not authority:
+ * deferring to a canonical declaration that is undeclared, empty, or rejected by the
+ * #330 render boundary would drop BOTH and leave the band unstyled. The test is made
+ * through pp_style_declaration_renders(), the SAME predicate pp_render_style_vars()
+ * consults, so read and render can never disagree about which of the two carries the
+ * value — two hand-rolled copies would be two grammars, and the one that drifted
+ * would drop styling silently.
+ *
+ * @param  array  $style           A stored slot => value map.
+ * @param  string $component_name  Component name, e.g. 'hero'.
+ * @return array                   The map with recognized legacy slot names canonicalized.
+ */
+function _pp_apply_legacy_slot_aliases(array $style, string $component_name): array {
+    $aliases = pp_legacy_slot_aliases()[$component_name] ?? [];
+    if ($aliases === []) {
+        return $style;
+    }
+
+    // The registry lives in lib/admin.php; some unit tests load lib/wp.php alone, and
+    // pp_migrate_stored_composition() promises a partial include degrades to the raw items
+    // rather than fataling. Without this the promise is broken for any item carrying a
+    // component-level style map.
+    if (!function_exists('pp_get_registered_components')) {
+        return $style;
+    }
+
+    $slots = pp_get_style_slots($component_name);
+    // NO SCHEMA, NO HEAL. A component that has alias entries always declares slots, so an
+    // empty set means the schema is unreadable — components/ absent mid-deploy, a
+    // template_directory filter pointing elsewhere, or one malformed schema.json. Healing
+    // anyway would INVERT canonical-wins: pp_style_declaration_renders() is false for
+    // every name, so the canonical twin never "paints", and the stale LEGACY value would
+    // overwrite the author's canonical one under the canonical key. Unlike
+    // pp_render_style_vars(), this path's answer is written back to the database by the
+    // read-modify-write actions, so that substitution would be permanent.
+    if ($slots === []) {
+        return $style;
+    }
+
+    $resolved = [];
+
+    foreach ($style as $name => $value) {
+        if (is_string($name) && isset($aliases[$name])) {
+            $canonical = $aliases[$name];
+            if (array_key_exists($canonical, $style)
+                && pp_style_declaration_renders($canonical, $style[$canonical], $slots)) {
+                continue; // Canonical wins, and it paints: drop the stale legacy name.
+            }
+            // The legacy declaration carries the value. Assign UNCONDITIONALLY: a
+            // non-rendering canonical twin seen earlier in this loop must be
+            // overwritten by it, not preserved alongside it.
+            $resolved[$canonical] = $value;
+            continue;
+        }
+        // The mirror case — a canonical declaration reached AFTER its legacy twin
+        // already claimed the key (because this one cannot render) must not clobber
+        // it on the way past.
+        if (array_key_exists($name, $resolved)) {
+            continue;
+        }
+        $resolved[$name] = $value;
+    }
+
+    return $resolved;
+}
+
+/**
+ * Canonicalizes legacy slot names on ONE composition item (issue #594): the
+ * component-level `style` map and every PER-ITEM style map the component declares.
+ *
+ * Per-item maps are discovered from the SCHEMA — every array-typed prop whose `items`
+ * definition declares a `style` key — which is exactly how the validator discovers
+ * them (lib/admin.php, the _pp_validate_style_slot_map() caller). Schema-derived
+ * rather than a hardcoded `items`/`panel_items` list, so a component that gains a
+ * per-item style surface is covered without touching this function, and read
+ * resolution can never cover less ground than the validation it feeds.
+ *
+ * @param  array $item  One composition item ({component|type, style, props}).
+ * @return array        The item with recognized legacy slot names canonicalized.
+ */
+function _pp_resolve_item_legacy_slots(array $item): array {
+    // A corrupt/raw-written item (reached via restore's normalize over arbitrary
+    // history-ring snapshots) can carry a non-scalar component key; casting it would
+    // emit "Array to string conversion". No alias map applies to a malformed name
+    // anyway — mirrors the guard in _pp_apply_legacy_prop_aliases().
+    $raw_component = $item['component'] ?? $item['type'] ?? '';
+    if (!is_scalar($raw_component)) {
+        return $item;
+    }
+    $component = (string) $raw_component;
+    if ((pp_legacy_slot_aliases()[$component] ?? []) === []) {
+        return $item;
+    }
+    // Registry guard FIRST, so the whole item degrades uniformly under a partial include
+    // rather than resolving the component-level style and silently skipping per-item maps.
+    if (!function_exists('pp_get_registered_components')) {
+        return $item;
+    }
+
+    if (isset($item['style']) && is_array($item['style'])) {
+        $item['style'] = _pp_apply_legacy_slot_aliases($item['style'], $component);
+    }
+
+    if (!isset($item['props']) || !is_array($item['props'])) {
+        return $item;
+    }
+    $schema = pp_get_registered_components()[$component] ?? null;
+    if (!is_array($schema) || empty($schema['props'])) {
+        return $item;
+    }
+
+    foreach ($schema['props'] as $prop_name => $prop_def) {
+        if (($prop_def['type'] ?? null) !== 'array' || !isset($prop_def['items']['style'])) {
+            continue;
+        }
+        if (!isset($item['props'][$prop_name]) || !is_array($item['props'][$prop_name])) {
+            continue;
+        }
+        foreach ($item['props'][$prop_name] as $index => $element) {
+            if (!is_array($element) || !isset($element['style']) || !is_array($element['style'])) {
+                continue;
+            }
+            $item['props'][$prop_name][$index]['style'] =
+                _pp_apply_legacy_slot_aliases($element['style'], $component);
+        }
+    }
+
+    return $item;
+}
+
+/**
+ * Array wrapper for _pp_resolve_item_legacy_slots() (issue #594): canonicalizes
+ * recognized legacy slot names across every item of a composition.
+ *
+ * The slot-surface twin of pp_normalize_legacy_props() (lib/admin.php). Runs on every
+ * composition READ via pp_migrate_stored_composition(), so the same
+ * mass-heal-on-write-back property the prop surface has had since #575 now covers
+ * slots: a read-modify-write action stores canonical slot names for untouched bands.
+ * The heal is key-only and render-identical — both shapes already resolved to the
+ * same canonical declarations at render.
+ *
+ * @param  array $items  Composition array.
+ * @return array         Items with recognized legacy slot names canonicalized.
+ */
+function pp_normalize_legacy_slots(array $items): array {
+    foreach ($items as $i => $item) {
+        if (is_array($item)) {
+            $items[$i] = _pp_resolve_item_legacy_slots($item);
+        }
+    }
+    return $items;
 }
 
 /**
@@ -3974,36 +4251,36 @@ function pp_default_homepage_composition(): array {
             'eyebrow'       => 'Open-source AI-first WordPress theme',
             'title'         => 'Turn AI-assisted site drafts into maintainable WordPress composition.',
             'title_accent'  => 'maintainable',
-            'subtitle'      => 'PromptingPress gives small WordPress teams a bounded page-composition layer. AI drafts sections, humans inspect props and style slots, and every change can be validated and screenshotted before review.',
-            'cta_text'      => 'View theme on GitHub',
-            'cta_url'       => 'https://github.com/FJCF76/PromptingPress',
+            'subheading'      => 'PromptingPress gives small WordPress teams a bounded page-composition layer. AI drafts sections, humans inspect props and style slots, and every change can be validated and screenshotted before review.',
+            'button_text'      => 'View theme on GitHub',
+            'button_url'       => 'https://github.com/FJCF76/PromptingPress',
             // Both hero CTAs are outline: on the dark hero the filled premium
             // `.btn` bevel is a fixed blue gradient driven by the GLOBAL
             // --color-accent/--btn-bg tokens (a fresh install has no token
             // override), so --hero-accent alone cannot repaint it, and the ghost
-            // variant's text is not reachable by --hero-cta2-color. Outline
-            // clears that gradient and tracks --hero-text (cream), hover-filling
+            // variant's text is not reachable by --hero-button2-color. Outline
+            // clears that gradient and tracks --hero-heading-color (cream), hover-filling
             // with --hero-accent (orange) — on-brand, restrained hero CTAs. The
             // one filled orange button stays the closing CTA (--cta-button-bg).
-            'cta_variant'   => 'outline',
-            'cta2_text'     => 'See how it works',
-            'cta2_url'      => '#home-mechanism',
-            'cta2_variant'  => 'outline',
+            'button_variant'   => 'outline',
+            'button2_text'     => 'See how it works',
+            'button2_url'      => '#home-mechanism',
+            'button2_variant'  => 'outline',
             'layout'        => 'split',
             'split_ratio'   => '60-40',
             'vertical_align' => 'stretch',
             'proof'         => '<p class="hero__surface-label">Composition workflow</p><div class="hero__surface-list"><div class="hero__surface-item"><span class="hero__surface-key">Read</span><span class="hero__surface-value">Structured site context</span></div><div class="hero__surface-item"><span class="hero__surface-key">Edit</span><span class="hero__surface-value">Bounded props, not builder clutter</span></div><div class="hero__surface-item"><span class="hero__surface-key">Validate</span><span class="hero__surface-value">Screenshot-backed before review</span></div></div>',
         ], 'style' => [
             '--hero-bg'                  => 'radial-gradient(circle at 78% 24%, #3A1D1D 0%, #14141F 44%, #0A0A12 100%)',
-            '--hero-text'               => '#F2EEE5',
-            '--hero-subtitle-color'     => '#E8E2D4',
+            '--hero-heading-color'               => '#F2EEE5',
+            '--hero-subheading-color'     => '#E8E2D4',
             '--hero-padding-top'        => '7rem',
             '--hero-padding-bottom'     => '6rem',
             '--hero-content-width'      => '64rem',
-            '--hero-title-size'         => 'clamp(2.75rem, 5vw, 4.75rem)',
+            '--hero-heading-size'         => 'clamp(2.75rem, 5vw, 4.75rem)',
             '--hero-accent'             => '#FF5C2E',
             '--hero-accent-hover'       => '#C73310',
-            '--hero-title-accent-color' => '#FF5C2E',
+            '--hero-heading-accent-color' => '#FF5C2E',
             '--hero-eyebrow-color'      => '#FF5C2E',
             '--hero-eyebrow-bg'         => '#14141F',
             '--hero-eyebrow-border-color' => 'rgba(255, 92, 46, 0.4)',
@@ -4029,9 +4306,9 @@ function pp_default_homepage_composition(): array {
             '--section-bg'                => '#F2EEE5',
             '--section-border-color'      => '#E8E2D4',
             '--section-border-width'      => '1px',
-            '--section-title-size'        => 'clamp(1.9rem, 3vw, 2.9rem)',
-            '--section-title-accent-color' => '#FF5C2E',
-            '--section-body-width'        => '46rem',
+            '--section-heading-size'        => 'clamp(1.9rem, 3vw, 2.9rem)',
+            '--section-heading-accent-color' => '#FF5C2E',
+            '--section-body-measure'        => '46rem',
             '--section-eyebrow-color'     => '#FF5C2E',
             '--section-eyebrow-bg'        => '#FBF8F1',
             '--section-eyebrow-border-color' => '#E8E2D4',
@@ -4060,8 +4337,8 @@ function pp_default_homepage_composition(): array {
             '--section-bg'                => '#FBF8F1',
             '--section-border-color'      => '#E8E2D4',
             '--section-border-width'      => '1px',
-            '--section-title-size'        => 'clamp(1.9rem, 3vw, 2.9rem)',
-            '--section-title-accent-color' => '#FF5C2E',
+            '--section-heading-size'        => 'clamp(1.9rem, 3vw, 2.9rem)',
+            '--section-heading-accent-color' => '#FF5C2E',
             '--section-eyebrow-color'     => '#FF5C2E',
             '--section-eyebrow-bg'        => '#F2EEE5',
             '--section-eyebrow-border-color' => '#E8E2D4',
@@ -4094,22 +4371,22 @@ function pp_default_homepage_composition(): array {
             '--grid-heading-color'       => '#F2EEE5',
             '--grid-heading-accent-color' => '#FF5C2E',
             '--grid-heading-size'        => 'clamp(1.9rem, 3vw, 2.9rem)',
-            '--grid-heading-max-width'   => '44rem',
+            '--grid-heading-measure'   => '44rem',
             '--grid-subheading-color'    => '#E8E2D4',
             '--grid-eyebrow-color'       => '#FF5C2E',
             '--grid-eyebrow-bg'          => '#14141F',
             '--grid-eyebrow-border-color' => '#3A2A1E',
             '--grid-eyebrow-border-width' => '1px',
-            '--grid-card-bg'             => '#F2EEE5',
-            '--grid-card-border'         => '#E8E2D4',
-            '--grid-card-border-width'   => '1px',
-            '--grid-card-radius'         => '4px',
-            '--grid-card-bar-color'      => '#FF5C2E',
-            '--grid-card-bar-height'     => '3px',
-            '--grid-card-shadow'         => '0 18px 38px rgba(0, 0, 0, 0.18)',
+            '--grid-item-bg'             => '#F2EEE5',
+            '--grid-item-border-color'         => '#E8E2D4',
+            '--grid-item-border-width'   => '1px',
+            '--grid-item-radius'         => '4px',
+            '--grid-item-bar-color'      => '#FF5C2E',
+            '--grid-item-bar-height'     => '3px',
+            '--grid-item-shadow'         => '0 18px 38px rgba(0, 0, 0, 0.18)',
             '--grid-item-title-color'    => '#0A0A12',
             '--grid-item-text-color'     => '#3A3A44',
-            '--grid-bullet-color'        => '#FF5C2E',
+            '--grid-item-bullet-color'        => '#FF5C2E',
         ]],
 
         // 5 — Maintainability / proof band (warm cream), prose + workflow strip.
@@ -4126,9 +4403,9 @@ function pp_default_homepage_composition(): array {
             '--section-bg'                => '#F2EEE5',
             '--section-border-color'      => '#E8E2D4',
             '--section-border-width'      => '1px',
-            '--section-title-size'        => 'clamp(1.9rem, 3vw, 2.9rem)',
-            '--section-title-accent-color' => '#FF5C2E',
-            '--section-body-width'        => '46rem',
+            '--section-heading-size'        => 'clamp(1.9rem, 3vw, 2.9rem)',
+            '--section-heading-accent-color' => '#FF5C2E',
+            '--section-body-measure'        => '46rem',
             '--section-eyebrow-color'     => '#FF5C2E',
             '--section-eyebrow-bg'        => '#FBF8F1',
             '--section-eyebrow-border-color' => '#E8E2D4',
@@ -4142,20 +4419,20 @@ function pp_default_homepage_composition(): array {
             'eyebrow'       => 'Get started',
             'title'         => 'Get the open-source PromptingPress theme.',
             'title_accent'  => 'PromptingPress',
-            'text'          => 'PromptingPress is on GitHub for WordPress teams that want an AI-first theme built around inspectable composition, bounded edits, validation, and review evidence.',
+            'body'          => 'PromptingPress is on GitHub for WordPress teams that want an AI-first theme built around inspectable composition, bounded edits, validation, and review evidence.',
             'button_text'   => 'View theme on GitHub',
             'button_url'    => 'https://github.com/FJCF76/PromptingPress',
             'button_variant' => 'primary',
             'layout'        => 'full-width',
         ], 'style' => [
             '--cta-bg'                  => '#0A0A12',
-            '--cta-text'                => '#F2EEE5',
+            '--cta-heading-color'                => '#F2EEE5',
             '--cta-body-color'          => '#E8E2D4',
             '--cta-padding-top'         => '5.5rem',
             '--cta-padding-bottom'      => '5.5rem',
-            '--cta-content-width'       => '48rem',
-            '--cta-title-size'          => 'clamp(2rem, 3vw, 3.1rem)',
-            '--cta-title-accent-color'  => '#FF5C2E',
+            '--cta-heading-measure'       => '48rem',
+            '--cta-heading-size'          => 'clamp(2rem, 3vw, 3.1rem)',
+            '--cta-heading-accent-color'  => '#FF5C2E',
             '--cta-accent'              => '#FF5C2E',
             '--cta-accent-hover'        => '#C73310',
             '--cta-button-bg'           => '#FF5C2E',

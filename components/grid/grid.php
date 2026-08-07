@@ -14,7 +14,7 @@ $title         = $props['title']         ?? '';
 $title_accent  = $props['title_accent']  ?? '';
 $eyebrow       = $props['eyebrow']       ?? '';
 $subheading    = $props['subheading']    ?? '';
-$heading_align = $props['heading_align'] ?? 'start';
+$title_align = $props['title_align'] ?? 'start';
 $items   = $props['items']   ?? [];
 $layout  = $props['layout']  ?? 'cards';
 $theme   = $props['theme']   ?? 'default';
@@ -30,9 +30,9 @@ if (!in_array($card_emphasis, $allowed_card_emphasis, true)) {
     $card_emphasis = 'featured';
 }
 
-$allowed_heading_aligns = ['start', 'center'];
-if (!in_array($heading_align, $allowed_heading_aligns, true)) {
-    $heading_align = 'start';
+$allowed_title_aligns = ['start', 'center'];
+if (!in_array($title_align, $allowed_title_aligns, true)) {
+    $title_align = 'start';
 }
 
 // Explicit desktop column-count override (issue 379). Write-time validation
@@ -53,7 +53,7 @@ $columns = (is_int($columns_raw) || (is_string($columns_raw) && preg_match('/^\d
 $columns_attr = (!$columns_is_steps && $columns >= 1 && $columns <= 4)
     ? ' data-pp-columns="' . esc_attr((string) $columns) . '"'
     : '';
-$header_align_class = $heading_align === 'center' ? ' grid__header--center' : '';
+$header_align_class = $title_align === 'center' ? ' grid__header--center' : '';
 
 $is_steps      = $layout === 'steps';
 $layout_class  = $is_steps ? ' grid--steps' : '';

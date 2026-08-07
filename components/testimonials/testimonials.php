@@ -13,7 +13,7 @@ $title         = $props['title']         ?? '';
 $title_accent  = $props['title_accent']  ?? '';
 $eyebrow       = $props['eyebrow']       ?? '';
 $subheading    = $props['subheading']    ?? '';
-$heading_align = $props['heading_align'] ?? 'start';
+$title_align = $props['title_align'] ?? 'start';
 $items   = $props['items']   ?? [];
 $layout  = $props['layout']  ?? 'grid';
 $theme   = $props['theme']   ?? 'default';
@@ -23,11 +23,11 @@ if (!in_array($layout, $allowed_layouts, true)) {
     $layout = 'grid';
 }
 
-$allowed_heading_aligns = ['start', 'center'];
-if (!in_array($heading_align, $allowed_heading_aligns, true)) {
-    $heading_align = 'start';
+$allowed_title_aligns = ['start', 'center'];
+if (!in_array($title_align, $allowed_title_aligns, true)) {
+    $title_align = 'start';
 }
-$header_align_class = $heading_align === 'center' ? ' testimonials__header--center' : '';
+$header_align_class = $title_align === 'center' ? ' testimonials__header--center' : '';
 
 $is_stack      = $layout === 'stack';
 $layout_class  = $is_stack ? ' testimonials--stack' : '';

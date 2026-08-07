@@ -156,10 +156,10 @@ class SchemaValidationTest extends TestCase
         $schemaFile = $this->themeRoot . '/components/hero/schema.json';
         $schema     = json_decode(file_get_contents($schemaFile), true);
 
-        $this->assertArrayHasKey('subtitle', $schema['props']);
+        $this->assertArrayHasKey('subheading', $schema['props']);
         $this->assertEmpty(
-            $schema['props']['subtitle']['required'] ?? false,
-            "Hero 'subtitle' prop should be optional (required = false or absent)."
+            $schema['props']['subheading']['required'] ?? false,
+            "Hero 'subheading' prop should be optional (required = false or absent)."
         );
     }
 
@@ -246,7 +246,7 @@ class SchemaValidationTest extends TestCase
     {
         $expected = [
             'hero'    => 45,
-            'section' => 43,
+            'section' => 44,
             'grid'    => 37,
             'cta'     => 37,
         ];
@@ -373,8 +373,8 @@ class SchemaValidationTest extends TestCase
 
         $this->assertArrayHasKey('--hero-padding-top', $slots);
         $this->assertArrayHasKey('--hero-bg', $slots);
-        $this->assertArrayHasKey('--hero-text', $slots);
-        $this->assertArrayHasKey('--hero-title-size', $slots);
+        $this->assertArrayHasKey('--hero-heading-color', $slots);
+        $this->assertArrayHasKey('--hero-heading-size', $slots);
         $this->assertEquals('length', $slots['--hero-padding-top']['type']);
         $this->assertEquals('gradient', $slots['--hero-bg']['type']);
     }
@@ -407,7 +407,7 @@ class SchemaValidationTest extends TestCase
      * Decision 4 (eng review): every styleable component must declare the common
      * visual-control slots — border-color, border-width, radius, shadow — in its
      * own namespace. An explicit map (not a fragile suffix rule) preserves grid's
-     * historical card-namespaced name (--grid-card-border) while enforcing full,
+     * historical card-namespaced name (--grid-item-border-color) while enforcing full,
      * consistent coverage. Dropping one of these slots, or adding a styleable
      * component without them, fails CI. Pairs with StyleSlotContractTest, which
      * proves each declared slot is actually consumed in CSS.
@@ -417,7 +417,7 @@ class SchemaValidationTest extends TestCase
         $expected = [
             'hero'    => ['--hero-border-color', '--hero-border-width', '--hero-radius', '--hero-shadow'],
             'section' => ['--section-border-color', '--section-border-width', '--section-radius', '--section-shadow'],
-            'grid'    => ['--grid-card-border', '--grid-card-border-width', '--grid-card-radius', '--grid-card-shadow'],
+            'grid'    => ['--grid-item-border-color', '--grid-item-border-width', '--grid-item-radius', '--grid-item-shadow'],
             'cta'     => ['--cta-border-color', '--cta-border-width', '--cta-radius', '--cta-shadow'],
         ];
         // concept index → required type: [border-color, border-width, radius, shadow].
@@ -912,7 +912,7 @@ class SchemaValidationTest extends TestCase
     public function testGridFeaturedRemnantSlotsAcceptNeutralizers(): void
     {
         $result = pp_validate_composition($this->gridCompositionWithStyle([
-            '--grid-card-bar-height'        => '0',
+            '--grid-item-bar-height'        => '0',
             '--grid-featured-texture-color' => 'transparent',
             '--grid-featured-shadow'        => 'none',
         ]));
@@ -922,8 +922,8 @@ class SchemaValidationTest extends TestCase
     public function testGridFeaturedRemnantSlotsAcceptTypedValues(): void
     {
         $result = pp_validate_composition($this->gridCompositionWithStyle([
-            '--grid-card-bar-height'        => '4px',
-            '--grid-card-bar-color'         => 'linear-gradient(90deg, #ea3900, #b32b00)',
+            '--grid-item-bar-height'        => '4px',
+            '--grid-item-bar-color'         => 'linear-gradient(90deg, #ea3900, #b32b00)',
             '--grid-featured-texture-color' => 'rgba(37, 99, 235, 0.028)',
             '--grid-featured-shadow'        => '0 10px 24px rgba(15, 23, 42, 0.055)',
         ]));
@@ -932,9 +932,9 @@ class SchemaValidationTest extends TestCase
 
     public function testGridCardBarColorAcceptsPlainColor(): void
     {
-        // gradient-typed slots accept plain colors too (the --grid-card-bg precedent).
+        // gradient-typed slots accept plain colors too (the --grid-item-bg precedent).
         $result = pp_validate_composition($this->gridCompositionWithStyle([
-            '--grid-card-bar-color' => '#e6e8eb',
+            '--grid-item-bar-color' => '#e6e8eb',
         ]));
         $this->assertTrue($result);
     }
@@ -953,10 +953,10 @@ class SchemaValidationTest extends TestCase
     public static function featuredRemnantCrossTypeProvider(): array
     {
         return [
-            'color into bar-height'     => ['--grid-card-bar-height', '#ff0000'],
+            'color into bar-height'     => ['--grid-item-bar-height', '#ff0000'],
             'length into texture-color' => ['--grid-featured-texture-color', '2rem'],
             'keyword into shadow'       => ['--grid-featured-shadow', 'blue-glow'],
-            'shadow into bar-color'     => ['--grid-card-bar-color', '0 10px 24px rgba(0, 0, 0, 0.1)'],
+            'shadow into bar-color'     => ['--grid-item-bar-color', '0 10px 24px rgba(0, 0, 0, 0.1)'],
         ];
     }
 
@@ -967,9 +967,9 @@ class SchemaValidationTest extends TestCase
 
         $this->assertArrayHasKey('uniform-cards', $recipes, 'issue 293 acceptance: the uniform row must be a documented recipe.');
         $slots = $recipes['uniform-cards']['slots'] ?? [];
-        $this->assertSame('0', $slots['--grid-card-bar-height'] ?? null);
+        $this->assertSame('0', $slots['--grid-item-bar-height'] ?? null);
         $this->assertSame('transparent', $slots['--grid-featured-texture-color'] ?? null);
-        $this->assertArrayHasKey('--grid-card-shadow', $slots, 'Uniformity needs one shared shadow on all cards, not a missing featured glow.');
+        $this->assertArrayHasKey('--grid-item-shadow', $slots, 'Uniformity needs one shared shadow on all cards, not a missing featured glow.');
 
         // Every recipe value must be valid for its slot's declared type — a recipe
         // that expands into rejected values would fail at apply time.
@@ -1011,15 +1011,15 @@ class SchemaValidationTest extends TestCase
         // The two page-136 cases: a dark panel card and a green terminal card,
         // both expressed purely through per-item slots.
         $darkPanel = $this->gridCompositionWithItemStyle([
-            '--grid-card-bg'          => '#0f172a',
-            '--grid-card-border'      => '#0f172a',
+            '--grid-item-bg'          => '#0f172a',
+            '--grid-item-border-color'      => '#0f172a',
             '--grid-item-title-color' => '#f8fafc',
             '--grid-item-text-color'  => '#cbd5e1',
         ]);
         $this->assertTrue(pp_validate_composition($darkPanel), 'A dark panel card must validate through the shared engine.');
 
         $terminal = $this->gridCompositionWithItemStyle([
-            '--grid-card-bg'         => '#0b0f0a',
+            '--grid-item-bg'         => '#0b0f0a',
             '--grid-item-text-color' => '#22c55e',
         ]);
         $this->assertTrue(pp_validate_composition($terminal), 'A green terminal card must validate through the shared engine.');
@@ -1030,7 +1030,7 @@ class SchemaValidationTest extends TestCase
         // Item slots accept the full grammar their type allows, same as grid-level:
         // registered var(--token) colors and gradients.
         $result = pp_validate_composition($this->gridCompositionWithItemStyle([
-            '--grid-card-bg'          => 'linear-gradient(180deg, #0f172a 0%, #1e293b 100%)',
+            '--grid-item-bg'          => 'linear-gradient(180deg, #0f172a 0%, #1e293b 100%)',
             '--grid-item-title-color' => 'var(--color-text)',
         ]));
         $this->assertTrue($result);
@@ -1061,7 +1061,7 @@ class SchemaValidationTest extends TestCase
         // The injection guard ({ } ; < >) applies to item-level values too, since
         // the value reaches an inline style attribute at render.
         $result = pp_validate_composition($this->gridCompositionWithItemStyle([
-            '--grid-card-bg' => '#000; } body { display:none',
+            '--grid-item-bg' => '#000; } body { display:none',
         ]));
         $this->assertInstanceOf(\WP_Error::class, $result);
         $this->assertSame('invalid_style_value', $result->get_error_code());
@@ -1071,8 +1071,8 @@ class SchemaValidationTest extends TestCase
     {
         // Grid-level style stays valid while an item overrides one slot.
         $result = pp_validate_composition($this->gridCompositionWithItemStyle(
-            ['--grid-card-bg' => '#0f172a'],
-            ['--grid-card-bg' => 'var(--color-surface)', '--grid-gap' => '2rem']
+            ['--grid-item-bg' => '#0f172a'],
+            ['--grid-item-bg' => 'var(--color-surface)', '--grid-gap' => '2rem']
         ));
         $this->assertTrue($result);
     }
@@ -1205,11 +1205,11 @@ class SchemaValidationTest extends TestCase
         // are consumed within the .grid__item subtree (bar/texture ::before pseudos,
         // .pp-step-number child), so they must be usable per card (issue 323 AC).
         $result = pp_validate_composition($this->gridCompositionWithItemStyleMap([
-            '--grid-card-bar-color'         => '#123456',
-            '--grid-card-bar-height'        => '4px',
+            '--grid-item-bar-color'         => '#123456',
+            '--grid-item-bar-height'        => '4px',
             '--grid-featured-texture-color' => '#123456',
             '--grid-featured-shadow'        => 'none',
-            '--grid-step-color'             => '#123456',
+            '--grid-step-bg'             => '#123456',
             '--grid-step-text-color'        => '#654321',
         ]));
         $this->assertTrue($result, 'The #293 featured/bar slots and the steps badge fill/text slots must be accepted per card.');
@@ -1254,7 +1254,7 @@ class SchemaValidationTest extends TestCase
         ]));
         $this->assertInstanceOf(\WP_Error::class, $result);
         $this->assertSame('invalid_style_slot', $result->get_error_code());
-        $this->assertStringContainsString('--grid-card-bg', $result->get_error_message());
+        $this->assertStringContainsString('--grid-item-bg', $result->get_error_message());
         $this->assertStringNotContainsString('--grid-gap', $result->get_error_message());
     }
 
@@ -1304,13 +1304,13 @@ class SchemaValidationTest extends TestCase
         $scopes = self::gridSlotScopes();
         $this->assertSame(
             [
-                '--grid-card-bg', '--grid-card-border', '--grid-card-border-width',
-                '--grid-card-radius', '--grid-card-shadow', '--grid-card-bar-color',
-                '--grid-card-bar-height', '--grid-featured-texture-color',
-                '--grid-featured-shadow', '--grid-card-padding', '--grid-card-gap',
+                '--grid-item-bg', '--grid-item-border-color', '--grid-item-border-width',
+                '--grid-item-radius', '--grid-item-shadow', '--grid-item-bar-color',
+                '--grid-item-bar-height', '--grid-featured-texture-color',
+                '--grid-featured-shadow', '--grid-item-padding', '--grid-item-gap',
                 '--grid-item-text-align', '--grid-item-icon-size',
                 '--grid-item-title-size', '--grid-item-title-color', '--grid-item-text-color',
-                '--grid-bullet-color', '--grid-link-color', '--grid-step-color',
+                '--grid-item-bullet-color', '--grid-item-link-color', '--grid-step-bg',
                 '--grid-step-text-color',
             ],
             array_keys($scopes['eligible']),
@@ -1325,7 +1325,7 @@ class SchemaValidationTest extends TestCase
                 '--grid-eyebrow-text-transform',
                 '--grid-subheading-color',
                 '--grid-subheading-margin-bottom', '--grid-heading-margin-bottom',
-                '--grid-heading-size', '--grid-heading-max-width', '--grid-gap',
+                '--grid-heading-size', '--grid-heading-measure', '--grid-gap',
             ],
             $scopes['ineligible'],
             'The container/heading-scoped set drifted from issue 323.'
@@ -1396,7 +1396,7 @@ class SchemaValidationTest extends TestCase
     {
         $result = pp_validate_composition([
             ['component' => 'cta', 'props' => [
-                'title' => 'T', 'text' => 'x', 'button_text' => 'Go', 'button_url' => '#',
+                'title' => 'T', 'body' => 'x', 'button_text' => 'Go', 'button_url' => '#',
                 'phantom_field' => 'oops',
             ]],
         ]);
@@ -2264,18 +2264,18 @@ class SchemaValidationTest extends TestCase
      * intentionally ADD a prop, append it here in the same change.
      */
     private const PINNED_PROP_BASELINE = [
-        'cta'          => ['id', 'title', 'title_accent', 'eyebrow', 'text', 'button_text', 'button_url', 'button2_text', 'button2_url', 'button2_variant', 'layout', 'theme', 'background_image', 'button_variant'],
+        'cta'          => ['id', 'title', 'title_accent', 'eyebrow', 'body', 'button_text', 'button_url', 'button2_text', 'button2_url', 'button2_variant', 'layout', 'theme', 'background_image', 'button_variant'],
         'embed'        => ['id', 'title', 'content', 'theme'],
         'faq'          => ['id', 'title', 'title_accent', 'eyebrow', 'theme', 'items'],
         'footer'       => ['location', 'show_logo', 'logo_text', 'logo_id', 'logo_alt', 'bg', 'text', 'link_color', 'blurb', 'contact', 'copyright', 'menu_label', 'contact_label', 'secondary_location', 'secondary_label', 'note', 'social'],
-        'grid'         => ['id', 'title', 'title_accent', 'eyebrow', 'subheading', 'heading_align', 'layout', 'card_emphasis', 'theme', 'columns', 'image_treatment', 'items'],
-        'hero'         => ['id', 'title', 'title_accent', 'eyebrow', 'subtitle', 'cta_text', 'cta_url', 'cta2_text', 'cta2_url', 'cta_variant', 'cta2_variant', 'layout', 'image_url', 'image_alt', 'image_id', 'spacing', 'width', 'split_ratio', 'vertical_align', 'proof'],
+        'grid'         => ['id', 'title', 'title_accent', 'eyebrow', 'subheading', 'title_align', 'layout', 'card_emphasis', 'theme', 'columns', 'image_treatment', 'items'],
+        'hero'         => ['id', 'title', 'title_accent', 'eyebrow', 'subheading', 'button_text', 'button_url', 'button2_text', 'button2_url', 'button_variant', 'button2_variant', 'layout', 'image_url', 'image_alt', 'image_id', 'spacing', 'width', 'split_ratio', 'vertical_align', 'proof'],
         'logos'        => ['id', 'title', 'theme', 'items'],
         'nav'          => ['location', 'logo_text', 'logo_id', 'logo_alt', 'bg', 'text', 'link_color'],
-        'section'      => ['id', 'title', 'title_accent', 'eyebrow', 'subheading', 'heading_align', 'body', 'image_url', 'image_alt', 'image_id', 'layout', 'theme', 'background_image', 'panel_heading', 'panel_body', 'panel_items', 'panel_cta_text', 'panel_cta_url', 'panel_cta_variant', 'panel_items_marker', 'body_marker', 'body_items'],
+        'section'      => ['id', 'title', 'title_accent', 'eyebrow', 'subheading', 'title_align', 'body', 'image_url', 'image_alt', 'image_id', 'layout', 'theme', 'background_image', 'panel_heading', 'panel_body', 'panel_items', 'panel_cta_text', 'panel_cta_url', 'panel_cta_variant', 'panel_items_marker', 'body_marker', 'body_items'],
         'stats'        => ['id', 'title', 'title_accent', 'theme', 'background_image', 'items'],
         'table'        => ['id', 'title', 'headers', 'rows', 'caption'],
-        'testimonials' => ['id', 'title', 'title_accent', 'eyebrow', 'subheading', 'heading_align', 'layout', 'theme', 'items'],
+        'testimonials' => ['id', 'title', 'title_accent', 'eyebrow', 'subheading', 'title_align', 'layout', 'theme', 'items'],
     ];
 
     /**
@@ -2339,10 +2339,25 @@ class SchemaValidationTest extends TestCase
         // this pin forces the change to be deliberate and reviewed.
         $this->assertSame(
             [
+                // Pre-1.0 (#495).
                 'cta' => [
                     'cta_text' => 'button_text',
                     'cta_url'  => 'button_url',
+                    'text'     => 'body',       // #576
                 ],
+                // Canonical vocabulary (#576): the prop segment is the CONTENT name.
+                'hero' => [
+                    'subtitle'     => 'subheading',
+                    'cta_text'     => 'button_text',
+                    'cta_url'      => 'button_url',
+                    'cta_variant'  => 'button_variant',
+                    'cta2_text'    => 'button2_text',
+                    'cta2_url'     => 'button2_url',
+                    'cta2_variant' => 'button2_variant',
+                ],
+                'section'      => ['heading_align' => 'title_align'],
+                'grid'         => ['heading_align' => 'title_align'],
+                'testimonials' => ['heading_align' => 'title_align'],
             ],
             pp_legacy_prop_aliases(),
             'The legacy prop-alias inventory changed — update the audit and this pin together.'
@@ -2449,9 +2464,46 @@ class SchemaValidationTest extends TestCase
         $scalarProps = ['component' => 'cta', 'props' => 'nope'];
         $this->assertSame($scalarProps, _pp_apply_legacy_prop_aliases($scalarProps));
 
-        // A component with no alias map (hero's cta_text is a CURRENT prop) is untouched.
-        $hero = ['component' => 'hero', 'props' => ['cta_text' => 'Get Started']];
-        $this->assertSame($hero, _pp_apply_legacy_prop_aliases($hero));
+        // A component with NO alias map at all is untouched. `embed` is the honest
+        // example now: until #576 this case used hero (whose cta_text was then a
+        // CURRENT canonical prop), but hero gained its own map when the vocabulary
+        // gate renamed cta_* -> button_*, so hero no longer demonstrates "no map".
+        $embed = ['component' => 'embed', 'props' => ['cta_text' => 'Get Started']];
+        $this->assertSame($embed, _pp_apply_legacy_prop_aliases($embed));
+    }
+
+    /**
+     * The per-component shape is load-bearing in BOTH directions (#576).
+     *
+     * `cta_text` is a legacy name on cta (pre-1.0, #495) AND on hero (the vocabulary
+     * freeze, #576) — but `text` is legacy on cta ONLY, and hero's `subtitle` is legacy
+     * on hero ONLY. A map flattened to a global prop list would resolve each of those
+     * on every component, silently rewriting content on bands that never had the name.
+     */
+    public function testLegacyPropAliasesDoNotLeakAcrossComponents(): void
+    {
+        // `text` is cta's legacy body prop. On grid, `text` is a CURRENT item prop and
+        // on nav/footer a current top-level prop — none of them may be rewritten.
+        foreach (['grid', 'nav', 'footer'] as $component) {
+            $item = ['component' => $component, 'props' => ['text' => 'keep me']];
+            $this->assertSame(
+                $item,
+                _pp_apply_legacy_prop_aliases($item),
+                "{$component}.text is a current prop and must not resolve to `body`."
+            );
+        }
+
+        // `subtitle` is hero's legacy name only; section ships `subheading` already and
+        // declares no `subtitle`, so the strict unknown-prop gate must still see it.
+        $section = ['component' => 'section', 'props' => ['subtitle' => 'x']];
+        $this->assertSame($section, _pp_apply_legacy_prop_aliases($section));
+
+        // ...and on hero it resolves.
+        $hero = ['component' => 'hero', 'props' => ['subtitle' => 'x']];
+        $this->assertSame(
+            ['component' => 'hero', 'props' => ['subheading' => 'x']],
+            _pp_apply_legacy_prop_aliases($hero)
+        );
     }
 
     // ── Generic schema-typed prop enforcement (issue 507) ───────────────────
@@ -2705,7 +2757,7 @@ class SchemaValidationTest extends TestCase
                 }
             }
         }
-        $this->assertGreaterThanOrEqual(5, $checked, 'expected the five known link_url props (button_url, cta_url, cta2_url, panel_cta_url, grid.items[].link_url)');
+        $this->assertGreaterThanOrEqual(5, $checked, 'expected the five known link_url props (button_url, cta_url, button2_url, panel_cta_url, grid.items[].link_url)');
     }
 
     /**
@@ -2826,7 +2878,7 @@ class SchemaValidationTest extends TestCase
             'prop equals'  => ['prop equals',  ['prop' => 'image_treatment', 'equals' => 'icon']],
             'prop in'      => ['prop in',      ['prop' => 'layout', 'in' => ['cards', 'steps']]],
             'prop present' => ['prop present', ['prop' => 'background_image', 'present' => true]],
-            'slot present' => ['slot present', ['slot' => '--grid-card-bar-color', 'present' => true]],
+            'slot present' => ['slot present', ['slot' => '--grid-item-bar-color', 'present' => true]],
         ];
     }
 

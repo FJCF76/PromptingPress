@@ -12,7 +12,7 @@ $id               = $props['id']               ?? '';
 $title            = $props['title']            ?? '';
 $title_accent     = $props['title_accent']     ?? '';
 $eyebrow          = $props['eyebrow']          ?? '';
-$text             = $props['text']             ?? '';
+$body             = $props['body']             ?? '';
 $button_text      = $props['button_text']      ?? 'Get Started';
 $button_url       = $props['button_url']       ?? '#';
 $button2_text     = $props['button2_text']     ?? '';
@@ -78,10 +78,10 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
     <?php endif; ?>
     <div class="container">
         <div class="cta__inner">
-            <?php // Skip the text block entirely when there is no eyebrow/title/text: a
+            <?php // Skip the text block entirely when there is no eyebrow/title/body: a
                   // title-less CTA is the standalone-button pattern (issue 294), so it must
                   // render just the button row — no empty heading and no stray flex gap. ?>
-            <?php if ($eyebrow || $title || $text) : ?>
+            <?php if ($eyebrow || $title || $body) : ?>
             <div class="cta__text">
                 <?php if ($eyebrow) : ?>
                     <span class="cta__eyebrow"><?php echo esc_html($eyebrow); ?></span>
@@ -90,11 +90,11 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
                     <h2 class="cta__title"><?php echo pp_render_heading_with_accent($title, $title_accent, 'cta__title-accent'); ?></h2>
                 <?php endif; ?>
 
-                <?php if ($text) : ?>
-                    <?php // Inline-HTML supporting-text prop (#439): a link + light
+                <?php if ($body) : ?>
+                    <?php // Inline-HTML supporting-body prop (#439): a link + light
                           // emphasis (a/strong/em/br) is allowed and sanitized via
                           // pp_kses_inline; block/script tags are stripped. ?>
-                    <p class="cta__body"><?php echo pp_kses_inline($text); ?></p>
+                    <p class="cta__body"><?php echo pp_kses_inline($body); ?></p>
                 <?php endif; ?>
             </div>
             <?php endif; ?>

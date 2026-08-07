@@ -2176,12 +2176,18 @@ pp_register_action('restore_composition', [
         // validate() already gated this; guard defensively so preview never indexes null.
         // Normalize so `after` is what execute would actually write, and so the findings
         // below describe the restored composition rather than its legacy encoding (#233).
-        // migrate_legacy_variant_keys is applied EXPLICITLY here because this is a read/
-        // restore path — pp_normalize_composition() no longer migrates on the write path
-        // (#388), so a pre-#69 `variant` snapshot must be decoded here to render.
+        // migrate_legacy_variant_keys and normalize_legacy_slots are applied EXPLICITLY
+        // here because this is a read/restore path — pp_normalize_composition() no longer
+        // migrates on the write path (#388), so a pre-#69 `variant` snapshot must be
+        // decoded here to render. The SLOT surface (#576/#594) is applied for the same
+        // reason and matters most here: restore is the ONE mechanism the whole alias rule
+        // is premised on, so a snapshot carrying a renamed slot must not be reported as
+        // `invalid_style_slot` by the very path that promises to replay it.
         $target  = is_wp_error($idx)
             ? []
-            : pp_migrate_legacy_variant_keys(pp_normalize_composition($history[$idx]['composition']));
+            : pp_normalize_legacy_slots(
+                pp_migrate_legacy_variant_keys(pp_normalize_composition($history[$idx]['composition']))
+            );
         $preview = _pp_action_preview('restore_composition', 'page', ['post_id' => $params['post_id']], $current, $target, [
             ['path' => 'composition', 'from' => $current, 'to' => $target],
         ]);
@@ -2199,9 +2205,14 @@ pp_register_action('restore_composition', [
         // This is decoding, not a rewrite of intent: no component is added, removed, or
         // reordered. Nothing else about the snapshot is touched — chrome and every other
         // rule violation is preserved verbatim and reported below (#233). The variant
-        // migration is applied EXPLICITLY (not via pp_normalize_composition, which stopped
-        // migrating on the write path in #388) because restore is a read/decode path.
-        $target = pp_migrate_legacy_variant_keys(pp_normalize_composition($history[$idx]['composition']));
+        // migration and the legacy-SLOT-name resolution (#576/#594) are applied EXPLICITLY
+        // (not via pp_normalize_composition, which stopped migrating on the write path in
+        // #388) because restore is a read/decode path — and because reporting
+        // `invalid_style_slot` for a name this theme deliberately still supports would be
+        // a false finding on the exact durability path the alias mechanism exists for.
+        $target = pp_normalize_legacy_slots(
+            pp_migrate_legacy_variant_keys(pp_normalize_composition($history[$idx]['composition']))
+        );
         $result = pp_update_composition($params['post_id'], $target, _pp_action_expected_version($params));
         if (is_wp_error($result)) {
             return _pp_action_error('restore_composition', 'page', $result->get_error_message(), $result->get_error_code());

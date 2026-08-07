@@ -1,6 +1,6 @@
 {
   "component": "cta",
-  "description": "Call-to-action block with an optional title, optional supporting text, and a button. Two layouts: full-width (centered, bg surface) and inline (flex row). Omit title (and text) to render a standalone button row with no heading — the sanctioned heading-less button pattern.",
+  "description": "Call-to-action block with an optional title, optional supporting text, and a button. Two layouts: full-width (centered, bg surface) and inline (flex row). Omit title (and body) to render a standalone button row with no heading — the sanctioned heading-less button pattern.",
   "props": {
     "id": {
       "type": "string",
@@ -12,7 +12,7 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional CTA headline. Omit (along with text) to render a standalone button row with no heading element — the sanctioned heading-less button pattern (issue 294). id/anchor and all style slots still apply. Plain text — HTML is escaped."
+      "description": "Optional CTA headline. Omit (along with body) to render a standalone button row with no heading element — the sanctioned heading-less button pattern (issue 294). id/anchor and all style slots still apply. Plain text — HTML is escaped."
     },
     "title_accent": {
       "type": "string",
@@ -26,7 +26,7 @@
       "default": "",
       "description": "Optional short kicker/label rendered as a pill above the title. Plain text — HTML is escaped."
     },
-    "text": {
+    "body": {
       "type": "string",
       "required": false,
       "default": "",
@@ -47,7 +47,7 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional SECOND button label, rendered beside the primary button as a secondary action (the hero's cta2_text pattern). Leave empty (the default) and no second button is rendered — the CTA is byte-identical to a single-button one. Plain text — HTML is escaped."
+      "description": "Optional SECOND button label, rendered beside the primary button as a secondary action (the hero's button2_text pattern). Leave empty (the default) and no second button is rendered — the CTA is byte-identical to a single-button one. Plain text — HTML is escaped."
     },
     "button2_url": {
       "type": "string",
@@ -90,7 +90,7 @@
       "values": ["primary", "secondary", "outline", "ghost"],
       "required": false,
       "default": "primary",
-      "description": "Button style. 'primary' = filled accent (bare .btn). 'secondary' = muted surface fill. 'outline' = accent border, transparent fill. 'ghost' = borderless text button. Set via update_component (a prop, not a style slot)."
+      "description": "Primary button style. 'primary' = filled accent (bare .btn). 'secondary' = muted surface fill. 'outline' = accent border, transparent fill. 'ghost' = borderless text button. Set via update_component (a prop, not a style slot)."
     }
   },
   "styling": {
@@ -101,15 +101,15 @@
       "--cta-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
       "--cta-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
       "--cta-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
-      "--cta-text": { "type": "color", "default": "var(--color-text)", "description": "Title text color" },
-      "--cta-title-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the title, if set" },
+      "--cta-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Title text color" },
+      "--cta-heading-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the title, if set" },
       "--cta-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color" },
       "--cta-eyebrow-bg": { "type": "color", "default": "var(--color-surface-accent)", "description": "Eyebrow pill background color" },
       "--cta-eyebrow-radius": { "type": "length", "default": "3px", "description": "Eyebrow pill corner radius. Set a large value (e.g. 999px) for a fully rounded pill." },
       "--cta-eyebrow-border-width": { "type": "length", "default": "0", "description": "Eyebrow pill border width. Set a non-zero width (with --cta-eyebrow-border-color) for an outlined pill; 0 (default) renders no border." },
       "--cta-eyebrow-border-color": { "type": "color", "default": "transparent", "description": "Eyebrow pill border color. Takes effect when --cta-eyebrow-border-width is non-zero." },
       "--cta-eyebrow-text-transform": { "type": "text-transform", "default": "uppercase", "description": "Eyebrow pill letter-casing. Default uppercase renders the kicker in caps; set none to keep it as authored (e.g. sentence case), or lowercase / capitalize." },
-      "--cta-title-size": { "type": "length", "default": "inherit", "description": "Title font size" },
+      "--cta-heading-size": { "type": "length", "default": "inherit", "description": "Title font size" },
       "--cta-body-color": { "type": "color", "default": "var(--color-muted)", "description": "Body text color" },
       "--cta-body-size": { "type": "length", "default": "inherit", "description": "Body text font size" },
       "--cta-inner-gap": { "type": "length", "default": "var(--space-lg)", "description": "Gap between inner elements" },
@@ -132,7 +132,7 @@
       "--cta-border-width": { "type": "length", "default": "0", "description": "Top and bottom border width" },
       "--cta-radius": { "type": "length", "default": "0", "description": "Border radius" },
       "--cta-shadow": { "type": "shadow", "default": "none", "description": "Box shadow of the CTA section (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" },
-      "--cta-content-width": { "type": "length", "default": "40rem", "description": "Title max width" },
+      "--cta-heading-measure": { "type": "length", "default": "40rem", "description": "Title max width" },
       "--cta-overlay-bg": { "type": "gradient", "default": "var(--overlay-bg)", "description": "Background image overlay color or gradient (e.g. a transparent-to-dark scrim for text legibility over an image)" },
       "--cta-bg-position": { "type": "position", "default": "center", "description": "background_image focal point" }
     },
@@ -141,7 +141,7 @@
         "description": "Bold dark background with light text for high-conversion CTAs",
         "slots": {
           "--cta-bg": "#1a1a2e",
-          "--cta-text": "#ffffff",
+          "--cta-heading-color": "#ffffff",
           "--cta-body-color": "#c8d6e5",
           "--cta-padding-top": "5rem",
           "--cta-padding-bottom": "5rem"
