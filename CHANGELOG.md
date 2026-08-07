@@ -82,15 +82,15 @@ The last two are recorded, not corrected — a deferred gate owns the band-backg
 
 ---
 
-## [v1.12.4] — 2026-08-07 — component schemas can now declare when a slot applies, what a fill is, and which legacy names still work (#575)
+## [v1.12.4] — 2026-08-07 — component schemas can now declare slot applicability, fill semantics, and migration aliases for legacy/internal names (#575)
 
 **Four pieces of declaration-level metadata were designed in isolation. They land together, before anything populates them, so the schema surface cannot drift the way the slot surface already did.**
 
 A component's `schema.json` describes what it accepts, but until now it could not describe the conditions around that. It could not say a slot only applies when `image_treatment` is `icon`, could not mark which colour slot is a button's fill, and could not name a legacy value it still accepts without also advertising it. Each gap had a workaround: a naming convention, a prose description, a hardcoded list somewhere else. Every workaround is a second source of truth, which is exactly the defect this contract removes one layer down.
 
-The definition object on a slot or a prop is now a closed, machine-readable surface. `applies_when` carries conditionality as an ANDed list of exactly four clause forms, and `conditionality_note` carries the three classes those forms deliberately cannot express (a disjunction, a composed-page scope, an interaction state). A slot can declare `role: "fill"` as a real key rather than being guessed at from a `-bg` suffix. A prop can declare `aliases` — legacy values it still accepts without ever advertising them. Every one of these reaches an agent at runtime, because a field an agent never sees is not in the baseline.
+The definition object on a slot or a prop is now a closed, machine-readable surface. `applies_when` carries conditionality as an ANDed list of exactly four clause forms, and `conditionality_note` carries the three classes those forms deliberately cannot express (a disjunction, a composed-page scope, an interaction state). A slot can declare `role: "fill"` as a real key rather than being guessed at from a `-bg` suffix. A prop can declare `aliases` — legacy spellings resolved for controlled migration and normalization, never advertised as part of the contract. Every one of these reaches an agent at runtime, because a field an agent never sees is not in the baseline.
 
-Alongside the fields, two mechanisms that let a name change without breaking an already-stored page. A legacy style-slot name resolves at render, above the filter that would otherwise drop it silently. A legacy prop key now resolves on **every** composition read, not just the two front-end renderers that resolved it on their own — so the editor, `inspect`, the admin preview and restore's own fetch all finally agree on what a page says.
+Alongside the fields, two migration mechanisms that let a name change without breaking an already-stored page. These are controlled-migration and normalization machinery under the mechanism-trust rule (a legacy name resolves only where a shipped mechanism promises the stored document renders) — not a backward-compatibility promise, and not a public contract for legacy names. A legacy style-slot name resolves at render, above the filter that would otherwise drop it silently. A legacy prop key now resolves on **every** composition read, not just the two front-end renderers that resolved it on their own — so the editor, `inspect`, the admin preview and restore's own fetch all finally agree on what a page says.
 
 **Nothing renders differently. Nothing is renamed. Nothing is populated.** This release is the contract; the gates that follow populate it.
 
