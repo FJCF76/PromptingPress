@@ -9890,3 +9890,1104 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
     expect(got.owned.bgColor, 'the panel CTA keeps its per-instance fill').toBe(got.purple);
   });
 });
+
+
+/**
+ * #583 — stressed-state rendered coverage for `table`, `embed` and `logos`.
+ *
+ * These three components carry no component-level test of any kind. The shared
+ * band suites above (#431 padding equality, #430 symmetry, #436 heading scale)
+ * render all three incidentally and assert their BAND edges, but nothing anywhere
+ * touches their internals: table cells / header / caption / scroll, embed's content
+ * measure, logos items / labels / image caps / gap. Four gates in the v1.13.0 family
+ * ship CSS and schema changes into exactly those internals. This block is the
+ * regression net they diff against, so it is deliberately a BYTE-IDENTITY BASELINE:
+ * it records the numbers that render today, not the numbers anyone wants.
+ *
+ *   BAND (padding edges)          <- already covered by #431/#430; re-asserted here
+ *     |                              so the baseline is self-contained
+ *     +-- heading  --------------- max-width: var(--cta-content-width, 40rem)  <- #578 severs this
+ *     +-- body / per-item surface
+ *          table : .table-wrap > .table > thead/th, tbody/td, caption
+ *          embed : .embed__content (max-width: 40rem)                          <- #578 + #577
+ *          logos : .logos__list (gap) > .logos__item[--labeled] > img + label   <- #584
+ *
+ * SEEDING. Every fixture below is seeded through raw `_pp_composition` meta
+ * (setComposition), which BYPASSES pp_validate_composition. Each fixture states
+ * whether it is a shape the action surface would also accept ("authorable") or one
+ * only raw meta can produce. The only non-authorable shape here is the logos
+ * label-only item (see the mixed-strip test) — everything else is a normal write.
+ *
+ * MEASURE PINS ASSERT THE ROUTE, NOT ONLY THE NUMBER. A pin that only checks
+ * "the heading is 640px wide" survives the deletion of the slot it is supposed to
+ * protect: replacing `var(--cta-content-width, 40rem)` with a bare `40rem` keeps the
+ * number and loses the capability. Each long-heading case therefore ALSO drives the
+ * slot to a second value and re-measures, so #578 cannot sever the route without
+ * this block noticing.
+ *
+ * NUMBERS. The #570 design corpus quotes 18.2:1 (table cells), 3.09:1 (caption and
+ * logos label) and 1.02:1 (heading on a dark paint). Those were measured on a dev
+ * install carrying NeoCompute dogfood brand tokens. Against the shipped defaults in
+ * assets/css/base.css (--color-text #101828, --color-bg #fcfdff, --color-muted
+ * #5e6677) the same three measurements are 17.44:1, 5.66:1 and 1.04:1. The theme's
+ * own defaults are what this net records; the corpus figures are a property of that
+ * one branded install, not of the product.
+ */
+
+/**
+ * WCAG relative-luminance contrast of an element's computed `color` against the
+ * first painted (alpha > 0.5) ancestor background.
+ *
+ * Read every figure it produces as COMPUTED INK CONTRAST, not as what a camera would
+ * measure. It sees `color` and `background-color` only: opacity, gradients, background
+ * images, overlays, borders and any translucent layer below alpha 0.5 are invisible to
+ * it. That is enough for this net, whose job is to record which token reaches which
+ * element before four gates re-route them — but it is not an accessibility audit.
+ *
+ * THROWS on a selector that matches nothing. The older in-describe copies return 0,
+ * which reports a class rename as "expected 17.44, received 0" — a contrast failure
+ * for what is really a missing element. Since the four v1.13.0 gates rename classes
+ * and slots, the new copy fails loudly instead.
+ *
+ * Two honest limits, both relevant to how the results below are read:
+ *  - `opacity` is invisible here. An element faded by itself or an ancestor still
+ *    reports its unfaded ratio, so where fading matters (`.logos--inverted
+ *    .logos__label` at 0.75) the opacity is asserted separately rather than folded
+ *    into a misleadingly high number.
+ *  - the channel scrape assumes Chromium's legacy `rgb()` serialization. A computed
+ *    value in a modern colour space (`color(srgb …)`, `oklch(…)`, which `color-mix()`
+ *    can produce) would parse as 0-1 channels and yield a wrong ratio rather than an
+ *    error. None of the values measured here resolve through `color-mix()` today.
+ *
+ * Three older suites in this file (#437, #461/#463, #424) each carry their own copy
+ * of this computation. They are left alone — this issue ships no production change
+ * and refactoring neighbouring suites is out of its scope — but new suites should
+ * use this one rather than adding a fifth copy.
+ */
+function measureContrast(page: any, selector: string): Promise<number> {
+  return page.evaluate((sel: string) => {
+    const parseRgb = (s: string): number[] => (s.match(/[\d.]+/g) || []).map(Number);
+    const lum = (rgb: number[]): number => {
+      const f = (v: number) => {
+        v /= 255;
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+      };
+      return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]);
+    };
+    const el = document.querySelector(sel);
+    if (!el) throw new Error(`measureContrast: no element matched ${sel}`);
+    const fg = parseRgb(getComputedStyle(el).color);
+    let node: Element | null = el;
+    let bg: number[] | null = null;
+    while (node) {
+      const p = parseRgb(getComputedStyle(node).backgroundColor);
+      if (p.length >= 3 && (p.length < 4 || p[3] > 0.5)) {
+        bg = p;
+        break;
+      }
+      node = node.parentElement;
+    }
+    if (!bg) bg = [255, 255, 255];
+    const L1 = lum(fg);
+    const L2 = lum(bg);
+    return (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+  }, selector);
+}
+
+/**
+ * The rendered box of a heading plus how many LINE BOXES its text actually occupies.
+ *
+ * Line count comes from a Range over the element's contents: each wrapped line is a
+ * separate client rect, and rects sharing a rounded `top` are the same line. Counting
+ * rects rather than measuring height keeps the answer independent of line-height.
+ *
+ * `capPx` is resolved from the document's own root font size rather than hardcoded to
+ * 640, and the callers compare `maxWidth` against `capPx` too — so the pin keeps
+ * meaning "40rem" rather than "640px" if a browser or a future base rule moves the
+ * root size. `containerWidth` is the container's CONTENT box (its side padding is
+ * inside clientWidth), which is what the heading can actually spread across: at 1280
+ * that is 1088px and the cap binds, at 375 it is 343px and the cap is inert.
+ */
+function measureHeadingBox(page: any, selector: string) {
+  return page.evaluate((sel: string) => {
+    const el = document.querySelector(sel) as HTMLElement;
+    if (!el) throw new Error(`measureHeadingBox: no element matched ${sel}`);
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const tops = new Set(
+      Array.from(range.getClientRects())
+        .filter((r) => r.width > 0 && r.height > 0)
+        .map((r) => Math.round(r.top)),
+    );
+    const rootFont = parseFloat(getComputedStyle(document.documentElement).fontSize);
+    const container = el.closest('.container') as HTMLElement;
+    const ccs = getComputedStyle(container);
+    return {
+      measuredWidth: el.clientWidth,
+      maxWidth: getComputedStyle(el).maxWidth,
+      lineCount: tops.size,
+      capPx: Math.round(rootFont * 40),
+      containerWidth:
+        container.clientWidth - parseFloat(ccs.paddingLeft) - parseFloat(ccs.paddingRight),
+    };
+  }, selector);
+}
+
+/** No part of the document may scroll sideways past the viewport. */
+async function expectNoViewportOverflow(page: any, label: string) {
+  const doc = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth,
+    client: document.documentElement.clientWidth,
+  }));
+  expect(doc.scroll, `${label}: document must not scroll horizontally`).toBeLessThanOrEqual(
+    doc.client + 1,
+  );
+}
+
+test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () => {
+  let pageId: number;
+
+  // ── Rendered constants, named once ─────────────────────────────────────────
+  // Every literal below is the computed serialization of a shipped default. They are
+  // named because four follow-up gates route these exact values through new slots and
+  // will need to find every pin, not eleven scattered copies of the same string.
+  const INK = 'rgb(16, 24, 40)'; //        --color-text  #101828
+  const PAGE_BG = 'rgb(252, 253, 255)'; // --color-bg    #fcfdff
+  const MUTED_INK = 'rgb(94, 102, 119)'; //--color-muted #5e6677
+  const SURFACE = 'rgb(244, 247, 251)'; // --color-surface #f4f7fb
+  const BORDER = 'rgb(217, 224, 235)'; //  --color-border  #d9e0eb
+  const INVERTED_BG = 'rgb(15, 23, 42)'; //--color-bg-inverted #0f172a
+  const MEASURE = '640px'; //              the shared 40rem heading/body measure
+  const LOGO_CAP_PX = 48; //               .logos__image          max-height: 3rem
+  const LABELED_LOGO_CAP_PX = 40; //       .logos__item--labeled  max-height: 2.5rem
+  const LIST_GAP = '32px'; //              .logos__list gap: var(--space-lg)
+  const HEADING_RHYTHM = '32px'; //        heading margin-bottom: var(--space-lg)
+
+  // Measured contrast, against the SHIPPED tokens (see the block docblock for why
+  // these differ from the #570 corpus figures).
+  const INK_ON_BG = 17.44;
+  const MUTED_ON_BG = 5.66;
+  const INK_ON_INVERTED = 17.54;
+  const ACCENT_LINK_ON_INVERTED = 8.33;
+
+  // [viewport, band padding edge, band heading size] — the shared band rhythm (#430/
+  // #431) and heading scale (#436) at the two breakpoints this net measures.
+  //
+  // The 375 heading size is `28px` because `--pp-band-heading-size`'s clamp FLOOR
+  // (1.75rem) wins there: the middle term evaluates to 27.9925px at a 375px viewport.
+  // If this pin ever fails by a few thousandths of a pixel, the cause is the clamp
+  // slope or the root font size moving, not the component.
+  const BAND_VIEWPORTS = [
+    [1280, '76.8px', '38.4px'],
+    [375, '53.6px', '28px'],
+  ] as const;
+
+  // A 60x180 solid PNG. PORTRAIT and taller than both caps on purpose: an asset
+  // shorter than 48px would render at its intrinsic height and the cap assertions
+  // would pass without the cap ever binding. The mixed-strip test asserts
+  // naturalHeight > LOGO_CAP_PX before measuring so that trap stays closed.
+  const TALL_PNG =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADwAAAC0CAIAAABHfdiQAAAAs0lEQVR4nO3OAQkAIBAAMStYwSz2z2QM72GwAFv73HHW94F0mLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHTAyPQD1EOdbnWkTyIAAAAASUVORK5CYII=';
+
+  // 117 characters. At the 40rem (640px) desktop measure this cannot fit on one line
+  // under any plausible font stack, so the "it wrapped" half of the pin does not
+  // depend on CI font metrics. Measured today: 4 lines at 1280.
+  const LONG_TITLE =
+    'Trusted by product and platform teams shipping brand-consistent marketing sites every single week across many regions';
+
+  const LONG_CELL =
+    'Unlimited composed bands with per-instance style slots, brand token inheritance and a documented rollback path for every published revision';
+
+  // Long enough to wrap INSIDE the table's own max-content width (~1596px with the
+  // fixture below), which is the box the caption is actually laid out against — see
+  // the long-content test for why that is not the band width.
+  const LONG_CAPTION =
+    'Figures reflect the published rate card and exclude taxes, onboarding and any negotiated multi-year discount agreed during procurement. ' +
+    'Prices are reviewed annually and any change is announced at least one full billing cycle before it takes effect, with the previous rate ' +
+    'honoured for the remainder of the current term.';
+
+  /** Authorable: title + headers + rows + caption all pass pp_validate_composition. */
+  const BASE_TABLE_PROPS = {
+    id: 'pp-tbl583',
+    title: 'How the plans compare',
+    caption: 'Rate card figures.',
+    headers: ['Capability', 'Starter'],
+    rows: [['Composed bands', 'Unlimited']],
+  };
+
+  // Realistic multi-column comparison content: four columns, long nowrap headers and
+  // one long cell. `.table` sizes itself with `width: max-content`, so both the
+  // headers and the long cell push it well past the desktop container.
+  const WIDE_TABLE_PROPS = {
+    ...BASE_TABLE_PROPS,
+    caption: LONG_CAPTION,
+    headers: [
+      'Capability',
+      'Starter plan',
+      'Growth plan for scaling teams',
+      'Enterprise plan with dedicated support',
+    ],
+    rows: [
+      [LONG_CELL, 'Included', 'Included with priority scheduling', 'Included with a named lead'],
+      ['Support channels', 'Email', 'Email and chat', 'Email, chat and phone'],
+    ],
+  };
+
+  /** Authorable: one unlabeled and one labeled item, both with a real image. */
+  const BASE_LOGOS_PROPS = {
+    id: 'pp-log583',
+    title: 'Trusted by',
+    items: [
+      { image_url: TALL_PNG, image_alt: 'Unlabeled' },
+      { image_url: TALL_PNG, image_alt: 'Labeled', label: 'Delivery' },
+    ],
+  };
+
+  /** Size the viewport, load the seeded page, wait for the band to paint. */
+  async function open(page: any, width: number, readySelector: string) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator(readySelector).first()).toBeVisible({ timeout: 10000 });
+  }
+
+  /**
+   * Wait for every logos image to decode, so height measurements are not taken on a
+   * 0x0 box. `expected` is asserted, not assumed: `Array.every` on an EMPTY list is
+   * true, so without a count this wait would resolve instantly the day `.logos__image`
+   * stops being emitted — which is exactly what the #584 rename touches.
+   */
+  async function awaitLogoImages(page: any, expected: number) {
+    await page.waitForFunction((n: number) => {
+      const imgs = Array.from(document.querySelectorAll('.logos__image')) as any[];
+      return imgs.length === n && imgs.every((i) => i.complete && i.naturalWidth > 0);
+    }, expected);
+    // The rendered image WIDTH pin below is fixture-derived (aspect ratio x cap), so a
+    // silently altered asset would read as a CSS regression. Pin the asset instead.
+    const natural = await page.locator('.logos__image').first().evaluate((el: any) => ({
+      w: el.naturalWidth,
+      h: el.naturalHeight,
+    }));
+    expect(natural, 'TALL_PNG must still be the 60x180 fixture asset').toEqual({ w: 60, h: 180 });
+  }
+
+  /** The shared band-heading contract: one scale, --color-text ink, 40rem measure. */
+  function expectSharedHeading(
+    got: { fontSize: string; color: string; marginBottom: string; maxWidth: string },
+    headingSize: string,
+    label: string,
+  ) {
+    expect(got, label).toEqual({
+      fontSize: headingSize,
+      color: INK,
+      marginBottom: HEADING_RHYTHM,
+      maxWidth: MEASURE,
+    });
+  }
+
+  test.afterEach(async () => {
+    if (pageId) {
+      try {
+        deletePage(pageId);
+      } catch {
+        /* already cleaned */
+      }
+      pageId = 0;
+    }
+  });
+
+  // ── long headings: one case per component, same contract ─────────────────────
+
+  /**
+   * The direct net for the measure-surface severance (#578). All three headings cap
+   * through the SHARED `var(--cta-content-width, 40rem)` rule, and after severance
+   * each gets its own `var(--<c>-heading-measure, 40rem)`.
+   *
+   * Three things are pinned, because only the third survives a bad severance:
+   *   1. the cap resolves to 40rem and binds at desktop (the number),
+   *   2. the title actually wraps inside it (the fixture is genuinely stressed),
+   *   3. driving `--cta-content-width` MOVES the heading (the route still exists).
+   *
+   * Without (3) a rewrite to a literal `max-width: 40rem` — the exact regression #578
+   * could ship — keeps every number and loses the authorable slot silently.
+   */
+  const HEADING_CASES = [
+    {
+      name: 'table',
+      selector: '.table-section__heading',
+      props: () => ({ component: 'table', props: { ...WIDE_TABLE_PROPS, title: LONG_TITLE } }),
+    },
+    {
+      name: 'embed',
+      selector: '.embed__heading',
+      props: () => ({
+        component: 'embed',
+        props: { id: 'pp-emb583', title: LONG_TITLE, content: '<p>Embedded body copy.</p>' },
+      }),
+    },
+    {
+      name: 'logos',
+      selector: '.logos__heading',
+      props: () => ({
+        component: 'logos',
+        props: { ...BASE_LOGOS_PROPS, title: LONG_TITLE },
+      }),
+    },
+  ] as const;
+
+  for (const heading of HEADING_CASES) {
+    test(`#583 ${heading.name} long heading wraps inside the 40rem measure and follows the slot @smoke`, async ({
+      page,
+    }) => {
+      pageId = createPage(`E2E 583 ${heading.name} long heading`);
+      setComposition(pageId, [heading.props()]);
+
+      // Desktop: the cap binds and the title wraps inside it.
+      await open(page, 1280, heading.selector);
+      const desktop = await measureHeadingBox(page, heading.selector);
+      expect(desktop.maxWidth, 'the heading cap resolves to 40rem').toBe(`${desktop.capPx}px`);
+      expect(desktop.containerWidth, 'the container is wider than the cap at 1280').toBeGreaterThan(
+        desktop.capPx,
+      );
+      expect(desktop.measuredWidth, 'the heading box is the 40rem cap').toBe(desktop.capPx);
+      // Measured today: 4 lines. Asserted as ">= 2" because line count is font-metric
+      // dependent and this repo ships no webfont (CI runs a bare Linux font stack).
+      expect(desktop.lineCount, 'the long title actually wrapped').toBeGreaterThanOrEqual(2);
+
+      // Mobile: the container is narrower than the cap, so the cap goes inert. The
+      // heading must fall back to the container rather than keep a 640px box.
+      //
+      // Measured BEFORE the slot injection below, so no assertion here depends on a
+      // navigation discarding an injected <style>.
+      await open(page, 375, heading.selector);
+      const mobile = await measureHeadingBox(page, heading.selector);
+      expect(mobile.containerWidth, 'the container is narrower than the cap at 375').toBeLessThan(
+        mobile.capPx,
+      );
+      expect(mobile.measuredWidth, '@375: the container binds, the cap is inert').toBe(
+        mobile.containerWidth,
+      );
+      expect(mobile.lineCount, '@375: the long title wrapped further').toBeGreaterThanOrEqual(
+        desktop.lineCount,
+      );
+      await expectNoViewportOverflow(page, `${heading.name} long heading @375`);
+
+      // The ROUTE, not the number: drive the slot and the heading must follow. This
+      // pins that an AUTHORABLE measure still reaches the heading — it deliberately
+      // does not pin the variable's spelling, so #578 severing the shared slot into a
+      // per-component `var(--<c>-heading-measure, var(--cta-content-width, 40rem))`
+      // still passes, while a rewrite to a bare `max-width: 40rem` fails here.
+      // Verified by mutation: replacing the var() with the literal turns this red.
+      // Back to 1280 first — at 375 the container binds and no cap value is observable.
+      await open(page, 1280, heading.selector);
+      await page.addStyleTag({ content: ':root { --cta-content-width: 30rem; }' });
+      const driven = await measureHeadingBox(page, heading.selector);
+      const drivenCap = Math.round((desktop.capPx / 40) * 30);
+      expect(driven.maxWidth, 'the heading measure is still slot-routed, not a literal').toBe(
+        `${drivenCap}px`,
+      );
+      expect(driven.measuredWidth, 'the driven cap reaches the rendered box').toBe(drivenCap);
+    });
+  }
+
+  // ── table ────────────────────────────────────────────────────────────────────
+
+  test('#583 table baseline pins its band, heading, cells and caption at 1280 and 375 @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 583 table baseline');
+    setComposition(pageId, [{ component: 'table', props: BASE_TABLE_PROPS }]);
+
+    for (const [width, bandPadding, headingSize] of BAND_VIEWPORTS) {
+      await open(page, width, '.table-section');
+
+      const got = await page.evaluate(() => {
+        const cs = getComputedStyle;
+        // Throws with the selector name rather than a bare null dereference, so a class
+        // rename in a follow-up gate reports WHAT went missing.
+        const q = (s: string) => {
+          const el = document.querySelector(s) as HTMLElement;
+          if (!el) throw new Error(`no element matched ${s}`);
+          return el;
+        };
+        return {
+          band: {
+            top: cs(q('.table-section')).paddingTop,
+            bottom: cs(q('.table-section')).paddingBottom,
+          },
+          heading: {
+            fontSize: cs(q('.table-section__heading')).fontSize,
+            color: cs(q('.table-section__heading')).color,
+            marginBottom: cs(q('.table-section__heading')).marginBottom,
+            maxWidth: cs(q('.table-section__heading')).maxWidth,
+          },
+          wrap: {
+            overflowX: cs(q('.table-wrap')).overflowX,
+            borderTopWidth: cs(q('.table-wrap')).borderTopWidth,
+            borderTopColor: cs(q('.table-wrap')).borderTopColor,
+            borderRadius: cs(q('.table-wrap')).borderTopLeftRadius,
+          },
+          table: {
+            minWidth: cs(q('.table')).minWidth,
+            backgroundColor: cs(q('.table')).backgroundColor,
+            fontSize: cs(q('.table')).fontSize,
+            borderCollapse: cs(q('.table')).borderCollapse,
+          },
+          head: { backgroundColor: cs(q('.table__head')).backgroundColor },
+          th: {
+            padding: cs(q('.table__header')).padding,
+            whiteSpace: cs(q('.table__header')).whiteSpace,
+            fontWeight: cs(q('.table__header')).fontWeight,
+            color: cs(q('.table__header')).color,
+            borderBottomWidth: cs(q('.table__header')).borderBottomWidth,
+          },
+          td: {
+            padding: cs(q('.table__cell')).padding,
+            whiteSpace: cs(q('.table__cell')).whiteSpace,
+            overflowWrap: cs(q('.table__cell')).overflowWrap,
+            color: cs(q('.table__cell')).color,
+            verticalAlign: cs(q('.table__cell')).verticalAlign,
+          },
+          caption: {
+            captionSide: cs(q('.table__caption')).captionSide,
+            padding: cs(q('.table__caption')).padding,
+            fontSize: cs(q('.table__caption')).fontSize,
+            color: cs(q('.table__caption')).color,
+            textAlign: cs(q('.table__caption')).textAlign,
+          },
+        };
+      });
+
+      // Band edges: the shared symmetric rhythm (#430/#431), re-pinned per component so
+      // this baseline stands on its own when a slot rename moves the fallback chain.
+      expect(got.band, `@${width}: table band edges`).toEqual({
+        top: bandPadding,
+        bottom: bandPadding,
+      });
+      expectSharedHeading(got.heading, headingSize, `@${width}: table heading`);
+      expect(got.wrap, `@${width}: table scroll shell`).toEqual({
+        overflowX: 'auto',
+        borderTopWidth: '1px',
+        borderTopColor: BORDER,
+        borderRadius: '6px',
+      });
+      // The .table surface paints its OWN light island — this is why the cells stay legible
+      // no matter what the band behind them is painted (the #570 corpus' key correction).
+      expect(got.table, `@${width}: table surface`).toEqual({
+        minWidth: '100%',
+        backgroundColor: PAGE_BG,
+        fontSize: '15px',
+        borderCollapse: 'collapse',
+      });
+      expect(got.head.backgroundColor, `@${width}: thead surface`).toBe(SURFACE);
+      expect(got.th, `@${width}: table header cell`).toEqual({
+        padding: '8px 16px',
+        whiteSpace: 'nowrap',
+        fontWeight: '700',
+        color: INK,
+        borderBottomWidth: '2px',
+      });
+      expect(got.td, `@${width}: table body cell`).toEqual({
+        padding: '8px 16px',
+        whiteSpace: 'normal',
+        overflowWrap: 'anywhere',
+        color: INK,
+        verticalAlign: 'top',
+      });
+      // The caption is UNSLOTTED today: colour is the bare var(--color-muted) literal.
+      expect(got.caption, `@${width}: table caption`).toEqual({
+        captionSide: 'bottom',
+        padding: '8px 16px',
+        fontSize: '14px',
+        color: MUTED_INK,
+        textAlign: 'left',
+      });
+
+      await expectNoViewportOverflow(page, `table baseline @${width}`);
+    }
+  });
+
+  /**
+   * Long content. The table's horizontal scroll is VIEWPORT-INDEPENDENT: `.table` is
+   * `width: max-content` inside an `overflow-x: auto` shell, so the mechanism is driven
+   * by content, not by a media query. The schema and README call it "mobile" behaviour;
+   * that description is wrong and is corrected by the docs gate (#585). Asserted at BOTH
+   * widths so the fixture records the real mechanism.
+   *
+   * Three consequences worth recording because they are counter-intuitive:
+   *  - the LONG CELL alone is enough to overflow, even though `.table__cell` wraps
+   *    anywhere: `width: max-content` ignores soft wrap opportunities.
+   *  - for the same reason `.table__cell { white-space: normal; overflow-wrap:
+   *    anywhere }` is DECLARED but never observable: the table always sizes itself so
+   *    the cell fits on one line. Probed at both breakpoints with a 300-character
+   *    unbroken token as well: the cell rendered 2550px wide, still on ONE line. The
+   *    declared asymmetry against `.table__header { white-space: nowrap }` is real in
+   *    the cascade and inert in the render, so the cell half is pinned as one line —
+   *    if that pin ever goes red, a table-width constraint shipped and the wrap
+   *    capability became live.
+   *  - the `<caption>` is laid out against the TABLE's max-content box, not the band,
+   *    so it is ~1596px wide here and scrolls sideways WITH the table. It wraps only
+   *    when the text exceeds that, which is why LONG_CAPTION is as long as it is.
+   */
+  test('#583 table long content scrolls at 1280 AND 375; header nowrap, cell wrap inert @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 583 table long content');
+    setComposition(pageId, [{ component: 'table', props: WIDE_TABLE_PROPS }]);
+
+    for (const width of [1280, 375]) {
+      await open(page, width, '.table-wrap');
+
+      const got = await page.evaluate(() => {
+        const lineCount = (el: Element) => {
+          const r = document.createRange();
+          r.selectNodeContents(el);
+          return new Set(
+            Array.from(r.getClientRects())
+              .filter((x) => x.width > 0 && x.height > 0)
+              .map((x) => Math.round(x.top)),
+          ).size;
+        };
+        const wrap = document.querySelector('.table-wrap') as HTMLElement;
+        const table = document.querySelector('.table') as HTMLElement;
+        const headers = Array.from(document.querySelectorAll('.table__header')) as HTMLElement[];
+        const td = document.querySelector('.table__cell') as HTMLElement;
+        const caption = document.querySelector('.table__caption') as HTMLElement;
+        return {
+          wrapClient: wrap.clientWidth,
+          wrapScroll: wrap.scrollWidth,
+          tableWidth: Math.round(table.getBoundingClientRect().width),
+          headerCount: headers.length,
+          // Longest header: 'Enterprise plan with dedicated support'. The FIRST header
+          // is a single unwrappable word, so measuring it would prove nothing about
+          // white-space: nowrap.
+          longestHeaderLines: lineCount(headers[headers.length - 1]),
+          thWhiteSpace: getComputedStyle(headers[0]).whiteSpace,
+          tdWhiteSpace: getComputedStyle(td).whiteSpace,
+          tdOverflowWrap: getComputedStyle(td).overflowWrap,
+          cellLines: lineCount(td),
+          captionWidth: Math.round(caption.getBoundingClientRect().width),
+          captionLines: lineCount(caption),
+        };
+      });
+
+      // The scroll mechanism fires at desktop too, not only at 375.
+      expect(
+        got.wrapScroll,
+        `@${width}: the table overflows its shell (scroll engaged)`,
+      ).toBeGreaterThan(got.wrapClient);
+      // The asymmetry IS the design: the header refuses to wrap, the cell wraps anywhere.
+      expect(got.thWhiteSpace, `@${width}: header refuses to wrap`).toBe('nowrap');
+      expect(got.headerCount, `@${width}: the fixture really is four columns`).toBe(4);
+      expect(
+        got.longestHeaderLines,
+        `@${width}: the longest header stays on ONE line (nowrap)`,
+      ).toBe(1);
+      expect(got.tdWhiteSpace, `@${width}: cell wraps`).toBe('normal');
+      expect(got.tdOverflowWrap, `@${width}: cell breaks inside words`).toBe('anywhere');
+      expect(
+        got.cellLines,
+        `@${width}: the cell's wrap capability is inert under width:max-content — a red here means a table-width constraint shipped`,
+      ).toBe(1);
+      // The caption tracks the TABLE box, not the band — it scrolls with the table.
+      expect(got.captionWidth, `@${width}: caption spans the max-content table`).toBe(
+        got.tableWidth,
+      );
+      expect(got.captionLines, `@${width}: the long caption wrapped`).toBeGreaterThanOrEqual(2);
+
+      // Degradation: the shell absorbs the overflow — the PAGE never scrolls sideways.
+      await expectNoViewportOverflow(page, `table long content @${width}`);
+    }
+  });
+
+  // ── embed ────────────────────────────────────────────────────────────────────
+
+  test('#583 embed baseline pins its band, heading and content surface at 1280 and 375 @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 583 embed baseline');
+    setComposition(pageId, [
+      {
+        component: 'embed',
+        props: { id: 'pp-emb583', title: 'Book a call', content: '<p>Embedded body copy.</p>' },
+      },
+    ]);
+
+    for (const [width, bandPadding, headingSize] of BAND_VIEWPORTS) {
+      await open(page, width, '.embed');
+
+      const got = await page.evaluate(() => {
+        const cs = getComputedStyle;
+        // Throws with the selector name rather than a bare null dereference, so a class
+        // rename in a follow-up gate reports WHAT went missing.
+        const q = (s: string) => {
+          const el = document.querySelector(s) as HTMLElement;
+          if (!el) throw new Error(`no element matched ${s}`);
+          return el;
+        };
+        return {
+          band: { top: cs(q('.embed')).paddingTop, bottom: cs(q('.embed')).paddingBottom },
+          heading: {
+            fontSize: cs(q('.embed__heading')).fontSize,
+            color: cs(q('.embed__heading')).color,
+            marginBottom: cs(q('.embed__heading')).marginBottom,
+            maxWidth: cs(q('.embed__heading')).maxWidth,
+          },
+          content: {
+            maxWidth: cs(q('.embed__content')).maxWidth,
+            color: cs(q('.embed__content')).color,
+          },
+        };
+      });
+
+      expect(got.band, `@${width}: embed band edges`).toEqual({
+        top: bandPadding,
+        bottom: bandPadding,
+      });
+      expectSharedHeading(got.heading, headingSize, `@${width}: embed heading`);
+      // `.embed__content` carries a bare 40rem literal today; #578 routes it through
+      // --embed-body-measure and #577 gives the inverted ink a slot. Both diff against this.
+      expect(got.content, `@${width}: embed content surface`).toEqual({
+        maxWidth: MEASURE,
+        color: INK,
+      });
+
+      await expectNoViewportOverflow(page, `embed baseline @${width}`);
+    }
+  });
+
+  // Long content on BOTH the base and the inverted variant: `.embed--inverted
+  // .embed__content` re-declares colour as a bare var(--color-bg) literal, which #577
+  // routes through a new --embed-body-color. This records the pre-routing ink.
+  test('#583 embed long content holds the measure on base and inverted at 1280 and 375 @smoke', async ({
+    page,
+  }) => {
+    const LONG_BODY =
+      '<p>' +
+      'Long embedded body copy that has to be capped by the content measure rather than by the container. '.repeat(
+        8,
+      ) +
+      '</p>';
+    pageId = createPage('E2E 583 embed long content');
+    setComposition(pageId, [
+      { component: 'embed', props: { id: 'pp-emb-base', title: 'Base band', content: LONG_BODY } },
+      {
+        component: 'embed',
+        props: { id: 'pp-emb-inv', theme: 'inverted', title: 'Inverted band', content: LONG_BODY },
+      },
+    ]);
+
+    for (const width of [1280, 375]) {
+      await open(page, width, '#pp-emb-inv');
+
+      const got = await page.evaluate(() => {
+        const cs = getComputedStyle;
+        const base = document.querySelector('#pp-emb-base .embed__content') as HTMLElement;
+        const inv = document.querySelector('#pp-emb-inv .embed__content') as HTMLElement;
+        const container = base.closest('.container') as HTMLElement;
+        const ccs = cs(container);
+        return {
+          baseWidth: base.clientWidth,
+          invWidth: inv.clientWidth,
+          baseColor: cs(base).color,
+          invColor: cs(inv).color,
+          invBandBg: cs(document.querySelector('#pp-emb-inv') as HTMLElement).backgroundColor,
+          // Content box, not client box — .container's side padding is inside clientWidth.
+          containerWidth:
+            container.clientWidth - parseFloat(ccs.paddingLeft) - parseFloat(ccs.paddingRight),
+          rootFont: parseFloat(cs(document.documentElement).fontSize),
+        };
+      });
+
+      const cap = Math.round(got.rootFont * 40);
+      const expected = Math.min(cap, got.containerWidth);
+      // At 1280 the 40rem measure binds; at 375 the container is narrower and binds first.
+      expect(got.baseWidth, `@${width}: base embed content width`).toBe(expected);
+      expect(got.invWidth, `@${width}: inverted embed content width`).toBe(expected);
+      expect(got.baseColor, `@${width}: base content ink`).toBe(INK);
+      expect(got.invColor, `@${width}: inverted content ink (unslotted literal today)`).toBe(
+        PAGE_BG,
+      );
+      expect(got.invBandBg, `@${width}: inverted band paint`).toBe(INVERTED_BG);
+
+      await expectNoViewportOverflow(page, `embed long content @${width}`);
+    }
+  });
+
+  // ── logos ────────────────────────────────────────────────────────────────────
+
+  test('#583 logos baseline pins its band, heading, list, items and labels at 1280 and 375 @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 583 logos baseline');
+    setComposition(pageId, [{ component: 'logos', props: BASE_LOGOS_PROPS }]);
+
+    for (const [width, bandPadding, headingSize] of BAND_VIEWPORTS) {
+      await open(page, width, '.logos');
+      await awaitLogoImages(page, 2);
+
+      const got = await page.evaluate(() => {
+        const cs = getComputedStyle;
+        // Throws with the selector name rather than a bare null dereference, so a class
+        // rename in a follow-up gate reports WHAT went missing.
+        const q = (s: string) => {
+          const el = document.querySelector(s) as HTMLElement;
+          if (!el) throw new Error(`no element matched ${s}`);
+          return el;
+        };
+        // `.logos__item--labeled` ALSO matches `.logos__item`, so the plain-item read
+        // must exclude it explicitly — otherwise it silently retargets if a fixture
+        // ever lists the labeled item first.
+        const plainItem = '.logos__item:not(.logos__item--labeled)';
+        return {
+          band: { top: cs(q('.logos')).paddingTop, bottom: cs(q('.logos')).paddingBottom },
+          heading: {
+            fontSize: cs(q('.logos__heading')).fontSize,
+            color: cs(q('.logos__heading')).color,
+            marginBottom: cs(q('.logos__heading')).marginBottom,
+            maxWidth: cs(q('.logos__heading')).maxWidth,
+          },
+          list: {
+            display: cs(q('.logos__list')).display,
+            flexWrap: cs(q('.logos__list')).flexWrap,
+            alignItems: cs(q('.logos__list')).alignItems,
+            justifyContent: cs(q('.logos__list')).justifyContent,
+            gap: cs(q('.logos__list')).gap,
+            listStyleType: cs(q('.logos__list')).listStyleType,
+            padding: cs(q('.logos__list')).padding,
+            margin: cs(q('.logos__list')).margin,
+          },
+          item: {
+            display: cs(q(plainItem)).display,
+            alignItems: cs(q(plainItem)).alignItems,
+            justifyContent: cs(q(plainItem)).justifyContent,
+            flexDirection: cs(q(plainItem)).flexDirection,
+          },
+          labeledItem: {
+            flexDirection: cs(q('.logos__item--labeled')).flexDirection,
+            gap: cs(q('.logos__item--labeled')).gap,
+            minWidth: cs(q('.logos__item--labeled')).minWidth,
+          },
+          image: {
+            maxHeight: cs(q(`${plainItem} .logos__image`)).maxHeight,
+            objectFit: cs(q(`${plainItem} .logos__image`)).objectFit,
+          },
+          // Not a CSS literal: `.logos__image` declares `width: auto`, so this is the
+          // TALL_PNG aspect ratio (60/180) applied to the 48px cap. It moves if the
+          // fixture asset changes, which is not a CSS regression.
+          fixtureDrivenImageWidth: cs(q(`${plainItem} .logos__image`)).width,
+          labeledImageMaxHeight: cs(q('.logos__item--labeled .logos__image')).maxHeight,
+          label: {
+            fontSize: cs(q('.logos__label')).fontSize,
+            color: cs(q('.logos__label')).color,
+            textAlign: cs(q('.logos__label')).textAlign,
+            opacity: cs(q('.logos__label')).opacity,
+          },
+        };
+      });
+
+      expect(got.band, `@${width}: logos band edges`).toEqual({
+        top: bandPadding,
+        bottom: bandPadding,
+      });
+      expectSharedHeading(got.heading, headingSize, `@${width}: logos heading`);
+      // gap is the var(--space-lg) literal #584 is about to route through --logos-gap.
+      expect(got.list, `@${width}: logos list`).toEqual({
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: LIST_GAP,
+        listStyleType: 'none',
+        padding: '0px',
+        margin: '0px',
+      });
+      // flexDirection 'row' is the CSS initial value, not a declaration — it is pinned
+      // so that `--labeled`'s `column` cannot start leaking onto plain items.
+      expect(got.item, `@${width}: unlabeled item box`).toEqual({
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexDirection: 'row',
+      });
+      expect(got.labeledItem, `@${width}: labeled item box`).toEqual({
+        flexDirection: 'column',
+        gap: '8px',
+        minWidth: '96px',
+      });
+      // The two max-height literals #584 is about to route through --logos-image-size.
+      expect(got.image, `@${width}: unlabeled image`).toEqual({
+        maxHeight: `${LOGO_CAP_PX}px`,
+        objectFit: 'contain',
+      });
+      expect(got.fixtureDrivenImageWidth, `@${width}: image keeps its aspect ratio`).toBe('16px');
+      expect(got.labeledImageMaxHeight, `@${width}: labeled image cap`).toBe(
+        `${LABELED_LOGO_CAP_PX}px`,
+      );
+      // The label has NO colour or size slot: both are bare literals. opacity 1 is the
+      // initial value, pinned so `--inverted`'s 0.75 fade cannot leak onto light bands.
+      expect(got.label, `@${width}: logos label`).toEqual({
+        fontSize: '13px',
+        color: MUTED_INK,
+        textAlign: 'center',
+        opacity: '1',
+      });
+
+      await expectNoViewportOverflow(page, `logos baseline @${width}`);
+    }
+  });
+
+  /**
+   * The label-driven image-height switch, rendered — the specific undocumented behaviour
+   * #581 discloses and #584 gives a slot.
+   *
+   *   items[].label present  ->  li.logos__item.logos__item--labeled  ->  max-height 2.5rem
+   *   items[].label absent   ->  li.logos__item                       ->  max-height 3rem
+   *
+   * A MIXED strip is the fixture because that is the state an author actually lands in:
+   * two different logo heights in one row with nothing in the schema to explain why.
+   *
+   * The fourth seed item is LABEL-ONLY (no image_url). The `if ($image_url)` guard in
+   * components/logos/logos.php renders an item only when image_url is non-empty, so it
+   * disappears with no warning. That shape is NOT authorable through the action surface
+   * as of #579, which makes nested `required` enforcement produce a named error for it —
+   * this pin is on the RENDER path and is expected to survive #579; only the write path
+   * changes there.
+   */
+  test('#583 logos mixed labeled/unlabeled strip pins both caps, the gap and the label-only drop @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 583 logos mixed strip');
+    setComposition(pageId, [
+      {
+        component: 'logos',
+        props: {
+          ...BASE_LOGOS_PROPS,
+          title: 'Mixed strip',
+          items: [
+            { image_url: TALL_PNG, image_alt: 'Unlabeled one' },
+            {
+              image_url: TALL_PNG,
+              image_alt: 'Labeled one',
+              label: 'Continuous deployment and release orchestration',
+            },
+            { image_url: TALL_PNG, image_alt: 'Unlabeled two' },
+            // RAW-META ONLY: label with no image_url. Silently drops (see docblock).
+            { label: 'Label with no image at all' },
+          ],
+        },
+      },
+    ]);
+
+    for (const width of [1280, 375]) {
+      await open(page, width, '.logos__list');
+      await awaitLogoImages(page, 3);
+
+      const got = await page.evaluate(() => {
+        const items = Array.from(document.querySelectorAll('.logos__item')) as HTMLElement[];
+        const imgOf = (el: HTMLElement) => el.querySelector('.logos__image') as HTMLImageElement;
+        return {
+          itemCount: items.length,
+          labeledCount: items.filter((i) => i.classList.contains('logos__item--labeled')).length,
+          labelCount: document.querySelectorAll('.logos__label').length,
+          gap: getComputedStyle(document.querySelector('.logos__list') as HTMLElement).gap,
+          heights: items.map((i) => Math.round(imgOf(i).getBoundingClientRect().height)),
+          naturals: items.map((i) => imgOf(i).naturalHeight),
+          labeledFlags: items.map((i) => i.classList.contains('logos__item--labeled')),
+        };
+      });
+
+      // Four items seeded, three rendered: the label-only entry vanished.
+      expect(got.itemCount, `@${width}: label-only item is silently dropped (4 seeded)`).toBe(3);
+      expect(got.labeledCount, `@${width}: exactly one item carries the labeled modifier`).toBe(1);
+      expect(got.labelCount, `@${width}: only the item with an image renders its label`).toBe(1);
+      // Guard: the asset must be taller than both caps, or the height pins prove nothing.
+      for (const n of got.naturals) {
+        expect(n, `@${width}: fixture asset must exceed both caps`).toBeGreaterThan(LOGO_CAP_PX);
+      }
+      // The switch itself: 48px unlabeled, 40px labeled, in the SAME strip. Paired with
+      // labeledFlags so a fixture reorder fails loudly instead of silently passing.
+      expect(got.heights, `@${width}: mixed strip renders two different logo heights`).toEqual([
+        LOGO_CAP_PX,
+        LABELED_LOGO_CAP_PX,
+        LOGO_CAP_PX,
+      ]);
+      expect(got.labeledFlags, `@${width}: the 40px one is the labeled one`).toEqual([
+        false,
+        true,
+        false,
+      ]);
+      // The gap literal #584 is about to route through --logos-gap.
+      expect(got.gap, `@${width}: logos list gap`).toBe(LIST_GAP);
+
+      await expectNoViewportOverflow(page, `logos mixed strip @${width}`);
+    }
+  });
+
+  // ── contrast, as it renders today ────────────────────────────────────────────
+
+  /**
+   * The three figures the deferred band-background gate (#590) treats as entry evidence,
+   * measured against the SHIPPED defaults rather than the branded dev install the #570
+   * corpus used. Corpus vs here: cells 18.2 -> 17.44, caption/label 3.09 -> 5.66. The
+   * gap is entirely token choice: --color-muted #5e6677 on --color-bg #fcfdff is 5.66:1,
+   * which clears AA; the corpus install's muted token did not.
+   */
+  test('#583 default-token contrast: table cells, caption and logos label as rendered @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 583 contrast defaults');
+    setComposition(pageId, [
+      { component: 'table', props: BASE_TABLE_PROPS },
+      {
+        component: 'logos',
+        props: { ...BASE_LOGOS_PROPS, items: [BASE_LOGOS_PROPS.items[1]] },
+      },
+    ]);
+
+    await open(page, 1280, '.table__cell');
+
+    const cell = await measureContrast(page, '.table__cell');
+    const caption = await measureContrast(page, '.table__caption');
+    const label = await measureContrast(page, '.logos__label');
+    const tableHeading = await measureContrast(page, '.table-section__heading');
+    const logosHeading = await measureContrast(page, '.logos__heading');
+
+    // Cells sit on the table's own light island, so they are the safe part of the band.
+    expect(cell, `table cell ink ${cell.toFixed(2)}:1`).toBeCloseTo(INK_ON_BG, 1);
+    // Unslotted muted ink, at 14px (caption) and 13px (label).
+    expect(caption, `table caption ink ${caption.toFixed(2)}:1`).toBeCloseTo(MUTED_ON_BG, 1);
+    expect(label, `logos label ink ${label.toFixed(2)}:1`).toBeCloseTo(MUTED_ON_BG, 1);
+    // Both band headings are --color-text on the default page background.
+    expect(tableHeading, `table heading ink ${tableHeading.toFixed(2)}:1`).toBeCloseTo(INK_ON_BG, 1);
+    expect(logosHeading, `logos heading ink ${logosHeading.toFixed(2)}:1`).toBeCloseTo(INK_ON_BG, 1);
+  });
+
+  /**
+   * The one dark paint these components can actually reach today: theme "inverted".
+   * table has no theme prop and no .table-section--* rule at all, so it cannot.
+   *
+   * Unlike the simulated dark paint below, this is shipped behaviour and therefore a real
+   * regression surface. Note the label's ratio is PRE-OPACITY: `.logos--inverted
+   * .logos__label` fades to 0.75, which measureContrast cannot see, so the opacity is
+   * asserted on its own rather than folded into a misleadingly high ratio.
+   */
+  test('#583 inverted logos and embed bands: ink as rendered today @smoke', async ({ page }) => {
+    pageId = createPage('E2E 583 inverted ink');
+    setComposition(pageId, [
+      {
+        component: 'logos',
+        props: {
+          ...BASE_LOGOS_PROPS,
+          id: 'pp-log-inv',
+          theme: 'inverted',
+          title: 'Inverted logos band',
+          items: [BASE_LOGOS_PROPS.items[1]],
+        },
+      },
+      {
+        component: 'embed',
+        props: {
+          id: 'pp-emb-inv',
+          theme: 'inverted',
+          title: 'Inverted embed band',
+          content: '<p>Inverted body copy with an <a href="/x">inline link</a>.</p>',
+        },
+      },
+    ]);
+
+    await open(page, 1280, '#pp-emb-inv');
+
+    const logosHeading = await measureContrast(page, '#pp-log-inv .logos__heading');
+    const logosLabel = await measureContrast(page, '#pp-log-inv .logos__label');
+    const embedHeading = await measureContrast(page, '#pp-emb-inv .embed__heading');
+    const embedBody = await measureContrast(page, '#pp-emb-inv .embed__content');
+    const embedLink = await measureContrast(page, '#pp-emb-inv .embed__content a');
+
+    // Both bands re-route their heading to var(--color-bg) on the inverted paint, so the
+    // 1.02:1 failure the #570 corpus reports does NOT occur on the shipped dark variant.
+    expect(logosHeading, `inverted logos heading ${logosHeading.toFixed(2)}:1`).toBeCloseTo(
+      INK_ON_INVERTED,
+      1,
+    );
+    expect(embedHeading, `inverted embed heading ${embedHeading.toFixed(2)}:1`).toBeCloseTo(
+      INK_ON_INVERTED,
+      1,
+    );
+    expect(embedBody, `inverted embed body ${embedBody.toFixed(2)}:1`).toBeCloseTo(
+      INK_ON_INVERTED,
+      1,
+    );
+    // Dark-band body link routed to the on-inverted accent role (#437).
+    expect(embedLink, `inverted embed link ${embedLink.toFixed(2)}:1`).toBeCloseTo(
+      ACCENT_LINK_ON_INVERTED,
+      1,
+    );
+    expect(logosLabel, `inverted logos label, PRE-opacity ${logosLabel.toFixed(2)}:1`).toBeCloseTo(
+      INK_ON_INVERTED,
+      1,
+    );
+    const labelOpacity = await page
+      .locator('#pp-log-inv .logos__label')
+      .evaluate((el: Element) => getComputedStyle(el).opacity);
+    expect(labelOpacity, 'the inverted label is faded, so its effective ratio is lower').toBe(
+      '0.75',
+    );
+  });
+
+  /**
+   * SIMULATION, not shipped behaviour — deliberately NOT @smoke.
+   *
+   * There is no --table-bg or --logos-bg slot, and `theme: "inverted"` re-routes both
+   * headings (proved above), so the "heading default dies on a dark paint" failure the
+   * #570 corpus records has no product path today. The corpus produced it by injecting
+   * `main .logos { background: #101418 }` client-side; this reproduces that injection
+   * exactly so the figure is generated rather than cited. It is entry evidence for the
+   * deferred band-background gate (#590), not a regression pin — if it ever starts
+   * failing, that means a band-background capability shipped and #590's prerequisites
+   * apply.
+   *
+   * Corpus: 1.02:1. Here, with shipped tokens: 1.04:1.
+   */
+  test('#583 simulated dark band paint kills the heading default (entry evidence for #590)', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 583 dark paint simulation');
+    setComposition(pageId, [
+      { component: 'table', props: BASE_TABLE_PROPS },
+      {
+        component: 'logos',
+        props: { ...BASE_LOGOS_PROPS, items: [BASE_LOGOS_PROPS.items[1]] },
+      },
+    ]);
+
+    await open(page, 1280, '.logos__heading');
+
+    await page.addStyleTag({
+      content: 'main .logos { background: #101418; } main .table-section { background: #101418; }',
+    });
+
+    const tableHeading = await measureContrast(page, '.table-section__heading');
+    const logosHeading = await measureContrast(page, '.logos__heading');
+    const logosLabel = await measureContrast(page, '.logos__label');
+    const tableCell = await measureContrast(page, '.table__cell');
+
+    expect(tableHeading, `table heading on a dark paint ${tableHeading.toFixed(2)}:1`).toBeCloseTo(
+      1.04,
+      1,
+    );
+    expect(logosHeading, `logos heading on a dark paint ${logosHeading.toFixed(2)}:1`).toBeCloseTo(
+      1.04,
+      1,
+    );
+    expect(logosLabel, `logos label on a dark paint ${logosLabel.toFixed(2)}:1`).toBeCloseTo(
+      3.21,
+      1,
+    );
+    // The correction the #570 screenshot evidence made: the CELLS stay safe, because
+    // `.table` paints its own light island regardless of the band behind it.
+    expect(
+      tableCell,
+      `table cell is unaffected by the band paint ${tableCell.toFixed(2)}:1`,
+    ).toBeCloseTo(INK_ON_BG, 1);
+  });
+});
