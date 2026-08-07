@@ -866,6 +866,184 @@ class SectionTextPanelTest extends TestCase
         }
     }
 
+    // ── #568 paired-row mobile stack ──────────────────────────────────────
+
+    /**
+     * The COMPONENT: section block's `@media (max-width: 767px)` at-rule body,
+     * brace-matched (a regex cannot match the nested rule braces).
+     */
+    private function panelRowMobileBlock(): string
+    {
+        $block  = $this->sectionBlock();
+        $needle = '@media (max-width: 767px)';
+        $offset = 0;
+
+        // Select the at-rule that actually OWNS the paired row, not simply the
+        // first mobile at-rule in the block. The section component may grow a
+        // second `max-width: 767px` at-rule at any time (the file already carries
+        // eight), and picking by position would then either blame correct CSS or
+        // pass a leak check vacuously, depending on which side it landed.
+        while (($start = strpos($block, $needle, $offset)) !== false) {
+            $open   = strpos($block, '{', $start);
+            $offset = $start + strlen($needle);
+            $depth  = 0;
+            for ($i = $open, $len = strlen($block); $i < $len; $i++) {
+                if ($block[$i] === '{') {
+                    $depth++;
+                } elseif ($block[$i] === '}') {
+                    $depth--;
+                    if ($depth === 0) {
+                        $body = substr($block, $open + 1, $i - $open - 1);
+                        if (strpos($body, '.section__panel-row') !== false) {
+                            return $body;
+                        }
+                        $offset = $i;
+                        continue 2;
+                    }
+                }
+            }
+        }
+        return '';
+    }
+
+    /**
+     * #568: a paired row keeps its two-column geometry at every width, so at 375
+     * the value is squeezed into ~170px of a 247px row content box and a long
+     * comparison value wraps to four right-aligned lines beside a one-word label.
+     * The ruled default stacks the pair below the mobile breakpoint. Five
+     * properties; each is asserted here at the source level, and the RENDERED
+     * proof (that the cascade actually delivers them, and that the label reads as
+     * a label) lives in tests/e2e/style-render.spec.ts.
+     */
+    public function testPanelRowStacksBelowTheMobileBreakpoint(): void
+    {
+        $mobile = $this->panelRowMobileBlock();
+        $this->assertNotSame(
+            '',
+            $mobile,
+            'The COMPONENT: section block must carry a @media (max-width: 767px) at-rule for the #568 paired-row stack.'
+        );
+
+        // 1 + 3: the row stacks, with the TIGHT intra-pair gap.
+        $this->assertMatchesRegularExpression(
+            '/\.section__panel-row\s*\{[^}]*flex-direction:\s*column/s',
+            $mobile,
+            'A paired row must stack to flex-direction: column below 768px.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.section__panel-row\s*\{[^}]*gap:\s*var\(--space-xs\)/s',
+            $mobile,
+            'The stacked intra-pair label->value gap must be the tight --space-xs step.'
+        );
+
+        // 4: the LOOSE inter-pair rhythm, as an adjacent-sibling margin-top.
+        // margin-bottom is not available: `.section__panel-list li` (0,1,1) owns it
+        // and its :last-child companion (0,1,2) zeroes it, so a margin-bottom answer
+        // must out-specify both and re-implement the last-child zero. `+` (0,2,0)
+        // writes margin-top, which nothing else on a panel li sets. It fires on
+        // every row after the first, INCLUDING the last, but only ever adds space
+        // ABOVE a row — so it can never leave a trailing gap below the last row,
+        // i.e. above a panel CTA.
+        $this->assertMatchesRegularExpression(
+            '/\.section__panel-row\s*\+\s*\.section__panel-row\s*\{[^}]*margin-top:\s*var\(--space-md\)/s',
+            $mobile,
+            'The inter-pair rhythm must be a --space-md margin-top on a row that follows a row.'
+        );
+
+        // 2: one shared left edge — the desktop `text-align: right` is the half of
+        // the defect that survives stacking, so it must be answered explicitly.
+        $this->assertMatchesRegularExpression(
+            '/\.section__panel-row-value\s*\{[^}]*text-align:\s*left/s',
+            $mobile,
+            'The stacked value must be left-aligned so label and value share one left edge.'
+        );
+
+        // 5: stacked, position no longer distinguishes label from value. The split
+        // follows the theme's own stacked key/value idiom (.hero__surface-key /
+        // .hero__surface-value): the label is the small tracked one, the value
+        // carries the weight. The SIZE step is the load-bearing half — the theme
+        // ships no webfont, so in a bare font environment a weight-only treatment
+        // renders pixel-identical, which is why the weight is pinned here (where a
+        // regex can see the declaration) rather than relied on as visual proof.
+        $this->assertMatchesRegularExpression(
+            '/\.section__panel-row-label\s*\{[^}]*font-size:\s*0\.8125rem/s',
+            $mobile,
+            'The stacked label needs an explicit size step; weight alone is not guaranteed to render.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.section__panel-row-label\s*\{[^}]*letter-spacing:\s*0\.04em/s',
+            $mobile,
+            'The stacked label uses the theme eyebrow tracking so it reads as a label.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.section__panel-row-value\s*\{[^}]*font-weight:\s*600/s',
+            $mobile,
+            'The stacked value carries the weight, mirroring .hero__surface-value.'
+        );
+
+        // The label must NOT be recoloured: row colour routes through the
+        // item_eligible --section-panel-text slot and the panel background is
+        // author-controlled (and may be dark).
+        $this->assertDoesNotMatchRegularExpression(
+            '/\.section__panel-row-label\s*\{[^}]*color:/s',
+            $mobile,
+            'The stacked label distinction is typographic, never colour (#568).'
+        );
+    }
+
+    /**
+     * #568 is a DEFAULT, not a knob, and desktop is untouched: every new
+     * declaration must live inside the mobile at-rule, and the desktop rules must
+     * still say exactly what they said before.
+     */
+    public function testPanelRowDesktopPresentationIsUnchanged(): void
+    {
+        $block  = $this->sectionBlock();
+        $mobile = $this->panelRowMobileBlock();
+
+        // Without this guard the whole test passes VACUOUSLY if the at-rule is
+        // ever deleted: panelRowMobileBlock() returns '', str_replace('', '', ...)
+        // is a no-op, and every leak check below then runs against the full block
+        // and finds nothing to complain about — green over a removed feature.
+        $this->assertNotSame(
+            '',
+            $mobile,
+            'The #568 mobile at-rule must exist before its leak checks mean anything.'
+        );
+
+        $desktop = str_replace($mobile, '', $block);
+
+        $this->assertMatchesRegularExpression(
+            '/\.section__panel-row\s*\{[^}]*justify-content:\s*space-between[^}]*gap:\s*var\(--space-md\)/s',
+            $desktop,
+            'The desktop paired row keeps space-between and the --space-md gap.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.section__panel-row-value\s*\{\s*text-align:\s*right;\s*\}/s',
+            $desktop,
+            'The desktop value stays right-aligned — #568 changes nothing at >=768px.'
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/\.section__panel-row-label\s*\{/s',
+            $desktop,
+            'The label carries NO desktop rule; its type treatment is mobile-only (#568).'
+        );
+        // .section__grid legitimately stacks at desktop scope, so scope the
+        // leak check to the paired row itself.
+        $this->assertDoesNotMatchRegularExpression(
+            '/\.section__panel-row[^{]*\{[^}]*flex-direction/s',
+            $desktop,
+            'The stack must not leak out of the mobile at-rule.'
+        );
+
+        // No responsive SLOT: #568 is a defaults change, not a mobile knob.
+        $this->assertStringNotContainsString(
+            '--section-panel-row',
+            $block,
+            '#568 introduces no per-instance paired-row slot — mobile behaviour stays defaulted.'
+        );
+    }
+
     public function testPanelRowMarkerGlyphIsSuppressed(): void
     {
         // A row is not a bullet: its ::before marker box is neutralised so a

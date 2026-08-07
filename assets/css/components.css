@@ -1634,8 +1634,10 @@
 }
 
 /* Paired rows (issue 334): a { label, value } entry renders as a two-part row
-   inside the same panel list, label left / value right. A row is NOT a bullet,
-   so it carries its own list-style:none and its glyph marker is suppressed below.
+   inside the same panel list, label left / value right AT >=768px (issue 568
+   stacks the pair below that; see the media block after the value rule).
+   A row is NOT a bullet, so it carries its own list-style:none and its glyph
+   marker is suppressed below.
    Row text colour routes through the SAME --section-panel-text slot as the rest
    of the panel, which is item_eligible so a per-row style map can recolour one
    row (emphasise/de-emphasise) via cascade proximity on the inline row style. */
@@ -1649,6 +1651,98 @@
 
 .section__panel-row-value {
   text-align: right;
+}
+
+/* Mobile stack (issue 568). Below 768px the two-column geometry starves the
+   value: at 375 the row content box is 247px (343px viewport-minus-page-padding,
+   less the panel's 2 x --space-lg, less the list's --space-lg indent) and the
+   label takes its share off the front, leaving the value ~170px — a 5-12 word
+   comparison value wrapped to FOUR right-aligned lines beside a one-word label.
+   Stacking hands the value the full 247px (+45%) and one shared left edge with
+   its label. This is a DEFAULT, not a knob: no responsive slot, no new prop, and
+   >=768px is untouched.
+
+   Five properties, all scoped to this breakpoint:
+     1. flex-direction: column   label above value.
+     2. value text-align: left   one shared left edge. The `right` on the rule
+                                 above is the half of the defect that survives
+                                 stacking, so it must be answered explicitly.
+     3. gap: --space-xs (4px)    TIGHT intra-pair gap — the value belongs to the
+                                 label directly above it.
+     4. row + row: 16px          LOOSE inter-pair rhythm, so four pairs read as
+                                 four facts rather than one eight-line block.
+     5. pair type treatment      stacked, POSITION no longer distinguishes label
+                                 from value (they share size, weight and colour),
+                                 so a short label reads as a first line OF the
+                                 value. A smaller, tracked label over a heavier
+                                 value is what makes the pair read as label-then-
+                                 fact. Accepted on the issue's mandatory 375px
+                                 rendered check, not on this declaration.
+
+   Property 4 is an ADJACENT-SIBLING margin-top, not a margin-bottom on the row.
+   `.section__panel-list li` (0,1,1) already owns margin-bottom and its
+   `:last-child` companion (0,1,2) zeroes it, so any margin-bottom answer has to
+   out-specify BOTH and then re-implement the last-child zero — and a bare
+   `.section__panel-row` (0,1,0) would silently lose outright. `+` (0,2,0) writes
+   margin-top, which nothing else on a panel li sets. It fires on every row after
+   the first, INCLUDING the last, but it only ever adds space ABOVE a row, so it
+   can never leave a trailing gap below the last row (i.e. above a panel CTA),
+   and it never fires between a bullet and a row.
+
+   Known GROUPING consequence in a MIXED list (string bullets + paired rows, a
+   shape the grammar actively encourages): a paired row that follows a plain
+   bullet keeps the list's own 4px, which is now about the same optical distance
+   as a value sits from its own label — so that bullet can read as a third line
+   of the pair below it. Before this change every entry was one line, so the flat
+   4px implied no grouping at all and the ambiguity did not exist. Widening the
+   bullet/row boundary is NOT this issue's ruled change (property 4 is the rhythm
+   between PAIRS), so it is recorded here as a follow-up, not fixed.
+
+   Property 5 is typographic on purpose, never colour. Row colour routes through
+   the item_eligible --section-panel-text slot (a per-row style map recolours one
+   row) and --section-panel-bg is author-controlled and may be dark, so a
+   hardcoded muted label colour would both fight the slot and put an unreviewable
+   contrast pair on the page.
+
+   Which element carries which signal follows the theme's OWN stacked key/value
+   idiom, `.hero__surface-key` / `.hero__surface-value` above — the same geometry
+   (flex column, gap --space-xs), and there the KEY is the small tracked one while
+   the VALUE carries weight 600. A panel row is the same shape playing the same
+   two roles, so it splits the same way rather than inventing a second convention.
+   Two deliberate divergences from that idiom, both forced: no `color:
+   var(--color-muted)` (see the slot/dark-panel note above), and no
+   `text-transform: uppercase` (a panel label is authored free text and is
+   routinely a proper noun — "WordPress", "PHP" — which uppercasing mangles;
+   .hero__surface-key's 0.08em tracking is calibrated for uppercase, so the label
+   keeps `.section__eyebrow`'s gentler 0.04em instead).
+
+   The SIZE step carries the distinction; the WEIGHT is a bonus, not the proof.
+   The theme ships no webfont (--font-body is `system-ui, sans-serif`), so which
+   weights exist is the client's business: in a bare Linux/CI font environment
+   600 resolves to the same face as 400 and renders PIXEL-IDENTICAL — the 375px
+   A/B for this issue produced byte-identical PNGs for a weight-only treatment.
+   A rendered pin that asserts ONLY the weight would therefore go green over an
+   invisible distinction; the size step is what a rendered pin must assert. Size
+   and tracking also survive --section-panel-font: var(--font-mono), shot too. */
+@media (max-width: 767px) {
+  .section__panel-row {
+    flex-direction: column;
+    gap: var(--space-xs);
+  }
+
+  .section__panel-row + .section__panel-row {
+    margin-top: var(--space-md);
+  }
+
+  .section__panel-row-label {
+    font-size: 0.8125rem;
+    letter-spacing: 0.04em;
+  }
+
+  .section__panel-row-value {
+    font-weight: 600;
+    text-align: left;
+  }
 }
 
 /* Suppress the shared issue-339 marker glyph on paired rows only. The marker
