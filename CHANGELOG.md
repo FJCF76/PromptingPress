@@ -10,7 +10,7 @@ All notable changes to PromptingPress are documented here.
 
 `table`, `embed` and `logos` were the only components with zero coverage of their own internals. The shared band suites rendered them incidentally and checked their outer edges — padding, heading scale — but nothing anywhere touched a table cell, a caption, the horizontal-scroll shell, the embed content measure, a logos item, a label, or either of the two logo height caps. Four issues in this milestone route exactly those literals through new slots. Shipping into that with no net is the specific risk this closes.
 
-Thirteen rendered cases and fourteen markup cases now pin what those three components actually produce, at 1280 and at 375, in stressed states: headings long enough to wrap, a four-column comparison table with a long cell and a long caption, embed body copy on both the light and the inverted band, and a logos strip mixing labeled and unlabeled items. **No production code changed** — not a rule, not a schema, not a default.
+Twelve rendered cases and fourteen markup cases now pin what those three components actually produce, at 1280 and at 375, in stressed states: headings long enough to wrap, a four-column comparison table with a long cell and a long caption, embed body copy on both the light and the inverted band, and a logos strip mixing labeled and unlabeled items. **No production code changed** — not a rule, not a schema, not a default.
 
 ### Assertions that survive the change they are meant to catch
 
@@ -30,10 +30,10 @@ The last two are recorded, not corrected — a deferred gate owns the band-backg
 
 ### Tests
 
-- `tests/e2e/style-render.spec.ts` gains a `#583` block: baseline, long-heading, long-content and 375px degradation cases for each of the three components, plus the mixed labeled/unlabeled logos strip that pins both `max-height` caps and the list gap in one render, and three contrast cases. Twelve are `@smoke`; the injected-dark-paint case is deliberately not, because it simulates a state the product cannot reach.
+- `tests/e2e/style-render.spec.ts` gains a `#583` block: baseline, long-heading, long-content and 375px degradation cases for each of the three components, plus the mixed labeled/unlabeled logos strip that pins both `max-height` caps and the list gap in one render, and three contrast cases. Eleven are `@smoke`; the injected-dark-paint case is deliberately not, because it simulates a state the product cannot reach.
 - `tests/TableEmbedLogosMarkupTest.php` covers the emit-or-not branches a rendered test can only reach vacuously: the table's empty-data paragraph, the optional heading and caption, the `--labeled` modifier, the label-only logos item that renders nothing at all, and which text props route through `esc_html()` versus `wp_kses_post()` — an asymmetry no test in the repo held.
-- Every fixture states whether it is a shape the action surface would accept. Exactly one is not: the label-only logos item, which raw meta can store and `#579` will reject on write.
-- PHP 2642 → **2656**.
+- The fixtures are seeded through raw `_pp_composition` meta, which bypasses validation, and the block says so. Exactly one seeded shape is not authorable through the action surface, and it is called out where it is used: the label-only logos item, which raw meta can store and `#579` will reject on write.
+- PHPUnit test count 2642 → **2656** (+14: eleven test methods plus one data-provided method with three cases).
 
 ---
 
