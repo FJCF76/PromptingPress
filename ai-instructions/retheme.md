@@ -256,9 +256,10 @@ primary's slots never reach in rest OR hover, so restyling the primary alone lea
 button on the global token. Since #554 that holds for BOTH second buttons: the cta block's and
 the hero's each route `--btn-bg` / `--btn-hover-bg` through their own chains, so neither is an
 exception any more. The section's `text-panel` CTA has its own family too —
-`--section-panel-cta-bg` / `--section-panel-cta-color` / `--section-panel-cta-shadow` — which
-is the only way to give one section's panel button a flat brand fill without moving the
-site-wide token. See `ai-instructions/style-component.md`.)
+`--section-panel-cta-bg` / `--section-panel-cta-color` / `--section-panel-cta-shadow`, plus the
+ring pair `--section-panel-cta-border` / `--section-panel-cta-hover-border` (#584) — which is the
+only way to give one section's panel button a flat brand fill, or its own ring, without moving
+the site-wide token. See `ai-instructions/style-component.md`.)
 
 **The global tier has hover twins for fill and border.** `--btn-hover-bg` and
 `--btn-hover-border-color` are the hover counterparts of `--btn-bg` and `--btn-border-color`,
@@ -315,14 +316,18 @@ Your per-instance ring slots, the band accent, and that band's OWN fill slot sti
 the global ones are simply
 not in the chain. To set a specific ring on a photo band, use the per-instance slot where the
 button has one (`--cta-button-border` / `--cta-button2-border` / `--hero-button2-border` and their
-hover twins). The hero PRIMARY ships no per-instance ring slot, so steer its cover-band ring
-with `--hero-accent` / `--hero-accent-hover`. One consequence worth planning for: because the
-site-wide knob no longer reaches these bands, a ring correction that used to be a single global
-edit is now per band.
+hover twins). Since #584 the hero PRIMARY has its own ring pair too — `--hero-button-border` /
+`--hero-button-hover-border` — and it LEADS the cover-band chain, ahead of `--hero-accent` /
+`--hero-accent-hover`. Reach for the button slots to ring one button, the accent slots to move
+every accented element in the band. One consequence worth planning for: because the site-wide
+knob no longer reaches these bands, a ring correction that used to be a single global edit is
+now per band.
 
-The **section-panel CTA** has no per-instance hover fill slot of its own
+The **section-panel CTA** has no per-instance hover FILL slot of its own
 (`--section-panel-cta-bg` is resting-state only), so the global knob is the only way to move
-its hover fill. That is intended, not an oversight.
+its hover fill. That is intended, not an oversight. The RING is the exception since #584:
+`--section-panel-cta-hover-border` is a real per-instance hover slot, so a chosen ring survives
+the hover even though the fill reverts to the premium gradient.
 
 **The hero's second CTA is no longer an exception (#554).** It used to be the one filled
 surface on the theme whose OWN chains never routed the global tier, so a site-wide button
