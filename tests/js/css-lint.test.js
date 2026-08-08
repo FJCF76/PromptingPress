@@ -2390,7 +2390,33 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
         { comp: 'table', cls: '.table-section', slot: '--table' },
         { comp: 'logos', cls: '.logos', slot: '--logos' },
         { comp: 'embed', cls: '.embed', slot: '--embed' },
+        // hero joins the ADJACENT-TOP contract only (issue 577), and it is the ONE
+        // member whose fallback is not the shared band tier — hence `adjacentFallback`
+        // instead of the implicit --pp-band-padding-adjacent-top, and `ownRhythm: false`
+        // to exempt it from pin 1.
+        //
+        // WHY THE EXCEPTION EXISTS, so the next person does not "fix" it back:
+        // hero deliberately opts OUT of the shared symmetric band rhythm — it is the
+        // page opener, and its own base rules use --space-xl / --space-2xl, not
+        // --pp-band-padding. Before #577 the generic adjacent catch-all
+        // (`main > [data-pp-component] + [data-pp-component]`, [0,2,1]) outranked
+        // `.hero` ([0,1,0]) at BOTH breakpoints, so --hero-padding-top was dead on the
+        // adjacent edge AND the catch-all silently dragged an adjacent hero onto the
+        // band rhythm. #577 routes the slot and restores hero's own opener rhythm as
+        // the fallback, which is a deliberate, registered render change. Pointing this
+        // fallback at --pp-band-padding-adjacent-top "for consistency" would re-break
+        // the opt-out.
+        {
+            comp: 'hero',
+            cls: '.hero',
+            slot: '--hero',
+            ownRhythm: false,
+            adjacentFallback: ['--space-2xl', '--space-xl'], // desktop, mobile
+        },
     ];
+
+    /** Pin 1 applies only to the bands that consume the SHARED rhythm definition. */
+    const OWN_RHYTHM_COMPONENTS = BAND_COMPONENTS.filter(b => b.ownRhythm !== false);
 
     // Brace-matched extraction of every rule whose selector is EXACTLY `selector`
     // (whitespace-normalized), across all media contexts. Same technique as the
@@ -2419,7 +2445,7 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
 
     // 1. Own padding: every padding-top/bottom on each band's root routes through
     //    the component slot AND falls back to the shared --pp-band-padding.
-    test.each(BAND_COMPONENTS)('$comp own padding routes through its slot to var(--pp-band-padding)', ({ cls, slot }) => {
+    test.each(OWN_RHYTHM_COMPONENTS)('$comp own padding routes through its slot to var(--pp-band-padding)', ({ cls, slot }) => {
         const bodies = bodiesForExactSelector(cls);
         ['padding-top', 'padding-bottom'].forEach(prop => {
             const slotName = `${slot}-${prop}`;
@@ -2436,13 +2462,38 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
     // 2. Adjacent-top: every band (testimonials included) routes its adjacent-top
     //    edge through the slot to the shared --pp-band-padding-adjacent-top, at both
     //    breakpoints. The dead --testimonials-padding-top slot is resurrected here.
-    test.each(BAND_COMPONENTS)('adjacent $comp routes top-padding to var(--pp-band-padding-adjacent-top) at both breakpoints', ({ cls, slot }) => {
+    test.each(BAND_COMPONENTS)('adjacent $comp routes top-padding through its slot at both breakpoints', ({ cls, slot, adjacentFallback }) => {
         const bodies = bodiesForExactSelector('main > [data-pp-component] + ' + cls);
         const decls = bodies.flatMap(b => b.match(/padding-top\s*:[^;}]+/g) || []);
         // Desktop + mobile adjacent rules both exist.
         expect(decls.length).toBeGreaterThanOrEqual(2);
+
+        if (!adjacentFallback) {
+            // The nine shared-rhythm bands: slot -> --pp-band-padding-adjacent-top.
+            decls.forEach(d => {
+                expect(d).toMatch(new RegExp('padding-top\\s*:\\s*var\\(\\s*' + slot + '-padding-top\\s*,\\s*var\\(\\s*--pp-band-padding-adjacent-top\\s*\\)'));
+            });
+            return;
+        }
+
+        // hero, the documented exception: the slot is routed exactly the same way, but
+        // the fallback is hero's OWN opener rhythm and DIFFERS BY BREAKPOINT. Assert
+        // every declaration uses one of the two, and that BOTH actually appear — so
+        // dropping a breakpoint, or collapsing the pair onto one value, fails here.
+        const seen = new Set();
         decls.forEach(d => {
-            expect(d).toMatch(new RegExp('padding-top\\s*:\\s*var\\(\\s*' + slot + '-padding-top\\s*,\\s*var\\(\\s*--pp-band-padding-adjacent-top\\s*\\)'));
+            const m = d.match(new RegExp('padding-top\\s*:\\s*var\\(\\s*' + slot + '-padding-top\\s*,\\s*var\\(\\s*(--space-[a-z0-9]+)\\s*\\)'));
+            expect(m, `adjacent ${cls} declaration must route ${slot}-padding-top to a --space-* fallback: ${d}`).not.toBeNull();
+            expect(adjacentFallback).toContain(m[1]);
+            seen.add(m[1]);
+        });
+        adjacentFallback.forEach(f => {
+            expect(seen, `adjacent ${cls} is missing the ${f} breakpoint fallback`).toContain(f);
+        });
+
+        // And it must NOT have been "corrected" onto the shared band tier.
+        decls.forEach(d => {
+            expect(d).not.toMatch(/--pp-band-padding-adjacent-top/);
         });
     });
 
@@ -2456,10 +2507,12 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
         expect(stripped).not.toContain('3.35rem');
     });
 
-    // 3b. The generic adjacent catch-all (the only slot-less band left is hero, after
-    //     issue 438 gave table/logos/embed their own padding slots) also consumes the
-    //     shared adjacent-top, not a literal, so nothing routes rhythm outside the one
-    //     definition.
+    // 3b. The generic adjacent catch-all also consumes the shared adjacent-top, not a
+    //     literal, so nothing routes rhythm outside the one definition. Since issue 577
+    //     no band falls through to it (hero was the last one, after issue 438 gave
+    //     table/logos/embed their own padding slots) — it is now the shared DEFINITION
+    //     the per-component rules fall back to rather than the rule any band lands on,
+    //     and it must keep consuming the shared prop either way.
     test('the generic adjacent-sibling rule routes through --pp-band-padding-adjacent-top', () => {
         const bodies = bodiesForExactSelector('main > [data-pp-component] + [data-pp-component]');
         expect(bodies.length).toBeGreaterThanOrEqual(2); // desktop + mobile
@@ -2468,6 +2521,65 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
         decls.forEach(d => {
             expect(d).toMatch(/padding-top\s*:\s*var\(\s*--pp-band-padding-adjacent-top\s*\)/);
         });
+    });
+
+    // 3c. SOURCE ORDER IS LOAD-BEARING for hero's DESKTOP adjacent rule (issue 577).
+    //     `main > [data-pp-component] + .hero` and the desktop restatement of
+    //     `main > [data-pp-component][data-pp-spacing="compact"|"spacious"]` are BOTH
+    //     [0,2,1], so whichever comes last wins. An explicit compact/spacious override
+    //     must keep governing BOTH edges of an adjacent hero (issue 434), so hero's
+    //     desktop rule has to sit ABOVE the spacing restatement — which is exactly why
+    //     it lives in the SHARED: Adjacent-Sibling Rhythm block instead of down with the
+    //     other nine per-component adjacent rules. Moving it "for consistency" would
+    //     silently shave a spaced hero's top edge again.
+    //
+    //     Mobile needs no equivalent pin: that block already restates the spacing rules
+    //     AFTER its per-component list, so hero's mobile rule sits with its siblings.
+    test('hero adjacent-top is declared ABOVE the desktop data-pp-spacing restatement', () => {
+        const css = stripComments(COMPONENTS_CSS).replace(/\s+/g, ' ');
+        const heroAdjacent = css.indexOf('main > [data-pp-component] + .hero {');
+        const spacingRestatement = css.indexOf('main > [data-pp-component][data-pp-spacing="compact"] {');
+
+        expect(heroAdjacent, 'no `main > [data-pp-component] + .hero` rule found').toBeGreaterThan(-1);
+        expect(spacingRestatement, 'no `main > [data-pp-component][data-pp-spacing="compact"]` restatement found').toBeGreaterThan(-1);
+        // Both indexes are the FIRST (= desktop) occurrence of each rule.
+        expect(
+            heroAdjacent,
+            'hero\'s desktop adjacent-top rule moved BELOW the desktop data-pp-spacing restatement — '
+            + 'a compact/spacious hero placed after another band will now be shaved on its top edge only (issue 434 regression)'
+        ).toBeLessThan(spacingRestatement);
+    });
+
+    // 3d. The LEFT variant carries its own adjacent-top fallback (issue 577). OQ-1 (ii)
+    //     ruled that hero keeps ITS OWN opener rhythm on the adjacent edge; .hero--left's
+    //     own rhythm is --space-xl on both edges ("inner pages; compact vertical
+    //     rhythm"), so applying the centered hero's --space-2xl there would follow the
+    //     wrong variant's rhythm and render 112px top against a 64px bottom. The twin
+    //     must (a) exist at desktop, where the two rhythms diverge, (b) fall back to
+    //     --space-xl, and (c) sit AFTER the plain `.hero` rule at equal specificity so
+    //     it actually wins. Mobile needs no twin — both variants resolve --space-xl
+    //     there through the one rule.
+    test('the hero--left adjacent-top twin exists, uses --space-xl, and out-orders the .hero rule', () => {
+        const bodies = bodiesForExactSelector('main > [data-pp-component] + .hero--left');
+        expect(bodies.length, 'no `main > [data-pp-component] + .hero--left` rule found').toBeGreaterThanOrEqual(1);
+        bodies.forEach(b => {
+            const decls = b.match(/padding-top\s*:[^;}]+/g) || [];
+            expect(decls.length).toBeGreaterThanOrEqual(1);
+            decls.forEach(d => {
+                expect(d).toMatch(/padding-top\s*:\s*var\(\s*--hero-padding-top\s*,\s*var\(\s*--space-xl\s*\)/);
+                expect(d).not.toMatch(/--space-2xl/);
+            });
+        });
+
+        const css = stripComments(COMPONENTS_CSS).replace(/\s+/g, ' ');
+        const plainHero = css.indexOf('main > [data-pp-component] + .hero {');
+        const leftHero = css.indexOf('main > [data-pp-component] + .hero--left {');
+        expect(plainHero).toBeGreaterThan(-1);
+        expect(leftHero).toBeGreaterThan(-1);
+        expect(
+            leftHero,
+            'the .hero--left twin must come AFTER the plain .hero adjacent rule — equal specificity means source order decides, and the left variant has to win'
+        ).toBeGreaterThan(plainHero);
     });
 
     // 4. The shared props are actually defined in base.css — a desktop value in

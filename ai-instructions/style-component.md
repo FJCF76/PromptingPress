@@ -207,6 +207,18 @@ layout, section's image-left/image-right); `--{hero,section,cta,stats}-bg-positi
 controls the `background_image`/cover-layout CSS background. Not exposed on logos
 (fixed `object-fit: contain` layout, not a crop model).
 
+**The scrim over a `background_image` has its own per-instance slot on all four of those
+bands: `--{hero,section,cta,stats}-overlay-bg`** (stats was the last to get one, #577).
+It is `gradient`-typed and defaults to the shared `--overlay-bg`. Reach for it when one
+particular photo needs a darker or lighter scrim than the site default, instead of
+retuning `--overlay-bg` and moving every image band at once. Two things to know before
+you lighten one: the band's text defaults are calibrated against the SHIPPED scrim over a
+worst-case white image, so lightening it weakens contrast the theme is relying on; and
+de-emphasised ink on those bands (a cta `body`, a stats `label`) is already at the edge
+of AA, which is why it routes the `--color-muted-on-overlay` role rather than an
+`opacity` literal. Do not express de-emphasis on an image band with `opacity` — see
+`ai-instructions/retheme.md` for the measurements.
+
 The `align` type (#357) controls text alignment. It accepts exactly one `text-align`
 keyword: `left`, `right`, `center`, `start`, `end`, or `justify`. Grid exposes it as
 `--grid-item-text-align` — an item-eligible slot, so it can be set grid-wide (all cards)

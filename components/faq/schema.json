@@ -67,6 +67,7 @@
       "--faq-question-color": { "type": "color", "default": "var(--color-text)", "description": "Question (summary) text color" },
       "--faq-answer-color": { "type": "color", "default": "var(--color-muted)", "description": "Answer text color" },
       "--faq-item-border-color": { "type": "color", "default": "var(--color-border)", "description": "Accordion item border color" },
+      "--faq-item-radius": { "type": "length", "default": "4px", "description": "Accordion item corner radius. faq owns this value independently — before issue 577 the rendered radius came from the grid component's card slot, which faq could neither set nor resolve." },
       "--faq-question-open-color": { "type": "color", "default": "var(--color-accent)", "description": "Open-state question text color and chevron color" }
     }
   },

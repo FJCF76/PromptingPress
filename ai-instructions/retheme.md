@@ -87,7 +87,25 @@ accent tint) when you change `--color-accent` and leave it unpinned; a pinned ov
 that diverges is surfaced by the same `stale_warnings` / `masked_derived_override`
 machinery as every other derived token.
 
-On an overlay band the role does one more job: it is also the DEFAULT border of every
+**De-emphasised ink on the same band uses its own role, `--color-muted-on-overlay`
+(default `#fafbff`).** A cta `body` and a stats `label` on a `background_image` band are
+deliberately quieter than the heading beside them. That used to be spelled
+`opacity: 0.85`, which composited the ink to `rgb(231,232,234)` and measured **3.87:1**
+against the worst-case composite — a WCAG AA failure on normal-size text. The de-emphasis
+now lands as this role token instead of a literal, so it is tunable, measurable, and in
+one place. Be aware of how little room there is: with no opacity at all, full
+`--color-bg` reaches only **4.658:1** on that band, and 4.5:1 needs a luminance of about
+`#f9f9f9`. **The entire de-emphasis budget on an overlay band is roughly 0.07:1**, which
+is why the shipped value is near-white and why re-introducing an opacity literal on that
+band will fail the rendered contrast pins. On the SOLID inverted band there is real
+headroom, so the `opacity` literals there (cta body 12.76:1, stats label 10.22:1, logos
+label 10.22:1) are deliberate and stay — but they are scoped `:not(--has-bg-image)`,
+because a band can carry `theme: "inverted"` AND a `background_image` at once, and on
+that combined band the inverted measurement does not hold. This role is NOT auto-derived from
+`--color-accent`: it is a contrast floor tied to the overlay, not an accent tint, so a
+retheme cannot move it below the bar.
+
+On an overlay band the accent role does one more job: it is also the DEFAULT border of every
 FILLED button, the primary and the second one alike, so an unstyled filled pair keeps a
 visible edge and stays symmetric. It sits last in each border chain, so it paints only
 where you have not coloured that edge yourself. The premium gradient fill measures only ~1.1:1 against the
@@ -118,6 +136,14 @@ matching panel-CTA adjustment — keep `--color-accent` legible against
 class, so it gets no routing at all; keep `--color-accent` legible against any band
 colour you author, and note the reverse also holds — if you LIGHTEN a scrim with
 `--cta-overlay-bg` the band keeps its class and keeps the near-white routing.
+
+**Since #577 the same trap has a second door on `section`.** `--section-bg` now wins over
+the `muted` / `inverted` theme paint (before, the theme literal silently defeated it). So
+an `inverted` section whose `--section-bg` you set to a LIGHT colour keeps its
+`pp-section--inverted` class — and therefore its near-white heading, body and link
+routing — while painting light. That is light-on-light. If you want a light band, change
+the `theme`; reach for `--section-bg` to adjust a band's shade WITHIN its theme, not to
+invert it.
 
 Example retheme — warm neutral:
 ```css

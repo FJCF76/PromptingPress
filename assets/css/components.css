@@ -573,7 +573,12 @@
   font-size: var(--hero-subheading-size, 1.0625rem);
   color: var(--hero-subheading-color, var(--color-muted));
   max-width: 40ch;
-  line-height: 1.6;
+  /* The `1.6` literal here duplicated --line-height-body's exact shipped value
+     (base.css), which `body` already consumes — so a site that retuned body leading
+     moved every paragraph EXCEPT this one. Route the token with its own value as the
+     fallback: byte-identical at the shipped value, and it only changes render on a
+     site that has already retuned --line-height-body, which is the point (issue 577). */
+  line-height: var(--line-height-body, 1.6);
 }
 
 /* align-self places the GROUP's box; justify-content packs the buttons INSIDE it. The
@@ -1803,18 +1808,34 @@
   box-shadow: var(--section-panel-cta-shadow, none);
 }
 
-/* Section background variants */
+/* Section background variants.
+   These theme rules set background-color and border-* as BARE LITERALS at [0,1,0],
+   after .section's own slot-routed declarations at the same specificity. --section-bg
+   was therefore dead on BOTH themed sections; --section-border-width /
+   --section-border-color were dead on the muted one only, since .pp-section--inverted
+   declares no border and its borders still resolved from .section. Meanwhile the
+   annotation surface an agent reads already promised the override wins
+   (tests/AiContextTest.php testAdjacencyOverrideBeatsThemeBucket).
+   Route them through the slots with the theme literal as the fallback, following
+   .cta--full-width / .cta--dark / .cta--inverted — unset output is byte-identical, an
+   authored slot now actually renders (issue 577).
+   The `background-color` LONGHAND is deliberate where cta uses the `background`
+   shorthand: it leaves .section--has-bg-image's background-size/position/repeat alone
+   on a themed image band. --section-bg is `gradient`-typed, and a gradient is invalid
+   on background-color, so an authored gradient is ignored HERE and painted by
+   .section's own `background: var(--section-bg, transparent)` shorthand above — the
+   value still renders, one rule up. */
 .pp-section--dark {
-  background-color: var(--color-surface);
+  background-color: var(--section-bg, var(--color-surface));
   color: var(--color-text);
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
+  border-top: var(--section-border-width, 1px) solid var(--section-border-color, var(--color-border));
+  border-bottom: var(--section-border-width, 1px) solid var(--section-border-color, var(--color-border));
 }
 
 /* --color-muted carries .section__subheading; --section-*-theme-color carry the
    elements the desktop typography block re-colors at higher specificity (issue 222). */
 .pp-section--inverted {
-  background-color: var(--color-bg-inverted);
+  background-color: var(--section-bg, var(--color-bg-inverted));
   color: var(--color-bg);
   --color-muted: var(--color-bg);
   --pp-section-title-theme-color: var(--color-bg);
@@ -1836,6 +1857,16 @@
 
 .pp-section--inverted .section__content {
   color: var(--section-body-color, var(--color-bg));
+}
+
+/* The accented substring inside a title paints its OWN color (0,1,0) and does not
+   inherit the light .pp-section--inverted .section__title above, so on the dark band it
+   rendered bare --color-accent at 3.23:1. The --has-bg-image twin has routed the
+   overlay accent role since #463; the INVERTED twin was simply never written. Add it,
+   pointing at the ratified on-inverted role (8.33:1); the per-instance
+   --section-heading-accent-color slot still wins (issue 577). */
+.pp-section--inverted .section__title-accent {
+  color: var(--section-heading-accent-color, var(--color-accent-on-inverted));
 }
 
 /* PANEL CTA CARVE-OUT (#551) — see the shared block above `.section--has-bg-image a`
@@ -2036,7 +2067,17 @@
 
 .faq__item {
   border: 1px solid var(--faq-item-border-color, var(--color-border));
-  border-radius: var(--radius);
+  /* faq's own item radius (issue 577). The shared premium rule in the final cascade
+     used to cap grid cards AND faq items from ONE selector reading --grid-item-radius,
+     so faq consumed a GRID slot on a faq element: faq
+     could neither set it (the write path rejects a foreign slot as
+     invalid_style_slot) nor have it resolve (inline slot properties land on the owning
+     component's root). Severing that selector requires a faq-side name, which is why
+     this slot is forced rather than optional. The fallback is 4px, not var(--radius):
+     faq only ever renders inside <main>, where the final-cascade rule below wins with
+     4px, so a 6px terminal here would be unreachable AND disagree with the schema's
+     stated default. */
+  border-radius: var(--faq-item-radius, 4px);
   background: var(--faq-item-bg, var(--color-bg));
   overflow: hidden;
 }
@@ -2311,9 +2352,19 @@
   }
 }
 
-/* When a card has no image, the body is the only child — add top padding for balance */
+/* When a card has no image, the body is the only child — add top padding for balance.
+   Routed through --grid-item-padding, but NOT for the reason issue 577 gave. The issue
+   listed this as a declaration that DEFEATS the slot; it does not — this rule is [0,2,0]
+   and `main > .grid .grid__item-body:first-child` (which has routed the slot at both
+   breakpoints since issue 302) is [0,3,1], and every composition renders inside <main>,
+   so this declaration wins nowhere in practice.
+   It is routed because the slot-contract guard requires it: once --grid-item-padding
+   drives padding-top on the .grid__item-body SUBJECT anywhere (the featured-card rule in
+   the final cascade), every padding-top on that subject must route the slot or it is a
+   dead-slot bypass by definition (StyleSlotContractTest, issue 305). Uniform routing on
+   a subject is the invariant, not "this rule is the cascade winner". Byte-identical. */
 .grid__item-body:first-child {
-  padding-top: var(--space-lg);
+  padding-top: var(--grid-item-padding, var(--space-lg));
 }
 
 .grid__item-title {
@@ -2457,7 +2508,14 @@
   padding: var(--space-md) 0;
 }
 
-/* Steps variant: same card chrome as the default grid, plus a numbered badge. */
+/* Steps variant: same card chrome as the default grid, plus a numbered badge.
+   This padding SHORTHAND is DELIBERATELY NOT routed through --grid-item-padding. Issue
+   577 listed it as a bypass on the premise that "a steps card has no .grid__item-body
+   wrapper carrying it"; grid.php renders .grid__item-body UNCONDITIONALLY (steps cards
+   included), and that body already routes the slot, so the slot was never dead here.
+   Routing this outer box through the SAME slot would inset a steps card by 2X for an
+   authored X (card + nested body) and desync the connector below, which derives its
+   offset from this literal. The card's outer padding wants its own name, not this one. */
 .grid--steps .grid__item {
   position: relative;
   padding: var(--space-lg) var(--space-md) var(--space-md);
@@ -3344,8 +3402,26 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   color: var(--cta-heading-color, var(--color-bg));
 }
 
-.cta--inverted .cta__body {
+/* Inverted twin of the #463 --has-bg-image title-accent rule, which was never written
+   (issue 577). Same reason: the accent substring paints its own color and does not
+   inherit the light title above it, so it rendered bare --color-accent at 3.23:1 on the
+   dark band. Routes the ratified on-inverted role (8.33:1); the per-instance
+   --cta-heading-accent-color slot still wins. */
+.cta--inverted .cta__title-accent {
+  color: var(--cta-heading-accent-color, var(--color-accent-on-inverted));
+}
+
+/* The `:not(.cta--has-bg-image)` is load-bearing (issue 577). cta.php emits the theme
+   class and the bg-image class INDEPENDENTLY, so `theme:"inverted"` + `background_image`
+   renders BOTH. The 12.76:1 below is measured against the SOLID inverted band; on the
+   overlay band the same alpha measures 3.87:1, which is the failure rows 6+7 exist to
+   correct. Without this carve-out the opacity would survive on the combined band (only
+   `color` is re-declared by the --has-bg-image rule) and silently defeat the
+   correction there. */
+.cta--inverted:not(.cta--has-bg-image) .cta__body {
   color: var(--cta-body-color, var(--color-bg));
+  /* Deliberate de-emphasis; measured at 12.76:1 against a 4.5:1 bar. Reopen if the
+     inverted band token moves such that the measured ratio falls below 7:1. */
   opacity: 0.85;
 }
 /* cta__body became an inline-HTML surface in #439 (a/strong/em/br), so an inverted
@@ -3373,8 +3449,22 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   background-size: cover;
   background-position: var(--cta-bg-position, center);
   background-repeat: no-repeat;
-  border: none;
-  --pp-cta-body-theme-color: var(--color-bg);
+  /* Was `border: none` — a SHORTHAND whose border-style:none suppressed the
+     slot-routed longhands .cta declares above, so --cta-border-width /
+     --cta-border-color were dead on every background-image band. Restate the two
+     longhands .cta actually declares (it sets no left/right border anywhere) with the
+     unset result preserved: 0-width transparent, which paints nothing exactly as
+     `border: none` did (issue 577). */
+  border-top: var(--cta-border-width, 0) solid var(--cta-border-color, transparent);
+  border-bottom: var(--cta-border-width, 0) solid var(--cta-border-color, transparent);
+  /* THE CHAIN POSITION for this band's body ink (issue 577). Both .cta__body rules —
+     the base one and the premium `main > .cta .cta__body` that outranks it at desktop —
+     read --cta-body-color first and this theme property second, so the overlay-band
+     contrast correction has to land HERE to reach the rendered ink at every breakpoint.
+     Setting it on the band rather than restating a terminal in each rule is what the
+     ruling means by "a role token or a chain position, never a literal". The inverted
+     band keeps --color-bg: it measures 12.76:1 and was ratified as-is. */
+  --pp-cta-body-theme-color: var(--color-muted-on-overlay);
 }
 
 .cta__overlay {
@@ -3392,9 +3482,19 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   color: var(--cta-heading-color, var(--color-bg));
 }
 
+/* MEASURED CONTRAST CORRECTION (issue 577). This band's worst case is the
+   --overlay-bg scrim over a pure-WHITE image, an effective background of
+   rgb(115,115,115) — the same worst case --color-accent-on-overlay is calibrated
+   against (base.css). `color: --color-bg` at `opacity: 0.85` composites to
+   rgb(231,232,234) and measures 3.87:1 there, below the 4.5:1 normal-text bar. With
+   the opacity gone, --color-bg itself reaches only 4.658:1, so break-even alpha on
+   this band is ~0.968: the literal was spending a margin that does not exist. The
+   de-emphasis intent survives as a ROLE TOKEN rather than a second literal — see
+   --color-muted-on-overlay in base.css for the measurement and the (tiny) budget.
+   The terminal is NOT restated here: the band sets --pp-cta-body-theme-color, and this
+   rule reads it, so the role is named in exactly one place. */
 .cta--has-bg-image .cta__body {
-  color: var(--cta-body-color, var(--color-bg));
-  opacity: 0.85;
+  color: var(--cta-body-color, var(--pp-cta-body-theme-color));
 }
 
 /* A cta__body link sits DIRECTLY on the dark overlay-over-image band. The light-
@@ -3751,8 +3851,15 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   color: var(--stats-number-color, var(--color-accent-on-inverted));
 }
 
-.stats--inverted .stats__label {
+/* `:not(.stats--has-bg-image)` for the same reason as the cta twin above (issue 577):
+   stats.php emits the theme class and the bg-image class independently, and this rule
+   is the EARLIER of the two, so before the carve-out a combined band inherited this
+   0.75 while the --has-bg-image rule supplied only `color` — dimmer than the 0.85 it
+   replaced, i.e. a contrast REGRESSION on the exact band row 7 is correcting. */
+.stats--inverted:not(.stats--has-bg-image) .stats__label {
   color: var(--stats-label-color, var(--color-bg));
+  /* Deliberate de-emphasis; measured at 10.22:1 against a 4.5:1 bar. Reopen if the
+     inverted band token moves such that the measured ratio falls below 7:1. */
   opacity: 0.75;
 }
 
@@ -3764,10 +3871,13 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   background-repeat: no-repeat;
 }
 
+/* stats is one of the four background-image components and was the only one reading the
+   raw --overlay-bg token with no per-instance slot in front of it — hero, section and
+   cta all have theirs. Route it (issue 577); unset is byte-identical. */
 .stats__overlay {
   position: absolute;
   inset: 0;
-  background: var(--overlay-bg);
+  background: var(--stats-overlay-bg, var(--overlay-bg));
 }
 
 .stats--has-bg-image > .container {
@@ -3787,9 +3897,12 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   color: var(--stats-number-color, var(--color-accent-on-overlay));
 }
 
+/* MEASURED CONTRAST CORRECTION (issue 577) — the twin of the .cta--has-bg-image
+   .cta__body correction above, same band, same worst case rgb(115,115,115), same
+   measurement: rgb(231,232,234) at 3.87:1 against a 4.5:1 bar. Same remedy: the
+   de-emphasis moves to the --color-muted-on-overlay role token, never a literal. */
 .stats--has-bg-image .stats__label {
-  color: var(--stats-label-color, var(--color-bg));
-  opacity: 0.85;
+  color: var(--stats-label-color, var(--color-muted-on-overlay));
 }
 
 /* The accented heading substring paints its OWN color (0,1,0) and does NOT inherit
@@ -3879,6 +3992,8 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
 .logos--inverted .logos__label {
   color: var(--color-bg);
+  /* Deliberate de-emphasis; measured at 10.22:1 against a 4.5:1 bar. Reopen if the
+     inverted band token moves such that the measured ratio falls below 7:1. */
   opacity: 0.75;
 }
 
@@ -3903,6 +4018,13 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
 .embed__content {
   max-width: 40rem;
+  /* Body ink joins the slot surface (issue 577). The heading half of issue 438's work
+     was routed and this half was not, leaving --embed-heading-color slotted beside an
+     unrouted token reference on the inverted twin below. The fallback is `inherit`
+     (the .hero__title idiom in this sheet), so an unset slot resolves to whatever the
+     element already inherited and the base band is byte-identical under any ancestor,
+     not just the shipped body color. */
+  color: var(--embed-body-color, inherit);
 }
 
 /* Embed variants */
@@ -3923,7 +4045,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 .embed--inverted .embed__content {
-  color: var(--color-bg);
+  /* Route the inverted body through the same slot (issue 577), matching the heading
+     rule above; unset falls back to var(--color-bg) exactly as before. */
+  color: var(--embed-body-color, var(--color-bg));
 }
 
 .embed--inverted a {
@@ -4159,6 +4283,16 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 .testimonials--inverted.testimonials--stack .testimonials__author {
   color: var(--testimonials-author-color, var(--color-bg));
 }
+
+/* The third line of the attribution had no inverted-stack twin (issue 577). Its quote
+   and author siblings both get one above; --testimonials-meta-color did not, so on the
+   dark band the role/company line kept resolving to var(--color-muted) — a
+   light-surface secondary ink. No comment, issue or test recorded an intent either
+   way, so the omission is unexplained rather than deliberate. Same shape as its two
+   siblings: light default, per-instance slot still wins. */
+.testimonials--inverted.testimonials--stack .testimonials__meta {
+  color: var(--testimonials-meta-color, var(--color-bg));
+}
 /* The quote became an inline-HTML surface in #439 (a/strong/em/br). In the STACK
    layout on an inverted band the quote sits DIRECTLY on the dark band (the card bg
    is transparent above), so a body link there fails WCAG AA on --color-accent
@@ -4181,16 +4315,64 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    combinator skips it). Desktop only — mobile spacing stays uniform.
    Routes through the shared --pp-band-padding-adjacent-top, which is pinned to
    --pp-band-padding (issue 430), so this adjacent top equals the band's own
-   edges (symmetric) instead of a tighter tier. This generic catch-all also
-   covers components with no padding slot (hero) — table/logos/embed now carry
-   their own padding slots (issue 438) and route their adjacent-top edge through
-   the per-component rules in the cascade below, so only hero falls through here;
-   either way every band consumes the one shared rhythm definition (issue 431).
+   edges (symmetric) instead of a tighter tier. Every band type now carries its own
+   padding slot and routes its adjacent-top edge through a per-component rule —
+   table/logos/embed joined in issue 438, hero in issue 577 — so this catch-all is
+   the shared DEFINITION the per-component rules fall back to rather than the rule
+   any particular band actually lands on. (It previously claimed to cover "components
+   with no padding slot (hero)"; hero has declared --hero-padding-top /
+   --hero-padding-bottom since it was written — components/hero/schema.json — and
+   this catch-all's [0,2,1] was silently outranking that slot on the adjacent edge,
+   which is the dead slot issue 577 fixes.) Either way every band consumes the one
+   shared rhythm definition (issue 431).
    ========================================================================== */
 
 @media (min-width: 768px) {
   main > [data-pp-component] + [data-pp-component] {
     padding-top: var(--pp-band-padding-adjacent-top);
+  }
+}
+
+/* HERO adjacent-top (issue 577), deliberately placed HERE and not with the other nine
+   per-component adjacent rules further down.
+   ------------------------------------------------------------------------------
+   TWO things make hero's rule different from its nine siblings:
+
+   1. THE FALLBACK IS NOT THE SHARED BAND TIER. The other nine fall back to
+      --pp-band-padding-adjacent-top. Hero falls back to its OWN opener rhythm
+      (--space-2xl desktop / --space-xl mobile — the same values .hero's base rules
+      use), because hero's opt-out from the shared band rhythm is a stated intentional
+      difference and the adjacent edge is the one place the catch-all was quietly
+      overriding it. Hero keeps its opener rhythm on the adjacent edge too. This is a
+      deliberate render change: an unset adjacent hero's top edge moves from the band
+      tier (~5rem desktop / 3.35rem mobile) to 7rem / 4rem, which also makes an unset
+      adjacent hero SYMMETRIC with its own bottom edge.
+
+   2. PLACEMENT IS LOAD-BEARING. It must stay ABOVE the `[data-pp-spacing]` block
+      below. That block is [0,2,1] at desktop, identical to this rule, so source order
+      decides: an explicit compact/spacious override must keep governing BOTH edges of
+      an adjacent hero (issue 434's invariant, pinned at both breakpoints in
+      tests/e2e/style-render.spec.ts). Moving this rule down beside its siblings would
+      out-order that restatement and shave a spaced hero's top edge again. Mobile needs
+      no such care: the mobile block already restates the spacing rules AFTER its
+      per-component list, so hero's mobile rule lives with its siblings down there.
+
+   3. THE LEFT VARIANT GETS ITS OWN TWIN. OQ-1 (ii)'s principle is "hero keeps ITS OWN
+      opener rhythm on the adjacent edge", and .hero--left's own opener rhythm is
+      --space-xl on BOTH edges ("used by inner pages; compact vertical rhythm"), not
+      --space-2xl. A single flat value would have made the adjacent top edge follow the
+      WRONG hero's rhythm: measured, an adjacent .hero--left rendered 112px top against
+      its own 64px bottom at 1280 — an asymmetry the ruling never contemplated, on every
+      inner page. The twin below applies the same principle per variant, which also
+      makes left/split symmetric at both breakpoints. An image-less `split` hero degrades
+      to .hero--left (issue 440), so it is covered by the same rule. */
+@media (min-width: 768px) {
+  main > [data-pp-component] + .hero {
+    padding-top: var(--hero-padding-top, var(--space-2xl));
+  }
+  /* Equal specificity to the rule above, placed after it so the left variant wins. */
+  main > [data-pp-component] + .hero--left {
+    padding-top: var(--hero-padding-top, var(--space-xl));
   }
 }
 
@@ -4617,7 +4799,13 @@ main > .grid .grid__item-link::after {
   }
 
   main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child .grid__item-body {
-    padding-top: 2.25rem;
+    /* Featured-card breathing room, routed through the slot (issue 577). At (0,6,1)
+       this is the last word on the featured card's body padding-top, so an authored
+       --grid-item-padding used to no-op on card 1 at >=1024. The literal stays as the
+       fallback, so unset output is byte-identical — which also means the 0.25rem
+       featured/non-featured residue survives UNSET (2.25rem here vs 2rem elsewhere);
+       authoring the slot is what collapses it. */
+    padding-top: var(--grid-item-padding, 2.25rem);
   }
 
   main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child .grid__item-title {
@@ -5141,13 +5329,18 @@ main .btn:focus-visible {
    now --pp-band-padding-adjacent-top, pinned to --pp-band-padding so the adjacent
    top equals the band's own edges (symmetric, issue 430; formerly the tighter
    var(--space-lg) two-tier value). Drop the flat override; the base rule carries
-   the shared default for component types with no padding slot (hero/...).
+   the shared default that the per-component rules fall back to (since issue 577
+   every band type, hero included, has a per-component adjacent-top rule).
    For the slot-bearing components, route the adjacent top-padding through the slot
    with the shared --pp-band-padding-adjacent-top as the fallback so the slot
    controls adjacent spacing too AND every band consumes the one rhythm definition
    (issue 431 — testimonials joins the list; its adjacent-top slot was dead here).
    Desktop-scoped and placed last so it wins over the base rule; mobile keeps the
-   uniform rhythm below (mobile spacing is intentionally uniform). */
+   uniform rhythm below (mobile spacing is intentionally uniform).
+   HERO IS DELIBERATELY ABSENT FROM THIS LIST at desktop. Its adjacent-top rule lives
+   up in the SHARED: Adjacent-Sibling Rhythm block, above the [data-pp-spacing]
+   restatement, and falls back to hero's own opener rhythm rather than the shared band
+   tier — see the long comment there for both reasons (issue 577). */
 @media (min-width: 768px) {
   main > [data-pp-component] + .section {
     padding-top: var(--section-padding-top, var(--pp-band-padding-adjacent-top));
@@ -5209,11 +5402,15 @@ main .btn:focus-visible {
   padding-bottom: var(--faq-padding-bottom, var(--pp-band-padding));
 }
 
-main > .grid .grid__item,
+/* The card radius used to be capped for grid AND faq from ONE selector reading the
+   GRID slot; issue 577 split it so each component drives its own — see the .faq__item
+   comment in the COMPONENT: faq block. Both sides keep the 4px literal as the
+   fallback, so unset output is byte-identical on both components. */
 main > .faq .faq__item {
-  border-radius: var(--grid-item-radius, 4px);
+  border-radius: var(--faq-item-radius, 4px);
 }
 main > .grid .grid__item {
+  border-radius: var(--grid-item-radius, 4px);
   /* Later-cascade winner for cards 2..N: route it through --grid-item-border-color
      too (matching the earlier all-cards rule and the :first-child rule below)
      or the slot stays ignored on every non-featured card (issue 292). */
@@ -5279,6 +5476,21 @@ main .btn {
   }
   main > [data-pp-component] + .embed {
     padding-top: var(--embed-padding-top, var(--pp-band-padding-adjacent-top));
+  }
+  /* hero joins the list on mobile (issue 577) — the generic rule above was outranking
+     its declared --hero-padding-top on this edge. THE FALLBACK IS THE ODD ONE OUT:
+     hero keeps its own opener rhythm (--space-xl, 4rem) instead of the shared
+     --pp-band-padding-adjacent-top (3.35rem here), matching .hero's own base rule.
+     Safe to sit with its siblings at this breakpoint because the [data-pp-spacing]
+     restatement below still out-orders it (issue 434); at desktop that restatement is
+     ABOVE the per-component list, which is why hero's desktop rule lives up in the
+     SHARED: Adjacent-Sibling Rhythm block instead.
+     NO .hero--left TWIN IS NEEDED HERE: the left variant's own opener rhythm at this
+     breakpoint is --space-xl, which is exactly what this rule already falls back to, so
+     left/split are symmetric on mobile through this one rule. The desktop twin exists
+     only because the two variants' rhythms DIVERGE there (--space-2xl vs --space-xl). */
+  main > [data-pp-component] + .hero {
+    padding-top: var(--hero-padding-top, var(--space-xl));
   }
 
   /* An explicit data-pp-spacing override (only hero emits it) must govern BOTH

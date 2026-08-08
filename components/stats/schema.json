@@ -63,6 +63,7 @@
       "--stats-number-weight": { "type": "number", "default": "700", "description": "Stat number (large metric value) font weight, as a unitless number (e.g. 600). Defaults to 700. Pair with --stats-number-font when the heading face needs a different weight than the bold body default." },
       "--stats-label-color": { "type": "color", "default": "var(--color-muted)", "description": "Stat label text color" },
       "--stats-bg-position": { "type": "position", "default": "center", "description": "background_image focal point" },
+      "--stats-overlay-bg": { "type": "gradient", "default": "var(--overlay-bg)", "description": "Scrim laid over background_image on this band. Defaults to the shared --overlay-bg; darken or lighten it per instance to tune legibility over a particular photo. The fourth background-image component to gain this slot (hero, section and cta already had it)." },
       "--stats-radius": { "type": "length", "default": "0", "description": "Border radius of the stats band. Pair with --stats-max-width for a contained, rounded metrics card." },
       "--stats-max-width": { "type": "length-or-none", "default": "none", "description": "Maximum width of the stats band. When set, the band is capped to this width and centered (auto side margins), producing a contained card; the default 'none' spans full width unchanged." }
     }
