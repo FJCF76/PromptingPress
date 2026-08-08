@@ -4,6 +4,43 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.11] — 2026-08-08 — four style-slot families finish, and two card images go responsive (#584)
+
+**Twelve new style slots and two new item props complete four families that had shipped one member each: band heading rhythm on the six components that lacked it, per-instance ring slots for the hero primary and the section panel CTA, logo sizing, and `image_id` on grid cards and testimonial avatars. Every one is byte-identical unset. No row of the render-change register belongs to this release.**
+
+Four surfaces were finished rather than extended. **Heading rhythm** now exists on all ten band components, so the header gap under a `hero`, `cta`, `stats`, `table`, `embed` or `logos` title is authorable instead of a literal; each slot carries that component's own current value as its fallback, including `hero`'s `0`. **Ring slots** give the hero primary and the section panel CTA their own per-instance border colour at rest and on hover, in the position `--cta-button-border` already held — before this, the hero primary's ring could only be moved by the band accent (which repaints every accented element in the band) or a site-wide token, and the panel CTA had only the site-wide token. **Logo sizing** exposes `--logos-image-size` and `--logos-gap`, so a dense logo wall or a sparse strip of wordmarks is a two-value change instead of a global `--space-lg` retune. **`image_id`** takes the responsive-image family to 5/5: grid card banners and testimonial avatars now route the same helper the hero, section and logos images already use.
+
+`image_id` is recorded as a mechanism change, not a visual one. An item that carries a resolvable attachment gains real `srcset`/`sizes`; an item without one renders exactly the single-source `<img>` it always did. Verified in a browser against WordPress 7.0 at 1280 and 375: the painted box is identical on both branches (cards 534x300 / 341x192, avatars 44x44), and only the fetched candidate differs.
+
+### Added
+
+- `--hero-heading-margin-bottom`, `--cta-heading-margin-bottom`, `--stats-heading-margin-bottom`, `--table-heading-margin-bottom`, `--embed-heading-margin-bottom` and `--logos-heading-margin-bottom`. Each falls back to the literal its rule already declared (`0` on hero, `var(--space-xs)` on cta, `var(--space-lg)` on the other four), so an unset band is byte-identical.
+- `--hero-button-border` / `--hero-button-hover-border` and `--section-panel-cta-border` / `--section-panel-cta-hover-border`, at the head of their border-colour chains and as positional twins, so a ring set at rest cannot dissolve under the pointer. The panel CTA's fill stays resting-state-only: the ring gained a hover twin, the fill did not.
+- `--logos-image-size` (routes both the 3rem unlabelled and 2.5rem labelled caps, each keeping its own fallback) and `--logos-gap`. Setting the size slot caps both at one value and retires the label-driven switch, which is stated in the slot description.
+- `image_id` on `grid.items[]` and `testimonials.items[]`, with the field shape already shipped on `logos.items[]`. Optional, so no stored composition starts failing validation.
+
+### Fixed
+
+- A non-scalar `image_id` no longer resolves to attachment ID 1. Nothing validates a nested item field's scalar type, and `(int) ['attachment_id' => 42]` and `(int) true` both evaluate to `1`, so a plausible malformed write would have rendered the site's first upload and discarded the author's `image_url`. Both new read sites guard with `is_numeric()` before casting. The validator-level fix and the remaining unguarded read in `logos.php` are filed separately.
+- `components/logos/schema.json` said a logo item's height cap was "3rem labelled, 2.5rem unlabelled". The stylesheet is the opposite, and the rendered `#583` strip measures 48px unlabelled / 40px labelled.
+- Documentation that claimed the section panel CTA has no hover slot (`components/section/README.md`, `ai-instructions/style-component.md`), and the `import_media` how-to that listed only three of the five surfaces accepting `image_id`.
+
+### Docs
+
+- `ai-instructions/style-component.md` now says which bands the band-fusing step actually applies to. On `hero`, `cta`, `stats`, `table`, `embed` and `logos` a required content prop always renders after the heading, so the heading-margin slot is the band's internal header rhythm and `--<component>-padding-bottom` is what closes the seam.
+- `docs/AI_IMPLEMENTATION_RECIPES.md` Recipe A gains a step on dead slots: a slot at the head of a chain can still never paint if a variant rule for the same component wins the property and does not carry it, or if the component block's rule is outranked by a shared rule. Both shapes occurred here and neither is visible to a source-text pin.
+- Slot count moves 247 to 259 across `AI_CONTEXT.md` and `README.md`; `lib/ai-context.php`, `ai-instructions/composition.md` and the grid/testimonials/hero/section component READMEs record the new props and chains.
+
+### Tests
+
+- `tests/e2e/style-render.spec.ts`: ten rendered pins at 1280 and 375 — each ring slot measured at rest and on hover, then measured again with the site-wide knob also set (the read that separates "declared" from "wins"), both logo caps and the strip gap, every heading-rhythm slot proven live before proven zeroable, and the image markup with its painted box.
+- `tests/StyleSlotContractTest.php`: per-component fallback literals for all six heading slots, both logos cap sites, and the panel-CTA hover keystone pinned as `.btn:hover`'s own chain with the ring slot prepended, derived rather than restated.
+- `tests/js/css-lint.test.js`: exact chain-order pins for all four ring slots in all six places they are routed, a positional-twin check with an explicit rest-to-hover knob map, and a pin that the panel CTA stays routed in both its keystone and the premium winner.
+- `tests/ActionsTest.php`: every new slot and prop authored through the real action surface, plus reject branches for a non-length rhythm value, a `var()` on a literal-only length slot, the unadopted band-accent tier, and a panel-CTA hover fill slot.
+- `tests/ComponentPropsTest.php`: both `image_id` branches on both components, including the array and boolean cases, with attachment 1 seeded so a regression to a bare cast fails loudly.
+
+---
+
 ## [v1.12.10] — 2026-08-08 — every conditional style slot now says so, and writing a dead one tells you (#580)
 
 **160 slot and prop definitions across all twelve components now declare, in machine-readable form, the configuration they need to do anything. The authoring AI reads the condition before it writes, and a new non-blocking `inert_slot` advisory reports it if it writes anyway. No CSS changed and no rendered output moved.**
