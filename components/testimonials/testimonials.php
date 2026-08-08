@@ -65,6 +65,18 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                     $company   = $item['company']   ?? '';
                     $image_url = $item['image_url'] ?? '';
                     $image_alt = $item['image_alt'] ?? '';
+                    // Responsive avatar (issue 584): the attachment-ID companion the
+                    // hero, section and logos images already carry.
+                    // is_numeric() BEFORE the (int) cast, deliberately: nothing validates a
+                    // nested item field's scalar TYPE (lib/admin.php's #579 pass enforces
+                    // `required` and string-array shape only), so a non-scalar reaches here.
+                    // `(int) ['attachment_id' => 42]` and `(int) true` both evaluate to 1 —
+                    // the plain cast would silently render attachment ID 1, usually the
+                    // site's first upload, and discard the author's image_url. Guarding at
+                    // the read makes a malformed value mean "no attachment", which is what
+                    // every other bad value already means. Filed for the validator-level fix.
+                    $raw_image_id = $item['image_id'] ?? 0;
+                    $image_id     = is_numeric($raw_image_id) ? (int) $raw_image_id : 0;
                     if (!$quote) continue;
 
                     $meta = '';
@@ -85,12 +97,25 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                         <?php if ($author || $meta || $image_url) : ?>
                             <figcaption class="testimonials__attribution">
                                 <?php if ($image_url) : ?>
-                                    <img
-                                        src="<?php echo pp_esc_image_src($image_url); ?>"
-                                        alt="<?php echo esc_attr($image_alt); ?>"
-                                        class="testimonials__avatar"
-                                        loading="lazy"
-                                    >
+                                    <?php // Responsive avatar (issue 584), the same helper
+                                          // logos.php:40, hero.php:148 and section.php:283
+                                          // already call. A resolvable image_id renders
+                                          // through wp_get_attachment_image() with real
+                                          // srcset/sizes; unset or unresolvable, the helper
+                                          // emits exactly today's single-source <img> —
+                                          // same src, alt, class and loading. The painted box
+                                          // is unchanged either way: .testimonials__avatar is
+                                          // a fixed 2.75rem (44px) circle with object-fit:
+                                          // cover. NOTE: the shared helper hardcodes the
+                                          // `large` size and passes no `sizes`, so WP's
+                                          // default 100vw descriptor means the browser does
+                                          // not yet pick a small candidate for a box this
+                                          // size — a pre-existing property of the helper that
+                                          // this call site inherits rather than introduces.
+                                          // The `$image_url` gate is deliberately kept
+                                          // (matching logos.php): image_id is a companion
+                                          // to a URL, never a replacement for one. ?>
+                                    <?php echo pp_render_responsive_image($image_url, $image_alt, 'testimonials__avatar', 'lazy', $image_id); ?>
                                 <?php endif; ?>
                                 <span class="testimonials__attribution-text">
                                     <?php if ($author) : ?>

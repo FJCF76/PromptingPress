@@ -124,6 +124,18 @@ $style_attr = $grid_style_parts ? ' style="' . implode('; ', $grid_style_parts) 
                     $bullets     = is_array($item['bullets'] ?? null) ? $item['bullets'] : [];
                     $image_url   = $item['image_url'] ?? '';
                     $image_alt   = $item['image_alt'] ?? '';
+                    // Responsive card image (issue 584): the attachment-ID companion the
+                    // hero, section and logos images already carry.
+                    // is_numeric() BEFORE the (int) cast, deliberately: nothing validates a
+                    // nested item field's scalar TYPE (lib/admin.php's #579 pass enforces
+                    // `required` and string-array shape only), so a non-scalar reaches here.
+                    // `(int) ['attachment_id' => 42]` and `(int) true` both evaluate to 1 —
+                    // the plain cast would silently render attachment ID 1, usually the
+                    // site's first upload, and discard the author's image_url. Guarding at
+                    // the read makes a malformed value mean "no attachment", which is what
+                    // every other bad value already means. Filed for the validator-level fix.
+                    $raw_image_id = $item['image_id'] ?? 0;
+                    $image_id     = is_numeric($raw_image_id) ? (int) $raw_image_id : 0;
                     $link_url    = $item['link_url']  ?? '';
                     $link_text   = $item['link_text'] ?? 'Read more';
                     $text_role   = $item['text_role'] ?? '';
@@ -160,12 +172,17 @@ $style_attr = $grid_style_parts ? ' style="' . implode('; ', $grid_style_parts) 
 
                         <?php if ($image_url && !$is_steps) : ?>
                             <div class="grid__item-image-wrap">
-                                <img
-                                    src="<?php echo pp_esc_image_src($image_url); ?>"
-                                    alt="<?php echo esc_attr($image_alt); ?>"
-                                    class="grid__item-image"
-                                    loading="lazy"
-                                >
+                                <?php // Responsive image (issue 584), the same helper
+                                      // logos.php:40, hero.php:148 and section.php:283
+                                      // already call. A resolvable image_id renders through
+                                      // wp_get_attachment_image() with real srcset/sizes;
+                                      // unset or unresolvable, the helper emits exactly
+                                      // today's single-source <img> — same src, alt, class
+                                      // and loading, so the paint is unchanged either way.
+                                      // The `$image_url` gate above is deliberately kept
+                                      // (matching logos.php): image_id is a companion to a
+                                      // URL, never a replacement for one. ?>
+                                <?php echo pp_render_responsive_image($image_url, $image_alt, 'grid__item-image', 'lazy', $image_id); ?>
                             </div>
                         <?php endif; ?>
 

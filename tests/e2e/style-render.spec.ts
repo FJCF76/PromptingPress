@@ -12259,3 +12259,409 @@ test.describe('#578 hero heading measure', () => {
     expect(capped.titleWidth).toBe(Math.round(rootFont * 20));
   });
 });
+
+/**
+ * #584 rendered coverage — the four families this gate completes, measured in the browser.
+ *
+ * Why rendered and not just source pins: every CSS assertion elsewhere in this change is a
+ * text match on components.css, and a text match cannot see WHICH RULE WINS. That is not a
+ * hypothetical — the cover-hero ring gap in this very issue (a per-instance slot added to
+ * `.hero .btn:not3` while `.hero--cover .hero__cta:not3`, the live winner on a cover band,
+ * kept its old chain) passed every source pin. The same class produced #543, #564 and #565.
+ *
+ * Each ring case is measured TWICE: once with only the per-instance slot set, and once with
+ * the site-wide knob ALSO set. The second read is the one that matters — it is the exact
+ * configuration where a slot placed one link too low silently loses, which is what #564 was
+ * filed for.
+ */
+test.describe('#584 slot families, as rendered', () => {
+  let pageId: number;
+
+  // Authored values, deliberately far from any theme token so a fallback cannot impersonate
+  // a win. Named once; the probe below resolves them the same way the page would.
+  const RING = '#7c3aed'; //        per-instance ring   -> rgb(124, 58, 237)
+  const RING_HOVER = '#15803d'; //  per-instance hover  -> rgb(21, 128, 61)
+  const GLOBAL_RING = '#b91c1c'; // site-wide knob      -> rgb(185, 28, 28)
+  const RING_RGB = 'rgb(124, 58, 237)';
+  const RING_HOVER_RGB = 'rgb(21, 128, 61)';
+
+  // The same 60x180 portrait PNG the #583 block uses: taller than every cap under test,
+  // so a cap assertion cannot pass by the asset simply being small.
+  const TALL_PNG_584 =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADwAAAC0CAIAAABHfdiQAAAAs0lEQVR4nO3OAQkAIBAAMStYwSz2z2QM72GwAFv73HHW94F0mLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHSAtLR0gLS0dIC0tHTAyPQD1EOdbnWkTyIAAAAASUVORK5CYII=';
+
+  test.afterEach(() => {
+    if (pageId) deletePage(pageId);
+    pageId = 0 as unknown as number;
+  });
+
+  async function open584(page: any, width: number, readySelector: string) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator(readySelector).first()).toBeVisible({ timeout: 10000 });
+    // Transitions off, or a hover read samples a mid-animation colour.
+    await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
+  }
+
+  const ringOf = (page: any, sel: string) =>
+    page.evaluate(
+      (s: string) => getComputedStyle(document.querySelector(s) as HTMLElement).borderTopColor,
+      sel,
+    );
+
+  // ── A-38: the four new ring slots actually paint, and outrank the global knob ──────
+
+  const RING_CASES = [
+    {
+      name: 'hero primary (plain band)',
+      sel: '.hero__cta',
+      component: (style: Record<string, string>) => ({
+        component: 'hero',
+        props: {
+          id: 'pp-h584a',
+          layout: 'left',
+          title: 'Ring slot',
+          button_text: 'Start',
+          button_url: '/start',
+        },
+        style,
+      }),
+      slots: { rest: '--hero-button-border', hover: '--hero-button-hover-border' },
+    },
+    {
+      // The case the source pins missed. `.hero--cover .hero__cta:not3` is the live border
+      // winner here, NOT `.hero .btn:not3`.
+      name: 'hero primary (cover band)',
+      sel: '.hero__cta',
+      component: (style: Record<string, string>) => ({
+        component: 'hero',
+        props: {
+          id: 'pp-h584b',
+          layout: 'cover',
+          title: 'Ring slot on a photo band',
+          image_url: TALL_PNG_584,
+          image_alt: 'Backdrop',
+          button_text: 'Start',
+          button_url: '/start',
+        },
+        style,
+      }),
+      slots: { rest: '--hero-button-border', hover: '--hero-button-hover-border' },
+    },
+    {
+      // The panel CTA's ring is decided by the SHARED premium rule, not by the section
+      // block's keystone. If the slot had only been routed in the keystone (the literal
+      // reading of the issue's single citation), this case would read the theme accent.
+      name: 'section panel CTA',
+      sel: '.section__panel-cta',
+      component: (style: Record<string, string>) => ({
+        component: 'section',
+        props: {
+          id: 'pp-s584',
+          layout: 'text-panel',
+          body: '<p>Body copy for the text panel band.</p>',
+          panel_heading: 'Panel',
+          panel_cta_text: 'Book a call',
+          panel_cta_url: '/call',
+          panel_cta_variant: 'primary',
+        },
+        style,
+      }),
+      slots: { rest: '--section-panel-cta-border', hover: '--section-panel-cta-hover-border' },
+    },
+  ];
+
+  for (const { name, sel, component, slots } of RING_CASES) {
+    test(`#584 ${name}: the per-instance ring paints at rest AND on hover @smoke`, async ({
+      page,
+    }) => {
+      pageId = createPage(`E2E 584 ring ${name}`);
+      setComposition(pageId, [
+        component({ [slots.rest]: RING, [slots.hover]: RING_HOVER }),
+      ]);
+
+      for (const width of [1280, 375]) {
+        await open584(page, width, sel);
+        expect(await ringOf(page, sel), `${name} @${width}: resting ring`).toBe(RING_RGB);
+        await page.hover(sel);
+        expect(await ringOf(page, sel), `${name} @${width}: hover ring`).toBe(RING_HOVER_RGB);
+      }
+    });
+
+    test(`#584 ${name}: the per-instance ring outranks the site-wide knob @smoke`, async ({
+      page,
+    }) => {
+      // A slot one link too low still paints when nothing competes. This is the read that
+      // separates "declared" from "wins" — the #564 defect class, one tier down.
+      pageId = createPage(`E2E 584 ring vs global ${name}`);
+      setComposition(pageId, [
+        component({
+          [slots.rest]: RING,
+          [slots.hover]: RING_HOVER,
+          '--btn-border-color': GLOBAL_RING,
+          '--btn-hover-border-color': GLOBAL_RING,
+        }),
+      ]);
+
+      await open584(page, 1280, sel);
+      expect(await ringOf(page, sel), `${name}: per-instance ring must beat --btn-border-color`)
+        .toBe(RING_RGB);
+      await page.hover(sel);
+      expect(
+        await ringOf(page, sel),
+        `${name}: per-instance hover ring must beat --btn-hover-border-color`,
+      ).toBe(RING_HOVER_RGB);
+    });
+  }
+
+  // ── A-40: one slot, both caps, and the strip gap ──────────────────────────────────
+
+  test('#584 --logos-image-size caps BOTH logo heights and --logos-gap moves the strip @smoke', async ({
+    page,
+  }) => {
+    // Unset, #583 already pins 48px unlabelled / 40px labelled / 32px gap in this exact
+    // fixture shape. Set, the label-driven switch stops applying and both collapse to one
+    // value — the behaviour the slot description promises an author, measured rather than
+    // asserted from the stylesheet text.
+    pageId = createPage('E2E 584 logos sizing');
+    setComposition(pageId, [
+      {
+        component: 'logos',
+        props: {
+          id: 'pp-l584',
+          title: 'Trusted by',
+          items: [
+            { image_url: TALL_PNG_584, image_alt: 'Unlabeled' },
+            { image_url: TALL_PNG_584, image_alt: 'Labeled', label: 'Delivery' },
+          ],
+        },
+        style: { '--logos-image-size': '4rem', '--logos-gap': '12px' },
+      },
+    ]);
+
+    for (const width of [1280, 375]) {
+      await open584(page, width, '.logos__list');
+      await page.waitForFunction(() => {
+        const imgs = Array.from(document.querySelectorAll('.logos__image')) as any[];
+        return imgs.length === 2 && imgs.every((i) => i.complete && i.naturalWidth > 0);
+      });
+
+      const got = await page.evaluate(() => {
+        const items = Array.from(document.querySelectorAll('.logos__item')) as HTMLElement[];
+        return {
+          gap: getComputedStyle(document.querySelector('.logos__list') as HTMLElement).gap,
+          heights: items.map((i) =>
+            Math.round((i.querySelector('.logos__image') as HTMLElement).getBoundingClientRect().height),
+          ),
+          labeled: items.map((i) => i.classList.contains('logos__item--labeled')),
+          naturals: items.map((i) => (i.querySelector('.logos__image') as any).naturalHeight),
+        };
+      });
+
+      // Guard: the asset must exceed the authored cap, or the height pins prove nothing.
+      for (const n of got.naturals) {
+        expect(n, `@${width}: fixture asset must exceed the 64px cap`).toBeGreaterThan(64);
+      }
+      // The switch is retired while the slot is set: BOTH items land on 4rem.
+      expect(got.labeled, `@${width}: fixture must still be one plain + one labelled`).toEqual([
+        false,
+        true,
+      ]);
+      expect(got.heights, `@${width}: both caps collapse to --logos-image-size`).toEqual([64, 64]);
+      expect(got.gap, `@${width}: strip gap follows --logos-gap`).toBe('12px');
+    }
+  });
+
+  // ── A-41: the band-fusing step is now executable on all ten bands ─────────────────
+
+  test('#584 heading rhythm: the six new slots zero their band heading margin @smoke', async ({
+    page,
+  }) => {
+    // The whole justification for the row: band fusing requires margin-bottom 0 on the upper
+    // band's last element, and six of ten bands could not express it. Measured on all six.
+    const BANDS: Array<{ slot: string; sel: string; band: unknown }> = [
+      {
+        slot: '--hero-heading-margin-bottom',
+        sel: '.hero__title',
+        band: { component: 'hero', props: { id: 'pp-x1', layout: 'left', title: 'Hero' } },
+      },
+      {
+        slot: '--cta-heading-margin-bottom',
+        sel: '.cta__title',
+        band: {
+          component: 'cta',
+          props: { id: 'pp-x2', title: 'Cta', button_text: 'Go', button_url: '/go' },
+        },
+      },
+      {
+        slot: '--stats-heading-margin-bottom',
+        sel: '.stats__heading',
+        band: {
+          component: 'stats',
+          props: { id: 'pp-x3', title: 'Stats', items: [{ number: '10', label: 'Teams' }] },
+        },
+      },
+      {
+        slot: '--table-heading-margin-bottom',
+        sel: '.table-section__heading',
+        band: {
+          component: 'table',
+          props: { id: 'pp-x4', title: 'Table', headers: ['A'], rows: [['1']] },
+        },
+      },
+      {
+        slot: '--embed-heading-margin-bottom',
+        sel: '.embed__heading',
+        band: { component: 'embed', props: { id: 'pp-x5', title: 'Embed', content: 'Embedded.' } },
+      },
+      {
+        slot: '--logos-heading-margin-bottom',
+        sel: '.logos__heading',
+        band: {
+          component: 'logos',
+          props: {
+            id: 'pp-x6',
+            title: 'Logos',
+            items: [{ image_url: TALL_PNG_584, image_alt: 'Mark' }],
+          },
+        },
+      },
+    ];
+
+    // Unset first: each band must still render the margin it always had, or "byte-identical
+    // unset" is a claim rather than a fact. Then zeroed, in one composition.
+    pageId = createPage('E2E 584 heading rhythm');
+    setComposition(pageId, BANDS.map(({ band }) => band));
+    await open584(page, 1280, '.hero__title');
+    const unset = await page.evaluate(
+      (sels: string[]) =>
+        sels.map((s) =>
+          getComputedStyle(document.querySelector(s) as HTMLElement).marginBottom,
+        ),
+      BANDS.map((b) => b.sel),
+    );
+    // hero's shipped value is the universal reset's 0; four are var(--space-lg) = 32px and
+    // cta is var(--space-xs) = 4px. These are the exact literals the six new slots carry as
+    // their fallbacks, measured rather than restated from the stylesheet.
+    expect(unset, 'unset heading rhythm must be unchanged').toEqual([
+      '0px',
+      '4px',
+      '32px',
+      '32px',
+      '32px',
+      '32px',
+    ]);
+
+    // LIVE first, with a value no default could produce. Asserting only the zeroed state
+    // would be vacuous on hero, whose shipped margin is already 0 — it would read as proof
+    // of a capability without exercising it.
+    setComposition(
+      pageId,
+      BANDS.map(({ band, slot }) => ({ ...(band as object), style: { [slot]: '11px' } })),
+    );
+    for (const width of [1280, 375]) {
+      await open584(page, width, '.hero__title');
+      const authored = await page.evaluate(
+        (sels: string[]) =>
+          sels.map((s) =>
+            getComputedStyle(document.querySelector(s) as HTMLElement).marginBottom,
+          ),
+        BANDS.map((b) => b.sel),
+      );
+      expect(authored, `@${width}: every new slot must actually reach its heading`).toEqual(
+        BANDS.map(() => '11px'),
+      );
+    }
+
+    // Then zero, the value the header-tightening case actually asks for. hero is excluded
+    // because its shipped margin is already 0, so a 0 assertion there proves nothing. NOTE:
+    // on none of these bands is the heading the band's trailing element (each has a required
+    // content prop that renders after it), so this is the band's INTERNAL header rhythm —
+    // the seam with the band below is closed with --<component>-padding-bottom.
+    const FUSABLE = BANDS.filter((b) => b.slot !== '--hero-heading-margin-bottom');
+    setComposition(
+      pageId,
+      BANDS.map(({ band, slot }) =>
+        slot === '--hero-heading-margin-bottom'
+          ? band
+          : { ...(band as object), style: { [slot]: '0' } },
+      ),
+    );
+    await open584(page, 1280, '.hero__title');
+    const zeroed = await page.evaluate(
+      (sels: string[]) =>
+        sels.map((s) => getComputedStyle(document.querySelector(s) as HTMLElement).marginBottom),
+      FUSABLE.map((b) => b.sel),
+    );
+    expect(zeroed, 'the five non-hero bands must be able to zero their header rhythm').toEqual(
+      FUSABLE.map(() => '0px'),
+    );
+  });
+
+  // ── A-42: srcset arrives without moving the painted box ───────────────────────────
+
+  test('#584 grid and testimonials images gain srcset without changing the painted box @smoke', async ({
+    page,
+  }) => {
+    // The mechanism claim, both halves: markup changes, paint does not. Measured against the
+    // SAME fixture rendered with and without a resolvable image_id would need a real
+    // attachment; here the id is deliberately unresolvable, which is the branch every
+    // already-published page takes — so this pins that the helper swap left those pages alone.
+    pageId = createPage('E2E 584 item images');
+    setComposition(pageId, [
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-g584',
+          items: [
+            { title: 'Card', text: 'Body', image_url: TALL_PNG_584, image_alt: 'Banner' },
+          ],
+        },
+      },
+      {
+        component: 'testimonials',
+        props: {
+          id: 'pp-t584',
+          items: [
+            { quote: 'Great.', author: 'Jane', image_url: TALL_PNG_584, image_alt: 'Jane' },
+          ],
+        },
+      },
+    ]);
+
+    for (const width of [1280, 375]) {
+      await open584(page, width, '.grid__item-image');
+      const got = await page.evaluate(() => {
+        const g = document.querySelector('.grid__item-image') as HTMLImageElement;
+        const a = document.querySelector('.testimonials__avatar') as HTMLImageElement;
+        const box = (el: HTMLElement) => {
+          const r = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          return {
+            w: Math.round(r.width),
+            h: Math.round(r.height),
+            fit: cs.objectFit,
+            loading: (el as HTMLImageElement).loading,
+          };
+        };
+        return {
+          gridSrcset: g.getAttribute('srcset'),
+          avatarSrcset: a.getAttribute('srcset'),
+          grid: box(g),
+          avatar: box(a),
+        };
+      });
+
+      // No resolvable id -> no srcset, exactly today's single-source <img>.
+      expect(got.gridSrcset, `@${width}: unresolvable id keeps the plain grid <img>`).toBeNull();
+      expect(got.avatarSrcset, `@${width}: unresolvable id keeps the plain avatar`).toBeNull();
+      // The boxes the CSS owns are untouched by the helper swap.
+      expect(got.grid.fit, `@${width}: card banner keeps object-fit`).toBe('cover');
+      expect(got.grid.loading).toBe('lazy');
+      expect(got.avatar.fit, `@${width}: avatar keeps object-fit`).toBe('cover');
+      expect(got.avatar.loading).toBe('lazy');
+      expect(got.avatar.w, `@${width}: avatar stays a fixed square`).toBe(got.avatar.h);
+      expect(got.grid.w, `@${width}: card banner still has width`).toBeGreaterThan(0);
+    }
+  });
+});

@@ -2161,6 +2161,234 @@ class ComponentPropsTest extends TestCase
 
     // ── Testimonials component (#1) ─────────────────────────────────────
 
+    // ── #584 A-42: responsive images on grid + testimonials items ────────────
+    //
+    // Of the five surfaces that render an author-supplied image, three already routed
+    // pp_render_responsive_image() (hero, section, logos items) and two emitted a raw
+    // fixed-size <img> — a card banner and an author avatar, both real content images on
+    // every page that uses them. These pins take the family to 5/5 and hold BOTH branches,
+    // because the fallback is the half that must not change: an item without a resolvable
+    // image_id has to render exactly today's single-source <img>.
+    //
+    // The rendered box is unchanged either way (same src, same class, same object-fit, same
+    // loading), so this is recorded as a MECHANISM change, not a render change. What DOES
+    // change is the emitted HTML when the id resolves: srcset/sizes arrive.
+
+    /** attachment_id => url, the map the wp_get_attachment_image() stub resolves against. */
+    private function seedAttachment(int $id, string $url): void
+    {
+        $GLOBALS['_pp_test_store']['attachment_urls'][$id] = $url;
+    }
+
+    public function testGridItemImageIdRendersResponsiveMarkup(): void
+    {
+        $this->seedAttachment(42, 'https://example.com/uploads/card.jpg');
+        $html = $this->render('grid', $this->gridProps([
+            'items' => [[
+                'title'     => 'Card',
+                'image_url' => 'https://example.com/fallback.jpg',
+                'image_alt' => 'A card banner',
+                'image_id'  => 42,
+            ]],
+        ]));
+
+        // Resolved: srcset/sizes from wp_get_attachment_image(), and the attachment's own
+        // URL replaces the fallback source.
+        $this->assertStringContainsString('srcset=', $html);
+        $this->assertStringContainsString('sizes=', $html);
+        $this->assertStringContainsString('https://example.com/uploads/card.jpg', $html);
+        $this->assertStringNotContainsString('https://example.com/fallback.jpg', $html);
+        // The box the CSS keys on is untouched — the whole basis for "visually identical".
+        $this->assertStringContainsString('class="grid__item-image"', $html);
+        $this->assertStringContainsString('grid__item-image-wrap', $html);
+        $this->assertStringContainsString('alt="A card banner"', $html);
+        $this->assertStringContainsString('loading="lazy"', $html);
+    }
+
+    public function testGridItemWithoutResolvableImageIdKeepsTheSingleSourceImg(): void
+    {
+        // Attachment 1 is seeded on purpose: it is what a bare `(int)` cast resolves a
+        // non-scalar image_id to, so if the is_numeric() guard is ever removed these
+        // cases render THIS url instead of falling back, and the assertions below fail.
+        $this->seedAttachment(1, 'https://example.com/uploads/FIRST-UPLOAD.jpg');
+        // Three ways to land on the fallback, all of which must render identically:
+        // absent id, id 0, and an id no attachment resolves (a deleted attachment).
+        // Every one of these is REACHABLE: #579's nested enforcement covers `required` and
+        // string-array shape, not scalar field types, so a non-numeric image_id survives the
+        // write path and reaches the renderer. The array and boolean cases are the sharp
+        // ones — `(int) ['attachment_id' => 42]` and `(int) true` both evaluate to 1, so a
+        // bare cast would render attachment ID 1 (usually the site's first upload) and throw
+        // away the author's image_url. The is_numeric() guard at the read is what makes them
+        // all mean the same thing: no attachment, fall back to image_url.
+        foreach ([
+            [],
+            ['image_id' => 0],
+            ['image_id' => 999],
+            ['image_id' => 'abc'],
+            ['image_id' => -5],
+            ['image_id' => ['attachment_id' => 42]],
+            ['image_id' => true],
+        ] as $variant) {
+            $html = $this->render('grid', $this->gridProps([
+                'items' => [array_merge([
+                    'title'     => 'Card',
+                    'image_url' => 'https://example.com/fallback.jpg',
+                    'image_alt' => 'A card banner',
+                ], $variant)],
+            ]));
+            $label = json_encode($variant);
+            $this->assertStringNotContainsString('srcset=', $html, "grid fallback {$label}");
+            $this->assertStringContainsString(
+                '<img src="https://example.com/fallback.jpg" alt="A card banner" '
+                . 'class="grid__item-image" loading="lazy">',
+                $html,
+                "grid fallback {$label}: must emit today's single-source <img>, unchanged."
+            );
+        }
+    }
+
+    public function testGridItemImageIdNeverReplacesTheImageUrlGate(): void
+    {
+        // image_id is a COMPANION to a URL, never a substitute — the same contract logos
+        // ships. An item carrying only an id renders no image wrap at all, so an author who
+        // forgets image_url gets a visibly empty card rather than a silently divergent one.
+        $this->seedAttachment(42, 'https://example.com/uploads/card.jpg');
+        $html = $this->render('grid', $this->gridProps([
+            'items' => [['title' => 'Card', 'image_id' => 42]],
+        ]));
+        $this->assertStringNotContainsString('grid__item-image-wrap', $html);
+    }
+
+    public function testGridStepsLayoutStillRendersNoItemImage(): void
+    {
+        // The steps carve-out predates this change and must survive it: routing the helper
+        // must not start emitting a banner on a numbered step card.
+        $this->seedAttachment(42, 'https://example.com/uploads/card.jpg');
+        $html = $this->render('grid', $this->gridProps([
+            'layout' => 'steps',
+            'items'  => [['number' => '1', 'title' => 'Step', 'image_url' => 'a.png', 'image_id' => 42]],
+        ]));
+        $this->assertStringNotContainsString('grid__item-image', $html);
+    }
+
+    public function testTestimonialsAvatarImageIdRendersResponsiveMarkup(): void
+    {
+        $this->seedAttachment(7, 'https://example.com/uploads/jane.jpg');
+        $html = $this->render('testimonials', $this->testimonialsProps([
+            'items' => [[
+                'quote'     => 'Q',
+                'author'    => 'Jane Doe',
+                'image_url' => 'https://example.com/fallback.jpg',
+                'image_alt' => 'Jane Doe',
+                'image_id'  => 7,
+            ]],
+        ]));
+        $this->assertStringContainsString('srcset=', $html);
+        $this->assertStringContainsString('sizes=', $html);
+        $this->assertStringContainsString('https://example.com/uploads/jane.jpg', $html);
+        $this->assertStringNotContainsString('https://example.com/fallback.jpg', $html);
+        $this->assertStringContainsString('class="testimonials__avatar"', $html);
+        $this->assertStringContainsString('alt="Jane Doe"', $html);
+        $this->assertStringContainsString('loading="lazy"', $html);
+    }
+
+    public function testTestimonialsAvatarWithoutResolvableImageIdKeepsTheSingleSourceImg(): void
+    {
+        // Attachment 1 is seeded on purpose: it is what a bare `(int)` cast resolves a
+        // non-scalar image_id to, so if the is_numeric() guard is ever removed these
+        // cases render THIS url instead of falling back, and the assertions below fail.
+        $this->seedAttachment(1, 'https://example.com/uploads/FIRST-UPLOAD.jpg');
+        // Every one of these is REACHABLE: #579's nested enforcement covers `required` and
+        // string-array shape, not scalar field types, so a non-numeric image_id survives the
+        // write path and reaches the renderer. The array and boolean cases are the sharp
+        // ones — `(int) ['attachment_id' => 42]` and `(int) true` both evaluate to 1, so a
+        // bare cast would render attachment ID 1 (usually the site's first upload) and throw
+        // away the author's image_url. The is_numeric() guard at the read is what makes them
+        // all mean the same thing: no attachment, fall back to image_url.
+        foreach ([
+            [],
+            ['image_id' => 0],
+            ['image_id' => 999],
+            ['image_id' => 'abc'],
+            ['image_id' => -5],
+            ['image_id' => ['attachment_id' => 42]],
+            ['image_id' => true],
+        ] as $variant) {
+            $html = $this->render('testimonials', $this->testimonialsProps([
+                'items' => [array_merge([
+                    'quote'     => 'Q',
+                    'author'    => 'Jane Doe',
+                    'image_url' => 'https://example.com/fallback.jpg',
+                    'image_alt' => 'Jane Doe',
+                ], $variant)],
+            ]));
+            $label = json_encode($variant);
+            $this->assertStringNotContainsString('srcset=', $html, "testimonials fallback {$label}");
+            $this->assertStringContainsString(
+                '<img src="https://example.com/fallback.jpg" alt="Jane Doe" '
+                . 'class="testimonials__avatar" loading="lazy">',
+                $html,
+                "testimonials fallback {$label}: must emit today's single-source <img>, unchanged."
+            );
+        }
+    }
+
+    public function testTestimonialsAvatarImageIdNeverReplacesTheImageUrlGate(): void
+    {
+        $this->seedAttachment(7, 'https://example.com/uploads/jane.jpg');
+        $html = $this->render('testimonials', $this->testimonialsProps([
+            'items' => [['quote' => 'Q', 'author' => 'Jane Doe', 'image_id' => 7]],
+        ]));
+        $this->assertStringNotContainsString('testimonials__avatar', $html);
+    }
+
+    public function testNumericStringImageIdStillResolvesOnBothComponents(): void
+    {
+        // The other side of the (int) coercion: a numeric STRING must reach the responsive
+        // branch, not the fallback. Same reachability argument as the reject cases above.
+        $this->seedAttachment(42, 'https://example.com/uploads/card.jpg');
+        $this->seedAttachment(7, 'https://example.com/uploads/jane.jpg');
+
+        $grid = $this->render('grid', $this->gridProps([
+            'items' => [[
+                'title' => 'Card', 'image_url' => 'https://example.com/fallback.jpg',
+                'image_alt' => 'C', 'image_id' => '42',
+            ]],
+        ]));
+        $this->assertStringContainsString('srcset=', $grid);
+        $this->assertStringContainsString('https://example.com/uploads/card.jpg', $grid);
+
+        $tst = $this->render('testimonials', $this->testimonialsProps([
+            'items' => [[
+                'quote' => 'Q', 'author' => 'Jane', 'image_url' => 'https://example.com/fallback.jpg',
+                'image_alt' => 'J', 'image_id' => '7',
+            ]],
+        ]));
+        $this->assertStringContainsString('srcset=', $tst);
+        $this->assertStringContainsString('https://example.com/uploads/jane.jpg', $tst);
+    }
+
+    public function testItemImageIdIsDeclaredWithTheShippedLogosShape(): void
+    {
+        // "Same field shape as logos" is the whole grammar claim of A-42: no new vocabulary,
+        // no new type, no new default. Compared field by field against logos rather than
+        // restated, so a future edit to one of the three drifts loudly.
+        $logos = json_decode(file_get_contents(dirname(__DIR__) . '/components/logos/schema.json'), true);
+        $ref   = $logos['props']['items']['items']['image_id'];
+
+        foreach (['grid', 'testimonials'] as $component) {
+            $schema = json_decode(
+                file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"),
+                true
+            );
+            $field = $schema['props']['items']['items']['image_id'] ?? null;
+            $this->assertIsArray($field, "{$component}.items[] must declare image_id.");
+            $this->assertSame($ref, $field, "{$component}.items[].image_id must be shape-identical to logos'.");
+            // Optional, so #579's nested-required enforcement never rejects an existing item.
+            $this->assertFalse((bool) ($field['required'] ?? false), "{$component}.items[].image_id must stay optional.");
+        }
+    }
+
     private function testimonialsProps(array $extra = []): array
     {
         return array_merge(['items' => [['quote' => 'Great product.']]], $extra);

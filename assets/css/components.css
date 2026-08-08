@@ -568,6 +568,18 @@
      all four layouts; unset it resolves to `none` on every one of them, which is the
      initial value, so centered and cover are unchanged. */
   max-width: var(--hero-heading-measure, none);
+  /* Heading rhythm (issue 584). hero is the one band whose title carried NO
+     margin-bottom declaration at all — the base.css universal `margin: 0` reset was
+     the whole story, and .hero__content's flex `gap` supplies the visible spacing.
+     The fallback is therefore `0`, which is exactly what the reset already computed,
+     so an unset hero is byte-identical. What this slot is FOR on a hero is ADDING air
+     below the headline: a value here stacks on top of --hero-content-gap rather than
+     replacing it. It is deliberately NOT the hero's band-fusing lever — the title is
+     never the hero's last visible element (the subheading and CTA group follow it), so
+     the seam-closing knob there is --hero-padding-bottom. The slot lands anyway because
+     the family is completed in one pass and the heading-rhythm surface must be uniform
+     across all ten bands for an agent to reason about it. */
+  margin-bottom: var(--hero-heading-margin-bottom, 0);
 }
 
 .hero__title-accent {
@@ -844,9 +856,17 @@
      Global button surface routed under the hero slot (#458): --hero-accent still wins when
      set; unset, fill falls to --btn-bg then --color-accent. Border honors its own
      --btn-border-color knob, else FOLLOWS the fill (--hero-button-bg, then --btn-bg) so a
-     recolored button keeps a matching ring, else --color-accent. */
+     recolored button keeps a matching ring, else --color-accent.
+     Per-instance RING slot (issue 584): --hero-button-border leads the border chain, in
+     exactly the position --cta-button-border holds on the cta primary. Before it, the hero
+     primary's ring could only be moved by the BAND accent (--hero-accent, which repaints
+     every accented element in the band) or by the site-wide --btn-border-color — there was
+     no way to ring THIS button alone. A new link at the HEAD of an existing chain cannot
+     change an unset render, so this is byte-identical by construction. Its :hover twin is
+     on the rule below, per the positional-twin discipline: a ring added at rest only would
+     dissolve under the pointer, which is the #535 defect. */
   background-color: var(--hero-button-bg, var(--hero-accent, var(--btn-bg, var(--color-accent))));
-  border-color: var(--hero-accent, var(--btn-border-color, var(--hero-button-bg, var(--btn-bg, var(--color-accent)))));
+  border-color: var(--hero-button-border, var(--hero-accent, var(--btn-border-color, var(--hero-button-bg, var(--btn-bg, var(--color-accent))))));
 }
 /* Per-instance filled-button HOVER fill slot (issue 530, the rest idiom above applied to
    hover): --hero-button-hover-bg wins the (masked here) background-color AND, via the
@@ -868,7 +888,11 @@
    primary. Same reason --btn-bg is in the rest chain above. */
 .hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   background-color: var(--hero-button-hover-bg, var(--hero-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));
-  border-color: var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-button-hover-bg, var(--btn-hover-bg, var(--color-accent-hover)))));
+  /* --hero-button-hover-border is the positional twin of --hero-button-border on the
+     rest rule above (issue 584): the rest chain with every knob swapped for its hover
+     equivalent, so no authoring configuration can make the ring flip across the pointer
+     transition. Head of chain, so byte-identical unset. */
+  border-color: var(--hero-button-hover-border, var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-button-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))));
 }
 /* Ink + elevation slots for the hero primary button (issue 514, the --cta-button-color /
    --cta-button-shadow idiom scoped to .cta__button). Kept at [0,4,0] — BELOW the premium
@@ -976,7 +1000,15 @@
    is [0,6,0] to beat `.hero .btn:not(...):hover`, whose border also follows the fill.
    There is no `theme: inverted` hero, so the Q2 not-ringed case does not arise here. */
 .hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  border-color: var(--hero-accent, var(--hero-button-bg, var(--color-accent-on-overlay)));
+  /* --hero-button-border leads (issue 584), exactly as --cta-button-border leads the cta
+     primary's overlay ring below. This rule is the LIVE border winner on a cover hero, so a
+     ring slot absent here would be dead on the one band where a per-instance ring matters
+     most — while the schema still promised it applied. It sits ABOVE the measured
+     --color-accent-on-overlay role for the same reason the band accent and the per-instance
+     fill do, and #564/#565 stated that scope explicitly: every PER-INSTANCE link above the
+     role may still put an author's colour on this ring; only a GLOBAL knob nobody aimed at
+     this band may not. Head of chain, so byte-identical unset. */
+  border-color: var(--hero-button-border, var(--hero-accent, var(--hero-button-bg, var(--color-accent-on-overlay))));
 }
 .hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   /* The rest twin's chain with every knob swapped for its hover equivalent, so the two are
@@ -985,7 +1017,7 @@
      counterparts are: a GLOBAL knob must not defeat the measured on-overlay separation role.
      Dropping either from ONE state only would have produced exactly the rest->hover flip the
      #543 twins exist to prevent, so each pair of halves moved together. */
-  border-color: var(--hero-accent-hover, var(--hero-button-hover-bg, var(--color-accent-on-overlay)));
+  border-color: var(--hero-button-hover-border, var(--hero-accent-hover, var(--hero-button-hover-bg, var(--color-accent-on-overlay))));
 }
 
 /* Second CTA button (cta2): per-instance bg/border/color override, independent
@@ -1824,9 +1856,39 @@
    button is byte-identical and `none` flattens rest + hover. */
 .section__panel-cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
   background-color: var(--section-panel-cta-bg, var(--btn-bg, var(--color-accent)));
-  border-color: var(--btn-border-color, var(--section-panel-cta-bg, var(--btn-bg, var(--color-accent))));
+  border-color: var(--section-panel-cta-border, var(--btn-border-color, var(--section-panel-cta-bg, var(--btn-bg, var(--color-accent)))));
   color: var(--section-panel-cta-color, var(--btn-text, var(--color-bg)));
   box-shadow: var(--section-panel-cta-shadow, none);
+}
+
+/* Per-instance RING slots for the panel CTA (issue 584), and the ONE hover rule this
+   surface has ever had.
+
+   The gap this closes: the panel CTA was the only filled-button surface with NEITHER of
+   the two tiers its siblings carry above the site-wide knob. A hero primary reaches its
+   ring through --hero-button-border (rest rule above) and a cta primary through
+   --cta-button-border; the panel CTA had only --btn-border-color, so its ring could be
+   recoloured site-wide or not at all. --section-panel-cta-border and its hover twin sit
+   at the head of the chain in exactly the position --cta-button-border holds.
+
+   WHY BOTH HERE AND IN THE PREMIUM BLOCK, exactly as #536 did for the fill slot: this
+   keystone is [0,4,0] and the shared premium winner `main .btn:not(x):not(y):not(z)` is
+   [0,4,1] (hover: [0,5,0] vs [0,5,1]), so these declarations never decide a composed
+   panel CTA's border — they WIRE the slots inside the section block, which is the
+   slot-contract keystone (StyleSlotContractTest). The VISIBLE win happens in the premium
+   rules, where both slots also lead the chain. Route only here and the slots would be
+   dead; route only there and the keystone contract breaks. The hero needs no premium
+   entry because `.hero .btn:not(...)` is [0,5,0] and already outranks [0,4,1].
+
+   The hover chain deliberately carries NO fill link. #536 shipped the panel CTA
+   resting-state-only and this issue does not revisit that: there is no
+   --section-panel-cta-hover-bg to follow, so the ring's hover twin covers the RING and
+   nothing else. Unset, the chain resolves --btn-hover-border-color then
+   --color-accent-hover, which is precisely what `.btn:hover` computes — so this rule is
+   byte-identical both under the premium winner (masked) and in the one context where it
+   would win, a panel CTA rendered outside `main`. */
+.section__panel-cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
+  border-color: var(--section-panel-cta-hover-border, var(--btn-hover-border-color, var(--color-accent-hover)));
 }
 
 /* Section background variants.
@@ -2709,7 +2771,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      var(--color-text) so unset output is unchanged. */
   font-size: var(--table-heading-size, var(--pp-band-heading-size));
   color: var(--table-heading-color, var(--color-text));
-  margin-bottom: var(--space-lg);
+  /* Heading rhythm (issue 584): band fusing needs this gap zeroable per instance.
+     The fallback is this rule's own prior literal — byte-identical unset. */
+  margin-bottom: var(--table-heading-margin-bottom, var(--space-lg));
   /* table's own heading measure (issue 578), severed from the shared six-selector rule
      that read --cta-heading-measure from inside the section block. */
   max-width: var(--table-heading-measure, var(--measure-heading));
@@ -2820,7 +2884,12 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   /* cta keeps the slot it always owned; only the fallback moves to the shared
      --measure-heading token (issue 578). Same 40rem, now retunable in one write. */
   max-width: var(--cta-heading-measure, var(--measure-heading));
-  margin-bottom: var(--space-xs);
+  /* Heading rhythm (issue 584): the band-fusing step documented in
+     ai-instructions/style-component.md needs this gap authorable per instance. The
+     fallback is this rule's own prior literal, so an unset cta is byte-identical.
+     cta's is --space-xs, not --space-lg: the CTA title sits directly above its body
+     line, not above a content block. */
+  margin-bottom: var(--cta-heading-margin-bottom, var(--space-xs));
 }
 
 .cta__title-accent {
@@ -3806,7 +3875,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      typography rule, so the fallback is the h2 base size (base.css) — unset
      output is byte-identical, and an operator can now tune the scale. */
   font-size: var(--stats-heading-size, var(--pp-band-heading-size));
-  margin-bottom: var(--space-lg);
+  /* Heading rhythm (issue 584): band fusing needs this gap zeroable per instance.
+     The fallback is this rule's own prior literal — byte-identical unset. */
+  margin-bottom: var(--stats-heading-margin-bottom, var(--space-lg));
   /* stats' own heading measure (issue 578), severed from the shared six-selector rule
      that read --cta-heading-measure from inside the section block. */
   max-width: var(--stats-heading-measure, var(--measure-heading));
@@ -3974,7 +4045,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      438) falls back to the h2 default var(--color-text) so unset output is unchanged. */
   font-size: var(--logos-heading-size, var(--pp-band-heading-size));
   color: var(--logos-heading-color, var(--color-text));
-  margin-bottom: var(--space-lg);
+  /* Heading rhythm (issue 584): band fusing needs this gap zeroable per instance.
+     The fallback is this rule's own prior literal — byte-identical unset. */
+  margin-bottom: var(--logos-heading-margin-bottom, var(--space-lg));
   /* logos' own heading measure (issue 578), severed from the shared six-selector rule
      that read --cta-heading-measure from inside the section block. */
   max-width: var(--logos-heading-measure, var(--measure-heading));
@@ -3985,7 +4058,12 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: var(--space-lg);
+  /* Strip rhythm (issue 584): the ONE band-level gap on this component, routed so an
+     operator can tighten a dense logo wall or open out a four-tile category strip
+     without a global --space-lg retune. The fallback is this rule's own prior literal
+     — byte-identical unset. The intra-item gap on .logos__item--labeled below stays a
+     token literal: it is the image-to-label nudge, not the strip's rhythm. */
+  gap: var(--logos-gap, var(--space-lg));
   list-style: none;
   padding: 0;
   margin: 0;
@@ -4003,14 +4081,24 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   min-width: 6rem;
 }
 
+/* Logo image height (issue 584), mirroring --grid-item-icon-size's shape: ONE slot
+   routed at BOTH cap sites, each keeping its own current literal as the fallback.
+   Unset, the label-driven switch survives exactly as shipped — 3rem unlabelled here,
+   2.5rem labelled below (verified rendered: 48px / 40px, tests/e2e/style-render.spec.ts
+   "#583 logos mixed labeled/unlabeled strip"). SET, both caps collapse to the one
+   authored value and the label-driven switch stops applying; that is deliberate and is
+   stated in the slot description, because an operator asking for "make the logos
+   bigger" means the strip, not one half of it. There is no separate labelled-only
+   slot: two knobs for one visual job is the family this gate is completing, not
+   extending. NOT a dark-band unblocker — see the schema note. */
 .logos__image {
-  max-height: 3rem;
+  max-height: var(--logos-image-size, 3rem);
   width: auto;
   object-fit: contain;
 }
 
 .logos__item--labeled .logos__image {
-  max-height: 2.5rem;
+  max-height: var(--logos-image-size, 2.5rem);
 }
 
 .logos__label {
@@ -4059,7 +4147,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      438) falls back to the h2 default var(--color-text) so unset output is unchanged. */
   font-size: var(--embed-heading-size, var(--pp-band-heading-size));
   color: var(--embed-heading-color, var(--color-text));
-  margin-bottom: var(--space-lg);
+  /* Heading rhythm (issue 584): band fusing needs this gap zeroable per instance.
+     The fallback is this rule's own prior literal — byte-identical unset. */
+  margin-bottom: var(--embed-heading-margin-bottom, var(--space-lg));
   /* embed's own heading measure (issue 578), severed from the shared six-selector rule
      that read --cta-heading-measure from inside the section block. */
   max-width: var(--embed-heading-measure, var(--measure-heading));
@@ -5031,8 +5121,10 @@ main > .grid .grid__item-link::after {
    was the BAND's styling arriving somewhere nobody asked for it. */
 main .btn:not(.hero__cta):not(.cta__button):not(.section__panel-cta) {
   --hero-button-bg: initial;
+  --hero-button-border: initial;
   --hero-button-color: initial;
   --hero-button-hover-bg: initial;
+  --hero-button-hover-border: initial;
   --hero-button-shadow: initial;
   --hero-button2-bg: initial;
   --hero-button2-border: initial;
@@ -5054,7 +5146,9 @@ main .btn:not(.hero__cta):not(.cta__button):not(.section__panel-cta) {
   --cta-button2-hover-border: initial;
   --cta-button2-hover-color: initial;
   --section-panel-cta-bg: initial;
+  --section-panel-cta-border: initial;
   --section-panel-cta-color: initial;
+  --section-panel-cta-hover-border: initial;
   --section-panel-cta-shadow: initial;
 }
 
@@ -5245,8 +5339,14 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
      (issue 536, the #526 border-follows-fill convention): --section-panel-cta-bg sits just
      ahead of the literal, so a fill-only panel recolor keeps a matching ring instead of a
      stray accent-strong outline, while every knob above it still wins exactly as before
-     and an unset button still resolves --color-accent-strong (byte-identical). */
-  border-color: var(--cta-button-border, var(--cta-accent, var(--btn-border-color, var(--section-panel-cta-bg, var(--color-accent-strong)))));
+     and an unset button still resolves --color-accent-strong (byte-identical).
+     --section-panel-cta-border now LEADS the chain (issue 584). This rule is the panel
+     CTA's only border winner ([0,4,1] over the section block's [0,4,0] keystone), so the
+     head is where its per-instance ring slot has to sit to do anything at all — the same
+     reason --section-panel-cta-bg leads the fill chains below. It is emitted only on a
+     .section root, so a hero/cta/standalone primary never inherits it and every knob
+     below keeps winning for them exactly as before; unset, the chain is unchanged. */
+  border-color: var(--section-panel-cta-border, var(--cta-button-border, var(--cta-accent, var(--btn-border-color, var(--section-panel-cta-bg, var(--color-accent-strong))))));
   /* Hero per-instance fill slot (issue 514): --hero-button-bg is the visible fill
      winner for a hero primary. A FLAT color value here resolves the shorthand to
      `background: <color>`, which resets background-image to `none` and CLEARS the
@@ -5277,8 +5377,12 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
      deliberately absent here. The rest chain's --section-panel-cta-bg link has no hover
      counterpart because the panel CTA has no per-instance hover fill slot (#536 shipped it
      resting-state-only), so that one link is simply absent — the same way
-     --btn-hover-border-color used to be. */
-  border-color: var(--cta-button-hover-border, var(--cta-accent-hover, var(--btn-hover-border-color, var(--color-accent))));
+     --btn-hover-border-color used to be.
+     --section-panel-cta-hover-border leads this chain (issue 584) as the positional twin
+     of --section-panel-cta-border on the rest rule above. The RING gets its hover twin;
+     the resting-only posture for the FILL is unchanged, which is why this chain still has
+     no --section-panel-cta-*-bg link. Head of chain, so byte-identical unset. */
+  border-color: var(--section-panel-cta-hover-border, var(--cta-button-hover-border, var(--cta-accent-hover, var(--btn-hover-border-color, var(--color-accent)))));
   /* Hero per-instance HOVER fill slot (issue 530): --hero-button-hover-bg is the visible
      hover fill winner for a hero primary, exactly as --hero-button-bg is at rest. A FLAT
      color here resolves the shorthand to `background: <color>`, which resets background-image
