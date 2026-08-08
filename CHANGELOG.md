@@ -4,6 +4,65 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.9] — 2026-08-08 — every band gets a real measure control, and one component stops owning another's (#578)
+
+**Eleven new style slots complete the text-measure surface across all ten band components, a new `--measure-heading` design token retunes eight band headings in one write, and two cross-component slot leaks are severed. One deliberate render change: the hero headline is no longer capped at 12 characters.**
+
+A "measure" is the max width of a line of text — the thing that decides whether a headline wraps at three words or twelve. Until now most bands had no control over theirs, and the ones that appeared to have one were sharing. A single rule buried in the *section* block capped six different components' headings through `--cta-heading-measure`, a slot that belongs to the CTA band. The five non-CTA components could neither set it (the write path rejects a foreign component's slot) nor have it resolve (a slot's value is written onto the component root that owns it, never onto a sibling band), so what looked like an authorable cap was a `40rem` literal wearing a `var()` costume. The same shape hid in the mobile type rules, where grid cards and FAQ answers took their body size from `--cta-body-size`.
+
+Both leaks are gone. Every band component now declares its own `--<component>-heading-measure`, consumed inside its own CSS block, and `section`, `cta`, `faq` and `embed` gain a `--<component>-body-measure` for their prose. Eight of the ten heading measures default to the new `--measure-heading` token, so one `update_design_token` write retunes band heading measure site-wide instead of ten per-band edits. `hero` and `section` are deliberately exempt and stay uncapped: the section title has never carried a cap and section is the most-used band in the product, and hero's container already is its measure.
+
+### The hero change, measured
+
+The hero headline carried `max-width: 12ch` on the `left` and `split` layouts. Because `.hero__content` is a flex item that shrink-wraps to its widest child, that cap did not narrow the headline — it narrowed the whole column, headline, subheading and buttons together. A character count also cannot do this job: `ch` is viewport-local while the column is not, so any value tight enough to shape a headline re-strands the column at laptop widths. The cap is deleted.
+
+| Viewport | Left hero content column | Split hero title |
+|---|---|---|
+| 1440 | 466px → **896px** | 466px → 553px |
+| 1280 | 432px → **896px** | 414px → 553px |
+| 1152 | 432px → **896px** | 373px → 553px |
+| 1024 | 432px → **896px** | 345px → 484px |
+| 375 | 343px (unchanged) | 343px (unchanged) |
+
+Measured on a stressed fixture at all five widths. At 375 the column is bound by the viewport and does not move, so nothing around it shifts; the headline itself does re-wrap to fill that column, going from seven lines to five. Every other band, at every one of those five viewports, renders byte-identically: heading caps, body caps, band padding and document width all match the previous release exactly.
+
+Also: `width: narrow` on a hero stopped duplicating `--measure-centered`'s value and now references the token, so a site that retunes its centered measure moves the narrow hero container too. And the `spacing` / `width` overrides, which only `hero` has ever emitted, are now scoped to `.hero` in the stylesheet rather than written as generic selectors with a comment asking you not to extend them. Specificity is unchanged, so nothing re-orders.
+
+### Itemized changes
+
+### Added
+- `--measure-heading` (`40rem`) joins `--measure-body`, `--measure-body-wide` and `--measure-centered` in the design-token family. Retune it to move eight band headings at once.
+- `--<component>-heading-measure` on all ten band components (`hero`, `section`, `grid`, `cta`, `faq`, `stats`, `table`, `logos`, `embed`, `testimonials`).
+- `--<component>-body-measure` on `section`, `cta`, `faq` and `embed`.
+- A `measure` value for the slot definition's `role` marker, surfaced to the authoring AI in the runtime slot catalog.
+- `ai-instructions/style-component.md` gains a "Text measures" section covering the token-over-literal preference, the two exempt components, and the branch-fallback slots whose default is not one value.
+
+### Changed
+- **The hero headline is no longer capped at 12 characters** on the `left` and `split` layouts. Every unset `left` and `split` hero at roughly 1150px and up renders wider; at 375 the column is unchanged.
+- `--hero-heading-measure` is declared on the unscoped `.hero__title` rule, so it reaches all four hero layouts rather than only the two that carried the old cap.
+- `[data-pp-width="narrow"] .container` references `var(--measure-centered)` instead of restating `56rem`.
+- The `[data-pp-spacing]` and `[data-pp-width]` selectors are scoped to `.hero`.
+- `--section-body-measure` and `--hero-content-width` keep all of their branch fallbacks; their slot descriptions now state each branch's condition, because setting either replaces every branch with the single value you write.
+
+### Fixed
+- Six components' headings (`table`, `faq`, `logos`, `embed`, `cta`, `stats`) each read their own measure slot instead of sharing the CTA band's.
+- Grid cards and FAQ answers no longer take their mobile body size from the CTA band's `--cta-body-size`, and an unset section body no longer chains through it.
+- `.embed__content` routes `--embed-body-measure` instead of a bare `40rem`, so embedded content width is authorable at all.
+
+### Docs
+- Slot count updated to 247 across `AI_CONTEXT.md` and `README.md`, with the per-component breakdown.
+- `ai-instructions/add-component.md`, `docs/AI_IMPLEMENTATION_RECIPES.md` and `components/hero/README.md` reconciled against the new surface.
+
+### Tests
+- `tests/MeasureSurfaceTest.php` (new, 50 tests): the declaration surface, the severance proved from both directions, the authoring path through the real action layer for every new slot, and the exemption set.
+- Rendered pins in `tests/e2e/style-render.spec.ts` for the hero change at 1440/1280/1152/1024/375 including short-title and split cases, and a per-component severance pin for all six formerly-shared headings.
+
+### Known limitations
+- The `role: "measure"` marker ships without its advisory consumer. Landing it needs a grammar decision, tracked in #610: measure slots cannot accept a token reference today, so a warning about literal measures would have no authorable fix and would make `wp pp validate site` exit 1 against the theme's own starter homepage.
+- Scoping the spacing selectors to `.hero` made a pre-existing defect visible: a hero with `spacing` set to `compact` or `spacious` has always ignored `--hero-padding-top` / `--hero-padding-bottom`. Recorded in #609, waived in the slot-contract ledger pending that decision.
+
+---
+
 ## [v1.12.8] — 2026-08-08 — a style slot that reports success now actually renders (#577)
 
 **Ten declared style slots accepted a value, reported `ok:true`, and changed nothing on the page. They render now. Eight deliberate visual changes ship with them, each named and measured; everything else is byte-identical when the slot is unset, and proven so by test.**
