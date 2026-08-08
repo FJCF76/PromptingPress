@@ -44,9 +44,10 @@ Used by: #99, #100, #108, #111, #61 (and the #99 scaffold issue defines the reus
    If the slot only renders in a particular configuration, declare `applies_when` (the four
    ANDed clause forms) or, for a condition the grammar cannot express, `conditionality_note`,
    and add the row to `CONDITIONALITY_LEDGER` in `tests/SchemaValidationTest.php` in the SAME
-   change. That one declaration drives both the runtime catalog line an agent reads before
-   writing and the `inert_slot` advisory it gets after — so verify the condition against the
-   renderer AND the CSS selector first; a wrong condition is advice an agent designs around.
+   change. Both fields reach the agent through the runtime catalog line it reads before
+   writing; only `applies_when` is machine-readable, so only `applies_when` drives the
+   `inert_slot` advisory it gets after. Verify the condition against the renderer AND the CSS
+   selector before declaring it — a wrong condition is advice an agent designs around.
 2. **Validation is automatic** for known types via `_pp_validate_token_value()` (`lib/apply.php`) — but if you introduce a *new* type (e.g. `gradient`, #99), add its validator there and to the `switch` in `_pp_validate_token_value`, keeping the `{};<>` guard and a positive-pattern grammar (see `_pp_validate_length` clamp/calc handling as the model). Reject `var()`/`url()`/`env()` unless explicitly allowlisted.
 3. **Render:** the slot is emitted by `pp_render_style_vars($props['__pp_style'] ?? [], '{name}')` in `components/{name}/{name}.php` (already wired for hero/section/grid/cta/faq/stats/testimonials; add the call for components that lack it). Reference the CSS var in `assets/css/components.css` with a fallback: `color: var(--{name}-{slot}, var(--color-text));`
    **Declare it inside that component's OWN block, and never name another component's slot (#578).** A shared rule that caps six bands' headings from one selector list reading `var(--cta-heading-measure, …)` is not a slot for five of them: they can neither SET it (the write path rejects a foreign slot with `invalid_style_slot`) nor have it RESOLVE (slot custom properties are emitted on the owning component's root, so they never reach a sibling band's subtree). It renders as a literal wearing a `var()` costume, and because such a rule usually lives in some *other* component's block it is invisible to every per-component audit. Give each component its own slot, and route the shared default through a design token (`var(--measure-heading)`) when the bands are meant to move together. `tests/MeasureSurfaceTest.php` pins the severance from both sides — each component's own slot reaches its own element, and no non-cta selector still reads a cta slot.
