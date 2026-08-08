@@ -130,9 +130,15 @@ class AiContextTest extends TestCase
         // An enum style slot must surface its bounded value set in the slot list,
         // mirroring the prop-enum format, so the chat AI knows exactly which values
         // are accepted (issue 510: --section-inline-items-align is start|center).
+        //
+        // The trailing `; applies when body_items is set` arrived with #580, which
+        // populated the slot's `applies_when`. Asserted here rather than trimmed off:
+        // the value set and the condition are ONE catalog line, and an agent that
+        // reads the values without the condition writes an alignment onto a band with
+        // no inline-items row — the exact inert write #580 exists to prevent.
         $prompt = pp_ai_system_prompt();
         $this->assertStringContainsString(
-            '--section-inline-items-align (enum: "start"|"center", default: start)',
+            '--section-inline-items-align (enum: "start"|"center", default: start; applies when body_items is set)',
             $prompt,
             'the slot catalog must surface an enum slot\'s value set, not just its type.'
         );

@@ -40,9 +40,9 @@
     "style_slots": {
       "--table-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
       "--table-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
-      "--table-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Section heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop); set an explicit length to override." },
-      "--table-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading color. Defaults to the theme text color; set an explicit color to override." },
-      "--table-heading-measure": { "type": "length", "role": "measure", "default": "var(--measure-heading)", "description": "Maximum width of the table section heading. Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site." }
+      "--table-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Section heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop); set an explicit length to override.", "applies_when": [{"prop": "title", "present": true}] },
+      "--table-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading color. Defaults to the theme text color; set an explicit color to override.", "applies_when": [{"prop": "title", "present": true}] },
+      "--table-heading-measure": { "type": "length", "role": "measure", "default": "var(--measure-heading)", "description": "Maximum width of the table section heading. Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site.", "applies_when": [{"prop": "title", "present": true}] }
     }
   },
   "safe_to_edit": ["table.php", "../../assets/css/components.css (COMPONENT: table section)"],

@@ -3358,17 +3358,404 @@ class SchemaValidationTest extends TestCase
         $this->assertStringNotContainsString('pp-section--inverted', $html, '`dark` is the LIGHT tinted band, not the dark one');
     }
 
-    /** #575 populates no `applies_when` — that is the next gate down. */
-    public function testNoDefinitionDeclaresAppliesWhenYet(): void
+    /**
+     * THE CONDITIONALITY LEDGER (issue #580) — every definition that declares a
+     * condition, and the condition it declares. #575 landed the shapes and populated
+     * NOTHING; #580 populates the census, so the guard that used to assert emptiness
+     * became this exact-set pin.
+     *
+     * WHY AN EXACT SET AND NOT A SPOT CHECK. A condition is a promise the runtime AI
+     * catalog makes to an agent BEFORE it writes, and the `inert_slot` advisory makes
+     * the same promise after. A sampled assertion lets a condition be added, dropped or
+     * quietly widened in a merge — and a wrong condition is worse than none, because an
+     * agent designs around it. Adding or changing a row here is therefore a deliberate,
+     * reviewed act with the census in front of you, exactly like the dead-slot waiver
+     * ledger in StyleSlotContractTest.
+     *
+     * The value is a rendering of the clause list, not the clause list itself: the point
+     * is that a human reading the diff can see the CONDITION change, not count braces.
+     * `+note(<digest>)` means the definition also carries `conditionality_note` — the
+     * bounded prose for the three classes the grammar deliberately cannot express. The
+     * digest is there because that prose reaches an agent VERBATIM through the AI catalog,
+     * so a reworded note changes the contract while the clause list stays identical; a
+     * bare presence marker would let that through (see noteMarker() below).
+     *
+     * WHAT THIS LEDGER IS NOT. It is not a completeness claim. It records what the schemas
+     * declare TODAY, not every condition that exists in the renderers. A definition absent
+     * from this list has no declared condition — which may mean it is unconditional, or
+     * may mean nobody has declared it yet. If you find an undeclared code-real condition,
+     * declaring it is a fix, not a violation of this pin: verify it against the renderer
+     * and the CSS, add the row here in the same change, and say so in the PR.
+     *
+     * @var array<string,string>
+     */
+    private const CONDITIONALITY_LEDGER = [
+        'cta slot --cta-heading-color' => 'title present',
+        'cta slot --cta-heading-accent-color' => 'title present',
+        'cta slot --cta-eyebrow-color' => 'eyebrow present',
+        'cta slot --cta-eyebrow-bg' => 'eyebrow present',
+        'cta slot --cta-eyebrow-radius' => 'eyebrow present',
+        'cta slot --cta-eyebrow-border-width' => 'eyebrow present',
+        'cta slot --cta-eyebrow-border-color' => 'eyebrow present',
+        'cta slot --cta-eyebrow-text-transform' => 'eyebrow present',
+        'cta slot --cta-heading-size' => 'title present',
+        'cta slot --cta-button2-bg' => 'button2_text present',
+        'cta slot --cta-button2-border' => 'button2_text present',
+        'cta slot --cta-button2-color' => 'button2_text present',
+        'cta slot --cta-button2-hover-bg' => 'button2_text present',
+        'cta slot --cta-button2-hover-border' => 'button2_text present',
+        'cta slot --cta-button2-hover-color' => 'button2_text present',
+        'cta slot --cta-overlay-bg' => 'background_image present',
+        'cta slot --cta-bg-position' => 'background_image present',
+        'embed slot --embed-heading-size' => 'title present',
+        'embed slot --embed-heading-color' => 'title present',
+        'embed slot --embed-heading-measure' => 'title present',
+        'faq slot --faq-item-bg' => 'items present',
+        'faq slot --faq-eyebrow-color' => 'eyebrow present',
+        'faq slot --faq-eyebrow-bg' => 'eyebrow present',
+        'faq slot --faq-eyebrow-radius' => 'eyebrow present',
+        'faq slot --faq-eyebrow-border-width' => 'eyebrow present',
+        'faq slot --faq-eyebrow-border-color' => 'eyebrow present',
+        'faq slot --faq-eyebrow-text-transform' => 'eyebrow present',
+        'faq slot --faq-heading-size' => 'title present',
+        'faq slot --faq-heading-color' => 'title present',
+        'faq slot --faq-heading-measure' => 'title present',
+        'faq slot --faq-body-measure' => 'items present',
+        'faq slot --faq-heading-accent-color' => 'title present',
+        'faq slot --faq-heading-margin-bottom' => 'title present',
+        'faq slot --faq-question-color' => 'items present',
+        'faq slot --faq-answer-color' => 'items present',
+        'faq slot --faq-item-border-color' => 'items present',
+        'faq slot --faq-item-radius' => 'items present',
+        'faq slot --faq-question-open-color' => 'items present +note(9ce573ee)',
+        'footer prop logo_text' => 'note +note(13cd2dd9)',
+        'footer prop logo_id' => 'note +note(54994bfc)',
+        'footer prop logo_alt' => 'note +note(48b1256c)',
+        'footer prop contact_label' => 'contact present',
+        'footer prop secondary_location' => 'note +note(9ff6badb)',
+        'footer prop secondary_label' => 'note +note(5e6648ec)',
+        'grid slot --grid-heading-color' => 'title present',
+        'grid slot --grid-heading-accent-color' => 'title present',
+        'grid slot --grid-eyebrow-color' => 'eyebrow present',
+        'grid slot --grid-eyebrow-bg' => 'eyebrow present',
+        'grid slot --grid-eyebrow-radius' => 'eyebrow present',
+        'grid slot --grid-eyebrow-border-width' => 'eyebrow present',
+        'grid slot --grid-eyebrow-border-color' => 'eyebrow present',
+        'grid slot --grid-eyebrow-text-transform' => 'eyebrow present',
+        'grid slot --grid-subheading-color' => 'subheading present',
+        'grid slot --grid-subheading-margin-bottom' => 'subheading present',
+        'grid slot --grid-heading-margin-bottom' => 'title present',
+        'grid slot --grid-heading-size' => 'title present',
+        'grid slot --grid-heading-measure' => 'title present',
+        'grid slot --grid-item-bar-color' => 'layout=cards +note(c3e1c5d4)',
+        'grid slot --grid-item-bar-height' => 'layout=cards +note(c3e1c5d4)',
+        'grid slot --grid-featured-texture-color' => 'layout=cards AND card_emphasis=featured +note(d35edaf4)',
+        'grid slot --grid-featured-shadow' => 'layout=cards AND card_emphasis=featured +note(d35edaf4)',
+        'grid slot --grid-item-icon-size' => 'layout=cards AND image_treatment=icon +note(046f6c6d)',
+        'grid slot --grid-step-bg' => 'layout=steps',
+        'grid slot --grid-step-text-color' => 'layout=steps',
+        'hero slot --hero-eyebrow-color' => 'eyebrow present',
+        'hero slot --hero-eyebrow-bg' => 'eyebrow present',
+        'hero slot --hero-eyebrow-radius' => 'eyebrow present',
+        'hero slot --hero-eyebrow-border-width' => 'eyebrow present',
+        'hero slot --hero-eyebrow-border-color' => 'eyebrow present',
+        'hero slot --hero-eyebrow-text-transform' => 'eyebrow present',
+        'hero slot --hero-button2-bg' => 'button_text present AND button2_text present',
+        'hero slot --hero-button2-border' => 'button_text present AND button2_text present',
+        'hero slot --hero-button2-color' => 'button_text present AND button2_text present',
+        'hero slot --hero-button2-hover-bg' => 'button_text present AND button2_text present',
+        'hero slot --hero-button2-hover-border' => 'button_text present AND button2_text present',
+        'hero slot --hero-button2-hover-color' => 'button_text present AND button2_text present',
+        'hero slot --hero-subheading-size' => 'subheading present',
+        'hero slot --hero-subheading-color' => 'subheading present',
+        'hero slot --hero-overlay-bg' => 'layout=cover',
+        'hero slot --hero-image-radius' => 'layout=split +note(6325181d)',
+        'hero slot --hero-image-position' => 'layout=split +note(6325181d)',
+        'hero slot --hero-image-aspect-ratio' => 'layout=split AND vertical_align in [top|center|bottom] +note(6325181d)',
+        'hero slot --hero-bg-position' => 'layout=cover AND image_url present',
+        'hero slot --hero-surface-bg' => 'layout=split AND proof present',
+        'hero slot --hero-surface-padding' => 'layout=split AND proof present',
+        'hero slot --hero-surface-border-color' => 'layout=split AND proof present',
+        'hero slot --hero-surface-border-width' => 'layout=split AND proof present',
+        'hero slot --hero-surface-radius' => 'layout=split AND proof present',
+        'hero slot --hero-surface-shadow' => 'layout=split AND proof present',
+        'logos slot --logos-heading-size' => 'title present',
+        'logos slot --logos-heading-color' => 'title present',
+        'logos slot --logos-heading-measure' => 'title present',
+        'logos prop items' => 'note +note(1b2171b7)',
+        'nav prop logo_text' => 'note +note(0bec3f53)',
+        'nav prop logo_alt' => 'note +note(4fea14e5)',
+        'section slot --section-body-link-color' => 'note +note(dc603c21)',
+        'section slot --section-body-link-hover-color' => 'note +note(dc603c21)',
+        'section slot --section-heading-size' => 'title present',
+        'section slot --section-heading-measure' => 'title present',
+        'section slot --section-heading-accent-color' => 'title present',
+        'section slot --section-eyebrow-color' => 'eyebrow present',
+        'section slot --section-eyebrow-bg' => 'eyebrow present',
+        'section slot --section-eyebrow-radius' => 'eyebrow present',
+        'section slot --section-eyebrow-border-width' => 'eyebrow present',
+        'section slot --section-eyebrow-border-color' => 'eyebrow present',
+        'section slot --section-eyebrow-text-transform' => 'eyebrow present',
+        'section slot --section-subheading-color' => 'subheading present',
+        'section slot --section-subheading-margin-bottom' => 'subheading present',
+        'section slot --section-heading-margin-bottom' => 'title present',
+        'section slot --section-image-radius' => 'layout in [image-left|image-right] AND image_url present',
+        'section slot --section-image-position' => 'layout in [image-left|image-right] AND image_url present',
+        'section slot --section-image-aspect-ratio' => 'layout in [image-left|image-right] AND image_url present',
+        'section slot --section-bg-position' => 'background_image present',
+        'section slot --section-overlay-bg' => 'background_image present',
+        'section slot --section-panel-bg' => 'layout=text-panel +note(f7501604)',
+        'section slot --section-panel-border-color' => 'layout=text-panel +note(f7501604)',
+        'section slot --section-panel-border-width' => 'layout=text-panel +note(f7501604)',
+        'section slot --section-panel-radius' => 'layout=text-panel +note(f7501604)',
+        'section slot --section-panel-padding' => 'layout=text-panel +note(f7501604)',
+        'section slot --section-panel-text' => 'layout=text-panel +note(f7501604)',
+        'section slot --section-panel-font' => 'layout=text-panel +note(f7501604)',
+        'section slot --section-panel-marker-color' => 'layout=text-panel AND panel_items present AND panel_items_marker in [check|dash|arrow]',
+        'section slot --section-panel-cta-bg' => 'layout=text-panel AND panel_cta_text present AND panel_cta_url present',
+        'section slot --section-panel-cta-color' => 'layout=text-panel AND panel_cta_text present AND panel_cta_url present',
+        'section slot --section-panel-cta-shadow' => 'layout=text-panel AND panel_cta_text present AND panel_cta_url present',
+        'section slot --section-body-marker-color' => 'body_marker in [check|dash|arrow] +note(1d75b888)',
+        'section slot --section-separator-color' => 'body_items present',
+        'section slot --section-inline-items-align' => 'body_items present',
+        'stats slot --stats-heading-size' => 'title present',
+        'stats slot --stats-heading-color' => 'title present',
+        'stats slot --stats-heading-measure' => 'title present',
+        'stats slot --stats-heading-accent-color' => 'title present',
+        'stats slot --stats-number-color' => 'items present',
+        'stats slot --stats-number-size' => 'items present',
+        'stats slot --stats-number-font' => 'items present',
+        'stats slot --stats-number-weight' => 'items present',
+        'stats slot --stats-label-color' => 'items present',
+        'stats slot --stats-bg-position' => 'background_image present',
+        'stats slot --stats-overlay-bg' => 'background_image present',
+        'table slot --table-heading-size' => 'title present',
+        'table slot --table-heading-color' => 'title present',
+        'table slot --table-heading-measure' => 'title present',
+        'testimonials slot --testimonials-heading-size' => 'title present',
+        'testimonials slot --testimonials-heading-color' => 'title present',
+        'testimonials slot --testimonials-heading-measure' => 'title present',
+        'testimonials slot --testimonials-heading-accent-color' => 'title present',
+        'testimonials slot --testimonials-eyebrow-color' => 'eyebrow present',
+        'testimonials slot --testimonials-eyebrow-bg' => 'eyebrow present',
+        'testimonials slot --testimonials-eyebrow-radius' => 'eyebrow present',
+        'testimonials slot --testimonials-eyebrow-border-width' => 'eyebrow present',
+        'testimonials slot --testimonials-eyebrow-border-color' => 'eyebrow present',
+        'testimonials slot --testimonials-eyebrow-text-transform' => 'eyebrow present',
+        'testimonials slot --testimonials-subheading-color' => 'subheading present',
+        'testimonials slot --testimonials-subheading-margin-bottom' => 'subheading present',
+        'testimonials slot --testimonials-heading-margin-bottom' => 'title present',
+        'testimonials slot --testimonials-item-bg' => 'layout=grid',
+        'testimonials slot --testimonials-item-border-color' => 'layout=grid',
+        'testimonials slot --testimonials-item-border-width' => 'layout=grid',
+        'testimonials slot --testimonials-item-shadow' => 'layout=grid',
+        'testimonials slot --testimonials-item-padding' => 'layout=grid',
+    ];
+
+    /** The populated census is exactly the ledger — no additions, no drops, no rewordings. */
+    public function testTheConditionalityLedgerIsExact(): void
     {
+        $actual = [];
         foreach ($this->allSchemas() as $component => $schema) {
-            foreach (($schema['styling']['style_slots'] ?? []) as $name => $def) {
-                $this->assertArrayNotHasKey('applies_when', $def, "#575 populates nothing ({$component} {$name})");
-            }
-            foreach (($schema['props'] ?? []) as $name => $def) {
-                $this->assertArrayNotHasKey('applies_when', $def, "#575 populates nothing ({$component}.{$name})");
+            $sections = [
+                'slot' => $schema['styling']['style_slots'] ?? [],
+                'prop' => $schema['props'] ?? [],
+            ];
+            foreach ($sections as $kind => $definitions) {
+                foreach ($definitions as $name => $def) {
+                    if (!isset($def['applies_when']) && !isset($def['conditionality_note'])) {
+                        continue;
+                    }
+                    $actual["{$component} {$kind} {$name}"] = $this->renderCondition($def);
+                }
             }
         }
+
+        ksort($actual);
+        $expected = self::CONDITIONALITY_LEDGER;
+        ksort($expected);
+        $this->assertSame(
+            $expected,
+            $actual,
+            'The conditionality census changed. Update CONDITIONALITY_LEDGER in the SAME change, '
+            . 'after checking the new condition against the renderer AND the CSS selector that '
+            . 'consumes the slot — a condition nothing verifies is a lie the AI catalog repeats.'
+        );
+    }
+
+    /**
+     * REFERENTIAL INTEGRITY — the machine check the ledger cannot be.
+     *
+     * pp_applies_when_clause_errors() validates a clause's SHAPE, never its subject, and
+     * the ledger records whatever the schema says including a typo, because whoever adds
+     * the row copies the typo into it. A clause naming a prop that does not exist resolves
+     * to "absent" on every component ever authored, so a `present` clause fires `inert_slot`
+     * forever with no authorable fix — and `wp pp validate site` halts on ANY smell
+     * (lib/cli.php). That is the same shape as the #610 trap, arrived at by a spelling
+     * mistake instead of a grammar gap.
+     */
+    public function testEveryAppliesWhenSubjectResolvesToADeclaredPropOrSlot(): void
+    {
+        foreach ($this->allSchemas() as $component => $schema) {
+            $props = $schema['props'] ?? [];
+            $slots = $schema['styling']['style_slots'] ?? [];
+            $definitions = ['slot' => $slots, 'prop' => $props];
+
+            foreach ($definitions as $kind => $set) {
+                foreach ($set as $name => $def) {
+                    foreach (($def['applies_when'] ?? []) as $clause) {
+                        if (isset($clause['prop'])) {
+                            $this->assertArrayHasKey(
+                                $clause['prop'],
+                                $props,
+                                "{$component} {$kind} {$name}: applies_when names an undeclared prop "
+                                . "`{$clause['prop']}` — it can never be satisfied, so the declaration "
+                                . 'warns forever and `wp pp validate site` exits 1.'
+                            );
+                        }
+                        if (isset($clause['slot'])) {
+                            $this->assertArrayHasKey(
+                                $clause['slot'],
+                                $slots,
+                                "{$component} {$kind} {$name}: applies_when names an undeclared sibling slot `{$clause['slot']}`"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * `present` reads a non-empty STRING or a non-empty ARRAY and nothing else, so a clause
+     * pointing it at a boolean or numeric prop asks a question it cannot answer. The
+     * evaluator fails open there rather than lying, which means such a clause would be
+     * silently inert — a condition that never fires is as misleading as one that always
+     * does. Conditions on bool/number props ride `conditionality_note` instead (the
+     * nav/footer chrome preconditions are exactly that case).
+     */
+    public function testEveryPresentClauseTargetsAStringOrArrayProp(): void
+    {
+        foreach ($this->allSchemas() as $component => $schema) {
+            $props       = $schema['props'] ?? [];
+            $definitions = ['slot' => $schema['styling']['style_slots'] ?? [], 'prop' => $props];
+
+            foreach ($definitions as $kind => $set) {
+                foreach ($set as $name => $def) {
+                    foreach (($def['applies_when'] ?? []) as $clause) {
+                        if (!array_key_exists('present', $clause) || !isset($clause['prop'])) {
+                            continue;
+                        }
+                        $this->assertContains(
+                            $props[$clause['prop']]['type'] ?? 'MISSING',
+                            ['string', 'array'],
+                            "{$component} {$kind} {$name}: `present` on `{$clause['prop']}` — the predicate "
+                            . 'reads strings and arrays only, so this clause can never fail. Express a '
+                            . 'boolean or numeric precondition in `conditionality_note`.'
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /** Renders one definition's declared condition the way the ledger records it. */
+    private function renderCondition(array $def): string
+    {
+        if (!isset($def['applies_when'])) {
+            return 'note' . self::noteMarker($def);
+        }
+        $parts = [];
+        foreach ($def['applies_when'] as $clause) {
+            $subject = $clause['prop'] ?? $clause['slot'];
+            if (array_key_exists('equals', $clause)) {
+                $parts[] = "{$subject}={$clause['equals']}";
+            } elseif (array_key_exists('in', $clause)) {
+                $parts[] = "{$subject} in [" . implode('|', $clause['in']) . ']';
+            } else {
+                $parts[] = "{$subject} present";
+            }
+        }
+        return implode(' AND ', $parts) . self::noteMarker($def);
+    }
+
+    /**
+     * The `+note` marker carries a HASH of the note text, not just its presence.
+     *
+     * `conditionality_note` is emitted VERBATIM into the runtime AI catalog
+     * (lib/ai-context.php), so its wording IS the contract — a note that is narrowed,
+     * widened or inverted changes what an agent is told while the clause list stays
+     * identical. A bare `+note` marker would let that through and the ledger's docblock
+     * would be lying about "no rewordings". The hash is short and opaque on purpose:
+     * when it changes, re-read the note against the renderer and the CSS, then update
+     * the ledger — there is nothing to eyeball in the digest itself.
+     */
+    private static function noteMarker(array $def): string
+    {
+        if (!isset($def['conditionality_note'])) {
+            return '';
+        }
+        return ' +note(' . substr(sha1((string) $def['conditionality_note']), 0, 8) . ')';
+    }
+
+    /**
+     * The three condition classes that stay PROSE are each actually represented — the
+     * ruling's promise is bounded rather than overstated only if the exclusions are real
+     * declarations an agent can read, not a paragraph in a decision record.
+     */
+    public function testTheThreeProseOnlyClassesAreRepresented(): void
+    {
+        $schemas = $this->allSchemas();
+
+        // DISJUNCTION — dark bands are theme:"inverted" OR a background_image.
+        $link = $schemas['section']['styling']['style_slots']['--section-body-link-color'];
+        $this->assertArrayNotHasKey('applies_when', $link, 'a disjunction must not be faked as an AND');
+        $this->assertStringContainsString('OR', $link['conditionality_note']);
+
+        // COMPOSED-PAGE CONTEXT — the `main >` scope on the featured card.
+        $featured = $schemas['grid']['styling']['style_slots']['--grid-featured-shadow'];
+        $this->assertStringContainsString('main > .grid', $featured['conditionality_note']);
+
+        // INTERACTION STATE — the open question.
+        $open = $schemas['faq']['styling']['style_slots']['--faq-question-open-color'];
+        $this->assertStringContainsString('OPEN', $open['conditionality_note']);
+
+        // The logos label-driven image-height switch: no doc stated it anywhere before
+        // #580, and it is item-level, so the grammar cannot reach it.
+        $items = $schemas['logos']['props']['items'];
+        $this->assertStringContainsString('2.5rem', $items['conditionality_note']);
+    }
+
+    /**
+     * A-8b — the five testimonials card slots that `layout: "stack"` defeats DECLARE the
+     * condition, and the CSS that defeats them is UNCHANGED. The stack variant is a
+     * card-LESS presentation by design; routing the resets through the card slots would
+     * change what "stack" renders, which is why StyleSlotContractTest carries a PERMANENT
+     * waiver for them. The remedy is declaration, not CSS.
+     */
+    public function testTheStackDefeatedTestimonialsSlotsDeclareTheGridLayout(): void
+    {
+        $slots = $this->allSchemas()['testimonials']['styling']['style_slots'];
+        foreach ([
+            '--testimonials-item-bg',
+            '--testimonials-item-border-color',
+            '--testimonials-item-border-width',
+            '--testimonials-item-padding',
+            '--testimonials-item-shadow',
+        ] as $slot) {
+            $this->assertSame(
+                [['prop' => 'layout', 'equals' => 'grid']],
+                $slots[$slot]['applies_when'],
+                "{$slot} is defeated by the stack variant's resets; it must say so"
+            );
+        }
+
+        $css = file_get_contents($this->themeRoot . '/assets/css/components.css');
+        $this->assertStringContainsString(
+            ".testimonials--stack .testimonials__item {\n  padding: 0;\n  background: transparent;\n  border: none;\n  box-shadow: none;",
+            $css,
+            'A-8b is a SCHEMA fix. The stack resets are a recorded permanent waiver and must not change.'
+        );
     }
 
     // ── styling.variant_classes truthfulness (issue #575) ─────────────────

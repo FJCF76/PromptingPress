@@ -142,7 +142,7 @@ renders the header or footer twice, and the write is rejected with the error cod
 - **`theme`** (color/tone preset, `default` | `muted` | `inverted`) is used by the section-level components that carry a background tone: `section`, `stats`, `logos`, `embed`, `grid`, `cta`, `testimonials`, `faq`. `muted` is a light tinted surface band (`--color-surface`) with framing borders; for a genuinely **dark** band use `inverted`. (The legacy value `dark` still renders — it is a deprecated alias of `muted`, i.e. a LIGHT band — but do not use it on new pages: its name mispredicts its output.)
 - `hero` has no `theme` prop — its color comes entirely from style slots (`--hero-bg`, etc.).
 - Components with a single structure (`stats`, `logos`, `embed`) expose only `theme`, not `layout`.
-- `style_component` / recipes / style slots remain the final visual authority over any `theme` or default CSS.
+- `style_component` / recipes / style slots remain the final visual authority over any `theme` or default CSS — **when the slot applies**. Many slots only render in a particular configuration (a hero's `--hero-surface-*` needs `layout: "split"` plus `proof`; testimonials' card slots need `layout: "grid"`), and the schema declares that condition in `applies_when`. The runtime component catalog appends `applies when ...` to those slots; setting one whose condition is unmet is accepted and stored but paints nothing, and `wp pp check page` reports it as a non-blocking `inert_slot` smell. Check the condition before styling — see `ai-instructions/style-component.md`.
 
 If a future component needs both structure and color control, give it both `layout` and `theme` — never reuse one key for two meanings.
 

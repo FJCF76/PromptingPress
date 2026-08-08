@@ -772,20 +772,163 @@ function pp_validate_composition_smells(array $composition): array {
         // source of truth, which is the defect the definition-surface contract fixes
         // one layer down. Legacy slot NAMES are resolved first so a stored
         // `--hero-cta2-bg` warns the same as its canonical twin.
+        //
+        // The SAME pass also carries the `inert_slot` advisory (issue #580). Both read a
+        // DECLARED field off the same slot definition, both resolve the same legacy slot
+        // names, and both are non-blocking — so they share one walk of the style map
+        // rather than two loops that could drift on which names they canonicalize.
         $style_map = is_array($item['style'] ?? null) ? $item['style'] : [];
         if ($style_map !== []) {
-            $fill_slots   = [];
-            foreach (pp_get_style_slots($component) as $slot_name => $slot_def) {
+            $slot_defs  = pp_get_style_slots($component);
+            $fill_slots = [];
+            foreach ($slot_defs as $slot_name => $slot_def) {
                 if (is_array($slot_def) && ($slot_def['role'] ?? null) === 'fill') {
                     $fill_slots[$slot_name] = true;
                 }
             }
             $slot_aliases = pp_legacy_slot_aliases()[$component] ?? [];
+            // The EFFECTIVE style map: the declarations that will actually paint, keyed by
+            // canonical name, plus which authored key each one came from. The advisory has
+            // to agree with the renderer about this or it reports on declarations the page
+            // never sees, so it resolves the same two rules pp_render_style_vars() does,
+            // through the SAME pp_style_declaration_renders() predicate rather than a
+            // second copy of "will this paint?":
+            //
+            //   1. CANONICAL-WINS, CONDITIONALLY. A legacy name yields to its canonical
+            //      twin only when that twin actually renders (an undeclared, empty or
+            //      render-boundary-rejected canonical value does NOT get to kill the legacy
+            //      declaration that is doing the painting). Keying blindly on last-write
+            //      would make the answer depend on JSON key order.
+            //   2. A DECLARATION THAT CANNOT PAINT IS NOT A DECLARATION. An empty value, an
+            //      undeclared slot name, or a value the #330 render boundary rejects is
+            //      dropped by the renderer — warning that it "has no effect as configured"
+            //      would be true for the wrong reason, and would put a stale no-op entry on
+            //      a channel that halts `wp pp validate site`.
+            //
+            // $canonical_style is also what the sibling-slot clause form
+            // (`{"slot":"--x","present":true}`) reads, so that form asks about the same
+            // painted state the author sees.
+            $canonical_of    = [];
+            $canonical_style = [];
+            $authored_of     = [];
+            foreach ($style_map as $raw_name => $raw_value) {
+                if (!is_string($raw_name)) {
+                    continue;
+                }
+                $canonical_of[$raw_name] = $slot_aliases[$raw_name] ?? $raw_name;
+                $canonical               = $canonical_of[$raw_name];
+                // Non-scalar values are skipped BEFORE the predicate, not inside it: a
+                // history-ring snapshot or a raw meta write can carry an array here, and
+                // pp_style_declaration_renders() casts to string — which emits an "Array to
+                // string conversion" warning into a path documented never to block. Same
+                // guard, same reason, as the slot loop below.
+                if (!is_scalar($raw_value)) {
+                    continue;
+                }
+                if ($canonical !== $raw_name
+                    && array_key_exists($canonical, $style_map)
+                    && is_scalar($style_map[$canonical])
+                    && pp_style_declaration_renders($canonical, $style_map[$canonical], $slot_defs)) {
+                    continue;
+                }
+                if (!pp_style_declaration_renders($canonical, $raw_value, $slot_defs)) {
+                    continue;
+                }
+                $canonical_style[$canonical] = $raw_value;
+                $authored_of[$canonical]     = $raw_name;
+            }
+            // The slots that actually declare a condition, resolved once per item. Most
+            // slots declare none, and this keeps the per-slot loop below from asking the
+            // component registry about every authored slot on every page of a site scan.
+            $conditional_slots = [];
+            foreach ($slot_defs as $slot_name => $slot_def) {
+                if (is_array($slot_def)
+                    && is_array($slot_def['applies_when'] ?? null)
+                    && $slot_def['applies_when'] !== []) {
+                    $conditional_slots[$slot_name] = $slot_def['applies_when'];
+                }
+            }
             foreach ($style_map as $slot_name => $slot_value) {
                 if (!is_string($slot_name) || !is_scalar($slot_value)) {
                     continue;
                 }
-                $canonical = $slot_aliases[$slot_name] ?? $slot_name;
+                $canonical = $canonical_of[$slot_name];
+
+                // Inert slot (issue #580, A-8b/A-17). A declared slot whose `applies_when`
+                // is unmet renders NOTHING — the reported-success-without-effect failure
+                // class. Advisory only, exactly like transparent_fill above: the value is
+                // well-formed and would work on a sibling component, it just does nothing
+                // in THIS configuration, and the fix is an authoring decision (change the
+                // prop, or drop the slot) that no validator may make for the author.
+                //
+                // Derived from the SAME `applies_when` the AI catalog advertises (ruling
+                // 8, one source of truth). The condition text is rendered by the catalog's
+                // own formatter so the before-the-write advice and the after-the-write
+                // warning can never phrase a condition differently.
+                //
+                // The function_exists pair covers BOTH modules the advisory borrows — the
+                // evaluator from lib/admin.php and the formatter from lib/ai-context.php —
+                // so a partial include degrades to silence instead of a fatal, and instead
+                // of half a defense. functions.php loads all three; the guard is for a
+                // caller that includes lib/guardrails.php on its own.
+                //
+                // KNOWN BOUND, stated so nobody reads more into it: this closes the
+                // conditions the four-form grammar can express. The three classes that
+                // stay prose in `conditionality_note` — disjunction, `main >` composed-page
+                // scope, interaction state — are unevaluable by construction and stay
+                // silent here. They reach the author through the catalog, not this channel.
+                //
+                // ONE warning per PAINTED declaration. `$authored_of[$canonical]` is the
+                // key that actually renders, so a composition storing both
+                // `--testimonials-card-bg` and `--testimonials-item-bg` — one emitted
+                // custom property — warns once, under the name the author's page is
+                // actually using, regardless of stored key order.
+                if (isset($conditional_slots[$canonical])
+                    && ($authored_of[$canonical] ?? null) === $slot_name
+                    && function_exists('pp_applies_when_unmet_clauses')
+                    && function_exists('pp_ai_format_applies_when_clause')) {
+                    $unmet = pp_applies_when_unmet_clauses(
+                        $conditional_slots[$canonical],
+                        $component,
+                        $props,
+                        $canonical_style
+                    );
+                    $phrases = [];
+                    foreach ($unmet as $clause) {
+                        $rendered = pp_ai_format_applies_when_clause($clause);
+                        if ($rendered !== '') {
+                            $phrases[] = $rendered;
+                        }
+                    }
+                    if ($phrases) {
+                        // ONE warning per slot, listing EVERY unmet clause. Stopping at the
+                        // first miss would tell an author on a centered hero to switch to
+                        // `split` and leave --hero-surface-bg just as dead, because the
+                        // missing `proof` never got named.
+                        $warning = [
+                            'type'    => 'inert_slot',
+                            'message' => sprintf(
+                                'Style slot "%s" on this "%s" component has no effect as configured: it applies when %s. Either set that up, or drop the slot — the value is stored and reported as applied, but nothing on the page reads it.',
+                                $slot_name,
+                                $component,
+                                implode(' AND ', $phrases)
+                            ),
+                            'index'   => $i,
+                        ];
+                        if (!empty($props['id'] ?? '')) {
+                            $warning['id'] = $props['id'];
+                        }
+                        $warnings[] = $warning;
+                        // An inert slot renders NOTHING, so no other advisory about its
+                        // VALUE can be true. Without this, a cta with no `button2_text` and
+                        // `--cta-button2-bg: transparent` also collected the transparent_fill
+                        // warning, which tells the author to switch to the `outline` variant
+                        // for a button that is not on the page at all — two entries on the
+                        // halting channel, one of them unactionable.
+                        continue;
+                    }
+                }
+
                 if (!isset($fill_slots[$canonical])) {
                     continue;
                 }

@@ -695,18 +695,32 @@ class WriteRenderGrammarTest extends TestCase
 
     public static function fillSlotFamily(): array
     {
-        $cta     = ['title' => 'Go', 'button_text' => 'Go', 'button_url' => '/'];
-        $hero    = ['title' => 'Go', 'button_text' => 'Go', 'button_url' => '/'];
-        $section = ['title' => 'Go', 'body' => 'B', 'panel_cta_text' => 'Go', 'panel_cta_url' => '/'];
+        // Each row must actually RENDER the button its fill slot paints. Since #580 an
+        // inert declaration reports `inert_slot` and suppresses the value-level advisory,
+        // because "this transparent fill makes the button invisible" is not true of a
+        // button that is not on the page — so a button2 row needs `button2_text` and the
+        // panel-CTA row needs the `text-panel` layout, or the fixture would be asserting
+        // the fill contract against markup that never renders.
+        $cta      = ['title' => 'Go', 'button_text' => 'Go', 'button_url' => '/'];
+        $cta2     = $cta + ['button2_text' => 'More', 'button2_url' => '/more'];
+        $hero     = ['title' => 'Go', 'button_text' => 'Go', 'button_url' => '/'];
+        $hero2    = $hero + ['button2_text' => 'More', 'button2_url' => '/more'];
+        $section  = [
+            'title'          => 'Go',
+            'body'           => 'B',
+            'layout'         => 'text-panel',
+            'panel_cta_text' => 'Go',
+            'panel_cta_url'  => '/',
+        ];
         return [
             '--cta-button-bg'          => ['cta', '--cta-button-bg', $cta],
             '--cta-button-hover-bg'    => ['cta', '--cta-button-hover-bg', $cta],
-            '--cta-button2-bg'         => ['cta', '--cta-button2-bg', $cta],
-            '--cta-button2-hover-bg'   => ['cta', '--cta-button2-hover-bg', $cta],
+            '--cta-button2-bg'         => ['cta', '--cta-button2-bg', $cta2],
+            '--cta-button2-hover-bg'   => ['cta', '--cta-button2-hover-bg', $cta2],
             '--hero-button-bg'         => ['hero', '--hero-button-bg', $hero],
             '--hero-button-hover-bg'   => ['hero', '--hero-button-hover-bg', $hero],
-            '--hero-button2-bg'        => ['hero', '--hero-button2-bg', $hero],
-            '--hero-button2-hover-bg'  => ['hero', '--hero-button2-hover-bg', $hero],
+            '--hero-button2-bg'        => ['hero', '--hero-button2-bg', $hero2],
+            '--hero-button2-hover-bg'  => ['hero', '--hero-button2-hover-bg', $hero2],
             '--section-panel-cta-bg'   => ['section', '--section-panel-cta-bg', $section],
         ];
     }
@@ -817,9 +831,12 @@ class WriteRenderGrammarTest extends TestCase
     public function testALegacyFillSlotNameStillWarns(): void
     {
         $this->assertSame('--hero-button2-bg', pp_legacy_slot_aliases()['hero']['--hero-cta2-bg'], 'fixture assumption');
+        // Both button labels: the canonical twin declares applies_when button_text +
+        // button2_text since #580, and an inert slot suppresses the value-level advisory
+        // (see fillSlotFamily). This test is about the ALIAS path, not conditionality.
         $warnings = pp_validate_composition_smells([[
             'component' => 'hero',
-            'props'     => ['title' => 'Go'],
+            'props'     => ['title' => 'Go', 'button_text' => 'Go', 'button_url' => '/', 'button2_text' => 'More', 'button2_url' => '/more'],
             'style'     => ['--hero-cta2-bg' => 'transparent'],
         ]]);
         $this->assertContains('transparent_fill', array_column($warnings, 'type'));

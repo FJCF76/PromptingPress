@@ -355,6 +355,164 @@ function pp_applies_when_clause_errors($clause, string $label): array {
 }
 
 /**
+ * Evaluates ONE `applies_when` clause against an authored component (issue #580).
+ *
+ * The EVALUATOR half of the grammar #575 landed. It lives here, immediately below
+ * pp_applies_when_clause_errors(), on purpose: a clause form that the validator
+ * accepts but the evaluator does not understand is exactly the drift ruling 8
+ * forbids, and the two cannot silently diverge when they sit in one block and the
+ * evaluator ASKS the validator what a clause is before reading it.
+ *
+ *     schema.json  styling.style_slots.<slot>.applies_when
+ *        │
+ *        ├─ BEFORE the write ─► pp_ai_definition_suffix() ──┐
+ *        │                        (the AI catalog line)      │
+ *        │                                                   ├─► pp_ai_format_applies_when_clause()
+ *        └─ AFTER the write ──► pp_applies_when_clause_met()  │      renders the clause as PROSE
+ *                                 └─► ..._unmet_clauses() ────┘      for both surfaces
+ *                                       └─► inert_slot smell
+ *
+ * ONE field, two consumers, ONE phrasing, no second condition table.
+ *
+ * FAIL OPEN is the posture throughout. This function backs a NON-BLOCKING advisory,
+ * so every ambiguity resolves to "met" (i.e. stay silent). A warning that fires on a
+ * shape the evaluator cannot reason about is worse than no warning: `wp pp validate
+ * site` halts on ANY smell (lib/cli.php), so a false positive is an operator-visible
+ * failure with no authorable fix — the exact trap that deferred #578's measure
+ * advisory to issue #610. Concretely, these all return true:
+ *
+ *   - a clause the grammar validator rejects (a hand-edited schema; the definition
+ *     surface is a repo-CI invariant, not a runtime gate — see pp_slot_definition_keys);
+ *   - an `equals`/`in` comparison against a value that is neither a string nor an
+ *     int (a bool, an array, null) — there is no defined comparison, so do not invent one;
+ *   - an `equals`/`in` on a prop that is absent AND declares no `default`;
+ *   - a `present` clause on a prop the author DID set to a value the predicate has no
+ *     reading for (a bool, an int, an object). `present` means "non-empty string or
+ *     non-empty array", so `show_logo: true` is outside its vocabulary — and reporting
+ *     "applies when show_logo is set" about a prop the author just set to true is the
+ *     worst kind of false positive, because the advice is visibly wrong. Conditions on
+ *     boolean and numeric props therefore ride `conditionality_note` (see the nav/footer
+ *     chrome preconditions), and a schema guard keeps every `present` clause on a
+ *     string/array prop.
+ *
+ * `present` on an ABSENT prop is the deliberate exception to fail-open: absent means NOT
+ * present, because "the author never set `eyebrow`, so the six eyebrow slots render
+ * nothing" is the whole point of the field.
+ *
+ * DEFAULT RESOLUTION. An absent prop takes its schema `default`, never null. Without
+ * this, `{"prop":"card_emphasis","equals":"featured"}` would report every grid that
+ * omits the prop — i.e. most of them — as inert, since `featured` is the default.
+ *
+ * @param  mixed  $clause      One clause from an `applies_when` array.
+ * @param  array  $props       The component's authored props (defaults NOT applied).
+ * @param  array  $prop_defs   The component's schema `props` map (for `default`).
+ * @param  array  $style_map   The component's authored style map, canonical slot names.
+ * @return bool                True when the clause holds — or cannot be evaluated.
+ */
+function pp_applies_when_clause_met($clause, array $props, array $prop_defs, array $style_map): bool {
+    if (!is_array($clause) || pp_applies_when_clause_errors($clause, 'eval') !== []) {
+        return true;
+    }
+
+    // Sibling-slot form: presence in the authored style map, nothing else. A slot has
+    // no comparable authored value at schema-declaration time, only "set or unset".
+    if (array_key_exists('slot', $clause)) {
+        $name = $clause['slot'];
+        if (!array_key_exists($name, $style_map)) {
+            return false;
+        }
+        $value = $style_map[$name];
+        return is_scalar($value) && (string) $value !== '';
+    }
+
+    $name  = $clause['prop'];
+    $value = array_key_exists($name, $props)
+        ? $props[$name]
+        : ($prop_defs[$name]['default'] ?? null);
+
+    if (array_key_exists('present', $clause)) {
+        // "Non-empty string, or non-empty array" — the definition the grammar ships
+        // with (ai-instructions/add-component.md). Two deliberate calls here, both
+        // resolving toward silence, because a false positive halts `wp pp validate site`:
+        //
+        //   NOT PHP TRUTHINESS. `"0"` is falsy in PHP, and the renderers' `if ($eyebrow)`
+        //   gates DO drop it — so a `"0"` eyebrow renders nothing while this returns
+        //   true. That is a missed warning, never a wrong one.
+        //
+        //   NOT TRIMMED. The renderers do not trim either (`if ($eyebrow)` on a
+        //   whitespace-only string is TRUE and emits a visible pill), so trimming here
+        //   would report six eyebrow slots inert on a band whose eyebrow is on screen —
+        //   advice the author can see is wrong. Renderer parity wins.
+        if (is_string($value)) {
+            return $value !== '';
+        }
+        if (is_array($value)) {
+            return $value !== [];
+        }
+        // Set, but to a shape `present` has no reading for (bool/int/float/object).
+        // Fail OPEN like every other unevaluable case: `show_logo: true` is a value the
+        // author explicitly wrote, and "applies when show_logo is set" would be advice
+        // that is visibly false. Only ABSENT (null) is "not present".
+        return $value !== null;
+    }
+
+    // equals / in — comparable values only (see FAIL OPEN above).
+    if (!is_string($value) && !is_int($value)) {
+        return true;
+    }
+    $value = (string) $value;
+
+    if (array_key_exists('equals', $clause)) {
+        return $value === (string) $clause['equals'];
+    }
+    foreach ($clause['in'] as $candidate) {
+        if ($value === (string) $candidate) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * The subset of an `applies_when` array that an authored component does NOT satisfy.
+ *
+ * Clauses are ANDed, so a non-empty return means the declaration is INERT on this
+ * component and every returned clause is part of the reason. Callers report ALL of them
+ * rather than stopping at the first miss: on a centered hero with no `proof`, both
+ * clauses of `--hero-surface-bg` miss, and "applies when layout = "split"" alone would
+ * send the author to fix the layout and leave the slot just as dead.
+ *
+ * @param  array  $clauses    The definition's `applies_when` array.
+ * @param  string $component  Component name, for schema defaults.
+ * @param  array  $props      The component's authored props.
+ * @param  array  $style_map  The component's authored style map, canonical slot names.
+ * @return array              The unmet clauses, in declaration order; empty when it applies.
+ */
+function pp_applies_when_unmet_clauses(array $clauses, string $component, array $props, array $style_map): array {
+    if ($clauses === [] || !pp_is_list($clauses)) {
+        return [];
+    }
+    // is_array, not `?? []`: pp_get_registered_components() stores whatever json_decode
+    // returned for the whole file with no per-key normalization, so a corrupt schema whose
+    // top-level `props` is a scalar would hand a non-array to a declared `array` parameter
+    // and FATAL — inside `wp pp check page`, `wp pp validate site`, `operate inspect` and
+    // the restore-findings path. Fail open on a registry shape we cannot read, exactly as
+    // the evaluator fails open on a clause it cannot read.
+    $registered = pp_get_registered_components();
+    $prop_defs  = is_array($registered[$component]['props'] ?? null)
+        ? $registered[$component]['props']
+        : [];
+
+    $unmet = [];
+    foreach ($clauses as $clause) {
+        if (!pp_applies_when_clause_met($clause, $props, $prop_defs, $style_map)) {
+            $unmet[] = $clause;
+        }
+    }
+    return $unmet;
+}
+
+/**
  * Validates ONE slot or prop DEFINITION OBJECT from a component `schema.json`.
  *
  * The single shared engine for the definition surface (issue #575) — the schema
