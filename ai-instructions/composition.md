@@ -383,9 +383,9 @@ All seven heading-bearing components accept `title_accent`: an exact, case-sensi
 
 `eyebrow` renders a short kicker label as a pill above the title (e.g. `"NEW"`) on all six; the pill defaults to uppercase, overridable per component via the `text-transform`-typed `--<component>-eyebrow-text-transform` style slot (`none` for sentence case, or `lowercase`/`capitalize`). `subheading` renders a supporting line below the title on section, grid, and testimonials only — hero uses `subheading` and cta uses `body` for the same concept, so neither has a `subheading` prop. `title_align` (`start` default, or `center`; section, grid, testimonials only) centers the eyebrow/title/subheading header block — independent of the component's overall layout.
 
-### image_id (hero, section, logos items) — responsive images (#107)
+### image_id (hero, section, logos / grid / testimonials items) — responsive images (#107, #584)
 
-Every `image_url` field on hero, section, and logos items has a companion `image_id` — a Media Library attachment ID, not a URL. When `image_id` resolves to a real attachment, the image renders responsively via `wp_get_attachment_image()` (real `srcset`/`sizes`, WordPress-generated). When `image_id` is unset or doesn't resolve, the plain `image_url` renders exactly as before — always set `image_url` too, even when you have an `image_id`, as the fallback.
+Every `image_url` field on hero, section, and the logos, grid and testimonials items has a companion `image_id` — a Media Library attachment ID, not a URL. When `image_id` resolves to a real attachment, the image renders responsively via `wp_get_attachment_image()` (real `srcset`/`sizes`, WordPress-generated). When `image_id` is unset or doesn't resolve, the plain `image_url` renders exactly as before — always set `image_url` too, even when you have an `image_id`, as the fallback.
 
 Get an attachment id (and its canonical local URL) via the `import_media` apply. Give it EITHER a remote `url` OR a server-local `file` (exactly one). Re-importing the same `url` reuses the existing attachment (result `action: "reused"`) instead of creating a duplicate, so retries and re-runs are safe:
 

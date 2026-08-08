@@ -26,6 +26,7 @@ Each item in `items`:
 | `company`   | string | No       | `''`    | The author's company or organization |
 | `image_url` | string | No       | `''`    | Optional avatar image URL |
 | `image_alt` | string | No       | `''`    | Alt text for the avatar |
+| `image_id`  | int    | No       | `0`     | Media Library attachment ID for the avatar. When set and it resolves, renders responsively (`srcset`/`sizes`) via `wp_get_attachment_image()`; falls back to `image_url` otherwise. A companion to `image_url`, not a replacement — an item with only an id renders no avatar. |
 
 `layout` and `theme` are independent axes, same pattern as `grid` and `cta`: `layout` controls structure, `theme` controls background color.
 

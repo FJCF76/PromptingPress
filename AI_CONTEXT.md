@@ -115,13 +115,13 @@ site-customization permission.
 | hero      | components/hero/hero.php       | Full-width headline + optional CTA and image     | title (req), title_accent, eyebrow, subheading, button_text, button_url, button2_text, button2_url, button_variant, button2_variant, layout, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof, id |
 | section   | components/section/section.php | Text + optional image or content panel. 5 structural layouts. Needs one of body / body_items / panel content (#488) | body, body_items, title, title_accent, eyebrow, subheading, title_align, image_url, image_id, image_alt, layout, theme, background_image, panel_heading, panel_body, panel_items, panel_items_marker, panel_cta_text, panel_cta_url, panel_cta_variant, body_marker, id |
 | faq       | components/faq/faq.php         | Native details/summary accordion. Zero JS. Auto-emits FAQPage JSON-LD. | items[] (req) {question, answer}, title, title_accent, eyebrow, theme, id |
-| grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {number, title, text, text_role, bullets[], image_url, image_alt, link_url, link_text, style (per-card style overrides — card-scoped grid slots, set in composition not style_component)}, title, title_accent, eyebrow, subheading, title_align, layout, card_emphasis, theme, columns, image_treatment, id |
+| grid      | components/grid/grid.php       | Responsive card grid for real content objects    | items[] (req) {number, title, text, text_role, bullets[], image_url, image_alt, image_id, link_url, link_text, style (per-card style overrides — card-scoped grid slots, set in composition not style_component)}, title, title_accent, eyebrow, subheading, title_align, layout, card_emphasis, theme, columns, image_treatment, id |
 | table     | components/table/table.php     | Data/comparison table, horizontal scroll mobile  | headers[] (req), rows[][] (req), title, caption    |
 | cta       | components/cta/cta.php         | Call-to-action block. Layout + color + bg-image  | title, title_accent, eyebrow, button_text (req), button_url (req), button_variant, button2_text, button2_url, button2_variant, body, layout, theme, background_image, id |
 | stats     | components/stats/stats.php     | Horizontal row of large-number metrics + labels  | items[] (req) {number, label}, title, title_accent, theme, background_image, id |
 | logos     | components/logos/logos.php     | Flex-wrap image grid — logo strips or icon tiles | items[] (req) {image_url, image_alt, image_id?, label?}, title, theme, id |
 | embed     | components/embed/embed.php     | WP shortcode / plugin content wrapper            | content (req), title, theme, id                    |
-| testimonials | components/testimonials/testimonials.php | Customer quotes with attribution — card grid or single-column stack | items[] (req) {quote (req), author, role, company, image_url, image_alt}, title, title_accent, eyebrow, subheading, title_align, layout, theme, id |
+| testimonials | components/testimonials/testimonials.php | Customer quotes with attribution — card grid or single-column stack | items[] (req) {quote (req), author, role, company, image_url, image_alt, image_id}, title, title_accent, eyebrow, subheading, title_align, layout, theme, id |
 
 ### Site chrome — rendered by the template, NOT composable (#223)
 
@@ -154,7 +154,7 @@ If a future component needs both structure and color control, give it both `layo
 
 If adding background-image support to another component, follow this exact pattern.
 
-**Responsive images (hero, section, logos):** `image_url` (hero's `split` layout, section's `image-left`/`image-right` layouts, each logos item) has a companion `image_id` — a Media Library attachment ID, not a URL. When `image_id` resolves to a real attachment, the `<img>` renders responsively via `wp_get_attachment_image()` (real `srcset`/`sizes`); when unset or unresolvable, the plain `image_url` renders exactly as before. Get an attachment ID via the `import_media` apply. Not used for `background_image`/`cover` (CSS `background-image`, not an `<img>` tag).
+**Responsive images (hero, section, logos, grid, testimonials):** `image_url` (hero's `split` layout, section's `image-left`/`image-right` layouts, each logos item, each grid card, each testimonials avatar) has a companion `image_id` — a Media Library attachment ID, not a URL. When `image_id` resolves to a real attachment, the `<img>` renders responsively via `wp_get_attachment_image()` (real `srcset`/`sizes`); when unset or unresolvable, the plain `image_url` renders exactly as before. Get an attachment ID via the `import_media` apply. Not used for `background_image`/`cover` (CSS `background-image`, not an `<img>` tag). `image_id` is a COMPANION to `image_url`, never a replacement: an item carrying only an id renders no image at all, so always set `image_url` too.
 
 **Anchor IDs:** All 8 section-level components (hero, section, stats, grid, logos, cta, embed, testimonials) accept an `id` prop that renders as the HTML `id` attribute on the root `<section>` element. Use for anchor navigation.
 
@@ -398,7 +398,7 @@ Token overrides survive theme updates — `base.css` is overwritten on update, b
 
 Style slots allow per-instance visual customization of components without CSS edits. Each component declares allowed CSS custom properties in its `schema.json` under `styling.style_slots`. Only declared slots are accepted — arbitrary CSS is rejected.
 
-**247 style slots** across 10 components: hero (46), section (45), cta (38), grid (37), testimonials (27), faq (21), stats (16), embed (7), logos (5), table (5).
+**259 style slots** across 10 components: hero (49), section (47), cta (39), grid (37), testimonials (27), faq (21), stats (17), embed (8), logos (8), table (6).
 
 **How it works:**
 1. Composition entries gain an optional `style` key alongside `props`

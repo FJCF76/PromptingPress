@@ -312,6 +312,19 @@ To make two adjacent same-background bands read as **one continuous, seamless ba
 3. Zero the bottom margin on the **last element of the upper component** — for a
    `section` whose title is its last visible element, `--section-heading-margin-bottom: 0`.
 
+   Since #584 every band component carries this slot —
+   `--{hero,section,grid,cta,faq,testimonials,stats,table,embed,logos}-heading-margin-bottom` —
+   so the band's header rhythm is authorable everywhere. Unset, each keeps the spacing it
+   always had.
+
+   Read step 3 as "the LAST element", not "the heading". The heading is only that element on a
+   band whose heading is the last thing it renders; on `hero`, `cta`, `stats`, `table`, `embed`
+   and `logos` a required content prop always renders after the heading (the CTA group, the
+   number row, the table, the embed, the strip), so on those bands the heading-margin slot is
+   the INTERNAL header rhythm and step 2's `--<upper>-padding-bottom: 0` is what closes the
+   seam. Zeroing the heading margin there tightens the band's own header and does nothing to
+   the seam.
+
 Step 3 is the one that is easy to miss. Once the upper band's bottom padding is zero,
 its trailing element's bottom margin is no longer held inside the band: it escapes the
 zero-padding edge and opens a gap between the two backgrounds that shows the page
@@ -563,9 +576,11 @@ border FOLLOWS that fill, so a fill-only recolor already gives a matching ring.
 bevel on BOTH rest and hover. They apply to a `primary` `panel_cta_variant` only —
 outline/ghost/secondary panel CTAs keep their transparent treatment — and only when the
 panel actually renders a CTA (`panel_cta_text` + `panel_cta_url`). Like the hero's, they
-govern the RESTING state: a flat panel button reverts to the premium gradient on hover, and
-its ring follows the theme accent there rather than the fill (there is no panel-CTA hover slot
-today). Unset, the panel CTA renders byte-identically.
+govern the RESTING state for the FILL: a flat panel button reverts to the premium gradient on
+hover, and there is still no per-instance hover FILL slot. The RING is the exception (#584):
+`--section-panel-cta-border` and `--section-panel-cta-hover-border` are the panel CTA's own
+ring pair, so a chosen ring survives the hover instead of reverting to the theme accent. Unset,
+the panel CTA renders byte-identically.
 
 **3. Tag a grid card's text with a typography role (an item field).**
 `text_role` lives on each item inside the grid's `items` array, not as a top-level

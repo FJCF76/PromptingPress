@@ -240,8 +240,9 @@ function pp_ai_system_prompt(): string {
     $parts[] = '- Foreground images require `image_alt` (non-empty, descriptive):';
     $parts[] = '  - hero (layout: "split"): `image_url` + `image_alt`, optionally `image_id` (Media Library attachment ID from `import_media`) for responsive srcset/sizes output. A "split" hero with neither an image nor `proof` has no second column and degrades to the single-column "left" layout; add an image or proof to get the two-column split.';
     $parts[] = '  - section (layout: "image-left" or "image-right"): `image_url` + `image_alt`, optionally `image_id` (same as hero)';
-    $parts[] = '  - grid items (cards layout only): `items[].image_url` + `items[].image_alt`. By default each card image renders as a full-width 16:9 cover banner; set the grid-level `image_treatment: "icon"` prop to render it instead at a small fixed icon size (default 48px, un-cropped) above the title — the icon+title+text feature card. Unset keeps the banner; the icon box size is the `--grid-item-icon-size` style slot.';
+    $parts[] = '  - grid items (cards layout only): `items[].image_url` + `items[].image_alt`, optionally `items[].image_id` (same as hero). By default each card image renders as a full-width 16:9 cover banner; set the grid-level `image_treatment: "icon"` prop to render it instead at a small fixed icon size (default 48px, un-cropped) above the title — the icon+title+text feature card. Unset keeps the banner; the icon box size is the `--grid-item-icon-size` style slot.';
     $parts[] = '  - logos items: `items[].image_url` + `items[].image_alt`, optionally `items[].image_id` (same as hero)';
+    $parts[] = '  - testimonials items (author avatar): `items[].image_url` + `items[].image_alt`, optionally `items[].image_id` (same as hero)';
     $parts[] = '  - nav/footer: `logo_id` (Media Library attachment ID, not a URL) + `logo_alt`';
     $parts[] = '- Background images (no `image_alt` needed):';
     $parts[] = '  - hero (layout: "cover"): `image_url` rendered as CSS background-image';
