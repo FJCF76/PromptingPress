@@ -10991,3 +10991,941 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
     ).toBeCloseTo(INK_ON_BG, 1);
   });
 });
+
+/**
+ * issue 577 — dead and defeated style slots actually render.
+ *
+ * Ten entries in one class: a declared slot an author can write, that reports success,
+ * and that renders NOTHING — or a literal that defeats a slot or a token that already
+ * exists. Every cascade claim behind that issue was a STATIC trace confirmed by no
+ * browser, which is exactly what these pins fix: `StyleSlotContractTest` proves the CSS
+ * CONSUMES a slot; only a rendered box proves the slot WINS once media queries,
+ * specificity and source order have all had their say.
+ *
+ * Eight of the gate's eleven register rows land here, and they are asserted as register
+ * rows — a deliberate before/after value, not "some change happened":
+ *
+ *   row 1  A-1  (slot)     adjacent hero obeys --hero-padding-top
+ *   row 2  A-2             section theme bg + borders route their slots
+ *   row 3  A-3             bg-image cta borders route their slots
+ *   row 4  A-4             inverted title_accent takes --color-accent-on-inverted
+ *   row 5  A-14            inverted-stack testimonials meta colour
+ *   rows 6+7  A-36         the two MEASURED overlay-band contrast corrections
+ *   row 9  A-1  (fallback) the UNSET adjacent hero keeps hero's own opener rhythm
+ *
+ * Everything else the issue touches is byte-identical unset and is pinned that way.
+ *
+ * Authoring path: slot values are written through `styleComponent()` — the real
+ * `style_component` action over admin-ajax, with the CAS baseline the chat UI uses —
+ * not raw `_pp_composition` meta. A slot the write path would reject can therefore
+ * never pass these tests (Section 14.1).
+ */
+test.describe('#577 dead and defeated style slots render', () => {
+  let pageId: number;
+
+  // Rendered serializations of the shipped tokens these pins compare against.
+  const INK = 'rgb(16, 24, 40)'; //             --color-text               #101828
+  const PAGE_BG = 'rgb(252, 253, 255)'; //      --color-bg                 #fcfdff
+  const SURFACE = 'rgb(244, 247, 251)'; //      --color-surface            #f4f7fb
+  const BORDER = 'rgb(217, 224, 235)'; //       --color-border             #d9e0eb
+  const INVERTED_BG = 'rgb(15, 23, 42)'; //     --color-bg-inverted        #0f172a
+  const ACCENT = 'rgb(49, 87, 244)'; //         --color-accent             #3157f4
+  const ACCENT_ON_INVERTED = 'rgb(157, 175, 238)'; // --color-accent-on-inverted #9dafee
+  const MUTED_ON_OVERLAY = 'rgb(250, 251, 255)'; //   --color-muted-on-overlay   #fafbff
+  const MUTED_INK = 'rgb(94, 102, 119)'; //     --color-muted              #5e6677
+  const OVERLAY_BG = 'rgba(0, 0, 0, 0.55)'; //  --overlay-bg
+
+  // Hero's OWN opener rhythm — the whole point of row 9's exception.
+  const HERO_OPENER_DESKTOP = '112px'; //       --space-2xl  7rem
+  const HERO_OPENER_MOBILE = '64px'; //         --space-xl   4rem
+  // .hero--left's own rhythm is --space-xl on BOTH edges at BOTH breakpoints, so the
+  // left/split adjacent edge lands here at 1280 as well as at 375.
+  const HERO_OPENER_COMPACT = '64px'; //        --space-xl   4rem
+  // What an unset adjacent hero used to get from the generic catch-all, and must not
+  // get any more. Desktop is the fluid clamp(4.25rem, 6vw, 5rem) evaluated at 1280px
+  // (6vw = 76.8px, inside the clamp), mobile is the flat 3.35rem override.
+  const OLD_BAND_TIER_DESKTOP = '76.8px';
+  const OLD_BAND_TIER_MOBILE = '53.6px';
+
+  // A 2x2 white PNG. The overlay-over-pure-white composite (effective rgb(115,115,115))
+  // is the documented worst case for every bg-image band — see --color-accent-on-overlay
+  // in base.css. Reused from the #461 block for exactly that reason.
+  const WHITE_PNG =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAFklEQVQImWP8//8/AwMDEwMDAwMDAwAkBgMBmjCi+wAAAABJRU5ErkJggg==';
+
+  // A value no token resolves to, so a dead-slot no-op is unmistakable.
+  const LOUD_PX = '5px';
+  const LOUD_COLOR = 'rgb(0, 229, 255)'; // #00e5ff, vivid cyan
+  const LOUD_HEX = '#00e5ff';
+
+  test.afterEach(async () => {
+    if (pageId) {
+      try {
+        deletePage(pageId);
+      } catch {
+        /* already cleaned */
+      }
+      pageId = 0;
+    }
+  });
+
+  async function computed(page: any, selector: string, props: string[]) {
+    return page.locator(selector).first().evaluate((el: Element, ps: string[]) => {
+      const cs = getComputedStyle(el);
+      const out: Record<string, string> = {};
+      ps.forEach((p) => {
+        out[p] = cs.getPropertyValue(p);
+      });
+      return out;
+    }, props);
+  }
+
+  // ── A-1 / register rows 1 and 9 — the hero adjacent-top edge ───────────────
+  //
+  // `.hero` is [0,1,0]; the generic adjacent catch-all
+  // `main > [data-pp-component] + [data-pp-component]` is [0,2,1]. So on the adjacent
+  // edge the catch-all won at BOTH breakpoints and hero's declared --hero-padding-top
+  // was dead there — while the CSS comment above the catch-all claimed hero had no
+  // padding slot at all. Two register rows fall out of the one fix.
+
+  test('#577 row 1: an authored --hero-padding-top wins on an ADJACENT hero at 1280 and 375 @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 577 hero adjacent slot');
+    // A section leads, so the hero renders SECOND — the adjacent position, the only
+    // place this slot was dead.
+    setComposition(pageId, [
+      { component: 'section', props: { id: 'pp-sec-lead', title: 'Lead', body: '<p>Lead band.</p>' } },
+      { component: 'hero', props: { id: 'pp-hero-adj', title: 'Adjacent hero' } },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    // component_index 1 = the hero (index 0 is the leading section).
+    const res = await styleComponent(page, pageId, { '--hero-padding-top': LOUD_PX }, undefined, 1);
+    expect(res.success).toBe(true);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      const hero = page.locator('#pp-hero-adj');
+      await expect(hero).toBeVisible({ timeout: 10000 });
+      const { 'padding-top': top } = await computed(page, '#pp-hero-adj', ['padding-top']);
+      expect(top, `adjacent hero --hero-padding-top @${width}`).toBe(LOUD_PX);
+    }
+  });
+
+  test('#577 row 9: an UNSET adjacent hero keeps hero\'s own opener rhythm, not the band tier @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 577 hero adjacent fallback');
+    setComposition(pageId, [
+      { component: 'section', props: { id: 'pp-sec-lead', title: 'Lead', body: '<p>Lead band.</p>' } },
+      { component: 'hero', props: { id: 'pp-hero-adj', title: 'Adjacent hero' } },
+      // A THIRD band proves the leading hero case is untouched by re-rendering the
+      // same page with a hero in first position below.
+    ]);
+
+    for (const [width, expected, oldValue] of [
+      [1280, HERO_OPENER_DESKTOP, OLD_BAND_TIER_DESKTOP],
+      [375, HERO_OPENER_MOBILE, OLD_BAND_TIER_MOBILE],
+    ] as [number, string, string][]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      const hero = page.locator('#pp-hero-adj');
+      await expect(hero).toBeVisible({ timeout: 10000 });
+      const { 'padding-top': top, 'padding-bottom': bottom } = await computed(page, '#pp-hero-adj', [
+        'padding-top',
+        'padding-bottom',
+      ]);
+      // The registered change: hero's own opener rhythm, NOT the shared band tier.
+      expect(top, `unset adjacent hero top @${width}`).toBe(expected);
+      expect(top, `unset adjacent hero must not sit on the old band tier @${width}`).not.toBe(oldValue);
+      // And because the bottom edge always came from .hero's own rule, the adjacent
+      // hero is now SYMMETRIC — the visible shape of the fix.
+      expect(bottom, `unset adjacent hero bottom @${width}`).toBe(expected);
+    }
+  });
+
+  // Row 9 applies PER VARIANT, not as one flat value. OQ-1 (ii)'s principle is that hero
+  // keeps ITS OWN opener rhythm on the adjacent edge, and .hero--left's own rhythm is
+  // --space-xl on BOTH edges ("inner pages; compact vertical rhythm") — not --space-2xl.
+  // A single flat fallback measured 112px top against a 64px bottom at 1280 on every
+  // inner-page hero. The left twin restores symmetry at both breakpoints.
+  //
+  // An image-less `split` hero degrades to .hero--left (issue 440), so it is covered by
+  // the same rule and is asserted here rather than assumed.
+  test('#577 row 9: an adjacent LEFT/SPLIT hero keeps the compact opener rhythm, symmetric @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 577 hero left adjacent fallback');
+    setComposition(pageId, [
+      { component: 'section', props: { id: 'pp-sec-lead', title: 'Lead', body: '<p>Lead band.</p>' } },
+      { component: 'hero', props: { id: 'pp-hero-left', layout: 'left', title: 'Left hero' } },
+      { component: 'hero', props: { id: 'pp-hero-split', layout: 'split', title: 'Split hero' } },
+    ]);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('#pp-hero-left')).toBeVisible({ timeout: 10000 });
+
+      for (const id of ['pp-hero-left', 'pp-hero-split']) {
+        const cls = await page.locator(`#${id}`).getAttribute('class');
+        expect(cls, `${id} @${width} must carry the left variant class`).toContain('hero--left');
+
+        const { 'padding-top': top, 'padding-bottom': bottom } = await computed(page, `#${id}`, [
+          'padding-top',
+          'padding-bottom',
+        ]);
+        // Compact opener rhythm at BOTH breakpoints, and symmetric with its own bottom.
+        expect(top, `adjacent ${id} top @${width}`).toBe(HERO_OPENER_COMPACT);
+        expect(bottom, `adjacent ${id} bottom @${width}`).toBe(HERO_OPENER_COMPACT);
+        // Not the centered hero's rhythm, and not the old shared band tier.
+        expect(top, `adjacent ${id} must not take the centered opener @${width}`).not.toBe(HERO_OPENER_DESKTOP);
+      }
+    }
+  });
+
+  test('#577 A-1: a LEADING hero is untouched at 1280 and 375', async ({ page }) => {
+    pageId = createPage('E2E 577 hero leading unchanged');
+    setComposition(pageId, [
+      { component: 'hero', props: { id: 'pp-hero-lead', title: 'Leading hero' } },
+      { component: 'section', props: { id: 'pp-sec02', title: 'After', body: '<p>After.</p>' } },
+    ]);
+
+    for (const [width, expected] of [
+      [1280, HERO_OPENER_DESKTOP],
+      [375, HERO_OPENER_MOBILE],
+    ] as [number, string][]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('#pp-hero-lead')).toBeVisible({ timeout: 10000 });
+      const { 'padding-top': top, 'padding-bottom': bottom } = await computed(page, '#pp-hero-lead', [
+        'padding-top',
+        'padding-bottom',
+      ]);
+      expect(top, `leading hero top @${width}`).toBe(expected);
+      expect(bottom, `leading hero bottom @${width}`).toBe(expected);
+    }
+  });
+
+  // ── A-2 / register row 2 — section theme bg + borders ──────────────────────
+  //
+  // `.pp-section--dark` and `.pp-section--inverted` set background-color and border-*
+  // as BARE LITERALS at [0,1,0], AFTER `.section`'s slot-routed declarations at equal
+  // specificity — so --section-bg / --section-border-* were dead on any themed section,
+  // while tests/AiContextTest.php already promised an author the override wins.
+
+  for (const [theme, themeBg] of [
+    ['muted', SURFACE],
+    ['inverted', INVERTED_BG],
+  ] as [string, string][]) {
+    test(`#577 row 2: --section-bg and the border slots win on a ${theme} section @smoke`, async ({
+      page,
+    }) => {
+      pageId = createPage(`E2E 577 section ${theme} slots`);
+      setComposition(pageId, [
+        { component: 'section', props: { id: 'pp-sec-themed', theme, title: 'Themed', body: '<p>Body.</p>' } },
+      ]);
+
+      // UNSET first: the theme literal must still be exactly what it always was.
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('#pp-sec-themed')).toBeVisible({ timeout: 10000 });
+      const before = await computed(page, '#pp-sec-themed', [
+        'background-color',
+        'border-top-width',
+        'border-top-color',
+        'border-bottom-width',
+        'border-bottom-color',
+      ]);
+      expect(before['background-color'], `${theme} unset background`).toBe(themeBg);
+      // Unset borders too, per theme. muted (.pp-section--dark) frames the band with
+      // 1px --color-border; inverted declares no border of its own, so it keeps
+      // .section's own 0/transparent. Both must survive the routing untouched.
+      const expectedBorder = theme === 'muted'
+        ? { width: '1px', color: BORDER }
+        : { width: '0px', color: 'rgba(0, 0, 0, 0)' };
+      expect(before['border-top-width'], `${theme} unset border-top-width`).toBe(expectedBorder.width);
+      expect(before['border-bottom-width'], `${theme} unset border-bottom-width`).toBe(expectedBorder.width);
+      expect(before['border-top-color'], `${theme} unset border-top-color`).toBe(expectedBorder.color);
+      expect(before['border-bottom-color'], `${theme} unset border-bottom-color`).toBe(expectedBorder.color);
+
+      // Now author all three slots through the real write path.
+      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+      const res = await styleComponent(page, pageId, {
+        '--section-bg': LOUD_HEX,
+        '--section-border-width': LOUD_PX,
+        '--section-border-color': LOUD_HEX,
+      });
+      expect(res.success).toBe(true);
+
+      for (const width of [1280, 375]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`/?page_id=${pageId}`);
+        await expect(page.locator('#pp-sec-themed')).toBeVisible({ timeout: 10000 });
+        const after = await computed(page, '#pp-sec-themed', [
+          'background-color',
+          'border-top-width',
+          'border-top-color',
+          'border-bottom-width',
+          'border-bottom-color',
+        ]);
+        expect(after['background-color'], `${theme} --section-bg @${width}`).toBe(LOUD_COLOR);
+        expect(after['border-top-width'], `${theme} --section-border-width top @${width}`).toBe(LOUD_PX);
+        expect(after['border-bottom-width'], `${theme} --section-border-width bottom @${width}`).toBe(LOUD_PX);
+        expect(after['border-top-color'], `${theme} --section-border-color top @${width}`).toBe(LOUD_COLOR);
+        expect(after['border-bottom-color'], `${theme} --section-border-color bottom @${width}`).toBe(LOUD_COLOR);
+      }
+    });
+  }
+
+  test('#577 A-2: an unset MUTED section still paints the surface literal and its 1px framing borders', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 577 section muted byte-identical');
+    setComposition(pageId, [
+      { component: 'section', props: { id: 'pp-sec-muted', theme: 'muted', title: 'Muted', body: '<p>Body.</p>' } },
+    ]);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('#pp-sec-muted')).toBeVisible({ timeout: 10000 });
+    const cs = await computed(page, '#pp-sec-muted', [
+      'background-color',
+      'border-top-width',
+      'border-top-color',
+      'border-bottom-width',
+      'border-bottom-color',
+    ]);
+    expect(cs['background-color']).toBe(SURFACE);
+    expect(cs['border-top-width']).toBe('1px');
+    expect(cs['border-bottom-width']).toBe('1px');
+    expect(cs['border-top-color']).toBe(BORDER);
+    expect(cs['border-bottom-color']).toBe(BORDER);
+  });
+
+  // ── A-3 / register row 3 — bg-image cta borders ────────────────────────────
+  //
+  // `.cta--has-bg-image { border: none }` was a SHORTHAND whose border-style:none
+  // suppressed the slot-routed longhands `.cta` declares, killing --cta-border-width
+  // and --cta-border-color on every background-image band.
+
+  test('#577 row 3: the cta border slots win on a background-image cta @smoke', async ({ page }) => {
+    pageId = createPage('E2E 577 cta bg-image borders');
+    setComposition(pageId, [
+      {
+        component: 'cta',
+        props: {
+          id: 'pp-cta-img',
+          background_image: WHITE_PNG,
+          title: 'Overlay cta',
+          body: 'Body copy.',
+          button_text: 'Go',
+          button_url: '/go',
+        },
+      },
+    ]);
+
+    // UNSET: `border: none` painted nothing, and the replacement longhands must too.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('#pp-cta-img')).toBeVisible({ timeout: 10000 });
+    const before = await computed(page, '#pp-cta-img', [
+      'border-top-width',
+      'border-bottom-width',
+      'border-left-width',
+      'border-right-width',
+    ]);
+    expect(before['border-top-width'], 'unset bg-image cta top border').toBe('0px');
+    expect(before['border-bottom-width'], 'unset bg-image cta bottom border').toBe('0px');
+    // The shorthand also zeroed the two sides `.cta` never declares — the longhand
+    // replacement must leave them at 0 too, or the band grows edges it never had.
+    expect(before['border-left-width'], 'unset bg-image cta left border').toBe('0px');
+    expect(before['border-right-width'], 'unset bg-image cta right border').toBe('0px');
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await styleComponent(page, pageId, {
+      '--cta-border-width': LOUD_PX,
+      '--cta-border-color': LOUD_HEX,
+    });
+    expect(res.success).toBe(true);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('#pp-cta-img')).toBeVisible({ timeout: 10000 });
+      const after = await computed(page, '#pp-cta-img', [
+        'border-top-width',
+        'border-top-color',
+        'border-bottom-width',
+        'border-bottom-color',
+        'border-left-width',
+        'border-right-width',
+      ]);
+      expect(after['border-top-width'], `bg-image cta --cta-border-width @${width}`).toBe(LOUD_PX);
+      expect(after['border-bottom-width'], `bg-image cta --cta-border-width @${width}`).toBe(LOUD_PX);
+      expect(after['border-top-color'], `bg-image cta --cta-border-color @${width}`).toBe(LOUD_COLOR);
+      expect(after['border-bottom-color'], `bg-image cta --cta-border-color @${width}`).toBe(LOUD_COLOR);
+      // The whole hazard of swapping a four-side shorthand for two longhands: an
+      // authored width must not grow edges the band never had.
+      expect(after['border-left-width'], `authored bg-image cta must not grow a left border @${width}`).toBe('0px');
+      expect(after['border-right-width'], `authored bg-image cta must not grow a right border @${width}`).toBe('0px');
+    }
+  });
+
+  // ── A-4 / register row 4 — inverted title_accent ───────────────────────────
+  //
+  // The accent substring paints its OWN color and does not inherit the light title
+  // beside it. The --has-bg-image twins have routed the overlay role since #463; the
+  // INVERTED twins were never written, so the highlighted word rendered bare
+  // --color-accent at 3.23:1 on the dark band.
+
+  test('#577 row 4: an inverted section/cta title_accent takes --color-accent-on-inverted @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 577 inverted title accent');
+    setComposition(pageId, [
+      {
+        component: 'section',
+        props: { id: 'pp-sec-inv', theme: 'inverted', title: 'Ship faster today', title_accent: 'faster', body: '<p>Body.</p>' },
+      },
+      {
+        component: 'cta',
+        props: {
+          id: 'pp-cta-inv',
+          theme: 'inverted',
+          title: 'Start now today',
+          title_accent: 'now',
+          button_text: 'Go',
+          button_url: '/go',
+        },
+      },
+    ]);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('#pp-sec-inv .section__title-accent')).toBeVisible({ timeout: 10000 });
+
+      const sec = await computed(page, '#pp-sec-inv .section__title-accent', ['color']);
+      const cta = await computed(page, '#pp-cta-inv .cta__title-accent', ['color']);
+      expect(sec.color, `inverted section title_accent @${width}`).toBe(ACCENT_ON_INVERTED);
+      expect(cta.color, `inverted cta title_accent @${width}`).toBe(ACCENT_ON_INVERTED);
+      // The defect this replaces: the bare light-surface accent on a dark band.
+      expect(sec.color).not.toBe(ACCENT);
+      expect(cta.color).not.toBe(ACCENT);
+    }
+  });
+
+  test('#577 A-4: a per-instance heading-accent slot still wins on an inverted band', async ({ page }) => {
+    pageId = createPage('E2E 577 inverted title accent slot wins');
+    setComposition(pageId, [
+      {
+        component: 'section',
+        props: { id: 'pp-sec-inv', theme: 'inverted', title: 'Ship faster today', title_accent: 'faster', body: '<p>Body.</p>' },
+      },
+    ]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await styleComponent(page, pageId, { '--section-heading-accent-color': LOUD_HEX });
+    expect(res.success).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    const cs = await computed(page, '#pp-sec-inv .section__title-accent', ['color']);
+    expect(cs.color).toBe(LOUD_COLOR);
+  });
+
+  test('#577 A-4: a PLAIN (non-inverted) band still renders the bare accent', async ({ page }) => {
+    pageId = createPage('E2E 577 plain title accent unchanged');
+    setComposition(pageId, [
+      { component: 'section', props: { id: 'pp-sec-plain', title: 'Ship faster today', title_accent: 'faster', body: '<p>Body.</p>' } },
+    ]);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    const cs = await computed(page, '#pp-sec-plain .section__title-accent', ['color']);
+    expect(cs.color, 'plain band title_accent must be byte-identical').toBe(ACCENT);
+  });
+
+  // ── A-14 / register row 5 — inverted-stack testimonials meta ───────────────
+  //
+  // --testimonials-quote-color and --testimonials-author-color each get an
+  // inverted+stack rule supplying a light default. --testimonials-meta-color got none,
+  // so the role/company line resolved to --color-muted on a dark band.
+
+  test('#577 row 5: the inverted-STACK testimonials meta line takes a light default @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 577 testimonials inverted stack meta');
+    setComposition(pageId, [
+      {
+        component: 'testimonials',
+        props: {
+          id: 'pp-tst-inv',
+          theme: 'inverted',
+          layout: 'stack',
+          items: [{ quote: 'It works.', author: 'Ada Lovelace', role: 'Head of Engineering', company: 'Analytical Ltd' }],
+        },
+      },
+    ]);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('#pp-tst-inv .testimonials__meta')).toBeVisible({ timeout: 10000 });
+      const cs = await computed(page, '#pp-tst-inv .testimonials__meta', ['color']);
+      expect(cs.color, `inverted stack meta @${width}`).toBe(PAGE_BG);
+      expect(cs.color, 'must no longer resolve to the light-surface muted ink').not.toBe(MUTED_INK);
+    }
+  });
+
+  test('#577 A-14: the GRID layout keeps its light card, so meta stays muted', async ({ page }) => {
+    pageId = createPage('E2E 577 testimonials inverted grid meta unchanged');
+    setComposition(pageId, [
+      {
+        component: 'testimonials',
+        props: {
+          id: 'pp-tst-grid',
+          theme: 'inverted',
+          layout: 'grid',
+          items: [{ quote: 'It works.', author: 'Ada Lovelace', role: 'Head of Engineering', company: 'Analytical Ltd' }],
+        },
+      },
+    ]);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    const cs = await computed(page, '#pp-tst-grid .testimonials__meta', ['color']);
+    // The grid variant's item is a LIGHT card, so the muted ink is correct there and
+    // the new rule (scoped to .testimonials--stack) must not reach it.
+    expect(cs.color, 'inverted GRID meta must be byte-identical').toBe(MUTED_INK);
+  });
+
+  // ── A-36 / register rows 6 and 7 — the two MEASURED contrast corrections ───
+  //
+  // Both bands lay --overlay-bg over an arbitrary image. The worst case is the scrim
+  // over a pure-WHITE image, an effective background of rgb(115,115,115), whose
+  // contrast CEILING for ANY foreground is 4.74:1. `color: --color-bg` at
+  // `opacity: 0.85` composited to rgb(231,232,234) and measured 3.87:1 — a FAIL against
+  // the 4.5:1 normal-text bar. The remedy is a ROLE TOKEN, never a second literal.
+  //
+  // The measurement below composites BOTH stages the browser does: the overlay over
+  // white, then the element's own `opacity` over that. So reintroducing an opacity
+  // literal fails here even if the declared `color` is untouched — which is the exact
+  // regression this pin exists to catch.
+
+  const OVERLAY_SURFACES = [
+    {
+      name: 'cta body',
+      row: 6,
+      ink: '#pp-ov-cta .cta__body',
+      overlay: '#pp-ov-cta .cta__overlay',
+      slot: '--cta-body-color',
+    },
+    {
+      name: 'stats label',
+      row: 7,
+      ink: '#pp-ov-stats .stats__label',
+      overlay: '#pp-ov-stats .stats__overlay',
+      slot: '--stats-label-color',
+    },
+  ];
+
+  function overlayBands() {
+    return [
+      {
+        component: 'cta',
+        props: {
+          id: 'pp-ov-cta',
+          background_image: WHITE_PNG,
+          title: 'Overlay cta',
+          body: 'Body copy that has to stay readable over an arbitrary photograph.',
+          button_text: 'Go',
+          button_url: '/go',
+        },
+      },
+      {
+        component: 'stats',
+        props: {
+          id: 'pp-ov-stats',
+          background_image: WHITE_PNG,
+          title: 'Overlay stats',
+          items: [{ number: '42', label: 'Deployments every single week' }],
+        },
+      },
+    ];
+  }
+
+  /** Effective contrast of `inkSel` against `overlaySel` composited over pure white. */
+  async function overlayContrast(page: any, inkSel: string, overlaySel: string) {
+    return page.evaluate(
+      ({ inkS, ovS }: { inkS: string; ovS: string }) => {
+        const parseRgb = (str: string): number[] => (str.match(/[\d.]+/g) || []).map(Number);
+        const lum = (rgb: number[]): number => {
+          const f = (v: number) => {
+            v /= 255;
+            return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+          };
+          return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]);
+        };
+        const el = document.querySelector(inkS) as HTMLElement | null;
+        const ov = document.querySelector(ovS) as HTMLElement | null;
+        if (!el || !ov) return { found: false, ratio: 0, alpha: -1, textOpacity: -1, fg: [] as number[], bg: [] as number[] };
+
+        const o = parseRgb(getComputedStyle(ov).backgroundColor);
+        const alpha = o.length >= 4 ? o[3] : 1;
+        // Stage 1: the scrim over a pure-white image — the worst case.
+        const bg = [0, 1, 2].map((i) => alpha * (o[i] ?? 0) + (1 - alpha) * 255);
+
+        // Stage 2: the element's own opacity over that. `opacity: 1` is a no-op, which
+        // is the shipped state after issue 577; any literal below 1 pulls the ink
+        // toward the band and shows up directly in the ratio.
+        const textOpacity = parseFloat(getComputedStyle(el).opacity);
+        const declared = parseRgb(getComputedStyle(el).color);
+        const fg = [0, 1, 2].map((i) => textOpacity * declared[i] + (1 - textOpacity) * bg[i]);
+
+        const L1 = lum(fg);
+        const L2 = lum(bg);
+        return {
+          found: true,
+          alpha,
+          textOpacity,
+          fg,
+          bg,
+          ratio: (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05),
+        };
+      },
+      { inkS: inkSel, ovS: overlaySel },
+    );
+  }
+
+  test('#577 rows 6+7: both overlay-band de-emphasis surfaces clear AA at 1280 and 375 @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 577 overlay de-emphasis contrast');
+    setComposition(pageId, overlayBands());
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      for (const s of OVERLAY_SURFACES) {
+        await expect(page.locator(s.ink)).toBeVisible({ timeout: 10000 });
+        const res = await overlayContrast(page, s.ink, s.overlay);
+
+        expect(res.found, `${s.name} or its overlay not found @${width}`).toBe(true);
+        // Guard a vacuous pass: the overlay must still be a translucent scrim.
+        expect(res.alpha, `${s.name} @${width}: overlay alpha ${res.alpha}`).toBeGreaterThan(0);
+        expect(res.alpha).toBeLessThan(1);
+        // The worst-case composite really is the documented rgb(115,115,115).
+        res.bg.forEach((c: number) => expect(Math.round(c)).toBe(115));
+        // No opacity literal survives on this surface.
+        expect(res.textOpacity, `${s.name} @${width}: opacity literal is back`).toBe(1);
+        // The role token, not a hand-picked literal.
+        const ink = await computed(page, s.ink, ['color']);
+        expect(ink.color, `${s.name} @${width} ink`).toBe(MUTED_ON_OVERLAY);
+        // The register row: 3.87:1 -> >= 4.5:1.
+        expect(
+          res.ratio,
+          `${s.name} @${width}: fg=${JSON.stringify(res.fg)} bg=${JSON.stringify(res.bg)} ratio=${res.ratio?.toFixed(2)} (need >= 4.5, was 3.87)`,
+        ).toBeGreaterThanOrEqual(4.5);
+        expect(res.ratio, `${s.name} @${width}: must be above the old failing 3.87:1`).toBeGreaterThan(3.87);
+      }
+    }
+  });
+
+  test('#577 A-36: the per-instance ink slot still wins on both overlay surfaces', async ({ page }) => {
+    pageId = createPage('E2E 577 overlay ink slot wins');
+    setComposition(pageId, overlayBands());
+
+    // Through the REAL write path, not a raw __pp_style meta write — the block's
+    // authoring-path claim has to hold for every test that makes one (Section 14.1).
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const resCta = await styleComponent(page, pageId, { '--cta-body-color': LOUD_HEX }, undefined, 0);
+    expect(resCta.success).toBe(true);
+    const resStats = await styleComponent(page, pageId, { '--stats-label-color': LOUD_HEX }, undefined, 1);
+    expect(resStats.success).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    for (const s of OVERLAY_SURFACES) {
+      const cs = await computed(page, s.ink, ['color', 'opacity']);
+      expect(cs.color, `${s.name} slot override`).toBe(LOUD_COLOR);
+      expect(cs.opacity, `${s.name} must carry no opacity literal`).toBe('1');
+    }
+  });
+
+  // The band that carries BOTH dark classes. cta.php and stats.php emit the theme class
+  // and the bg-image class INDEPENDENTLY, so `theme:"inverted"` + `background_image`
+  // renders `.cta--inverted.cta--has-bg-image`. The inverted opacity literals are
+  // ratified against the SOLID inverted band (12.76:1 / 10.22:1); on the overlay band
+  // the same alpha is exactly the 3.87:1 failure rows 6+7 exist to correct. Without the
+  // `:not(--has-bg-image)` carve-out the inverted rule's opacity survives here — and for
+  // stats it is the EARLIER rule, so the label would render at 0.75, DIMMER than the
+  // 0.85 that already failed. This pin is the reason that carve-out exists.
+  test('#577 rows 6+7: an inverted + background_image band still clears AA at 1280 and 375 @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 577 inverted overlay combined band');
+    const b = overlayBands() as any[];
+    b[0].props.theme = 'inverted';
+    b[1].props.theme = 'inverted';
+    setComposition(pageId, b);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      // Both classes really are on the band (guards a vacuous pass if the renderer
+      // ever stops combining them).
+      for (const [sel, a, bb] of [
+        ['#pp-ov-cta', 'cta--inverted', 'cta--has-bg-image'],
+        ['#pp-ov-stats', 'stats--inverted', 'stats--has-bg-image'],
+      ] as [string, string, string][]) {
+        const cls = await page.locator(sel).getAttribute('class');
+        expect(cls, `${sel} @${width} classes`).toContain(a);
+        expect(cls).toContain(bb);
+      }
+
+      for (const s of OVERLAY_SURFACES) {
+        const res = await overlayContrast(page, s.ink, s.overlay);
+        expect(res.found, `${s.name} not found @${width}`).toBe(true);
+        expect(res.textOpacity, `${s.name} @${width}: the inverted opacity literal leaked onto the overlay band`).toBe(1);
+        expect(
+          res.ratio,
+          `${s.name} on a combined inverted+image band @${width}: ratio=${res.ratio?.toFixed(2)} (need >= 4.5)`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
+  test('#577 A-36: the three PASSING opacity literals are untouched', async ({ page }) => {
+    pageId = createPage('E2E 577 surviving opacity literals');
+    setComposition(pageId, [
+      {
+        component: 'cta',
+        props: { id: 'pp-cta-inv', theme: 'inverted', title: 'Inverted cta', body: 'Body copy.', button_text: 'Go', button_url: '/go' },
+      },
+      {
+        component: 'stats',
+        props: { id: 'pp-stats-inv', theme: 'inverted', title: 'Inverted stats', items: [{ number: '42', label: 'Metric' }] },
+      },
+      {
+        component: 'logos',
+        props: {
+          id: 'pp-logos-inv',
+          theme: 'inverted',
+          title: 'Inverted logos',
+          items: [{ image_url: 'https://example.com/l.png', image_alt: 'Logo', label: 'Acme' }],
+        },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    // These three measured 12.76:1 / 10.22:1 / 10.22:1 against a 4.5:1 bar and were
+    // ratified as deliberate de-emphasis. The correction is scoped to the two that
+    // FAILED, so these must keep their literals exactly.
+    const cta = await computed(page, '#pp-cta-inv .cta__body', ['opacity']);
+    const stats = await computed(page, '#pp-stats-inv .stats__label', ['opacity']);
+    const logos = await computed(page, '#pp-logos-inv .logos__label', ['opacity']);
+    expect(cta.opacity, 'inverted cta body opacity').toBe('0.85');
+    expect(stats.opacity, 'inverted stats label opacity').toBe('0.75');
+    expect(logos.opacity, 'inverted logos label opacity').toBe('0.75');
+  });
+
+  // ── A-13 — stats gains the overlay slot the other three bands already had ──
+
+  test('#577 A-13: --stats-overlay-bg drives the stats scrim; unset is byte-identical', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 577 stats overlay slot');
+    setComposition(pageId, [
+      {
+        component: 'stats',
+        props: { id: 'pp-ov-stats', background_image: WHITE_PNG, title: 'Overlay stats', items: [{ number: '42', label: 'Metric' }] },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('#pp-ov-stats .stats__overlay')).toBeVisible({ timeout: 10000 });
+    const before = await computed(page, '#pp-ov-stats .stats__overlay', ['background-color']);
+    expect(before['background-color'], 'unset stats overlay').toBe(OVERLAY_BG);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await styleComponent(page, pageId, { '--stats-overlay-bg': 'rgba(0, 40, 90, 0.7)' });
+    expect(res.success).toBe(true);
+
+    await page.goto(`/?page_id=${pageId}`);
+    const after = await computed(page, '#pp-ov-stats .stats__overlay', ['background-color']);
+    expect(after['background-color'], 'authored stats overlay').toBe('rgba(0, 40, 90, 0.7)');
+  });
+
+  // ── A-7 — sever the grid-slot leak into faq ────────────────────────────────
+  //
+  // One rule capped BOTH components from a single selector reading the GRID card slot,
+  // so faq consumed a grid slot on a faq element: it could neither set it (the write
+  // path rejects a foreign slot) nor resolve it (inline slot properties land on the
+  // owning component's root).
+
+  test('#577 A-7: --faq-item-radius drives the faq item; --grid-item-radius no longer reaches it', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 577 faq item radius');
+    setComposition(pageId, [
+      { component: 'grid', props: { id: 'pp-grid01', title: 'Grid', items: [{ title: 'One', text: 'A' }] } },
+      { component: 'faq', props: { id: 'pp-faq01', title: 'FAQ', items: [{ question: 'Q?', answer: 'A.' }] } },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('#pp-faq01 .faq__item')).toBeVisible({ timeout: 10000 });
+    // Byte-identical unset: 4px on BOTH sides of the split.
+    const beforeFaq = await computed(page, '#pp-faq01 .faq__item', ['border-top-left-radius']);
+    const beforeGrid = await computed(page, '#pp-grid01 .grid__item', ['border-top-left-radius']);
+    expect(beforeFaq['border-top-left-radius'], 'unset faq item radius').toBe('4px');
+    expect(beforeGrid['border-top-left-radius'], 'unset grid card radius').toBe('4px');
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    // component_index 1 = the faq band.
+    const res = await styleComponent(page, pageId, { '--faq-item-radius': '18px' }, undefined, 1);
+    expect(res.success).toBe(true);
+    // component_index 0 = the grid band; a DIFFERENT value proves the two are severed.
+    const res2 = await styleComponent(page, pageId, { '--grid-item-radius': '2px' }, undefined, 0);
+    expect(res2.success).toBe(true);
+
+    await page.goto(`/?page_id=${pageId}`);
+    const afterFaq = await computed(page, '#pp-faq01 .faq__item', ['border-top-left-radius']);
+    const afterGrid = await computed(page, '#pp-grid01 .grid__item', ['border-top-left-radius']);
+    expect(afterFaq['border-top-left-radius'], 'faq follows its OWN slot').toBe('18px');
+    expect(afterGrid['border-top-left-radius'], 'grid follows its own slot').toBe('2px');
+  });
+
+  // ── A-8a — the ONE declaration that actually defeated --grid-item-padding ──
+  //
+  // The issue named three. Verified against the cascade, only the featured-card rule
+  // below was a genuine defeat:
+  //   .grid__item-body:first-child      — [0,2,0], and `main > .grid .grid__item-body
+  //                                       :first-child` [0,3,1] already routed the slot
+  //                                       at both breakpoints, so it is unreachable
+  //                                       inside <main>. It IS routed, but only because
+  //                                       the slot-contract guard requires uniform
+  //                                       routing per subject — not because it defeated
+  //                                       anything. Byte-identical, so no pin here.
+  //   .grid--steps .grid__item          — grid.php renders .grid__item-body for steps
+  //                                       cards too, and that body already routed the
+  //                                       slot. Left alone: routing the outer box
+  //                                       through the SAME slot would double-inset an
+  //                                       authored card and desync the connector.
+  // See both comments in components.css.
+
+  test('#577 A-8a: --grid-item-padding wins on the FEATURED first card body at >=1024', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 577 grid featured padding');
+    setComposition(pageId, [
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-grid-feat',
+          title: 'Cards',
+          items: [
+            { title: 'One', text: 'A' },
+            { title: 'Two', text: 'B' },
+          ],
+        },
+      },
+    ]);
+
+    // 1280 is the breakpoint where the featured override lives.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('#pp-grid-feat .grid__item').first()).toBeVisible({ timeout: 10000 });
+    const before = await computed(page, '#pp-grid-feat .grid__item:first-child .grid__item-body', ['padding-top']);
+    expect(before['padding-top'], 'unset featured body top').toBe('36px'); // 2.25rem
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await styleComponent(page, pageId, { '--grid-item-padding': LOUD_PX });
+    expect(res.success).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    const after = await computed(page, '#pp-grid-feat .grid__item:first-child .grid__item-body', ['padding-top']);
+    // The 0.25rem residue the grid schema's uniform-cards recipe used to have to
+    // document: card 1's body top no longer diverges from the authored padding.
+    expect(after['padding-top'], 'featured body top follows the slot').toBe(LOUD_PX);
+  });
+
+  // ── A-10 — embed body ink joins the slot surface ───────────────────────────
+
+  test('#577 A-10: --embed-body-color drives embed content ink on the base AND inverted band', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 577 embed body color');
+    setComposition(pageId, [
+      { component: 'embed', props: { id: 'pp-emb-plain', title: 'Embed', content: '<p>Embedded copy.</p>' } },
+      { component: 'embed', props: { id: 'pp-emb-inv', theme: 'inverted', title: 'Embed', content: '<p>Embedded copy.</p>' } },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('#pp-emb-inv .embed__content')).toBeVisible({ timeout: 10000 });
+    // Byte-identical unset, BOTH bands. The base band is the one that gained a `color`
+    // declaration where it previously had none, so its `inherit` fallback has to be
+    // pinned or a future change from `inherit` to a literal lands unnoticed on every
+    // default and muted embed.
+    const beforePlain = await computed(page, '#pp-emb-plain .embed__content', ['color']);
+    const beforeInv = await computed(page, '#pp-emb-inv .embed__content', ['color']);
+    expect(beforePlain.color, 'unset base embed content must still inherit the body ink').toBe(INK);
+    expect(beforeInv.color, 'unset inverted embed content').toBe(PAGE_BG);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res0 = await styleComponent(page, pageId, { '--embed-body-color': LOUD_HEX }, undefined, 0);
+    expect(res0.success).toBe(true);
+    const res1 = await styleComponent(page, pageId, { '--embed-body-color': LOUD_HEX }, undefined, 1);
+    expect(res1.success).toBe(true);
+
+    await page.goto(`/?page_id=${pageId}`);
+    const plain = await computed(page, '#pp-emb-plain .embed__content', ['color']);
+    const inv = await computed(page, '#pp-emb-inv .embed__content', ['color']);
+    expect(plain.color, 'base embed content follows the slot').toBe(LOUD_COLOR);
+    expect(inv.color, 'inverted embed content follows the slot').toBe(LOUD_COLOR);
+  });
+
+  // ── A-43 — the hero subtitle stops defeating --line-height-body ────────────
+
+  test('#577 A-43: retuning --line-height-body moves the hero subtitle too', async ({ page }) => {
+    pageId = createPage('E2E 577 hero subtitle leading');
+    setComposition(pageId, [
+      {
+        component: 'hero',
+        props: { id: 'pp-hero-lh', title: 'Hero', subheading: 'A supporting line long enough to wrap onto several lines at any viewport width.' },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('#pp-hero-lh .hero__subtitle')).toBeVisible({ timeout: 10000 });
+
+    // Byte-identical at the shipped token value: 1.6 x 17px (1.0625rem) = 27.2px.
+    const before = await computed(page, '#pp-hero-lh .hero__subtitle', ['line-height', 'font-size']);
+    const fontPx = parseFloat(before['font-size']);
+    expect(parseFloat(before['line-height'])).toBeCloseTo(fontPx * 1.6, 1);
+
+    // Retune the token the way a site retheme does; the subtitle must follow.
+    await page.addStyleTag({ content: ':root { --line-height-body: 2.5; }' });
+    const after = await computed(page, '#pp-hero-lh .hero__subtitle', ['line-height']);
+    expect(
+      parseFloat(after['line-height']),
+      'hero subtitle must follow --line-height-body, not a duplicated 1.6 literal',
+    ).toBeCloseTo(fontPx * 2.5, 1);
+  });
+});

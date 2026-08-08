@@ -148,9 +148,9 @@ If a future component needs both structure and color control, give it both `layo
 
 **Background images:** hero (via `cover` layout + `image_url`), section (`background_image` prop), cta (`background_image` prop), and stats (`background_image` prop) support CSS background-image with a dark overlay and light text. All four use the same implementation pattern:
 - `background-image` inline style on the root `<section>` element
-- A child `div.{component}__overlay` (e.g. `.hero__overlay`) with `background: var(--overlay-bg)`
+- A child `div.{component}__overlay` (e.g. `.hero__overlay`) whose scrim routes a per-instance slot: `background: var(--{component}-overlay-bg, var(--overlay-bg))`. All four carry that slot (stats was the last, #577), so an author can darken or lighten one band's scrim without touching the global token.
 - Container gets `position: relative; z-index: 1` to sit above the overlay
-- Text colors switch to `var(--color-bg)` for contrast
+- Text colors switch to `var(--color-bg)` for contrast, EXCEPT deliberately de-emphasised ink (the cta `body`, the stats `label`), which routes `var(--color-muted-on-overlay)`. Never express de-emphasis on these bands with `opacity`: the overlay-over-white worst case caps contrast at 4.74:1, so any alpha below ~0.97 drops normal-size text under the 4.5:1 AA bar (#577).
 
 If adding background-image support to another component, follow this exact pattern.
 
@@ -370,6 +370,7 @@ Colors:     --color-bg, --color-surface, --color-text, --color-muted,
 Derived:    --color-text-secondary, --color-accent-strong, --color-border-accent, --color-surface-accent,
             --color-accent-on-inverted, --color-accent-on-inverted-hover,
             --color-accent-on-overlay, --color-accent-on-overlay-hover
+Roles:      --color-muted-on-overlay  (de-emphasised body ink on a background_image band)
 Spacing:    --space-xs, --space-sm, --space-md, --space-lg, --space-xl, --space-2xl, --space-3xl
 Typography: --font-body, --font-heading, --font-weight-heading, --line-height-body, --line-height-heading,
             --letter-spacing-heading, --font-mono
@@ -397,7 +398,7 @@ Token overrides survive theme updates — `base.css` is overwritten on update, b
 
 Style slots allow per-instance visual customization of components without CSS edits. Each component declares allowed CSS custom properties in its `schema.json` under `styling.style_slots`. Only declared slots are accepted — arbitrary CSS is rejected.
 
-**233 style slots** across 10 components: hero (45), section (44), cta (37), grid (37), testimonials (26), faq (18), stats (14), embed (4), logos (4), table (4).
+**236 style slots** across 10 components: hero (45), section (44), cta (37), grid (37), testimonials (26), faq (19), stats (15), embed (5), logos (4), table (4).
 
 **How it works:**
 1. Composition entries gain an optional `style` key alongside `props`
