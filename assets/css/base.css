@@ -155,6 +155,7 @@
   --measure-body:      70ch;      /* length: Text body measure — section content, readable prose */
   --measure-body-wide: 75ch;      /* length: Wider measure — standalone text sections, centered intros */
   --measure-centered:  56rem;     /* length: Centered section body — preserves current layout width */
+  --measure-heading:   40rem;     /* length: Band heading measure — display type, shorter than prose. Eight band components route their heading cap through this (hero and section are exempt: both are uncapped by design). Retune it to change every routed band heading in one write. */
   --transition: 150ms ease; /* raw: Default transition for interactive states */
   --overlay-bg: rgba(0, 0, 0, 0.55); /* color: Dark scrim over background images for text readability */
 

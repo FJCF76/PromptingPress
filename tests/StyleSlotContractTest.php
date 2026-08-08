@@ -312,11 +312,13 @@ class StyleSlotContractTest extends TestCase
      * grid, and cta) were routed through var(--slot, <literal>) (the #226/#302
      * idiom, unset output byte-identical), so their entries are GONE from this map.
      *
-     * The 6 entries below are the two decision-flagged pair GROUPS the issue 309
+     * 6 of the 8 entries below are the two decision-flagged pair GROUPS the issue 309
      * ✅ decision (2026-07-12) singled out: routing them would change intended
-     * interaction/variant semantics, so they are PERMANENT, documented waivers —
-     * the only entries allowed to survive here. Each is explained inline. No other
-     * pair may ever be waived: a new dead slot is fixed or gets its own issue.
+     * interaction/variant semantics, so they are PERMANENT, documented waivers.
+     * Each is explained inline. The remaining 2 are the issue 609 hero spacing pair,
+     * waived under this map's own escape hatch ("fix it or file an issue and add a
+     * waiver citing it") pending that issue's decision. No pair may be waived
+     * silently: a new dead slot is fixed or gets its own issue.
      *
      * The ledger is SHRINK-ONLY:
      *   - a waived pair that stops offending fails (remove its entry with the fix);
@@ -350,6 +352,24 @@ class StyleSlotContractTest extends TestCase
         '--testimonials-item-border-color|.testimonials__item|border'          => 1,
         '--testimonials-item-padding|.testimonials__item|padding'        => 1,
         '--testimonials-item-shadow|.testimonials__item|box-shadow'      => 1,
+        // issue 609 WAIVER, pending decision — hero `spacing` prop vs the hero padding
+        // slots. `.hero { padding-top: var(--hero-padding-top, …) }` is (0,1,0); the
+        // three `spacing` override tiers (base, min-width:768px, max-width:767px)
+        // declare bare literals at (0,2,0)/(0,2,1), so a hero with spacing != default
+        // has ALWAYS ignored an authored --hero-padding-top/bottom. 6 declarations per
+        // property: 2 base + 2 desktop + 2 mobile.
+        //
+        // PRE-EXISTING, NOT INTRODUCED BY THE CHANGE THAT ADDED THIS ENTRY. Before #578
+        // these selectors read `[data-pp-component][data-pp-spacing="…"]`, whose subject
+        // token is `[data-pp-component]` — not a `.hero` class — so the subject parser
+        // never attributed them to hero and the guard could not see the bypass. #578's
+        // A-15 scoped them to `.hero` at IDENTICAL specificity (a class + an attribute is
+        // (0,2,0), exactly as two attributes were), which changed no rendered byte and
+        // made the defect visible. Fixing it means deciding whether the per-instance slot
+        // or the coarse `spacing` prop wins — a render change either way, so it is #609's
+        // call, not a mechanical routing this gate could make.
+        '--hero-padding-top|.hero|padding-top'                           => 6,
+        '--hero-padding-bottom|.hero|padding-bottom'                     => 6,
     ];
 
     public function testDeclaredSlotsNotBypassedByLiteralReDeclarations(): void
@@ -409,9 +429,9 @@ class StyleSlotContractTest extends TestCase
      */
     public function testWaiverLedgerOnlyShrinks(): void
     {
-        $this->assertSame(6, count(self::KNOWN_DEAD_SLOT_WAIVERS),
-            'The issue 309 waiver ledger changed size. Fixes shrink it (update this pin in the same change); new dead slots are fixed or get their own issue — never silently waived. The 6 surviving entries are the two decision-flagged permanent-waiver groups (grid-link hover + testimonials --stack resets).');
-        $this->assertSame(7, array_sum(self::KNOWN_DEAD_SLOT_WAIVERS),
+        $this->assertSame(8, count(self::KNOWN_DEAD_SLOT_WAIVERS),
+            'The waiver ledger changed size. Fixes shrink it (update this pin in the same change); new dead slots are fixed or get their own issue — never silently waived. The 8 entries are the two decision-flagged permanent-waiver groups (grid-link hover + testimonials --stack resets) plus the two issue 609 hero spacing/padding pairs, waived pending that issue.');
+        $this->assertSame(19, array_sum(self::KNOWN_DEAD_SLOT_WAIVERS),
             'Total waived bypass declarations changed. Update this pin in the same change as the ledger edit it reflects.');
     }
 

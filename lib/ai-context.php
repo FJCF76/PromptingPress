@@ -272,9 +272,14 @@ function pp_ai_system_prompt(): string {
  *   conditionality_note  the same job for the three condition classes the clause
  *                        grammar deliberately cannot express (disjunction,
  *                        composed-page context, interaction state).
- *   role                 marks a slot as a component's FILL, so "make the button
- *                        blue" resolves to the fill slot and not to some other
- *                        colour slot that happens to be nearby.
+ *   role                 what KIND of slot this is, from the bounded set in
+ *                        pp_slot_roles() (lib/admin.php). `fill` marks a component's
+ *                        FILL, so "make the button blue" resolves to the fill slot and
+ *                        not to some other colour slot that happens to be nearby.
+ *                        `measure` marks a TEXT MEASURE (#578), so "tighten the line
+ *                        length" resolves to a measure slot — and the emitted line says
+ *                        what a literal there costs, since it opts that band out of a
+ *                        later site-wide --measure-* retune.
  *   aliases              legacy VALUES still accepted at write. Phrased as
  *                        "also accepts legacy", never as part of the value set:
  *                        canonical values stay clean and an agent must never read
@@ -304,6 +309,14 @@ function pp_ai_definition_suffix(array $definition): string {
     }
     if (($definition['role'] ?? null) === 'fill') {
         $bits[] = 'role: fill (this is the component\'s fill colour)';
+    }
+    if (($definition['role'] ?? null) === 'measure') {
+        // Says WHAT the marker means for the agent's next write, not just that it exists:
+        // a literal here is accepted but opts this band out of a site-wide measure retune,
+        // which is exactly what the literal_measure advisory reports afterwards.
+        $bits[] = 'role: measure (a text measure — a literal value here is accepted, but it '
+            . 'opts this band out of any later site-wide measure retune, so prefer leaving it '
+            . 'unset and tuning the --measure-* design tokens unless THIS band must differ)';
     }
 
     // ONE condition, however it is expressed. `applies_when` carries the clauses the

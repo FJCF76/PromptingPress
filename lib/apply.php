@@ -1000,14 +1000,20 @@ function _pp_validate_token_value(string $value, ?string $type, ?array $allowed 
             }
             break;
         case 'length-or-none':
-            // The band-geometry width cap. Today exactly ONE slot declares this
-            // type: --stats-max-width, whose schema default IS `none` — the third
-            // state the plain `length` grammar could not express (issue #579, A-30).
-            // The `*-measure` slots (--cta-heading-measure, --grid-heading-measure,
-            // --section-body-measure) deliberately stay plain `length`: they have
-            // real defaults, no third state, and the shipped friendly-error path
-            // steers "remove this cap" to `100%` for them. Do not widen this type to
-            // a measure, padding, radius or font-size slot without a decision —
+            // The band-geometry width cap, for a slot whose DECLARED DEFAULT is the
+            // keyword `none` — the third state the plain `length` grammar could not
+            // express (issue #579, A-30). --stats-max-width was the first; #578 added
+            // the four measure slots that are uncapped by default and must therefore be
+            // restorable to that default: --hero-heading-measure, --section-heading-measure,
+            // --cta-body-measure and --faq-body-measure.
+            //
+            // The RULE is "the declared default must be authorable", not "measure slots
+            // get `none`". Every measure slot with a real length default
+            // (--cta-heading-measure, --grid-heading-measure, --section-body-measure,
+            // --embed-body-measure and the other routed heading measures) deliberately
+            // stays plain `length`: they have no third state, and the shipped
+            // friendly-error path steers "remove this cap" to `100%` for them. Do not
+            // widen this type to a padding, radius or font-size slot without a decision —
             // lib/ai-context.php and ai-instructions/style-component.md both state
             // to the authoring AI that those types reject `none`.
             //

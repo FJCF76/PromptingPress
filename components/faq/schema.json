@@ -62,6 +62,8 @@
       "--faq-eyebrow-text-transform": { "type": "text-transform", "default": "uppercase", "description": "Eyebrow pill letter-casing. Default uppercase renders the kicker in caps; set none to keep it as authored (e.g. sentence case), or lowercase / capitalize." },
       "--faq-heading-size": { "type": "length", "default": "1.875rem", "description": "Section heading font size" },
       "--faq-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading text color" },
+      "--faq-heading-measure": { "type": "length", "role": "measure", "default": "var(--measure-heading)", "description": "Maximum width of the FAQ section heading. Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site." },
+      "--faq-body-measure": { "type": "length-or-none", "role": "measure", "default": "none", "description": "Maximum width of an FAQ ANSWER. Default \"none\": answers already sit inside the accordion item's padded box. Set a length to hold a long answer to a reading measure; \"none\" restores the default." },
       "--faq-heading-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading, if set" },
       "--faq-heading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space below the FAQ heading, before the accordion list (header rhythm). Lower it to tighten the header, raise it for more separation." },
       "--faq-question-color": { "type": "color", "default": "var(--color-text)", "description": "Question (summary) text color" },

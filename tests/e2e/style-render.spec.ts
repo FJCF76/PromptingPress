@@ -1235,8 +1235,10 @@ test.describe('Safe-surface rendered proof', () => {
     // headline column, reproducing the issue's "small card beside a huge headline".
     const WIDE_SHORT_PNG =
       'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAICAIAAAAEMCoMAAAAGElEQVR42mMIqDgxIIhh1OJRi0ctphYCAPUY9BAC1F1zAAAAAElFTkSuQmCC';
-    // A deliberately long headline: .hero--split .hero__title caps at max-width:12ch,
-    // so this wraps to 4-5 lines and makes the content column genuinely tall.
+    // A deliberately long headline. #578 deleted the 12ch title cap, so the wrapping is now
+    // done by the split grid's own track (~553px at 1280) rather than by a character cap;
+    // the headline still wraps to several lines and makes the content column genuinely tall,
+    // which is all this fixture needs.
     const TALL_HEADLINE = 'A deliberately long split hero headline that wraps to several lines';
     setComposition(pageId, [
       {
@@ -4700,7 +4702,8 @@ test.describe('#333 chrome site options render', () => {
   });
 
   // #367 — same class as #354, on the stats component. `.stats__heading` is a block <h2>
-  // that carries `max-width: var(--cta-heading-measure, 40rem)` (the shared cap rule) and
+  // that carries `max-width: var(--stats-heading-measure, var(--measure-heading))` (its own
+  // cap since #578 severed the shared rule; the resolved value is still 40rem) and
   // `text-align: center`, but shipped with NO auto inline margins. A block h2 fills to its
   // max-width cap inside the wider .container, so the 40rem box pinned to the container's
   // LEFT edge (measured x 96-736 at 1280px; the container content center is ~x 288-928) and
@@ -9906,7 +9909,8 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
  *
  *   BAND (padding edges)          <- already covered by #431/#430; re-asserted here
  *     |                              so the baseline is self-contained
- *     +-- heading  --------------- max-width: var(--cta-heading-measure, 40rem)  <- #578 severs this
+ *     +-- heading  --------------- max-width: var(--<c>-heading-measure, var(--measure-heading))
+ *                                     (was ONE shared var(--cta-heading-measure, 40rem); #578 severed it)
  *     +-- body / per-item surface
  *          table : .table-wrap > .table > thead/th, tbody/td, caption
  *          embed : .embed__content (max-width: 40rem)                          <- #578 + #577
@@ -9920,7 +9924,7 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
  *
  * MEASURE PINS ASSERT THE ROUTE, NOT ONLY THE NUMBER. A pin that only checks
  * "the heading is 640px wide" survives the deletion of the slot it is supposed to
- * protect: replacing `var(--cta-heading-measure, 40rem)` with a bare `40rem` keeps the
+ * protect: replacing the per-component `var(--<c>-heading-measure, …)` with a bare `40rem` keeps the
  * number and loses the capability. Each long-heading case therefore ALSO drives the
  * slot to a second value and re-measures, so #578 cannot sever the route without
  * this block noticing.
@@ -10198,27 +10202,38 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
   // ── long headings: one case per component, same contract ─────────────────────
 
   /**
-   * The direct net for the measure-surface severance (#578). All three headings cap
-   * through the SHARED `var(--cta-heading-measure, 40rem)` rule, and after severance
-   * each gets its own `var(--<c>-heading-measure, 40rem)`.
+   * The direct net for the measure-surface severance (#578), UPDATED BY IT.
    *
-   * Three things are pinned, because only the third survives a bad severance:
+   * Before #578 all three headings capped through ONE shared rule reading
+   * `var(--cta-heading-measure, 40rem)` — a CTA slot on three foreign elements — and
+   * this pin drove `--cta-heading-measure` to prove the cap was slot-routed rather than
+   * a literal. #578 severed that rule into `var(--<c>-heading-measure,
+   * var(--measure-heading))`, so driving the CTA slot from a foreign band now correctly
+   * moves NOTHING. The pin's contract is unchanged and its comment always said so ("it
+   * deliberately does not pin the variable's spelling"); only the spelling moved.
+   *
+   * Four things are pinned, because only the last two survive a bad severance:
    *   1. the cap resolves to 40rem and binds at desktop (the number),
    *   2. the title actually wraps inside it (the fixture is genuinely stressed),
-   *   3. driving `--cta-heading-measure` MOVES the heading (the route still exists).
+   *   3. driving the component's OWN slot MOVES the heading (the route still exists),
+   *   4. driving `--cta-heading-measure` does NOT move it (the leak is really gone).
    *
-   * Without (3) a rewrite to a literal `max-width: 40rem` — the exact regression #578
-   * could ship — keeps every number and loses the authorable slot silently.
+   * Without (3) a rewrite to a literal `max-width: 40rem` keeps every number and loses
+   * the authorable slot silently. Without (4) a severance that merely demoted the CTA
+   * slot to an intermediate fallback — `var(--table-heading-measure,
+   * var(--cta-heading-measure, 40rem))` — would keep every number AND keep the leak.
    */
   const HEADING_CASES = [
     {
       name: 'table',
       selector: '.table-section__heading',
+      slot: '--table-heading-measure',
       props: () => ({ component: 'table', props: { ...WIDE_TABLE_PROPS, title: LONG_TITLE } }),
     },
     {
       name: 'embed',
       selector: '.embed__heading',
+      slot: '--embed-heading-measure',
       props: () => ({
         component: 'embed',
         props: { id: 'pp-emb583', title: LONG_TITLE, content: '<p>Embedded body copy.</p>' },
@@ -10227,9 +10242,41 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
     {
       name: 'logos',
       selector: '.logos__heading',
+      slot: '--logos-heading-measure',
       props: () => ({
         component: 'logos',
         props: { ...BASE_LOGOS_PROPS, title: LONG_TITLE },
+      }),
+    },
+    // The other three the shared rule capped. `stats` is the one that most needs a
+    // rendered check: its issue-367 auto-inline-margin centering is documented as
+    // depending on this h2 having a 40rem box, so a cap that failed to resolve would
+    // break the centering while every static text check stayed green.
+    {
+      name: 'cta',
+      selector: '.cta__title',
+      slot: '--cta-heading-measure',
+      props: () => ({
+        component: 'cta',
+        props: { id: 'pp-cta583', title: LONG_TITLE, button_text: 'Go', button_url: '/go' },
+      }),
+    },
+    {
+      name: 'stats',
+      selector: '.stats__heading',
+      slot: '--stats-heading-measure',
+      props: () => ({
+        component: 'stats',
+        props: { id: 'pp-st583', title: LONG_TITLE, items: [{ number: '99%', label: 'Uptime' }] },
+      }),
+    },
+    {
+      name: 'faq',
+      selector: '.faq__heading',
+      slot: '--faq-heading-measure',
+      props: () => ({
+        component: 'faq',
+        props: { id: 'pp-faq583', title: LONG_TITLE, items: [{ question: 'Q?', answer: 'A.' }] },
       }),
     },
   ] as const;
@@ -10271,15 +10318,12 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
       );
       await expectNoViewportOverflow(page, `${heading.name} long heading @375`);
 
-      // The ROUTE, not the number: drive the slot and the heading must follow. This
-      // pins that an AUTHORABLE measure still reaches the heading — it deliberately
-      // does not pin the variable's spelling, so #578 severing the shared slot into a
-      // per-component `var(--<c>-heading-measure, var(--cta-heading-measure, 40rem))`
-      // still passes, while a rewrite to a bare `max-width: 40rem` fails here.
+      // (3) The ROUTE, not the number: drive the component's own slot and the heading must
+      // follow. This pins that an AUTHORABLE measure still reaches the heading.
       // Verified by mutation: replacing the var() with the literal turns this red.
       // Back to 1280 first — at 375 the container binds and no cap value is observable.
       await open(page, 1280, heading.selector);
-      await page.addStyleTag({ content: ':root { --cta-heading-measure: 30rem; }' });
+      await page.addStyleTag({ content: `:root { ${heading.slot}: 30rem; }` });
       const driven = await measureHeadingBox(page, heading.selector);
       const drivenCap = Math.round((desktop.capPx / 40) * 30);
       expect(driven.maxWidth, 'the heading measure is still slot-routed, not a literal').toBe(
@@ -10287,6 +10331,39 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
       );
       expect(driven.measuredWidth, 'the driven cap reaches the rendered box').toBe(drivenCap);
     });
+
+    // (4) The severance itself. A fresh page so no injected <style> from the test above
+    // survives; driving the CTA slot must leave this band exactly where it was.
+    // Skipped for cta, which legitimately OWNS --cta-heading-measure — the leak was five
+    // foreign bands reading it, never cta reading its own slot.
+    // eslint-disable-next-line playwright/no-skipped-test
+    (heading.name === 'cta' ? test.skip : test)(
+      `#578 ${heading.name} heading no longer follows the cta measure slot @smoke`,
+      async ({ page }) => {
+      pageId = createPage(`E2E 578 ${heading.name} cta severance`);
+      setComposition(pageId, [heading.props()]);
+
+      await open(page, 1280, heading.selector);
+      const before = await measureHeadingBox(page, heading.selector);
+      await page.addStyleTag({ content: ':root { --cta-heading-measure: 30rem; }' });
+      const after = await measureHeadingBox(page, heading.selector);
+
+      expect(
+        after.maxWidth,
+        `${heading.name} must not read a CTA slot — it could never set one (the write path ` +
+          'rejects a foreign slot), so a cap it cannot author is a cap it does not have',
+      ).toBe(before.maxWidth);
+      expect(after.measuredWidth, 'the rendered box is unmoved too').toBe(before.measuredWidth);
+      // And the token the band DOES route still reaches it, so this is a severance, not a
+      // freeze: the number above is held by --measure-heading, not by a literal.
+      await page.addStyleTag({ content: ':root { --measure-heading: 30rem; }' });
+      const retuned = await measureHeadingBox(page, heading.selector);
+      expect(
+        retuned.maxWidth,
+        'one --measure-heading write must still retune this band (the point of A-39)',
+      ).toBe(`${Math.round((before.capPx / 40) * 30)}px`);
+      },
+    );
   }
 
   // ── table ────────────────────────────────────────────────────────────────────
@@ -11927,5 +12004,258 @@ test.describe('#577 dead and defeated style slots render', () => {
       parseFloat(after['line-height']),
       'hero subtitle must follow --line-height-body, not a duplicated 1.6 literal',
     ).toBeCloseTo(fontPx * 2.5, 1);
+  });
+});
+
+/**
+ * #578 — the measure gate's ONE deliberate render change: hero's `12ch` title cap.
+ *
+ *   BEFORE                                    AFTER
+ *   .hero--left  .hero__title ┐ max-width:    .hero__title { max-width:
+ *   .hero--split .hero__title ┘ 12ch            var(--hero-heading-measure, none) }
+ *
+ * WHY THE COLUMN, NOT THE HEADING, IS THE SUBJECT. `.hero__content` is a flex COLUMN
+ * item, so it shrink-wraps to its WIDEST child. A cap on the H1 therefore narrowed the
+ * whole content column — title, subtitle AND button group — not just the headline.
+ * Measured on the seeded bands at 1280 that was 468px of a 1088px inner: 43%.
+ *
+ * WHY NOT A SMALLER ch VALUE. `ch` is viewport-local; the column is not. 24ch renders
+ * 896px at 1440 and 1280 but 792px at 1152 and 744px at 1024, so it re-strands the
+ * column at exactly the laptop widths most of the audience uses. The smallest value
+ * inert down to 1024 is ~29ch, which is `none` with extra steps. On `split` the grid
+ * track binds first (~17ch), so 16/20/24ch and `none` are indistinguishable there —
+ * only 12ch differed, and it left 85px of an already-narrow track unused.
+ *
+ * THE FIVE VIEWPORTS ARE THE EVIDENCE. The ch-vs-column argument is only visible across
+ * the range, so the ruling pins 1440 / 1280 / 1152 / 1024 / 375 rather than the usual
+ * 1280 + 375 pair. At 375 both states are column-bound, which is the claim that the
+ * change is desktop-only.
+ *
+ * ROW 3 CARRY-IN. `.hero__subtitle` keeps a RATIFIED 40ch cap, and `.hero__content`
+ * shrink-wraps to its widest child — so on a SHORT title the subtitle can become the new
+ * column binder. That is checked explicitly rather than assumed.
+ */
+test.describe('#578 hero heading measure', () => {
+  let pageId = 0;
+
+  // Long enough to exceed any plausible cap at 1440; short enough to read in a diff.
+  const LONG_TITLE = 'A deliberately long hero headline written to overflow every plausible measure';
+  const SHORT_TITLE = 'Ship faster';
+  const SUBTITLE =
+    'A supporting lede that is comfortably longer than the short headline above it, so the ' +
+    'subtitle 40ch cap is the widest thing in the column when the title is short.';
+
+  // 1024 and 1152 are the laptop widths the ch analysis turns on; 768 is the split
+  // stack boundary, so 1024 is also the narrowest true two-column split.
+  const VIEWPORTS = [1440, 1280, 1152, 1024, 375];
+
+  test.afterEach(() => {
+    if (pageId) {
+      try {
+        deletePage(pageId);
+      } catch {
+        /* already cleaned */
+      }
+      pageId = 0;
+    }
+  });
+
+  async function open(page: any, width: number, selector: string) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator(selector)).toBeVisible({ timeout: 10000 });
+  }
+
+  /** Title box, content column box, and the inner the column sits in. */
+  function measureHero(page: any, rootSel: string) {
+    return page.evaluate((sel: string) => {
+      const root = document.querySelector(sel) as HTMLElement;
+      if (!root) throw new Error(`no hero matched ${sel}`);
+      const title = root.querySelector('.hero__title') as HTMLElement;
+      const content = root.querySelector('.hero__content') as HTMLElement;
+      const inner = root.querySelector('.hero__inner') as HTMLElement;
+      const subtitle = root.querySelector('.hero__subtitle') as HTMLElement | null;
+
+      const lines = (el: HTMLElement) => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        return new Set(
+          Array.from(range.getClientRects())
+            .filter((r) => r.width > 0 && r.height > 0)
+            .map((r) => Math.round(r.top)),
+        ).size;
+      };
+
+      return {
+        titleMaxWidth: getComputedStyle(title).maxWidth,
+        titleWidth: Math.round(title.getBoundingClientRect().width),
+        titleLines: lines(title),
+        contentWidth: Math.round(content.getBoundingClientRect().width),
+        innerWidth: Math.round(inner.getBoundingClientRect().width),
+        subtitleWidth: subtitle ? Math.round(subtitle.getBoundingClientRect().width) : 0,
+        subtitleMaxWidth: subtitle ? getComputedStyle(subtitle).maxWidth : '',
+      };
+    }, rootSel);
+  }
+
+  /**
+   * The cap is GONE on both formerly-capped layouts, at every viewport. `none` is
+   * max-width's initial value, so this is also the assertion that centered and cover —
+   * which never had the cap — are unchanged.
+   */
+  for (const layout of ['left', 'split'] as const) {
+    test(`#578 ${layout} hero title is uncapped at every viewport @smoke`, async ({ page }) => {
+      pageId = createPage(`E2E 578 ${layout} uncapped`);
+      setComposition(pageId, [
+        {
+          component: 'hero',
+          props: {
+            id: 'pp-h578',
+            layout,
+            title: LONG_TITLE,
+            subheading: SUBTITLE,
+            // split needs a second-column ingredient or the renderer degrades it to left.
+            ...(layout === 'split' ? { proof: '<p>Trusted by teams</p>' } : {}),
+          },
+        },
+      ]);
+
+      for (const width of VIEWPORTS) {
+        await open(page, width, '#pp-h578 .hero__title');
+        const got = await measureHero(page, '#pp-h578');
+        expect(got.titleMaxWidth, `@${width}: the 12ch cap must be gone`).toBe('none');
+        await expectNoViewportOverflow(page, `#578 ${layout} hero @${width}`);
+      }
+    });
+  }
+
+  /**
+   * The measured claim of register row 8, on the layout that carried the defect worst:
+   * the LEFT hero's content column was 468px of a 1088px inner at 1280 and is now the
+   * full --measure-centered column. Asserted as a RATIO rather than a pixel count so a
+   * font-metric difference on a bare CI font stack cannot flake it.
+   */
+  test('#578 left hero content column is no longer stranded at desktop @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 578 left column reclaim');
+    setComposition(pageId, [
+      {
+        component: 'hero',
+        props: { id: 'pp-h578l', layout: 'left', title: LONG_TITLE, subheading: SUBTITLE },
+      },
+    ]);
+
+    for (const width of [1440, 1280, 1152, 1024]) {
+      await open(page, width, '#pp-h578l .hero__title');
+      const got = await measureHero(page, '#pp-h578l');
+      // Pre-#578 this ratio was 0.43 at 1280. The column is now bound by
+      // --hero-content-width (--measure-centered, 896px) or by the inner, whichever
+      // is narrower — never by a character count on the H1.
+      expect(
+        got.contentWidth / got.innerWidth,
+        `@${width}: the content column must use its inner, not 43% of it`,
+      ).toBeGreaterThan(0.7);
+      expect(got.titleLines, `@${width}: a long headline still wraps`).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  /**
+   * MOBILE, CORRECTED AGAINST MEASUREMENT. Register row 8 states "At 375 both are
+   * column-bound — no mobile change." Measured on a stressed fixture that is true of the
+   * COLUMN and false of the TITLE: at 375 the content column is 343px before and after
+   * (the container binds it, so no sibling band moves and no layout shifts), but 12ch of
+   * the 40px mobile heading is 287.8px — NARROWER than that 343px column — so the cap did
+   * bind on the headline itself. Deleting it widens a long mobile headline 288 -> 343px
+   * and drops it from 7 lines to 5 (band height 288 -> 206px).
+   *
+   * The direction is the same defect the ruling names (a character count leaving 55px of
+   * the column unused), so the decision is unaffected; only that one clause of the row's
+   * impact text was wrong. Pinned here as MEASURED rather than as CLAIMED.
+   */
+  test('#578 at 375 the column is unchanged but the headline reclaims it @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 578 mobile');
+    setComposition(pageId, [
+      {
+        component: 'hero',
+        props: { id: 'pp-h578m', layout: 'left', title: LONG_TITLE, subheading: SUBTITLE },
+      },
+    ]);
+
+    await open(page, 375, '#pp-h578m .hero__title');
+    const got = await measureHero(page, '#pp-h578m');
+    expect(got.titleMaxWidth).toBe('none');
+    // The claim that holds: the column is the container's, so nothing around it moves.
+    expect(got.contentWidth).toBe(got.innerWidth);
+    // The claim that does not: the title now fills that column instead of stopping at 12ch.
+    expect(got.titleWidth).toBe(got.contentWidth);
+    await expectNoViewportOverflow(page, '#578 hero @375');
+  });
+
+  /**
+   * ROW 3 CARRY-IN, checked rather than assumed. With the title cap gone, a SHORT title
+   * no longer sets the column width — `.hero__content` shrink-wraps to its widest child,
+   * so the subtitle's ratified 40ch cap becomes the binder. That is the expected and
+   * intended outcome (a lede measure is a better column driver than a headline
+   * character count), and this pin records it so a later change to either cap has to
+   * confront the interaction.
+   */
+  test('#578 short-title left hero: the subtitle 40ch cap becomes the column binder @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 578 short title subtitle binding');
+    setComposition(pageId, [
+      {
+        component: 'hero',
+        props: { id: 'pp-h578s', layout: 'left', title: SHORT_TITLE, subheading: SUBTITLE },
+      },
+    ]);
+
+    await open(page, 1280, '#pp-h578s .hero__title');
+    const got = await measureHero(page, '#pp-h578s');
+
+    expect(got.subtitleMaxWidth, 'the subtitle keeps its ratified 40ch cap').not.toBe('none');
+    // The column is the subtitle's box, not the short title's, and not the full inner.
+    expect(got.contentWidth).toBe(got.subtitleWidth);
+    expect(got.contentWidth, 'a short title no longer strands the column').toBeLessThan(
+      got.innerWidth,
+    );
+    expect(got.titleWidth, 'the short title is narrower than the column it sits in').toBeLessThan(
+      got.contentWidth + 1,
+    );
+  });
+
+  /** The slot ships and works: an operator can now cap a hero headline deliberately. */
+  test('#578 --hero-heading-measure caps the title on every layout @smoke', async ({ page }) => {
+    pageId = createPage('E2E 578 hero measure slot');
+    setComposition(pageId, [
+      {
+        component: 'hero',
+        props: { id: 'pp-h578c', layout: 'centered', title: LONG_TITLE, subheading: SUBTITLE },
+      },
+    ]);
+
+    await open(page, 1280, '#pp-h578c .hero__title');
+    expect((await measureHero(page, '#pp-h578c')).titleMaxWidth).toBe('none');
+
+    // styleComponent dispatches through the admin AJAX endpoint, so it needs the chat
+    // screen's localized config (window.ppAiChat) — it is not present on the front end.
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // `centered` never carried the 12ch rule, so this also proves the slot was declared
+    // on the unscoped .hero__title rule rather than on the two formerly-capped layouts.
+    const res = await styleComponent(page, pageId, { '--hero-heading-measure': '20rem' });
+    expect(res.success).toBe(true);
+
+    await open(page, 1280, '#pp-h578c .hero__title');
+    const capped = await measureHero(page, '#pp-h578c');
+    const rootFont = await page.evaluate(() =>
+      parseFloat(getComputedStyle(document.documentElement).fontSize),
+    );
+    expect(capped.titleMaxWidth).toBe(`${Math.round(rootFont * 20)}px`);
+    expect(capped.titleWidth).toBe(Math.round(rootFont * 20));
   });
 });

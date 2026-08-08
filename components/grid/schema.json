@@ -115,7 +115,7 @@
       "--grid-subheading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space between the subheading and the content below it" },
       "--grid-heading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space between the heading and the subheading below it" },
       "--grid-heading-size": { "type": "length", "default": "inherit", "description": "Heading font size" },
-      "--grid-heading-measure": { "type": "length", "default": "40rem", "description": "Heading maximum width — increase to let long headings use available horizontal space" },
+      "--grid-heading-measure": { "type": "length", "role": "measure", "default": "var(--measure-heading)", "description": "Maximum width of the grid heading — increase to let a long heading use the available horizontal space. Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site." },
       "--grid-gap": { "type": "length", "default": "var(--space-lg)", "description": "Gap between grid cards" },
       "--grid-item-bg": { "item_eligible": true, "type": "gradient", "default": "var(--color-surface)", "description": "Card background color or gradient" },
       "--grid-item-border-color": { "item_eligible": true, "type": "color", "default": "var(--color-border)", "description": "Card border color" },
