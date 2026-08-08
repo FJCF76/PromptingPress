@@ -4,6 +4,40 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.8] — 2026-08-08 — a style slot that reports success now actually renders (#577)
+
+**Ten declared style slots accepted a value, reported `ok:true`, and changed nothing on the page. They render now. Eight deliberate visual changes ship with them, each named and measured; everything else is byte-identical when the slot is unset, and proven so by test.**
+
+A slot that an author can write, that the write path accepts, and that the browser then ignores is worse than a missing control: the operator has no signal that the instruction was thrown away. Ten of them had accumulated. `--hero-padding-top` lost to a generic adjacent-sibling rule on every hero placed after another band. `--section-bg` and the section border slots lost to the theme rules that painted `muted` and `inverted`, while the annotation surface an agent reads already promised the override would win. `--cta-border-width` and `--cta-border-color` were suppressed on every `background_image` band by a `border: none` shorthand. `faq` items took their corner radius from the *grid* component's card slot, a slot faq could neither set nor resolve. `stats` was the only one of the four background-image bands with no per-instance scrim slot. The inverted-band `title_accent` had no rule at all, so a highlighted heading word rendered brand-blue at 3.23:1 on a dark band. The testimonials role/company line had no inverted-stack twin and stayed light-surface grey on that band. Two `opacity: 0.85` literals on overlay bands measured 3.87:1 against a 4.5:1 bar. And the hero subtitle carried a `1.6` line-height literal that duplicated `--line-height-body`'s exact value, so a site that retuned body leading moved every paragraph except that one.
+
+The overlay-band contrast fix is the one worth reading twice. The de-emphasis moves to a role token, `--color-muted-on-overlay`, rather than a smaller opacity — because there is no smaller opacity that works. Over the worst case that band is calibrated against (the scrim over a pure-white image, effectively `rgb(115,115,115)`), contrast tops out at 4.74:1 for any foreground, and full `--color-bg` reaches only 4.658:1. Break-even alpha is about 0.968. The entire de-emphasis budget on an overlay band is roughly 0.07:1, which the old literal was spending several times over. The three opacity literals on the SOLID inverted band measure 12.76:1, 10.22:1 and 10.22:1, so they stay — now scoped `:not(--has-bg-image)`, because a band can carry `theme: "inverted"` and a `background_image` at the same time and the inverted measurement does not hold there.
+
+Two entries the issue asked for were not shipped, because the code disagreed with the premise. `.grid__item-body:first-child` and `.grid--steps .grid__item` were both listed as defeating `--grid-item-padding`; neither does. The first is outranked at both breakpoints by a rule that already routed the slot, and the second sits beside a `.grid__item-body` that grid.php renders for steps cards too, so routing the outer box through the same slot would have inset an authored card twice and desynced the step connector.
+
+### Fixed
+- `--hero-padding-top` takes effect on a hero placed after another band, at both breakpoints. Unset, that hero now keeps hero's own opener rhythm instead of the shared band tier: `--space-2xl` desktop / `--space-xl` mobile for `centered` and `cover`, and `--space-xl` at both breakpoints for `left` and `split`, whose own documented rhythm is the compact one. Both left/split edges are symmetric as a result (#577).
+- `--section-bg`, `--section-border-width` and `--section-border-color` render on `muted` and `inverted` sections instead of losing to the theme literals (#577).
+- `--cta-border-width` and `--cta-border-color` render on a `background_image` cta; the band grows no left or right edge it did not have before (#577).
+- The `title_accent` substring on an `inverted` section or cta routes `--color-accent-on-inverted` (3.23:1 → 8.33:1) instead of the light-surface accent (#577).
+- The role/company line of an `inverted` + `stack` testimonials band takes a light default, matching its quote and author siblings (#577).
+- The cta `body` and stats `label` on a `background_image` band drop `opacity: 0.85` and route the new `--color-muted-on-overlay` role, taking both from a measured 3.87:1 to ≥4.5:1 against the worst-case scrim (#577).
+- `faq` items take their radius from a new `--faq-item-radius` instead of the grid component's card slot; both render 4px unset (#577).
+- `--grid-item-padding` reaches the featured first card's body at ≥1024, where a `2.25rem` literal was the last word (#577).
+- `--embed-body-color` is declared and routes the embed content ink on the base band and the inverted one (#577).
+- `--stats-overlay-bg` is declared and drives the stats scrim, completing the slot across all four background-image bands (#577).
+- The hero subtitle's line-height routes `--line-height-body`, so a body-leading retheme reaches it (#577).
+
+### Docs
+- `ai-instructions/retheme.md` documents `--color-muted-on-overlay`, the measured overlay-band contrast ceiling, and why de-emphasis there cannot be spelled with `opacity` (#577).
+- `ai-instructions/style-component.md` documents the `--{hero,section,cta,stats}-overlay-bg` family and the contrast consequence of lightening a scrim (#577).
+- `AI_CONTEXT.md` corrects the background-image implementation pattern (the scrim routes a per-instance slot on all four bands) and records the new role token; slot totals move 233 → 236 (#577).
+
+### Tests
+- `tests/e2e/style-render.spec.ts` adds 23 rendered pins covering every entry at 1280 and 375, including the eight register rows asserted against their old values, the byte-identical-unset cases, and a measured contrast assertion that composites both the scrim over white and the element's own opacity — so re-introducing an opacity literal fails even with the declared colour untouched (#577).
+- `tests/js/css-lint.test.js` adds hero to the band adjacent-top contract as an explicit exception with its own fallback, pins the `hero--left` twin and its source order, and pins that hero's desktop rule stays above the `data-pp-spacing` restatement (#577).
+
+---
+
 ## [v1.12.7] — 2026-08-08 — a write that says "ok" now means the page does that (#579)
 
 **Every enum prop rejects a value it used to accept-and-quietly-ignore, the write path stops accepting CSS the renderer was always going to throw away, and a logo entry that renders nothing can no longer be saved. Zero rendered pixels change.**
