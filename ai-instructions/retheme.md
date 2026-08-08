@@ -137,6 +137,14 @@ class, so it gets no routing at all; keep `--color-accent` legible against any b
 colour you author, and note the reverse also holds — if you LIGHTEN a scrim with
 `--cta-overlay-bg` the band keeps its class and keeps the near-white routing.
 
+**Since #577 the same trap has a second door on `section`.** `--section-bg` now wins over
+the `muted` / `inverted` theme paint (before, the theme literal silently defeated it). So
+an `inverted` section whose `--section-bg` you set to a LIGHT colour keeps its
+`pp-section--inverted` class — and therefore its near-white heading, body and link
+routing — while painting light. That is light-on-light. If you want a light band, change
+the `theme`; reach for `--section-bg` to adjust a band's shade WITHIN its theme, not to
+invert it.
+
 Example retheme — warm neutral:
 ```css
 --color-bg:           #fefefe;
