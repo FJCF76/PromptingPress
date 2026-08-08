@@ -22,6 +22,7 @@ This checks:
 1. **Custom CSS conflicts** — selectors in WordPress Custom CSS that target PP component classes (also surfaced via admin notice on composition edit screens)
 2. **Composition styling** — duplicate component types without authored IDs (ambiguous targeting; auto-generated `pp-<hex8>` ids do not count as stable), and duplicate authored IDs (two components sharing the same `id` — rejected at write time, reported here as a `duplicate_component_id` smell for state that predates the rule)
 3. **Composition data integrity** — a page whose stored composition is corrupt (undecodable JSON) or not a valid composition list is flagged as a data-integrity error and fails validation, instead of being silently treated as a blank page (issue 144). `wp pp check page` reports the same corruption distinctly from "no composition".
+4. **Composition smells** — the advisory findings `wp pp check page` reports, including `empty_section`, `transparent_fill`, and `inert_slot` (a style slot whose declared `applies_when` condition is unmet on that component, so the stored value renders nothing). These are ADVISORIES about the composition, not errors in it: the writes that produced them were accepted and the values are stored as authored. **They still make `wp pp validate site` exit non-zero**, because this command is the "nothing is quietly wrong" gate. Resolve an `inert_slot` by setting the prop the slot needs (`layout`, `eyebrow`, `button2_text`, ...) or by dropping the slot — the message names the slot and every unmet clause.
 
 Individual checks:
 

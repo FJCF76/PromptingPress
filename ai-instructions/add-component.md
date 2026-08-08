@@ -154,6 +154,24 @@ is dark." renders as the **opposite** of what you meant. When a definition
 declares both `applies_when` and a note, the catalog joins them with `AND` as one
 condition.
 
+**One field, two consumers (issue #580).** `applies_when` is populated across the
+conditionality census — 160 declarations today, which is what the schemas state, not a
+claim that every code-real condition has been found — and the *same* field drives a
+write-time advisory:
+when a composition sets a slot whose condition is unmet, `wp pp check page` and the
+restore findings report a non-blocking **`inert_slot`** smell naming the slot and
+every unmet clause. There is deliberately no second condition table — declare the
+condition once, on the definition, and both the before-the-write catalog line and
+the after-the-write warning follow. Two consequences when you author a condition:
+
+- **A wrong condition is worse than none.** It becomes advice an agent designs
+  around. Verify a new condition against the renderer *and* the CSS selector that
+  consumes the slot before declaring it, and update the `CONDITIONALITY_LEDGER`
+  pin in `tests/SchemaValidationTest.php` in the same change.
+- **The advisory only sees `applies_when`.** A `conditionality_note` is prose, so
+  the three classes that live there stay silent on the warning channel by
+  construction. They reach the author through the catalog, before the write.
+
 `role` is a **declared key, not a name convention**: a naming convention is not
 machine-readable without a second source of truth, which is the same defect this
 contract fixes one layer down. The bounded value set lives in `pp_slot_roles()`

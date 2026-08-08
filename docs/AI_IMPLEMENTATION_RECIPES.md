@@ -41,6 +41,12 @@ Used by: #99, #100, #108, #111, #61 (and the #99 scaffold issue defines the reus
    `--cta-body-measure`, `--faq-body-measure`); a width cap with a real length default stays plain
    `length`. Declare `"role": "fill"` on a button/surface fill and `"role": "measure"` on a text
    measure — the roles are bounded by `pp_slot_roles()` and the runtime AI catalog emits them.
+   If the slot only renders in a particular configuration, declare `applies_when` (the four
+   ANDed clause forms) or, for a condition the grammar cannot express, `conditionality_note`,
+   and add the row to `CONDITIONALITY_LEDGER` in `tests/SchemaValidationTest.php` in the SAME
+   change. That one declaration drives both the runtime catalog line an agent reads before
+   writing and the `inert_slot` advisory it gets after — so verify the condition against the
+   renderer AND the CSS selector first; a wrong condition is advice an agent designs around.
 2. **Validation is automatic** for known types via `_pp_validate_token_value()` (`lib/apply.php`) — but if you introduce a *new* type (e.g. `gradient`, #99), add its validator there and to the `switch` in `_pp_validate_token_value`, keeping the `{};<>` guard and a positive-pattern grammar (see `_pp_validate_length` clamp/calc handling as the model). Reject `var()`/`url()`/`env()` unless explicitly allowlisted.
 3. **Render:** the slot is emitted by `pp_render_style_vars($props['__pp_style'] ?? [], '{name}')` in `components/{name}/{name}.php` (already wired for hero/section/grid/cta/faq/stats/testimonials; add the call for components that lack it). Reference the CSS var in `assets/css/components.css` with a fallback: `color: var(--{name}-{slot}, var(--color-text));`
    **Declare it inside that component's OWN block, and never name another component's slot (#578).** A shared rule that caps six bands' headings from one selector list reading `var(--cta-heading-measure, …)` is not a slot for five of them: they can neither SET it (the write path rejects a foreign slot with `invalid_style_slot`) nor have it RESOLVE (slot custom properties are emitted on the owning component's root, so they never reach a sibling band's subtree). It renders as a literal wearing a `var()` costume, and because such a rule usually lives in some *other* component's block it is invisible to every per-component audit. Give each component its own slot, and route the shared default through a design token (`var(--measure-heading)`) when the bands are meant to move together. `tests/MeasureSurfaceTest.php` pins the severance from both sides — each component's own slot reaches its own element, and no non-cta selector still reads a cta slot.
@@ -80,8 +86,9 @@ Used by: #51, #87.
 1. In `lib/guardrails.php` `pp_validate_composition_smells(array $composition): array`, append a check returning `['type'=>..., 'index'=>$i, 'message'=>...]` (warning-grade; **never auto-remove content**). Guard malformed entries — this function runs over compositions that never passed write-time validation (raw meta writes, and every history-ring snapshot via `restore_composition`'s findings, #233). The loop already skips non-array `$item`, non-array `props`, and non-scalar `component`; do not assume any deeper prop is well-typed either. A check that declares `string $component` and receives an array is a fatal, not a warning.
 2. It reaches the INSPECT surface automatically (`pp_inspect_site` reads composition via `pp_get_composition`, not raw meta — fixed in #119).
 3. `wp pp check page` (`lib/cli.php`) already calls the smell checker; confirm your new smell appears there.
-4. **Test:** `tests/GuardrailsTest.php` — smelly composition → warning with the right `type`/`index`; clean composition → none.
-5. **Verify:** `composer test`.
+4. **Do not red a fresh install.** `wp pp validate site` sets `$pass = false` on ANY smell and ends `WP_CLI::halt(1)` (`lib/cli.php`), so a smell that fires on `pp_default_homepage_composition()` — the seed theme activation writes — makes a fresh install exit 1 with nothing the operator can fix. Pin the shipped seed clean in the same change (see `AppliesWhenTest::testTheShippedStarterHomepageEmitsNoInertSlotSmell`). This is what deferred #578's measure advisory to issue #610.
+5. **Test:** `tests/GuardrailsTest.php` — smelly composition → warning with the right `type`/`index`; clean composition → none.
+6. **Verify:** `composer test`.
 
 ---
 
