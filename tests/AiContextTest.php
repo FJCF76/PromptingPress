@@ -107,9 +107,17 @@ class AiContextTest extends TestCase
         $this->assertStringContainsString('A `length-or-none`-typed slot', $prompt);
         $this->assertStringContainsString('PLUS the keyword `none`', $prompt);
         $this->assertStringContainsString(
-            'a plain `length` slot (padding, font-size, radius, a text measure) still rejects it',
+            'A plain `length` slot (padding, font-size, radius, and every measure with a real length default, e.g. `--section-body-measure` or `--cta-heading-measure`) still rejects it.',
             $prompt,
             'the widening must be stated as bounded, or the AI will try `none` everywhere'
+        );
+        // #578 widened the type from one band-geometry cap to five slots. The prompt
+        // must name the four uncapped measures, or an agent reading it will believe
+        // `none` is never valid on a measure and cannot restore their declared default.
+        $this->assertStringContainsString(
+            'the four text measures that ship uncapped (`--hero-heading-measure`, `--section-heading-measure`, `--cta-body-measure`, `--faq-body-measure`)',
+            $prompt,
+            'the length-or-none carrier set must be stated, not just --stats-max-width'
         );
         $this->assertStringContainsString(
             'use the slot\'s own removal value when its type has one',

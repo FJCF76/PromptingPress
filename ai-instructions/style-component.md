@@ -131,9 +131,10 @@ band's background. Unset, the band spans full width with square corners exactly 
 before. To remove the max-width, set `none` — the `length-or-none` type accepts the
 same keyword the slot declares as its default, so the built-in full-bleed is
 authorable (#579). `none` is accepted **only** on a `length-or-none` slot; a plain
-`length` slot (padding, font-size, radius, a text measure like
-`--section-body-measure`) still rejects it, and there `100%` remains the way to
-widen a cap. Stats does not expose `*-border-*` or `*-shadow` slots.
+`length` slot (padding, font-size, radius, and any measure with a real length default
+such as `--section-body-measure`) still rejects it, and there `100%` remains the way to
+widen a cap. The four measures that ship uncapped carry `length-or-none` too — see the
+type table above and "Text measures" below. Stats does not expose `*-border-*` or `*-shadow` slots.
 
 ## Text measures — prefer the token over a per-band literal (#578)
 

@@ -324,8 +324,11 @@ function _pp_check_token_reference_cycle(string $token, string $value) {
  *
  * @param string $value      The candidate value.
  * @param bool   $allow_none Accept the keyword `none`. Set ONLY by the
- *                           `length-or-none` slot type (the band-geometry width cap,
- *                           today just --stats-max-width), never by plain `length`:
+ *                           `length-or-none` slot type — the width caps whose DECLARED
+ *                           DEFAULT is `none`: the band-geometry cap --stats-max-width
+ *                           (#579) plus the four measures that ship uncapped (#578,
+ *                           --hero-heading-measure, --section-heading-measure,
+ *                           --cta-body-measure, --faq-body-measure) — never by plain `length`:
  *                           `none` on a padding, radius or font-size is a value the
  *                           browser drops, which is the accepted-but-dead class this
  *                           whole engine exists to reject.

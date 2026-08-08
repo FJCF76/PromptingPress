@@ -10,7 +10,7 @@ All notable changes to PromptingPress are documented here.
 
 A "measure" is the max width of a line of text — the thing that decides whether a headline wraps at three words or twelve. Until now most bands had no control over theirs, and the ones that appeared to have one were sharing. A single rule buried in the *section* block capped six different components' headings through `--cta-heading-measure`, a slot that belongs to the CTA band. The five non-CTA components could neither set it (the write path rejects a foreign component's slot) nor have it resolve (a slot's value is written onto the component root that owns it, never onto a sibling band), so what looked like an authorable cap was a `40rem` literal wearing a `var()` costume. The same shape hid in the mobile type rules, where grid cards and FAQ answers took their body size from `--cta-body-size`.
 
-Both leaks are gone. Every band component now declares its own `--<component>-heading-measure`, consumed inside its own CSS block, and `section`, `cta`, `faq` and `embed` gain a `--<component>-body-measure` for their prose. Eight of the ten heading measures default to the new `--measure-heading` token, so one `update_design_token` write retunes band heading measure site-wide instead of ten per-band edits. `hero` and `section` are deliberately exempt and stay uncapped: the section title has never carried a cap and section is the most-used band in the product, and hero's container already is its measure.
+Both leaks are gone. Every band component now declares its own `--<component>-heading-measure`, consumed inside its own CSS block, and `cta`, `faq` and `embed` join `section` in carrying a `--<component>-body-measure` for their prose. Eight of the ten heading measures default to the new `--measure-heading` token, so one `update_design_token` write retunes band heading measure site-wide instead of ten per-band edits. `hero` and `section` are deliberately exempt and stay uncapped: the section title has never carried a cap and section is the most-used band in the product, and hero's container already is its measure.
 
 ### The hero change, measured
 
@@ -32,8 +32,8 @@ Also: `width: narrow` on a hero stopped duplicating `--measure-centered`'s value
 
 ### Added
 - `--measure-heading` (`40rem`) joins `--measure-body`, `--measure-body-wide` and `--measure-centered` in the design-token family. Retune it to move eight band headings at once.
-- `--<component>-heading-measure` on all ten band components (`hero`, `section`, `grid`, `cta`, `faq`, `stats`, `table`, `logos`, `embed`, `testimonials`).
-- `--<component>-body-measure` on `section`, `cta`, `faq` and `embed`.
+- `--<component>-heading-measure` on the eight band components that had none (`hero`, `section`, `faq`, `stats`, `table`, `logos`, `embed`, `testimonials`). `grid` and `cta` already declared theirs, so all ten band components now carry one.
+- `--<component>-body-measure` on `cta`, `faq` and `embed`, joining the `--section-body-measure` that already existed. Those four are the prose bands.
 - A `measure` value for the slot definition's `role` marker, surfaced to the authoring AI in the runtime slot catalog.
 - `ai-instructions/style-component.md` gains a "Text measures" section covering the token-over-literal preference, the two exempt components, and the branch-fallback slots whose default is not one value.
 
@@ -43,9 +43,11 @@ Also: `width: narrow` on a hero stopped duplicating `--measure-centered`'s value
 - `[data-pp-width="narrow"] .container` references `var(--measure-centered)` instead of restating `56rem`.
 - The `[data-pp-spacing]` and `[data-pp-width]` selectors are scoped to `.hero`.
 - `--section-body-measure` and `--hero-content-width` keep all of their branch fallbacks; their slot descriptions now state each branch's condition, because setting either replaces every branch with the single value you write.
+- `--grid-heading-measure` and `--cta-heading-measure` keep their names and their rendered `40rem`; only their default moves from a literal to `var(--measure-heading)`, so they follow a token retune with the six new routed measures.
+- The `length-or-none` slot type, until now carried only by `--stats-max-width`, also covers the four measures that ship uncapped (`--hero-heading-measure`, `--section-heading-measure`, `--cta-body-measure`, `--faq-body-measure`), so `none` restores their declared default. Every measure with a real length default stays plain `length` and still rejects `none`; `100%` remains the way to widen those.
 
 ### Fixed
-- Six components' headings (`table`, `faq`, `logos`, `embed`, `cta`, `stats`) each read their own measure slot instead of sharing the CTA band's.
+- Six components' headings (`table`, `faq`, `logos`, `embed`, `cta`, `stats`) were capped by one shared rule reading `--cta-heading-measure`. Each now declares its own cap in its own block, and the five non-CTA ones read their own slot.
 - Grid cards and FAQ answers no longer take their mobile body size from the CTA band's `--cta-body-size`, and an unset section body no longer chains through it.
 - `.embed__content` routes `--embed-body-measure` instead of a bare `40rem`, so embedded content width is authorable at all.
 
@@ -54,7 +56,7 @@ Also: `width: narrow` on a hero stopped duplicating `--measure-centered`'s value
 - `ai-instructions/add-component.md`, `docs/AI_IMPLEMENTATION_RECIPES.md` and `components/hero/README.md` reconciled against the new surface.
 
 ### Tests
-- `tests/MeasureSurfaceTest.php` (new, 50 tests): the declaration surface, the severance proved from both directions, the authoring path through the real action layer for every new slot, and the exemption set.
+- `tests/MeasureSurfaceTest.php` (new, 43 tests): the declaration surface, the severance proved from both directions, the authoring path through the real action layer for every new slot, and the exemption set.
 - Rendered pins in `tests/e2e/style-render.spec.ts` for the hero change at 1440/1280/1152/1024/375 including short-title and split cases, and a per-component severance pin for all six formerly-shared headings.
 
 ### Known limitations
