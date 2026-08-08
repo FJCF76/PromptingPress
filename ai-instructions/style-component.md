@@ -79,7 +79,7 @@ Check that `current` values reflect your changes and the `active_recipe` shows c
 |------|----------|-----------|
 | `color` | `#1a1a2e`, `rgb(26, 26, 46)`, `transparent`, `currentColor`, `var(--color-accent)` | `_pp_validate_color()` |
 | `length` | `8rem`, `50%`, `clamp(3rem, 6vw, 5rem)`, `calc(100% - 2rem)`, `0` | `_pp_validate_length()` |
-| `length-or-none` | `none`, `60rem`, `100%` — the `length` grammar plus the keyword `none` ("no cap"). Band-geometry width caps only; today just `--stats-max-width`, whose declared default IS `none`. A plain `length` slot still rejects `none`. | `_pp_validate_length()` (with the `none` keyword) |
+| `length-or-none` | `none`, `60rem`, `100%` — the `length` grammar plus the keyword `none` ("no cap"). Carried by the width-cap slots whose **declared default IS `none`**, so the built-in uncapped state stays authorable: `--stats-max-width` (band geometry) plus the four measures that ship uncapped — `--hero-heading-measure`, `--section-heading-measure`, `--cta-body-measure`, `--faq-body-measure`. Every other measure slot has a real length default and stays plain `length`. A plain `length` slot still rejects `none`. | `_pp_validate_length()` (with the `none` keyword) |
 | `number` | `700`, `1.5` | `_pp_validate_number()` |
 | `duration` | `250ms`, `0.3s` | `_pp_validate_duration()` |
 | `font-family` | `"Inter", sans-serif` | `_pp_validate_font_family()` |
@@ -131,9 +131,46 @@ band's background. Unset, the band spans full width with square corners exactly 
 before. To remove the max-width, set `none` — the `length-or-none` type accepts the
 same keyword the slot declares as its default, so the built-in full-bleed is
 authorable (#579). `none` is accepted **only** on a `length-or-none` slot; a plain
-`length` slot (padding, font-size, radius, a text measure like
-`--section-body-measure`) still rejects it, and there `100%` remains the way to
-widen a cap. Stats does not expose `*-border-*` or `*-shadow` slots.
+`length` slot (padding, font-size, radius, and any measure with a real length default
+such as `--section-body-measure`) still rejects it, and there `100%` remains the way to
+widen a cap. The four measures that ship uncapped carry `length-or-none` too — see the
+type table above and "Text measures" below. Stats does not expose `*-border-*` or `*-shadow` slots.
+
+## Text measures — prefer the token over a per-band literal (#578)
+
+Every band component declares `--<component>-heading-measure`, and `section`, `cta`,
+`faq` and `embed` also declare `--<component>-body-measure`. Eight of the ten heading
+measures **default to the shared `--measure-heading` design token** (`40rem`), so the
+normal way to change band heading measure across a site is ONE `update_design_token`
+write, not ten `style_component` writes.
+
+That is not just a convenience: measure slots are `length` / `length-or-none`, which are
+**literal-only**, so you cannot write the token reference into the slot either.
+`style_component` with `--cta-heading-measure: var(--measure-heading)` is rejected even
+though that string IS the slot's declared default. Retune the token, or write a literal
+and accept that this band stops following.
+
+Two components are deliberately exempt and default to `none`:
+
+- **`hero`** — `.hero__content` is a flex item that shrink-wraps to its widest child, so
+  a cap on `--hero-heading-measure` narrows the whole content column (title, subheading
+  AND buttons), not just the headline. The hero measure you almost always want is
+  **`--hero-content-width`**. Reach for `--hero-heading-measure` only to hold a headline
+  deliberately narrower than its column.
+- **`section`** — the section title has never carried a cap, and section is the most-used
+  band, so it stays uncapped unless you say otherwise.
+
+Writing a plain length into any measure slot is **accepted and renders exactly as
+written** — a per-band measure is a legitimate typographic choice. Be aware of what it
+costs: that band is then pinned, so a later site-wide measure retune moves every other
+band and leaves this one behind. Keep the literal when this band must differ; otherwise
+leave the slot unset and tune the `--measure-*` tokens.
+
+Note the branch-fallback slots. `--section-body-measure` and `--hero-content-width` do
+not have ONE default each — their defaults vary by layout and viewport (four branches and
+three respectively, listed in each slot's `description`). Setting either replaces **every**
+branch with the single value you write, at every layout and viewport, so pick a value that
+reads at 375 as well as at 1440.
 
 **Stats display numbers follow the heading system only when you ask (#472).** The big
 metric values are the largest text in the component, but by default they take the page
@@ -560,4 +597,4 @@ properties and a `.btn--outline` button; the grid card text carries `.text-kicke
 - Do not edit `assets/css/components.css` to change per-instance appearance -- use style slots
 - Do not add inline styles in component PHP files -- the style system handles this
 - Do not set style slots that aren't declared in the component's schema.json
-- Do not put `var()` in a `length` slot (or `number`/`duration`/`position`/`ratio`) at all -- these types are literal-only. That includes a bare `var(--space-lg)` **and** `var()` nested inside `clamp()`/`calc()` (the nested form is additionally blocked for security). Look up the token's value and pass it literally -- see "Which types accept `var()`" above the recipes table
+- Do not put `var()` in a `length` slot (or `length-or-none`/`number`/`duration`/`position`/`ratio`) at all -- these types are literal-only. This includes every measure slot: `--cta-heading-measure: var(--measure-heading)` is **rejected**, even though that is the slot's own declared default. To move band measures together, retune the token with `update_design_token`; to pin one band, write a literal. That includes a bare `var(--space-lg)` **and** `var()` nested inside `clamp()`/`calc()` (the nested form is additionally blocked for security). Look up the token's value and pass it literally -- see "Which types accept `var()`" above the recipes table

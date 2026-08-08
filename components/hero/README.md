@@ -22,7 +22,7 @@ Full-width hero section with headline, optional subheading, optional CTA button,
 | `image_id`      | int    | No       | `0`          | Media Library attachment ID for the `split` layout image. When set and it resolves, renders responsively (`srcset`/`sizes`) via `wp_get_attachment_image()`; falls back to `image_url` otherwise |
 | `image_alt`     | string | No       | `''`         | Alt text for the `split` layout image |
 | `spacing`       | enum   | No       | `'default'`  | Vertical padding: `default` / `compact` / `spacious` |
-| `width`         | enum   | No       | `'default'`  | Content width: `default` / `narrow` (56rem) / `full` |
+| `width`         | enum   | No       | `'default'`  | Content width: `default` / `narrow` (the `--measure-centered` token, 56rem by default, so a retuned centered measure moves this too) / `full`. `width` and `spacing` are hero-only props — no other component emits `data-pp-width` / `data-pp-spacing`, and the CSS is scoped to `.hero` |
 | `split_ratio`   | enum   | No       | `'50-50'`    | Column ratio for `split` layout: `50-50` / `60-40` / `40-60` |
 | `vertical_align`| enum   | No       | `'center'`   | Vertical content alignment for `cover`/`split` layouts: `top` / `center` / `bottom` / `stretch`. `stretch` (split only) makes the media column fill the content column's height — one asset balances any headline length; on `cover` it renders like `center` |
 | `proof`         | string | No       | `''`         | HTML string for trust signals (logos, ratings), rendered after the CTA group |

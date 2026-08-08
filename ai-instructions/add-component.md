@@ -118,7 +118,7 @@ never stored anywhere else.
 | `item_eligible` | slot | the slot is item-scoped (a grid card, a section panel row) — enforced at **write and at render**, so a container-scoped slot never reaches the item element even from a non-validating write |
 | `applies_when` | slot + prop | machine-readable conditionality (below) |
 | `conditionality_note` | slot + prop | the bounded prose escape hatch (below) |
-| `role` | slot | `"fill"` — this slot is the component's fill colour |
+| `role` | slot | `"fill"` — this slot is the component's fill colour; `"measure"` — this slot is a text measure (a heading, prose or content-column `max-width`) |
 | `aliases` | prop | legacy **values** accepted at write, never advertised |
 
 `applies_when` is an **array of clauses, ANDed**. **Exactly four clause forms
@@ -154,12 +154,22 @@ is dark." renders as the **opposite** of what you meant. When a definition
 declares both `applies_when` and a note, the catalog joins them with `AND` as one
 condition.
 
-`role: "fill"` is a **declared key, not a `-bg` / `-hover-bg` name convention**: a
-naming convention is not machine-readable without a second source of truth, which
-is the same defect this contract fixes one layer down. Mark a colour slot `fill`
-when it paints a **button or surface fill**; the composition-smell channel reads
-the marker to warn (never block) when such a slot resolves to `transparent` or
-`currentColor`, which renders an invisible-but-clickable button.
+`role` is a **declared key, not a name convention**: a naming convention is not
+machine-readable without a second source of truth, which is the same defect this
+contract fixes one layer down. The bounded value set lives in `pp_slot_roles()`
+(`lib/admin.php`) — today `fill` and `measure`, and a value outside that set fails CI.
+
+- **`fill`** — mark a colour slot `fill` when it paints a **button or surface fill**;
+  the composition-smell channel reads the marker to warn (never block) when such a
+  slot resolves to `transparent` or `currentColor`, which renders an
+  invisible-but-clickable button.
+- **`measure`** — mark a length slot `measure` when it caps the width of **text**: a
+  band heading, a prose column, or a content column. The name is exactly why this
+  cannot be a `-measure` suffix rule — hero's real measure is spelled
+  `--hero-content-width`, so a suffix rule would miss the one slot the hero docs point
+  every author at. Its consumer is deferred (issue #610); the runtime AI catalog
+  already emits the marker so an agent is told a literal here opts that band out of a
+  later site-wide `--measure-*` retune.
 
 `aliases` lists legacy **values** of a bounded set. Canonical values stay clean —
 an alias is **accepted, never advertised**, so it must not also appear in `values`,

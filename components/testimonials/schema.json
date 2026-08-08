@@ -79,6 +79,7 @@
       "--testimonials-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
       "--testimonials-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop); set an explicit length to override." },
       "--testimonials-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Heading text color" },
+      "--testimonials-heading-measure": { "type": "length", "role": "measure", "default": "var(--measure-heading)", "description": "Maximum width of the testimonials heading. Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site." },
       "--testimonials-heading-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading, if set" },
       "--testimonials-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color" },
       "--testimonials-eyebrow-bg": { "type": "color", "default": "var(--color-surface-accent)", "description": "Eyebrow pill background color" },

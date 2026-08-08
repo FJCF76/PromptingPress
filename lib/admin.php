@@ -175,7 +175,7 @@ function pp_slot_definition_keys(): array {
         'item_eligible',        // grid per-item scope flag (#323)
         'applies_when',         // #575 — machine-readable conditionality
         'conditionality_note',  // #575 — the prose escape hatch, bounded and named
-        'role',                 // #575 — the declared fill-role marker
+        'role',                 // #575 — the declared slot-role marker; values bounded by pp_slot_roles() (fill, measure)
     ];
 }
 
@@ -202,13 +202,26 @@ function pp_prop_definition_keys(): array {
  * engine can tell a fill slot from any other colour slot. It is a DECLARED key, not
  * a `-bg` / `-hover-bg` name convention: a naming convention is not machine-readable
  * without a second source of truth, which is the defect this whole contract fixes
- * one layer down. Nothing declares it yet — #575 lands the field, the write/render
- * convergence gate lands the consumer.
+ * one layer down. #575 landed the field one gate ahead of its consumer; #579 wired
+ * that consumer, the `transparent_fill` composition smell, and the hero/cta button
+ * fills plus `--section-panel-cta-bg` are the slots that declare it today.
+ *
+ * `measure` marks a slot as a TEXT MEASURE — the max-width of a heading, a prose
+ * column, or a content column — so the advisory engine can tell one from any other
+ * length slot (#578). Same reasoning as `fill`, and the same reason it cannot be a
+ * name convention: hero's measure is spelled `--hero-content-width`, so a `-measure`
+ * suffix rule would miss the one slot the hero docs point every author at.
+ * Its consumer is DEFERRED to issue #610, exactly as `fill` was landed one gate ahead
+ * of its own: the advisory ruling 1 describes is unsatisfiable until length slots accept
+ * a bare token reference (_pp_validate_length rejects every var() form today), and the
+ * smells channel halts `wp pp validate site` — so shipping it now would red a fresh
+ * install against the theme's own starter homepage. The MARKER ships here because the
+ * measure surface it describes ships here; the warning follows the grammar.
  *
  * @return string[]
  */
 function pp_slot_roles(): array {
-    return ['fill'];
+    return ['fill', 'measure'];
 }
 
 /**

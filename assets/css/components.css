@@ -551,16 +551,27 @@
   font-weight: var(--hero-heading-weight, var(--font-weight-heading));
   color: var(--hero-heading-color, inherit);
   line-height: 1.03;
+  /* Hero's heading measure (issue 578). The deleted rule capped `.hero--left` and
+     `.hero--split` titles at `12ch`, and because `.hero__content` is a flex item that
+     shrink-wraps to its WIDEST child, that cap narrowed the whole column — title,
+     subtitle AND buttons — to 468px of a 1088px inner at 1280 (43%). `ch` is also
+     viewport-local while the column is not: 24ch renders 896px at 1440/1280 but 792px
+     at 1152 and 744px at 1024, so any value tight enough to do typographic work
+     re-strands the column at exactly the laptop widths most of the audience uses. The
+     smallest inert-to-1024 value is ~29ch, which is `none` with extra steps. On split
+     the track binds first (~17ch), so 16/20/24ch and none are identical there. The
+     default is therefore `none` for every layout — matching what centered and cover
+     already do — and the real hero measure stays where it belongs, on
+     --hero-content-width. The SLOT still ships: before this, no operator could widen a
+     left hero without overriding this file.
+     Declared on the base rule rather than the two layout selectors so the slot reaches
+     all four layouts; unset it resolves to `none` on every one of them, which is the
+     initial value, so centered and cover are unchanged. */
+  max-width: var(--hero-heading-measure, none);
 }
 
 .hero__title-accent {
   color: var(--hero-heading-accent-color, var(--color-accent));
-}
-
-/* Constrain heading width for left/split variants; centered uses text-align centering */
-.hero--left .hero__title,
-.hero--split .hero__title {
-  max-width: 12ch;
 }
 
 @media (min-width: 768px) {
@@ -1324,14 +1335,17 @@
   max-width: var(--section-body-measure, 40rem);
 }
 
-.table-section__heading,
-.faq__heading,
-.logos__heading,
-.embed__heading,
-.cta__title,
-.stats__heading {
-  max-width: var(--cta-heading-measure, 40rem);
-}
+/* The six-selector heading cap that used to sit here is GONE (issue 578). It capped
+   .table-section__heading, .faq__heading, .logos__heading, .embed__heading, .cta__title
+   and .stats__heading from ONE rule reading --cta-heading-measure — a CTA slot on five
+   foreign elements. The five non-cta components could neither SET it (the write path
+   rejects a foreign slot as invalid_style_slot) nor have it RESOLVE (inline slot
+   properties land on the owning component's root, never on a sibling band). Because the
+   rule lived in the SECTION block it was also invisible to every per-component audit.
+   Each of the six now declares its own cap, reading its own slot, inside its own
+   COMPONENT block, defaulting to var(--measure-heading) (base.css, 40rem — the value all
+   six render today, so unset output is unchanged). .section__title was NEVER one of the
+   six and gains no cap; hero was capped separately and is exempt from --measure-heading. */
 
 .section__header--center {
   text-align: center;
@@ -1354,6 +1368,13 @@
 .section__title {
   font-size: var(--section-heading-size, var(--pp-band-heading-size));
   color: var(--section-heading-color, var(--pp-section-title-theme-color, var(--color-text)));
+  /* Section's heading measure (issue 578). Default `none`, and that is deliberate: the
+     section title has never carried a cap, section is the most-used band in the product,
+     and giving it the 40rem the other eight route would change the rendered line length
+     of every stored section heading. Section is therefore EXEMPT from --measure-heading
+     alongside hero. `none` is max-width's initial value, so declaring it here is
+     byte-identical — it exists to give the operator the knob the other bands have. */
+  max-width: var(--section-heading-measure, none);
   /* Top-side header rhythm (title -> subheading gap). issue 336 made the subheading's
      BOTTOM margin authorable; this routes the title's own bottom margin through a
      slot so the whole header rhythm is slot-driven (issue 343). No header-scoping
@@ -2053,6 +2074,10 @@
      it. Today's literal stays the fallback — unset output byte-identical (issue 352). */
   margin-bottom: var(--faq-heading-margin-bottom, var(--space-lg));
   color: var(--faq-heading-color, var(--pp-faq-heading-theme-color, var(--color-text)));
+  /* faq's own heading measure (issue 578), severed from the shared six-selector rule
+     that read --cta-heading-measure from inside the section block. Fallback routes the
+     shared --measure-heading token (40rem), the value this heading renders today. */
+  max-width: var(--faq-heading-measure, var(--measure-heading));
 }
 
 .faq__heading-accent {
@@ -2126,6 +2151,11 @@
   padding: 0 var(--space-lg) var(--space-md);
   color: var(--faq-answer-color, var(--color-muted));
   line-height: 1.6;
+  /* faq's prose measure (issue 578). Default `none`: the answer has never been capped —
+     it already sits inside the accordion item's own padded box — so `none` (max-width's
+     initial value) is byte-identical and the slot exists to let an operator tighten a
+     long answer to a reading measure without touching this file. */
+  max-width: var(--faq-body-measure, none);
 }
 
 @keyframes faq-open {
@@ -2206,7 +2236,7 @@
 .grid__heading {
   color: var(--grid-heading-color, var(--pp-grid-heading-theme-color, var(--color-text)));
   font-size: var(--grid-heading-size, var(--pp-band-heading-size));
-  max-width: var(--grid-heading-measure, 40rem);
+  max-width: var(--grid-heading-measure, var(--measure-heading));
   /* Top-side header rhythm (heading -> subheading gap), mirror of the issue 336
      subheading BOTTOM slot on the adjacent property (issue 343). The heading is
      not the header's last child, so base.css's `p:last-child` reset never won
@@ -2219,7 +2249,7 @@
 }
 
 .grid__header--center .grid__heading {
-  max-width: var(--grid-heading-measure, 40rem);
+  max-width: var(--grid-heading-measure, var(--measure-heading));
   margin-left: auto;
   margin-right: auto;
 }
@@ -2680,6 +2710,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   font-size: var(--table-heading-size, var(--pp-band-heading-size));
   color: var(--table-heading-color, var(--color-text));
   margin-bottom: var(--space-lg);
+  /* table's own heading measure (issue 578), severed from the shared six-selector rule
+     that read --cta-heading-measure from inside the section block. */
+  max-width: var(--table-heading-measure, var(--measure-heading));
 }
 
 .table-wrap {
@@ -2784,7 +2817,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 .cta__title {
   font-size: var(--cta-heading-size, var(--pp-band-heading-size));
   color: var(--cta-heading-color, inherit);
-  max-width: var(--cta-heading-measure, 40rem);
+  /* cta keeps the slot it always owned; only the fallback moves to the shared
+     --measure-heading token (issue 578). Same 40rem, now retunable in one write. */
+  max-width: var(--cta-heading-measure, var(--measure-heading));
   margin-bottom: var(--space-xs);
 }
 
@@ -2796,6 +2831,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   color: var(--cta-body-color, var(--pp-cta-body-theme-color, var(--color-muted)));
   font-size: var(--cta-body-size, inherit);
   margin-bottom: 0;
+  /* cta's prose measure (issue 578). Default `none`: the body carries no cap of its own
+     today — on the full-width layout the .cta__text wrapper caps title AND body together
+     at --cta-heading-measure — so `none` is byte-identical, and the slot lets an operator
+     give the body a shorter measure than the title without touching the wrapper. */
+  max-width: var(--cta-body-measure, none);
 }
 
 /* CTA accent: scoped button colors via style slots. Excludes outline/ghost/
@@ -3352,7 +3392,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    center it, so an authored full-width CTA with ANY id centers title/body at the
    default --cta-heading-measure — no id-scoped rule and no widened max-width needed. */
 .cta--full-width .cta__text {
-  max-width: var(--cta-heading-measure, 40rem);
+  max-width: var(--cta-heading-measure, var(--measure-heading));
   margin-inline: auto;
 }
 
@@ -3767,8 +3807,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      output is byte-identical, and an operator can now tune the scale. */
   font-size: var(--stats-heading-size, var(--pp-band-heading-size));
   margin-bottom: var(--space-lg);
+  /* stats' own heading measure (issue 578), severed from the shared six-selector rule
+     that read --cta-heading-measure from inside the section block. */
+  max-width: var(--stats-heading-measure, var(--measure-heading));
   /* Center the heading BOX, not just its text (issue 367 — same class as issue 354).
-     The shared cap rule gives this h2 max-width: var(--cta-heading-measure, 40rem);
+     The cap above gives this h2 a 40rem box by default;
      a block h2 fills to that cap inside the wider .container, so without auto
      inline margins the 40rem box pins to the container's left edge (measured
      x 96-736 at 1280px) and text-align: center only centers WITHIN that
@@ -3932,6 +3975,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   font-size: var(--logos-heading-size, var(--pp-band-heading-size));
   color: var(--logos-heading-color, var(--color-text));
   margin-bottom: var(--space-lg);
+  /* logos' own heading measure (issue 578), severed from the shared six-selector rule
+     that read --cta-heading-measure from inside the section block. */
+  max-width: var(--logos-heading-measure, var(--measure-heading));
 }
 
 .logos__list {
@@ -4014,10 +4060,17 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   font-size: var(--embed-heading-size, var(--pp-band-heading-size));
   color: var(--embed-heading-color, var(--color-text));
   margin-bottom: var(--space-lg);
+  /* embed's own heading measure (issue 578), severed from the shared six-selector rule
+     that read --cta-heading-measure from inside the section block. */
+  max-width: var(--embed-heading-measure, var(--measure-heading));
 }
 
 .embed__content {
-  max-width: 40rem;
+  /* Was a bare 40rem literal, so an operator could not narrow or widen embedded body
+     copy at all (issue 578). The literal stays the fallback: this is a BODY measure, not
+     a heading one, so it deliberately does NOT route --measure-heading — the two are
+     independent surfaces that happen to share a number today. */
+  max-width: var(--embed-body-measure, 40rem);
   /* Body ink joins the slot surface (issue 577). The heading half of issue 438's work
      was routed and this half was not, leaving --embed-heading-color slotted beside an
      unrouted token reference on the inverted twin below. The fallback is `inherit`
@@ -4096,7 +4149,10 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   /* Band heading joins the shared responsive scale (issue 436). */
   font-size: var(--testimonials-heading-size, var(--pp-band-heading-size));
   color: var(--testimonials-heading-color, var(--color-text));
-  max-width: 40rem;
+  /* Was a bare 40rem literal — the same measure the other bands got from the shared
+     rule, just spelled differently. Routed through its own slot and the shared token
+     (issue 578); unset output is unchanged. */
+  max-width: var(--testimonials-heading-measure, var(--measure-heading));
   /* Top-side header rhythm (heading -> subheading gap), mirror of the issue 336
      subheading BOTTOM slot on the adjacent property (issue 343). The heading is
      not the header's last child, so base.css's `p:last-child` reset never won
@@ -4393,37 +4449,53 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 /* ==========================================================================
-   SHARED: Spacing + Width overrides (data attributes)
-   These selectors are generic ([data-pp-component][data-pp-spacing=...]) but
-   only hero.php emits the data-pp-spacing and data-pp-width attributes.
+   HERO: Spacing + Width overrides (data attributes)
+   Only hero.php emits data-pp-spacing / data-pp-width (components/hero/hero.php:90-91),
+   and by ruling no blanket non-hero width or spacing controls exist. These selectors
+   used to be written GENERICALLY, with a comment saying hero was the only emitter — CSS
+   that reads as an invitation to extend, which is the drift the ruling names. They are
+   now scoped to `.hero`, so the restriction is enforced by the selector rather than by a
+   comment (issue 578).
+
+   SPECIFICITY IS UNCHANGED, and that is load-bearing for the issue-434 rhythm pins
+   below: `[data-pp-component][data-pp-spacing="x"]` is two attributes (0,2,0) and
+   `.hero[data-pp-spacing="x"]` is a class plus an attribute (0,2,0) — identical, so the
+   equal-specificity/source-order relationship with `main > [data-pp-component] +
+   [data-pp-component]` (0,2,1) is preserved at both breakpoints. Byte-identical: no
+   element other than a hero root can carry these attributes today.
    ========================================================================== */
 
-[data-pp-component][data-pp-spacing="compact"] {
+.hero[data-pp-spacing="compact"] {
   padding-top: var(--space-lg);
   padding-bottom: var(--space-lg);
 }
 
-[data-pp-component][data-pp-spacing="spacious"] {
+.hero[data-pp-spacing="spacious"] {
   padding-top: var(--space-2xl);
   padding-bottom: var(--space-2xl);
 }
 
 @media (min-width: 768px) {
-  main > [data-pp-component][data-pp-spacing="compact"] {
+  main > .hero[data-pp-spacing="compact"] {
     padding-top: var(--space-lg);
     padding-bottom: var(--space-lg);
   }
-  main > [data-pp-component][data-pp-spacing="spacious"] {
+  main > .hero[data-pp-spacing="spacious"] {
     padding-top: var(--space-3xl);
     padding-bottom: var(--space-3xl);
   }
 }
 
-[data-pp-width="narrow"] .container {
-  max-width: 56rem;
+.hero[data-pp-width="narrow"] .container {
+  /* The literal 56rem here DUPLICATED --measure-centered's exact shipped value
+     (base.css), so a site that retuned its centered measure moved every centered body
+     EXCEPT a narrow hero's container. Route the token with its own value as the
+     fallback-free reference: byte-identical at the shipped value, and it only changes
+     render on a site that has already retuned --measure-centered (issue 578). */
+  max-width: var(--measure-centered);
 }
 
-[data-pp-width="full"] .container {
+.hero[data-pp-width="full"] .container {
   max-width: 100%;
 }
 
@@ -4664,20 +4736,32 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   }
 
   /* Section body split out of the shared mobile type rule (issue 470) so its own
-     --section-body-size / --section-body-weight slots reach it here. The size
-     fallback CHAINS through var(--cta-body-size, 1rem) — the exact value the
-     shared rule used before the split — so an unset section body is byte-identical
-     at this breakpoint, including the historical case where a composition set
-     --cta-body-size (section body still follows it when its own slot is unset). */
+     --section-body-size / --section-body-weight slots reach it here.
+     The fallback used to CHAIN through var(--cta-body-size, 1rem), so an unset section
+     body followed a CTA slot at this breakpoint — a cta authoring surface acting as a
+     section slot. That chain is severed (issue 578) and the literal is the fallback
+     directly. Byte-identical: --cta-body-size is declared on the CTA component root, so
+     it can never resolve on a .section subtree, and its unset result was always 1rem. */
   main > .section .section__content,
   main > .section .section__content p {
-    font-size: var(--section-body-size, var(--cta-body-size, 1rem));
+    font-size: var(--section-body-size, 1rem);
     font-weight: var(--section-body-weight, 430);
     line-height: 1.65;
   }
 
+  /* grid and faq took their mobile body size from --cta-body-size (issue 578): a CTA
+     slot on a grid card and a faq answer. Neither could set it (the write path rejects a
+     foreign slot) nor have it resolve (inline slot properties land on the owning root),
+     so its unset result was always the 1rem literal — severing it is byte-identical. The
+     literal stays here; neither component declares a body-size slot to route instead.
+     Split from cta, which keeps reading the slot it actually owns, below. */
   main > .grid .grid__item-text,
-  main > .faq .faq__answer,
+  main > .faq .faq__answer {
+    font-size: 1rem;
+    font-weight: 430;
+    line-height: 1.65;
+  }
+
   main > .cta .cta__body {
     font-size: var(--cta-body-size, 1rem);
     font-weight: 430;
@@ -5496,18 +5580,20 @@ main .btn {
   /* An explicit data-pp-spacing override (only hero emits it) must govern BOTH
      edges symmetrically at mobile, exactly as the desktop restatement does (the
      min-width:768px block by the base spacing rules). Without this restatement the
-     generic adjacent rule above [0,2,1] out-orders the base [data-pp-spacing] rules
-     [0,2,0] and shaves ONLY the top edge of a spaced hero placed after another band,
+     generic adjacent rule above [0,2,1] out-orders the base .hero[data-pp-spacing]
+     rules [0,2,0] (scoped to .hero in issue 578; the specificity is unchanged, which is
+     what keeps this ordering argument true) and shaves ONLY the top edge of a spaced
+     hero placed after another band,
      leaving top=band-rhythm / bottom=spacing value — a compact/spacious hero reads
      bottom-heavy instead of centered (issue 434). Same [0,2,1] specificity as the
      adjacent rule, placed after it so source order wins both edges. Values mirror the
      mobile BASE rules (compact --space-lg, spacious --space-2xl), NOT the larger
      desktop tier, so mobile spacing is unchanged except the top edge is restored. */
-  main > [data-pp-component][data-pp-spacing="compact"] {
+  main > .hero[data-pp-spacing="compact"] {
     padding-top: var(--space-lg);
     padding-bottom: var(--space-lg);
   }
-  main > [data-pp-component][data-pp-spacing="spacious"] {
+  main > .hero[data-pp-spacing="spacious"] {
     padding-top: var(--space-2xl);
     padding-bottom: var(--space-2xl);
   }

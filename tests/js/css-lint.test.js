@@ -334,8 +334,8 @@ describe('CSS lint: style slot fallback patterns', () => {
         });
     });
 
-    test('hero/section/grid/cta schemas declare 163 style slots (subset of the total)', () => {
-        expect(allSlots.length).toBe(163);
+    test('hero/section/grid/cta schemas declare 166 style slots (subset of the total)', () => {
+        expect(allSlots.length).toBe(166);
     });
 
     allSlots.forEach(({ component, slotName }) => {
@@ -2173,15 +2173,38 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
         assertPropRoutesThroughSlot('main > .section .section__content p', 'font-weight', '--section-body-weight', 2);
     });
 
-    // The mobile size fallback must CHAIN through --cta-body-size (byte-identical to
-    // the pre-split shared rule): unset section body still follows a set --cta-body-size.
-    test('mobile section body size chains through the historical cta-body-size fallback', () => {
+    // INVERTED by issue 578 (A-5 part 2). The mobile fallback used to CHAIN through
+    // --cta-body-size, so an unset section body followed a CTA slot — a cta authoring
+    // surface acting as a section slot. The chain is severed and the literal is the
+    // fallback directly. Byte-identical: --cta-body-size renders on the CTA component
+    // root, so it could never resolve on a .section subtree; its unset result was always
+    // 1rem. This pin now guards the severance, so a re-introduced chain fails here.
+    test('#578 mobile section body size no longer chains through the cta-body-size leak', () => {
         const bodies = bodiesForExactSelector('main > .section .section__content p');
         const sizeDecls = bodies
             .flatMap(b => b.match(/font-size\s*:[^;}]+/g) || [])
             .filter(d => /--section-body-size/.test(d));
-        // At least the mobile rule uses the chained fallback.
-        expect(sizeDecls.some(d => /var\(\s*--section-body-size\s*,\s*var\(\s*--cta-body-size\s*,\s*1rem\s*\)\s*\)/.test(d))).toBe(true);
+        expect(sizeDecls.length).toBeGreaterThanOrEqual(1);
+        // No section body size declaration may name a cta slot at all.
+        sizeDecls.forEach(d => expect(d).not.toMatch(/--cta-body-size/));
+        // The mobile rule falls back to the literal the chain used to terminate in.
+        expect(sizeDecls.some(d => /var\(\s*--section-body-size\s*,\s*1rem\s*\)/.test(d))).toBe(true);
+    });
+
+    // The other half of the same severance: grid cards and faq answers took their mobile
+    // body size from --cta-body-size too. They now carry the literal; only cta reads the
+    // slot cta owns.
+    test('#578 grid/faq mobile body size no longer reads the cta body-size slot', () => {
+        const gridBodies = bodiesForExactSelector('main > .grid .grid__item-text');
+        const faqBodies = bodiesForExactSelector('main > .faq .faq__answer');
+        expect(gridBodies.length + faqBodies.length).toBeGreaterThanOrEqual(2);
+        [...gridBodies, ...faqBodies]
+            .flatMap(b => b.match(/font-size\s*:[^;}]+/g) || [])
+            .forEach(d => expect(d).not.toMatch(/--cta-body-size/));
+        // cta keeps the slot it owns.
+        const ctaDecls = bodiesForExactSelector('main > .cta .cta__body')
+            .flatMap(b => b.match(/font-size\s*:[^;}]+/g) || []);
+        expect(ctaDecls.some(d => /var\(\s*--cta-body-size\s*,/.test(d))).toBe(true);
     });
 
     // ---- Stats contained-card slots (issue 383) ----
@@ -2304,7 +2327,7 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
     // Returns the body of the restatement rule for `spacing` inside `block`, or null.
     function spacingRuleBody(block, spacing) {
         const re = new RegExp(
-            '(?:^|[}{;])\\s*main\\s*>\\s*\\[data-pp-component\\]\\[data-pp-spacing="' +
+            '(?:^|[}{;])\\s*main\\s*>\\s*\\.hero\\[data-pp-spacing="' +
             spacing + '"\\]\\s*\\{([^}]*)\\}'
         );
         const m = re.exec(block);
@@ -2329,8 +2352,8 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
         // Source order: the generic adjacent rule must precede BOTH restatements so the
         // equal-specificity [0,2,1] restatements win padding-top on a spaced adjacent hero.
         const adjIdx = mobile.indexOf('[data-pp-component] + [data-pp-component]');
-        const compactIdx = mobile.search(/main\s*>\s*\[data-pp-component\]\[data-pp-spacing="compact"\]/);
-        const spaciousIdx = mobile.search(/main\s*>\s*\[data-pp-component\]\[data-pp-spacing="spacious"\]/);
+        const compactIdx = mobile.search(/main\s*>\s*\.hero\[data-pp-spacing="compact"\]/);
+        const spaciousIdx = mobile.search(/main\s*>\s*\.hero\[data-pp-spacing="spacious"\]/);
         expect(adjIdx, 'mobile generic adjacent rule missing').toBeGreaterThanOrEqual(0);
         expect(compactIdx, 'mobile compact restatement must follow the adjacent rule').toBeGreaterThan(adjIdx);
         expect(spaciousIdx, 'mobile spacious restatement must follow the adjacent rule').toBeGreaterThan(adjIdx);
@@ -2538,10 +2561,10 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
     test('hero adjacent-top is declared ABOVE the desktop data-pp-spacing restatement', () => {
         const css = stripComments(COMPONENTS_CSS).replace(/\s+/g, ' ');
         const heroAdjacent = css.indexOf('main > [data-pp-component] + .hero {');
-        const spacingRestatement = css.indexOf('main > [data-pp-component][data-pp-spacing="compact"] {');
+        const spacingRestatement = css.indexOf('main > .hero[data-pp-spacing="compact"] {');
 
         expect(heroAdjacent, 'no `main > [data-pp-component] + .hero` rule found').toBeGreaterThan(-1);
-        expect(spacingRestatement, 'no `main > [data-pp-component][data-pp-spacing="compact"]` restatement found').toBeGreaterThan(-1);
+        expect(spacingRestatement, 'no `main > .hero[data-pp-spacing="compact"]` restatement found').toBeGreaterThan(-1);
         // Both indexes are the FIRST (= desktop) occurrence of each rule.
         expect(
             heroAdjacent,

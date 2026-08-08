@@ -37,6 +37,8 @@
       "--embed-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
       "--embed-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Section heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop); set an explicit length to override." },
       "--embed-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading color. Defaults to the theme text color (inverted variant defaults to the inverted-background text color); set an explicit color to override." },
+      "--embed-heading-measure": { "type": "length", "role": "measure", "default": "var(--measure-heading)", "description": "Maximum width of the embed section heading. Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site." },
+      "--embed-body-measure": { "type": "length", "role": "measure", "default": "40rem", "description": "Maximum width of the EMBEDDED CONTENT column. Deliberately a body measure, not a heading one: it keeps its own 40rem default rather than routing --measure-heading, so retuning band heading measure never re-flows embedded content." },
       "--embed-body-color": { "type": "color", "default": "inherit", "description": "Embedded content text color. Defaults to the inherited body text color on a default or muted band and to the inverted-background text color on an inverted band; set an explicit color to override." }
     }
   },

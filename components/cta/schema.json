@@ -132,7 +132,8 @@
       "--cta-border-width": { "type": "length", "default": "0", "description": "Top and bottom border width" },
       "--cta-radius": { "type": "length", "default": "0", "description": "Border radius" },
       "--cta-shadow": { "type": "shadow", "default": "none", "description": "Box shadow of the CTA section (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" },
-      "--cta-heading-measure": { "type": "length", "default": "40rem", "description": "Title max width" },
+      "--cta-heading-measure": { "type": "length", "role": "measure", "default": "var(--measure-heading)", "description": "Maximum width of the CTA title. On the full-width layout this same value also caps the centered text wrapper, so it governs the title AND body block there. Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site." },
+      "--cta-body-measure": { "type": "length-or-none", "role": "measure", "default": "none", "description": "Maximum width of the CTA body copy. Default \"none\": the body inherits whatever its wrapper allows, which on the full-width layout is already --cta-heading-measure. Set a length to give the body a SHORTER measure than the title; \"none\" restores the default." },
       "--cta-overlay-bg": { "type": "gradient", "default": "var(--overlay-bg)", "description": "Background image overlay color or gradient (e.g. a transparent-to-dark scrim for text legibility over an image)" },
       "--cta-bg-position": { "type": "position", "default": "center", "description": "background_image focal point" }
     },
