@@ -672,9 +672,11 @@ class StyleSlotContractTest extends TestCase
             'The hero primary background-color must route --hero-button-bg -> --hero-accent -> --btn-bg -> --color-accent (issue 514).'
         );
         $this->assertStringContainsString(
-            'border-color: var(--hero-accent, var(--btn-border-color, var(--hero-button-bg, var(--btn-bg, var(--color-accent)))))',
+            'border-color: var(--hero-button-border, var(--hero-accent, var(--btn-border-color, var(--hero-button-bg, var(--btn-bg, var(--color-accent))))))',
             $block,
-            'The hero primary border must follow the fill (--hero-button-bg) when its own knobs are unset (issue 514).'
+            'The hero primary border must lead with its own ring slot --hero-button-border (issue 584, '
+            . 'the position --cta-button-border holds on the cta primary) and then follow the fill '
+            . '(--hero-button-bg) when every knob above it is unset (issue 514).'
         );
     }
 
@@ -714,7 +716,7 @@ class StyleSlotContractTest extends TestCase
         $this->assertMatchesRegularExpression(
             '/\.section__panel-cta:not\(\.btn--outline\):not\(\.btn--ghost\):not\(\.btn--secondary\)\s*\{\s*'
             . 'background-color:\s*var\(--section-panel-cta-bg,\s*var\(--btn-bg,\s*var\(--color-accent\)\)\);\s*'
-            . 'border-color:\s*var\(--btn-border-color,\s*var\(--section-panel-cta-bg,\s*var\(--btn-bg,\s*var\(--color-accent\)\)\)\);\s*'
+            . 'border-color:\s*var\(--section-panel-cta-border,\s*var\(--btn-border-color,\s*var\(--section-panel-cta-bg,\s*var\(--btn-bg,\s*var\(--color-accent\)\)\)\)\);\s*'
             . 'color:\s*var\(--section-panel-cta-color,\s*var\(--btn-text,\s*var\(--color-bg\)\)\);\s*'
             . 'box-shadow:\s*var\(--section-panel-cta-shadow,\s*none\);\s*\}/',
             $block,
@@ -728,11 +730,43 @@ class StyleSlotContractTest extends TestCase
         // matching ring instead of the stray --color-accent-strong outline.
         $css = $this->stripComments($this->css);
         $this->assertStringContainsString(
-            'border-color: var(--cta-button-border, var(--cta-accent, var(--btn-border-color, '
-            . 'var(--section-panel-cta-bg, var(--color-accent-strong)))))',
+            'border-color: var(--section-panel-cta-border, var(--cta-button-border, var(--cta-accent, '
+            . 'var(--btn-border-color, var(--section-panel-cta-bg, var(--color-accent-strong))))))',
             $css,
-            'The premium primary border must fall through to --section-panel-cta-bg before its '
-            . 'literal, so a flat panel CTA keeps a matching ring (issue 536).'
+            'The premium primary border must LEAD with --section-panel-cta-border (issue 584 — this '
+            . 'rule is the panel CTA\'s only border winner at [0,4,1] over the section block\'s '
+            . '[0,4,0] keystone, so the head is the only position where a per-instance ring slot '
+            . 'can act) and still fall through to --section-panel-cta-bg before its literal, so a '
+            . 'flat panel CTA keeps a matching ring (issue 536).'
+        );
+
+        // The hover twin (issue 584). #536 shipped the panel CTA resting-state-only for the
+        // FILL and that is unchanged; the RING gets its positional twin, or a ring set at rest
+        // would dissolve under the pointer (the #535 defect). No fill link here on purpose:
+        // there is no --section-panel-cta-hover-bg for the border to follow.
+        $this->assertStringContainsString(
+            'border-color: var(--section-panel-cta-hover-border, var(--cta-button-hover-border, '
+            . 'var(--cta-accent-hover, var(--btn-hover-border-color, var(--color-accent)))))',
+            $css,
+            'The premium HOVER border must lead with --section-panel-cta-hover-border (issue 584), '
+            . 'the positional twin of --section-panel-cta-border on the rest rule.'
+        );
+
+        // ...and the section block carries the hover keystone that makes the slot discoverable
+        // there (check 1: every declared slot is consumed inside its own component block). It is
+        // [0,5,0] against the premium hover winner's [0,5,1], so like the rest keystone it never
+        // decides a composed panel CTA's ring. Unset it resolves --btn-hover-border-color then
+        // --color-accent-hover, exactly what `.btn:hover` computes, so it is byte-identical even
+        // in the one context where it WOULD win: a panel CTA rendered outside `main`.
+        $this->assertMatchesRegularExpression(
+            '/\.section__panel-cta:not\(\.btn--outline\):not\(\.btn--ghost\):not\(\.btn--secondary\):hover\s*\{\s*'
+            . 'border-color:\s*var\(--section-panel-cta-hover-border,\s*var\(--btn-hover-border-color,\s*'
+            . 'var\(--color-accent-hover\)\)\);\s*\}/',
+            $block,
+            'The section block must carry the panel-CTA hover keystone wiring '
+            . '--section-panel-cta-hover-border on the SAME variant carve-out the rest keystone '
+            . 'uses, so the slot never reaches an outline/ghost/secondary panel CTA (issue 584). '
+            . 'No hover FILL slot is created: #536\'s resting-only posture stands.'
         );
 
         // Elevation contract: `none` must flatten hover as well as rest (the #514 contract).
@@ -744,6 +778,170 @@ class StyleSlotContractTest extends TestCase
             'The premium HOVER elevation must route --section-panel-cta-shadow too, so `none` '
             . 'flattens rest AND hover instead of re-growing a bevel mid-interaction (issue 536).'
         );
+    }
+
+    /**
+     * The panel-CTA hover keystone is the ONE new RULE in this issue, not a head-of-chain
+     * addition, so its byte-identity is not true by construction: it rests on computing the
+     * same value `.btn:hover` would for a panel CTA rendered outside `main` (inside `main` the
+     * premium winner masks it). Derive the primitive's chain and compare, rather than restating
+     * it — a future edit to `.btn:hover` would otherwise split the two silently.
+     */
+    public function testIssue584PanelCtaHoverKeystoneMatchesTheBarePrimitive(): void
+    {
+        $css = $this->stripComments($this->css);
+        $this->assertMatchesRegularExpression(
+            '/(?:^|\})\s*\.btn:hover\s*\{[^}]*?border-color:\s*([^;]+);/s',
+            $css,
+            '.btn:hover must declare border-color — it is the primitive this keystone mirrors.'
+        );
+        preg_match('/(?:^|\})\s*\.btn:hover\s*\{[^}]*?border-color:\s*([^;]+);/s', $css, $m);
+        $primitive = trim($m[1]); // var(--btn-hover-border-color, var(--color-accent-hover))
+
+        $this->assertStringContainsString(
+            'border-color: var(--section-panel-cta-hover-border, ' . $primitive . ')',
+            $css,
+            'The panel-CTA hover keystone must be `.btn:hover`\'s own chain with the per-instance '
+            . 'ring slot prepended. That equivalence — not the literal text — is what makes this '
+            . 'NEW rule byte-identical unset in the one context where it wins.'
+        );
+    }
+
+    /**
+     * Heading rhythm completes its family (issue 584, A-41).
+     *
+     * Band fusing — the documented procedure for closing the seam between two bands that
+     * share a background (ai-instructions/style-component.md, "the step easy to miss") —
+     * is "set --<component>-heading-margin-bottom to 0". Four components could execute it;
+     * six could not, because the gap was a bare literal. This pins the routing AND the
+     * fallback literal for each of the six, which is what makes the addition byte-identical:
+     * every slot carries the exact value its own rule declared before.
+     *
+     * hero is the odd one and is pinned deliberately. It had NO margin-bottom declaration at
+     * all — base.css's universal `margin: 0` reset was the whole story and .hero__content's
+     * flex `gap` supplies the visible spacing — so its fallback is `0`, not a --space-* token.
+     * A future edit that "harmonises" it to --space-md would push every hero headline down.
+     */
+    public function testIssue584HeadingRhythmRoutesEachComponentsOwnLiteral(): void
+    {
+        // component => [selector, expected fallback literal]
+        $expected = [
+            'hero'   => ['.hero__title',            '0'],
+            'cta'    => ['.cta__title',             'var(--space-xs)'],
+            'stats'  => ['.stats__heading',         'var(--space-lg)'],
+            'table'  => ['.table-section__heading', 'var(--space-lg)'],
+            'embed'  => ['.embed__heading',         'var(--space-lg)'],
+            'logos'  => ['.logos__heading',         'var(--space-lg)'],
+        ];
+
+        foreach ($expected as $component => [$selector, $literal]) {
+            $slot  = "--{$component}-heading-margin-bottom";
+            $block = $this->stripComments($this->componentBlock($component));
+
+            $this->assertStringContainsString(
+                "margin-bottom: var({$slot}, {$literal})",
+                $block,
+                "{$component}'s heading rule must route margin-bottom through {$slot} with "
+                . "{$literal} as the fallback (issue 584) — the literal is what makes an unset "
+                . "band byte-identical."
+            );
+
+            // Declared with the length type, so `0` and every --space-* token validate.
+            $slots = $this->slots($component);
+            $this->assertArrayHasKey($slot, $slots, "{$component}/schema.json must declare {$slot}.");
+            $this->assertSame('length', $slots[$slot]['type'] ?? null, "{$slot} must be a length slot.");
+            $this->assertSame(
+                $literal === '0' ? '0' : $literal,
+                $slots[$slot]['default'] ?? null,
+                "{$slot}'s declared default must be the same literal the CSS falls back to, or "
+                . 'the AI catalog advertises a value the stylesheet does not produce.'
+            );
+        }
+
+        // Fail-closed: the six must be the ONLY margin-bottom literals left on a band heading.
+        // The four that already had the slot keep it; a seventh bare literal appearing on a
+        // band title is the exact regression this row exists to prevent from recurring.
+        foreach (['section' => '.section__title', 'grid' => '.grid__heading', 'faq' => '.faq__heading',
+                  'testimonials' => '.testimonials__heading'] as $component => $_selector) {
+            $this->assertStringContainsString(
+                "var(--{$component}-heading-margin-bottom,",
+                $this->stripComments($this->componentBlock($component)),
+                "{$component} must keep its pre-existing heading-rhythm slot."
+            );
+        }
+    }
+
+    /**
+     * Logo sizing completes its family (issue 584, A-40).
+     *
+     * ONE slot at BOTH cap sites, mirroring --grid-item-icon-size's shape (which drives
+     * width AND height from a single knob). Each site keeps its own literal, so unset the
+     * shipped label-driven switch survives: 3rem for a bare logo, 2.5rem for a labelled
+     * tile. The rendered proof that those two literals are what actually paint lives in
+     * tests/e2e/style-render.spec.ts ("#583 logos mixed labeled/unlabeled strip"), which
+     * measures 48px and 40px in one strip; this pins the routing that must not drift from it.
+     *
+     * NOT a dark-band unblocker: no --logos-bg is added here, and none should be added on the
+     * strength of a sizing slot (the heading renders 1.02:1 and the label has no colour slot
+     * on a dark band — owned by the deferred band-background gate).
+     */
+    public function testIssue584LogosSizingSlotsRouteBothCapsAndTheStripGap(): void
+    {
+        $block = $this->stripComments($this->componentBlock('logos'));
+
+        $this->assertStringContainsString(
+            'max-height: var(--logos-image-size, 3rem)',
+            $block,
+            'The unlabelled logo cap must route --logos-image-size with 3rem as the fallback.'
+        );
+        $this->assertStringContainsString(
+            'max-height: var(--logos-image-size, 2.5rem)',
+            $block,
+            'The labelled-tile logo cap must route the SAME slot with its OWN 2.5rem fallback, '
+            . 'so an unset strip keeps the label-driven height switch exactly as shipped.'
+        );
+        $this->assertStringContainsString(
+            'gap: var(--logos-gap, var(--space-lg))',
+            $block,
+            'The strip gap must route --logos-gap with var(--space-lg) as the fallback.'
+        );
+
+        // The intra-tile image-to-label nudge is deliberately NOT slotted (per-instance item
+        // gaps are a stated non-goal), so it must stay a bare token.
+        $this->assertStringContainsString(
+            'gap: var(--space-sm)',
+            $block,
+            'The .logos__item--labeled image-to-label gap must stay an unslotted token — '
+            . 'per-instance item gaps are intentionally absent.'
+        );
+
+        // The band-background family stays out, entirely.
+        foreach (['--logos-bg', '--embed-bg', '--table-bg'] as $absent) {
+            $this->assertStringNotContainsString(
+                $absent,
+                $this->stripComments($this->css),
+                "{$absent} is deferred to the band-background gate and must not appear."
+            );
+        }
+    }
+
+    /**
+     * The schema note that tells an agent WHICH cap a logo item gets had the two values the
+     * wrong way round (it said "3rem labelled, 2.5rem unlabelled"; the CSS is the opposite,
+     * and the rendered #583 strip measures 48px unlabelled / 40px labelled). It is corrected
+     * here because --logos-image-size overrides both caps, so the note is now describing
+     * behaviour this issue changes. Pinned so the correction cannot silently revert.
+     */
+    public function testIssue584LogosConditionalityNoteMatchesTheStylesheet(): void
+    {
+        $schema = json_decode(
+            file_get_contents($this->themeRoot . '/components/logos/schema.json'),
+            true
+        );
+        $note = $schema['props']['items']['conditionality_note'] ?? '';
+        $this->assertStringContainsString('2.5rem labelled', $note);
+        $this->assertStringContainsString('3rem unlabelled', $note);
+        $this->assertStringContainsString('--logos-image-size overrides both', $note);
     }
 
     /**
@@ -1674,11 +1872,12 @@ class StyleSlotContractTest extends TestCase
         // sibling. Safe because --hero-button-hover-bg is new in #530: no shipped composition
         // can already set it, so no existing render changes.
         $this->assertStringContainsString(
-            'border-color: var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-button-hover-bg, var(--btn-hover-bg, var(--color-accent-hover)))))',
+            'border-color: var(--hero-button-hover-border, var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-button-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))))',
             $block,
-            'The hero primary hover border must honour the global --btn-hover-border-color '
-            . '(issue 539) and then FOLLOW --hero-button-hover-bg when --hero-accent-hover is '
-            . 'unset (issue 530) — the same shape its REST sibling has carried since #458.'
+            'The hero primary hover border must lead with --hero-button-hover-border (issue 584, '
+            . 'the positional twin of --hero-button-border on the rest rule), honour the global '
+            . '--btn-hover-border-color (issue 539) and then FOLLOW --hero-button-hover-bg when '
+            . '--hero-accent-hover is unset (issue 530) — the same shape its REST sibling carries.'
         );
     }
 
@@ -2326,8 +2525,10 @@ class StyleSlotContractTest extends TestCase
 
     private const NESTED_BTN_ISOLATION_SLOTS = [
         '--hero-button-bg',
+        '--hero-button-border',
         '--hero-button-color',
         '--hero-button-hover-bg',
+        '--hero-button-hover-border',
         '--hero-button-shadow',
         '--hero-button2-bg',
         '--hero-button2-border',
@@ -2349,7 +2550,9 @@ class StyleSlotContractTest extends TestCase
         '--cta-button2-hover-border',
         '--cta-button2-hover-color',
         '--section-panel-cta-bg',
+        '--section-panel-cta-border',
         '--section-panel-cta-color',
+        '--section-panel-cta-hover-border',
         '--section-panel-cta-shadow',
     ];
 

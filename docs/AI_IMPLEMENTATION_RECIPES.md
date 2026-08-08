@@ -56,8 +56,29 @@ Used by: #99, #100, #108, #111, #61 (and the #99 scaffold issue defines the reus
 5. **Slot NAMES are matched by foreign stylesheets (#332).** WP core's global styles ship attribute-substring selectors — `html :where([style*="border-width"]) { border-style: solid }`, the `border-color` twin, and their four per-side variants. Our slots render as inline *custom properties*, so the substring is present in the property NAME: any slot named `--{name}-border-{width,color}` (or a per-side variant) makes core's rule match the element that carries it, even when the value is `0` and the border it controls lives on a descendant. An element with no border declaration of its own then computes core's injected `solid` at the initial `medium` width — a 3px border nobody asked for.
    You do not need to avoid these names, and must not rename existing ones (they are public AI-facing surface). The immunity baseline at the top of `assets/css/components.css` (`[data-pp-component], .grid__item { border-style: none; border-width: 0 }`) neutralizes core's rule for every element that can carry inline slot properties. **What you must preserve:** emit slot custom properties only onto an element the baseline covers — a component root carrying `data-pp-component`, or `.grid__item`. Rendering them onto any other element re-opens #332 on that element. `tests/StyleSlotContractTest.php` (check 7) fails the build if you do, and the rendered pins in `tests/e2e/style-render.spec.ts` (`#332 …`) prove the immunity in a real browser.
 6. **A per-instance BUTTON slot needs one more edit (#545).** Slots are emitted on the component ROOT and inherit to every descendant, so any button slot consumed by a selector that can match a `.btn` the component does not own (`main .btn:not(...)`, `.hero .btn:not(...)`, `.cta .btn:not(...)`) would also repaint a `.btn` an author hand-writes into a rich-text prop. Add the new slot to the `main .btn:not(.hero__cta):not(.cta__button):not(.section__panel-cta)` neutralisation rule in `assets/css/components.css`, which sets it to `initial` (the guaranteed-invalid value) on every button no renderer owns. The `#545` pin in `tests/js/css-lint.test.js` derives the requirement structurally — schema slots read by a leak-capable selector — so it fails the build if you skip this. Band-level accents that are *meant* to reach every accented element in the band go in that pin's `INTENTIONALLY_REACHING` list instead.
-7. **Test:** `tests/ComponentPropsTest.php` — assert the schema declares the slot with `type`+`default`; a render test asserts setting the slot emits the inline `--{name}-{slot}: <value>`; a negative test asserts an injection value (`}<script>`) is dropped.
-8. **Verify:** `composer test`.
+7. **A slot at the head of a chain can still be DEAD, and only a rendered check finds it (#584).**
+   Steps 4 and 5 cover a *literal* clobbering a slot. The other failure is subtler and every
+   source-text pin passes through it: another **slot-routed** rule, for a VARIANT of the same
+   component, decides the same property and does not carry your new slot. Two shapes to check
+   before you call the routing done:
+   - **A variant rule that wins.** `--hero-button-border` was added at the head of
+     `.hero .btn:not(...)` [0,5,0] and was dead on every `layout: "cover"` hero, because
+     `.hero--cover .hero__cta:not(...)` is [0,5,0] too and comes LATER in source order, so it
+     is the live border winner on that band — and it kept its old chain. The schema description
+     promised the slot applied. Grep every `.{name}--{variant}` and `.{name}--has-bg-image`
+     rule that declares your property, not just the base rule.
+   - **A base rule that never wins.** `.section__panel-cta:not(...)` is [0,4,0] and the shared
+     premium `main .btn:not(...)` is [0,4,1], so the section block's rule NEVER decides a
+     composed panel CTA's border. That block is the slot-contract keystone
+     (`StyleSlotContractTest` check 1 requires an in-block consumption), so the slot has to be
+     routed in BOTH places: the keystone for the contract, the premium rule for the paint.
+     Route only one and you get either a dead slot or a red build.
+   Prove it in `tests/e2e/style-render.spec.ts`, not in a source pin: set the slot, read
+   `getComputedStyle(...).borderColor`, and read it AGAIN with the site-wide knob
+   (`--btn-border-color`) also set — that second read is what separates "declared" from "wins".
+
+8. **Test:** `tests/ComponentPropsTest.php` — assert the schema declares the slot with `type`+`default`; a render test asserts setting the slot emits the inline `--{name}-{slot}: <value>`; a negative test asserts an injection value (`}<script>`) is dropped.
+9. **Verify:** `composer test`.
 
 ---
 
@@ -76,7 +97,7 @@ Used by: #132 (menus), #134 (slug), #105 (import media), #122, #133, #62 (front-
 5. **Surface in the AI prompt:** actions/applies auto-appear in `pp_ai_system_prompt()` (`lib/ai-context.php`) via the registry — no extra step, but verify the `description` is accurate.
 6. **CLI:** if operators need it, add a subcommand in `lib/cli.php`. Method name = subcommand name; add `@subcommand hyphen-form` if the docs use hyphens (that mismatch is #95).
 7. **Test:** `tests/ActionsTest.php` / `tests/ApplyTest.php` — validate/preview/execute happy path + a rejection path. Preview must not mutate.
-8. **Verify:** `composer test`.
+9. **Verify:** `composer test`.
 
 ---
 
@@ -104,7 +125,7 @@ Used by: #1 (testimonial), #102, #103, #56.
 5. **Decide composable vs chrome (#223).** If a page places it, it is composable — give it at least one required prop, or a bare `{"component":"x"}` validates while the accordion round-trip cannot preserve it (`SchemaValidationTest::testEveryComposableComponentDeclaresARequiredProp()` pins this). If instead `templates/base.php` renders it on every page, it is chrome: add it to `pp_template_owned_components()` (`lib/admin.php`) so `pp_validate_composition()` rejects it from a composition, and to `pp_template_owned_menu_locations()` (`lib/wp.php`) if it reads a nav-menu location. The drift guards in `tests/NavReadinessTest.php` read `templates/base.php` back and fail if the two disagree.
 6. **If it renders a `.btn`, add its owning element class to the `main .btn:not(...)` rule (#545)** in `assets/css/components.css`. That rule neutralises every per-instance button slot on buttons no renderer owns; a new button class missing from its `:not()` list gets its OWN component's slots neutralised. `tests/NestedButtonSlotIsolationTest.php` derives the owner set from the templates and fails until the lists agree.
 7. **Test:** `tests/ComponentLoaderTest.php` picks it up; `tests/ComponentPropsTest.php` for required props; a render test for output shape and escaping.
-8. **Verify:** `composer test`.
+9. **Verify:** `composer test`.
 
 ---
 

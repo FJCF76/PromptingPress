@@ -30,6 +30,7 @@ Each item in `items`:
 | `text_role` | enum   | No       | —              | Typography role for the card text: `mono` / `meta` / `label` / `kicker`. `meta`/`kicker` set a preset text color; an explicit `--grid-item-text-color` slot overrides it at all breakpoints. |
 | `image_url` | string | No       | `''`           | Card image URL |
 | `image_alt` | string | No       | `''`           | Alt text for the card image |
+| `image_id`  | int    | No       | `0`            | Media Library attachment ID for the card image. When set and it resolves, renders responsively (`srcset`/`sizes`) via `wp_get_attachment_image()`; falls back to `image_url` otherwise. A companion to `image_url`, not a replacement — an item with only an id renders no image. |
 | `link_url`  | string | No       | `''`           | Card link URL (shown only if set) |
 | `link_text` | string | No       | `'Read more'`  | Card link label |
 

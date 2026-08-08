@@ -334,8 +334,10 @@ describe('CSS lint: style slot fallback patterns', () => {
         });
     });
 
-    test('hero/section/grid/cta schemas declare 166 style slots (subset of the total)', () => {
-        expect(allSlots.length).toBe(166);
+    test('hero/section/grid/cta schemas declare 172 style slots (subset of the total)', () => {
+        // 166 -> 172 (#584): +1 hero heading rhythm, +2 hero primary ring slots,
+        // +2 section panel-CTA ring slots, +1 cta heading rhythm.
+        expect(allSlots.length).toBe(172);
     });
 
     allSlots.forEach(({ component, slotName }) => {
@@ -3627,11 +3629,16 @@ describe('CSS lint: dark-band buttons route through the AA accent roles (#535)',
         },
         {
             sel: '.hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)',
-            leading: ['--hero-accent', '--hero-button-bg'],
+            // #584 put the hero primary's OWN ring slot at the head, matching the cta rows
+            // above. This rule is the live border winner on a cover hero ([0,5,0], same as
+            // `.hero .btn:not3`, but later in source order), so a slot missing from THIS
+            // chain is dead on the one band where a per-instance ring matters most — the
+            // asymmetry this row used to encode, now closed.
+            leading: ['--hero-button-border', '--hero-accent', '--hero-button-bg'],
         },
         {
             sel: '.hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover',
-            leading: ['--hero-accent-hover', '--hero-button-hover-bg'],
+            leading: ['--hero-button-hover-border', '--hero-accent-hover', '--hero-button-hover-bg'],
         },
     ];
 
@@ -4381,7 +4388,11 @@ describe('CSS lint: global button hover tier (#539)', () => {
             sel: '.hero .btn' + NOT3 + ':hover',
             decls: [
                 'background-color: var(--hero-button-hover-bg, var(--hero-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));',
-                'border-color: var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-button-hover-bg, var(--btn-hover-bg, var(--color-accent-hover)))));',
+                // #584 put --hero-button-hover-border at the head, matching --cta-button-hover-border's
+                // position on the cta row below. The global tier keeps its place BELOW the
+                // per-instance ring and the band accent, and ABOVE the border-follows-fill link —
+                // the property this table exists to pin.
+                'border-color: var(--hero-button-hover-border, var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-button-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))));',
             ],
         },
         {
@@ -4446,7 +4457,10 @@ describe('CSS lint: global button hover tier (#539)', () => {
     const BORDER_ORDER = [
         { sel: '.cta .btn' + NOT3 + ':hover', fill: '--cta-button-hover-bg', own: '--cta-button-hover-border' },
         { sel: '.cta .cta__buttons .cta__button--secondary' + NOT3 + ':hover', fill: '--cta-button2-hover-bg', own: '--cta-button2-hover-border' },
-        { sel: '.hero .btn' + NOT3 + ':hover', fill: '--hero-button-hover-bg', own: null },
+        // Gained its own hover ring slot in #584, so it joins the "own slot outranks the
+        // global knob" half of this pin instead of being the one row that could not assert it.
+        { sel: '.hero .btn' + NOT3 + ':hover', fill: '--hero-button-hover-bg',
+          own: '--hero-button-hover-border' },
         // Joined the tier in #554, so it joins this precedence pin too.
         { sel: '.hero .hero__cta-group .hero__cta--secondary' + NOT3 + ':hover',
           fill: '--hero-button2-hover-bg', own: '--hero-button2-hover-border' },
@@ -5201,5 +5215,187 @@ describe('CSS lint: per-instance button slots are neutralised on non-owned butto
         const FAMILY = /var\(\s*--(?:hero-button|hero-button2|cta-button|cta-button2|section-panel-cta)-/;
         expect(FAMILY.test(stripComments(BASE_CSS))).toBe(false);
         expect(FAMILY.test(stripComments(UTILITIES_CSS))).toBe(false);
+    });
+});
+
+/**
+ * CSS lint: the per-instance RING slots for the hero primary and the section panel CTA (#584).
+ *
+ * Two filled surfaces reached their ring only through a knob that also moves something else:
+ * the hero primary through the BAND accent (--hero-accent repaints every accented element in
+ * the band) or the site-wide --btn-border-color; the panel CTA through --btn-border-color
+ * alone, because it is the one filled surface that had NEITHER of the two tiers its siblings
+ * carry above the global knob. #584 gives each its own ring slot at the HEAD of the chain,
+ * in exactly the position --cta-button-border holds on the cta primary, plus the hover twin
+ * (P6: a control added without a state twin is a future flip bug).
+ *
+ * Three properties are pinned, and each is a different failure this file has actually seen:
+ *
+ *   1. HEAD POSITION. A slot anywhere below the band accent or the global knob is a slot the
+ *      site-wide retheme defeats — the #564 defect, one tier down.
+ *   2. POSITIONAL TWIN. The hover chain is the rest chain with every knob swapped for its
+ *      hover equivalent. A rest-only ring dissolves under the pointer (#535).
+ *   3. THE PANEL CTA IS ROUTED IN BOTH PLACES. Its section-block keystone is [0,4,0] and the
+ *      shared premium winner is [0,4,1] (hover: [0,5,0] vs [0,5,1]), so the keystone NEVER
+ *      decides its border. Route only there and the slot is dead; route only in the premium
+ *      block and StyleSlotContractTest's in-block consumption contract breaks. #536 shipped
+ *      --section-panel-cta-bg exactly this way — this pin holds the ring to the same shape,
+ *      because "tidy up the duplicate" is precisely the edit that would silently kill it.
+ *
+ * Media-aware (parseRules), so a ring wrapped in a never-matching @media reads as red, and
+ * uniqueness is asserted rather than assumed (the #542 idiom).
+ */
+describe('CSS lint: per-instance ring slots for the hero primary and panel CTA (#584)', () => {
+    const ringRules = parseRules();
+    const NOT3 = ':not(.btn--outline):not(.btn--ghost):not(.btn--secondary)';
+
+    const uniqueTopLevel = (sel) => {
+        const found = ringRules.filter((r) => r.selectors.includes(sel));
+        expect(found.length, `${sel} must be declared exactly once`).toBe(1);
+        expect(found[0].media, `${sel} must be top level, not inside @media`).toBeNull();
+        return found[0].body;
+    };
+    // The premium primary is declared TWICE (a superseded rule and the "true final cascade"
+    // winner). Source order breaks the specificity tie, so the LAST one is the live winner and
+    // the only one this pin may read.
+    const lastTopLevel = (sel) => {
+        const found = ringRules.filter((r) => r.selectors.includes(sel) && r.media === null);
+        expect(found.length, `${sel} must exist at top level`).toBeGreaterThan(0);
+        return found[found.length - 1].body;
+    };
+    const borderChain = (body) => {
+        const m = body.match(/border-color\s*:([^;}]+)/);
+        expect(m, 'border-color not declared').not.toBeNull();
+        return m[1].match(/--[a-z0-9-]+/g);
+    };
+
+    // Each row: where the ring is decided, the slot that must LEAD it, and the full chain.
+    const RINGS = [
+        {
+            what: 'hero primary, rest (its own [0,5,0] rule outranks the premium winner)',
+            body: () => uniqueTopLevel('.hero .btn' + NOT3),
+            slot: '--hero-button-border',
+            chain: ['--hero-button-border', '--hero-accent', '--btn-border-color',
+                '--hero-button-bg', '--btn-bg', '--color-accent'],
+        },
+        {
+            what: 'hero primary, hover',
+            body: () => uniqueTopLevel('.hero .btn' + NOT3 + ':hover'),
+            slot: '--hero-button-hover-border',
+            chain: ['--hero-button-hover-border', '--hero-accent-hover', '--btn-hover-border-color',
+                '--hero-button-hover-bg', '--btn-hover-bg', '--color-accent-hover'],
+        },
+        {
+            what: 'panel CTA, rest — the LIVE winner, in the shared premium block',
+            body: () => lastTopLevel('main .btn' + NOT3),
+            slot: '--section-panel-cta-border',
+            chain: ['--section-panel-cta-border', '--cta-button-border', '--cta-accent',
+                '--btn-border-color', '--section-panel-cta-bg', '--color-accent-strong'],
+        },
+        {
+            what: 'panel CTA, hover — the LIVE winner, in the shared premium block',
+            body: () => lastTopLevel('main .btn' + NOT3 + ':hover'),
+            slot: '--section-panel-cta-hover-border',
+            chain: ['--section-panel-cta-hover-border', '--cta-button-hover-border',
+                '--cta-accent-hover', '--btn-hover-border-color', '--color-accent'],
+        },
+        {
+            what: 'panel CTA, rest — the section-block keystone (masked, but the slot contract)',
+            body: () => uniqueTopLevel('.section__panel-cta' + NOT3),
+            slot: '--section-panel-cta-border',
+            chain: ['--section-panel-cta-border', '--btn-border-color', '--section-panel-cta-bg',
+                '--btn-bg', '--color-accent'],
+        },
+        {
+            what: 'panel CTA, hover — the section-block keystone (masked, but the slot contract)',
+            body: () => uniqueTopLevel('.section__panel-cta' + NOT3 + ':hover'),
+            slot: '--section-panel-cta-hover-border',
+            chain: ['--section-panel-cta-hover-border', '--btn-hover-border-color',
+                '--color-accent-hover'],
+        },
+    ];
+
+    RINGS.forEach(({ what, body, slot, chain }) => {
+        test(`${what}: ${slot} LEADS the border chain`, () => {
+            expect(borderChain(body())[0]).toBe(slot);
+        });
+
+        test(`${what}: the whole chain, in order`, () => {
+            // Exact, not "contains": the contract IS the order, so a reorder must fail.
+            expect(borderChain(body())).toEqual(chain);
+        });
+    });
+
+    test('rest and hover are positional twins on both new families', () => {
+        // Every knob swapped for its hover equivalent, same positions. This is what makes a
+        // rest->hover ring flip impossible in any authoring configuration.
+        // Explicit rest-knob -> hover-knob map rather than a name transform: these names are
+        // not mechanically derivable from one another (--hero-accent -> --hero-accent-hover but
+        // --hero-button-border -> --hero-button-hover-border), and a clever regex that got one
+        // of them wrong would make this pin assert the wrong contract while still going green.
+        const TWIN = {
+            '--hero-button-border': '--hero-button-hover-border',
+            '--hero-accent': '--hero-accent-hover',
+            '--btn-border-color': '--btn-hover-border-color',
+            '--section-panel-cta-border': '--section-panel-cta-hover-border',
+            '--color-accent': '--color-accent-hover',
+        };
+        const hover = (t) => {
+            expect(TWIN, `no hover twin recorded for ${t}`).toHaveProperty(t);
+            return TWIN[t];
+        };
+        const pairs = [
+            ['.hero .btn' + NOT3, '.hero .btn' + NOT3 + ':hover', uniqueTopLevel],
+            ['.section__panel-cta' + NOT3, '.section__panel-cta' + NOT3 + ':hover', uniqueTopLevel],
+        ];
+        pairs.forEach(([restSel, hoverSel, get]) => {
+            const rest = borderChain(get(restSel));
+            const hov = borderChain(get(hoverSel));
+            // The panel CTA's rest chain carries a fill link (--section-panel-cta-bg / --btn-bg)
+            // that has no hover counterpart: #536 shipped it resting-state-only and #584 does
+            // not revisit that. Drop the fill links before comparing, then the ring skeletons
+            // must match knob for knob.
+            const FILL = /-(bg)$/;
+            expect(rest.filter((t) => !FILL.test(t)).map(hover))
+                .toEqual(hov.filter((t) => !FILL.test(t)));
+        });
+    });
+
+    test('the panel CTA ring is routed in BOTH the keystone and the premium winner', () => {
+        // The whole reason the duplication exists. Losing either half is silent: the keystone
+        // alone is a dead slot, the premium alone breaks the in-block slot contract.
+        ['--section-panel-cta-border', '--section-panel-cta-hover-border'].forEach((slot) => {
+            const hits = stripComments(COMPONENTS_CSS).match(
+                new RegExp(`var\\(${slot},`, 'g'),
+            );
+            expect(hits, `${slot} must be routed`).not.toBeNull();
+            expect(hits.length, `${slot} must be routed in the keystone AND the premium winner`)
+                .toBe(2);
+        });
+    });
+
+    test('the hero primary ring slots never reach the second CTA (#526 isolation)', () => {
+        // Hero style slots land on the .hero ROOT, so --hero-button-border inherits onto the
+        // second CTA exactly as --hero-button-bg does. #526 re-points the fill/ink/shadow
+        // slots on the cta2 element for that reason; the ring slots are kept out of cta2's
+        // chains instead, because cta2 has its own --hero-button2-*border pair. Isolation
+        // currently holds because cta2's rule outranks the primary's — pinned here so a
+        // future specificity change fails loudly rather than leaking the primary's ring.
+        const CTA2 = '.hero .hero__cta-group .hero__cta--secondary' + NOT3;
+        [CTA2, CTA2 + ':hover'].forEach((sel) => {
+            const chain = borderChain(uniqueTopLevel(sel));
+            expect(chain).not.toContain('--hero-button-border');
+            expect(chain).not.toContain('--hero-button-hover-border');
+            expect(chain.some((t) => /^--hero-button2-(hover-)?border$/.test(t))).toBe(true);
+        });
+    });
+
+    test('NO band-accent tier and NO hover FILL slot were added to the panel CTA', () => {
+        // The narrowing this issue committed to: the panel CTA reaches its third tier through
+        // the ring slot, not through an accent tier, and #536's resting-only FILL posture stands.
+        const css = stripComments(COMPONENTS_CSS);
+        expect(css).not.toContain('--section-button-accent');
+        expect(css).not.toContain('--section-panel-cta-accent');
+        expect(css).not.toContain('--section-panel-cta-hover-bg');
     });
 });

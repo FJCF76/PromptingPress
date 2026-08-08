@@ -3922,6 +3922,269 @@ class ActionsTest extends TestCase
         $this->assertSame('#7c3aed', $comp[0]['style']['--hero-accent']);
     }
 
+    // ── #584 authoring path: the twelve new slots and the two new item props ──
+    //
+    // Section 14.1 (authoring-path mandate): a slot or prop that only ever gets exercised by
+    // raw _pp_composition meta writes has never met the validator that decides whether an
+    // agent can actually set it. Every family this issue completes goes through the REAL
+    // surface here — style_component for the slots, update_component for the item props —
+    // plus one reject branch each, because "accepted" is only meaningful against a
+    // demonstrated rejection.
+
+    public function testStyleComponentPersistsTheHeadingRhythmSlots(): void
+    {
+        // The six components that could not execute band fusing. Zero is the value the
+        // procedure actually asks for, so zero is the value authored here.
+        $cases = [
+            'hero'   => ['--hero-heading-margin-bottom'   => '0'],
+            'cta'    => ['--cta-heading-margin-bottom'    => '0'],
+            'stats'  => ['--stats-heading-margin-bottom'  => '0'],
+            'table'  => ['--table-heading-margin-bottom'  => '1.5rem'],
+            'embed'  => ['--embed-heading-margin-bottom'  => '0'],
+            'logos'  => ['--logos-heading-margin-bottom'  => '0'],
+        ];
+        $props = [
+            'hero'  => ['title' => 'Hello'],
+            'cta'   => ['title' => 'Go', 'button_text' => 'Start', 'button_url' => '/start'],
+            'stats' => ['title' => 'Numbers', 'items' => [['number' => '10', 'label' => 'x']]],
+            'table' => ['title' => 'Plans', 'headers' => ['A'], 'rows' => [['1']]],
+            'embed' => ['title' => 'Embed', 'content' => '[shortcode]'],
+            'logos' => ['title' => 'Clients', 'items' => [['image_url' => 'a.png', 'image_alt' => 'A']]],
+        ];
+
+        foreach ($cases as $component => $style) {
+            $post_id = pp_create_page("Heading rhythm {$component}");
+            pp_update_composition($post_id, [
+                ['component' => $component, 'props' => $props[$component]],
+            ]);
+
+            $result = pp_execute_action('style_component', [
+                'post_id'         => $post_id,
+                'component_index' => 0,
+                'style'           => $style,
+            ]);
+            $this->assertTrue($result['ok'], "style_component must accept {$component}'s heading-rhythm slot.");
+
+            $comp = pp_get_composition($post_id);
+            foreach ($style as $slot => $value) {
+                $this->assertSame($value, $comp[0]['style'][$slot], "{$slot} must persist.");
+            }
+        }
+    }
+
+    public function testStyleComponentRejectsANonLengthHeadingRhythmValue(): void
+    {
+        $post_id = pp_create_page('Heading rhythm reject');
+        pp_update_composition($post_id, [
+            ['component' => 'logos', 'props' => [
+                'title' => 'Clients',
+                'items' => [['image_url' => 'a.png', 'image_alt' => 'A']],
+            ]],
+        ]);
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--logos-heading-margin-bottom' => 'medium-ish'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_style_value', $result->get_error_code());
+    }
+
+    public function testStyleComponentPersistsTheHeroPrimaryRingSlots(): void
+    {
+        // Rest AND hover together: the positional-twin discipline this issue applies is only
+        // real if an author can actually set both through the surface.
+        $post_id = pp_create_page('Hero ring slots');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => [
+                'title' => 'Hello', 'button_text' => 'Start', 'button_url' => '/start',
+            ]],
+        ]);
+        $result = pp_execute_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => [
+                '--hero-button-border'       => '#7c3aed',
+                '--hero-button-hover-border' => '#5b21b6',
+            ],
+        ]);
+        $this->assertTrue($result['ok']);
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('#7c3aed', $comp[0]['style']['--hero-button-border']);
+        $this->assertSame('#5b21b6', $comp[0]['style']['--hero-button-hover-border']);
+    }
+
+    public function testStyleComponentPersistsThePanelCtaRingSlots(): void
+    {
+        $post_id = pp_create_page('Panel CTA ring slots');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => [
+                'layout'            => 'text-panel',
+                'body'              => '<p>Body</p>',
+                'panel_heading'     => 'Panel',
+                'panel_cta_text'    => 'Book a call',
+                'panel_cta_url'     => '/call',
+                'panel_cta_variant' => 'primary',
+            ]],
+        ]);
+        $result = pp_execute_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => [
+                '--section-panel-cta-bg'           => '#0f766e',
+                '--section-panel-cta-border'       => '#134e4a',
+                '--section-panel-cta-hover-border' => '#115e59',
+            ],
+        ]);
+        $this->assertTrue($result['ok']);
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('#134e4a', $comp[0]['style']['--section-panel-cta-border']);
+        $this->assertSame('#115e59', $comp[0]['style']['--section-panel-cta-hover-border']);
+    }
+
+    public function testStyleComponentStillRejectsAPanelCtaHoverFillSlot(): void
+    {
+        // #536 shipped the panel CTA resting-state-only for the FILL and #584 did not revisit
+        // that: the RING gained a hover twin, the fill did not. An agent that infers
+        // --section-panel-cta-hover-bg from the new hover ring must be rejected, not stored.
+        $post_id = pp_create_page('Panel CTA hover fill reject');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => [
+                'layout'         => 'text-panel',
+                'body'           => '<p>Body</p>',
+                'panel_cta_text' => 'Book a call',
+                'panel_cta_url'  => '/call',
+            ]],
+        ]);
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--section-panel-cta-hover-bg' => '#115e59'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_style_slot', $result->get_error_code());
+    }
+
+    public function testStyleComponentRejectsTheUnadoptedBandAccentTier(): void
+    {
+        // The narrowing this issue committed to in writing: the panel CTA reaches its third
+        // tier through a ring slot, NOT through a --section-button-accent band-accent tier.
+        $post_id = pp_create_page('Band accent tier reject');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => ['body' => '<p>Body</p>']],
+        ]);
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--section-button-accent' => '#0f766e'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_style_slot', $result->get_error_code());
+    }
+
+    public function testStyleComponentPersistsTheLogosSizingSlots(): void
+    {
+        $post_id = pp_create_page('Logos sizing slots');
+        pp_update_composition($post_id, [
+            ['component' => 'logos', 'props' => [
+                'title' => 'Clients',
+                'items' => [
+                    ['image_url' => 'a.png', 'image_alt' => 'A'],
+                    ['image_url' => 'b.png', 'image_alt' => 'B', 'label' => 'Sector'],
+                ],
+            ]],
+        ]);
+        $result = pp_execute_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--logos-image-size' => '4rem', '--logos-gap' => '1rem'],
+        ]);
+        $this->assertTrue($result['ok']);
+        $comp = pp_get_composition($post_id);
+        $this->assertSame('4rem', $comp[0]['style']['--logos-image-size']);
+        $this->assertSame('1rem', $comp[0]['style']['--logos-gap']);
+    }
+
+    public function testStyleComponentRejectsATokenReferenceOnALengthSizingSlot(): void
+    {
+        // Both new logos slots are `length`-typed, which is literal-only: var() is rejected in
+        // every form. Pinned because "route the token" is the natural first instinct and the
+        // failure is otherwise only discovered at write time on a live site.
+        $post_id = pp_create_page('Logos sizing reject');
+        pp_update_composition($post_id, [
+            ['component' => 'logos', 'props' => [
+                'items' => [['image_url' => 'a.png', 'image_alt' => 'A']],
+            ]],
+        ]);
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--logos-gap' => 'var(--space-md)'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_style_value', $result->get_error_code());
+    }
+
+    public function testUpdateComponentAcceptsItemImageIdOnGridAndTestimonials(): void
+    {
+        // The authoring half of A-42: image_id must survive the real write path on both
+        // components, or the responsive branch is unreachable from an agent.
+        $post_id = pp_create_page('Item image_id authoring');
+        pp_update_composition($post_id, [
+            ['component' => 'grid', 'props' => [
+                'items' => [['title' => 'Card', 'image_url' => 'https://example.com/c.jpg', 'image_alt' => 'C']],
+            ]],
+            ['component' => 'testimonials', 'props' => [
+                'items' => [['quote' => 'Q', 'author' => 'Jane', 'image_url' => 'https://example.com/j.jpg', 'image_alt' => 'J']],
+            ]],
+        ]);
+
+        $grid = pp_execute_action('update_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'props'           => ['items' => [[
+                'title' => 'Card', 'image_url' => 'https://example.com/c.jpg',
+                'image_alt' => 'C', 'image_id' => 42,
+            ]]],
+        ]);
+        $this->assertTrue($grid['ok'], 'update_component must accept grid.items[].image_id.');
+
+        $tst = pp_execute_action('update_component', [
+            'post_id'         => $post_id,
+            'component_index' => 1,
+            'props'           => ['items' => [[
+                'quote' => 'Q', 'author' => 'Jane', 'image_url' => 'https://example.com/j.jpg',
+                'image_alt' => 'J', 'image_id' => 7,
+            ]]],
+        ]);
+        $this->assertTrue($tst['ok'], 'update_component must accept testimonials.items[].image_id.');
+
+        $comp = pp_get_composition($post_id);
+        $this->assertSame(42, $comp[0]['props']['items'][0]['image_id']);
+        $this->assertSame(7, $comp[1]['props']['items'][0]['image_id']);
+    }
+
+    public function testItemImageIdStaysOptionalUnderNestedRequiredEnforcement(): void
+    {
+        // #579 enforces `required: true` on items[] fields. image_id is optional, so an item
+        // that omits it must still validate — otherwise every already-stored grid and
+        // testimonials band on every page would start failing validation, which blocks edits
+        // to unrelated bands on the same page.
+        $post_id = pp_create_page('Item image_id optional');
+        $result  = pp_execute_action('update_composition', [
+            'post_id'     => $post_id,
+            'composition' => [
+                ['component' => 'grid', 'props' => [
+                    'items' => [['title' => 'No image at all']],
+                ]],
+                ['component' => 'testimonials', 'props' => [
+                    'items' => [['quote' => 'No avatar at all']],
+                ]],
+            ],
+        ]);
+        $this->assertTrue($result['ok']);
+    }
+
     // ── #526 hero cta2 fill slot (authoring-path mandate) ────────────────────
 
     /**
