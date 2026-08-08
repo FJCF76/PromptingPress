@@ -378,7 +378,7 @@ Button:     --btn-padding-y, --btn-padding-x, --btn-radius,
             --btn-bg, --btn-text, --btn-border-color, --btn-shadow,
             --btn-hover-bg, --btn-hover-border-color
 Shape:      --radius, --max-width, --measure-body, --measure-body-wide, --measure-centered,
-            --transition, --overlay-bg
+            --measure-heading, --transition, --overlay-bg
 Elevation:  --shadow-none, --shadow-sm, --shadow-md, --shadow-lg
 Text roles: --text-kicker-color, --text-kicker-size, --text-kicker-weight, --text-kicker-spacing,
             --text-label-size, --text-label-weight, --text-label-spacing,
@@ -398,7 +398,7 @@ Token overrides survive theme updates — `base.css` is overwritten on update, b
 
 Style slots allow per-instance visual customization of components without CSS edits. Each component declares allowed CSS custom properties in its `schema.json` under `styling.style_slots`. Only declared slots are accepted — arbitrary CSS is rejected.
 
-**236 style slots** across 10 components: hero (45), section (44), cta (37), grid (37), testimonials (26), faq (19), stats (15), embed (5), logos (4), table (4).
+**247 style slots** across 10 components: hero (46), section (45), cta (38), grid (37), testimonials (27), faq (21), stats (16), embed (7), logos (5), table (5).
 
 **How it works:**
 1. Composition entries gain an optional `style` key alongside `props`
