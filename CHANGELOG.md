@@ -4,6 +4,59 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.10] — 2026-08-08 — every conditional style slot now says so, and writing a dead one tells you (#580)
+
+**160 slot and prop definitions across all twelve components now declare, in machine-readable form, the configuration they need to do anything. The authoring AI reads the condition before it writes, and a new non-blocking `inert_slot` advisory reports it if it writes anyway. No CSS changed and no rendered output moved.**
+
+Style slots have always been conditional. `--hero-surface-bg` paints nothing unless the hero is `layout: "split"` with `proof` content. The five testimonials card slots are wiped out by the `stack` variant's own resets. `--grid-featured-shadow` only reaches the first card, and only when `card_emphasis` is `featured`. Until now every one of those conditions lived as prose inside a `description` string, or in no prose anywhere — so an agent could set a slot, get `ok: true`, see the value stored, and ship a page where nothing happened. That is the reported-success-without-effect failure, and it was invisible from `schema.json`.
+
+Now the condition is a field. `applies_when` carries it in the four-clause grammar that landed with the definition-surface contract, and the runtime component catalog appends it to the slot line an agent reads: `--hero-surface-bg (gradient, default: ...; applies when layout = "split" AND proof is set)`. The three condition classes the grammar deliberately cannot express — a dark band being `theme: "inverted"` **or** a `background_image`, the `main >` composed-page scope on grid's featured card, a FAQ question's open state — ride `conditionality_note` as bounded prose and reach the agent through the same line.
+
+The same field, and only that field, drives the warning. Write a slot whose condition is unmet and `wp pp check page` reports a non-blocking `inert_slot` naming the slot and every unmet clause; the write still succeeds and the value is still stored as authored, because a slot that does nothing here would do something on a sibling band. There is no second condition table to drift.
+
+### What is declared, and what is measured
+
+| | Count |
+|---|---|
+| Definitions carrying a condition | **160** (151 slots, 9 props) |
+| ...expressed in `applies_when` clauses | 150 |
+| ...carried as `conditionality_note` prose | 27 (10 of them prose-only) |
+| Components covered | 12 of 12 |
+| Runtime AI catalog | 48,676 → **57,703 chars** (+18.5%) |
+| Shipped starter homepage advisories | **0** |
+
+That last row is the one that decided the design. `wp pp validate site` fails on any composition smell, so an advisory that misfires would make a fresh install exit 1 against the theme's own seeded homepage with nothing an operator could fix. The evaluator therefore fails open on every ambiguity: a clause it cannot parse, a comparison against a value with no defined ordering, a declaration the renderer would drop anyway. A missed warning is recoverable; a false one is not.
+
+### What this means for anyone styling through an agent
+
+Before this release the only way to know a slot needed `layout: "split"` was to read the component's CSS. Now the agent is told at the point of decision, and told again if it goes ahead anyway. The practical effect is fewer edits that report success and change nothing — which is the failure mode that makes AI-assisted styling feel unreliable even when every individual action returned `ok`.
+
+### Itemized changes
+
+### Added
+- `applies_when` populated across 150 definitions (149 style slots, 1 prop), using only the four existing clause forms. The grammar did not grow.
+- `conditionality_note` on 27 definitions, covering the three classes the grammar cannot express plus the nav/footer chrome preconditions (boolean and numeric props the `present` predicate has no reading for) and the logos label-driven image-height switch, which no document stated anywhere before.
+- `inert_slot` composition smell (`lib/guardrails.php`): non-blocking, reported by `wp pp check page`, `wp pp validate site`, `operate inspect` and `restore_composition` findings. Names the slot and every unmet clause, phrased by the same formatter the AI catalog uses.
+- `pp_applies_when_clause_met()` and `pp_applies_when_unmet_clauses()` (`lib/admin.php`), the evaluator half of the grammar, placed directly below its validator so the two cannot drift.
+
+### Fixed
+- The five testimonials card slots that `layout: "stack"` neutralises now declare `layout = "grid"`. The stack resets are a recorded permanent waiver and are unchanged; the remedy is declaration, not CSS.
+- `--hero-image-aspect-ratio` declares the three `vertical_align` values it survives. Under `stretch` both image dimensions are definite and the ratio is ignored by the sizing algorithm, which the stylesheet already said and no schema did.
+
+### Docs
+- `ai-instructions/style-component.md` tells the authoring AI to check a slot's condition before setting it, and states the two limits: per-item style maps are not scanned, and prose conditions cannot be machine-checked.
+- `ai-instructions/add-component.md` documents the one-field-two-consumers contract and the rule that a wrong condition is worse than none.
+- `ai-instructions/validate-site.md` adds composition smells to what `validate site` checks, and states plainly that an advisory still makes it exit non-zero.
+- `AI_CONTEXT.md` qualifies "style slots are the final visual authority" with "when the slot applies".
+- `docs/reference-apply-cli.md` documents the new smell type; `docs/AI_IMPLEMENTATION_RECIPES.md` adds the fresh-install rule for any new smell.
+
+### Tests
+- `tests/AppliesWhenTest.php` (35 tests): the evaluator's predicates and every fail-open path; the advisory through `create_page` and `update_component`; `restore_composition` reporting it as a finding without blocking; the shipped starter seed staying advisory-free; the populated conditions reaching the runtime catalog.
+- `CONDITIONALITY_LEDGER` in `tests/SchemaValidationTest.php` pins all 160 declarations as an exact set, with a digest over each `conditionality_note` so a reworded note cannot slip through.
+- Schema guards: every clause subject must resolve to a declared prop or slot, and every `present` clause must target a string or array prop.
+
+---
+
 ## [v1.12.9] — 2026-08-08 — every band gets a real measure control, and one component stops owning another's (#578)
 
 **Eleven new style slots complete the text-measure surface across all ten band components, a new `--measure-heading` design token retunes eight band headings in one write, and two cross-component slot leaks are severed. One deliberate render change: the hero headline is no longer capped at 12 characters.**
