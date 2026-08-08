@@ -486,9 +486,14 @@ class ActionsTest extends TestCase
         // slot declares `role: "fill"`, and since #579 a transparent fill raises a
         // non-blocking `transparent_fill` advisory, which would make this findings
         // assertion about the warn channel instead of about var() acceptance.
+        //
+        // The two button labels are load-bearing for the SAME reason since #580:
+        // `--hero-button2-*` declares applies_when button_text + button2_text, so a
+        // hero with neither renders no second button and the slot raises an
+        // `inert_slot` advisory — again the warn channel, not var() acceptance.
         $post_id = pp_create_page('Valid var snapshot');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'A'], 'style' => ['--hero-button2-color' => 'transparent', '--hero-accent' => 'var(--color-accent)']],
+            ['component' => 'hero', 'props' => ['title' => 'A', 'button_text' => 'One', 'button2_text' => 'Two'], 'style' => ['--hero-button2-color' => 'transparent', '--hero-accent' => 'var(--color-accent)']],
         ]);
         pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
 

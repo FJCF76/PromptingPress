@@ -32,7 +32,8 @@
         "image_alt": { "type": "string", "required": true,  "description": "Alt text. Use the logo or category name; empty string only for decorative images." },
         "image_id":  { "type": "number", "required": false, "default": 0, "description": "Media Library attachment ID (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply." },
         "label":     { "type": "string", "required": false, "description": "Text label below the image. Omit for logo-only rows." }
-      }
+      },
+      "conditionality_note": "the height cap applied to a logo image is chosen by that item's `label` — 3rem labelled, 2.5rem unlabelled — an item-level condition the clause grammar, which reaches component props only, cannot express"
     }
   },
   "styling": {
@@ -42,9 +43,9 @@
     "style_slots": {
       "--logos-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
       "--logos-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
-      "--logos-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Section heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop); set an explicit length to override." },
-      "--logos-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading color. Defaults to the theme text color (inverted variant defaults to the inverted-background text color); set an explicit color to override." },
-      "--logos-heading-measure": { "type": "length", "role": "measure", "default": "var(--measure-heading)", "description": "Maximum width of the logos section heading. Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site." }
+      "--logos-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Section heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop); set an explicit length to override.", "applies_when": [{"prop": "title", "present": true}] },
+      "--logos-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading color. Defaults to the theme text color (inverted variant defaults to the inverted-background text color); set an explicit color to override.", "applies_when": [{"prop": "title", "present": true}] },
+      "--logos-heading-measure": { "type": "length", "role": "measure", "default": "var(--measure-heading)", "description": "Maximum width of the logos section heading. Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site.", "applies_when": [{"prop": "title", "present": true}] }
     }
   },
   "safe_to_edit": ["logos.php", "../../assets/css/components.css (COMPONENT: logos section)"],

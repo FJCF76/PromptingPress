@@ -18,19 +18,22 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Footer logo text wordmark (only when show_logo is true). Falls back to pp_site_title() when empty."
+      "description": "Footer logo text wordmark (only when show_logo is true). Falls back to pp_site_title() when empty.",
+      "conditionality_note": "show_logo is true AND no logo image resolves — a boolean prop plus a negation, neither of which the clause grammar can express"
     },
     "logo_id": {
       "type": "number",
       "required": false,
       "default": 0,
-      "description": "Media Library attachment ID for the footer logo image (NOT a URL; only when show_logo is true). Must be an image attachment; a non-image or non-existent ID is rejected when the action is validated (same rule as the pp_logo_id site option). Set via the pp_footer_logo_id site option (issue 335) so a light logo variant can serve the dark footer while pp_logo_id stays the header logo. Resolution: this prop (pp_footer_logo_id), then the pp_logo_id site option, then the WP custom_logo theme-mod."
+      "description": "Media Library attachment ID for the footer logo image (NOT a URL; only when show_logo is true). Must be an image attachment; a non-image or non-existent ID is rejected when the action is validated (same rule as the pp_logo_id site option). Set via the pp_footer_logo_id site option (issue 335) so a light logo variant can serve the dark footer while pp_logo_id stays the header logo. Resolution: this prop (pp_footer_logo_id), then the pp_logo_id site option, then the WP custom_logo theme-mod.",
+      "conditionality_note": "show_logo is true — a boolean-prop precondition the grammar, whose predicates cover strings, arrays and bounded values only, cannot express"
     },
     "logo_alt": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Alt text for the footer logo image. Defaults to the attachment's own alt metadata, then logo_text/site title."
+      "description": "Alt text for the footer logo image. Defaults to the attachment's own alt metadata, then logo_text/site title.",
+      "conditionality_note": "show_logo is true AND logo_id points at a real image attachment — a boolean plus a numeric-prop precondition, neither of which the clause grammar can express"
     },
     "bg": {
       "type": "string",
@@ -78,19 +81,22 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional heading above the contact block (issue 335). Set via the pp_footer_contact_label site option. Plain text; empty = no heading. Only rendered when contact is also set."
+      "description": "Optional heading above the contact block (issue 335). Set via the pp_footer_contact_label site option. Plain text; empty = no heading. Only rendered when contact is also set.",
+      "applies_when": [{"prop": "contact", "present": true}]
     },
     "secondary_location": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "WP theme location slug for an optional SECOND footer nav menu column (issue 469). base.php sets this to 'footer_secondary'. The column renders ONLY when a menu is assigned to this location (has_nav_menu); an unassigned location leaves the footer byte-identical to the single-menu layout. Assign a menu with assign_menu_location / set_menu (location 'footer_secondary'). The column is a real <nav> landmark with aria-label 'Footer secondary navigation', distinct from the primary footer nav."
+      "description": "WP theme location slug for an optional SECOND footer nav menu column (issue 469). base.php sets this to 'footer_secondary'. The column renders ONLY when a menu is assigned to this location (has_nav_menu); an unassigned location leaves the footer byte-identical to the single-menu layout. Assign a menu with assign_menu_location / set_menu (location 'footer_secondary'). The column is a real <nav> landmark with aria-label 'Footer secondary navigation', distinct from the primary footer nav.",
+      "conditionality_note": "a menu is actually assigned to this location — an unassigned location renders no second column at all; that is WordPress state (has_nav_menu), which the clause grammar cannot express"
     },
     "secondary_label": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional heading above the second footer menu column (issue 469). Set via the pp_footer_secondary_label site option. Plain text; empty = a headless second column (the same headless-when-unset rule as menu_label). Only rendered when a menu is assigned to secondary_location."
+      "description": "Optional heading above the second footer menu column (issue 469). Set via the pp_footer_secondary_label site option. Plain text; empty = a headless second column (the same headless-when-unset rule as menu_label). Only rendered when a menu is assigned to secondary_location.",
+      "conditionality_note": "a menu is assigned to secondary_location — WordPress state (has_nav_menu), not a prop, a slot or a value, so the clause grammar cannot express it"
     },
     "note": {
       "type": "string",

@@ -12,7 +12,8 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Logo text wordmark. Falls back to pp_site_title() when empty. Shown when no logo image resolves."
+      "description": "Logo text wordmark. Falls back to pp_site_title() when empty. Shown when no logo image resolves.",
+      "conditionality_note": "NO logo image resolves — a negation the grammar cannot express; with a valid logo_id the image wins and this wordmark is never rendered"
     },
     "logo_id": {
       "type": "number",
@@ -24,7 +25,8 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Alt text for the logo image. Defaults to the attachment's own alt metadata, then logo_text/site title."
+      "description": "Alt text for the logo image. Defaults to the attachment's own alt metadata, then logo_text/site title.",
+      "conditionality_note": "a logo IMAGE resolves, i.e. logo_id points at a real image attachment — a numeric-prop precondition the grammar, whose `present` predicate covers strings and arrays only, cannot express"
     },
     "bg": {
       "type": "string",
