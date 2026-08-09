@@ -1691,9 +1691,12 @@ function pp_operate_restore_run_compositions( string $run_id ): array {
         // ever blocking the rollback (parity with the restore_composition action, issue
         // 233 — a rollback must never be refused by a rule that landed after the
         // snapshot). Reuses the shared findings helper (pp_validate_composition_errors +
-        // _smells); no second validator. pp_get_composition() runs the read-path
-        // migration shim, so $after is already the canonical shape the validators expect
-        // — the same findings the action reports for the equivalent normalized snapshot.
+        // _smells); no second validator. Since #604 pp_get_composition() is a plain
+        // decode — the read-path migration shim is gone — so $after is the snapshot's
+        // literal stored bytes. A snapshot carrying a retired prop name or `variant`
+        // therefore reports unknown_prop/invalid_composition here where it used to be
+        // canonicalized away first. That is the 233/236 report-never-block contract
+        // working on honest bytes, not a defect: the rollback still lands.
         $reverted[] = [
             'post_id'  => $post_id,
             'changed'  => ( $before !== $after ),

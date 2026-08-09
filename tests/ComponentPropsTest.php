@@ -32,30 +32,48 @@ class ComponentPropsTest extends TestCase
         return ob_get_clean();
     }
 
-    // ── Legacy cta prop-rename renders the authored button (issue #495) ────
+    // ── A retired cta prop name renders the SCHEMA DEFAULT (#604) ────────────
     //
-    // A pre-1.0 cta stored cta_text/cta_url; the renderer reads button_text/
-    // button_url. After alias resolution (the render path runs
-    // pp_normalize_legacy_props), the authored label/href must appear in the HTML
-    // instead of the renderer's defaults. This is the rendered-output evidence
-    // that "rendering accepts the mapped names": the resolved item renders
-    // byte-for-byte like a normal button_text cta.
+    // SUPERSEDES testLegacyCtaPropsRenderAuthoredButtonAfterResolution (#495 -> #604).
+    //
+    // A pre-1.0 cta stored cta_text/cta_url; the renderer reads button_text/button_url.
+    // The alias map used to bridge that gap on the render path, so the authored label
+    // appeared. #604 removed the map, so nothing bridges it any more: the authored
+    // value is simply not read, and the renderer falls back to its own default.
+    //
+    // SCOPE, stated honestly: this renders through pp_get_component() DIRECTLY, so it
+    // exercises the cta template and nothing else — it is a renderer-level CONTROL, not
+    // a tripwire. It would have passed before #604 too, because the template never read
+    // `cta_text`; the alias resolution it is documenting happened upstream on the read
+    // path. The test that actually discriminates (seeds stored bytes and renders them
+    // through the real read path) is
+    // StoredCompositionAliasRenderTest::testStoredRetiredCtaPropRendersTheSchemaDefault.
+    // Kept because it isolates WHICH layer drops the value: the renderer, not a guard.
 
-    public function testLegacyCtaPropsRenderAuthoredButtonAfterResolution(): void
+    public function testRetiredCtaPropNameRendersTheSchemaDefaultNotTheAuthoredValue(): void
     {
-        $resolved = pp_normalize_legacy_props([
-            ['component' => 'cta', 'props' => [
-                'cta_text' => 'View on GitHub',
-                'cta_url'  => 'https://example.com/repo',
-            ]],
-        ])[0];
+        $html = $this->render('cta', [
+            'cta_text' => 'View on GitHub',
+            'cta_url'  => 'https://example.com/repo',
+        ]);
 
-        $html = $this->render('cta', $resolved['props']);
+        $this->assertStringNotContainsString('View on GitHub', $html, 'the retired label is not read by the renderer');
+        $this->assertStringNotContainsString('https://example.com/repo', $html, 'the retired url is not read either');
+        // The band still renders — the failure mode is a lost value, never a fatal.
+        $this->assertStringContainsString('data-pp-component="cta"', $html, 'the band still renders');
+    }
 
-        $this->assertStringContainsString('View on GitHub', $html, 'authored legacy label must render');
-        $this->assertStringContainsString('https://example.com/repo', $html, 'authored legacy url must render');
-        // The renderer's fallback defaults must NOT leak through.
-        $this->assertStringNotContainsString('Get Started', $html, 'the default button label must not appear');
+    public function testCanonicalCtaPropsStillRenderTheAuthoredButton(): void
+    {
+        // The control: the canonical names render exactly as before the removal, so the
+        // test above is evidence about the RETIRED name and not about the renderer.
+        $html = $this->render('cta', [
+            'button_text' => 'View on GitHub',
+            'button_url'  => 'https://example.com/repo',
+        ]);
+
+        $this->assertStringContainsString('View on GitHub', $html);
+        $this->assertStringContainsString('https://example.com/repo', $html);
     }
 
     // ── Section Centered Layout ────────────────────────────────────────────

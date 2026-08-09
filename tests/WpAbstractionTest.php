@@ -137,13 +137,14 @@ class WpAbstractionTest extends TestCase
     // ── pp_composition() render-path legacy migration (issue #400) ─────────
     //
     // pp_composition() is the in-loop front-end renderer (used by
-    // templates/composition.php + templates/front-page.php). Before #400 it
-    // decoded _pp_composition raw and returned it, so a stored pre-#69
-    // composition still carrying `variant` rendered with `variant` silently
-    // ignored — the one reader that bypassed the shared migration every other
-    // read path (editor / restore / inspect) applies. #400 routes the decoded
-    // items through pp_migrate_stored_composition() (the same shared
-    // pp_migrate_legacy_variant_keys() engine), no second migration.
+    // templates/composition.php + templates/front-page.php). It decodes
+    // _pp_composition and returns it, with NO name resolution of any kind (#604).
+    //
+    // #400 had routed it through pp_migrate_stored_composition() so a stored pre-#69
+    // `variant` decoded to `layout`/`theme`, and #575 added the prop-key alias map to
+    // the same shim. #604 deleted both surfaces and the shim itself, so this reader is
+    // back to a plain decode — but now so is EVERY other read path, which is the point:
+    // one contract, not a renderer that disagrees with the editor.
     //
     // The get_the_ID() bootstrap stub returns 0, so pp_composition() reads
     // post_meta[0]; each test seeds that slot and tearDown clears it.
@@ -154,31 +155,23 @@ class WpAbstractionTest extends TestCase
         parent::tearDown();
     }
 
-    public function testPpCompositionMigratesLegacyStructuralVariantOnRender(): void
+    public function testPpCompositionReturnsLegacyVariantVerbatimOnRender(): void
     {
-        // Structural component (hero): legacy `variant` maps to `layout`.
-        $GLOBALS['_pp_test_store']['post_meta'][0]['_pp_composition'] = wp_json_encode([
-            ['component' => 'hero', 'props' => ['variant' => 'split', 'heading' => 'Hi']],
-        ]);
-
-        $result = pp_composition();
-
-        $this->assertArrayNotHasKey('variant', $result[0]['props'], 'Legacy variant must be migrated away on render.');
-        $this->assertSame('split', $result[0]['props']['layout'], 'variant value must carry across to layout.');
-        $this->assertSame('Hi', $result[0]['props']['heading'], 'Other props are untouched.');
-    }
-
-    public function testPpCompositionMigratesLegacyToneVariantOnRender(): void
-    {
-        // Tone component (section): legacy `variant` maps to `theme`.
-        $GLOBALS['_pp_test_store']['post_meta'][0]['_pp_composition'] = wp_json_encode([
+        // SUPERSEDES the two #400 migration pins (structural -> layout, tone -> theme).
+        // Nothing migrates on render any more: the retired key reaches the renderer,
+        // which does not read it, so the band renders with the schema default. The
+        // authored structural/tone setting is LOST — intended, and pinned as such.
+        $stored = [
+            ['component' => 'hero',    'props' => ['variant' => 'split', 'heading' => 'Hi']],
             ['component' => 'section', 'props' => ['variant' => 'dark']],
-        ]);
+        ];
+        $GLOBALS['_pp_test_store']['post_meta'][0]['_pp_composition'] = wp_json_encode($stored);
 
         $result = pp_composition();
 
-        $this->assertArrayNotHasKey('variant', $result[0]['props']);
-        $this->assertSame('dark', $result[0]['props']['theme'], 'tone variant must migrate to theme.');
+        $this->assertSame($stored, $result, 'the renderer hands back exactly what is stored');
+        $this->assertArrayNotHasKey('layout', $result[0]['props'], 'no layout is manufactured from variant');
+        $this->assertArrayNotHasKey('theme', $result[1]['props'], 'no theme is manufactured from variant');
     }
 
     public function testPpCompositionRendersModernShapeUnchanged(): void
@@ -196,83 +189,45 @@ class WpAbstractionTest extends TestCase
         $this->assertSame($modern, $result, 'Modern-shape compositions must render unchanged (migration is a no-op).');
     }
 
-    // ── pp_composition() legacy prop-rename resolution (issue #495) ────────
+    // ── pp_composition() resolves NO prop names (#604) ─────────────────────
     //
-    // A pre-1.0 `cta` stored `cta_text`/`cta_url`; the renderer reads
-    // `button_text`/`button_url`, so without render-path resolution a legacy
-    // button rendered its default label. pp_composition() resolves the bounded
-    // alias map for display only — the stored composition is NEVER mutated here
-    // (untouched components heal only on a write that touches them).
+    // SUPERSEDES the #495/#576 render-resolution pins. A pre-1.0 `cta` stored
+    // `cta_text`/`cta_url` and the renderer reads `button_text`/`button_url`; the alias
+    // map used to bridge that on the render path. It is gone, so the retired key
+    // reaches the renderer unread and the authored label is lost. The band still
+    // renders and the stored bytes are still never mutated by a read.
 
-    public function testPpCompositionResolvesLegacyCtaPropsOnRender(): void
+    public function testPpCompositionReturnsRetiredPropNamesVerbatimOnRender(): void
     {
-        $stored = wp_json_encode([
-            ['component' => 'cta', 'props' => [
-                'cta_text' => 'View on GitHub',
-                'cta_url'  => 'https://example.com/repo',
-            ]],
-        ]);
+        $items  = [
+            ['component' => 'cta',  'props' => ['cta_text' => 'View on GitHub', 'cta_url' => 'https://example.com/repo']],
+            // A canonical band beside it: the removal must not touch correct data.
+            ['component' => 'hero', 'props' => ['title' => 'Hi', 'button_text' => 'Get Started', 'button_url' => '/docs']],
+        ];
+        $stored = wp_json_encode($items);
         $GLOBALS['_pp_test_store']['post_meta'][0]['_pp_composition'] = $stored;
 
         $result = pp_composition();
 
-        $this->assertArrayNotHasKey('cta_text', $result[0]['props'], 'legacy cta_text must resolve away on render.');
-        $this->assertArrayNotHasKey('cta_url', $result[0]['props'], 'legacy cta_url must resolve away on render.');
-        $this->assertSame('View on GitHub', $result[0]['props']['button_text'], 'cta_text value must carry to button_text.');
-        $this->assertSame('https://example.com/repo', $result[0]['props']['button_url'], 'cta_url value must carry to button_url.');
+        $this->assertSame($items, $result, 'the read is a plain decode: retired names survive, canonical ones are untouched');
+        $this->assertArrayNotHasKey('button_text', $result[0]['props'], 'nothing manufactures the canonical key');
+        $this->assertSame('Get Started', $result[1]['props']['button_text'], 'canonical props are unaffected by the removal');
 
-        // Render resolution is a transient view: stored meta is untouched.
+        // A read still never mutates stored meta.
         $this->assertSame(
             $stored,
             $GLOBALS['_pp_test_store']['post_meta'][0]['_pp_composition'],
-            'render-path resolution must NOT mutate the stored composition.'
+            'the render path must NOT mutate the stored composition.'
         );
-    }
-
-    /**
-     * SUPERSEDES testPpCompositionDoesNotResolveHeroCtaProps (#495 -> #576).
-     *
-     * hero.cta_text/cta_url were the hero's CURRENT canonical props until the
-     * canonical-vocabulary gate renamed them to button_text/button_url. The pin used to
-     * assert the per-component map must NOT touch them; now it must resolve them, while
-     * still leaving an authored CANONICAL name exactly as written.
-     */
-    public function testPpCompositionResolvesHeroLegacyButtonPropsAndPreservesCanonicalOnes(): void
-    {
-        $GLOBALS['_pp_test_store']['post_meta'][0]['_pp_composition'] = wp_json_encode([
-            ['component' => 'hero', 'props' => [
-                'title'       => 'Hi',
-                'button_text' => 'Get Started',
-                'button_url'  => '/docs',
-            ]],
-            ['component' => 'hero', 'props' => [
-                'title'    => 'Legacy',
-                'cta_text' => 'Get Started',
-                'cta_url'  => '/docs',
-            ]],
-        ]);
-
-        $result = pp_composition();
-
-        $this->assertSame('Get Started', $result[0]['props']['button_text'], 'hero button_text is canonical and must be preserved.');
-        $this->assertSame('/docs', $result[0]['props']['button_url'], 'hero button_url is canonical and must be preserved.');
-
-        $this->assertSame('Get Started', $result[1]['props']['button_text'], 'legacy hero cta_text must resolve to button_text.');
-        $this->assertSame('/docs', $result[1]['props']['button_url'], 'legacy hero cta_url must resolve to button_url.');
-        $this->assertArrayNotHasKey('cta_text', $result[1]['props'], 'the legacy key resolves away on render.');
-        $this->assertArrayNotHasKey('cta_url', $result[1]['props'], 'the legacy key resolves away on render.');
     }
 
     public function testPpCompositionLeavesNonListShapeUnchanged(): void
     {
         // Defensive-parity pin: pp_composition() has never enforced list shape
-        // (that is #144's domain, deliberately untouched by #400). The migration
-        // engine is not recursive: it walks the TOP-LEVEL entries of whatever
-        // array it is handed and only rewrites an entry that is itself an array
-        // with a props['variant'] key AND a component mapped to layout/theme.
-        // Here neither entry qualifies (the string is not an array; the nested
-        // array has no `component`, so it maps to nothing), so the decoded object
-        // passes through unchanged, exactly as the raw decode did before #400.
+        // (that is #144's domain, deliberately untouched). Since #604 there is no
+        // migration engine left to walk the decoded value at all, so a non-list
+        // shape passes through for the simplest possible reason — nothing touches
+        // it. This pin now guards against a future reader re-introducing a walk.
         $GLOBALS['_pp_test_store']['post_meta'][0]['_pp_composition'] = wp_json_encode([
             'meta' => 'not-a-list',
             'nested' => ['props' => ['variant' => 'x']],
@@ -285,22 +240,6 @@ class WpAbstractionTest extends TestCase
             $result,
             'Non-list shapes with no mapped-component entries are returned unchanged.'
         );
-    }
-
-    public function testPpCompositionMigratesModernKeyCollisionKeepsExplicitLayout(): void
-    {
-        // Mixed shape (both legacy `variant` and modern `layout` on the same
-        // component): the shared engine's rule is "an explicit new key wins;
-        // the legacy `variant` is then dropped" (lib/admin.php). Pin that the
-        // renderer honors it — layout is kept, variant is removed, no clobber.
-        $GLOBALS['_pp_test_store']['post_meta'][0]['_pp_composition'] = wp_json_encode([
-            ['component' => 'hero', 'props' => ['variant' => 'stacked', 'layout' => 'split']],
-        ]);
-
-        $result = pp_composition();
-
-        $this->assertArrayNotHasKey('variant', $result[0]['props'], 'Legacy variant is dropped even when a modern key exists.');
-        $this->assertSame('split', $result[0]['props']['layout'], 'Explicit modern layout wins; variant must not overwrite it.');
     }
 
     public function testPpCompositionLeavesMalformedItemUntouched(): void
