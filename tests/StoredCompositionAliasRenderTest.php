@@ -2,34 +2,39 @@
 /**
  * tests/StoredCompositionAliasRenderTest.php
  *
- * The stored-composition legacy-name contract (issues #575 / #495, amended by #603).
+ * The stored-composition legacy-name contract (issues #575 / #495, ended by #603/#604).
  *
- * ONE surface is left. The SLOT-NAME surface is GONE (#603) and its removal is what
- * the first half of this class now pins; the PROP-KEY surface is live and is pinned
- * in the second half.
+ * NO SURFACE IS LEFT. Both alias surfaces this class was built around are gone, and
+ * pinning their ABSENCE — at the render boundary, on real stored bytes — is now the
+ * whole job of the file.
  *
- *   SLOT NAME   pp_legacy_slot_aliases() — REMOVED. Shipped empty in #575, populated
- *               by #576 with 51 renames, deleted outright by #603 along with its two
+ *   SLOT NAME   pp_legacy_slot_aliases() — REMOVED (#603). Shipped empty in #575,
+ *               populated by #576 with 51 renames, deleted outright along with its two
  *               resolution helpers, the pp_normalize_legacy_slots() wrapper and the
- *               public filter. A slot name a component does not declare is rejected
- *               at write and dropped at render, and nothing sits in between.
- *   PROP KEY    pp_legacy_prop_aliases() (lib/admin.php) — LIVE. The
- *               cta_text/cta_url -> button_text/button_url mapping (#495), extended
- *               by #576 with hero's button family, cta.text -> body and
- *               heading_align -> title_align.
+ *               public filter. A slot name a component does not declare is rejected at
+ *               write and dropped at render, with nothing in between.
+ *   PROP KEY    pp_legacy_prop_aliases() — REMOVED (#604). The 13-entry map
+ *               (cta_text/cta_url -> button_text/button_url from #495, extended by #576
+ *               with hero's button family, cta.text -> body and heading_align ->
+ *               title_align) is deleted, together with the `variant` -> `layout`/`theme`
+ *               read migration and the pp_migrate_stored_composition() shim that applied
+ *               both. A retired prop name is rejected at write and unread at render.
  *
- * Why the two surfaces diverged. #575's bounded rule said a legacy name resolves IFF
- * a shipped mechanism promises the already-stored document will render, and named
- * `restore_composition` (#233) as that mechanism. The #570 decision record, Addendum
- * #4, RETIRES that mechanism-trust rule for the slot surface: restore's actual
- * contract is that it restores and REPORTS, never that what it restores still paints.
- * Under the governing ruling — backward compatibility, stale demo pages, old
- * compositions, migrations and legacy tolerance are all NON-GOALS — the slot map had
- * no basis left, so it went. The prop-key surface is a separate question, filed as
- * its own issue.
+ * Why both surfaces went. #575's bounded rule said a legacy name resolves IFF a shipped
+ * mechanism promises the already-stored document will render, and named
+ * `restore_composition` (#233) as that mechanism. The #570 decision record, Addendum #4,
+ * RETIRES that mechanism-trust rule: restore's actual contract is that it restores and
+ * REPORTS, never that what it restores still paints. Under the governing ruling —
+ * backward compatibility, stale demo pages, old compositions, migrations and legacy
+ * tolerance are all NON-GOALS — neither map had a basis left. #603 took the slots, #604
+ * took the props.
  *
- * Everything renders through the EXACT loop templates/composition.php runs, so what
- * is asserted is what a visitor's browser receives, not an intermediate array.
+ * What the second half asserts is therefore the STALE-DATA BREAKAGE, on purpose: a
+ * stored retired name renders the schema default (or nothing), and the authored value is
+ * lost. That is the accepted cost of the vocabulary freeze, stated rather than inferred.
+ *
+ * Everything renders through the EXACT loop templates/composition.php runs, so what is
+ * asserted is what a visitor's browser receives, not an intermediate array.
  */
 
 use PHPUnit\Framework\TestCase;
@@ -54,7 +59,7 @@ class StoredCompositionAliasRenderTest extends TestCase
      * read the stored items, promote `style` to the `__pp_style` prop, render each
      * component in order. The only difference is the read accessor
      * (pp_get_composition($id) rather than pp_composition(), which resolves the post
-     * from the loop) — both route through pp_migrate_stored_composition().
+     * from the loop) — both are plain decodes since #604, so the parity holds.
      */
     private function renderStored(int $post_id): string
     {
@@ -368,20 +373,25 @@ class StoredCompositionAliasRenderTest extends TestCase
         );
     }
 
-    // ── Prop KEY resolution (the live cta_text -> button_text mapping) ───────
+    // ── Prop KEY resolution is GONE — the rendered proof (#604) ─────────────
+    //
+    // SUPERSEDES the five #495/#576 render-resolution pins that stood here. Those
+    // asserted that a stored legacy prop name reached the page as its AUTHORED value.
+    // #604 removed the alias map, so the opposite is now true and is pinned with the
+    // same rendered evidence, at the same render boundary.
+    //
+    // Rendered evidence matters more than an array assertion here, exactly as it did
+    // before: every renderer reads the canonical key only, so the loss shows up as a
+    // silently missing element (hero.subtitle), a silently reverted layout
+    // (grid.heading_align) or a schema default replacing authored copy (cta) — never
+    // as an error. These tests are what make "the authored value is lost" a stated,
+    // observed fact rather than an inference.
 
-    /**
-     * A stored composition carrying a legacy PROP name renders the AUTHORED value,
-     * not the schema default. components/cta/cta.php reads $props['button_text'] /
-     * $props['button_url'] only, so without resolution a legacy-shaped cta band
-     * renders the hardcoded 'Get Started' / '#' — a live page quietly losing its
-     * call to action and its destination.
-     */
-    public function testStoredLegacyPropRendersTheAuthoredValueNotTheSchemaDefault(): void
+    public function testStoredRetiredCtaPropRendersTheSchemaDefault(): void
     {
-        $id = pp_create_page('Legacy prop page', 'draft');
-        // Thin writer, no validation — persists the legacy shape as a live install
-        // holds it (and as restore_composition can replay it).
+        $id = pp_create_page('Retired prop page', 'draft');
+        // Thin writer, no validation — persists the stale shape as a live install holds
+        // it (and as restore_composition can replay it).
         pp_update_composition($id, [[
             'component' => 'cta',
             'props'     => ['cta_text' => 'View on GitHub', 'cta_url' => 'https://example.com/repo'],
@@ -389,14 +399,16 @@ class StoredCompositionAliasRenderTest extends TestCase
 
         $html = $this->renderStored($id);
 
-        $this->assertStringContainsString('View on GitHub', $html, 'the authored label renders');
-        $this->assertStringContainsString('https://example.com/repo', $html, 'the authored destination renders');
-        $this->assertStringNotContainsString('Get Started', $html, 'the schema default must not win over authored content');
+        $this->assertStringNotContainsString('View on GitHub', $html, 'the retired label no longer reaches the page');
+        $this->assertStringNotContainsString('https://example.com/repo', $html, 'nor does the retired destination');
+        $this->assertStringContainsString('Get Started', $html, 'the schema default renders instead — the stated breakage');
     }
 
-    /** CANONICAL-WINS on the prop surface too (the shipped #495 rule, pinned here at render). */
-    public function testCanonicalPropWinsWhenBothKeysAreStored(): void
+    public function testBothKeysStoredRendersTheCanonicalValueAndIgnoresTheRetiredOne(): void
     {
+        // Canonical-wins used to be an ACTIVE rule that dropped the retired key. Now it
+        // is simply what happens: the renderer reads the canonical name and never looks
+        // at the other one. Same rendered outcome, no machinery behind it.
         $id = pp_create_page('Both prop keys', 'draft');
         pp_update_composition($id, [[
             'component' => 'cta',
@@ -409,22 +421,13 @@ class StoredCompositionAliasRenderTest extends TestCase
 
         $html = $this->renderStored($id);
 
-        $this->assertStringContainsString('Fresh label', $html, 'the canonical value wins');
-        $this->assertStringNotContainsString('Stale label', $html, 'the stale legacy value is dropped');
+        $this->assertStringContainsString('Fresh label', $html, 'the canonical value renders');
+        $this->assertStringNotContainsString('Stale label', $html, 'the retired key is never read');
     }
 
-    // ── Prop KEY resolution for the #576 canonical vocabulary ────────────────
-
-    /**
-     * The three heaviest prop renames on dev, each proven by RENDER: the authored value
-     * reaches the page, not the schema default. Asserting the stored array is not enough
-     * — every renderer reads the canonical key only, so a resolution gap shows up as a
-     * silently missing element (hero.subtitle) or a silently reverted layout
-     * (grid.heading_align), never as an error.
-     */
-    public function testStoredLegacyHeroSubtitleRendersTheAuthoredValue(): void
+    public function testStoredRetiredHeroSubtitleRendersNothing(): void
     {
-        $id = pp_create_page('Legacy hero subtitle', 'draft');
+        $id = pp_create_page('Retired hero subtitle', 'draft');
         pp_update_composition($id, [[
             'component' => 'hero',
             'props'     => ['title' => 'Headline', 'subtitle' => 'The authored supporting line.'],
@@ -432,13 +435,14 @@ class StoredCompositionAliasRenderTest extends TestCase
 
         $html = $this->renderStored($id);
 
-        $this->assertStringContainsString('hero__subtitle', $html, 'the subtitle element must render at all');
-        $this->assertStringContainsString('The authored supporting line.', $html);
+        $this->assertStringNotContainsString('hero__subtitle', $html, 'the element is not emitted at all');
+        $this->assertStringNotContainsString('The authored supporting line.', $html);
+        $this->assertStringContainsString('Headline', $html, 'the canonical title on the same band still renders');
     }
 
-    public function testStoredLegacyGridHeadingAlignRendersTheAuthoredValue(): void
+    public function testStoredRetiredGridHeadingAlignRevertsToTheDefaultAlignment(): void
     {
-        $id = pp_create_page('Legacy grid heading_align', 'draft');
+        $id = pp_create_page('Retired grid heading_align', 'draft');
         pp_update_composition($id, [[
             'component' => 'grid',
             'props'     => [
@@ -450,17 +454,16 @@ class StoredCompositionAliasRenderTest extends TestCase
 
         $html = $this->renderStored($id);
 
-        $this->assertStringContainsString(
+        $this->assertStringNotContainsString(
             'grid__header--center',
             $html,
-            'legacy heading_align must resolve to title_align; without it the header silently reverts to start'
+            'the retired heading_align no longer resolves to title_align; the header reverts to the default'
         );
     }
 
-    /** cta.text -> body: the band renders its supporting copy, not an empty block. */
-    public function testStoredLegacyCtaTextRendersTheAuthoredBody(): void
+    public function testStoredRetiredCtaTextRendersNoBody(): void
     {
-        $id = pp_create_page('Legacy cta text', 'draft');
+        $id = pp_create_page('Retired cta text', 'draft');
         pp_update_composition($id, [[
             'component' => 'cta',
             'props'     => ['title' => 'Join', 'text' => 'Limited spots remain.', 'button_text' => 'Go', 'button_url' => '/go'],
@@ -468,8 +471,50 @@ class StoredCompositionAliasRenderTest extends TestCase
 
         $html = $this->renderStored($id);
 
-        $this->assertStringContainsString('cta__body', $html);
-        $this->assertStringContainsString('Limited spots remain.', $html);
+        $this->assertStringNotContainsString('Limited spots remain.', $html, 'the retired cta.text copy is dropped');
+        $this->assertStringContainsString('Join', $html, 'the canonical title still renders');
+    }
+
+    public function testFreshCanonicalCompositionRendersEveryComponentUnaffected(): void
+    {
+        // AC4, the other side of the ledger: a composition authored in the CURRENT
+        // canonical vocabulary is completely untouched by the removal. All eight
+        // composable components, including stats/logos/embed whose tonal `variant`
+        // the deleted migration also covered.
+        $id = pp_create_page('Fresh canonical', 'draft');
+        $canonical = [
+            ['component' => 'hero',         'props' => ['title' => 'Hero title', 'subheading' => 'Hero sub', 'button_text' => 'Go', 'button_url' => '/go', 'layout' => 'split']],
+            ['component' => 'section',      'props' => ['title' => 'Section title', 'body' => 'Section copy.', 'title_align' => 'center', 'theme' => 'muted']],
+            ['component' => 'cta',          'props' => ['title' => 'CTA title', 'body' => 'CTA copy.', 'button_text' => 'Join', 'button_url' => '/join', 'layout' => 'inline']],
+            ['component' => 'grid',         'props' => ['title' => 'Grid title', 'title_align' => 'center', 'layout' => 'cards', 'items' => [['title' => 'One', 'text' => 'a']]]],
+            ['component' => 'testimonials', 'props' => ['title' => 'Quotes', 'title_align' => 'center', 'layout' => 'stack', 'items' => [['quote' => 'Great.', 'author' => 'Ada']]]],
+            ['component' => 'stats',        'props' => ['title' => 'Numbers', 'theme' => 'inverted', 'items' => [['number' => '10', 'label' => 'Customers']]]],
+            ['component' => 'logos',        'props' => ['title' => 'Logos', 'theme' => 'muted', 'items' => [['image_url' => 'https://example.com/acme.png', 'image_alt' => 'Acme']]]],
+            ['component' => 'embed',        'props' => ['title' => 'Embed', 'content' => '<p>hi</p>', 'theme' => 'inverted']],
+        ];
+        pp_update_composition($id, $canonical);
+
+        // It validates through the REAL authoring surface (Section 14.1) ...
+        $result = pp_execute_action('update_composition', ['post_id' => $id, 'composition' => $canonical]);
+        $this->assertTrue($result['ok'], $result['error'] ?? 'canonical composition must validate');
+
+        // ... reads back byte-identical (ids are injected by the writer, so compare props
+        // the caller authored rather than the whole array) ...
+        $stored = pp_get_composition($id);
+        $this->assertCount(count($canonical), $stored);
+        foreach ($canonical as $i => $band) {
+            $this->assertSame($band['component'], $stored[$i]['component'], "band {$i} component");
+            foreach ($band['props'] as $k => $v) {
+                $this->assertSame($v, $stored[$i]['props'][$k], "band {$i} prop {$k} round-trips unchanged");
+            }
+        }
+
+        // ... and renders every authored value.
+        $html = $this->renderStored($id);
+        foreach (['Hero title', 'Hero sub', 'Section title', 'Section copy.', 'CTA title',
+                  'CTA copy.', 'Grid title', 'Quotes', 'Numbers', 'Logos', 'Embed'] as $needle) {
+            $this->assertStringContainsString($needle, $html, "canonical content '{$needle}' renders");
+        }
     }
 
     // ── Authoring-path coverage (Section 14.1) ───────────────────────────────

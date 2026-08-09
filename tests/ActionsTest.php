@@ -721,9 +721,14 @@ class ActionsTest extends TestCase
     public function testUpdateComponentAcceptsLegacyThemeAliasOnAnUntouchedBand(): void
     {
         // #579, A-32 + #575's `aliases` consumer. `theme` is STRICT and its schema
-        // advertises only default|muted|inverted, yet `dark` must keep writing:
-        // six dev compositions carry it, and pp_migrate_legacy_variant_keys()
-        // MANUFACTURES it at read time from a stored `variant: "dark"`.
+        // advertises only default|muted|inverted, yet `dark` must keep writing.
+        //
+        // ONE OF THE TWO EVIDENCE LEGS IS RETIRED (#604), mirroring lib/admin.php.
+        // `dark` used also to be MANUFACTURED at read time by
+        // pp_migrate_legacy_variant_keys() from a stored `variant: "dark"`; that
+        // migration is gone, so `dark` now only reaches the gate when it is literally
+        // the stored or submitted value. The surviving leg is untouched bands that
+        // really do store it — re-evaluating that is the `theme: "dark"` issue's job.
         //
         // The load-bearing shape is the SECOND band. Every action validates the WHOLE
         // composition, so if the alias were not part of the strict membership test,
@@ -852,118 +857,144 @@ class ActionsTest extends TestCase
         $this->assertContains('invalid_prop_value', array_column($result['findings'], 'type'), 'the dead-button link is reported as a finding');
     }
 
-    // ── Bounded legacy prop-rename alias map (issue #495, revised by #575) ──
+    // ── The legacy prop-KEY alias surface is GONE (#604) ──
     //
-    // Pre-1.0, `cta` renamed cta_text->button_text and cta_url->button_url (both
-    // now REQUIRED). Stored legacy compositions still carry the old names, which
-    // used to block a targeted edit to ANY component because the whole composition
-    // is validated. The map makes validation + rendering accept exactly those
-    // mapped names. The #147 strict gate is otherwise unchanged — genuinely unknown
-    // keys still reject. These exercise the REAL action surface (Section 14.1), not
-    // raw-meta unit calls.
+    // #495 shipped a 13-entry map of component-scoped prop RENAMES (cta.cta_text ->
+    // button_text, hero.subtitle -> subheading, section/grid/testimonials.heading_align
+    // -> title_align, ...), extended by #576 and routed through every read path by
+    // #575. #604 deleted all of it, under the #570 Addendum #4 ruling: backward
+    // compatibility, old compositions, migrations and convenience aliases are
+    // NON-GOALS, and a speculative or legacy-driven benefit files for removal.
     //
-    // SUPERSESSION, RECORDED (#575, ruling #570 DG-9 / A-37, orchestrator resolution
-    // 2026-08-08). #495 shipped an INCREMENTAL-HEAL model: the composition read path
-    // did not resolve prop aliases, so a whole-array write-back preserved untouched
-    // components' legacy keys, and only a component you actually touched healed.
-    // #575 routes the prop-alias map through pp_migrate_stored_composition()
-    // (lib/wp.php), so EVERY read resolves and the whole-array write-back stores
-    // every band canonical. The two pins below asserted the incremental model and
-    // are rewritten here to assert the unified one.
+    // WHY THIS IS A VALIDATION STRENGTHENING, NOT A LOOSENING. The map was accepted at
+    // WRITE and healed silently — no `changes` entry was emitted — so an agent that
+    // wrote `cta_text` got ok:true and never learned it had used a retired name. That
+    // is a hole in the #147 strict unknown_prop gate, sized at exactly 13 names.
+    // Removing it returns all 13 to a named rejection. The tests below are the proof,
+    // and they author through the REAL action surface (Section 14.1), not raw meta.
     //
-    // Why the newer ruling wins, so no future iteration re-litigates it in reverse.
-    // AMENDED by #603 — reason 1 no longer holds and is recorded here as retired so
-    // the amendment is not itself re-litigated:
-    //   1. RETIRED (#570 Addendum #4, #603). DG-9 said render-time resolution applies
-    //      to slots AND props alike, on "mechanism trust": a legacy name resolves IFF
-    //      a shipped mechanism promises the already-stored document renders, with
-    //      restore_composition (#233) named as that mechanism. Restore's real contract
-    //      is narrower — it restores verbatim and REPORTS findings, never promising
-    //      that what it restores still paints. #603 removed the SLOT half entirely on
-    //      that basis. The PROP half stands on reason 2, which is untouched.
-    //   2. #400 decides the tie. pp_migrate_legacy_variant_keys() has had the
-    //      IDENTICAL mass-heal-on-write-back property since #400, so keeping #495's
-    //      model would perpetuate a split contract between two legacy surfaces —
-    //      the divergence class this gate exists to remove.
-    //   3. Rendered output is unchanged either way: both shapes already resolved to
-    //      the same canonical props at render, so the gate's byte-identity story
-    //      is unaffected.
+    // THE STALE-DATA CONSEQUENCE IS INTENDED, NOT A REGRESSION. A stored composition
+    // carrying a retired name renders the SCHEMA DEFAULT for that prop, and any
+    // whole-composition validating action on that page now fails. Do not "fix" this
+    // with a migration, a coercion, a warning-only tolerance or a widened schema —
+    // all four are explicitly ruled out. `restore_composition` still restores verbatim
+    // and REPORTS the violations (#233); that is pinned below too.
 
-    /** A legacy-shaped composition: a section plus a cta carrying the old prop names. */
-    private function seedLegacyCtaComposition(): int
+    /**
+     * Every one of the 13 retired prop names rejects on every validating write path.
+     *
+     * The map was per-component and that shape is preserved in the rejection: the
+     * fixture pairs each retired name with the component it was retired ON, so a
+     * partial removal that left one component's entries behind fails here.
+     */
+    public static function retiredPropNameProvider(): array
     {
-        $id = pp_create_page('Legacy-shaped page', 'draft');
-        // Thin writer, no validation — persists the legacy shape as a live install would hold it.
-        pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['title' => 'Intro', 'body' => 'Hello world.']],
-            ['component' => 'cta',     'props' => ['cta_text' => 'View on GitHub', 'cta_url' => 'https://example.com/repo']],
-        ]);
-        return $id;
+        return [
+            'cta.cta_text'                => ['cta', ['cta_text' => 'Go'], 'cta_text'],
+            'cta.cta_url'                 => ['cta', ['cta_url' => '/go'], 'cta_url'],
+            'cta.text'                    => ['cta', ['text' => 'Body copy'], 'text'],
+            'hero.subtitle'               => ['hero', ['subtitle' => 'Sub'], 'subtitle'],
+            'hero.cta_text'               => ['hero', ['cta_text' => 'Go'], 'cta_text'],
+            'hero.cta_url'                => ['hero', ['cta_url' => '/go'], 'cta_url'],
+            'hero.cta_variant'            => ['hero', ['cta_variant' => 'primary'], 'cta_variant'],
+            'hero.cta2_text'              => ['hero', ['cta2_text' => 'More'], 'cta2_text'],
+            'hero.cta2_url'               => ['hero', ['cta2_url' => '/more'], 'cta2_url'],
+            'hero.cta2_variant'           => ['hero', ['cta2_variant' => 'outline'], 'cta2_variant'],
+            'section.heading_align'       => ['section', ['heading_align' => 'center'], 'heading_align'],
+            'grid.heading_align'          => ['grid', ['heading_align' => 'center'], 'heading_align'],
+            'testimonials.heading_align'  => ['testimonials', ['heading_align' => 'center'], 'heading_align'],
+        ];
     }
 
-    public function testTargetedEditSucceedsWhenAnUntouchedComponentHasLegacyProps(): void
+    /** Minimal canonical props so a rejection is attributable to the retired name alone. */
+    private static function canonicalBaseProps(string $component): array
     {
-        // The dogfood bug: a safe edit to the SECTION was rejected because the
-        // untouched cta carried cta_text/cta_url. Alias-on-read must let it through.
-        $id = $this->seedLegacyCtaComposition();
-
-        $result = pp_execute_action('update_component', [
-            'post_id'         => $id,
-            'component_index' => 0, // the section — NOT the legacy cta
-            'props'           => ['title' => 'Updated intro'],
-        ]);
-
-        $this->assertTrue($result['ok'], 'a targeted edit must succeed despite an untouched legacy-prop component');
-        $comp = pp_get_composition($id);
-        $this->assertSame('Updated intro', $comp[0]['props']['title'], 'the targeted edit landed');
-        // Supersedes the #495 incremental-heal pin per #570 DG-9 / A-37 (#575,
-        // orchestrator resolution 2026-08-08). The read now resolves prop aliases,
-        // so the whole-array write-back stores the untouched cta canonical too.
-        // Value-preserving: the authored label survives, only the KEY changes.
-        $this->assertArrayHasKey('button_text', $comp[1]['props'], 'the untouched component heals to the canonical key');
-        $this->assertArrayNotHasKey('cta_text', $comp[1]['props'], 'the legacy key does not survive the write-back');
-        $this->assertSame('View on GitHub', $comp[1]['props']['button_text'], 'the authored value is carried across, never lost');
+        switch ($component) {
+            case 'cta':          return ['title' => 'T', 'button_text' => 'Go', 'button_url' => '/go'];
+            case 'hero':         return ['title' => 'T'];
+            case 'grid':         return ['title' => 'T', 'items' => [['title' => 'One']]];
+            case 'testimonials': return ['title' => 'T', 'items' => [['quote' => 'Great.']]];
+            default:             return ['title' => 'T', 'body' => 'B'];
+        }
     }
 
-    public function testWriteTouchingLegacyComponentNormalizesItToCanonical(): void
+    /** @dataProvider retiredPropNameProvider */
+    public function testCreatePageRejectsEveryRetiredPropName(string $component, array $legacy, string $name): void
     {
-        $id = $this->seedLegacyCtaComposition();
-
-        $result = pp_execute_action('update_component', [
-            'post_id'         => $id,
-            'component_index' => 1, // the cta itself
-            'props'           => ['title' => 'Ready to start?'],
+        $result = pp_execute_action('create_page', [
+            'title'       => "Retired {$name} on create",
+            'composition' => [['component' => $component, 'props' => array_merge(self::canonicalBaseProps($component), $legacy)]],
         ]);
 
-        $this->assertTrue($result['ok'], 'editing the legacy cta must succeed');
-        $cta = pp_get_composition($id)[1]['props'];
-        $this->assertArrayNotHasKey('cta_text', $cta, 'a write touching the component heals cta_text');
-        $this->assertArrayNotHasKey('cta_url', $cta, 'a write touching the component heals cta_url');
-        $this->assertSame('View on GitHub', $cta['button_text'], 'legacy value carries to the canonical prop');
-        $this->assertSame('https://example.com/repo', $cta['button_url'], 'legacy value carries to the canonical prop');
-        $this->assertSame('Ready to start?', $cta['title'], 'the actual edit landed too');
-    }
-
-    public function testUnknownNonMappedKeyStillRejectsOnLegacyComposition(): void
-    {
-        // Aliasing must not become a hole: a genuinely unknown key still rejects
-        // with the current error, even on a legacy-shaped composition.
-        $id = $this->seedLegacyCtaComposition();
-
-        $result = pp_execute_action('update_component', [
-            'post_id'         => $id,
-            'component_index' => 1,
-            'props'           => ['not_a_real_prop' => 'x'],
-        ]);
-
-        $this->assertFalse($result['ok'], 'an unknown non-mapped key must still reject');
+        $this->assertFalse($result['ok'], "create_page must reject the retired prop {$component}.{$name}");
         $this->assertSame('unknown_prop', $result['error_code']);
-        $this->assertStringContainsString('not_a_real_prop', $result['error']);
+        $this->assertStringContainsString($name, $result['error'], 'the error names the retired prop');
     }
 
-    public function testCanonicalWinsWhenBothLegacyAndCanonicalPropsPresent(): void
+    /** @dataProvider retiredPropNameProvider */
+    public function testUpdateCompositionRejectsEveryRetiredPropName(string $component, array $legacy, string $name): void
+    {
+        $id = pp_create_page("Retired {$name} on replace", 'draft');
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => $id,
+            'composition' => [['component' => $component, 'props' => array_merge(self::canonicalBaseProps($component), $legacy)]],
+        ]);
+
+        $this->assertFalse($result['ok'], "update_composition must reject the retired prop {$component}.{$name}");
+        $this->assertSame('unknown_prop', $result['error_code']);
+        $this->assertStringContainsString($name, $result['error']);
+    }
+
+    /** @dataProvider retiredPropNameProvider */
+    public function testAddComponentRejectsEveryRetiredPropName(string $component, array $legacy, string $name): void
+    {
+        $id = pp_create_page("Retired {$name} on add", 'draft');
+        pp_update_composition($id, [['component' => 'section', 'props' => ['body' => 'x']]]);
+
+        $result = pp_execute_action('add_component', [
+            'post_id'   => $id,
+            'component' => $component,
+            'props'     => array_merge(self::canonicalBaseProps($component), $legacy),
+        ]);
+
+        $this->assertFalse($result['ok'], "add_component must reject the retired prop {$component}.{$name}");
+        $this->assertSame('unknown_prop', $result['error_code']);
+        $this->assertStringContainsString($name, $result['error']);
+        $this->assertCount(1, pp_get_composition($id), 'the rejected component was not appended');
+    }
+
+    /** @dataProvider retiredPropNameProvider */
+    public function testUpdateComponentRejectsEveryRetiredPropName(string $component, array $legacy, string $name): void
+    {
+        $id = pp_create_page("Retired {$name} on patch", 'draft');
+        pp_update_composition($id, [['component' => $component, 'props' => self::canonicalBaseProps($component)]]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => $legacy,
+        ]);
+
+        $this->assertFalse($result['ok'], "update_component must reject the retired prop {$component}.{$name}");
+        $this->assertSame('unknown_prop', $result['error_code']);
+        $this->assertStringContainsString($name, $result['error']);
+        $this->assertArrayNotHasKey($name, pp_get_composition($id)[0]['props'], 'the rejected patch did not land');
+    }
+
+    /**
+     * The both-keys case, which canonical-wins used to absorb silently.
+     *
+     * An item storing BOTH the canonical and the retired name used to keep the
+     * canonical value and DROP the retired key without a word. Now the retired key is
+     * simply unknown, so the write is rejected on its name even though a perfectly
+     * good canonical value sits beside it — and, critically, the canonical value is
+     * NOT quietly rewritten or lost on the way to that rejection.
+     */
+    public function testBothKeysStoredRejectsOnTheRetiredNameAndLeavesStorageUntouched(): void
     {
         $id = pp_create_page('Conflict page', 'draft');
+        // Thin writer, no validation — persists the both-keys shape as a live install would hold it.
         pp_update_composition($id, [
             ['component' => 'cta', 'props' => [
                 'cta_text'    => 'OLD legacy label',
@@ -979,190 +1010,174 @@ class ActionsTest extends TestCase
             'props'           => ['title' => 'Heading'],
         ]);
 
-        $this->assertTrue($result['ok']);
+        $this->assertFalse($result['ok'], 'the retired key is unknown, so the whole-composition write is rejected');
+        $this->assertSame('unknown_prop', $result['error_code']);
+
+        // The rejected write left the stored bytes exactly as they were: no heal, no
+        // canonical-wins drop, no partial rewrite.
         $cta = pp_get_composition($id)[0]['props'];
-        $this->assertArrayNotHasKey('cta_text', $cta, 'the legacy text key is dropped');
-        $this->assertArrayNotHasKey('cta_url', $cta, 'the legacy url key is dropped');
-        $this->assertSame('NEW canonical label', $cta['button_text'], 'the explicit canonical value wins over the legacy one');
-        $this->assertSame('https://new.example.com', $cta['button_url'], 'canonical-wins holds for the url alias too');
-    }
-
-    public function testLegacyNamedEditToAnAlreadyHealedComponentLands(): void
-    {
-        // Regression: an edit that uses the LEGACY prop name against a component whose
-        // stored props already use the canonical name must land, not be silently
-        // dropped by canonical-wins (the "ok:true but no effect" class). The incoming
-        // patch is canonicalized before the merge, so cta_text overwrites button_text.
-        $id = pp_create_page('Already healed', 'draft');
-        pp_update_composition($id, [
-            ['component' => 'cta', 'props' => ['button_text' => 'Old label', 'button_url' => '/old']],
-        ]);
-
-        $result = pp_execute_action('update_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'props'           => ['cta_text' => 'New label', 'cta_url' => '/new'], // legacy names
-        ]);
-
-        $this->assertTrue($result['ok']);
-        $cta = pp_get_composition($id)[0]['props'];
-        $this->assertSame('New label', $cta['button_text'], 'a legacy-named edit must overwrite the canonical prop, not be dropped');
-        $this->assertSame('/new', $cta['button_url']);
-        $this->assertArrayNotHasKey('cta_text', $cta, 'no legacy key persists after the write');
-
-        // The reported change log must match what was stored (canonical), not the
-        // pre-normalization legacy shape.
-        $paths = array_map(static fn ($c) => $c['path'] ?? '', $result['changes']);
-        $joined = implode(' ', $paths);
-        $this->assertStringNotContainsString('cta_text', $joined, 'the change log reports the canonical prop, not the legacy alias');
+        $this->assertSame('OLD legacy label', $cta['cta_text'], 'the retired key is still stored verbatim');
+        $this->assertSame('NEW canonical label', $cta['button_text'], 'the canonical value was never touched');
+        $this->assertSame('https://old.example.com', $cta['cta_url']);
+        $this->assertSame('https://new.example.com', $cta['button_url']);
+        $this->assertArrayNotHasKey('title', $cta, 'the rejected edit did not land');
     }
 
     /**
-     * SUPERSEDES testTargetedEditDoesNotRewriteHeroCurrentProps (#495 -> #576).
+     * THE HEADLINE CONSEQUENCE, pinned: an UNTOUCHED band carrying a retired prop name
+     * now blocks an edit to a DIFFERENT band on the same page.
      *
-     * Until #576, hero.cta_text/cta_url were the hero's CURRENT canonical props and the
-     * pin asserted the per-component map must never touch them. The canonical-vocabulary
-     * gate renamed them to button_text/button_url and gave hero its own alias map, so the
-     * contract inverted: the legacy names now RESOLVE on hero, and the canonical names
-     * are the ones that must survive a write untouched. Both halves are pinned here —
-     * asserting only the resolve half would let a map that rewrites canonical names pass.
+     * This is the exact dogfood bug #495's alias map was built to fix, deliberately
+     * re-introduced by #604. Every action validates the WHOLE composition, so one stale
+     * band is enough to refuse an unrelated edit. Under the governing ruling that is
+     * correct — the page genuinely does not satisfy the current contract, and silently
+     * healing it around the author was the behavior being removed. Author the canonical
+     * name (or fix the stale band) and the edit lands.
+     *
+     * Pinned rather than narrated because it is the single most user-visible effect of
+     * this gate, and a future iteration that "fixes" it has re-added the alias surface.
      */
-    public function testHeroLegacyButtonPropsResolveAndCanonicalOnesSurviveAWrite(): void
+    public function testUntouchedBandWithARetiredPropNameBlocksAnEditToAnotherBand(): void
     {
-        $id = pp_create_page('Hero write path', 'draft');
-        pp_update_composition($id, [
-            // Band 0 stores the CANONICAL names, band 1 the LEGACY ones.
-            ['component' => 'hero', 'props' => ['title' => 'Hi', 'button_text' => 'Go', 'button_url' => '/go']],
-            ['component' => 'hero', 'props' => ['title' => 'Legacy', 'cta_text' => 'Old', 'cta_url' => '/old']],
-        ]);
+        // TWO stale shapes, because they fail with DIFFERENT codes and both matter:
+        //   `section.heading_align` — section declares no required props, so the retired
+        //      name reaches the unknown-prop gate and is named directly.
+        //   `cta.cta_text/cta_url`  — the alias was the ONLY thing satisfying cta's
+        //      REQUIRED button_text/button_url, so the required-prop check (which runs
+        //      first and short-circuits the item) reports invalid_composition instead.
+        // A test asserting only one of these would miss half the breakage.
+        $cases = [
+            ['section', ['title' => 'Intro', 'body' => 'Copy.', 'heading_align' => 'center'], 'unknown_prop', 'heading_align'],
+            ['cta',     ['cta_text' => 'View', 'cta_url' => '/repo'],      'invalid_composition', 'button_text'],
+        ];
 
-        $result = pp_execute_action('update_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'props'           => ['title' => 'Hello'],
-        ]);
-        $this->assertTrue($result['ok']);
+        foreach ($cases as [$component, $staleProps, $code, $needle]) {
+            $id = pp_create_page("Stale {$component} sibling", 'draft');
+            // Thin writer, no validation — persists the stale shape as a live install holds it.
+            pp_update_composition($id, [
+                ['component' => 'section',   'props' => ['title' => 'Intro', 'body' => 'Hello world.']],
+                ['component' => $component,  'props' => $staleProps],
+            ]);
 
-        $canonical = pp_get_composition($id)[0]['props'];
-        $this->assertSame('Go', $canonical['button_text'], 'hero button_text is canonical and must survive a write');
-        $this->assertSame('/go', $canonical['button_url'], 'hero button_url is canonical and must survive a write');
+            $result = pp_execute_action('update_component', [
+                'post_id'         => $id,
+                'component_index' => 0, // the FIRST section — never the stale band
+                'props'           => ['title' => 'Updated intro'],
+            ]);
 
-        // The untouched sibling heals on the whole-array write-back, exactly as the cta
-        // surface has since #575.
-        $legacy = pp_get_composition($id)[1]['props'];
-        $this->assertSame('Old', $legacy['button_text'], 'hero cta_text resolves to button_text');
-        $this->assertSame('/old', $legacy['button_url'], 'hero cta_url resolves to button_url');
-        $this->assertArrayNotHasKey('cta_text', $legacy, 'the legacy key does not survive the write-back');
-        $this->assertArrayNotHasKey('cta_url', $legacy, 'the legacy key does not survive the write-back');
+            $this->assertFalse($result['ok'], "a stale untouched {$component} must block the whole-composition write");
+            $this->assertSame($code, $result['error_code'], "{$component} rejects with {$code}");
+            $this->assertStringContainsString($needle, $result['error'], 'the error points at the offending band');
+
+            // Nothing landed: the rejected write left both bands exactly as stored.
+            $comp = pp_get_composition($id);
+            $this->assertSame('Intro', $comp[0]['props']['title'], 'the rejected edit did not land');
+            // Subset compare: pp_update_composition() injects its own props.id.
+            foreach ($staleProps as $k => $v) {
+                $this->assertSame($v, $comp[1]['props'][$k], "the stale band kept {$k} — no heal behind the rejection");
+            }
+        }
     }
 
-    public function testAddComponentPreviewReflectsCanonicalShape(): void
+    /**
+     * add_component's PREVIEW and EXECUTE must agree, byte for byte.
+     *
+     * Both dropped their _pp_apply_legacy_prop_aliases() call in #604. They dropped it
+     * independently, so a partial removal that fixed one and not the other would make
+     * the preview a lie about what gets stored. That is exactly the divergence class
+     * this pin exists to catch.
+     */
+    public function testAddComponentPreviewMatchesWhatExecuteStores(): void
     {
-        $id = pp_create_page('Add preview', 'draft');
+        $id = pp_create_page('Add preview parity', 'draft');
         pp_update_composition($id, [['component' => 'section', 'props' => ['body' => 'x']]]);
+        $props = ['title' => 'Ready?', 'button_text' => 'Sign up', 'button_url' => '/signup'];
 
         $preview = pp_get_action('add_component')['preview']([
-            'post_id'   => $id,
-            'component' => 'cta',
-            'props'     => ['cta_text' => 'Sign up', 'cta_url' => '/signup'],
+            'post_id' => $id, 'component' => 'cta', 'props' => $props,
         ]);
+        $this->assertTrue($preview['ok'], $preview['error'] ?? 'preview must succeed');
+        foreach ($props as $k => $v) {
+            $this->assertSame($v, $preview['after'][1]['props'][$k], "preview carries {$k} verbatim");
+        }
 
-        $encoded = json_encode($preview);
-        $this->assertStringContainsString('button_text', $encoded, 'preview reflects the canonical shape that will be stored');
-        $this->assertStringNotContainsString('cta_text', $encoded, 'preview does not show the legacy alias');
+        $result = pp_execute_action('add_component', [
+            'post_id' => $id, 'component' => 'cta', 'props' => $props,
+        ]);
+        $this->assertTrue($result['ok'], $result['error'] ?? 'execute must succeed');
+
+        $stored = pp_get_composition($id)[1]['props'];
+        foreach ($props as $k => $v) {
+            $this->assertSame($v, $stored[$k], "execute stores {$k} exactly as previewed");
+        }
     }
 
     /**
-     * Supersedes the #495 "reorder must not heal untouched legacy props" pin per
-     * #570 DG-9 / A-37 (#575, orchestrator resolution 2026-08-08).
+     * A genuinely unknown key and a RETIRED key are now the same class of error.
      *
-     * A whole-array rewrite action that authors NO props (reorder / remove / style)
-     * still heals legacy prop keys, because the read it rewrites from now resolves
-     * them. The heal is value-preserving — same content, canonical keys — and is the
-     * same property pp_migrate_legacy_variant_keys() has had since #400.
+     * Before #604 these were different: `not_a_real_prop` rejected while `cta_text`
+     * was healed. Asserting both reject with the same code is what makes "the 13
+     * names returned to the gate" a property rather than a claim.
      */
-    public function testReorderHealsUntouchedLegacyProps(): void
+    public function testRetiredAndUnknownKeysRejectIdenticallyOnALegacyComposition(): void
     {
-        $id = $this->seedLegacyCtaComposition(); // [section, cta(legacy)]
-
-        $result = pp_execute_action('reorder_components', [
-            'post_id' => $id,
-            'order'   => [1, 0],
+        $id = pp_create_page('Legacy-shaped page', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'section', 'props' => ['title' => 'Intro', 'body' => 'Hello world.']],
+            ['component' => 'cta',     'props' => ['title' => 'T', 'button_text' => 'Go', 'button_url' => '/go']],
         ]);
 
-        $this->assertTrue($result['ok'], 'reorder must succeed on a legacy-shaped composition');
-        $comp = pp_get_composition($id);
-        // cta is now at index 0 after the reorder, and it healed to the canonical key.
-        $this->assertSame('cta', $comp[0]['component']);
-        $this->assertArrayHasKey('button_text', $comp[0]['props'], 'the whole-array rewrite heals legacy prop keys');
-        $this->assertArrayNotHasKey('cta_text', $comp[0]['props']);
-        $this->assertSame('View on GitHub', $comp[0]['props']['button_text'], 'the authored value survives the heal');
+        foreach (['not_a_real_prop', 'cta_text'] as $key) {
+            $result = pp_execute_action('update_component', [
+                'post_id'         => $id,
+                'component_index' => 1,
+                'props'           => [$key => 'x'],
+            ]);
+
+            $this->assertFalse($result['ok'], "{$key} must reject");
+            $this->assertSame('unknown_prop', $result['error_code'], "{$key} rejects with unknown_prop");
+            $this->assertStringContainsString($key, $result['error'], "the error names {$key}");
+        }
     }
 
     /**
-     * The heal is INTENTIONAL, and this pin exists so no future iteration re-reads
-     * it as an accident and "fixes" it back to the #495 incremental model.
+     * A stored retired name is handed back VERBATIM by the read path.
      *
-     * Both legacy surfaces — the #400 `variant` KEY migration and the #575 prop-KEY
-     * alias map — heal on the same whole-array write-back, from the same read. A
-     * change that makes either one stop healing has re-split a contract that #575
-     * deliberately unified, and this test is where that lands.
-     *
-     * Known and accepted (recorded in the #575 PR body): neither heal produces a
-     * `changes` entry, so the mutation of an untouched band is unreported. That is
-     * pre-existing #400 behavior, not something #575 introduced; disclosing both is
-     * a candidate follow-up, deliberately out of this gate's scope.
+     * The array half of the stale-data breakage: the read resolves nothing, so the
+     * canonical key the renderer wants is simply absent and the prop falls back to its
+     * schema default downstream. The RENDERED half is proven separately, in
+     * StoredCompositionAliasRenderTest, which drives the real template loop.
      */
-    public function testLegacyVariantAndPropHealsAreBothIntentionalAndConsistent(): void
+    public function testStoredRetiredPropIsReadBackVerbatim(): void
     {
-        $id = pp_create_page('Both legacy surfaces', 'draft');
-        // A pre-#69 `variant` band and a pre-#495 legacy-prop band on one page.
+        $id = pp_create_page('Stale render', 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['variant' => 'inverted', 'body' => 'Old tone key.']],
-            ['component' => 'cta',     'props' => ['cta_text' => 'View on GitHub', 'cta_url' => 'https://example.com/repo']],
-            ['component' => 'section', 'props' => ['title' => 'Target', 'body' => 'Edit me.']],
+            ['component' => 'cta', 'props' => ['title' => 'Still here', 'cta_text' => 'Lost label', 'cta_url' => '/lost']],
         ]);
-
-        $result = pp_execute_action('update_component', [
-            'post_id'         => $id,
-            'component_index' => 2, // touch ONLY the third band
-            'props'           => ['title' => 'Edited'],
-        ]);
-        $this->assertTrue($result['ok'], $result['error'] ?? 'the targeted edit must succeed');
 
         $comp = pp_get_composition($id);
-        // #400 surface: the legacy `variant` KEY healed to `theme`, value carried.
-        $this->assertArrayNotHasKey('variant', $comp[0]['props'], '#400: the legacy variant key heals');
-        $this->assertSame('inverted', $comp[0]['props']['theme'], '#400: the tone value is carried across');
-        // #575 surface: the legacy prop KEY healed to canonical, value carried.
-        $this->assertArrayNotHasKey('cta_text', $comp[1]['props'], '#575: the legacy prop key heals');
-        $this->assertSame('View on GitHub', $comp[1]['props']['button_text'], '#575: the authored value is carried across');
-        // Both untouched bands changed KEYS only — no content was invented or lost.
-        $this->assertSame('Old tone key.', $comp[0]['props']['body']);
-        $this->assertSame('https://example.com/repo', $comp[1]['props']['button_url']);
-
-        // THE DISCLOSURE GAP, PINNED RATHER THAN NARRATED. Neither heal produces a
-        // `changes` entry, so the mutation of an untouched band is unreported. This
-        // is accepted and pre-existing (#400's variant heal has always behaved this
-        // way); #575 makes the prop surface match it. Asserting it means a future
-        // change that starts — or stops — reporting the heal fails here and gets a
-        // deliberate decision, instead of passing silently in either direction.
-        $reported = json_encode($result['changes'] ?? []);
-        $this->assertStringNotContainsString('cta_text', $reported, 'the prop heal is (deliberately) unreported');
-        $this->assertStringNotContainsString('variant', $reported, 'the variant heal is (deliberately) unreported');
-        $this->assertStringContainsString('composition[2]', $reported, 'only the touched band is reported');
+        $this->assertSame('Lost label', $comp[0]['props']['cta_text'], 'the read returns the stored bytes, unresolved');
+        $this->assertArrayNotHasKey('button_text', $comp[0]['props'], 'nothing manufactures the canonical key on read');
+        $this->assertSame('Still here', $comp[0]['props']['title'], 'canonical props on the same band are unaffected');
     }
 
-    public function testRestoreCompositionHealsLegacyProps(): void
+    /**
+     * restore_composition keeps its #233 contract against the removal.
+     *
+     * A snapshot carrying retired names restores VERBATIM (no heal, no rewrite) and
+     * the violations are REPORTED as findings rather than blocking the restore. Undo
+     * must never fail, even when what it restores no longer validates.
+     */
+    public function testRestoreKeepsRetiredPropsVerbatimAndReportsThemAsFindings(): void
     {
-        // restore_composition is a full-replace surface (it goes through
-        // pp_normalize_composition), so a restored legacy-shaped snapshot heals to
-        // canonical. This is value-preserving (the same content, canonical keys) and
-        // consistent with the existing legacy-`variant` migration on restore.
-        $id = pp_create_page('Restore heal', 'draft');
-        // v1: a legacy-shaped composition.
+        $id = pp_create_page('Restore stale', 'draft');
+        // v1: a snapshot carrying retired names on two bands. The `section` band shows the
+        // unknown-prop class cleanly; the `cta` band additionally loses its REQUIRED props
+        // (button_text/button_url used to be satisfied by the alias), which is the other
+        // half of the stale-data breakage and is reported as invalid_composition.
         pp_update_composition($id, [
-            ['component' => 'cta', 'props' => ['cta_text' => 'Legacy', 'cta_url' => '/legacy']],
+            ['component' => 'section', 'props' => ['body' => 'Copy.', 'heading_align' => 'center']],
+            ['component' => 'cta',     'props' => ['title' => 'T', 'cta_text' => 'Legacy', 'cta_url' => '/legacy']],
         ]);
         // v2: a different composition, so v1 is pushed onto the history ring.
         pp_update_composition($id, [
@@ -1170,82 +1185,23 @@ class ActionsTest extends TestCase
         ]);
 
         $result = pp_execute_action('restore_composition', ['post_id' => $id, 'steps_back' => 1]);
-        $this->assertTrue($result['ok'], 'restore of a legacy snapshot must succeed');
+        $this->assertTrue($result['ok'], 'restore must never block on current validation rules (#233)');
 
         $restored = pp_get_composition($id);
-        $this->assertSame('cta', $restored[0]['component']);
-        $this->assertArrayNotHasKey('cta_text', $restored[0]['props'], 'restore heals legacy props to canonical');
-        $this->assertSame('Legacy', $restored[0]['props']['button_text'], 'the legacy value is preserved under the canonical key');
-        $this->assertSame('/legacy', $restored[0]['props']['button_url']);
+        $this->assertSame('center', $restored[0]['props']['heading_align'], 'the snapshot is restored VERBATIM, not healed');
+        $this->assertArrayNotHasKey('title_align', $restored[0]['props'], 'restore invents no canonical key');
+        $this->assertSame('Legacy', $restored[1]['props']['cta_text']);
+        $this->assertSame('/legacy', $restored[1]['props']['cta_url']);
+        $this->assertArrayNotHasKey('button_text', $restored[1]['props']);
+
+        $types = array_column($result['findings'], 'type');
+        $this->assertContains('unknown_prop', $types, 'the retired prop name is REPORTED as a finding');
+        $this->assertContains(
+            'invalid_composition',
+            $types,
+            'the cta whose required props were only satisfied by the alias is reported too'
+        );
     }
-
-    public function testAddComponentHealsLegacyCtaPropsOnTheNewItem(): void
-    {
-        $id = pp_create_page('Add legacy cta', 'draft');
-        pp_update_composition($id, [['component' => 'section', 'props' => ['body' => 'x']]]);
-
-        $result = pp_execute_action('add_component', [
-            'post_id'   => $id,
-            'component' => 'cta',
-            'props'     => ['cta_text' => 'Sign up', 'cta_url' => '/signup'],
-        ]);
-
-        $this->assertTrue($result['ok'], 'a freshly authored legacy-shaped cta is accepted');
-        $cta = pp_get_composition($id)[1]['props'];
-        $this->assertArrayNotHasKey('cta_text', $cta, 'the new item is normalized on write');
-        $this->assertSame('Sign up', $cta['button_text']);
-        $this->assertSame('/signup', $cta['button_url']);
-    }
-
-    public function testAddComponentStillRejectsUnknownKeyAlongsideLegacyProps(): void
-    {
-        $id = pp_create_page('Add legacy+garbage', 'draft');
-        pp_update_composition($id, [['component' => 'section', 'props' => ['body' => 'x']]]);
-
-        $result = pp_execute_action('add_component', [
-            'post_id'   => $id,
-            'component' => 'cta',
-            'props'     => ['cta_text' => 'Sign up', 'cta_url' => '/signup', 'garbage' => 'no'],
-        ]);
-
-        $this->assertFalse($result['ok'], 'a mapped alias does not smuggle an unrelated unknown key through');
-        $this->assertStringContainsString('garbage', $result['error']);
-        $this->assertCount(1, pp_get_composition($id), 'the rejected component was not appended');
-    }
-
-    public function testUpdateCompositionHealsLegacyCtaPropsOnFullReplace(): void
-    {
-        $id = pp_create_page('Full replace legacy', 'draft');
-
-        $result = pp_execute_action('update_composition', [
-            'post_id'     => $id,
-            'composition' => [
-                ['component' => 'cta', 'props' => ['cta_text' => 'Go', 'cta_url' => '/go']],
-            ],
-        ]);
-
-        $this->assertTrue($result['ok'], 'a full-replace legacy-shaped composition is accepted and healed');
-        $cta = pp_get_composition($id)[0]['props'];
-        $this->assertArrayNotHasKey('cta_text', $cta);
-        $this->assertSame('Go', $cta['button_text']);
-        $this->assertSame('/go', $cta['button_url']);
-    }
-
-    public function testCreatePageHealsLegacyCtaProps(): void
-    {
-        $result = pp_execute_action('create_page', [
-            'title'       => 'New legacy page',
-            'composition' => [
-                ['component' => 'cta', 'props' => ['cta_text' => 'Go', 'cta_url' => '/go']],
-            ],
-        ]);
-
-        $this->assertTrue($result['ok']);
-        $cta = pp_get_composition($result['target']['post_id'])[0]['props'];
-        $this->assertArrayNotHasKey('cta_text', $cta, 'create_page normalizes legacy props on write');
-        $this->assertSame('Go', $cta['button_text']);
-    }
-
     // ── Retired `variant` prop is rejected at write time (#388) ──
     //
     // #69 split `variant` into `layout`/`theme`. v1's public API accepts NO alias:
@@ -1452,16 +1408,19 @@ class ActionsTest extends TestCase
         $this->assertStringContainsString('title', $messages);
     }
 
-    public function testRestoreNormalizesLegacyVariantSnapshot(): void
+    public function testRestoreKeepsLegacyVariantVerbatimAndReportsIt(): void
     {
-        // TRIPWIRE (#233, #388). Pre-#69 snapshots in a live history ring are keyed on
-        // `variant`. restore_composition decodes them by calling pp_migrate_legacy_variant_keys()
-        // EXPLICITLY on the restore path (actions.php:1920) — the write-path normalizer stopped
-        // migrating in #388, so this decode is what keeps the ring restorable. The shim is
-        // permanent until a history-ring migration ships; #69's plan covered stored
-        // _pp_composition, never the history ring. If this test fails because the shim was
-        // deleted, the ring needs a migration first — otherwise restore silently writes a
-        // composition nothing decodes.
+        // SUPERSEDES testRestoreNormalizesLegacyVariantSnapshot (#233, #388 -> #604).
+        //
+        // The old pin was a TRIPWIRE guarding pp_migrate_legacy_variant_keys() against
+        // deletion, on the argument that removing it without a history-ring migration
+        // would make an old page "come back subtly wrong rather than loudly wrong".
+        // #604 removed the shim and deliberately did NOT ship that migration: backward
+        // compatibility and migrations are NON-GOALS, and the loud failure is the point.
+        //
+        // So the contract inverts. A pre-#69 snapshot restores VERBATIM — `variant`
+        // survives, no `layout` is manufactured — and the retired key is REPORTED in
+        // findings instead of being silently decoded. Restore still never blocks (#233).
         $post_id = pp_create_page('Legacy variant snapshot');
         pp_update_composition($post_id, [
             ['component' => 'hero', 'props' => ['title' => 'A', 'variant' => 'left']],
@@ -1469,21 +1428,25 @@ class ActionsTest extends TestCase
         pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
 
         $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
-        $this->assertTrue($result['ok']);
-        // Execute-path findings describe the migrated composition — a decoded `variant`
-        // must not be reported as unknown_prop (mirrors the preview-path pin).
-        $this->assertNotContains('unknown_prop', array_column($result['findings'], 'type'), 'decoded variant is not flagged unknown_prop on execute');
+        $this->assertTrue($result['ok'], 'restore must not block on a snapshot current rules reject (#233)');
+        $this->assertContains(
+            'unknown_prop',
+            array_column($result['findings'], 'type'),
+            'the retired variant key is REPORTED rather than silently decoded'
+        );
 
         $props = pp_get_composition($post_id)[0]['props'];
-        $this->assertSame('left', $props['layout'], 'legacy variant is decoded to layout');
-        $this->assertArrayNotHasKey('variant', $props, 'the legacy key does not survive the restore');
+        $this->assertSame('left', $props['variant'], 'the snapshot is restored verbatim');
+        $this->assertArrayNotHasKey('layout', $props, 'nothing manufactures layout from variant any more');
     }
 
     public function testRestoreNormalizesAndReportsOnTheSameSnapshot(): void
     {
-        // The two motivations of #233 in one snapshot: a pre-#69 `variant` key that must be
-        // decoded, and chrome that must be preserved and reported. Normalization and
-        // findings have to coexist — neither may swallow the other.
+        // The #233 contract on one snapshot carrying TWO violation classes: chrome, and a
+        // retired `variant` key. Both must be preserved verbatim and both must be
+        // reported. Neither may swallow the other, and neither may block the restore.
+        // (Pre-#604 the variant half asserted decoding; #604 removed the read migration,
+        // so the assertion is now verbatim-plus-report on both halves alike.)
         $post_id = pp_create_page('Legacy plus chrome');
         pp_update_composition($post_id, [
             ['component' => 'nav', 'props' => []],
@@ -1496,18 +1459,22 @@ class ActionsTest extends TestCase
 
         $restored = pp_get_composition($post_id);
         $this->assertSame('nav', $restored[0]['component'], 'chrome preserved');
-        $this->assertSame('left', $restored[1]['props']['layout'], 'legacy variant decoded');
-        $this->assertArrayNotHasKey('variant', $restored[1]['props']);
+        $this->assertSame('left', $restored[1]['props']['variant'], 'the retired key is preserved verbatim');
+        $this->assertArrayNotHasKey('layout', $restored[1]['props'], 'no layout is manufactured');
 
-        $this->assertContains('template_owned_component', array_column($result['findings'], 'type'));
+        $types = array_column($result['findings'], 'type');
+        $this->assertContains('template_owned_component', $types);
+        $this->assertContains('unknown_prop', $types, 'the retired variant key is reported alongside the chrome');
     }
 
-    public function testRestorePreviewMigratesLegacyVariantAndDoesNotFlagIt(): void
+    public function testRestorePreviewShowsLegacyVariantVerbatimAndFlagsIt(): void
     {
-        // #388: the restore PREVIEW path migrates `variant` explicitly (actions.php:1895)
-        // now that pp_normalize_composition() no longer does. The migrated `after` must
-        // decode to `layout`, and findings must NOT surface unknown_prop for the retired
-        // key — the preview describes the decoded composition, not its legacy encoding.
+        // SUPERSEDES testRestorePreviewMigratesLegacyVariantAndDoesNotFlagIt (#388 -> #604).
+        //
+        // The preview describes what execute will actually write. Since #604 that is the
+        // snapshot's own bytes, so `after` shows `variant` and findings DO surface
+        // unknown_prop for it — the operator is told, before committing, that the
+        // declaration they are restoring no longer paints.
         $post_id = pp_create_page('Legacy variant preview');
         pp_update_composition($post_id, [
             ['component' => 'hero', 'props' => ['title' => 'A', 'variant' => 'left']],
@@ -1516,9 +1483,13 @@ class ActionsTest extends TestCase
 
         $preview = pp_preview_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
         $this->assertTrue($preview['ok']);
-        $this->assertSame('left', $preview['after'][0]['props']['layout'], 'preview decodes legacy variant');
-        $this->assertArrayNotHasKey('variant', $preview['after'][0]['props']);
-        $this->assertNotContains('unknown_prop', array_column($preview['findings'], 'type'), 'decoded variant is not flagged as unknown_prop');
+        $this->assertSame('left', $preview['after'][0]['props']['variant'], 'preview shows the stored key verbatim');
+        $this->assertArrayNotHasKey('layout', $preview['after'][0]['props'], 'preview manufactures no layout');
+        $this->assertContains(
+            'unknown_prop',
+            array_column($preview['findings'], 'type'),
+            'the retired key is flagged in the preview, before the operator commits'
+        );
     }
 
     public function testRestoreOfMalformedSnapshotReportsRatherThanFatals(): void
@@ -1564,8 +1535,10 @@ class ActionsTest extends TestCase
 
     public function testRestorePreviewAfterMatchesWhatExecuteWrites(): void
     {
-        // preview.after is the normalized target, so an operator sees the shape execute
-        // will actually persist — not its legacy encoding.
+        // preview.after is the exact target execute persists. The parity property is what
+        // matters and it is unchanged by #604 — only the shape both sides agree on moved,
+        // from the decoded `layout` to the stored `variant`. Using a retired key here is
+        // deliberate: parity is easiest to break precisely where one side normalizes.
         $post_id = pp_create_page('Preview parity');
         pp_update_composition($post_id, [
             ['component' => 'hero', 'props' => ['title' => 'A', 'variant' => 'left']],
@@ -1573,10 +1546,15 @@ class ActionsTest extends TestCase
         pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
 
         $preview = pp_preview_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
-        $this->assertSame('left', $preview['after'][0]['props']['layout']);
+        $this->assertSame('left', $preview['after'][0]['props']['variant']);
 
         pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
-        $this->assertSame('left', pp_get_composition($post_id)[0]['props']['layout']);
+        $this->assertSame('left', pp_get_composition($post_id)[0]['props']['variant']);
+        $this->assertSame(
+            $preview['after'],
+            pp_get_composition($post_id),
+            'preview.after and the stored result are the same array, byte for byte'
+        );
     }
 
     public function testContentHashStableAcrossIdInjectionRoundTrip(): void
@@ -3260,20 +3238,43 @@ class ActionsTest extends TestCase
         $this->assertStringContainsString('not found', $result['error']);
     }
 
-    // ── Composition Normalization ────────────────────────────────────────────
+    // ── Composition normalization: SHAPE ONLY, no name aliases (#604) ────────
+    //
+    // pp_normalize_composition() no longer renames anything. The `type` -> `component`
+    // item-key alias is gone, and the retired `variant` prop and the 13-entry prop-key
+    // alias map were never rewritten on this path anyway (#388 / #604). What is left is
+    // one shape rule: an empty `style` array is stripped.
 
-    public function testNormalizeCompositionRenamesTypeToComponent(): void
+    public function testNormalizeCompositionDoesNotRenameTypeToComponent(): void
     {
+        // SUPERSEDES testNormalizeCompositionRenamesTypeToComponent (#604). `component`
+        // is the only key that names a component. A `type`-keyed item is left exactly as
+        // it arrived so the validator can reject it by name, instead of the normalizer
+        // absorbing a hallucinated key and denying the author the correction.
         $raw = [
-            ['type' => 'hero', 'props' => ['title' => 'Hello', 'variant' => 'cover']],
+            ['type' => 'hero', 'props' => ['title' => 'Hello']],
             ['type' => 'section', 'props' => ['title' => 'About']],
         ];
         $normalized = pp_normalize_composition($raw);
 
-        $this->assertEquals('hero', $normalized[0]['component']);
-        $this->assertEquals('section', $normalized[1]['component']);
-        $this->assertArrayNotHasKey('type', $normalized[0]);
-        $this->assertArrayNotHasKey('type', $normalized[1]);
+        $this->assertSame($raw, $normalized, 'a type-keyed item passes through untouched');
+        $this->assertArrayNotHasKey('component', $normalized[0], 'no component key is manufactured');
+    }
+
+    public function testTypeKeyedItemIsRejectedByName(): void
+    {
+        // The validator's own rule, pinned as the counterpart the normalizer no longer
+        // masks. pp_validate_composition() never ran pp_normalize_composition(), so this
+        // rejection predates #604 — what changed is that nothing rewrites the item
+        // before it gets here any more, so the rule is now what callers actually meet.
+        // The tests that discriminate on the REMOVAL are
+        // testNormalizeCompositionDoesNotRenameTypeToComponent and the two
+        // create_page/update_composition authoring-path pins below.
+        $result = pp_validate_composition([['type' => 'hero', 'props' => ['title' => 'Hello']]]);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_composition', $result->get_error_code());
+        $this->assertStringContainsString('component', $result->get_error_message());
     }
 
     public function testNormalizeCompositionPreservesCanonicalComponent(): void
@@ -3285,20 +3286,10 @@ class ActionsTest extends TestCase
         $this->assertEquals('hero', $normalized[0]['component']);
     }
 
-    public function testNormalizeCompositionDoesNotOverwriteExistingComponent(): void
-    {
-        // If both "component" and "type" exist, "component" wins
-        $raw = [
-            ['component' => 'hero', 'type' => 'section', 'props' => ['title' => 'Test']],
-        ];
-        $normalized = pp_normalize_composition($raw);
-        $this->assertEquals('hero', $normalized[0]['component']);
-    }
-
     public function testNormalizeCompositionPreservesProps(): void
     {
         $raw = [
-            ['type' => 'hero', 'props' => ['title' => 'Welcome', 'layout' => 'split', 'image_url' => 'https://example.com/photo.jpg']],
+            ['component' => 'hero', 'props' => ['title' => 'Welcome', 'layout' => 'split', 'image_url' => 'https://example.com/photo.jpg']],
         ];
         $normalized = pp_normalize_composition($raw);
         $this->assertEquals('Welcome', $normalized[0]['props']['title']);
@@ -3306,88 +3297,19 @@ class ActionsTest extends TestCase
         $this->assertEquals('https://example.com/photo.jpg', $normalized[0]['props']['image_url']);
     }
 
-    // ── Legacy `variant` migration (issue #69, split by path in #388) ──
-    // The migration is a RESTORE/READ-PATH decode only: pp_migrate_legacy_variant_keys()
-    // is exercised directly here (restore_composition + lib/wp.php read path call it
-    // explicitly). The WRITE path no longer migrates — pp_normalize_composition() leaves
-    // `variant` in place so the shared unknown_prop gate rejects it (see the write-reject
-    // action tests below and testNormalizeCompositionDoesNotMigrateVariant).
-
-    public function testMigrateLegacyKeysMapsStructuralVariantToLayout(): void
-    {
-        // hero/cta/testimonials: structural `variant` -> `layout`.
-        $raw = [
-            ['component' => 'hero', 'props' => ['title' => 'Hi', 'variant' => 'split']],
-            ['component' => 'cta', 'props' => ['title' => 'Go', 'variant' => 'inline']],
-            ['component' => 'testimonials', 'props' => ['variant' => 'stack']],
-        ];
-        $normalized = pp_migrate_legacy_variant_keys($raw);
-        foreach ([0, 1, 2] as $i) {
-            $this->assertArrayNotHasKey('variant', $normalized[$i]['props']);
-        }
-        $this->assertEquals('split', $normalized[0]['props']['layout']);
-        $this->assertEquals('inline', $normalized[1]['props']['layout']);
-        $this->assertEquals('stack', $normalized[2]['props']['layout']);
-    }
-
-    public function testMigrateLegacyKeysMapsGridDefaultVariantToCardsLayout(): void
-    {
-        // grid also renames the legacy structural value `default` -> `cards`.
-        $raw = [
-            ['component' => 'grid', 'props' => ['variant' => 'default']],
-            ['component' => 'grid', 'props' => ['variant' => 'steps']],
-        ];
-        $normalized = pp_migrate_legacy_variant_keys($raw);
-        $this->assertEquals('cards', $normalized[0]['props']['layout']);
-        $this->assertEquals('steps', $normalized[1]['props']['layout']);
-        $this->assertArrayNotHasKey('variant', $normalized[0]['props']);
-    }
-
-    public function testMigrateLegacyKeysMapsToneVariantToTheme(): void
-    {
-        // section/stats/logos/embed: tonal `variant` -> `theme`.
-        $raw = [
-            ['component' => 'section', 'props' => ['body' => 'x', 'variant' => 'dark']],
-            ['component' => 'stats', 'props' => ['variant' => 'inverted', 'items' => []]],
-            ['component' => 'logos', 'props' => ['variant' => 'dark', 'items' => []]],
-            ['component' => 'embed', 'props' => ['content' => 'x', 'variant' => 'inverted']],
-        ];
-        $normalized = pp_migrate_legacy_variant_keys($raw);
-        $this->assertEquals('dark', $normalized[0]['props']['theme']);
-        $this->assertEquals('inverted', $normalized[1]['props']['theme']);
-        $this->assertEquals('dark', $normalized[2]['props']['theme']);
-        $this->assertEquals('inverted', $normalized[3]['props']['theme']);
-        foreach ([0, 1, 2, 3] as $i) {
-            $this->assertArrayNotHasKey('variant', $normalized[$i]['props']);
-        }
-    }
-
-    public function testMigrateLegacyKeysDoesNotOverwriteExplicitNewKey(): void
-    {
-        // If the new key is already present, it wins; legacy `variant` is dropped.
-        $raw = [
-            ['component' => 'hero', 'props' => ['layout' => 'cover', 'variant' => 'split']],
-            ['component' => 'section', 'props' => ['body' => 'x', 'theme' => 'inverted', 'variant' => 'dark']],
-        ];
-        $normalized = pp_migrate_legacy_variant_keys($raw);
-        $this->assertEquals('cover', $normalized[0]['props']['layout']);
-        $this->assertEquals('inverted', $normalized[1]['props']['theme']);
-        $this->assertArrayNotHasKey('variant', $normalized[0]['props']);
-        $this->assertArrayNotHasKey('variant', $normalized[1]['props']);
-    }
-
     public function testNormalizeCompositionDoesNotMigrateVariant(): void
     {
-        // #388: the write-path normalizer must NOT rewrite `variant`. It leaves the
-        // retired key in place so pp_validate_composition() rejects it as unknown_prop
-        // (verified by the write-reject action tests). Migration is a read-path concern.
+        // #388, and now unconditionally true (#604): NOTHING migrates `variant`, on any
+        // path. The retired key is left in place so pp_validate_composition() rejects it
+        // as unknown_prop. Before #604 the read/restore paths still decoded it; that
+        // asymmetry — rejected at write, accepted at read — is what the removal ended.
         $raw = [
             ['component' => 'hero', 'props' => ['title' => 'Hi', 'variant' => 'split']],
         ];
         $normalized = pp_normalize_composition($raw);
-        $this->assertArrayHasKey('variant', $normalized[0]['props'], 'write path leaves legacy variant untouched');
+        $this->assertArrayHasKey('variant', $normalized[0]['props'], 'the retired variant key is left untouched');
         $this->assertSame('split', $normalized[0]['props']['variant']);
-        $this->assertArrayNotHasKey('layout', $normalized[0]['props'], 'write path does not synthesize layout from variant');
+        $this->assertArrayNotHasKey('layout', $normalized[0]['props'], 'no layout is synthesized from variant');
     }
 
     public function testNormalizeCompositionHandlesEmptyArray(): void
@@ -3395,11 +3317,11 @@ class ActionsTest extends TestCase
         $this->assertEquals([], pp_normalize_composition([]));
     }
 
-    public function testCreatePageExecutesWithTypeKeyInComposition(): void
+    public function testCreatePageRejectsATypeKeyedComposition(): void
     {
-        // Simulates the T4 failure: AI sends "type" instead of "component"
-        // (uses the canonical `layout` prop — the retired `variant` alias is rejected
-        // at write time since #388; this test is about the type->component alias only).
+        // SUPERSEDES testCreatePageExecutesWithTypeKeyInComposition (#604). The T4
+        // failure mode this originally absorbed — an AI sending `type` instead of
+        // `component` — is now surfaced to the author rather than silently repaired.
         $result = pp_execute_action('create_page', [
             'title' => 'Portfolio',
             'composition' => [
@@ -3407,21 +3329,13 @@ class ActionsTest extends TestCase
             ],
         ]);
 
-        $this->assertTrue($result['ok']);
-        $post_id = $result['target']['post_id'];
-
-        // Verify the stored composition uses canonical "component" key
-        $stored = json_decode(
-            $GLOBALS['_pp_test_store']['post_meta'][$post_id]['_pp_composition'],
-            true
-        );
-        $this->assertEquals('hero', $stored[0]['component']);
-        $this->assertArrayNotHasKey('type', $stored[0]);
+        $this->assertFalse($result['ok'], 'a type-keyed item must be rejected, not absorbed');
+        $this->assertSame('invalid_composition', $result['error_code']);
+        $this->assertStringContainsString('component', $result['error']);
     }
 
-    public function testUpdateCompositionExecutesWithTypeKeyInItems(): void
+    public function testUpdateCompositionRejectsATypeKeyedComposition(): void
     {
-        // Seed a page
         $GLOBALS['_pp_test_store']['posts'][70] = [
             'post_type'   => 'page',
             'post_title'  => 'Test Page',
@@ -3433,20 +3347,13 @@ class ActionsTest extends TestCase
             'post_id' => 70,
             'composition' => [
                 ['type' => 'section', 'props' => ['title' => 'About', 'body' => '<p>Our story.</p>']],
-                ['type' => 'cta', 'props' => ['title' => 'Contact Us', 'button_text' => 'Get in Touch', 'button_url' => '/contact']],
             ],
         ]);
 
-        $this->assertTrue($result['ok']);
-
-        $stored = json_decode(
-            $GLOBALS['_pp_test_store']['post_meta'][70]['_pp_composition'],
-            true
-        );
-        $this->assertEquals('section', $stored[0]['component']);
-        $this->assertEquals('cta', $stored[1]['component']);
-        $this->assertArrayNotHasKey('type', $stored[0]);
-        $this->assertArrayNotHasKey('type', $stored[1]);
+        $this->assertFalse($result['ok']);
+        $this->assertSame('invalid_composition', $result['error_code']);
+        // The rejected write stored nothing.
+        $this->assertSame('[]', $GLOBALS['_pp_test_store']['post_meta'][70]['_pp_composition']);
     }
 
     public function testCreatePageDescriptionMentionsCompositionSchema(): void

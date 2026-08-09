@@ -214,20 +214,42 @@ class FrontPageSafeguardTest extends TestCase
         $this->assertSame('[]', $result['raw']);
     }
 
-    // ── Render parity with pp_composition(): legacy props are normalized ─────
+    // ── Render parity with pp_composition(): no normalization on either path ──
 
-    public function testRenderPathNormalizesLegacyProps(): void
+    public function testRenderPathReturnsStoredPropsVerbatim(): void
     {
-        // A legacy-shaped cta (cta_text) must render its authored button — the same
-        // #495 resolution pp_composition() applies, so valid pages render identically.
+        // SUPERSEDES testRenderPathNormalizesLegacyProps (#495 -> #604). The front-page
+        // resolver used to run pp_normalize_legacy_props() so a legacy-shaped cta rendered
+        // its authored button. That call is gone, so the retired key survives to the
+        // renderer, which does not read it — the authored value is lost at render.
+        // Parity with pp_composition() is what actually matters here and it still holds:
+        // NEITHER path normalizes now.
         $this->storeRaw('[{"component":"cta","props":{"cta_text":"Buy now","cta_url":"/checkout"}}]');
 
         $render = pp_resolve_front_page_render($this->postId);
 
         $this->assertSame('render', $render['mode']);
         $props = $render['composition'][0]['props'];
-        $this->assertSame('Buy now', $props['button_text'], 'legacy cta_text resolves to button_text on render');
-        $this->assertSame('/checkout', $props['button_url']);
-        $this->assertArrayNotHasKey('cta_text', $props, 'legacy key is dropped in the resolved view');
+        $this->assertSame('Buy now', $props['cta_text'], 'the stored key survives untouched');
+        $this->assertArrayNotHasKey('button_text', $props, 'nothing manufactures the canonical key');
+    }
+
+    public function testFreshlySeededHomepageIsUnaffectedByTheRemoval(): void
+    {
+        // The dropped normalize call was load-bearing for exactly one branch: the
+        // in-memory seed, which never passes through a read. pp_default_homepage_composition()
+        // is authored in the canonical vocabulary, so dropping the call changes nothing —
+        // pinned so a future seed edit that reintroduces a retired name is caught here.
+        foreach (pp_default_homepage_composition() as $i => $item) {
+            $this->assertArrayHasKey('component', $item, "seed band {$i} names a component");
+            foreach (array_keys($item['props'] ?? []) as $prop) {
+                $this->assertNotContains(
+                    $prop,
+                    ['cta_text', 'cta_url', 'cta_variant', 'cta2_text', 'cta2_url', 'cta2_variant',
+                     'subtitle', 'heading_align', 'text', 'variant'],
+                    "seed band {$i} must not author the retired prop `{$prop}`"
+                );
+            }
+        }
     }
 }

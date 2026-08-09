@@ -208,16 +208,17 @@ function pp_thumbnail_url(string $size = 'large'): string {
  * Returns the composition array for the current page from _pp_composition post meta.
  * Returns an empty array when the meta is absent, empty, or contains invalid JSON.
  *
- * Runs the legacy read-path shim (pp_migrate_stored_composition) on the decoded
- * items so a stored pre-#69 composition renders with `variant` honored and a
- * pre-#495 one renders its authored prop values (as of #575 the shim resolves both
- * legacy PROP surfaces; the slot-NAME surface it briefly carried was removed by
- * #603), matching the MIGRATION behavior of the editor/restore/inspect read paths
- * (#400).
- * It does not add their list-shape enforcement (that decode/classification gate is
- * pp_get_composition_result()'s job, #144, deliberately left untouched here). The
- * migration is a no-op for the modern layout/theme shape, so those compositions
- * render byte-identically.
+ * NO READ-PATH NAME RESOLUTION (#604). The decoded items are returned as stored.
+ * The `pp_migrate_stored_composition()` shim that used to sit here is deleted: its
+ * slot-name surface went in #603 and its two remaining PROP surfaces — the `variant`
+ * -> `layout`/`theme` migration (#69/#388/#400) and the legacy prop-KEY alias map
+ * (#495/#575/#576) — went in #604, leaving it with no body. A stored document renders
+ * on the names it actually stores; a retired name is simply a prop no renderer reads,
+ * so it falls back to the schema default. That is the intended outcome of the
+ * vocabulary freeze, not a bug — author the canonical name.
+ *
+ * It does not add list-shape enforcement (that decode/classification gate is
+ * pp_get_composition_result()'s job, #144, deliberately left untouched here).
  *
  * @return array  Array of component objects: [['component' => string, 'props' => array], ...]
  */
@@ -230,16 +231,7 @@ function pp_composition(): array {
     if (!is_array($items)) {
         return [];
     }
-    // Render-path resolution (issue #495): a legacy-shaped stored cta still
-    // carries cta_text/cta_url, and the renderer reads button_text/button_url,
-    // so without this a legacy button would render its default label. This is a
-    // transient view — the stored composition is never mutated here.
-    //
-    // As of #575 pp_migrate_stored_composition() applies the prop-alias map itself
-    // (alongside the `variant` key migration), so ONE call resolves both legacy
-    // surfaces. The separate pp_normalize_legacy_props() call this line replaced
-    // was pure duplication once the shim absorbed it.
-    return pp_migrate_stored_composition($items);
+    return $items;
 }
 
 /**
@@ -269,14 +261,11 @@ function pp_composition(): array {
  *      │
  *      └─ otherwise ─────────► mode 'render' — a present (or just-seeded) list.
  *
- * The 'render' composition is normalized through pp_normalize_legacy_props(),
- * reproducing pp_composition()'s render output byte-for-byte. As of #575 that call
- * is load-bearing for exactly ONE branch: the freshly seeded
- * pp_default_homepage_composition(), which is built in memory and never passed
- * through a read. A STORED composition arrives already resolved, because
- * pp_get_composition_result() applied pp_migrate_stored_composition() and that shim
- * now owns both the `variant` key migration and the prop-key alias map. The second
- * pass is a no-op there (_pp_apply_legacy_prop_aliases is idempotent).
+ * The 'render' composition is returned as read, reproducing pp_composition()'s render
+ * output byte-for-byte. The pp_normalize_legacy_props() pass that used to run here is
+ * gone (#604). It was only ever load-bearing for one branch — the freshly seeded
+ * pp_default_homepage_composition() — and that seed is authored in the canonical
+ * vocabulary, so dropping the call changes nothing about what the homepage renders.
  *
  * A stored empty list ("[]", raw !== null) is a deliberate authored state, not an
  * absent page, so it renders blank and is NOT re-seeded — the blank-page promise
@@ -314,10 +303,8 @@ function pp_resolve_front_page_render(int $post_id): array {
         pp_update_composition($post_id, $items);
     }
 
-    // Present, or just-seeded: render via the canonical render normalization.
-    $items = function_exists('pp_normalize_legacy_props')
-        ? pp_normalize_legacy_props($items)
-        : $items;
+    // Present, or just-seeded: rendered exactly as read/seeded (#604 — no name
+    // normalization on any read path).
     return ['mode' => 'render', 'composition' => $items];
 }
 
@@ -387,7 +374,7 @@ function pp_get_composition_result(int $post_id): array {
         if (!pp_is_list($raw)) {
             return ['ok' => false, 'composition' => [], 'error' => 'unexpected_shape', 'raw' => null];
         }
-        return ['ok' => true, 'composition' => pp_migrate_stored_composition($raw), 'error' => null, 'raw' => null];
+        return ['ok' => true, 'composition' => $raw, 'error' => null, 'raw' => null];
     }
 
     // Normal storage is a JSON string. A truthy non-string scalar (int, float,
@@ -406,107 +393,7 @@ function pp_get_composition_result(int $post_id): array {
         return ['ok' => false, 'composition' => [], 'error' => 'unexpected_shape', 'raw' => $raw];
     }
 
-    return ['ok' => true, 'composition' => pp_migrate_stored_composition($items), 'error' => null, 'raw' => $raw];
-}
-
-/**
- * READ-PATH compatibility shim (issue #69, permanent per #388).
- *
- * Action-layer reads (inspect, guardrails, the editor, restore's current-composition
- * fetch via pp_get_composition) decode stored compositions directly; they do not run
- * pp_normalize_composition, which only covers the apply/write path. A composition
- * persisted before the `variant` -> `layout`/`theme` split would otherwise lose its
- * structural/tone setting after the rename, so this migrates the decoded items on read.
- * Note (#388): the write path no longer migrates — new writes reject `variant` with
- * unknown_prop — so this read-path decode is the permanent counterpart that keeps
- * already-stored legacy content readable on those paths. As of #400 the public
- * front-end renderer (pp_composition()) also routes its decoded items through this
- * shim, so the render boundary is no longer the odd reader that bypasses migration.
- * Delegates to the single migration helpers in lib/admin.php;
- * guarded so a partial include (some unit tests load lib/wp.php alone) degrades to
- * the raw items instead of fatally.
- *
- * TWO legacy surfaces resolve here. #575's ruling ("resolution is render-time, for
- * slots AND props alike") is SUPERSEDED for the slot half: a third surface, the
- * legacy slot-NAME map, resolved here from #576/#594 until #603 removed the whole
- * slot-alias surface. Only the PROP surfaces are left:
- *
- *   1. `variant` -> `layout`/`theme` KEY migration (#69/#388) — the original shim.
- *   2. The legacy prop-KEY alias map (`pp_legacy_prop_aliases()`, #495) — added here
- *      by #575 so every read path resolves it, not just the two front-end renderers
- *      that called pp_normalize_legacy_props() on their own (pp_composition(),
- *      pp_resolve_front_page_render()). Before #575 the ACTION read path
- *      (pp_get_composition_result / pp_get_composition) resolved neither, so the
- *      editor, `inspect`, restore's current-composition fetch and the admin preview
- *      all saw a legacy-shaped item that the renderer would have healed.
- *
- * Why the prop map belongs on the read path and not only at write: it buys real
- * generation reliability. A legacy-named prop write is ACCEPTED and healed to the
- * canonical key (the #495 heal-on-write model), so resolving on read is what makes
- * every read path hand back one shape instead of two.
- *
- * The "mechanism trust" rule that used to justify this paragraph — a legacy name
- * resolves IFF a shipped mechanism promises the already-stored document will render,
- * with `restore_composition` (#233) named as that mechanism — is RETIRED (#570
- * decision record, Addendum #4). Restore's actual contract is that it restores
- * verbatim and REPORTS findings; it never promised that what it restores still
- * paints. That retirement is what removed the slot surface in #603.
- *
- * CONSEQUENCE, stated because it is intentional and not a side effect: the
- * read-modify-write actions (update_component / add_component, lib/actions.php)
- * read the WHOLE composition through pp_get_composition() and write the WHOLE array
- * back, so an untouched legacy-shaped component now heals to canonical prop keys on
- * any targeted edit instead of healing only when it is itself touched (#495's
- * incremental model). That is the same mass-heal-on-write-back property the
- * `variant` key migration has had since #400 — the two PROP-key surfaces now behave
- * identically rather than one silently lagging. Rendered output is unchanged either
- * way: both shapes already resolved to the same canonical props at render.
- *
- * The heal is key-only and value-preserving in the ordinary case (a legacy key
- * alone carries its value across to the canonical name). It is NOT value-preserving
- * in the CANONICAL-WINS case: an item storing BOTH names keeps the canonical value
- * and DROPS the legacy one (_pp_apply_legacy_prop_aliases, lib/admin.php — the
- * shipped #495 rule, on the theory that an explicit canonical value beats a stale
- * legacy one). #575 changes when that resolution runs, not what it does, but it
- * does mean an out-of-band write that left both keys populated now loses the
- * legacy value on the next whole-array write-back rather than at first touch.
- * The history ring (#133) is the recovery path.
- *
- * NO SLOT COUNTERPART (#603). Style-SLOT names have no alias surface at all: an
- * undeclared slot name is rejected at write and dropped at render, with nothing in
- * between. The prop-KEY heal below is the only name canonicalization left here.
- *
- * @param  array $items  Decoded composition items.
- * @return array         Items with legacy `variant` keys migrated and legacy prop
- *                       keys canonicalized.
- */
-function pp_migrate_stored_composition(array $items): array {
-    // #400 surface: the legacy `variant` KEY -> `layout`/`theme`.
-    if (function_exists('pp_migrate_legacy_variant_keys')) {
-        $items = pp_migrate_legacy_variant_keys($items);
-    }
-    // #575 surface: the legacy prop KEY alias map. Both heals are UNREPORTED —
-    // a whole-array rewrite action (update_component / reorder / remove) stores the
-    // canonical keys for untouched bands without emitting a `changes` entry for
-    // them. That is pre-existing #400 behavior which #575 makes the prop surface
-    // match, not a new hole: the heal is value-preserving (same content, canonical
-    // keys) and render-identical. Disclosing BOTH heals in `changes` is a candidate
-    // follow-up, deliberately outside this gate's scope. Pinned as intentional by
-    // ActionsTest::testLegacyVariantAndPropHealsAreBothIntentionalAndConsistent().
-    if (function_exists('pp_normalize_legacy_props')) {
-        $items = pp_normalize_legacy_props($items);
-    }
-    // The legacy slot-NAME surface that stood here (#576/#594) is GONE as of #603.
-    // Style-slot names have exactly one contract now: a name the component does not
-    // declare is rejected at write and dropped at render, on old documents and new
-    // alike. Nothing canonicalizes a stored slot name on read any more.
-    //
-    // HANDOFF (#604, landing second): the two surfaces above are the last two. When
-    // #604 removes them this function has no body left — it deletes the function
-    // outright and inlines its three call sites (pp_composition(),
-    // pp_get_composition_result(), and the editor read path) to pass the decoded
-    // items straight through.
-    return $items;
+    return ['ok' => true, 'composition' => $items, 'error' => null, 'raw' => $raw];
 }
 
 /**

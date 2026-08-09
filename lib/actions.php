@@ -1948,9 +1948,9 @@ pp_register_action('add_component', [
     },
     'preview' => function (array $params): array {
         $current   = pp_get_composition($params['post_id']);
-        // Mirror execute's normalize-on-write (issue #495) so the preview reflects
-        // the canonical shape that will actually be stored.
-        $new_item  = _pp_apply_legacy_prop_aliases(['component' => $params['component'], 'props' => $params['props']]);
+        // Stored exactly as authored (#604): no prop-key rewriting on the way in,
+        // so the preview shows the bytes execute will actually persist.
+        $new_item  = ['component' => $params['component'], 'props' => $params['props']];
         if (!empty($params['style'])) {
             $new_item['style'] = $params['style'];
         }
@@ -1966,10 +1966,10 @@ pp_register_action('add_component', [
     },
     'execute' => function (array $params): array {
         $current   = pp_get_composition($params['post_id']);
-        // Normalize-on-write (issue #495): a freshly authored component heals its
-        // recognized legacy prop keys to canonical on the way in. Only this new
-        // item is normalized; existing (untouched) components keep their stored shape.
-        $new_item  = _pp_apply_legacy_prop_aliases(['component' => $params['component'], 'props' => $params['props']]);
+        // Stored exactly as authored (#604). A retired prop name is not healed here;
+        // it is rejected upstream by the shared validator's unknown_prop gate, so the
+        // authoring agent learns the canonical name instead of being silently repaired.
+        $new_item  = ['component' => $params['component'], 'props' => $params['props']];
         if (!empty($params['style'])) {
             $new_item['style'] = $params['style'];
         }
@@ -2174,20 +2174,27 @@ pp_register_action('restore_composition', [
         $history = pp_get_composition_history($params['post_id']);
         $idx     = _pp_resolve_history_target($history, $params);
         // validate() already gated this; guard defensively so preview never indexes null.
-        // Normalize so `after` is what execute would actually write, and so the findings
-        // below describe the restored composition rather than its legacy encoding (#233).
-        // migrate_legacy_variant_keys is applied EXPLICITLY here because this is a
-        // read/restore path — pp_normalize_composition() no longer migrates on the write
-        // path (#388), so a pre-#69 `variant` snapshot must be decoded here to render.
+        // pp_normalize_composition() only strips empty style arrays now, so `after` is
+        // the snapshot's own bytes and the findings below describe exactly what execute
+        // will write (#233).
         //
-        // The slot-NAME resolution that stood alongside it is GONE (#603). A snapshot
-        // carrying a pre-#576 slot name is now reported as `invalid_style_slot` in
-        // `findings` below — which is the #233 contract working, not a regression:
-        // restore reports and never blocks, so the operator learns the declaration is
-        // dead instead of it being silently rewritten under them.
+        // NO NAME DECODING AT ALL (#603, #604). The slot-NAME map went in #603; the
+        // `variant` -> `layout`/`theme` migration and the prop-KEY alias map went in
+        // #604. A snapshot carrying a retired slot name, prop name or `variant` key now
+        // restores VERBATIM, those declarations do not paint, and `findings` says so.
+        // That is the #233 contract working, not a regression: restore reports and never
+        // blocks, so the operator learns the declaration is dead instead of it being
+        // silently rewritten under them.
+        //
+        // GRANULARITY, stated because it is easy to over-read: the unknown-prop gate in
+        // pp_validate_composition_errors() does `continue 2`, so one item reports its
+        // FIRST blocking problem, not all of them. A band with both a retired prop name
+        // and a dead style slot reports the prop; the slot surfaces on the next pass.
+        // That short-circuit is pre-existing (#147) — #604 only routes 13 more names
+        // into it. Making the gate collect-and-continue is a separate call.
         $target  = is_wp_error($idx)
             ? []
-            : pp_migrate_legacy_variant_keys(pp_normalize_composition($history[$idx]['composition']));
+            : pp_normalize_composition($history[$idx]['composition']);
         $preview = _pp_action_preview('restore_composition', 'page', ['post_id' => $params['post_id']], $current, $target, [
             ['path' => 'composition', 'from' => $current, 'to' => $target],
         ]);
@@ -2201,17 +2208,14 @@ pp_register_action('restore_composition', [
         if (is_wp_error($idx)) {
             return _pp_action_error('restore_composition', 'page', $idx->get_error_message(), $idx->get_error_code());
         }
-        // Canonicalize legacy shape on the way in (type -> component, variant -> layout/theme).
-        // This is decoding, not a rewrite of intent: no component is added, removed, or
-        // reordered. Nothing else about the snapshot is touched — chrome and every other
-        // rule violation is preserved verbatim and reported below (#233). The variant
-        // migration is applied EXPLICITLY (not via pp_normalize_composition, which stopped
-        // migrating on the write path in #388) because restore is a read/decode path.
-        //
-        // Style-SLOT names are NOT resolved here any more (#603): the theme supports one
-        // name per slot, so a snapshot carrying a pre-#576 name restores verbatim, that
-        // declaration no longer paints, and `findings` says so with `invalid_style_slot`.
-        $target = pp_migrate_legacy_variant_keys(pp_normalize_composition($history[$idx]['composition']));
+        // RESTORE IS VERBATIM (#604). pp_normalize_composition() strips empty style
+        // arrays and nothing else — it no longer rewrites `type` -> `component`, and the
+        // `variant` -> `layout`/`theme` migration and prop-KEY alias map that used to run
+        // here are gone. No component is added, removed or reordered, and no name is
+        // rewritten: chrome, retired slot names, retired prop names and a stored
+        // `variant` all restore exactly as snapshotted and are reported below (#233).
+        // Restore never blocks; it tells the operator what is dead.
+        $target = pp_normalize_composition($history[$idx]['composition']);
         $result = pp_update_composition($params['post_id'], $target, _pp_action_expected_version($params));
         if (is_wp_error($result)) {
             return _pp_action_error('restore_composition', 'page', $result->get_error_message(), $result->get_error_code());
@@ -2358,16 +2362,10 @@ pp_register_action('update_component', [
         _pp_resolve_id_param($params, $params['post_id']);
         $composition = pp_get_composition($params['post_id']);
         $before_props = $composition[$params['component_index']]['props'] ?? [];
-        // Mirror execute (issue #495): canonicalize the incoming patch first (so a
-        // legacy-named edit lands), then normalize the merged item, so the preview's
-        // reported "after" and changes match the canonical shape that will be stored.
-        $patch_props  = _pp_apply_legacy_prop_aliases(
-            array_merge($composition[$params['component_index']], ['props' => $params['props']])
-        )['props'];
-        $after_props  = _pp_merge_component_props($before_props, $patch_props);
-        $after_props  = _pp_apply_legacy_prop_aliases(
-            array_merge($composition[$params['component_index']], ['props' => $after_props])
-        )['props'];
+        // Mirror execute (#604): the incoming patch is merged verbatim. No prop-key
+        // rewriting happens on either side, so the preview's reported "after" and
+        // `changes` are the exact shape that will be stored.
+        $after_props  = _pp_merge_component_props($before_props, $params['props']);
 
         $changes = _pp_diff_props($before_props, $after_props, $params['component_index']);
 
@@ -2386,37 +2384,16 @@ pp_register_action('update_component', [
         _pp_resolve_id_param($params, $params['post_id']);
         $composition  = pp_get_composition($params['post_id']);
         $before_props = $composition[$params['component_index']]['props'] ?? [];
-        // Normalize-on-write, touched item only (issue #495). The INCOMING PATCH is
-        // canonicalized FIRST so a legacy-named edit (e.g. cta_text) to a component
-        // that already healed to button_text overwrites the canonical prop instead
-        // of being dropped by canonical-wins — an accepted legacy-named edit must
-        // land, never silently no-op behind ok:true.
-        $patch_props  = _pp_apply_legacy_prop_aliases(
-            array_merge($composition[$params['component_index']], ['props' => $params['props']])
-        )['props'];
-        $after_props  = _pp_merge_component_props($before_props, $patch_props);
+        // Merge the patch verbatim (#604). No prop-key rewriting runs on the incoming
+        // patch, on the stored props, or on the merged result: the composition arrives
+        // from pp_get_composition() exactly as stored, and is written back exactly as
+        // merged. A retired prop name in the patch is rejected upstream by the shared
+        // validator's unknown_prop gate rather than being silently redirected onto its
+        // canonical prop, so `changes` is a truthful record of the write and stored
+        // bytes always match what the caller asked for.
+        $after_props = _pp_merge_component_props($before_props, $params['props']);
 
         $composition[$params['component_index']]['props'] = $after_props;
-
-        // Belt-and-braces since #575: pp_get_composition() already resolved the whole
-        // stored composition through pp_migrate_stored_composition(), so this item
-        // arrives canonical and this call is a no-op on stored props. It is retained
-        // because it is NOT a no-op on the merged result when the incoming PATCH
-        // introduced a legacy key (handled above), and because it keeps this write
-        // correct if the read path ever stops resolving.
-        //
-        // The pre-#575 comment here said untouched components keep their stored
-        // props and a targeted edit heals incrementally. That is no longer true:
-        // every band arrives resolved from the read, so the whole-array write-back
-        // stores them all canonical. Consequence, accepted and unchanged by design:
-        // a heal produces NO `changes` entry — not for untouched bands, and not for
-        // this one either, because $before_props is already canonical. #400's
-        // `variant` key migration has always had the same unreported property.
-        // Pinned by ActionsTest::testLegacyVariantAndPropHealsAreBothIntentionalAndConsistent().
-        $composition[$params['component_index']] = _pp_apply_legacy_prop_aliases(
-            $composition[$params['component_index']]
-        );
-        $after_props = $composition[$params['component_index']]['props'];
 
         $changes = _pp_diff_props($before_props, $after_props, $params['component_index']);
 

@@ -252,13 +252,13 @@ class CompositionResultTest extends TestCase
         $this->assertSame([], pp_get_composition($this->postId));
     }
 
-    // ── Legacy `variant` read-path migration (issue #69, permanent per #388) ──
-    // A composition stored before the `variant` -> `layout`/`theme` split must stay
-    // decodable: action-layer reads go through pp_get_composition(), which migrates on
-    // read. #388 made this read-path decode permanent (the write path now rejects
-    // `variant` as unknown_prop) rather than a shim slated for removal at the v1.0.0 tag.
+    // ── The `variant` read-path migration is GONE (#604) ────────────────────
+    // A composition stored before the `variant` -> `layout`/`theme` split used to be
+    // decoded on every action-layer read. #604 removed that migration: the read now
+    // returns the stored bytes, and the retired key is rejected on write exactly as it
+    // has been since #388. One contract, one answer, on both paths.
 
-    public function testGetCompositionMigratesLegacyVariantOnRead(): void
+    public function testGetCompositionReturnsLegacyVariantVerbatimOnRead(): void
     {
         $stored = [
             ['component' => 'hero', 'props' => ['title' => 'Hi', 'variant' => 'split']],
@@ -269,12 +269,13 @@ class CompositionResultTest extends TestCase
 
         $composition = pp_get_composition($this->postId);
 
-        $this->assertSame('split', $composition[0]['props']['layout']);
-        $this->assertArrayNotHasKey('variant', $composition[0]['props']);
-        // grid renames the legacy default value.
-        $this->assertSame('cards', $composition[1]['props']['layout']);
-        // tone component moves to theme.
-        $this->assertSame('dark', $composition[2]['props']['theme']);
-        $this->assertArrayNotHasKey('variant', $composition[2]['props']);
+        $this->assertSame($stored, $composition, 'the read hands back exactly what is stored');
+        foreach ([0, 1, 2] as $i) {
+            $this->assertArrayNotHasKey('layout', $composition[$i]['props'], "band {$i}: no layout manufactured");
+            $this->assertArrayNotHasKey('theme', $composition[$i]['props'], "band {$i}: no theme manufactured");
+        }
+        // Specifically: `theme: "dark"` is no longer MANUFACTURED from `variant: "dark"`,
+        // which retires one of the two evidence legs the `dark` value alias stood on.
+        $this->assertSame('dark', $composition[2]['props']['variant']);
     }
 }

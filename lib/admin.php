@@ -635,285 +635,35 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
 // ── Validation ───────────────────────────────────────────────────────────────
 
 /**
- * Normalizes a composition array to use canonical keys.
+ * Normalizes a composition array's ITEM SHAPE. Not a name-alias surface (#604).
  *
- * LLMs sometimes produce composition items with "type" instead of "component"
- * (e.g. {"type": "hero", "props": {...}} instead of {"component": "hero", ...}).
- * This function canonicalizes known aliases so validation and rendering work
- * regardless of which key name the AI chose.
+ * This function no longer rewrites any key. It strips empty `style` arrays (no
+ * overrides = no key) and nothing else. Every name canonicalization that used to
+ * live here is GONE:
+ *
+ *   - the `type` -> `component` item-key alias (#604). `component` is the only
+ *     item key that names a component. An item keyed only `type` is rejected by
+ *     pp_validate_composition_errors() as `invalid_composition` ("missing the
+ *     `component` key"), because absorbing a hallucinated key silently is what
+ *     stopped the authoring agent from ever learning the real one.
+ *   - the legacy prop-KEY alias map (#495/#576, removed in #604). All 13 retired
+ *     prop names now fall through to the strict `unknown_prop` gate.
+ *   - the `variant` -> `layout`/`theme` migration (#69/#388/#400, removed in
+ *     #604). It was read-path only and never ran here; the write path has
+ *     rejected `variant` since #388 and still does.
+ *
+ * The removals STRENGTHEN validation: a retired name is now a named rejection on
+ * every write path instead of a silent, unreported repair. Stale stored documents
+ * carrying those names break loudly — the intended outcome, not a regression.
  *
  * @param  array $items  Raw composition array.
- * @return array         Normalized composition array.
+ * @return array         Composition array with empty style arrays stripped.
  */
 function pp_normalize_composition(array $items): array {
     foreach ($items as $i => $item) {
-        // Canonical key is "component". Accept "type" as an alias when "component" is absent.
-        if (!isset($item['component']) && isset($item['type'])) {
-            $items[$i]['component'] = $item['type'];
-            unset($items[$i]['type']);
-        }
         // Strip empty style arrays (no overrides = no key).
         if (isset($items[$i]['style']) && is_array($items[$i]['style']) && empty($items[$i]['style'])) {
             unset($items[$i]['style']);
-        }
-    }
-    // WRITE PATH: the retired `variant` prop is NOT migrated here (#388). The v1
-    // public API accepts no alias — an unmapped `variant` prop falls through to the
-    // shared unknown_prop gate in pp_validate_composition_all() and the write is
-    // rejected, so `create_page`/`update_composition` never silently rewrite it.
-    // Legacy `variant` is still decoded on the RESTORE/READ paths only, which call
-    // pp_migrate_legacy_variant_keys() explicitly (restore_composition, lib/wp.php,
-    // the editor read path) — see that helper's #233 note.
-
-    // Normalize-on-write for the bounded pre-1.0 prop RENAMES (issue #495).
-    // UNLIKE `variant`, these renames DO ship a write-time alias: create_page and
-    // update_composition supply the WHOLE composition, so canonicalizing every
-    // item here heals a legacy-shaped composition on save. The single-component
-    // read-then-write actions do NOT route through here (they normalize only the
-    // touched item), so a targeted edit heals incrementally and leaves untouched
-    // components in their stored shape.
-    $items = pp_normalize_legacy_props($items);
-    return $items;
-}
-
-/**
- * RESTORE/READ-PATH compatibility shim (issue #69, split by path in #388).
- *
- * Before v1, `variant` meant two different things depending on the component:
- * a structural mode on hero/grid/cta/testimonials, and a color/tone preset on
- * section/stats/logos/embed. v1 splits these into `layout` (structure) and
- * `theme` (tone) so no component uses `variant` for two meanings. This rewrites
- * any legacy `variant` key on a stored or history-ring composition to the new
- * key so pre-rename content renders unchanged.
- *
- * NOT a write-path alias (#388): new writes through create_page/update_composition/
- * add_component/update_component reject `variant` with unknown_prop — v1's public
- * API is `layout`/`theme` only. This helper runs ONLY on decode of already-stored
- * shapes: restore_composition, lib/wp.php's read path, and the editor read path.
- * It is permanent until an explicit history-ring migration ships (see the #233
- * note below) — the "remove at tag" plan was retired when the shim was split.
- *
- * Mapping:
- *   structural (variant -> layout): hero, grid, cta, testimonials
- *     grid also renames the value `default` -> `cards`
- *   tone       (variant -> theme):  section, stats, logos, embed
- * An explicit new key already present wins; the legacy `variant` is then dropped.
- *
- * DEPENDENT — READ BEFORE REMOVING (#233, #388): restore_composition runs every
- * history-ring snapshot through this helper. Rings are bounded but long-lived, so a
- * live install can still hold pre-#69 snapshots keyed on `variant`. Deleting this shim
- * without migrating those rings does not make a restore fail — it makes it succeed while
- * writing a composition nothing decodes, so the page comes back subtly wrong rather than
- * loudly wrong. #69's migration plan covers stored `_pp_composition` on read/save; it
- * never covered `_pp_composition_history`. #388 split the shim (write paths reject,
- * restore/read paths still migrate) precisely so this compatibility could stay without
- * reopening the write-time alias. Removal must therefore still ship an explicit history
- * migration first. Pinned by ActionsTest::testRestoreNormalizesLegacyVariantSnapshot().
- *
- * @param  array $items  Composition array (component key already canonicalized).
- * @return array         Composition array with legacy `variant` keys migrated.
- */
-function pp_migrate_legacy_variant_keys(array $items): array {
-    static $structural = ['hero', 'grid', 'cta', 'testimonials'];
-    static $tone       = ['section', 'stats', 'logos', 'embed'];
-
-    foreach ($items as $i => $item) {
-        if (!is_array($item) || !isset($item['props']) || !is_array($item['props'])) {
-            continue;
-        }
-        if (!array_key_exists('variant', $item['props'])) {
-            continue;
-        }
-        $component = (string) ($item['component'] ?? $item['type'] ?? '');
-
-        if (in_array($component, $structural, true)) {
-            $target = 'layout';
-        } elseif (in_array($component, $tone, true)) {
-            $target = 'theme';
-        } else {
-            // Unknown/other component: no defined mapping, leave props untouched.
-            continue;
-        }
-
-        $value = $item['props']['variant'];
-        // grid renamed its default structural value.
-        if ($component === 'grid' && $value === 'default') {
-            $value = 'cards';
-        }
-        // An explicit new key wins; otherwise carry the legacy value across.
-        if (!array_key_exists($target, $item['props'])) {
-            $items[$i]['props'][$target] = $value;
-        }
-        unset($items[$i]['props']['variant']);
-    }
-    return $items;
-}
-
-/**
- * The bounded, closed map of component-scoped prop RENAMES whose old names can
- * still exist in stored compositions (issue #495, extended by #576).
- *
- * This is NOT a general schema-evolution framework and NOT a forever alias
- * surface. It is a fixed, audited inventory, in two generations:
- *
- *   PRE-1.0 (#495) — the renames the #147 strict gate could not have caught. The
- *   closed audit found exactly one component:
- *
- *     cta: cta_text -> button_text, cta_url -> button_url
- *
- *   CANONICAL VOCABULARY (#576) — the v1.13.0 gate that made every prop segment
- *   derivable ("the prop is the CONTENT name, not the element name"), shipping
- *   compatibility WITH the rename per the post-1.0 convention (#442):
- *
- *     hero:         subtitle -> subheading; the hero's own button family
- *                   cta_*  -> button_*  and  cta2_* -> button2_*
- *     cta:          text -> body
- *     section/grid/testimonials: heading_align -> title_align
- *
- * The map is deliberately PER-COMPONENT and that is now load-bearing in BOTH
- * directions. `cta_text`/`cta_url` are LEGACY on the cta component and were, until
- * #576, the hero's CURRENT canonical props — a global alias would have corrupted
- * hero content. After #576 both components resolve those names to
- * `button_text`/`button_url`, but they arrive there from opposite directions
- * (cta pre-1.0, hero at the vocabulary freeze), so the per-component shape is what
- * keeps each component's history honest rather than collapsing them into a claim
- * neither one makes.
- *
- * The `variant` -> `layout`/`theme` rename is NOT here — it is handled by the
- * separate write-reject + read-migrate mechanism (pp_migrate_legacy_variant_keys,
- * #69/#388), a different contract. Style-SLOT names are not here either, and since
- * #603 they have no alias surface at all: an undeclared slot name is rejected at
- * write and dropped at render, with nothing canonicalizing it in between.
- *
- * Pinned by SchemaValidationTest::testLegacyPropAliasInventoryIsPinned and
- * guarded against silent future drift by the schema-rename drift-catcher
- * (SchemaValidationTest::testSchemaRenameDriftIsCaught): a future schema change
- * that removes/renames a prop must add an entry HERE (or an explicit migration
- * note) or CI fails.
- *
- * @return array<string, array<string, string>>  component => [old_prop => canonical_prop]
- */
-function pp_legacy_prop_aliases(): array {
-    return [
-        'cta' => [
-            'cta_text' => 'button_text',
-            'cta_url'  => 'button_url',
-            'text'     => 'body',
-        ],
-        'hero' => [
-            'subtitle'     => 'subheading',
-            'cta_text'     => 'button_text',
-            'cta_url'      => 'button_url',
-            'cta_variant'  => 'button_variant',
-            'cta2_text'    => 'button2_text',
-            'cta2_url'     => 'button2_url',
-            'cta2_variant' => 'button2_variant',
-        ],
-        'section' => [
-            'heading_align' => 'title_align',
-        ],
-        'grid' => [
-            'heading_align' => 'title_align',
-        ],
-        'testimonials' => [
-            'heading_align' => 'title_align',
-        ],
-    ];
-}
-
-/**
- * Canonicalizes the recognized legacy prop keys on a SINGLE composition item
- * (issue #495), the alias-on-read + normalize-on-write primitive.
- *
- * Only rewrites keys inside `props`, only after the component name is known,
- * and only for components that declare a legacy-alias map. Genuinely unknown
- * keys are left untouched so the #147 strict gate still rejects them — this is
- * a bounded compatibility shim, not a hole in unknown-prop rejection.
- *
- * CANONICAL-WINS: if BOTH the legacy and canonical keys are present on the same
- * item, the canonical value is kept and the legacy key is dropped (an explicit
- * author value beats a stale legacy one). Otherwise the legacy value carries
- * across to the canonical key. Either way the legacy key is removed, so the
- * result is a pure-canonical view.
- *
- * Used on THREE surfaces with different persistence semantics:
- *   - validation (pp_validate_composition_errors): a TRANSIENT resolved copy,
- *     so the required-prop and unknown-prop checks see canonical names; stored
- *     data is never mutated by validation.
- *   - write (pp_normalize_composition + the touched item in update_component /
- *     add_component): persists the canonical form so a touched component heals.
- *   - READ, all paths (pp_migrate_stored_composition, lib/wp.php) — as of #575.
- *     Every decode resolves: the front-end renderers, the editor, `inspect`,
- *     restore's current-composition fetch and the admin preview. Before #575 only
- *     the two front-end renderers resolved, so a legacy-shaped stored cta rendered
- *     its authored button on the site but appeared legacy to every action.
- *
- * Read-path resolution has a deliberate WRITE consequence (#575): the read-modify-
- * write actions read the whole composition and write the whole array back, so an
- * untouched legacy component now heals on any targeted edit rather than only when
- * itself touched. Rendered output is identical either way — both shapes already
- * resolved to the same canonical props at render — and this is the same
- * mass-heal-on-write-back property the `variant` key migration has had since #400.
- *
- * @param  array $item  One composition item ({component|type, props}).
- * @return array        The item with any recognized legacy prop keys canonicalized.
- */
-function _pp_apply_legacy_prop_aliases(array $item): array {
-    if (!isset($item['props']) || !is_array($item['props'])) {
-        return $item;
-    }
-    // A corrupt/raw-written item (reached via the restore path's normalize, which
-    // runs over arbitrary history-ring snapshots) can carry a non-scalar
-    // component key. Casting it would emit "Array to string conversion"; no alias
-    // map applies to a malformed name anyway, so leave the item untouched and let
-    // the shared validator report the real problem (mirrors the non-scalar
-    // component guard in pp_validate_composition_errors).
-    $raw_component = $item['component'] ?? $item['type'] ?? '';
-    if (!is_scalar($raw_component)) {
-        return $item;
-    }
-    $component = (string) $raw_component;
-    $aliases   = pp_legacy_prop_aliases()[$component] ?? [];
-    if ($aliases === []) {
-        return $item;
-    }
-    foreach ($aliases as $old => $canonical) {
-        if (!array_key_exists($old, $item['props'])) {
-            continue;
-        }
-        // Canonical-wins: only carry the legacy value across when the canonical
-        // key is absent. Either way the legacy key is removed.
-        if (!array_key_exists($canonical, $item['props'])) {
-            $item['props'][$canonical] = $item['props'][$old];
-        }
-        unset($item['props'][$old]);
-    }
-    return $item;
-}
-
-/**
- * Array wrapper for _pp_apply_legacy_prop_aliases() (issue #495): canonicalizes
- * recognized legacy prop keys across every item of a composition.
- *
- * This is the normalizer for the full-replace WRITE surfaces
- * (pp_normalize_composition, and thereby create_page / update_composition /
- * restore_composition) AND, since #575, for every composition READ
- * (pp_migrate_stored_composition, lib/wp.php).
- *
- * The single-component read-then-write actions (update_component / add_component)
- * still normalize the touched item explicitly — that call is what makes an incoming
- * legacy-NAMED patch land on the canonical key. Untouched components are no longer
- * left legacy-shaped, though: they arrive already resolved from the read, so the
- * whole-array write-back stores them canonical. #495's incremental healing was a
- * property of the read path not resolving; #575 made every read resolve.
- *
- * @param  array $items  Composition array.
- * @return array         Items with recognized legacy prop keys canonicalized.
- */
-function pp_normalize_legacy_props(array $items): array {
-    foreach ($items as $i => $item) {
-        if (is_array($item)) {
-            $items[$i] = _pp_apply_legacy_prop_aliases($item);
         }
     }
     return $items;
@@ -1209,17 +959,13 @@ function pp_validate_composition_errors(array $items): array {
             continue;
         }
 
-        // Alias-on-read (issue #495). Resolve the bounded pre-1.0 legacy prop
-        // renames (cta.cta_text -> button_text, cta.cta_url -> button_url) into
-        // a TRANSIENT canonical view of this item BEFORE any prop check runs, so
-        // both the required-prop loop below (button_text/button_url are required)
-        // and the unknown-prop gate further down see the canonical names. $item
-        // is the local loop copy, so this never mutates the caller's $items or
-        // stored data — write-time healing is normalize-on-write, done separately
-        // by the action layer on the touched item only. A genuinely unknown key
-        // is left untouched and still rejected by the unknown-prop gate.
-        $item = _pp_apply_legacy_prop_aliases($item);
-
+        // NO ALIAS RESOLUTION HERE (#604). A transient canonical view used to be
+        // built at this exact point (#495), which is what let a retired prop name
+        // satisfy the required-prop loop below and slip past the unknown-prop gate
+        // further down. Removing it is the functional heart of the alias removal:
+        // every prop name a schema does not declare — including all 13 retired
+        // ones — is now judged on the name the caller actually wrote. Props reach
+        // the checks below exactly as stored or submitted.
         $schema = $registered[$name];
         if (!empty($schema['props'])) {
             foreach ($schema['props'] as $prop_name => $prop_def) {
@@ -1395,10 +1141,17 @@ function pp_validate_composition_errors(array $items): array {
         // inside pp_validate_composition_errors()'s per-item loop, while
         // update_component validates the WHOLE composition (lib/actions.php), so one
         // untouched band still carrying `theme: "dark"` would block an edit to a
-        // DIFFERENT band on the same page — and `dark` is also MANUFACTURED at read
-        // time by pp_migrate_legacy_variant_keys() from a stored `variant: "dark"`,
-        // so it materialises on pages where the string never appears in storage.
-        // `dark` keeps rendering identically (pp_theme_class, lib/helpers.php).
+        // DIFFERENT band on the same page. `dark` keeps rendering identically
+        // (pp_theme_class, lib/helpers.php).
+        //
+        // ONE OF #579's TWO EVIDENCE LEGS IS RETIRED (#604). `dark` used also to be
+        // MANUFACTURED at read time by pp_migrate_legacy_variant_keys() from a
+        // stored `variant: "dark"`, so it materialised on pages where the string
+        // never appeared in storage. That migration is gone: `dark` now only ever
+        // reaches this gate when it is literally the stored/submitted value. The
+        // remaining leg — untouched bands that really do store `dark` — is what
+        // keeps the alias, and re-evaluating it is the `theme: "dark"` issue's job,
+        // not this one's.
         //
         // SCOPE, stated so nobody reads more into it than is true: this walks
         // $schema['props'], i.e. TOP-LEVEL props only, exactly as the #379/#475
@@ -2206,17 +1959,17 @@ function pp_composition_workspace_page(): void {
 
     $raw        = get_post_meta($post_id, '_pp_composition', true);
     // Pretty-print stored JSON so the editor shows readable multi-line content.
-    // For a valid list composition, also migrate any legacy `variant` key so the
-    // editor never surfaces the retired prop on a pre-rename page (issue #69 read
-    // path — permanent per #388: the write path rejects `variant`, so this decode
-    // keeps already-stored legacy pages editable). A corrupt/non-list payload is
-    // shown raw and unmigrated so the operator can still repair it.
+    // The editor shows the STORED bytes, re-encoded (#604). It used to migrate a
+    // legacy `variant` key out of the decoded view first (#69/#388 read path); that
+    // migration is gone, so a pre-rename page now surfaces `variant` verbatim in the
+    // editor exactly as it sits in the database. That is the honest view: `variant`
+    // is rejected on every write path, so showing the operator a `layout`/`theme`
+    // shape the stored document does not actually have was the editor telling a
+    // small lie about storage. Saving such a page fails with `unknown_prop` and
+    // names the offending key — the intended, loud outcome.
     if ($raw) {
         $decoded = json_decode($raw, true);
         if (is_array($decoded)) {
-            if (pp_is_list($decoded)) {
-                $decoded = pp_migrate_legacy_variant_keys($decoded);
-            }
             $raw = json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
         }
     }

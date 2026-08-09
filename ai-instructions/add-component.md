@@ -214,34 +214,41 @@ own `components/` directory — there is no child-theme or plugin registration p
 
 ### Renaming a slot or a prop later
 
-Names freeze at the first stable contract. **A renamed style SLOT gets no alias — the
-old name simply dies (#603).** Only the two PROP surfaces carry legacy names:
+Names freeze at the first stable contract. **A renamed slot or prop gets no alias — the
+old name simply dies (#603, #604).** Exactly one alias surface survives, and it is for
+prop **values**, never for names:
 
 | Map | Lives in | Maps |
 |---|---|---|
-| `pp_legacy_prop_aliases()` | `lib/admin.php` | legacy prop **key** → canonical prop **key** |
-| `props.<p>.aliases` | `schema.json` | legacy prop **value** (accepted, never advertised) |
+| `props.<p>.aliases` | `schema.json` | legacy prop **value** (accepted at write, never advertised) |
 
 | Surface | Resolves at | Consequence |
 |---|---|---|
-| `pp_legacy_prop_aliases()` | every composition **read** | a legacy-shaped band heals to canonical keys on any whole-array write-back, including bands you did not touch. Value-preserving except when an item stores **both** names, where canonical-wins drops the legacy value. The heal is **not** reported in the action's `changes`. |
-| style **slot** names | nowhere | there is no slot alias surface. An undeclared slot name is rejected at write with `invalid_style_slot` and dropped at render — one answer on both paths. |
+| prop **key** names | nowhere | there is no prop-key alias surface (#604). A retired prop name is rejected at write with `unknown_prop` and unread at render — one answer on both paths. |
+| style **slot** names | nowhere | there is no slot alias surface (#603). An undeclared slot name is rejected at write with `invalid_style_slot` and dropped at render. |
+| the `variant` prop | nowhere | retired in #69. Rejected on every write path (#388) and, since #604, not decoded on any read path either. |
 
-**Renaming a slot is a breaking change, and that is the accepted cost.** A composition
-stored under the old name loses that declaration at render, and any whole-composition
-validating action rejects it by name. `restore_composition` still succeeds and
+**Renaming a slot or a prop is a breaking change, and that is the accepted cost.** A composition
+stored under the old name loses that declaration at render, and the three actions that validate
+the WHOLE composition — `create_page`, `update_composition`, `update_component` — reject it by
+name. `add_component` validates only the item it adds; `remove_component`, `reorder_components`
+and `style_component` validate no props, so those four still succeed on a stale page. `restore_composition` still succeeds and
 **reports** the dead slots (#233) rather than blocking. Do not add a migration, a
 tolerance, or a widened schema to soften this: backward compatibility, stale demo pages
 and old compositions are explicit NON-GOALS. Author with canonical names — the runtime
 catalog and `AI_CONTEXT.md` advertise nothing else.
 
-**The prop surface is deliberately different.** A new write naming a legacy **prop** key
-is accepted and silently stored under the canonical key (the #495 heal-on-write model),
-whereas a new write naming a legacy **slot** is rejected. The prop map buys real
-generation reliability; the slot map bought only stale-document tolerance.
+**Slots and props are now treated identically (#604).** The prop surface used to be the
+exception: a write naming a legacy **prop** key was accepted and silently stored under
+the canonical key (the #495 heal-on-write model), while the same write naming a legacy
+**slot** was rejected. That asymmetry is gone. A retired prop name is rejected at write
+with `unknown_prop`, exactly as a retired slot name is rejected with
+`invalid_style_slot`, and neither is resolved at render.
 
-The prop map applies **canonical-wins**: if a stored document carries both names, the
-canonical value is the author's explicit one and the stale legacy one is dropped.
+Silently repairing a generation error was the argument FOR the prop map, and it is what
+killed it: the heal emitted no `changes` entry, so an agent that wrote `cta_text` got
+`ok:true` and never learned it had used a retired name. Removing the map returns those
+13 names to the strict `unknown_prop` gate, which is a validation **strengthening**.
 
 **The "mechanism trust" rule that used to govern this section is RETIRED (#570 decision
 record, Addendum #4).** It said a legacy name resolves at render iff a shipped mechanism
@@ -250,7 +257,7 @@ as that mechanism. `restore_composition`'s actual contract is narrower: it resto
 snapshot verbatim and **reports findings**, and it never blocks. It does not promise that
 what it restores still paints. Keeping a name alive because an old document might replay
 it is exactly the legacy tolerance the governing ruling names as a NON-GOAL, so the slot
-map was removed outright (#603) rather than reinterpreted.
+map was removed outright (#603) and the prop map followed it (#604).
 
 Add a new legacy surface only on evidence it improves the **current** AI-authorable
 baseline — generation reliability, one canonical contract, or easier inspection — never

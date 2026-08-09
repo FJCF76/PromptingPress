@@ -2012,23 +2012,29 @@ class SchemaValidationTest extends TestCase
     }
 
     /**
-     * LLMs emit `{"type":"nav"}`. pp_normalize_composition() aliases `type` to
-     * `component`, and every validating write path normalizes before validating,
-     * so chrome rejection for the alias depends entirely on that ordering. Pin it:
-     * if the ordering ever regresses, alias-keyed chrome gets rejected only as a
-     * generic "missing component key" and this test says so out loud.
+     * SUPERSEDES testTypeAliasedChromeIsRejectedAsChrome (#604).
+     *
+     * LLMs emit `{"type":"nav"}`. Until #604, pp_normalize_composition() aliased `type`
+     * to `component`, so the item became a nav and was rejected AS CHROME. With the
+     * alias gone there is no component name on the item at all, so it is rejected one
+     * step earlier and for a different, more accurate reason: it does not name a
+     * component. Both outcomes are a hard rejection — what changed is which problem the
+     * author is told about first, and "you didn't name a component" is the true one.
      */
-    public function testTypeAliasedChromeIsRejectedAsChrome(): void
+    public function testTypeKeyedChromeIsRejectedAsAMissingComponentKey(): void
     {
         $normalized = pp_normalize_composition([['type' => 'nav', 'props' => []]]);
         $result     = pp_validate_composition($normalized);
 
         $this->assertInstanceOf(\WP_Error::class, $result);
         $this->assertSame(
-            'template_owned_component',
+            'invalid_composition',
             $result->get_error_code(),
-            'A `type`-aliased chrome item must be rejected AS CHROME, not as a missing component key.'
+            'A `type`-keyed item names no component, so that is the error it must get.'
         );
+        $this->assertStringContainsString('component', $result->get_error_message());
+        // And the normalizer left it alone rather than manufacturing a nav.
+        $this->assertArrayNotHasKey('component', $normalized[0]);
     }
 
     public function testTemplateOwnedComponentsRemainRegistered(): void
@@ -2379,15 +2385,19 @@ class SchemaValidationTest extends TestCase
         $this->assertTrue($sawComposable, 'Expected at least one component to derive patchable fields.');
     }
 
-    // ── Legacy prop-rename alias map + schema-rename drift-catcher (#495) ──
+    // ── Schema-rename drift-catcher (#495, rebased on the #604 removal) ──
     //
-    // The alias map (lib/admin.php, pp_legacy_prop_aliases) is the audited, closed
-    // inventory of pre-1.0 component-scoped prop RENAMES whose old names can still
-    // exist in stored compositions. Two guards keep it honest:
-    //   1. An inventory PIN so the closed set cannot silently grow or shrink.
-    //   2. A drift-catcher that fails a FUTURE schema change which removes/renames a
-    //      prop without shipping an alias entry (or an explicit migration note) —
-    //      making the alias-at-introduction convention structural, not remembered.
+    // The legacy prop-rename ALIAS MAP is gone (#604) and so is its inventory pin. The
+    // drift-catcher it shipped alongside SURVIVES, because it stands on its own merits:
+    // it is the CI tripwire that fails a FUTURE schema change which removes or renames
+    // a prop without saying so out loud, making the convention structural rather than
+    // remembered.
+    //
+    // WHAT CHANGED. The guard used to accept TWO justifications for a disappeared
+    // baseline prop: an alias-map entry, or an explicit migration note. With no alias
+    // surface left, the migration NOTE is the SOLE escape hatch. That is deliberately
+    // the stricter of the two — a note is a human writing down what happened, where an
+    // alias entry silently made the problem go away.
 
     /**
      * The pinned baseline of declared props per component AS OF #495. This is a
@@ -2414,26 +2424,29 @@ class SchemaValidationTest extends TestCase
     ];
 
     /**
-     * Explicit escape hatch for a prop retired WITHOUT a write-time alias (e.g. a
-     * rename handled by a separate migration such as `variant`, #388). Empty today:
-     * every removed prop in scope of #495 ships an alias instead. A future retirement
-     * that is genuinely migrated out-of-band records `component => [prop => note]` here.
+     * The SOLE escape hatch for a retired prop (#604 — there is no alias surface any
+     * more). Empty today. A future prop removal or rename must record
+     * `component => [prop => note]` here, in the SAME change, or the drift-catcher
+     * below fails CI. The note is the point: it forces the author to state what
+     * happens to documents that already store the old name.
      */
     private const SCHEMA_RENAME_MIGRATION_NOTES = [];
 
     /**
-     * Pure drift detector: any baseline prop that no longer exists in the live
-     * schema must be covered by an alias-map entry OR a migration note, else it is
-     * a violation. Kept as a static helper so the real run and the simulated-rename
-     * test share one implementation.
+     * Pure drift detector: any baseline prop that no longer exists in the live schema
+     * must be covered by a migration note, else it is a violation. Kept as a static
+     * helper so the real run and the simulated-rename test share one implementation.
+     *
+     * The `$aliasMap` parameter this used to take is GONE (#604) along with the alias
+     * surface itself — dropping it, rather than passing [] forever, is what makes the
+     * note the only reachable escape hatch.
      *
      * @param array<string,string[]>              $baseline   component => prop names
      * @param array<string,string[]>              $liveProps  component => prop names
-     * @param array<string,array<string,string>>  $aliasMap   component => [old => canonical]
      * @param array<string,array<string,string>>  $notes      component => [prop => note]
      * @return string[]  Human-readable violations (empty = no drift).
      */
-    private static function detectSchemaRenameDrift(array $baseline, array $liveProps, array $aliasMap, array $notes): array
+    private static function detectSchemaRenameDrift(array $baseline, array $liveProps, array $notes): array
     {
         $violations = [];
         foreach ($baseline as $component => $props) {
@@ -2442,11 +2455,9 @@ class SchemaValidationTest extends TestCase
                 if (in_array($prop, $live, true)) {
                     continue; // still declared — no drift
                 }
-                $aliased = isset($aliasMap[$component]) && array_key_exists($prop, $aliasMap[$component]);
-                $noted   = isset($notes[$component]) && array_key_exists($prop, $notes[$component]);
-                if (!$aliased && !$noted) {
+                if (!isset($notes[$component]) || !array_key_exists($prop, $notes[$component])) {
                     $violations[] = sprintf(
-                        'Component "%s" prop "%s" was removed/renamed without an alias-map entry or migration note.',
+                        'Component "%s" prop "%s" was removed/renamed without a migration note.',
                         $component,
                         $prop
                     );
@@ -2468,62 +2479,21 @@ class SchemaValidationTest extends TestCase
         return $out;
     }
 
-    public function testLegacyPropAliasInventoryIsPinned(): void
+    public function testLiveSchemasHaveNoUnnotedRenameDriftFromBaseline(): void
     {
-        // The closed audit result. If a future change adds/removes a legacy alias,
-        // this pin forces the change to be deliberate and reviewed.
-        $this->assertSame(
-            [
-                // Pre-1.0 (#495).
-                'cta' => [
-                    'cta_text' => 'button_text',
-                    'cta_url'  => 'button_url',
-                    'text'     => 'body',       // #576
-                ],
-                // Canonical vocabulary (#576): the prop segment is the CONTENT name.
-                'hero' => [
-                    'subtitle'     => 'subheading',
-                    'cta_text'     => 'button_text',
-                    'cta_url'      => 'button_url',
-                    'cta_variant'  => 'button_variant',
-                    'cta2_text'    => 'button2_text',
-                    'cta2_url'     => 'button2_url',
-                    'cta2_variant' => 'button2_variant',
-                ],
-                'section'      => ['heading_align' => 'title_align'],
-                'grid'         => ['heading_align' => 'title_align'],
-                'testimonials' => ['heading_align' => 'title_align'],
-            ],
-            pp_legacy_prop_aliases(),
-            'The legacy prop-alias inventory changed — update the audit and this pin together.'
-        );
-    }
-
-    public function testLiveSchemasHaveNoUnaliasedRenameDriftFromBaseline(): void
-    {
-        // The real guard: today baseline == live, so there is no drift. This freezes
-        // the baseline; a future prop removal/rename without an alias entry or a
-        // migration note fails HERE.
+        // The real guard: today baseline == live, so there is no drift. This freezes the
+        // baseline; a future prop removal or rename WITHOUT a migration note fails HERE.
+        //
+        // It stays green across the #604 alias removal for a reason worth stating: the
+        // baseline only ever contained props the schemas actually DECLARE, never the
+        // retired names the alias map covered. Deleting the map therefore removed a
+        // justification nothing was using, not a live exemption.
         $drift = self::detectSchemaRenameDrift(
             self::PINNED_PROP_BASELINE,
             $this->liveProps(),
-            pp_legacy_prop_aliases(),
             self::SCHEMA_RENAME_MIGRATION_NOTES
         );
         $this->assertSame([], $drift, implode("\n", $drift));
-
-        // The alias map must stay coherent with the schemas: every canonical target
-        // must actually exist as a live prop (no dangling alias).
-        $live = $this->liveProps();
-        foreach (pp_legacy_prop_aliases() as $component => $map) {
-            foreach ($map as $old => $canonical) {
-                $this->assertContains(
-                    $canonical,
-                    $live[$component] ?? [],
-                    sprintf('Alias %s.%s -> %s points at a prop that no longer exists.', $component, $old, $canonical)
-                );
-            }
-        }
     }
 
     public function testEveryLiveSchemaPropIsPinnedInBaseline(): void
@@ -2552,93 +2522,23 @@ class SchemaValidationTest extends TestCase
 
     public function testSchemaRenameDriftIsCaught(): void
     {
+        // The self-test: prove the guard actually fires, so a future refactor cannot
+        // quietly neuter it and leave a permanently-green tripwire behind.
+        //
         // Simulate a future rename: the baseline says cta had a `headline` prop, the
-        // live schema no longer declares it. With no alias entry, this MUST be caught.
+        // live schema no longer declares it. With no migration note, this MUST be caught.
         $baseline = ['cta' => ['id', 'headline', 'button_text']];
         $live     = ['cta' => ['id', 'button_text']]; // `headline` removed
 
-        $unaliased = self::detectSchemaRenameDrift($baseline, $live, [], []);
-        $this->assertNotEmpty($unaliased, 'a schema rename with no alias entry must be flagged');
-        $this->assertStringContainsString('headline', $unaliased[0]);
+        $unnoted = self::detectSchemaRenameDrift($baseline, $live, []);
+        $this->assertNotEmpty($unnoted, 'a schema rename with no migration note must be flagged');
+        $this->assertStringContainsString('headline', $unnoted[0]);
 
-        // Shipping an alias entry in the SAME change clears it.
-        $withAlias = self::detectSchemaRenameDrift($baseline, $live, ['cta' => ['headline' => 'button_text']], []);
-        $this->assertSame([], $withAlias, 'an alias entry for the renamed prop clears the drift');
-
-        // An explicit migration note also clears it (the out-of-band-migration escape hatch).
-        $withNote = self::detectSchemaRenameDrift($baseline, $live, [], ['cta' => ['headline' => 'migrated by #999']]);
+        // An explicit migration note in the SAME change clears it. Since #604 this is
+        // the ONLY thing that does — the alias-entry branch that used to sit here was
+        // removed with the alias surface it depended on.
+        $withNote = self::detectSchemaRenameDrift($baseline, $live, ['cta' => ['headline' => 'migrated by #999']]);
         $this->assertSame([], $withNote, 'a migration note for the renamed prop clears the drift');
-    }
-
-    public function testAliasHelperGuardsNonScalarComponentWithoutWarning(): void
-    {
-        // The restore path runs the alias normalizer over arbitrary history-ring
-        // snapshots, which can carry a malformed (non-scalar) component key. The
-        // helper must return the item untouched and emit NO "Array to string
-        // conversion" warning (a raw (string) cast on an array would).
-        $item = ['component' => ['not', 'scalar'], 'props' => ['cta_text' => 'x']];
-
-        $warned = false;
-        set_error_handler(function () use (&$warned) { $warned = true; return true; });
-        try {
-            $result = _pp_apply_legacy_prop_aliases($item);
-        } finally {
-            restore_error_handler();
-        }
-
-        $this->assertFalse($warned, 'a non-scalar component must not trigger a PHP warning');
-        $this->assertSame($item, $result, 'a malformed-component item is returned untouched');
-    }
-
-    public function testAliasHelperLeavesItemsWithoutUsablePropsUnchanged(): void
-    {
-        // No props key, and a non-array props value: both early-return untouched.
-        $noProps = ['component' => 'cta'];
-        $this->assertSame($noProps, _pp_apply_legacy_prop_aliases($noProps));
-
-        $scalarProps = ['component' => 'cta', 'props' => 'nope'];
-        $this->assertSame($scalarProps, _pp_apply_legacy_prop_aliases($scalarProps));
-
-        // A component with NO alias map at all is untouched. `embed` is the honest
-        // example now: until #576 this case used hero (whose cta_text was then a
-        // CURRENT canonical prop), but hero gained its own map when the vocabulary
-        // gate renamed cta_* -> button_*, so hero no longer demonstrates "no map".
-        $embed = ['component' => 'embed', 'props' => ['cta_text' => 'Get Started']];
-        $this->assertSame($embed, _pp_apply_legacy_prop_aliases($embed));
-    }
-
-    /**
-     * The per-component shape is load-bearing in BOTH directions (#576).
-     *
-     * `cta_text` is a legacy name on cta (pre-1.0, #495) AND on hero (the vocabulary
-     * freeze, #576) — but `text` is legacy on cta ONLY, and hero's `subtitle` is legacy
-     * on hero ONLY. A map flattened to a global prop list would resolve each of those
-     * on every component, silently rewriting content on bands that never had the name.
-     */
-    public function testLegacyPropAliasesDoNotLeakAcrossComponents(): void
-    {
-        // `text` is cta's legacy body prop. On grid, `text` is a CURRENT item prop and
-        // on nav/footer a current top-level prop — none of them may be rewritten.
-        foreach (['grid', 'nav', 'footer'] as $component) {
-            $item = ['component' => $component, 'props' => ['text' => 'keep me']];
-            $this->assertSame(
-                $item,
-                _pp_apply_legacy_prop_aliases($item),
-                "{$component}.text is a current prop and must not resolve to `body`."
-            );
-        }
-
-        // `subtitle` is hero's legacy name only; section ships `subheading` already and
-        // declares no `subtitle`, so the strict unknown-prop gate must still see it.
-        $section = ['component' => 'section', 'props' => ['subtitle' => 'x']];
-        $this->assertSame($section, _pp_apply_legacy_prop_aliases($section));
-
-        // ...and on hero it resolves.
-        $hero = ['component' => 'hero', 'props' => ['subtitle' => 'x']];
-        $this->assertSame(
-            ['component' => 'hero', 'props' => ['subheading' => 'x']],
-            _pp_apply_legacy_prop_aliases($hero)
-        );
     }
 
     // ── Generic schema-typed prop enforcement (issue 507) ───────────────────
