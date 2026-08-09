@@ -3142,8 +3142,8 @@ function _pp_reject_auto_draft(int $post_id) {
  *
  * Shared by _pp_resolve_id_param() below (mutates $params for action
  * validate callables) and _pp_resolve_component_index_for_error() in
- * lib/ai-chat.php (the chat-side error/repair helpers, which run on raw
- * AI-submitted params and never see the mutation the former makes) — one
+ * lib/ai-chat.php (the chat-side error helper, which runs on raw
+ * AI-submitted params and never sees the mutation the former makes) — one
  * source of truth for the id-to-index lookup so the two never drift (#123).
  *
  * @param int    $post_id      Post ID to read composition from.

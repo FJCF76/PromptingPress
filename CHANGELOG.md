@@ -4,6 +4,47 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.17] — 2026-08-09 — a misspelled style slot is rejected by name instead of silently swapped for another one (#607)
+
+**The AI chat preview no longer guesses what you meant. When a `style_component` proposal named a style slot the component does not declare, the preview path used to rewrite the name to the nearest declared slot by Levenshtein distance — up to 40% of the name's length, so a 20-character slot admitted an 8-character rewrite — and return a preview of that DIFFERENT slot flagged only `repaired: true`. It is removed. An undeclared slot name is now `invalid_style_slot`, the same verdict every other surface in the theme reports, and the error names the slot you actually wrote alongside the ones that exist.**
+
+This was the loosest normalization mechanism left in the theme, and the only one with no closed vocabulary behind it: the accepted set was "whatever is within 40% edit distance and unambiguous", which is a guess, not a contract. It also ran in the one place where guessing is most expensive. The author asked for slot A, was shown a rendered preview of slot B, and got a bare boolean saying something had been repaired — no rejected name, no substituted name, no way to learn the real vocabulary. The better mechanism was already sitting on the same code path: `_pp_build_friendly_error()` returns the rejected name, the declared names, and a cross-component hint when the slot lives on a different component. That is the one that teaches. The repair was the one that hid.
+
+Nothing that worked stops working. The substitution never survived the preview: `executeProposal` sends the proposal's original params, so an Apply that followed a "repaired" preview re-sent the misspelled slot and failed at execute time anyway. The old path showed a preview that could not be applied. This release moves that failure earlier and makes it honest.
+
+Fresh generation is unaffected, and was never the beneficiary. The runtime catalog advertises each component's declared slots verbatim and already instructed the model that the slot it targets must exist on the component's schema, so a correct proposal never reached the repair. Nothing in `AI_CONTEXT.md`, `AI_RULES.md`, `ai-instructions/` or the runtime context ever promised typo repair to an author or to the model — the behaviour was undocumented, which is part of why it could drift this far.
+
+**What breaks, stated plainly.** A `style_component` proposal carrying a near-miss slot name (`--hero-bgs` for `--hero-bg`) previously previewed successfully against the corrected slot; it now fails preview with `invalid_style_slot`. In a multi-step proposal that failure blocks the Apply button for every step, as any failed preview always has. Validators are untouched, the #330 render boundary is untouched, and no stored composition changes meaning.
+
+### Removed
+
+- `_pp_attempt_style_repair()` (`lib/ai-chat.php`) and its `── Style Repair Helper ──` banner: the `levenshtein()` sweep over every declared slot, the `max(3, ceil(strlen($slot) * 0.4))` threshold, the tie guard, and the substituted-params return.
+- The repair-and-retry block in the `wp_ajax_pp_ai_preview` handler, including the second `pp_preview_action`/`pp_preview_apply` call and the `repaired` flag it set on the retried preview. No preview response carries that key on any path now.
+- The `_pp_attempt_style_repair` row from `AI_CONTEXT.md`'s AI-chat function reference.
+
+### Fixed
+
+- The `style_component` error branch in the preview handler now ends in an explicit `return`, so the structured error and the plain-message fallback below it stay mutually exclusive without depending on `wp_send_json_error()` terminating through `wp_die()`.
+
+### Kept, deliberately
+
+- `_pp_resolve_component_index_for_error()` stays. The repair was one of its callers; `_pp_build_friendly_error()` is the other three, and it still owns the #123 rule that `component_id` beats `component_index`.
+
+### Docs
+
+- The raw-params docblock in `lib/ai-chat.php` and its cross-file twin on `_pp_resolve_component_id_to_index()` (`lib/actions.php`) name a single chat-side error helper instead of a plural "error/repair helpers".
+- The `_pp_component_target_not_found()` docblock no longer sends the reader toward a "repair attempt" that no longer exists, and the preview handler records why the structured payload stays scoped to `style_component`.
+- `assets/js/pp-ai-chat.js` labels the structured error by its actual producer, `_pp_build_friendly_error`. The client never read the `repaired` flag, so no rendering changed.
+
+### Tests
+
+- The removal is pinned structurally, not by symbol name. The preview handler is a closure registered through `add_action`, which is a no-op in the test bootstrap, so its body is unreachable from PHPUnit; the test slices the `style_component` branch out of the source and asserts both what must be there (`wp_send_json_error`, `_pp_build_friendly_error`) and what must not (`wp_send_json_success`, any re-preview call, any `repaired` key, case-insensitive). A repair hop reintroduced under a different name or with different quoting fails it. Verified by restoring the pre-change file and confirming the test goes red.
+- An undeclared slot is pinned through the real surface — `pp_preview_action('style_component', ...)`, through the validator — as `invalid_style_slot` whose message names the slot the author wrote, and the friendly error's `alternatives` is asserted equal to the component's full declared slot set.
+- The happy path is pinned: a declared slot still previews, and the preview array has no `repaired` key.
+- The eight tests that pinned the Levenshtein heuristic are gone with it. The one contract among them not already covered elsewhere — `component_id` winning over a stale, conflicting `component_index` — is re-pinned twice: directly on `_pp_resolve_component_index_for_error()`, and through `_pp_build_friendly_error()`.
+
+---
+
 ## [v1.12.16] — 2026-08-09 — the `theme: "dark"` input value is gone; the emitted `--dark` class stays (#605)
 
 **`dark` was the last legacy VALUE any prop accepted at write, and the only one whose name mispredicted its own output: `theme: "dark"` rendered a LIGHT band. It is removed. `theme` now accepts exactly `default | muted | inverted`, the strict-enum gate (#579) rejects everything else, and the value an agent writes matches the values the catalog advertises with no footnote. The CSS class `<root>--dark` that `theme: "muted"` emits is KEPT and unchanged — that is an output name, not a value anyone can write (#570 DG-4).**

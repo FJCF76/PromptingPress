@@ -305,7 +305,7 @@ function ppChatCompositionUndoTarget(steps) {
  * Handles structured errors (from _pp_build_friendly_error) and plain strings.
  */
 function ppChatRenderPreviewError(diffArea, data) {
-    // Structured error from style_component repair path.
+    // Structured error from _pp_build_friendly_error (style_component failures).
     if (data && typeof data === 'object' && data.user_message) {
         var msgEl = document.createElement('div');
         msgEl.className = 'pp-ai-preview-error-message';
