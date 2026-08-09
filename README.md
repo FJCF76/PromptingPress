@@ -138,7 +138,7 @@ No blocks. No shortcodes. No visual-builder serialization. AI can read, write, d
 | cta | Call-to-action block with layout, color axis, and background image; `title` optional (omit for a standalone button row); optional second button for a primary + secondary pair | `button_text`, `button_url` |
 | stats | Large-number metrics with labels and optional background image | `items[]` |
 | logos | Flex-wrap image strip for partner/client logos | `items[]` |
-| table | Data/comparison table, horizontal scroll on mobile | `headers[]`, `rows[][]` |
+| table | Data/comparison table, horizontal scroll at any viewport | `headers[]`, `rows[][]` |
 | embed | WordPress shortcode / plugin content wrapper | `content` |
 | testimonials | Customer quotes with attribution — card grid or single-column stack | `items[]` |
 
