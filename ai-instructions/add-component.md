@@ -214,44 +214,47 @@ own `components/` directory — there is no child-theme or plugin registration p
 
 ### Renaming a slot or a prop later
 
-Names freeze at the first stable contract. A later rename uses the
-**alias-and-keep** model — add the old name to the legacy map, never delete it:
+Names freeze at the first stable contract. **A renamed style SLOT gets no alias — the
+old name simply dies (#603).** Only the two PROP surfaces carry legacy names:
 
 | Map | Lives in | Maps |
 |---|---|---|
-| `pp_legacy_slot_aliases()` | `lib/wp.php` | legacy slot **name** → canonical slot **name** |
 | `pp_legacy_prop_aliases()` | `lib/admin.php` | legacy prop **key** → canonical prop **key** |
 | `props.<p>.aliases` | `schema.json` | legacy prop **value** (accepted, never advertised) |
 
-The two name maps are **symmetric** as of #576/#594 — both resolve on every composition
-**read**, and the slot map resolves again at the render boundary as belt-and-braces:
-
-| Map | Resolves at | Consequence |
+| Surface | Resolves at | Consequence |
 |---|---|---|
 | `pp_legacy_prop_aliases()` | every composition **read** | a legacy-shaped band heals to canonical keys on any whole-array write-back, including bands you did not touch. Value-preserving except when an item stores **both** names, where canonical-wins drops the legacy value. The heal is **not** reported in the action's `changes`. |
-| `pp_legacy_slot_aliases()` | every composition **read**, and again at **render** | same heal semantics, over the component-level `style` map and every per-item style map the schema declares. Before #576 this resolved at render ONLY, so a stored legacy slot name painted but every whole-composition validation rejected it and the page could not be edited or saved — closed by #594 in the same change as the first rename. |
+| style **slot** names | nowhere | there is no slot alias surface. An undeclared slot name is rejected at write with `invalid_style_slot` and dropped at render — one answer on both paths. |
 
-**One asymmetry remains, and it is deliberate.** Resolution covers the ALREADY-STORED
-document. A *new* write naming a legacy **slot** is still rejected with
-`invalid_style_slot`, whereas a new write naming a legacy **prop** key is accepted and
-silently stored under the canonical key (the #495 heal-on-write model). Author with
-canonical names: every read path hands you those.
+**Renaming a slot is a breaking change, and that is the accepted cost.** A composition
+stored under the old name loses that declaration at render, and any whole-composition
+validating action rejects it by name. `restore_composition` still succeeds and
+**reports** the dead slots (#233) rather than blocking. Do not add a migration, a
+tolerance, or a widened schema to soften this: backward compatibility, stale demo pages
+and old compositions are explicit NON-GOALS. Author with canonical names — the runtime
+catalog and `AI_CONTEXT.md` advertise nothing else.
 
-Both resolve under one bounded rule:
+**The prop surface is deliberately different.** A new write naming a legacy **prop** key
+is accepted and silently stored under the canonical key (the #495 heal-on-write model),
+whereas a new write naming a legacy **slot** is rejected. The prop map buys real
+generation reliability; the slot map bought only stale-document tolerance.
 
-> A legacy name resolves at render **iff** a shipped mechanism promises that the
-> already-stored document will render. Today exactly one mechanism makes that
-> promise (`restore_composition`, #233 — it restores the snapshot verbatim and
-> reports findings, and it never blocks). No other legacy surface qualifies.
+The prop map applies **canonical-wins**: if a stored document carries both names, the
+canonical value is the author's explicit one and the stale legacy one is dropped.
 
-That is **mechanism trust, not backward compatibility**. Under a clean break
-`restore_composition` would *succeed* and render a page stripped of its styling:
-`pp_render_style_vars()` drops an undeclared slot with a bare `continue` — no
-finding, no warning, no log, no admin notice — and every action still returns
-`ok:true`. A durability mechanism that returns success and produces an unstyled
-page has not restored anything. Both maps apply **canonical-wins**: if a stored
-document carries both names, the canonical value is the author's explicit one and
-the stale legacy one is dropped.
+**The "mechanism trust" rule that used to govern this section is RETIRED (#570 decision
+record, Addendum #4).** It said a legacy name resolves at render iff a shipped mechanism
+promises the already-stored document will render, and named `restore_composition` (#233)
+as that mechanism. `restore_composition`'s actual contract is narrower: it restores the
+snapshot verbatim and **reports findings**, and it never blocks. It does not promise that
+what it restores still paints. Keeping a name alive because an old document might replay
+it is exactly the legacy tolerance the governing ruling names as a NON-GOAL, so the slot
+map was removed outright (#603) rather than reinterpreted.
+
+Add a new legacy surface only on evidence it improves the **current** AI-authorable
+baseline — generation reliability, one canonical contract, or easier inspection — never
+on stale-document compatibility.
 
 ---
 
