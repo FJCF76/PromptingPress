@@ -190,8 +190,10 @@ contract fixes one layer down. The bounded value set lives in `pp_slot_roles()`
 
 **There is no `aliases` key, and no way to declare a legacy value (#606).** A prop
 once could: `aliases` listed values accepted at write and never advertised in
-`values`. Every declaration was retired (#603, #604, #605) and the field went with
-them, so on a **top-level prop** what the schema advertises is exactly what the write
+`values`. #605 retired the last such declaration (the `theme` prop's legacy `dark`),
+leaving the field with nothing to declare, and #606 retired the field itself — the
+end of a sweep that also took the slot-name map (#603) and the prop-key map (#604).
+So on a **top-level prop** what the schema advertises is exactly what the write
 path accepts — one vocabulary, no legacy tier, nothing an agent must be warned not to
 write. (The nested `items[]` enum gap below is a separate thing: those values are
 accepted and coerced because the strict gate does not walk them, not because any alias
