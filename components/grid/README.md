@@ -69,7 +69,7 @@ It works with and without `bullets` on the same card, and at every breakpoint (t
 
 ## Card emphasis (featured vs uniform)
 
-By default a `cards` grid gives its **first card** a "featured" treatment: an accent top bar, a tinted gradient fill, a larger title, extra body top-padding, and (on the `muted` theme, legacy alias `dark`) a slight upward lift. This draws the eye to a lead item and is the historical, unchanged default (`card_emphasis: 'featured'`).
+By default a `cards` grid gives its **first card** a "featured" treatment: an accent top bar, a tinted gradient fill, a larger title, extra body top-padding, and (on the `muted` theme) a slight upward lift. This draws the eye to a lead item and is the historical, unchanged default (`card_emphasis: 'featured'`).
 
 Set `card_emphasis: 'uniform'` to render **every card identically** — no featured first card. Use it whenever the cards are peers of equal weight and the featured emphasis would mislead or misalign them:
 

@@ -2677,12 +2677,20 @@
 }
 
 /* Grid theme variants.
-   NOTE (#442): the `--dark` modifier class is a MISNOMER kept for back-compat — it
-   paints the LIGHT `--color-surface` tinted band, not a dark one. The public theme
-   enum renamed this value to `muted`; the renderer maps BOTH `muted` and the
-   deprecated `dark` to this same `--dark` class (see pp_theme_class() in
-   lib/helpers.php) so existing pages render byte-identically. The genuinely dark
-   band is `--inverted`. Every band component's `--dark` variant follows this pattern. */
+   NOTE (#442, #570 DG-4, #605): the `--dark` modifier class is a MISNOMER, and it is
+   kept DELIBERATELY — it paints the LIGHT `--color-surface` tinted band, not a dark
+   one. The genuinely dark band is `--inverted`.
+
+   Read this before "finishing the cleanup". The theme enum's tinted INPUT VALUE was
+   renamed to `muted` (#442) and the legacy `dark` input value was REMOVED outright
+   (#605) — `theme: "dark"` is now rejected at write. This CLASS NAME did not go with
+   it. Input aliasing and output naming are different things: `pp_theme_class()`
+   (lib/helpers.php) maps the canonical `muted` to this `--dark` class, and that
+   mapping is kept because renaming the class would change the emitted HTML of the
+   installed base and invalidate every rule below plus every `styling.variant_classes`
+   declaration, for no authoring gain. So: no value anyone can write is called `dark`,
+   and this class is still correct. Every band component's `--dark` variant follows
+   this pattern. */
 .grid--dark {
   background: var(--grid-bg, var(--color-surface));
   border-top: 1px solid var(--color-border);

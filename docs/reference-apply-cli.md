@@ -198,7 +198,7 @@ An array declaring `item_type: "array"` (today `table.rows`) rejects any entry t
 
 > `Component "cta" prop "button2_variant" must be one of: primary, secondary, outline, ghost; got "neon". [invalid_prop_value]`
 
-A prop may also declare `aliases`: legacy values **accepted at write and never advertised** in `values`. `theme` declares `"aliases": ["dark"]`, so pages authored before the `dark` → `muted` rename keep writing and editing normally. The `unset` sentinel (key absent, `null`, `""`) always preserves the prop's default.
+A prop may also declare `aliases`: legacy values **accepted at write and never advertised** in `values`. **No shipped prop declares any** — the last one, `theme`'s legacy `dark`, was removed in #605, so every advertised value set is now the whole accepted set. A `theme: "dark"` write is rejected like any other unadvertised value, and a page that still stores it renders the `default` band. The `unset` sentinel (key absent, `null`, `""`) always preserves the prop's default.
 
 **Nested item-field contracts (#579).** A `required: true` declared on an `items[]` field is enforced, not decoration — `logos.items[].image_url` / `image_alt`, `stats.items[].number` / `label`, `testimonials.items[].quote`, `faq.items[].question` / `answer`. The case it closes: a logos entry carrying a `label` and no `image_url` used to validate, persist, return `ok:true` and render nothing at all:
 
