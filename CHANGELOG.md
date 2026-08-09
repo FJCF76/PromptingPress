@@ -4,6 +4,43 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.12] — 2026-08-09 — schema defaults, descriptions and token lists now say what actually renders (#581)
+
+**Twenty-five declared `default` values described something that has not rendered for releases. They now state the effective value, `default` has a written-down meaning that ships on the authoring surface itself, and two rest-state controls that had no counterpart got one. Rendered output is unchanged with every slot unset; the two markup changes are inert and named below.**
+
+Schema legibility IS the product surface. The harness agent is thin by design and carries no product knowledge, so a `default` that says `inherit` where the shared band-heading scale actually renders, or `1.875rem` where that literal appears nowhere in the stylesheet, is not a cosmetic docs bug: it is the agent's only source of truth being wrong. Every correction in this release moved the DECLARATION to match the render, never the reverse.
+
+`default` now carries a stated convention — the effective default in the component's default configuration at desktop (>=768px), with variant- and breakpoint-conditional alternatives enumerated in `description`. That sentence ships in `lib/ai-context.php`, the runtime prompt the AI actually receives, and in both instruction files, pinned together so the three copies cannot drift apart. Without it the corrected values would be a one-time snapshot rather than a rule.
+
+Two rest-state controls that shipped without their counterpart got one. `--grid-item-link-hover-color` gives the card link its own hover colour and retires a permanent dead-slot waiver: routing the hover through the *resting* slot would have flattened hover onto rest, which is exactly why it was waived, and a positional twin has neither problem. `--cta-button2-shadow` gives the second CTA button the elevation control the first one always had, so flattening the primary no longer leaves its neighbour bevelled.
+
+### Fixed
+
+- Twenty-five schema `default` values now state what renders. The `inherit` and `1.875rem` heading-size defaults are gone (all nine band components route the shared `--pp-band-heading-size` scale); card padding, radius, shadow, title size, gap, background and text colour, CTA background, borders and body size, FAQ and section rhythm, and the section body measure all state their composed-page values, with breakpoint and variant branches spelled out in `description`.
+- `--section-body-measure` states `40rem`, the cap that actually binds: the slot caps both the outer `.section__body` wrapper and the inner `.section__content` column it contains, and the narrower outer value wins at every layout and viewport.
+- `--cta-button2-shadow` states `(varies by button2_variant)`. `button2_variant` defaults to `outline`, and every premium bevel rule excludes the transparent-fill variants, so a default second button carries no bevel for the slot to remove.
+- `styling.tokens` no longer advertises spacing tokens a component cannot reach. The `[data-pp-spacing]` rules that once consumed `--space-2xl` / `--space-3xl` for every band were narrowed to `.hero`, leaving ten schemas naming tokens no rule of theirs reads.
+- `nav` and `footer` no longer read an `id` prop. Neither declares one and nothing passes one, so the read was dead; the chrome contract stays non-composable.
+- `AI_CONTEXT.md` named eight components as accepting an `id` for anchor navigation. There are ten — `table` and `faq` were missing, and both are in the `scroll-margin-top` list that keeps an anchor jump clear of the sticky header.
+
+### Changed
+
+- Slot `description` text now discloses every dual job, state scope and conditional behaviour it had been silent about: that `--hero-heading-color` reaches five surfaces including three button ink and ring chains, that `--cta-body-color` is also the dark-band link ink so link and paragraph cannot differ there, that `--grid-gap` and `--grid-item-border-color` also drive the steps connector, that `--faq-question-color` governs the closed state only, that `--faq-item-bg` deliberately stays light on an inverted band, that `--stats-radius` is invisible without a background paint, and that a `split` hero which degrades to `left` keeps reporting `split` when the composition is read back.
+- Every heading size and colour slot now says when to leave it alone: retuning the whole site is one `update_design_token` write, not one slot write per band.
+- `nav` and `footer` declare their `--header-*` / `--footer-*` chrome custom properties in a new `chrome_custom_properties` key. Those come from site options, not the design system, and listing both on one array misrepresented both.
+- The step numeral joined its BEM block: `.pp-step-number` is now `.grid__step-number`. **This changes an emitted class name.** The numeral renders identically.
+- `testimonials` no longer emits `data-pp-count`. No CSS rule read it, while `grid` emits the same attribute and selects on it at five rules. **This removes one attribute from the emitted markup.** Nothing visual or behavioural changes.
+
+### Tests
+
+- `tests/SchemaTruthfulnessTest.php` pins every corrected default by value, so reverting one fails loudly instead of passing quietly, and proves both new slots are authorable through the real `style_component` action rather than a raw meta write.
+- A css-lint ownership pin proves each component can actually reach every token it lists, with a detection proof for the substring trap that would let `.section__grid` read as the `grid` component.
+- The duplicate `.section--text-only .section__title` rule was deleted and its removal proven structurally rather than asserted: every font-size declaration that can land on a section title is the same declaration, so no cascade ordering can resolve differently.
+- `faq`, `stats` and `testimonials` joined the theme-variant and heading-colour cascade guards, closing a gap where `faq` implemented the full three-tier chain with nothing pinning it.
+- The two `ComponentPropsTest` methods whose names carried pre-#100 slot counts were renamed; their assertions were correct subset checks all along and are unchanged.
+
+---
+
 ## [v1.12.11] — 2026-08-08 — four style-slot families finish, and two card images go responsive (#584)
 
 **Twelve new style slots and two new item props complete four families that had shipped one member each: band heading rhythm on the six components that lacked it, per-instance ring slots for the hero primary and the section panel CTA, logo sizing, and `image_id` on grid cards and testimonial avatars. Every one is byte-identical unset. No row of the render-change register belongs to this release.**
