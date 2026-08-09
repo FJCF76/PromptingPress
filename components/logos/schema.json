@@ -51,5 +51,5 @@
     }
   },
   "safe_to_edit": ["logos.php", "../../assets/css/components.css (COMPONENT: logos section)"],
-  "do_not_touch": ["schema.json without updating AI_CONTEXT.md"]
+  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
 }

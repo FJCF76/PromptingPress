@@ -61,6 +61,63 @@ pp_get_component('hero', [
 ]);
 ```
 
+## Style slots
+
+49 per-instance style slots, declared in `schema.json` under `styling.style_slots`
+and set with the `style_component` action. This table is the map — read each slot's
+`type`, effective `default`, `applies_when` condition and full description from the
+schema itself, or with `wp pp operate inspect-composition <page>`.
+
+`◦` = conditional (`applies_when`): setting it outside that configuration is accepted
+and stored but paints nothing, and `wp pp check page` reports a non-blocking
+`inert_slot` smell.
+
+| Group | Slots |
+|---|---|
+| Band | `--hero-padding-top` · `--hero-padding-bottom` · `--hero-bg` · `--hero-overlay-bg` ◦ · `--hero-bg-position` ◦ · `--hero-border-color` · `--hero-border-width` · `--hero-radius` · `--hero-shadow` |
+| Heading | `--hero-heading-color` · `--hero-heading-accent-color` · `--hero-heading-size` · `--hero-heading-measure` · `--hero-heading-margin-bottom` · `--hero-heading-weight` · `--hero-subheading-size` ◦ · `--hero-subheading-color` ◦ |
+| Eyebrow | `--hero-eyebrow-color` ◦ · `--hero-eyebrow-bg` ◦ · `--hero-eyebrow-radius` ◦ · `--hero-eyebrow-border-width` ◦ · `--hero-eyebrow-border-color` ◦ · `--hero-eyebrow-text-transform` ◦ |
+| Accent | `--hero-accent` · `--hero-accent-hover` |
+| Content | `--hero-proof-color` · `--hero-content-gap` · `--hero-content-width` |
+| Image (`split`) | `--hero-image-radius` ◦ · `--hero-image-position` ◦ · `--hero-image-aspect-ratio` ◦ |
+| Buttons | `--hero-button-bg` · `--hero-button-hover-bg` · `--hero-button-border` · `--hero-button-hover-border` · `--hero-button-color` · `--hero-button-shadow` · `--hero-button2-bg` ◦ · `--hero-button2-border` ◦ · `--hero-button2-color` ◦ · `--hero-button2-hover-bg` ◦ · `--hero-button2-hover-border` ◦ · `--hero-button2-hover-color` ◦ |
+| Proof panel (`split` + `proof`) | `--hero-surface-bg` ◦ · `--hero-surface-padding` ◦ · `--hero-surface-border-color` ◦ · `--hero-surface-border-width` ◦ · `--hero-surface-radius` ◦ · `--hero-surface-shadow` ◦ |
+
+`--hero-heading-measure` defaults to `none`, not to the shared `--measure-heading`
+token: `.hero__content` is a flex item that shrink-wraps to its widest child, so a cap
+here narrows the whole content column (title, subheading AND buttons), not just the
+headline. The hero measure you almost always want is `--hero-content-width`. See
+`ai-instructions/style-component.md` → "Text measures".
+
+The six `--hero-surface-*` slots paint the **`proof` panel's frame** — its background,
+padding, border, radius and shadow. They do not reach the panel's contents, which are
+whatever HTML you pass in `proof`.
+
+## Stated defaults (and what would reopen them)
+
+These values are deliberate product defaults, not oversights, and are not authorable.
+Each names the condition that would reopen the decision. Adding a control needs a
+**named incident** — a real composition that could not be built — not a hypothesis.
+
+| Default | Why it is a default | What would reopen it |
+|---|---|---|
+| `.hero__title { line-height: 1.03 }` | The hero title is the product's only display-scale heading (up to `clamp(3rem, 4.5vw, 4.5rem)` at 768px+), and display type needs tighter leading than the shared `--line-height-heading: 1.2`, which is tuned for band headings at ~2rem. The hero is already a ratified opt-out from the shared heading scale; this is that opt-out's typographic other half. | An operator sets `--font-heading` to a face whose ascender/descender metrics collide at `1.03` on a two-line title. |
+| `.hero__subtitle { max-width: 40ch }` | A hero subtitle is a **lede**, and `ch` is the right unit because the cap tracks the subtitle's own type size automatically — no slot needed to keep it proportional. The hero is exempt from `--measure-heading`, and this is a **body** measure, not a heading one. | An operator writes a long hero subtitle and it strands mid-column. |
+| `.hero--cover { min-height: 70vh }` | A cover hero's job is a full-bleed opening image. `70vh` is the "most of the fold, not all of it" choice: it deliberately leaves the next band's top edge visible as a scroll affordance, which a `100vh` hero destroys. | **An operator wants a full-viewport or a short-banner cover hero and has no path** — `--hero-padding-*` do not reach `min-height`. This is the strongest add-a-control candidate in the ratified set; the remedy would be a single `--hero-cover-min-height` slot. |
+| The default split ratio `minmax(0, 1.08fr) minmax(0, 0.92fr)` (1024px and up, where `split` becomes a two-column grid at all) | It is **the unset default of a shipped authorable control**, not an unexamined literal: `split_ratio` supplies the other two ratios, so this is one of three reachable values — the one you get by not choosing. Note the enum value is named `50-50` but renders a slight text-column bias (1.08 / 0.92); `50-50` emits no `data-pp-split-ratio` attribute and falls to this base rule. The `minmax(0, …)` wrapper is the documented grid-overflow mechanism, not a taste value. | An operator needs a ratio outside the three shipped ones — a **prop-enum** question, not a style-slot one. |
+| `3fr 2fr` (`60-40`) and `2fr 3fr` (`40-60`) | These **are** the `split_ratio` enum's rendered values, selected by `[data-pp-split-ratio]`. A literal that is the implementation of an enum is not a missing control. | As above. |
+| `.hero__surface-label` (`0.75rem` / `700` / `0.18em`), `.hero__surface-key` (`0.8125rem` / `0.08em`) and `.hero__surface-value` (`1rem` / `600`) type | **The template never emits these hyphenated child classes** — see the note below. They render only if you hand-write the class names into `proof`, which is free-form HTML. Slotting or tokenising type for markup the product never generates would add controls to a surface with no authoring path. | `proof` gains a structured schema — at which point the whole panel needs a slot family, and these literals are the smallest part of it. |
+
+**The `.hero__surface-*` class vocabulary — read this before styling the proof panel.**
+`hero.php` emits exactly one of these classes: the wrapper `<div class="hero__surface">`,
+and only on a `split` hero that has `proof`. That wrapper is what the six
+`--hero-surface-*` slots paint. The hyphenated children — `.hero__surface-label`,
+`.hero__surface-list`, `.hero__surface-item`, `.hero__surface-key`,
+`.hero__surface-value` — are **styled in `components.css` but never generated**. They
+exist so a `proof` string can opt into a key/value proof-panel look by using those class
+names itself. Nothing emits them for you, and no validation checks them, so a `proof`
+that does not use them simply renders as whatever HTML you passed, inside a styled frame.
+
 ## CSS
 
 Styles live in `assets/css/components.css` under the `/* === COMPONENT: hero === */` section.

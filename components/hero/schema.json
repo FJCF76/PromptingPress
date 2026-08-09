@@ -129,7 +129,7 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "HTML string for trust signals (client logos, star ratings, user counts). Rendered after the CTA group inside hero__content. Sanitized via wp_kses_post. When empty, no DOM element is rendered."
+      "description": "HTML string for trust signals (client logos, star ratings, user counts). Rich HTML (sanitized via wp_kses_post). Rendered after the CTA group inside hero__content, except on a split layout, where it renders instead as the second column inside a styled .hero__surface wrapper (the six --hero-surface-* slots paint that wrapper). Free-form: nothing generates the .hero__surface-label / -list / -item / -key / -value classes for you, though components.css styles them if your markup uses those names. When empty, no DOM element is rendered."
     }
   },
   "styling": {
@@ -217,5 +217,5 @@
     }
   },
   "safe_to_edit": ["hero.php", "../../assets/css/components.css (COMPONENT: hero section)"],
-  "do_not_touch": ["schema.json without also updating AI_CONTEXT.md"]
+  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
 }

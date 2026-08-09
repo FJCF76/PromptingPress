@@ -23,6 +23,7 @@ so in practice only `location` is ever set.
 | `bg`         | string | No | — | Footer background. Set via the `pp_footer_bg` site option → `--footer-bg`. A CSS color **or** a bounded `linear-gradient()`/`radial-gradient()` (the shared `gradient` slot type, #333) |
 | `text`       | string | No | — | Footer text color. Set via `pp_footer_text` → `--footer-text`. Reaches **every non-link text surface**: blurb, contact, copyright, column headings, bottom-bar note — see below |
 | `link_color` | string | No | — | Footer link color. Set via `pp_footer_link_color` → `--footer-link-color`. Reaches **every link surface**: both menu columns, the social row, and the contact block's mailto:/tel: links — see below |
+| `social`     | string | No | — | Social-icon row under the brand blurb. Set via the `pp_footer_social` site option — a JSON string of `{network, url}` objects. Not page-authored (rejected since #223); see the `pp_footer_social` notes below |
 
 ### What the footer custom properties actually reach (#582)
 
@@ -40,7 +41,9 @@ style slot, which the chrome contract (#223) rules out.
 `.site-footer__blurb` is capped at `32ch`, the footer's only measure cap. The footer is a
 tight dark-marketing-footer surface, not a general footer builder, so a brand blurb stays a
 short descriptor; the `ch` unit keeps it short at any type size. It is a literal, not a
-slot, for the same chrome-contract reason.
+slot, for the same chrome-contract reason — chrome declares **zero style slots** by
+ratified contract, so a stated reason is the only disposition available here, not a
+second-best one. **Reopening condition:** the chrome model's own boundary (#223) moving.
 | `blurb`      | string | No | — | Brand/description line under the logo. Set via `pp_footer_blurb` |
 | `contact`    | string | No | — | Contact/secondary text block. Set via `pp_footer_contact`. Rendered inside an `<address>`; email addresses become `mailto:` links and international phone numbers (leading `+`) become `tel:` links (#427). Stays free text — non-matching text passes through unchanged |
 | `copyright`  | string | No | — | Copyright line. Set via `pp_footer_copyright`; empty = the default `© <year> <site title>. All rights reserved.` |

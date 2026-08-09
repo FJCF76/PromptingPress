@@ -185,6 +185,14 @@ costs: that band is then pinned, so a later site-wide measure retune moves every
 band and leaves this one behind. Keep the literal when this band must differ; otherwise
 leave the slot unset and tune the `--measure-*` tokens.
 
+**Two scope corrections worth knowing before you go looking for a measure that is not
+there.** First, `--measure-heading` routes **band headings, not item titles** — the
+`main > .grid--steps .grid__item-title { max-width: 17rem }` cap is deliberately outside
+the measure surface, so no measure retune reaches a step title. Second, the
+`--<component>-body-measure` family covers `section`, `cta`, `faq` and `embed`
+**only**. `testimonials` is **not** among them, so the `layout: "stack"` reading measure
+(`42rem`) is a stated default, not something a measure retune moves.
+
 Note the branch-fallback slots. `--section-body-measure` and `--hero-content-width` do
 not have ONE default each — their defaults vary by layout and viewport (four branches and
 three respectively, listed in each slot's `description`). Setting either replaces **every**
@@ -294,6 +302,43 @@ defaulting to `uppercase` (today's baked rendering). Set it to `none` when a ref
 shows the kicker in sentence case, or `lowercase`/`capitalize` for those looks. An unset
 slot leaves the eyebrow byte-identically uppercase.
 
+### Eyebrows: differentiate one deliberately, or leave the default alone
+
+> **An eyebrow is optional framing, not a default part of a section. Add one only where
+> a band genuinely needs the extra orienting line, and when you do style it, restyle the
+> ONE band that needs to stand apart — a page whose every band opens with the same
+> uppercase pill is the cookie-cutter rhythm the anti-slop rules exist to prevent.**
+
+The eyebrow family is fully authorable — six slots on each of six components (colour,
+background, radius, border width, border colour, casing) — so the control surface is not
+the problem. Uniformity is. The default pill is deliberately quiet so that a band which
+*does* differentiate its eyebrow reads as deliberate; recolour all six bands and you have
+spent the contrast and bought nothing.
+
+**Practical shape.** Leave `--<c>-eyebrow-*` unset on every band you are not
+deliberately marking. When you do mark one, `--<c>-eyebrow-text-transform: none` (sentence
+case against the uppercase default) usually differentiates more cleanly than a colour
+change, because it does not compete with the band's accent.
+
+**One thing does not move with the rest.** The pill's **geometry** —
+`padding: 0.35rem 0.85rem` — is uniform across all six components by construction and is
+a stated default with no slot: those two values are off the `--space-*` scale, so they are
+not token-reachable either. Colour, background, border, radius and casing all move per
+band; the pill's shape does not. If differentiating an eyebrow leaves you needing a
+different pill *shape*, that is the reopening condition for the geometry — record it as an
+incident rather than working around it.
+
+**Out of scope here, deliberately:** the eyebrow's TYPE triple (`0.8125rem` / `600` /
+`0.04em`, hand-written in all six components) is not authorable and is not settled by this
+guidance. `base.css` ships a documented `--text-kicker-*` family at `0.75rem` / `700` /
+`0.08em`, and the eyebrow does **not** route it even though "kicker" is the token's own
+documented job. Those tokens are live — the `.text-kicker` utility class consumes all
+three, and a grid item with `text_role: "kicker"` renders it — so retuning
+`--text-kicker-size` restyles kicker-role card text and leaves every eyebrow pill exactly
+where it was. Routing the eyebrow to the semantically correct token would change rendered
+type in six components, so the reconciliation is tracked as its own needs-design issue
+(#574). Do not pre-empt it by hand-setting eyebrow type here.
+
 > **Button and text styling are PROPS, not style slots.** A CTA's button style
 > (`button_variant`: primary/secondary/outline/ghost) and a grid item's typography
 > role (`text_role`: mono/meta/label/kicker) are set with `update_component` (props),
@@ -307,6 +352,64 @@ pointer touches it. Scope worth knowing before you reach for them: both are cons
 contrast. On a default or `muted` band the anchors take the global accent and these two slots
 do nothing, so use them to correct a link that a dark or photographic band made hard to read,
 not as the general way to colour section links.
+
+## The four narrow bands: `table`, `embed`, `logos`, `faq`
+
+These four declare far fewer slots than `hero` / `section` / `cta` / `grid`, and the
+gap is a contract, not an omission. Read this before assuming a slot is missing.
+
+**`table` (6 slots) — band padding and heading only.** `--table-padding-top` /
+`-bottom`, plus `--table-heading-size` / `-color` / `-measure` / `-margin-bottom`. The
+table's own text surface — body type, caption ink, header fill, header ink, rule widths
+— has **no slots at all**, and `table` declares no `theme` prop and no variant classes,
+so there is no band background to paint either. The one thing to know when authoring:
+the horizontal scroll is **viewport-independent** (`overflow-x: auto` with no media
+query), so a wide table scrolls at 1440px exactly as it does at 375px. Widen the band or
+cut columns; there is no slot that switches it off.
+
+**`embed` (8 slots) — band padding, heading, and the content column.**
+`--embed-body-measure` (default `40rem`) caps the embedded content's column and
+`--embed-body-color` sets its inherited ink. Neither reaches into a plugin's own markup
+further than inheritance does: a shortcode that sets its own colours wins, and that is
+expected — `embed` is the sanctioned escape hatch for plugin-rendered content, not a
+styling surface for it.
+
+**`logos` (8 slots) — band padding, heading, gap, and image size.**
+`--logos-image-size` is the one to know: it has **two** effective defaults, `3rem` on a
+logo-only strip and `2.5rem` on a labelled tile, and setting it replaces both branches
+with your single value. Prefer it on strips that are all-labelled or all-unlabelled.
+`logos` is a **fit** model (`object-fit: contain`), so it deliberately exposes no
+focal-point or aspect-ratio slots — a client logo must be shown whole. That is the
+deliberate contrast with the testimonials avatar, which is a **crop** model.
+
+**`faq` (21 slots) — band, heading, eyebrow, accordion item, and question/answer ink.**
+The thing worth knowing: **ink is slotted, the type scale is not.**
+`--faq-question-color` and `--faq-question-open-color` are positional twins covering the
+closed and open states — set both or neither, or a colour you set reverts the moment the
+reader opens the item. `--faq-question-color` also colours the disclosure chevron for
+free (it is drawn in `currentColor`), so there is no chevron slot to look for. The
+question/answer type pair distinguishes the two **at identical size**, using weight
+(560 vs 430) and leading alone, which is why no `--faq-question-size` exists.
+
+### `--table-bg`, `--embed-bg` and `--logos-bg` do not exist
+
+Three bands have no background slot. This is one deferred decision, not three
+oversights, and it is worth knowing so their absence is legible rather than silent.
+
+- `logos` and `embed` DO have a `theme` prop; their `muted` variant paints
+  `--color-surface` directly and frames the band with a `1px var(--color-border)` pair
+  top and bottom. `table` has no `theme` prop at all.
+- **Entry criterion for the gate that would ship them:** a band background arrives
+  together with everything needed to keep the band readable. For `embed` and `logos`
+  that means the framing borders must route a slot **in the same change**, or an author
+  who paints the band gets a frame that no longer matches it. For `table` it means the
+  whole text surface — body type, caption ink (currently `--color-muted`, measured
+  3.09:1), header fill and header ink — lands at once, because shipping the typography
+  half first leaves an author able to paint a band they cannot make legible.
+- Until then: use a `section` with `--section-bg` around the content, or the component's
+  own `theme: "muted"` / `"inverted"` where it has one. Do not write `--table-bg`,
+  `--embed-bg` or `--logos-bg` into a `style_component` call — they are not declared
+  slots and the write is rejected.
 
 ---
 
@@ -366,6 +469,17 @@ between two navy bands this exact way). Zeroing that margin closes the seam.
 | cta | `dark-bold` | Dark background with large title |
 | cta | `accent-framed` | Accent border with rounded corners |
 | testimonials | `dark-showcase` | Dark background with light cards |
+| stats | — | **No recipes.** Set `--stats-bg` + `--stats-radius` + `--stats-max-width` together for the contained rounded metrics card; there is no named shorthand for it |
+| faq | — | **No recipes.** Style it with the band + item slots directly (`--faq-bg`, `--faq-item-bg`, `--faq-item-border-color`, `--faq-item-radius`), or reach for the `theme` prop |
+| table | — | **No recipes**, and none is possible today: `table` declares 6 slots, all band padding and heading, so there is nothing for a recipe to bundle. Use the `theme` prop of a surrounding `section` if the band needs a tone |
+| embed | — | **No recipes.** Its 8 slots are band padding, heading, and the content column; use the `theme` prop for band tone |
+| logos | — | **No recipes.** Use `--logos-image-size` and `--logos-gap` for strip density, and the `theme` prop for band tone |
+
+A `—` row means the component ships **no named recipe**, so `style_component` with a
+`recipe` key naming one is rejected. That is a real absence, not a documentation gap —
+recipes were authored for the four band components a dogfood kept restyling, and the
+other five never got one. It is not a claim that no useful bundle exists for them (the
+stats contained-card trio above is an obvious candidate). Set the slots directly.
 
 > **`dark-*` recipes vs. the `theme` prop — do not confuse them.** These `dark-*`
 > recipes DO paint a genuinely dark background (via style slots). The band-level
@@ -397,7 +511,11 @@ wp pp action execute style_component --run-id=<uuid> --params='{
 Shadow values are bounded: a preset (`var(--shadow-none|sm|md|lg)` or `none`) or a
 single-layer `box-shadow` like `0 4px 12px rgba(0,0,0,0.1)`. `inset`, multi-layer
 shadows, and `url()` are rejected. The same `*-shadow` / `*-border-color` /
-`*-border-width` / `*-radius` slots exist on hero, section, grid (card), and cta.
+`*-border-width` / `*-radius` family exists on hero, section, cta, grid (card) and
+testimonials (card) — the same five components listed under "Slot types" above. On grid
+and testimonials the card members are namespaced under `item`
+(`--grid-item-border-color`, `--testimonials-item-border-color`, and so on), because
+they paint the card rather than the band.
 
 **2. Switch the CTA button to an outline variant (a prop).**
 ```bash

@@ -44,6 +44,18 @@ a themed header, change the token with `update_design_token` — there is no per
 option, and adding one would mean giving chrome a style slot, which the chrome contract
 (#223) rules out.
 
+### Stated defaults
+
+`.nav__menu .sub-menu { min-width: 12rem }` (at 768px and up, where the dropdown exists) is the dropdown panel's floor width. A
+floating panel cannot size to its own content without jitter: rename one child item and
+the panel's width would jump under the cursor mid-hover. `12rem` is the width at which a
+typical menu label does not wrap, so the panel holds still while the menu changes. It is
+a literal rather than a slot for the same reason as everything else here — chrome
+declares **zero style slots** by ratified contract, so a stated reason is the only
+disposition available, not a second-best one. The same block **is** partly
+token-reachable already: the panel routes `--header-bg` for its fill and `--radius` for
+its corners. **Reopening condition:** the chrome model's own boundary (#223) moving.
+
 ## Configuring the header
 
 The header is template-owned, so these site options are its **only** styling surface —

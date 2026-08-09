@@ -242,6 +242,13 @@ class TextPropMarkupContractTest extends TestCase
             ['section', 'body', 'rich'],
             ['faq', 'items.items.question', 'plain'],
             ['faq', 'items.items.answer', 'rich'],
+            // The three rich surfaces this enumeration missed until #585. All
+            // three render through wp_kses_post but described their contract in
+            // their own words ("HTML allowed", "passed through wp_kses_post"), so
+            // neither this guard nor composition.md's markup table counted them.
+            ['table', 'rows', 'rich'],
+            ['embed', 'content', 'rich'],
+            ['hero', 'proof', 'rich'],
         ];
     }
 

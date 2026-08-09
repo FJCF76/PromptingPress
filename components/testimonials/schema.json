@@ -98,7 +98,7 @@
       "--testimonials-item-shadow": { "type": "shadow", "default": "none", "description": "Card box shadow / glow (preset var(--shadow-sm|md|lg) or a bounded box-shadow)", "applies_when": [{"prop": "layout", "equals": "grid"}] },
       "--testimonials-item-padding": { "type": "length", "default": "var(--space-lg)", "description": "Card padding", "applies_when": [{"prop": "layout", "equals": "grid"}] },
       "--testimonials-quote-color": { "type": "color", "default": "var(--color-text)", "description": "Quote text color. The light dark-band fallback applies only when BOTH the inverted theme AND the stack layout are in play; an inverted GRID keeps its light cards, so the quote stays dark there by design." },
-      "--testimonials-quote-mark-color": { "type": "color", "default": "var(--color-accent)", "description": "Decorative opening quote-mark glyph color" },
+      "--testimonials-quote-mark-color": { "type": "color", "default": "var(--color-accent)", "description": "Decorative opening quote-mark glyph color. Colour is the only authorable half: the GLYPH and its SIZE are stated defaults with no slots. The size is expressed in em, so it already scales with the quote's own type automatically — no slot is needed to keep it proportional. Deliberate mismatch worth knowing: the gutter it sits in is a rem, so the reserved space does NOT scale the way the glyph does. See components/testimonials/README.md, 'Stated defaults'" },
       "--testimonials-author-color": { "type": "color", "default": "var(--color-text)", "description": "Author name text color. The light dark-band fallback applies only when BOTH the inverted theme AND the stack layout are in play; an inverted GRID keeps its light cards, so the author stays dark there by design." },
       "--testimonials-meta-color": { "type": "color", "default": "var(--color-muted)", "description": "Author role/company line color" }
     },
@@ -116,5 +116,5 @@
     }
   },
   "safe_to_edit": ["testimonials.php", "../../assets/css/components.css (COMPONENT: testimonials section)"],
-  "do_not_touch": ["schema.json without updating AI_CONTEXT.md"]
+  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
 }
