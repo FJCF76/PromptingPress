@@ -871,13 +871,16 @@ class ActionsTest extends TestCase
     // every band canonical. The two pins below asserted the incremental model and
     // are rewritten here to assert the unified one.
     //
-    // Why the newer ruling wins, so no future iteration re-litigates it in reverse:
-    //   1. #570 DG-9 is explicit and later than #495 — render-time resolution
-    //      applies to slots AND props alike, with the prop route named at
-    //      pp_migrate_stored_composition(). It is mechanism trust, not
-    //      compatibility: a legacy name resolves IFF a shipped mechanism promises
-    //      the already-stored document renders, and restore_composition (#233) is
-    //      exactly that mechanism.
+    // Why the newer ruling wins, so no future iteration re-litigates it in reverse.
+    // AMENDED by #603 — reason 1 no longer holds and is recorded here as retired so
+    // the amendment is not itself re-litigated:
+    //   1. RETIRED (#570 Addendum #4, #603). DG-9 said render-time resolution applies
+    //      to slots AND props alike, on "mechanism trust": a legacy name resolves IFF
+    //      a shipped mechanism promises the already-stored document renders, with
+    //      restore_composition (#233) named as that mechanism. Restore's real contract
+    //      is narrower — it restores verbatim and REPORTS findings, never promising
+    //      that what it restores still paints. #603 removed the SLOT half entirely on
+    //      that basis. The PROP half stands on reason 2, which is untouched.
     //   2. #400 decides the tie. pp_migrate_legacy_variant_keys() has had the
     //      IDENTICAL mass-heal-on-write-back property since #400, so keeping #495's
     //      model would perpetuate a split contract between two legacy surfaces —

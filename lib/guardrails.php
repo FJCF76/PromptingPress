@@ -770,13 +770,13 @@ function pp_validate_composition_smells(array $composition): array {
         // Reads the DECLARED `role: "fill"` marker from the schema (#575's field,
         // consumed here), never a `-bg` name convention: a convention is a second
         // source of truth, which is the defect the definition-surface contract fixes
-        // one layer down. Legacy slot NAMES are resolved first so a stored
-        // `--hero-cta2-bg` warns the same as its canonical twin.
+        // one layer down. Since #603 there is no legacy slot-NAME resolution here
+        // either: the advisory reads the literal stored slot name, because that is
+        // the only name the schema, the validator and the renderer all recognize.
         //
         // The SAME pass also carries the `inert_slot` advisory (issue #580). Both read a
-        // DECLARED field off the same slot definition, both resolve the same legacy slot
-        // names, and both are non-blocking — so they share one walk of the style map
-        // rather than two loops that could drift on which names they canonicalize.
+        // DECLARED field off the same slot definition, and both are non-blocking — so
+        // they share one walk of the style map rather than two loops that could drift.
         $style_map = is_array($item['style'] ?? null) ? $item['style'] : [];
         if ($style_map !== []) {
             $slot_defs  = pp_get_style_slots($component);
@@ -786,37 +786,30 @@ function pp_validate_composition_smells(array $composition): array {
                     $fill_slots[$slot_name] = true;
                 }
             }
-            $slot_aliases = pp_legacy_slot_aliases()[$component] ?? [];
-            // The EFFECTIVE style map: the declarations that will actually paint, keyed by
-            // canonical name, plus which authored key each one came from. The advisory has
-            // to agree with the renderer about this or it reports on declarations the page
-            // never sees, so it resolves the same two rules pp_render_style_vars() does,
-            // through the SAME pp_style_declaration_renders() predicate rather than a
-            // second copy of "will this paint?":
+            // The EFFECTIVE style map: the declarations that will actually paint. The
+            // advisory has to agree with the renderer about this or it reports on
+            // declarations the page never sees, so it applies the renderer's rule through
+            // the SAME pp_style_declaration_renders() predicate rather than a second copy
+            // of "will this paint?":
             //
-            //   1. CANONICAL-WINS, CONDITIONALLY. A legacy name yields to its canonical
-            //      twin only when that twin actually renders (an undeclared, empty or
-            //      render-boundary-rejected canonical value does NOT get to kill the legacy
-            //      declaration that is doing the painting). Keying blindly on last-write
-            //      would make the answer depend on JSON key order.
-            //   2. A DECLARATION THAT CANNOT PAINT IS NOT A DECLARATION. An empty value, an
-            //      undeclared slot name, or a value the #330 render boundary rejects is
-            //      dropped by the renderer — warning that it "has no effect as configured"
-            //      would be true for the wrong reason, and would put a stale no-op entry on
-            //      a channel that halts `wp pp validate site`.
+            //   A DECLARATION THAT CANNOT PAINT IS NOT A DECLARATION. An empty value, an
+            //   undeclared slot name, or a value the #330 render boundary rejects is
+            //   dropped by the renderer — warning that it "has no effect as configured"
+            //   would be true for the wrong reason, and would put a stale no-op entry on
+            //   a channel that halts `wp pp validate site`.
             //
-            // $canonical_style is also what the sibling-slot clause form
+            // The conditional canonical-wins rule that stood here went with the slot-alias
+            // surface (#603): with one name per slot there is no twin to lose to, and an
+            // undeclared pre-#576 name simply fails the predicate like any other.
+            //
+            // $painted_style is also what the sibling-slot clause form
             // (`{"slot":"--x","present":true}`) reads, so that form asks about the same
             // painted state the author sees.
-            $canonical_of    = [];
-            $canonical_style = [];
-            $authored_of     = [];
+            $painted_style = [];
             foreach ($style_map as $raw_name => $raw_value) {
                 if (!is_string($raw_name)) {
                     continue;
                 }
-                $canonical_of[$raw_name] = $slot_aliases[$raw_name] ?? $raw_name;
-                $canonical               = $canonical_of[$raw_name];
                 // Non-scalar values are skipped BEFORE the predicate, not inside it: a
                 // history-ring snapshot or a raw meta write can carry an array here, and
                 // pp_style_declaration_renders() casts to string — which emits an "Array to
@@ -825,17 +818,10 @@ function pp_validate_composition_smells(array $composition): array {
                 if (!is_scalar($raw_value)) {
                     continue;
                 }
-                if ($canonical !== $raw_name
-                    && array_key_exists($canonical, $style_map)
-                    && is_scalar($style_map[$canonical])
-                    && pp_style_declaration_renders($canonical, $style_map[$canonical], $slot_defs)) {
+                if (!pp_style_declaration_renders($raw_name, $raw_value, $slot_defs)) {
                     continue;
                 }
-                if (!pp_style_declaration_renders($canonical, $raw_value, $slot_defs)) {
-                    continue;
-                }
-                $canonical_style[$canonical] = $raw_value;
-                $authored_of[$canonical]     = $raw_name;
+                $painted_style[$raw_name] = $raw_value;
             }
             // The slots that actually declare a condition, resolved once per item. Most
             // slots declare none, and this keeps the per-slot loop below from asking the
@@ -852,8 +838,6 @@ function pp_validate_composition_smells(array $composition): array {
                 if (!is_string($slot_name) || !is_scalar($slot_value)) {
                     continue;
                 }
-                $canonical = $canonical_of[$slot_name];
-
                 // Inert slot (issue #580, A-8b/A-17). A declared slot whose `applies_when`
                 // is unmet renders NOTHING — the reported-success-without-effect failure
                 // class. Advisory only, exactly like transparent_fill above: the value is
@@ -878,20 +862,19 @@ function pp_validate_composition_smells(array $composition): array {
                 // scope, interaction state — are unevaluable by construction and stay
                 // silent here. They reach the author through the catalog, not this channel.
                 //
-                // ONE warning per PAINTED declaration. `$authored_of[$canonical]` is the
-                // key that actually renders, so a composition storing both
-                // `--testimonials-card-bg` and `--testimonials-item-bg` — one emitted
-                // custom property — warns once, under the name the author's page is
-                // actually using, regardless of stored key order.
-                if (isset($conditional_slots[$canonical])
-                    && ($authored_of[$canonical] ?? null) === $slot_name
+                // ONE warning per PAINTED declaration: $painted_style holds exactly the
+                // declarations the renderer will emit, so a stored name that cannot paint
+                // (undeclared, empty, or rejected by the #330 boundary) is skipped here
+                // rather than warned about under a condition it never reaches.
+                if (isset($conditional_slots[$slot_name])
+                    && array_key_exists($slot_name, $painted_style)
                     && function_exists('pp_applies_when_unmet_clauses')
                     && function_exists('pp_ai_format_applies_when_clause')) {
                     $unmet = pp_applies_when_unmet_clauses(
-                        $conditional_slots[$canonical],
+                        $conditional_slots[$slot_name],
                         $component,
                         $props,
-                        $canonical_style
+                        $painted_style
                     );
                     $phrases = [];
                     foreach ($unmet as $clause) {
@@ -929,7 +912,7 @@ function pp_validate_composition_smells(array $composition): array {
                     }
                 }
 
-                if (!isset($fill_slots[$canonical])) {
+                if (!isset($fill_slots[$slot_name])) {
                     continue;
                 }
                 $normalized = strtolower(trim((string) $slot_value));
@@ -942,7 +925,7 @@ function pp_validate_composition_smells(array $composition): array {
                 // pointing an author who is already on the `outline` variant at the
                 // `outline` variant is advice that cannot be acted on. The hover
                 // wording says what actually happens instead.
-                $is_hover = strpos($canonical, '-hover-') !== false;
+                $is_hover = strpos($slot_name, '-hover-') !== false;
                 $warning  = [
                     'type'    => 'transparent_fill',
                     'message' => $is_hover

@@ -4,6 +4,41 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.14] — 2026-08-09 — the legacy style-slot alias surface is gone, and a slot name now has exactly one meaning (#603)
+
+**`pp_legacy_slot_aliases()` carried 51 renames and quietly rewrote stored slot names on read and again at render, while the write path rejected those same names. Two contradictory answers about `--hero-text` collapse into one: it is not a slot. Compositions stored before the #576 vocabulary rename lose those declarations, and that is the intended outcome, not a regression.**
+
+The map bought nothing for authoring. No legacy slot name is advertised anywhere an agent reads — `AI_CONTEXT.md`, the runtime catalog and `ai-instructions/style-component.md` carry canonical names only — and a new write naming one was already rejected with `invalid_style_slot`, because `_pp_validate_style_slot_map()` never consulted the map. What the map actually did was rewrite stored bytes on read while emitting no `changes` entry, so what an agent read back from `inspect` did not match what was in the database, and the action's `changes` did not explain the difference. That is an inspectability defect wearing a compatibility costume.
+
+It cost a shape sanitizer, a public filter on the render path, a canonical-wins-only-when-it-paints predicate on two paths, and roughly thirty dedicated tests — all maintained for names nothing may author. The `#570` decision record's Addendum #4 retires the "mechanism trust" rule that justified it: `restore_composition` (#233) promises to restore verbatim and **report** findings, never that what it restores still paints. With that premise withdrawn, the map had no basis left.
+
+**What breaks, stated plainly.** A composition holding a pre-#576 slot name loses that declaration at render — it is dropped like any other undeclared key, silently, and the page still renders. Any whole-composition validating action (`update_component` and the other read-modify-write actions) now rejects that composition with `invalid_style_slot` naming the dead slot, including when the edit targets a different band. On the dev corpus that is roughly 105 declarations across 7 of 12 compositions. `restore_composition` still succeeds and reports the dead slots rather than blocking. The recovery path is rewriting the band with the canonical name; there is deliberately no migration, no coercion and no widened schema. Freshly authored compositions are unaffected, and this release adds a test that proves one writes, validates, reads back byte-identical and renders byte-identical across hero, grid and section.
+
+### Removed
+
+- `pp_legacy_slot_aliases()` (the 51-entry map, its shape sanitizer and the public `pp_legacy_slot_aliases` filter), `_pp_apply_legacy_slot_aliases()`, `_pp_resolve_item_legacy_slots()` and `pp_normalize_legacy_slots()` — all of `lib/wp.php`. `grep -rn pp_legacy_slot_aliases lib/ components/ templates/` returns nothing.
+- The alias branch in `pp_render_style_vars()`. The declared-slot filter `pp_style_declaration_renders()` is now the only gate, and it is otherwise untouched, as is the #330 render boundary.
+- The alias hop in the `lib/guardrails.php` advisory walk. The `transparent_fill` and `inert_slot` advisories read the literal stored slot name, which is what #575's declared-`role` contract intended. The three-map walk collapses to one painted-style map; a dead slot name now raises no advisory and is reported on the error channel instead, where it belongs.
+- The slot-name resolution `restore_composition` applied explicitly in both its preview and execute paths (`lib/actions.php`).
+
+### Fixed
+
+- Validators are not weakened, and the release proves it rather than asserting it: a new write of `--hero-text` was rejected before this change and is rejected after, by the same test. No schema gained a slot.
+
+### Docs
+
+- `AI_CONTEXT.md` drops the `pp_legacy_slot_aliases()` mechanism row and corrects **both** places that claimed style-slot names canonicalize on read — the read-path paragraph and the `pp_get_composition()` reference row, which disagreed with each other the moment one was fixed.
+- `ai-instructions/add-component.md` replaces the "alias-and-keep model" for slots with the rule that actually holds: renaming a slot is a breaking change, and that is the accepted cost. The retired mechanism-trust rule is recorded as retired rather than deleted, so the reasoning is not re-litigated in reverse.
+- The docblocks on `pp_migrate_stored_composition()`, `pp_style_declaration_renders()` and `pp_legacy_prop_aliases()` no longer justify themselves by a slot surface that no longer exists. `pp_migrate_stored_composition()` states that the two remaining prop surfaces are the last two, and that whichever issue removes them deletes the function.
+- Historical `CHANGELOG` entries for #575 and #576 are left exactly as written. They describe what shipped at the time and are not rewritten.
+
+### Tests
+
+- The slot half of `StoredCompositionAliasRenderTest` is rebuilt around the post-removal contract. The former negative case (a stored legacy name is silently dropped) is promoted to the primary pin, and the #594 boundary pin is inverted: a band carrying a dead slot can no longer be edited, and the error names the slot.
+- The stated breakage carries its own escape hatch pin: `style_component` succeeds but merges, so it does **not** unblock the page; only rewriting the whole array without the dead key does. Both halves are asserted so the only way out of the intended breakage is proven rather than assumed.
+- `restore_composition` gains the inverse of its #594 pin — it must still succeed, and must now report `invalid_style_slot` in both the preview and the result envelope.
+- The alias-dependent pins in `WriteRenderGrammarTest` and `AppliesWhenTest` are retired or rewritten against canonical names; the canonical `--hero-button2-bg` case was already covered end-to-end by the `fillSlotFamily` authoring-path provider.
+
 ## [v1.12.13] — 2026-08-09 — the documented logo alt option now reaches the page, and chrome says what it can actually be told (#582)
 
 **`pp_logo_alt` has been a whitelisted site option documented on three surfaces as THE logo alt surface, and nothing anywhere read it — a write succeeded and changed nothing rendered. It now reaches both chrome logos. Sites that never set it are byte-identical; sites that set it see the alt they asked for. Everything else here is documentation and diagnostics.**

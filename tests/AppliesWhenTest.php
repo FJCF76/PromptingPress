@@ -349,12 +349,16 @@ final class AppliesWhenTest extends TestCase
     }
 
     /**
-     * A legacy name and its canonical twin stored together emit ONE custom property, so
-     * they emit ONE warning — and it names the declaration that actually paints, in BOTH
-     * stored key orders. Keying the effective map on last-write instead would make the
-     * reported slot name depend on JSON key order.
+     * ONE warning per PAINTED declaration, in BOTH stored key orders.
+     *
+     * This used to pin the canonical-wins arbitration between a legacy name and its
+     * twin. #603 removed that arbitration along with the slot-alias surface, so what
+     * is left to pin is simpler and still real: the advisory walks the stored map but
+     * reports only what the renderer will emit. A retired name sitting beside a
+     * declared one contributes nothing — not a second warning, and not a warning under
+     * its own name — regardless of which key JSON happened to store first.
      */
-    public function testALegacyAndCanonicalPairWarnOnceUnderThePaintedName(): void
+    public function testOnlyThePaintedDeclarationWarnsRegardlessOfStoredKeyOrder(): void
     {
         $props = ['layout' => 'stack', 'items' => [['quote' => 'q']]];
 
@@ -366,11 +370,16 @@ final class AppliesWhenTest extends TestCase
                 ['component' => 'testimonials', 'props' => $props, 'style' => $style],
             ]);
 
-            $this->assertCount(1, $smells, 'one emitted property, one warning');
+            $this->assertCount(1, $smells, 'one painted declaration, one warning');
             $this->assertStringContainsString(
                 '--testimonials-item-bg',
                 $smells[0]['message'],
-                'the canonical declaration is the one that paints, whichever key was stored first'
+                'the declared slot is the one that paints, whichever key was stored first'
+            );
+            $this->assertStringNotContainsString(
+                '--testimonials-card-bg',
+                $smells[0]['message'],
+                'the retired name is undeclared: it paints nothing and is named nowhere'
             );
         }
     }
@@ -402,39 +411,32 @@ final class AppliesWhenTest extends TestCase
         }
     }
 
-    /** The legacy name still warns when its canonical twin cannot paint — the renderer's rule. */
-    public function testALegacyNameStillWarnsWhenTheCanonicalTwinCannotPaint(): void
+    /**
+     * A RETIRED legacy slot name raises no inert advisory (#603). The two alias-path
+     * cases that stood here were retired with the alias surface itself — one of them
+     * said so in its own fixture assumption.
+     *
+     * The advisory reports a DECLARED slot whose `applies_when` is unmet. A name no
+     * schema declares has no `applies_when` to be unmet, and the renderer drops it, so
+     * "has no effect as configured" would be true for the wrong reason. The dead
+     * declaration reaches the operator on the error channel instead.
+     */
+    public function testARetiredLegacySlotNameRaisesNoInertAdvisory(): void
     {
-        $smells = $this->inertSmells([
-            ['component' => 'testimonials', 'props' => ['layout' => 'stack', 'items' => [['quote' => 'q']]],
-             'style' => ['--testimonials-card-bg' => '#fff', '--testimonials-item-bg' => '']],
-        ]);
-
-        $this->assertCount(1, $smells);
-        $this->assertStringContainsString('--testimonials-card-bg', $smells[0]['message']);
-    }
-
-    /** A stored LEGACY slot name warns exactly as its canonical twin does. */
-    public function testALegacySlotNameWarnsUnderItsCanonicalCondition(): void
-    {
-        $this->assertSame(
-            '--testimonials-item-bg',
-            pp_legacy_slot_aliases()['testimonials']['--testimonials-card-bg'] ?? null,
-            'this test is about the alias path; if the alias is retired, retire the test with it'
-        );
-
-        $smells = $this->inertSmells([
+        $items = [
             ['component' => 'testimonials', 'props' => ['layout' => 'stack', 'items' => [['quote' => 'q']]],
              'style' => ['--testimonials-card-bg' => '#ffffff']],
-        ]);
+        ];
 
-        $this->assertCount(1, $smells);
+        $this->assertSame([], $this->inertSmells($items));
+
+        $errors = pp_validate_composition_errors($items);
+        $this->assertNotSame([], $errors, 'the dead slot is an error, not a silent no-op');
         $this->assertStringContainsString(
             '--testimonials-card-bg',
-            $smells[0]['message'],
-            'the message names what the AUTHOR wrote, not the canonical twin they never typed'
+            implode(' | ', array_map(static fn ($e) => $e->get_error_message(), $errors)),
+            'reported somewhere in the findings, not necessarily first'
         );
-        $this->assertStringContainsString('applies when layout = "grid"', $smells[0]['message']);
     }
 
     /**
@@ -468,6 +470,14 @@ final class AppliesWhenTest extends TestCase
             ['component' => 'hero', 'props' => ['title' => 'T'], 'style' => 'not-an-array'],
             // 3: a non-array props bag.
             ['component' => 'hero', 'props' => 'not-an-array', 'style' => ['--hero-bg' => '#000']],
+            // 4: an INT-keyed style entry (a raw-meta write or a history-ring snapshot can
+            // carry a JSON array here, which PHP decodes to integer keys). Pins the SHAPE,
+            // not the guard: without declare(strict_types) an int key coerces cleanly into
+            // pp_style_declaration_renders(string $name, ...) and is dropped as undeclared
+            // either way, so the is_string guard on the painted-style walk stays defensive
+            // rather than load-bearing. What this row asserts is that such a map neither
+            // fatals nor produces a spurious advisory.
+            ['component' => 'hero', 'props' => ['title' => 'T'], 'style' => ['#fff', '--hero-bg' => '#000']],
         ]);
 
         $this->assertIsArray($smells, 'a corrupt row must be skipped, never fatal');

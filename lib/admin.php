@@ -781,9 +781,9 @@ function pp_migrate_legacy_variant_keys(array $items): array {
  *
  * The `variant` -> `layout`/`theme` rename is NOT here — it is handled by the
  * separate write-reject + read-migrate mechanism (pp_migrate_legacy_variant_keys,
- * #69/#388), a different contract. Style-SLOT names are not here either: they have
- * their own map (pp_legacy_slot_aliases, lib/wp.php), resolved on the same read
- * path since #594.
+ * #69/#388), a different contract. Style-SLOT names are not here either, and since
+ * #603 they have no alias surface at all: an undeclared slot name is rejected at
+ * write and dropped at render, with nothing canonicalizing it in between.
  *
  * Pinned by SchemaValidationTest::testLegacyPropAliasInventoryIsPinned and
  * guarded against silent future drift by the schema-rename drift-catcher

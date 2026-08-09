@@ -211,8 +211,9 @@ function pp_thumbnail_url(string $size = 'large'): string {
  * Runs the legacy read-path shim (pp_migrate_stored_composition) on the decoded
  * items so a stored pre-#69 composition renders with `variant` honored and a
  * pre-#495 one renders its authored prop values (as of #575 the shim resolves both
- * legacy surfaces), matching the MIGRATION behavior of the editor/restore/inspect
- * read paths (#400).
+ * legacy PROP surfaces; the slot-NAME surface it briefly carried was removed by
+ * #603), matching the MIGRATION behavior of the editor/restore/inspect read paths
+ * (#400).
  * It does not add their list-shape enforcement (that decode/classification gate is
  * pp_get_composition_result()'s job, #144, deliberately left untouched here). The
  * migration is a no-op for the modern layout/theme shape, so those compositions
@@ -425,8 +426,10 @@ function pp_get_composition_result(int $post_id): array {
  * guarded so a partial include (some unit tests load lib/wp.php alone) degrades to
  * the raw items instead of fatally.
  *
- * THREE legacy surfaces resolve here (issue #575, ruling "resolution is render-time,
- * for slots AND props alike"; the third added by #576/#594):
+ * TWO legacy surfaces resolve here. #575's ruling ("resolution is render-time, for
+ * slots AND props alike") is SUPERSEDED for the slot half: a third surface, the
+ * legacy slot-NAME map, resolved here from #576/#594 until #603 removed the whole
+ * slot-alias surface. Only the PROP surfaces are left:
  *
  *   1. `variant` -> `layout`/`theme` KEY migration (#69/#388) — the original shim.
  *   2. The legacy prop-KEY alias map (`pp_legacy_prop_aliases()`, #495) — added here
@@ -436,18 +439,18 @@ function pp_get_composition_result(int $post_id): array {
  *      (pp_get_composition_result / pp_get_composition) resolved neither, so the
  *      editor, `inspect`, restore's current-composition fetch and the admin preview
  *      all saw a legacy-shaped item that the renderer would have healed.
- *   3. The legacy slot-NAME alias map (`pp_legacy_slot_aliases()`, #575) — added here
- *      by #576/#594, in the same change as the first real rename. #575 resolved slot
- *      names at RENDER only, which was harmless only while that map shipped empty;
- *      populated, it would have produced pages that paint correctly and cannot be
- *      edited or saved. Covers the component-level `style` map and every per-item
- *      style map the schema declares. See pp_normalize_legacy_slots().
  *
- * Why the prop map belongs on the read path and not only at write: a legacy name
- * resolves at render IFF a shipped mechanism promises the already-stored document
- * will render. `restore_composition` (#233) makes exactly that promise — it restores
- * the snapshot verbatim, reports findings, and never blocks — so the names it can
- * replay must still resolve. No other legacy surface qualifies.
+ * Why the prop map belongs on the read path and not only at write: it buys real
+ * generation reliability. A legacy-named prop write is ACCEPTED and healed to the
+ * canonical key (the #495 heal-on-write model), so resolving on read is what makes
+ * every read path hand back one shape instead of two.
+ *
+ * The "mechanism trust" rule that used to justify this paragraph — a legacy name
+ * resolves IFF a shipped mechanism promises the already-stored document will render,
+ * with `restore_composition` (#233) named as that mechanism — is RETIRED (#570
+ * decision record, Addendum #4). Restore's actual contract is that it restores
+ * verbatim and REPORTS findings; it never promised that what it restores still
+ * paints. That retirement is what removed the slot surface in #603.
  *
  * CONSEQUENCE, stated because it is intentional and not a side effect: the
  * read-modify-write actions (update_component / add_component, lib/actions.php)
@@ -469,8 +472,9 @@ function pp_get_composition_result(int $post_id): array {
  * legacy value on the next whole-array write-back rather than at first touch.
  * The history ring (#133) is the recovery path.
  *
- * NOT symmetric with the SLOT-name map: that one resolves at render only. See
- * pp_legacy_slot_aliases() for the scope statement and the write-path gap.
+ * NO SLOT COUNTERPART (#603). Style-SLOT names have no alias surface at all: an
+ * undeclared slot name is rejected at write and dropped at render, with nothing in
+ * between. The prop-KEY heal below is the only name canonicalization left here.
  *
  * @param  array $items  Decoded composition items.
  * @return array         Items with legacy `variant` keys migrated and legacy prop
@@ -492,15 +496,16 @@ function pp_migrate_stored_composition(array $items): array {
     if (function_exists('pp_normalize_legacy_props')) {
         $items = pp_normalize_legacy_props($items);
     }
-    // #594 surface: the legacy slot-NAME alias map. Added here by #576, in the same
-    // change as the first real rename, because render-only resolution was harmless
-    // ONLY while the map was empty: every action validates the WHOLE composition and
-    // _pp_validate_style_slot_map() does not consult the map, so one legacy slot name
-    // on one band made a targeted edit to ANY OTHER band fail with `invalid_style_slot`
-    // naming a slot the operator never typed. The page rendered and could not be
-    // edited, previewed or saved, and nothing healed it. Same heal semantics as the
-    // two surfaces above: key-only, value-preserving, render-identical, unreported.
-    $items = pp_normalize_legacy_slots($items);
+    // The legacy slot-NAME surface that stood here (#576/#594) is GONE as of #603.
+    // Style-slot names have exactly one contract now: a name the component does not
+    // declare is rejected at write and dropped at render, on old documents and new
+    // alike. Nothing canonicalizes a stored slot name on read any more.
+    //
+    // HANDOFF (#604, landing second): the two surfaces above are the last two. When
+    // #604 removes them this function has no body left — it deletes the function
+    // outright and inlines its three call sites (pp_composition(),
+    // pp_get_composition_result(), and the editor read path) to pass the decoded
+    // items straight through.
     return $items;
 }
 
@@ -1008,374 +1013,6 @@ function pp_get_style_recipes(string $component_name): array {
 }
 
 /**
- * The static legacy -> canonical STYLE SLOT NAME map (issue #575, A-31a).
- *
- * The slot-name counterpart of pp_legacy_prop_aliases() (lib/admin.php), which maps
- * legacy PROP keys. Both are name maps; neither has anything to do with the
- * schema-declared prop `aliases` field, which lists accepted legacy VALUES (see
- * the `theme` prop's `"aliases": ["dark"]`). Three distinct surfaces, three names:
- *
- *   pp_legacy_slot_aliases()      legacy slot NAME  -> canonical slot NAME
- *   pp_legacy_prop_aliases()      legacy prop KEY   -> canonical prop KEY
- *   schema props.<p>.aliases      legacy prop VALUE  (accepted, never advertised)
- *
- * POPULATED BY #576 with the 51 canonical-vocabulary renames. #575 shipped this
- * map EMPTY and proved the mechanism against a synthetic pair on purpose, so the
- * rendered pin existed before any real name depended on it.
- *
- * ONE entry the ratified rename table asked for is deliberately ABSENT. The table
- * specified a two-name SWAP on the steps badge (`--grid-step-color` -> `--grid-step-bg`
- * for the fill AND `--grid-step-text-color` -> `--grid-step-color` for the ink). A swap
- * cannot be carried by this mechanism, for two independent reasons:
- *
- *   1. The CHAIN sanitizer below discards it — the second entry's target is the first
- *      entry's legacy key — so the ink declaration would silently revert.
- *   2. Even with the sanitizer bypassed it is UNDECIDABLE. After the rename a stored
- *      `--grid-step-color` is indistinguishable between a legacy FILL declaration
- *      (must become `--grid-step-bg`) and a canonically-authored INK declaration
- *      (must stay). Keeping the alias makes the new canonical name permanently
- *      un-authorable — every read rewrites it; dropping it repaints a legacy fill
- *      value onto the numerals. There is no third implementation.
- *
- * Maintainer ruling (#570 decision record, Addendum #3): rename the FILL only.
- * `--grid-step-color` -> `--grid-step-bg` ships; `--grid-step-text-color` KEEPS its
- * name. That fixes the defect the rename table actually named — no `-color` slot
- * means a fill any more — using the convention already shipped on the same component
- * (`--grid-item-text-color`), with one sanitizer-clean alias and byte-identity for
- * BOTH stored names.
- *
- * Why a legacy slot name resolves at all — the bounded rule, verbatim:
- *
- *   A legacy name resolves at render IFF a shipped mechanism promises that the
- *   already-stored document will render. Today exactly one mechanism makes that
- *   promise (`restore_composition`, #233 — it restores the snapshot verbatim and
- *   reports findings, and it never blocks). No other legacy surface qualifies.
- *
- * This is mechanism trust, not backward compatibility. Under a clean break
- * `restore_composition` would SUCCEED and render a page stripped of its styling:
- * pp_render_style_vars() drops an undeclared slot with a bare `continue` — no
- * finding, no warning, no log, no admin notice — and every action still returns
- * ok:true. A durability mechanism that returns success and produces an unstyled
- * page has not restored anything.
- *
- * SCOPE — the two name maps are now SYMMETRIC (issue #594, closed by #576 in the
- * same change as the first rename). This map resolves on every composition READ
- * (pp_migrate_stored_composition -> pp_normalize_legacy_slots) AND again at the
- * render boundary (pp_render_style_vars), exactly as the prop-KEY map does.
- *
- * Why the read path is not optional. #575 shipped render-only resolution, which was
- * harmless only while this map was empty. Every action validates the WHOLE
- * composition, and _pp_validate_style_slot_map() does not consult this map, so one
- * legacy slot name on one band made a targeted edit to ANY OTHER band fail with
- * `invalid_style_slot` naming a slot the operator never typed. The page rendered
- * correctly and could not be edited, previewed or saved, and nothing healed it —
- * a different silent failure from the one this mechanism removed, not an
- * improvement on it. Resolving on read makes validation, preview and the
- * whole-array write-back all see canonical names.
- *
- * Filterable so the mechanism can be exercised end-to-end against a synthetic
- * alias pair independently of the shipped map (mirrors the
- * `pp_allow_unsafe_theme_update` filter in lib/setup.php). The filtered value is
- * SHAPE-SANITIZED, not merely type-checked: a filter is arbitrary third-party
- * code on the public render path, and an unsanitized nested array reaches
- * `isset($slots[$name])` with a non-string key and fatals the page
- * (TypeError: cannot access offset of type array). Everything that is not a
- * component => [string => string] pair is discarded. Two structurally broken
- * entry kinds are discarded with it, because both reproduce the exact silent
- * unstyled-page failure this mechanism exists to prevent:
- *
- *   IDENTITY  legacy === canonical. The canonical-wins check would see the very
- *             key being iterated and drop the declaration.
- *   CHAIN     a legacy name that is also some other entry's canonical target.
- *             Resolution is deliberately single-hop, so A -> B -> C would
- *             resolve A to B, find B undeclared, and paint nothing.
- *
- * @return array<string, array<string, string>>  component => [legacy slot => canonical slot]
- */
-function pp_legacy_slot_aliases(): array {
-    $map = [
-        'hero' => [
-            '--hero-title-size'         => '--hero-heading-size',
-            '--hero-title-weight'       => '--hero-heading-weight',
-            '--hero-title-accent-color' => '--hero-heading-accent-color',
-            '--hero-text'               => '--hero-heading-color',
-            '--hero-subtitle-size'      => '--hero-subheading-size',
-            '--hero-subtitle-color'     => '--hero-subheading-color',
-            '--hero-cta2-bg'            => '--hero-button2-bg',
-            '--hero-cta2-border'        => '--hero-button2-border',
-            '--hero-cta2-color'         => '--hero-button2-color',
-            '--hero-cta2-hover-bg'      => '--hero-button2-hover-bg',
-            '--hero-cta2-hover-border'  => '--hero-button2-hover-border',
-            '--hero-cta2-hover-color'   => '--hero-button2-hover-color',
-        ],
-        'section' => [
-            '--section-title-size'          => '--section-heading-size',
-            '--section-title-color'         => '--section-heading-color',
-            '--section-title-accent-color'  => '--section-heading-accent-color',
-            '--section-title-margin-bottom' => '--section-heading-margin-bottom',
-            '--section-text'                => '--section-body-color',
-            '--section-accent'              => '--section-body-link-color',
-            '--section-body-width'          => '--section-body-measure',
-        ],
-        'cta' => [
-            '--cta-title-size'         => '--cta-heading-size',
-            '--cta-title-accent-color' => '--cta-heading-accent-color',
-            '--cta-text'               => '--cta-heading-color',
-            '--cta-content-width'      => '--cta-heading-measure',
-        ],
-        'stats' => [
-            '--stats-title-size'         => '--stats-heading-size',
-            '--stats-title-color'        => '--stats-heading-color',
-            '--stats-title-accent-color' => '--stats-heading-accent-color',
-        ],
-        'grid' => [
-            '--grid-card-bg'           => '--grid-item-bg',
-            '--grid-card-border'       => '--grid-item-border-color',
-            '--grid-card-border-width' => '--grid-item-border-width',
-            '--grid-card-radius'       => '--grid-item-radius',
-            '--grid-card-shadow'       => '--grid-item-shadow',
-            '--grid-card-padding'      => '--grid-item-padding',
-            '--grid-card-gap'          => '--grid-item-gap',
-            '--grid-card-bar-color'    => '--grid-item-bar-color',
-            '--grid-card-bar-height'   => '--grid-item-bar-height',
-            '--grid-bullet-color'      => '--grid-item-bullet-color',
-            '--grid-link-color'        => '--grid-item-link-color',
-            '--grid-heading-max-width' => '--grid-heading-measure',
-            '--grid-step-color'        => '--grid-step-bg',
-        ],
-        'testimonials' => [
-            '--testimonials-card-bg'           => '--testimonials-item-bg',
-            '--testimonials-card-border'       => '--testimonials-item-border-color',
-            '--testimonials-card-border-width' => '--testimonials-item-border-width',
-            '--testimonials-card-padding'      => '--testimonials-item-padding',
-            '--testimonials-card-radius'       => '--testimonials-item-radius',
-            '--testimonials-card-shadow'       => '--testimonials-item-shadow',
-        ],
-        'faq' => [
-            '--faq-border-color' => '--faq-item-border-color',
-            '--faq-accent'       => '--faq-question-open-color',
-        ],
-        'table' => [
-            '--table-section-heading-color'  => '--table-heading-color',
-            '--table-section-heading-size'   => '--table-heading-size',
-            '--table-section-padding-bottom' => '--table-padding-bottom',
-            '--table-section-padding-top'    => '--table-padding-top',
-        ],
-    ];
-
-    $filtered = apply_filters('pp_legacy_slot_aliases', $map);
-    if (!is_array($filtered)) {
-        return $map;
-    }
-
-    $clean = [];
-    foreach ($filtered as $component => $entries) {
-        if (!is_string($component) || !is_array($entries)) {
-            continue;
-        }
-        $pairs = [];
-        foreach ($entries as $legacy => $canonical) {
-            if (!is_string($legacy) || !is_string($canonical) || $legacy === '' || $canonical === '') {
-                continue;
-            }
-            if ($legacy === $canonical) {
-                continue; // IDENTITY — see docblock.
-            }
-            $pairs[$legacy] = $canonical;
-        }
-        // CHAIN — drop the entry whose TARGET is itself a legacy name, i.e. the
-        // non-terminal hop. For A -> B -> C, `A -> B` is the unsafe edge (one hop
-        // lands on B, which is not a declared slot, so nothing paints); `B -> C` is
-        // a perfectly good single-hop rename and is kept. Dropping the terminal edge
-        // instead would discard the only working mapping and keep the broken one.
-        // The key set is snapshotted BEFORE filtering so a two-node cycle
-        // (A -> B, B -> A) drops both edges regardless of iteration order.
-        $legacyNames = array_keys($pairs);
-        foreach ($legacyNames as $legacy) {
-            if (in_array($pairs[$legacy], $legacyNames, true)) {
-                unset($pairs[$legacy]);
-            }
-        }
-        if ($pairs !== []) {
-            $clean[$component] = $pairs;
-        }
-    }
-
-    return $clean;
-}
-
-/**
- * Canonicalizes legacy style-slot NAMES in ONE slot map (issue #594).
- *
- * The slot counterpart of _pp_apply_legacy_prop_aliases() (lib/admin.php), and the
- * READ-path half of the resolution #575 shipped render-only. Together they make the
- * two name maps symmetric: a legacy name that RENDERS is also a legacy name the
- * document can be EDITED and SAVED with.
- *
- *   stored style map
- *        │
- *        ├─ read  → _pp_apply_legacy_slot_aliases()   ← THIS function
- *        │            → validation / preview / editor / whole-array write-back
- *        │              all see canonical names
- *        │
- *        └─ render → pp_render_style_vars()           ← belt-and-braces, unchanged
- *
- * CANONICAL-WINS, mirroring the prop-key contract: a map carrying BOTH names keeps
- * the canonical value and drops the legacy one. But — exactly as at render —
- * canonical wins only when it will ACTUALLY PAINT. Presence alone is not authority:
- * deferring to a canonical declaration that is undeclared, empty, or rejected by the
- * #330 render boundary would drop BOTH and leave the band unstyled. The test is made
- * through pp_style_declaration_renders(), the SAME predicate pp_render_style_vars()
- * consults, so read and render can never disagree about which of the two carries the
- * value — two hand-rolled copies would be two grammars, and the one that drifted
- * would drop styling silently.
- *
- * @param  array  $style           A stored slot => value map.
- * @param  string $component_name  Component name, e.g. 'hero'.
- * @return array                   The map with recognized legacy slot names canonicalized.
- */
-function _pp_apply_legacy_slot_aliases(array $style, string $component_name): array {
-    $aliases = pp_legacy_slot_aliases()[$component_name] ?? [];
-    if ($aliases === []) {
-        return $style;
-    }
-
-    // The registry lives in lib/admin.php; some unit tests load lib/wp.php alone, and
-    // pp_migrate_stored_composition() promises a partial include degrades to the raw items
-    // rather than fataling. Without this the promise is broken for any item carrying a
-    // component-level style map.
-    if (!function_exists('pp_get_registered_components')) {
-        return $style;
-    }
-
-    $slots = pp_get_style_slots($component_name);
-    // NO SCHEMA, NO HEAL. A component that has alias entries always declares slots, so an
-    // empty set means the schema is unreadable — components/ absent mid-deploy, a
-    // template_directory filter pointing elsewhere, or one malformed schema.json. Healing
-    // anyway would INVERT canonical-wins: pp_style_declaration_renders() is false for
-    // every name, so the canonical twin never "paints", and the stale LEGACY value would
-    // overwrite the author's canonical one under the canonical key. Unlike
-    // pp_render_style_vars(), this path's answer is written back to the database by the
-    // read-modify-write actions, so that substitution would be permanent.
-    if ($slots === []) {
-        return $style;
-    }
-
-    $resolved = [];
-
-    foreach ($style as $name => $value) {
-        if (is_string($name) && isset($aliases[$name])) {
-            $canonical = $aliases[$name];
-            if (array_key_exists($canonical, $style)
-                && pp_style_declaration_renders($canonical, $style[$canonical], $slots)) {
-                continue; // Canonical wins, and it paints: drop the stale legacy name.
-            }
-            // The legacy declaration carries the value. Assign UNCONDITIONALLY: a
-            // non-rendering canonical twin seen earlier in this loop must be
-            // overwritten by it, not preserved alongside it.
-            $resolved[$canonical] = $value;
-            continue;
-        }
-        // The mirror case — a canonical declaration reached AFTER its legacy twin
-        // already claimed the key (because this one cannot render) must not clobber
-        // it on the way past.
-        if (array_key_exists($name, $resolved)) {
-            continue;
-        }
-        $resolved[$name] = $value;
-    }
-
-    return $resolved;
-}
-
-/**
- * Canonicalizes legacy slot names on ONE composition item (issue #594): the
- * component-level `style` map and every PER-ITEM style map the component declares.
- *
- * Per-item maps are discovered from the SCHEMA — every array-typed prop whose `items`
- * definition declares a `style` key — which is exactly how the validator discovers
- * them (lib/admin.php, the _pp_validate_style_slot_map() caller). Schema-derived
- * rather than a hardcoded `items`/`panel_items` list, so a component that gains a
- * per-item style surface is covered without touching this function, and read
- * resolution can never cover less ground than the validation it feeds.
- *
- * @param  array $item  One composition item ({component|type, style, props}).
- * @return array        The item with recognized legacy slot names canonicalized.
- */
-function _pp_resolve_item_legacy_slots(array $item): array {
-    // A corrupt/raw-written item (reached via restore's normalize over arbitrary
-    // history-ring snapshots) can carry a non-scalar component key; casting it would
-    // emit "Array to string conversion". No alias map applies to a malformed name
-    // anyway — mirrors the guard in _pp_apply_legacy_prop_aliases().
-    $raw_component = $item['component'] ?? $item['type'] ?? '';
-    if (!is_scalar($raw_component)) {
-        return $item;
-    }
-    $component = (string) $raw_component;
-    if ((pp_legacy_slot_aliases()[$component] ?? []) === []) {
-        return $item;
-    }
-    // Registry guard FIRST, so the whole item degrades uniformly under a partial include
-    // rather than resolving the component-level style and silently skipping per-item maps.
-    if (!function_exists('pp_get_registered_components')) {
-        return $item;
-    }
-
-    if (isset($item['style']) && is_array($item['style'])) {
-        $item['style'] = _pp_apply_legacy_slot_aliases($item['style'], $component);
-    }
-
-    if (!isset($item['props']) || !is_array($item['props'])) {
-        return $item;
-    }
-    $schema = pp_get_registered_components()[$component] ?? null;
-    if (!is_array($schema) || empty($schema['props'])) {
-        return $item;
-    }
-
-    foreach ($schema['props'] as $prop_name => $prop_def) {
-        if (($prop_def['type'] ?? null) !== 'array' || !isset($prop_def['items']['style'])) {
-            continue;
-        }
-        if (!isset($item['props'][$prop_name]) || !is_array($item['props'][$prop_name])) {
-            continue;
-        }
-        foreach ($item['props'][$prop_name] as $index => $element) {
-            if (!is_array($element) || !isset($element['style']) || !is_array($element['style'])) {
-                continue;
-            }
-            $item['props'][$prop_name][$index]['style'] =
-                _pp_apply_legacy_slot_aliases($element['style'], $component);
-        }
-    }
-
-    return $item;
-}
-
-/**
- * Array wrapper for _pp_resolve_item_legacy_slots() (issue #594): canonicalizes
- * recognized legacy slot names across every item of a composition.
- *
- * The slot-surface twin of pp_normalize_legacy_props() (lib/admin.php). Runs on every
- * composition READ via pp_migrate_stored_composition(), so the same
- * mass-heal-on-write-back property the prop surface has had since #575 now covers
- * slots: a read-modify-write action stores canonical slot names for untouched bands.
- * The heal is key-only and render-identical — both shapes already resolved to the
- * same canonical declarations at render.
- *
- * @param  array $items  Composition array.
- * @return array         Items with recognized legacy slot names canonicalized.
- */
-function pp_normalize_legacy_slots(array $items): array {
-    foreach ($items as $i => $item) {
-        if (is_array($item)) {
-            $items[$i] = _pp_resolve_item_legacy_slots($item);
-        }
-    }
-    return $items;
-}
-
-/**
  * Render-time validation gate for a stored style value (issue #330).
  *
  * The write-time engines strictly validate style values, but two paths can put
@@ -1436,11 +1073,13 @@ function pp_render_style_value_allowed(string $value, ?string $type, ?array $all
 /**
  * Whether ONE stored style declaration will actually be emitted (issue #575).
  *
- * The single predicate behind "does this paint?", extracted because
- * pp_render_style_vars() now needs the answer TWICE: once for the declaration it
- * is iterating, and once for a legacy declaration's canonical twin, to decide
- * which of the two carries the paint. Two hand-rolled copies of that test would be
- * two grammars, and the one that drifted would drop styling silently.
+ * The single predicate behind "does this paint?". The alias twin that originally
+ * forced the extraction is gone (#603), but the reason it stays extracted is
+ * stronger: pp_render_style_vars() (the renderer) and pp_validate_composition_smells()
+ * (the guardrails advisories, lib/guardrails.php) must give the SAME answer, or the
+ * advisories report on declarations the page never emits. Two hand-rolled copies of
+ * that test would be two grammars, and the one that drifted would drop styling
+ * silently or warn about nothing.
  *
  * Two gates, in order:
  *   1. DECLARED — the slot exists in the component's schema. An undeclared name is
@@ -1449,7 +1088,7 @@ function pp_render_style_value_allowed(string $value, ?string $type, ?array $all
  *      declared type. Restore (#233) and out-of-band DB writes can both put a value
  *      into storage that never passed write-time validation.
  *
- * @param  string $name   Custom-property name, already alias-resolved.
+ * @param  string $name   Custom-property name exactly as stored (nothing resolves it).
  * @param  mixed  $value  The stored value.
  * @param  array  $slots  The component's declared style slots.
  * @return bool
@@ -1508,7 +1147,6 @@ function pp_render_style_vars(array $style, string $component_name, bool $item_s
             $slots = $eligible;
         }
     }
-    $aliases    = pp_legacy_slot_aliases()[$component_name] ?? [];
     $properties = [];
 
     foreach ($style as $name => $value) {
@@ -1516,44 +1154,13 @@ function pp_render_style_vars(array $style, string $component_name, bool $item_s
         if ($name === '__recipe') {
             continue;
         }
-        // Legacy slot-NAME resolution (issue #575, A-31a). Runs HERE, immediately
-        // above the declared-slot filter, because that filter drops an undeclared
-        // name with a bare `continue` — no finding, no warning, no log — so a
-        // renamed slot would strip a restored page's styling while every action
-        // still returned ok:true. Resolving above the filter is what makes the
-        // rename byte-identical for already-stored documents; resolving below it
-        // would be unreachable. Cost: one array lookup per declaration in a loop
-        // that already runs per declaration.
-        //
-        // CANONICAL-WINS, mirroring the prop-key alias contract
-        // (_pp_apply_legacy_prop_aliases, lib/admin.php): when a stored style map
-        // carries BOTH the legacy and the canonical name, the canonical
-        // declaration is the author's explicit value and must not be overwritten
-        // by the stale legacy one, so the legacy name is dropped instead.
-        //
-        // pp_legacy_slot_aliases() has already discarded identity and chained
-        // entries, so `$canonical !== $name` holds and a single hop is enough.
-        // Without that sanitizing, an identity entry would make the check below
-        // match the very key being iterated and silently drop the declaration.
-        //
-        // Canonical wins only when it will ACTUALLY PAINT. Presence alone is not
-        // authority: if the canonical declaration is undeclared, or its value is
-        // rejected by the #330 render boundary, or it is empty, then deferring to it
-        // drops BOTH declarations and the page renders unstyled — the exact silent
-        // failure this whole mechanism exists to prevent, reintroduced through it.
-        // So when the canonical declaration cannot render, the legacy value carries
-        // the paint instead of dying alongside it.
-        if (isset($aliases[$name]) && $aliases[$name] !== $name) {
-            $canonical = $aliases[$name];
-            if (array_key_exists($canonical, $style)
-                && pp_style_declaration_renders($canonical, $style[$canonical], $slots)) {
-                continue;
-            }
-            $name = $canonical;
-        }
-        // Declared-slot filter + render boundary, through the SAME predicate the
-        // alias branch above consults, so "will this paint?" has one answer and not
-        // two that can drift.
+        // Declared-slot filter + render boundary (#330). Since #603 this is the ONLY
+        // gate: there is no legacy slot-NAME resolution above it any more. A slot name
+        // this component does not declare is dropped here with a bare `continue`, and
+        // that is the whole contract — a pre-#576 name stored on an old document is an
+        // undeclared key like any other, and does not paint. The write path already
+        // rejected such a name (_pp_validate_style_slot_map), so render and write now
+        // give the same answer instead of two.
         if (!pp_style_declaration_renders($name, $value, $slots)) {
             continue;
         }

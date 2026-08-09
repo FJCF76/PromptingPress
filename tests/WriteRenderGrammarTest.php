@@ -823,23 +823,32 @@ class WriteRenderGrammarTest extends TestCase
     }
 
     /**
-     * A LEGACY slot name warns the same as its canonical twin. `--hero-cta2-bg` is
-     * still stored on already-authored pages and resolves at read and at render, so
-     * an advisory that only knew the canonical name would go quiet on exactly the
-     * pages most likely to carry the problem.
+     * A LEGACY slot name warns about NOTHING (#603). `--hero-cta2-bg` was renamed to
+     * `--hero-button2-bg` by #576 and its alias entry was deleted by #603, so the name
+     * is undeclared: it paints nothing, and "this transparent fill makes the button
+     * invisible" is not true of a declaration the renderer drops. The advisory channel
+     * stays quiet; the ERROR channel reports the dead slot instead.
+     *
+     * The canonical name's own coverage is unaffected — `--hero-button2-bg` is a row in
+     * fillSlotFamily above, exercised through the full authoring path.
      */
-    public function testALegacyFillSlotNameStillWarns(): void
+    public function testARetiredLegacyFillSlotNameNoLongerWarns(): void
     {
-        $this->assertSame('--hero-button2-bg', pp_legacy_slot_aliases()['hero']['--hero-cta2-bg'], 'fixture assumption');
-        // Both button labels: the canonical twin declares applies_when button_text +
-        // button2_text since #580, and an inert slot suppresses the value-level advisory
-        // (see fillSlotFamily). This test is about the ALIAS path, not conditionality.
-        $warnings = pp_validate_composition_smells([[
+        $items = [[
             'component' => 'hero',
             'props'     => ['title' => 'Go', 'button_text' => 'Go', 'button_url' => '/', 'button2_text' => 'More', 'button2_url' => '/more'],
             'style'     => ['--hero-cta2-bg' => 'transparent'],
-        ]]);
-        $this->assertContains('transparent_fill', array_column($warnings, 'type'));
+        ]];
+
+        $this->assertNotContains('transparent_fill', array_column(pp_validate_composition_smells($items), 'type'));
+
+        $errors = pp_validate_composition_errors($items);
+        $this->assertNotSame([], $errors, 'the dead slot is reported as an error, not an advisory');
+        $this->assertStringContainsString(
+            '--hero-cta2-bg',
+            implode(' | ', array_map(static fn ($e) => $e->get_error_message(), $errors)),
+            'reported somewhere in the findings, not necessarily first'
+        );
     }
 
     /**
