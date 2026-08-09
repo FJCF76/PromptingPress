@@ -156,7 +156,7 @@ If adding background-image support to another component, follow this exact patte
 
 **Responsive images (hero, section, logos, grid, testimonials):** `image_url` (hero's `split` layout, section's `image-left`/`image-right` layouts, each logos item, each grid card, each testimonials avatar) has a companion `image_id` — a Media Library attachment ID, not a URL. When `image_id` resolves to a real attachment, the `<img>` renders responsively via `wp_get_attachment_image()` (real `srcset`/`sizes`); when unset or unresolvable, the plain `image_url` renders exactly as before. Get an attachment ID via the `import_media` apply. Not used for `background_image`/`cover` (CSS `background-image`, not an `<img>` tag). `image_id` is a COMPANION to `image_url`, never a replacement: an item carrying only an id renders no image at all, so always set `image_url` too.
 
-**Anchor IDs:** All 8 section-level components (hero, section, stats, grid, logos, cta, embed, testimonials) accept an `id` prop that renders as the HTML `id` attribute on the root `<section>` element. Use for anchor navigation.
+**Anchor IDs:** All 10 section-level components (hero, section, stats, grid, logos, cta, embed, testimonials, table, faq) accept an `id` prop that renders as the HTML `id` attribute on the root `<section>` element. Use for anchor navigation. All ten also carry `scroll-margin-top`, so an anchor jump clears the sticky header. The two template-owned chrome components (nav, footer) do NOT accept `id`: they are rendered once by the theme, never composed, and declare no `id` prop.
 
 **Hero:** `layout` = `left`, `centered`, `split` (inline image), `cover` (fullscreen background-image with overlay). A `split` hero with neither an image (`image_url`/`image_id`) nor `proof` has nothing for the second column and degrades to the single-column `left` layout (text at full content width); add an image or proof to get the two-column split. Supports dual CTA buttons (`button_text` + `button2_text`), each with an independent `button_variant`/`button2_variant` (`primary`/`secondary`/`outline`/`ghost`; secondary defaults to `outline` — these are button-style props, unrelated to the layout `layout`). Composition props: `spacing` (compact/default/spacious), `width` (narrow/default/full), `split_ratio` (50-50/60-40/40-60, split layout only), `vertical_align` (top/center/bottom/stretch, cover and split only; `stretch` is split-only — the media column fills the content column's height so one asset balances any headline length, and renders like `center` on cover), `proof` (HTML string for trust signals like logos/ratings, rendered after CTA group). Hero content uses `--measure-centered` (56rem) as default max-width.
 
@@ -398,7 +398,7 @@ Token overrides survive theme updates — `base.css` is overwritten on update, b
 
 Style slots allow per-instance visual customization of components without CSS edits. Each component declares allowed CSS custom properties in its `schema.json` under `styling.style_slots`. Only declared slots are accepted — arbitrary CSS is rejected.
 
-**259 style slots** across 10 components: hero (49), section (47), cta (39), grid (37), testimonials (27), faq (21), stats (17), embed (8), logos (8), table (6).
+**261 style slots** across 10 components: hero (49), section (47), cta (40), grid (38), testimonials (27), faq (21), stats (17), embed (8), logos (8), table (6).
 
 **How it works:**
 1. Composition entries gain an optional `style` key alongside `props`
