@@ -4664,173 +4664,165 @@ class ActionsTest extends TestCase
         $this->assertSame('dark-spacious', $result[0]['available_recipes'][0]['name']);
     }
 
-    // ── Style Repair Helper ──────────────────────────────────────────────
+    // ── Misspelled Style Slots Are Rejected, Never Repaired (#607) ────────
+    //
+    // The chat preview path used to intercept invalid_style_slot and substitute
+    // the nearest declared slot by Levenshtein distance (40% of the rejected
+    // name's length), returning a preview of a DIFFERENT slot flagged only
+    // `repaired: true`. #607 removed it: a slot the component doesn't declare is
+    // invalid_style_slot, the same verdict every other surface reports.
+    //
+    //   style_component proposal
+    //     └─ pp_preview_action -> pp_validate_action
+    //          ├─ declared slot   -> preview array (NO 'repaired' key)
+    //          └─ undeclared slot -> WP_Error invalid_style_slot
+    //                                  └─ _pp_build_friendly_error
+    //                                       ├─ raw_error     names the REJECTED slot
+    //                                       └─ alternatives  names the DECLARED slots
 
-    public function testStyleRepairFixesCloseSlotName(): void
+    public function testUndeclaredStyleSlotIsRejectedNamingTheSlotTheAuthorWrote(): void
     {
-        $post_id = pp_create_page('Repair test');
+        $post_id = pp_create_page('Reject test');
         pp_update_composition($post_id, [
             ['component' => 'hero', 'props' => ['title' => 'Hi']],
         ]);
 
-        // --hero-backgroud (typo) should be repaired to --hero-bg.
-        // Levenshtein distance is too large for that example.
-        // Use a closer typo: --hero-bgs → --hero-bg (distance 1).
-        $repaired = _pp_attempt_style_repair('invalid_style_slot', [
+        // --hero-bgs is one edit from --hero-bg: exactly the case the removed
+        // repair used to substitute silently. It is now simply invalid.
+        $result = pp_preview_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
             'style'           => ['--hero-bgs' => '#1a1a2e'],
         ]);
 
-        $this->assertNotNull($repaired, 'Repair should succeed for close typo.');
-        $this->assertArrayHasKey('--hero-bg', $repaired['style']);
-        $this->assertSame('#1a1a2e', $repaired['style']['--hero-bg']);
+        $this->assertInstanceOf(WP_Error::class, $result, 'A misspelled slot must not preview.');
+        $this->assertSame('invalid_style_slot', $result->get_error_code());
+        $this->assertStringContainsString(
+            '--hero-bgs',
+            $result->get_error_message(),
+            'The validator names the slot the author actually wrote.'
+        );
     }
 
-    public function testStyleRepairRejectsDistantSlotName(): void
+    public function testFriendlyErrorForMisspelledSlotNamesRejectedSlotAndKeepsAlternatives(): void
     {
-        $post_id = pp_create_page('Repair test');
+        // The chat preview handler's whole style_component error branch after
+        // #607: the validator's verdict, structured for the UI. raw_error is the
+        // teaching surface (it carries the rejected name); alternatives is
+        // unchanged by the removal.
+        $post_id = pp_create_page('Reject test');
         pp_update_composition($post_id, [
             ['component' => 'hero', 'props' => ['title' => 'Hi']],
         ]);
 
-        // --hero-display is not close to any hero slot.
-        $repaired = _pp_attempt_style_repair('invalid_style_slot', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--hero-display' => 'none'],
-        ]);
-
-        $this->assertNull($repaired, 'Repair should fail for distant slot name.');
-    }
-
-    public function testStyleRepairRejectsAmbiguousTie(): void
-    {
-        // Hero has --hero-padding-top and --hero-padding-bottom.
-        // Both are distance 3 from --hero-padding-boxxx (via replace + insert).
-        // But real slots are too well-separated for a natural tie.
-        // Verify the guard structurally: the Levenshtein loop tracks tie_count
-        // and rejects when > 1. We confirm by testing with --hero-padding-,
-        // which is distance 3 from both --hero-padding-top and --hero-padding-bottom.
-        $post_id = pp_create_page('Repair test');
-        pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'Hi']],
-        ]);
-
-        $top_dist    = levenshtein('--hero-padding-', '--hero-padding-top');
-        $bottom_dist = levenshtein('--hero-padding-', '--hero-padding-bottom');
-        // top=3, bottom=6 — not tied. Use a different input.
-        // --hero-padding-bop: top=2, bottom=4. Still not tied.
-        // The real slots are too well-separated for accidental ties.
-        // Assert that the tie_count guard code path exists by inspecting the
-        // function's behavior: unambiguous match succeeds, distant name fails.
-        // The guard prevents silent ambiguous repair in edge cases that would
-        // arise if new similarly-named slots are added later.
-
-        // Verify unambiguous repair still succeeds (no false positive from guard).
-        $repaired = _pp_attempt_style_repair('invalid_style_slot', [
+        $params = [
             'post_id'         => $post_id,
             'component_index' => 0,
             'style'           => ['--hero-bgs' => '#1a1a2e'],
-        ]);
-        $this->assertNotNull($repaired, 'Unambiguous repair should succeed.');
-        $this->assertArrayHasKey('--hero-bg', $repaired['style']);
+        ];
+        $error  = pp_preview_action('style_component', $params);
+        $this->assertInstanceOf(WP_Error::class, $error);
+
+        $friendly = _pp_build_friendly_error($error, $params);
+
+        $this->assertSame('invalid_style_slot', $friendly['error_code']);
+        $this->assertStringContainsString(
+            '--hero-bgs',
+            $friendly['raw_error'],
+            'The rejected slot name must reach the author verbatim.'
+        );
+        $this->assertSame(
+            array_keys(pp_get_style_slots('hero')),
+            $friendly['alternatives'],
+            'The alternatives list is the declared slot set, unchanged by #607.'
+        );
+        $this->assertContains('--hero-bg', $friendly['alternatives']);
     }
 
-    public function testStyleRepairIgnoresNonSlotErrors(): void
+    public function testDeclaredStyleSlotStillPreviews(): void
     {
-        $repaired = _pp_attempt_style_repair('invalid_style_value', [
-            'post_id'         => 1,
-            'component_index' => 0,
-            'style'           => ['--hero-bg' => 'bad'],
-        ]);
-
-        $this->assertNull($repaired, 'Repair should only handle invalid_style_slot errors.');
-    }
-
-    public function testStyleRepairPreservesValidSlots(): void
-    {
-        $post_id = pp_create_page('Repair test');
+        // AC#4: the happy path is untouched by the removal. The no-'repaired'
+        // assertion here documents the preview array's shape; it is NOT the
+        // regression guard for #607, because pp_preview_action never set that key
+        // on any path — only the deleted AJAX retry branch did. The guard for the
+        // removal itself lives in
+        // testPreviewStyleComponentBranchOnlyReportsTheValidatorVerdict.
+        $post_id = pp_create_page('Happy path test');
         pp_update_composition($post_id, [
             ['component' => 'hero', 'props' => ['title' => 'Hi']],
         ]);
 
-        // Mix of valid slot + typo.
-        $repaired = _pp_attempt_style_repair('invalid_style_slot', [
+        $preview = pp_preview_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => [
-                '--hero-bg'           => '#ffffff',
-                '--hero-heading-colr' => '#000000', // typo for --hero-heading-color
-            ],
+            'style'           => ['--hero-bg' => '#1a1a2e'],
         ]);
 
-        $this->assertNotNull($repaired);
-        $this->assertArrayHasKey('--hero-bg', $repaired['style']);
-        $this->assertArrayHasKey('--hero-heading-color', $repaired['style']);
-        $this->assertSame('#ffffff', $repaired['style']['--hero-bg']);
-        $this->assertSame('#000000', $repaired['style']['--hero-heading-color']);
+        $this->assertNotInstanceOf(WP_Error::class, $preview, 'A declared slot must still preview.');
+        $this->assertIsArray($preview);
+        $this->assertArrayNotHasKey('repaired', $preview);
     }
 
-    public function testStyleRepairResolvesComponentIdNotJustIndexZero(): void
+    public function testPreviewStyleComponentBranchOnlyReportsTheValidatorVerdict(): void
     {
-        // #123 regression: composition [0]=nav (no style slots), [1]=hero
-        // (id pp-a1b2c3d4). An id-targeted proposal with a typo'd hero slot
-        // must repair against the hero component, not silently look up nav
-        // at index 0 and fail with "no available slots".
-        $post_id = pp_create_page('Id Repair test');
+        // The preview AJAX handler is a closure registered through add_action,
+        // which is a no-op in this bootstrap, so its body is unreachable from
+        // PHPUnit. Pin it at the source level instead (same technique as the
+        // lib/cli.php gate invariant, tests/CliGateTest.php).
+        //
+        // Assert on the style_component BRANCH, not on the whole file, and assert
+        // the POSITIVE shape as well as the negative one. A tripwire that only
+        // greps for the old helper's name is defeated by a repair hop reintroduced
+        // under any other name (similar_text/soundex/inline), or by a flag written
+        // with double quotes. What must stay true is structural: this branch
+        // reports an error and never returns a preview.
+        $src = file_get_contents(dirname(__DIR__) . '/lib/ai-chat.php');
+        $this->assertNotFalse($src);
+
+        $start = strpos($src, "if (\$name === 'style_component') {");
+        $this->assertNotFalse($start, 'The style_component error branch must exist.');
+        $end = strpos($src, "\n        }\n", $start);
+        $this->assertNotFalse($end, 'The style_component error branch must be closed.');
+        $branch = substr($src, $start, $end - $start);
+
+        // Positive: the branch's whole job is to report the validator's verdict.
+        $this->assertStringContainsString('_pp_build_friendly_error(', $branch);
+        $this->assertStringContainsString('wp_send_json_error(', $branch);
+
+        // Negative, name- and quote-agnostic: no repair-and-retry hop may re-run the
+        // preview and hand back a slot the author never asked for (#607).
+        $this->assertStringNotContainsString('wp_send_json_success', $branch);
+        $this->assertStringNotContainsString('pp_preview_action', $branch);
+        $this->assertStringNotContainsString('pp_preview_apply', $branch);
+        $this->assertDoesNotMatchRegularExpression('/repaired/i', $branch);
+
+        // The helper itself is gone, and nothing in lib/ reintroduced the heuristic.
+        $this->assertFalse(
+            function_exists('_pp_attempt_style_repair'),
+            'The Levenshtein slot repair was removed in #607.'
+        );
+        foreach (glob(dirname(__DIR__) . '/lib/*.php') as $lib_file) {
+            $lib_src = file_get_contents($lib_file);
+            $this->assertStringNotContainsString('_pp_attempt_style_repair', $lib_src, basename($lib_file));
+            $this->assertDoesNotMatchRegularExpression('/levenshtein\s*\(/i', $lib_src, basename($lib_file));
+        }
+    }
+
+    public function testResolveComponentIndexForErrorPrefersComponentIdOverStaleIndex(): void
+    {
+        // The precedence contract itself, pinned directly on the helper that
+        // owns it rather than only through a caller.
+        $post_id = pp_create_page('Direct precedence test');
         pp_update_composition($post_id, [
             ['component' => 'nav', 'props' => []],
             ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
         ]);
 
-        $repaired = _pp_attempt_style_repair('invalid_style_slot', [
-            'post_id'      => $post_id,
-            'component_id' => 'pp-a1b2c3d4',
-            'style'        => ['--hero-bgs' => '#1a1a2e'],
-        ]);
-
-        $this->assertNotNull($repaired, 'Repair should resolve the id-targeted hero component, not index 0 (nav).');
-        $this->assertArrayHasKey('--hero-bg', $repaired['style']);
-        $this->assertSame('#1a1a2e', $repaired['style']['--hero-bg']);
-    }
-
-    public function testStyleRepairReturnsNullForUnresolvableComponentId(): void
-    {
-        $post_id = pp_create_page('Bad Id Repair test');
-        pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
-        ]);
-
-        $repaired = _pp_attempt_style_repair('invalid_style_slot', [
-            'post_id'      => $post_id,
-            'component_id' => 'pp-doesnotexist',
-            'style'        => ['--hero-bgs' => '#1a1a2e'],
-        ]);
-
-        $this->assertNull($repaired, 'An unresolvable component_id must bail gracefully, not fall back to index 0.');
-    }
-
-    public function testStyleRepairPrefersComponentIdOverStaleComponentIndex(): void
-    {
-        // Proves precedence, not just presence: a stale/mismatched
-        // component_index (e.g. echoed back from a prior turn) must NOT win
-        // over an explicit component_id in the same params.
-        $post_id = pp_create_page('Precedence test');
-        pp_update_composition($post_id, [
-            ['component' => 'nav', 'props' => []],
-            ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
-        ]);
-
-        $repaired = _pp_attempt_style_repair('invalid_style_slot', [
+        $this->assertSame(1, _pp_resolve_component_index_for_error([
             'post_id'         => $post_id,
             'component_id'    => 'pp-a1b2c3d4',
-            'component_index' => 0, // stale: points at nav, id points at hero
-            'style'           => ['--hero-bgs' => '#1a1a2e'],
-        ]);
-
-        $this->assertNotNull($repaired, 'component_id must win over a conflicting component_index.');
-        $this->assertArrayHasKey('--hero-bg', $repaired['style']);
+            'component_index' => 0,
+        ]));
     }
 
     public function testResolveComponentIndexForErrorReturnsNegativeOneWithNoTarget(): void
@@ -4931,6 +4923,35 @@ class ActionsTest extends TestCase
         $this->assertStringContainsString('hero', $result['user_message']);
         $this->assertNotEmpty($result['alternatives'], 'Should list hero slots, not fail as if nav (index 0) had none.');
         $this->assertContains('--hero-bg', $result['alternatives']);
+    }
+
+    public function testFriendlyErrorPrefersComponentIdOverStaleComponentIndex(): void
+    {
+        // Proves precedence, not just presence (the sibling test above covers
+        // presence). #607 re-pinned this case here: it used to live only in the
+        // deleted style-repair block, so removing that block would otherwise have
+        // dropped the #123 guarantee that a stale/mismatched component_index —
+        // echoed back from a prior turn — never wins over an explicit component_id.
+        $post_id = pp_create_page('Precedence test');
+        pp_update_composition($post_id, [
+            ['component' => 'nav', 'props' => []],
+            ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
+        ]);
+
+        $error  = new WP_Error('invalid_style_slot', 'Component "hero" has no style slot "--hero-bgs". Available: --hero-bg, ...');
+        $result = _pp_build_friendly_error($error, [
+            'post_id'         => $post_id,
+            'component_id'    => 'pp-a1b2c3d4',
+            'component_index' => 0, // stale: points at nav, id points at hero
+            'style'           => ['--hero-bgs' => '#1a1a2e'],
+        ]);
+
+        $this->assertSame('invalid_style_slot', $result['error_code']);
+        $this->assertContains(
+            '--hero-bg',
+            $result['alternatives'],
+            'component_id must win over a conflicting component_index.'
+        );
     }
 
     public function testFriendlyErrorForUnresolvableComponentIdReportsNotFoundNotEmpty(): void

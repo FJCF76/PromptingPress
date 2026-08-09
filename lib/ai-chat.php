@@ -300,8 +300,8 @@ function pp_ai_coerce_params(string $type, string $name, array $params): array {
 // ── Component Index Resolver (chat-side error helpers) ────────────────────
 
 /**
- * Resolves the target component index for chat-side error-analysis helpers
- * (_pp_attempt_style_repair, _pp_build_friendly_error). These run on the raw
+ * Resolves the target component index for the chat-side error-analysis helper
+ * (_pp_build_friendly_error). It runs on the raw
  * AI-submitted $params — pp_validate_action()'s own component_id resolution
  * (_pp_resolve_id_param() in lib/actions.php) mutates a local copy of $params
  * inside the validate call, which never propagates back to the caller here,
@@ -320,7 +320,7 @@ function _pp_resolve_component_index_for_error(array $params): int {
         return is_wp_error($index) ? -1 : $index;
     }
     // Defense in depth: pp_validate_action() already type-checks
-    // component_index as a real int on every path that reaches these helpers
+    // component_index as a real int on every path that reaches this helper
     // today, but blindly (int)-casting here would silently coerce a garbage
     // value (e.g. a non-numeric string) to 0 — a real component — for any
     // future direct caller that skips that validation. Preserve the old
@@ -337,80 +337,10 @@ function _pp_resolve_component_index_for_error(array $params): int {
  * (both of which also produce an empty availability list). Without this
  * distinction, a typo'd component_id silently looks identical to "this
  * component genuinely has nothing configurable," misleading the calling
- * agent into the wrong repair attempt (#123 adversarial review).
+ * agent into retargeting a component that isn't there (#123 adversarial review).
  */
 function _pp_component_target_not_found(array $params, int $resolved_index): bool {
     return isset($params['component_id']) && $params['component_id'] !== '' && $resolved_index < 0;
-}
-
-// ── Style Repair Helper ───────────────────────────────────────────────────
-// When the LLM proposes an invalid style slot name, attempt to find the
-// closest match via Levenshtein distance. Returns repaired params or null.
-
-function _pp_attempt_style_repair(string $error_code, array $params): ?array {
-    if ($error_code !== 'invalid_style_slot') {
-        return null;
-    }
-
-    $style = $params['style'] ?? [];
-    if (empty($style) || !is_array($style)) {
-        return null;
-    }
-
-    $post_id         = $params['post_id'] ?? 0;
-    $component_index = _pp_resolve_component_index_for_error($params);
-    $composition     = pp_get_composition($post_id);
-    $component_name  = $composition[$component_index]['component'] ?? '';
-    $available_slots = pp_get_style_slots($component_name);
-
-    if (empty($available_slots)) {
-        return null;
-    }
-
-    $available_names = array_keys($available_slots);
-    $repaired        = [];
-    $did_repair      = false;
-
-    foreach ($style as $slot_name => $slot_value) {
-        if ($slot_name === '__recipe' || isset($available_slots[$slot_name])) {
-            $repaired[$slot_name] = $slot_value;
-            continue;
-        }
-
-        // Find closest match by Levenshtein distance.
-        $best_match    = null;
-        $best_distance = PHP_INT_MAX;
-        $tie_count     = 0;
-        foreach ($available_names as $candidate) {
-            $dist = levenshtein($slot_name, $candidate);
-            if ($dist < $best_distance) {
-                $best_distance = $dist;
-                $best_match    = $candidate;
-                $tie_count     = 1;
-            } elseif ($dist === $best_distance) {
-                $tie_count++;
-            }
-        }
-
-        // Accept repair only if distance is reasonable (≤ 40% of slot name length)
-        // AND the match is unambiguous (no tie with another slot at the same distance).
-        $threshold = max(3, (int) ceil(strlen($slot_name) * 0.4));
-        if ($best_match !== null && $best_distance <= $threshold && $tie_count === 1) {
-            $repaired[$best_match] = $slot_value;
-            $did_repair = true;
-        } else {
-            // No close match, or ambiguous tie — repair fails.
-            return null;
-        }
-    }
-
-    if (!$did_repair) {
-        return null;
-    }
-
-    $repaired_params          = $params;
-    $repaired_params['style'] = $repaired;
-    return $repaired_params;
 }
 
 /**
@@ -834,24 +764,19 @@ add_action('wp_ajax_pp_ai_preview', function () {
     }
 
     if (is_wp_error($result)) {
-        // For style_component errors, attempt repair before giving up.
+        // Scoped to style_component because that is the action whose validator
+        // rejections carry a slot vocabulary worth structuring (available slots,
+        // cross-component hints). Every other action reports its message as-is below.
         if ($name === 'style_component') {
-            $repaired_params = _pp_attempt_style_repair($result->get_error_code(), $params);
-            if ($repaired_params !== null) {
-                $retry = $type === 'action'
-                    ? pp_preview_action($name, $repaired_params)
-                    : pp_preview_apply($name, $repaired_params);
-
-                if (!is_wp_error($retry)) {
-                    // Repair succeeded — return preview with a repair note.
-                    $retry['repaired'] = true;
-                    wp_send_json_success($retry);
-                }
-                // Repair attempt also failed — fall through to friendly error.
-            }
-
-            // Return structured error for style_component failures.
+            // A style_component failure reports the validator's own verdict, structured
+            // for the chat UI (#607). There is deliberately no repair-and-retry hop: a
+            // slot name the component doesn't declare is invalid_style_slot, the same
+            // answer every other surface gives. The response carries the rejected name
+            // (raw_error) and the declared names (alternatives) rather than a preview of
+            // a slot the author never asked for. The explicit return keeps the two
+            // wp_send_json_error calls mutually exclusive without relying on wp_die().
             wp_send_json_error(_pp_build_friendly_error($result, $params));
+            return;
         }
 
         wp_send_json_error($result->get_error_message());
