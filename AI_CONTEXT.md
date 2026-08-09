@@ -695,7 +695,6 @@ On Apply, all of a proposal's steps execute in a single request to `wp_ajax_pp_a
 | `pp_ai_get_connector_models($provider_id)` | Queries WP 7.0 `ProviderRegistry` for text-generation models of a provider |
 | `pp_ai_get_provider_models($provider_id)` | Models for a provider, falling back to the hardcoded default when the registry is empty |
 | `pp_ai_parse_error_response($code, $body)` | Parses an HTTP error into a user-facing message with a "Settings → Connectors" hint |
-| `_pp_attempt_style_repair(string $error_code, array $params)` | Levenshtein-based fuzzy match for misspelled slot names (threshold ≤ 3). Returns repair suggestion array or null |
 | `_pp_build_friendly_error(WP_Error $error, array $params)` | Structured error builder returning `{error_code, user_message, alternatives, cross_component_hints, raw_error}` |
 | (cross-component slot search) | Inline logic in `_pp_build_friendly_error()` that searches all registered components for slots matching invalid names. Produces `cross_component_hints` in the error response |
 | `_pp_suggest_alternative_value(string $type, string $description, string $default)` | CSS keyword detection with contextual alternative suggestions. Returns suggestion string or null |
