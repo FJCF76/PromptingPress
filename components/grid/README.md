@@ -127,12 +127,58 @@ pp_get_component('grid', [
 
 Cards in this component must represent real content objects. If you're placing icons in circles with a two-line description, reconsider whether the grid is the right component.
 
+## Style slots
+
+38 per-instance style slots, declared in `schema.json` under `styling.style_slots`
+and set with the `style_component` action. This table is the map — read each slot's
+`type`, effective `default`, `applies_when` condition and full description from the
+schema itself, or with `wp pp operate inspect-composition <page>`.
+
+`▪` = item-eligible (also settable per card in `items[].style`) · `◦` = conditional
+(`applies_when`): setting it outside that configuration is accepted and stored but
+paints nothing, and `wp pp check page` reports a non-blocking `inert_slot` smell **for a
+grid-level slot only** — the advisory reads the component-level `style` map, so the same
+mistake inside a per-card `items[].style` is never reported. Check the condition yourself
+when you set a slot per card.
+
+Read the bar slots' grouping carefully: `--grid-item-bar-*` paint the top bar on **every**
+card, not only the featured one. The featured card re-consumes them with louder defaults.
+Setting `--grid-item-bar-height: 0` removes the bar everywhere.
+
+| Group | Slots |
+|---|---|
+| Band | `--grid-padding-top` · `--grid-padding-bottom` · `--grid-bg` · `--grid-gap` |
+| Heading | `--grid-heading-color` ◦ · `--grid-heading-accent-color` ◦ · `--grid-heading-size` ◦ · `--grid-heading-measure` ◦ · `--grid-heading-margin-bottom` ◦ · `--grid-subheading-color` ◦ · `--grid-subheading-margin-bottom` ◦ |
+| Eyebrow | `--grid-eyebrow-color` ◦ · `--grid-eyebrow-bg` ◦ · `--grid-eyebrow-radius` ◦ · `--grid-eyebrow-border-width` ◦ · `--grid-eyebrow-border-color` ◦ · `--grid-eyebrow-text-transform` ◦ |
+| Card frame | `--grid-item-bg` ▪ · `--grid-item-border-color` ▪ · `--grid-item-border-width` ▪ · `--grid-item-radius` ▪ · `--grid-item-shadow` ▪ · `--grid-item-padding` ▪ · `--grid-item-gap` ▪ |
+| Card content | `--grid-item-title-size` ▪ · `--grid-item-title-color` ▪ · `--grid-item-text-color` ▪ · `--grid-item-bullet-color` ▪ · `--grid-item-link-color` ▪ · `--grid-item-link-hover-color` ▪ · `--grid-item-text-align` ▪ · `--grid-item-icon-size` ▪ ◦ |
+| Top bar (EVERY card) | `--grid-item-bar-color` ▪ ◦ · `--grid-item-bar-height` ▪ ◦ |
+| Featured first card | `--grid-featured-texture-color` ▪ ◦ · `--grid-featured-shadow` ▪ ◦ |
+| Steps (`layout: steps`) | `--grid-step-bg` ▪ ◦ · `--grid-step-text-color` ▪ ◦ |
+
+## Stated defaults (and what would reopen them)
+
+These values are deliberate product defaults, not oversights, and are not authorable.
+Each names the condition that would reopen the decision. Adding a control needs a
+**named incident** — a real composition that could not be built — not a hypothesis.
+
+| Default | Why it is a default | What would reopen it |
+|---|---|---|
+| Card hover lift `translateY(-2px)` | A subtle lift is the affordance that tells a pointer the card is a single object, and it is the shared value every card uses so a row lifts consistently. It is motion, not colour or geometry an author composes from content. `base.css` already collapses transition and animation durations under `prefers-reduced-motion` globally, so no per-component guard belongs here. | A named incident where a composition needs a different (or no) hover treatment on one band. |
+| Featured-card lift on the **`muted`** band (1024px and up) — `translateY(-0.18rem)` at rest, `-0.34rem` on hover | The featured card sits on the same tinted `--color-surface` fill as the band itself there, so the shared `-2px` stops separating it from its background; the larger rest lift is what restores the separation, and the hover value keeps the pair proportional rather than adding a second effect. Set `card_emphasis: uniform` to drop the whole featured treatment, this lift included. **Read the selector carefully:** the rule is `main > .grid--dark …`, and `--dark` is a deliberate misnomer for the **`muted`** (light tinted) band — the genuinely dark band is `--inverted`, which does not carry this lift. | The same named-incident bar as the hover lift. |
+| Featured texture stripe **period** — `2.75rem 100%` on the featured card, `3rem 100%` on the non-featured ones | The stripe is decoration, and its **colour is already authorable** on the featured card (`--grid-featured-texture-color`; set it to `transparent` to remove the stripe). The **period** is what makes the pattern read as texture rather than as ruled lines — it is not a value an author picks from content. | The same named-incident bar. |
+| The two stripe periods **differ**, and the non-featured stripe is a bare `rgba` with no slot | **Recorded here for the first time — no earlier rationale exists in the repo, and this is a stated reason rather than a recovered one.** The featured card is the tinted, lifted one, so the tighter period keeps its texture at a comparable visual density to the plain cards; and the featured stripe is the slotted one precisely because it is the one an author is most likely to want gone. Both were kept as found: equalising either would change render, which this pass does not do. | A composition where the two densities visibly disagree side by side, or a request to author the non-featured stripe — which would be a new slot, not a retraction of the existing one. |
+| The `steps` connector line (`::after` between badges at 1024px+) | The connector is what makes a numbered row read as a sequence rather than as three unrelated cards. It has no slot of its own **by design, but it is not unreachable**: its colour reads `--grid-item-border-color` and its length reads `--grid-gap`, so setting either moves the connector too. That second job is disclosed here because it is not obvious from the slot names. (Unset, the two fall back independently, so the connector's default length and the grid's default gap are not the same number.) | A named incident where the connector must diverge from the card border colour. |
+| Four-card row caps (1024px and up) — `max-width: 58rem` on a composed default grid, `56rem` on `steps` | The cap itself has a clear reason: a 2×2 four-card block is deliberately narrower than the `--max-width: 72rem` container so a four-item feature row reads as a **block** rather than spanning the whole band. **The 2rem delta between the two is recorded here for the first time — no earlier rationale exists in the repo.** `steps` cards carry a number badge and a title capped at `17rem` rather than free prose, so the same visual density arrives at a slightly narrower measure. Both were kept as found; equalising them would change render, which this pass does not do. | An operator wants a four-card row to span the full band and does not want to set `columns` to get it. Note what already works: setting `columns: 4` explicitly **clears** this cap (that rule declares `max-width: none` and zeroes the side margins), so the escape hatch exists — it is just bundled with forcing the column count rather than available on its own. |
+| `main > .grid--steps .grid__item-title { max-width: 17rem }` (768px and up) | A step title is a **label in a sequence, not prose**; the cap is what keeps the row of steps reading as a row rather than as three paragraphs. Scope note that belongs with it: `--measure-heading` routes **band headings, not item titles**, so this cap sits deliberately outside the measure surface and no measure retune reaches it. | A long step title (over roughly 30 characters) truncating awkwardly or stranding the connector line. |
+
 ## CSS
 
 Styles in `assets/css/components.css` under `/* === COMPONENT: grid === */`.
 
 Card hover state: `translateY(-2px)` — subtle lift. No shadow by default; set a
-`--grid-item-shadow` style slot (e.g. `var(--shadow-md)`) for elevated cards.
+`--grid-item-shadow` style slot (e.g. `var(--shadow-md)`) for elevated cards. See
+"Stated defaults" above for why the lift itself is not authorable.
 
 ## Card content alignment
 

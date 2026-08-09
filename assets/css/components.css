@@ -1581,8 +1581,13 @@
 /* The separator is a CSS-generated middot before EVERY item (line-leading ones are
    clipped, see above), so it is never a content character: it can be slot-colored and
    stays out of the accessibility tree. The `/ ""` alternative-text empties its a11y
-   name, and the <ul role="list"> keeps list semantics intact. The glyph is FIXED
-   (middot) in this issue. It is a fixed-width inline-block box (--space-sm) so the
+   name, and the <ul role="list"> keeps list semantics intact. The glyph is a FIXED
+   (middot) stated default with no slot. Its canonical STATED REASON and reopening
+   condition live on the authoring surface an agent actually reads — the
+   --section-separator-color description in components/section/schema.json, and "Stated
+   defaults" in components/section/README.md. Keep them there when editing; this comment
+   is a pointer, not the record. It is a fixed-width
+   inline-block box (--space-sm) so the
    left-pull above is an exact token value independent of the glyph's advance width.
    Color routes through --section-separator-color, defaulting to the muted role like
    sibling text; on the inverted band --color-muted is already remapped to the light
@@ -2782,7 +2787,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
 /* ==========================================================================
    COMPONENT: table
-   Data table with horizontal scroll on mobile.
+   Data table with horizontal scroll at ANY viewport, not only on mobile: .table-wrap
+   declares overflow-x: auto with no media query, and .table is width: max-content with
+   min-width: 100%, so the wrapper scrolls whenever the table outgrows the band.
    ========================================================================== */
 
 .table-section {

@@ -44,10 +44,10 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 | Name    | Required props                          | Optional props (selection)                              |
 |---------|-----------------------------------------|---------------------------------------------------------|
 | hero    | title                                   | title_accent, eyebrow, subheading, button_text, button_url, button2_text, button2_url, button_variant, button2_variant, layout, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof |
-| section | one of: body / body_items / panel content | body, title, title_accent, eyebrow, subheading, title_align, layout, theme, image_url, image_id, image_alt, background_image, body_marker, body_items |
+| section | one of: body / body_items / panel content | body, title, title_accent, eyebrow, subheading, title_align, layout, theme, image_url, image_id, image_alt, background_image, body_marker, body_items, panel_heading, panel_body, panel_items, panel_items_marker, panel_cta_text, panel_cta_url, panel_cta_variant |
 | faq     | items[] {question, answer}              | title, title_accent, eyebrow, theme, id                 |
 | grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, title_align, layout, card_emphasis, theme, columns, image_treatment |
-| table   | headers[], rows[][]                     | title, caption                                          |
+| table   | headers[], rows[][]                     | title, caption, id                                      |
 | cta     | button_text, button_url                 | title, title_accent, eyebrow, body, button2_text, button2_url, button2_variant, layout, theme, background_image, button_variant |
 | stats   | items[] {number, label}                 | title, title_accent, theme, background_image            |
 | logos   | items[] {image_url, image_alt, image_id?, label?} | title, theme                                  |
@@ -62,9 +62,9 @@ next. The rule (#439):
 
 | Contract | Props | What you may write |
 |----------|-------|--------------------|
-| **Rich HTML** (`wp_kses_post`) | `section.body`, `faq.items[].answer` | Block markup: paragraphs, lists, headings, links, `strong`/`em`. These are the main prose surfaces. |
+| **Rich HTML** (`wp_kses_post`) | `section.body`, `faq.items[].answer`, `table.rows[][]` cells, `embed.content`, `hero.proof` | Block markup: paragraphs, lists, headings, links, `strong`/`em`. `section.body` and `faq.items[].answer` are the main prose surfaces; a `table` **cell** takes the same contract (its `headers` and `caption` do not — those are plain text); `embed.content` is additionally passed through `do_shortcode()` after sanitizing, which is why shortcode brackets survive; `hero.proof` is a free-form trust-signal panel. |
 | **Inline HTML** (`a, strong, em, br`) | `cta.body`, `grid.items[].text`, `testimonials.items[].quote` | Supporting copy with a link or light emphasis, e.g. `Read our <a href="/terms">terms</a>.` No block elements — `<p>`, `<ul>`, `<h2>` are stripped. |
-| **Plain text** (escaped) | Titles, eyebrows, subheadings, `button_text`, `button2_text`, `stats.items[].label`, `stats.items[].number`, `grid.items[].title`, `testimonials.items[].author`, `faq.items[].question`, and all URLs | Text only. Any `<...>` renders as visible characters, not markup. |
+| **Plain text** (escaped) | Titles, eyebrows, subheadings, `button_text`, `button2_text`, `stats.items[].label`, `stats.items[].number`, `grid.items[].title`, `grid.items[].bullets[]`, `testimonials.items[].author`, `faq.items[].question`, `table.headers[]`, `table.caption`, `logos.items[].label`, `section.body_items[]`, `section.panel_body`, `section.panel_items[]`, and all URLs | Text only. Any `<...>` renders as visible characters, not markup. Note `table` splits its contract: **cells** are rich, **headers and caption** are plain. |
 
 Both HTML contracts are allowlist-sanitized: `script`, `style`, `iframe`, event
 handlers (`onclick`), and `javascript:` URLs are always stripped, whoever authored

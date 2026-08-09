@@ -17,7 +17,7 @@
     "content": {
       "type": "string",
       "required": true,
-      "description": "WP shortcode string or pre-rendered HTML. Passed through do_shortcode() and wp_kses_post(). Example: '[contact-form-7 id=\"123\"]'."
+      "description": "WP shortcode string or pre-rendered HTML. Rich HTML (sanitized via wp_kses_post), then passed through do_shortcode(). Example: '[contact-form-7 id=\"123\"]'."
     },
     "theme": {
       "type": "enum", "strict": true,
@@ -43,5 +43,5 @@
     }
   },
   "safe_to_edit": ["embed.php", "../../assets/css/components.css (COMPONENT: embed section)"],
-  "do_not_touch": ["schema.json without updating AI_CONTEXT.md"]
+  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
 }

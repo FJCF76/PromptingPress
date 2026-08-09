@@ -54,5 +54,5 @@
     "chrome_custom_properties": ["--header-bg", "--header-text", "--header-link-color"]
   },
   "safe_to_edit": ["nav.php", "../../assets/css/components.css (COMPONENT: nav section)"],
-  "do_not_touch": ["schema.json without updating AI_CONTEXT.md"]
+  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
 }

@@ -2,7 +2,8 @@
 /**
  * components/table/table.php
  *
- * Data / comparison table with horizontal scroll on mobile.
+ * Data / comparison table. The wrapper scrolls horizontally whenever the table is
+ * wider than the band, at ANY viewport (overflow-x: auto, no media query).
  * Props: see schema.json
  *
  * @var array $props

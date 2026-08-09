@@ -118,5 +118,5 @@
     "chrome_custom_properties": ["--footer-bg", "--footer-text", "--footer-link-color"]
   },
   "safe_to_edit": ["footer.php", "../../assets/css/components.css (COMPONENT: footer section)"],
-  "do_not_touch": ["schema.json without updating README.md"]
+  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
 }

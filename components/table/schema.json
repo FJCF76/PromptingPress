@@ -1,6 +1,6 @@
 {
   "component": "table",
-  "description": "Data or comparison table. Wraps in a horizontal-scroll container on mobile. Headers become <th scope='col'> elements.",
+  "description": "Data or comparison table. Wraps in a horizontal-scroll container whenever the table is wider than the band \u2014 at ANY viewport, not only on mobile: .table-wrap declares overflow-x: auto with no media query, and the table itself is width: max-content; min-width: 100%. Headers become <th scope='col'> elements.",
   "props": {
     "id": {
       "type": "string",
@@ -24,7 +24,7 @@
       "type": "array",
       "item_type": "array",
       "required": true,
-      "description": "Array of rows. Each row is an array of cell values (strings, HTML allowed)."
+      "description": "Array of rows. Each row is an array of cell values. Rich HTML (sanitized via wp_kses_post): block markup, lists and links are allowed in a cell, the same contract as section.body."
     },
     "caption": {
       "type": "string",
@@ -47,5 +47,5 @@
     }
   },
   "safe_to_edit": ["table.php", "../../assets/css/components.css (COMPONENT: table section)"],
-  "do_not_touch": ["schema.json without updating README.md"]
+  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
 }

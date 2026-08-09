@@ -7,7 +7,7 @@ Call-to-action block. Place at the bottom of a page or between sections to drive
 | Prop          | Type   | Required | Default        | Description |
 |---------------|--------|----------|----------------|-------------|
 | `id`          | string | No       | `''`           | HTML id for anchor linking |
-| `title`       | string | Yes      | —              | CTA headline |
+| `title`       | string | No       | `''`           | Optional CTA headline. Omit it (along with `body`) to render a standalone button row with no heading element — the sanctioned heading-less button pattern (#294). `id`/anchor and all style slots still apply |
 | `title_accent`| string | No       | `''`           | Exact substring of `title` to render in an accent color |
 | `eyebrow`     | string | No       | `''`           | Short kicker/label rendered as a pill above the title |
 | `body`        | string | No       | `''`           | Supporting body text. Inline HTML allowed: a, strong, em, br. |
@@ -142,6 +142,50 @@ pp_get_component('cta', [
 ]);
 ```
 
+## Style slots
+
+40 per-instance style slots, declared in `schema.json` under `styling.style_slots`
+and set with the `style_component` action. This table is the map — read each slot's
+`type`, effective `default`, `applies_when` condition and full description from the
+schema itself, or with `wp pp operate inspect-composition <page>`.
+
+`◦` = conditional (`applies_when`): setting it outside that configuration is accepted
+and stored but paints nothing, and `wp pp check page` reports a non-blocking
+`inert_slot` smell.
+
+| Group | Slots |
+|---|---|
+| Band | `--cta-padding-top` · `--cta-padding-bottom` · `--cta-bg` · `--cta-border-color` · `--cta-border-width` · `--cta-radius` · `--cta-shadow` · `--cta-overlay-bg` ◦ · `--cta-bg-position` ◦ |
+| Heading | `--cta-heading-color` ◦ · `--cta-heading-accent-color` ◦ · `--cta-heading-size` ◦ · `--cta-heading-measure` · `--cta-heading-margin-bottom` ◦ |
+| Eyebrow | `--cta-eyebrow-color` ◦ · `--cta-eyebrow-bg` ◦ · `--cta-eyebrow-radius` ◦ · `--cta-eyebrow-border-width` ◦ · `--cta-eyebrow-border-color` ◦ · `--cta-eyebrow-text-transform` ◦ |
+| Accent | `--cta-accent` · `--cta-accent-hover` |
+| Body | `--cta-body-color` · `--cta-body-size` · `--cta-body-measure` · `--cta-inner-gap` |
+| Primary button | `--cta-button-bg` · `--cta-button-border` · `--cta-button-color` · `--cta-button-shadow` · `--cta-button-hover-bg` · `--cta-button-hover-border` · `--cta-button-hover-color` |
+| Second button (`button2_text`) | `--cta-button2-bg` ◦ · `--cta-button2-border` ◦ · `--cta-button2-color` ◦ · `--cta-button2-shadow` ◦ · `--cta-button2-hover-bg` ◦ · `--cta-button2-hover-border` ◦ · `--cta-button2-hover-color` ◦ |
+
+## Stated defaults (and what would reopen them)
+
+These values are deliberate product defaults, not oversights, and are not authorable.
+Each names the condition that would reopen the decision. Adding a control needs a
+**named incident** — a real composition that could not be built — not a hypothesis.
+
+| Default | Why it is a default | What would reopen it |
+|---|---|---|
+| `.cta__buttons { gap: var(--space-sm) }` — the space BETWEEN the two buttons | It already resolves to a design token, so it is retunable site-wide with one `update_design_token` write on `--space-sm`. That is the same argument that ruled per-instance item gaps intentionally absent across the theme: a token-reachable value is not an unreachable one. | A recorded incident where one band's button gap must diverge from the site-wide spacing scale. |
+
+**`--cta-inner-gap` does NOT govern the space between the two buttons.** It is the gap on
+`.cta__inner`, whose flex children are the text block and the button row — so it sets the
+space BETWEEN the copy and the buttons, and nothing else. The eyebrow, title and body are
+nested inside the text wrapper and are spaced by their own margins, not by this gap. An
+author who sets `--cta-inner-gap` expecting the two buttons to move apart gets nothing;
+that gap is the token-routed default in the table above.
+
 ## CSS
 
 Styles in `assets/css/components.css` under `/* === COMPONENT: cta === */`.
+
+## What NOT to change
+
+- Do not call WordPress functions in `cta.php`. Use the `pp_*` wrappers from `lib/wp.php`.
+- Do not add raw hex colors to component CSS. Use CSS variables from `base.css`.
+- Do not modify `schema.json` without updating this README and `AI_CONTEXT.md`.

@@ -62,7 +62,7 @@
       "--stats-number-size": { "type": "length", "default": "2.5rem", "description": "Stat number (large metric value) font size", "applies_when": [{"prop": "items", "present": true}] },
       "--stats-number-font": { "type": "font-family", "default": "inherit", "description": "Stat number (large metric value) font family. Defaults to inherit, so the number keeps the page body font exactly as before. Set to var(--font-heading) to make the display figures follow the heading system (a serif/display brand face), or give any comma-separated font stack.", "applies_when": [{"prop": "items", "present": true}] },
       "--stats-number-weight": { "type": "number", "default": "700", "description": "Stat number (large metric value) font weight, as a unitless number (e.g. 600). Defaults to 700. Pair with --stats-number-font when the heading face needs a different weight than the bold body default.", "applies_when": [{"prop": "items", "present": true}] },
-      "--stats-label-color": { "type": "color", "default": "var(--color-muted)", "description": "Stat label text color", "applies_when": [{"prop": "items", "present": true}] },
+      "--stats-label-color": { "type": "color", "default": "var(--color-muted)", "description": "Stat label text color. Ink only — the label's SIZE (0.875rem) is a stated default with no slot: the number is the band's display element, which is why --stats-number-* carries four slots, and the label is deliberately a fixed secondary caption beneath it. Worth knowing before you raise --stats-number-size: the label does not follow it, so a much larger number leaves the caption proportionally smaller. See components/stats/README.md, 'Stated defaults'", "applies_when": [{"prop": "items", "present": true}] },
       "--stats-bg-position": { "type": "position", "default": "center", "description": "background_image focal point", "applies_when": [{"prop": "background_image", "present": true}] },
       "--stats-overlay-bg": { "type": "gradient", "default": "var(--overlay-bg)", "description": "Scrim laid over background_image on this band. Defaults to the shared --overlay-bg; darken or lighten it per instance to tune legibility over a particular photo. The fourth background-image component to gain this slot (hero, section and cta already had it).", "applies_when": [{"prop": "background_image", "present": true}] },
       "--stats-radius": { "type": "length", "default": "0", "description": "Border radius of the stats band. VISIBLE ONLY IN COMBINATION WITH A BACKGROUND PAINT: on the default theme --stats-bg is unset, so the band is transparent and a radius rounds nothing you can see. Set --stats-bg (or use the muted/inverted theme, or a background_image) first, then pair with --stats-max-width for a contained, rounded metrics card." },
@@ -70,5 +70,5 @@
     }
   },
   "safe_to_edit": ["stats.php", "../../assets/css/components.css (COMPONENT: stats section)"],
-  "do_not_touch": ["schema.json without updating AI_CONTEXT.md"]
+  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
 }

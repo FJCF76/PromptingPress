@@ -97,7 +97,7 @@ Create `/components/mycomponent/schema.json`:
     }
   },
   "safe_to_edit": ["mycomponent.php", "../../assets/css/components.css (COMPONENT: mycomponent section)"],
-  "do_not_touch": ["schema.json without updating README.md"]
+  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
 }
 ```
 

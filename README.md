@@ -12,8 +12,8 @@
 [![PHP 8.0+](https://img.shields.io/badge/PHP-8.0+-777BB4?style=flat-square&logo=php&logoColor=white)](https://php.net)
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
-[![Tests](https://img.shields.io/badge/Tests-1936+_passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-1.12.18-6366F1?style=flat-square)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/Tests-passing-22C55E?style=flat-square)](tests/)
+[![Version](https://img.shields.io/badge/version-1.12.19-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -132,13 +132,13 @@ No blocks. No shortcodes. No visual-builder serialization. AI can read, write, d
 | Component | Purpose | Key props |
 |-----------|---------|-----------|
 | hero | Full-width headline with optional CTA, image, overlay | `title` |
-| section | Text + optional image; 4 `layout`s (text-only, image-left, image-right, centered) + `theme` (default, muted, inverted) | one of `body` / `body_items` / panel content |
+| section | Text + optional image or content panel; 5 `layout`s (text-only, image-left, image-right, centered, text-panel) + `theme` (default, muted, inverted) | one of `body` / `body_items` / panel content |
 | grid | Responsive card grid; `layout` (cards, steps) + `theme` (default, muted, inverted) + `card_emphasis` (featured, uniform) + `columns` (1-4, force desktop column count) + `image_treatment` (banner, icon) | `items[]` |
 | faq | Native `details/summary` accordion, zero JavaScript | `items[]` |
 | cta | Call-to-action block with layout, color axis, and background image; `title` optional (omit for a standalone button row); optional second button for a primary + secondary pair | `button_text`, `button_url` |
 | stats | Large-number metrics with labels and optional background image | `items[]` |
 | logos | Flex-wrap image strip for partner/client logos | `items[]` |
-| table | Data/comparison table, horizontal scroll on mobile | `headers[]`, `rows[][]` |
+| table | Data/comparison table, horizontal scroll at any viewport | `headers[]`, `rows[][]` |
 | embed | WordPress shortcode / plugin content wrapper | `content` |
 | testimonials | Customer quotes with attribution — card grid or single-column stack | `items[]` |
 
@@ -437,9 +437,11 @@ npm run env:stop
 
 PromptingPress is in active development by a single developer. It is not yet packaged for broad distribution. The current focus is making the AI-agent workflow reliable and the composition model complete.
 
-See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 through v1.7.0.
+See [CHANGELOG.md](CHANGELOG.md) for the detailed release history. The badge at the top
+of this file carries the current version; this section is deliberately version-free so it
+does not go stale between releases.
 
-**What exists today (v1.7.0):**
+**What exists today:**
 - 12 components with schema contracts and 261 per-instance style slots, plus named recipes
 - A contract-test suite that enforces the style-slot contract: every declared slot must be consumed by the CSS, and literal re-declarations that would defeat a slot fail the build — including cross-stylesheet clobbers, where an automatic-match rule in `base.css`/`utilities.css` outranks a component slot (issue [#342](https://github.com/FJCF76/PromptingPress/issues/342)). Known exceptions live in shrink-only ledgers (issues [#309](https://github.com/FJCF76/PromptingPress/issues/309), [#342](https://github.com/FJCF76/PromptingPress/issues/342)); the static guards account for every clobber candidate, and the rendered computed-style checks own the true cascade proof
 - Typed action/apply layer with validation, preview, and rollback
@@ -452,7 +454,7 @@ See [CHANGELOG.md](CHANGELOG.md) for a detailed release history from v0.0.1 thro
 - In-admin AI chat with structured mutation proposals and guided error recovery
 - Agent operating framework with step enforcement and drift detection
 - WP-CLI interface for all operations
-- 1590+ automated tests across PHP, JS, and E2E, enforced by CI on every push and release
+- Thousands of automated tests across PHP, JS, and E2E, enforced by CI on every push and release
 - Theme integrity enforcement — a build manifest of file hashes detects local drift; a daily check keeps the warning current, and a theme update is blocked before it can overwrite or delete modified files (override with the `pp_allow_unsafe_theme_update` filter). See [docs/upgrade-safety.md](docs/upgrade-safety.md)
 - ~97 KB frontend CSS, 3.6 KB JS — no framework, no bundler
 
