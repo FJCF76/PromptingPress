@@ -383,6 +383,31 @@ Add a row to the Component index table in `AI_CONTEXT.md`:
 - [ ] `AI_CONTEXT.md` component index updated
 - [ ] Every slot/prop definition object uses only the keys in the definition-object
       contract (Step 3); `SchemaValidationTest` rejects anything else
+- [ ] Every slot's `default` states the **effective** default — what actually renders
+      with the slot unset, in the component's default configuration, at desktop (>=768px,
+      the theme's desktop tier). Not the CSS fallback literal, and never a value that
+      appears nowhere in the stylesheet.
+      Where the real default varies by variant or breakpoint, put the desktop value in
+      `default` and enumerate the alternatives in `description`. (There is deliberately
+      no mechanical `default == CSS-fallback` check — see the note at the top of
+      `StyleSlotContractTest` — because one slot is legitimately consumed with different
+      fallbacks per theme variant. That is exactly why the value has to be written
+      truthfully by hand.)
+- [ ] Every RESTING slot that has an interaction state declares its **positional twin**
+      (`--x-color` / `--x-hover-color`, rest / open) — the repo's term for the counterpart
+      position in a state chain. A slot whose counterpart is a sibling ELEMENT rather than
+      a state (e.g. a second button) is a per-button counterpart, not a positional twin. A control shipped without its twin
+      is a future flip bug: an author sets the resting value, and the state reverts to
+      the product default under the pointer.
+- [ ] `styling.tokens` lists only global design tokens THIS component's own rules
+      consume (a curated read surface, not an exhaustive inventory — shared rhythm and
+      measure props are documented on the slots that route them). `SchemaValidationTest`'s whole-theme scan proves a token is consumed
+      somewhere; the css-lint ownership pin proves *this* component can reach it. A
+      token consumed only by another component's block is a false advertisement.
+      Template-owned chrome keeps its `--header-*` / `--footer-*` inline custom
+      properties in `chrome_custom_properties`, not in `tokens` — those come from site
+      options, not the design system, and conflating them on one array misrepresents
+      both.
 - [ ] `styling.variant_classes` lists **exactly** the root-element modifier classes
       the template can emit. It is derived from the template by
       `SchemaValidationTest::testVariantClassesListExactlyWhatTheTemplateCanEmit`,

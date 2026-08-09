@@ -36,12 +36,12 @@
   "styling": {
     "root_class": "table-section",
     "variant_classes": [],
-    "tokens": ["--space-xl", "--space-2xl", "--color-border", "--color-surface"],
+    "tokens": ["--color-border", "--color-surface"],
     "style_slots": {
       "--table-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
       "--table-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
-      "--table-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Section heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop); set an explicit length to override.", "applies_when": [{"prop": "title", "present": true}] },
-      "--table-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading color. Defaults to the theme text color; set an explicit color to override.", "applies_when": [{"prop": "title", "present": true}] },
+      "--table-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Section heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop), which every band heading in the theme routes. LEAVE IT UNSET unless THIS band must differ from the rest of the site: retuning every band heading at once is ONE update_design_token write on --pp-band-heading-size, not one slot write per band.", "applies_when": [{"prop": "title", "present": true}] },
+      "--table-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading color. Defaults to the theme text colour (table has no inverted variant — it declares no theme classes at all). LEAVE IT UNSET unless THIS band must differ: recolouring every heading on the site is ONE update_design_token write on --color-text, not one slot write per band.", "applies_when": [{"prop": "title", "present": true}] },
       "--table-heading-measure": { "type": "length", "role": "measure", "default": "var(--measure-heading)", "description": "Maximum width of the table section heading. Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site.", "applies_when": [{"prop": "title", "present": true}] },
       "--table-heading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space below the table section heading, before the table (header rhythm). Lower it to tighten the header, raise it for more separation. Not a band-fusing lever: the table always renders after the heading, so the seam with the band below is closed with --table-padding-bottom.", "applies_when": [{"prop": "title", "present": true}] }
     }

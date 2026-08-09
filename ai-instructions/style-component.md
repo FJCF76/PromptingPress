@@ -12,6 +12,24 @@ wp pp operate inspect-composition <page_id_or_slug>
 
 The output shows each component's available `style_slots` (name, type, default, current value) and `available_recipes` (named shorthand).
 
+**Reading `default`.** It states the **effective** default — what actually renders with
+the slot unset, in the component's default configuration, at desktop (>=768px, the theme's
+desktop tier; a few slots have a further >=1024px tier, always named in the description).
+It is not the CSS fallback literal. Where the real default varies by variant or breakpoint, `default` names
+the desktop / default-configuration value and the slot's `description` enumerates the
+alternatives, so read the description before assuming one number holds everywhere.
+Setting a slot **replaces every branch at once**, at every layout and viewport — a value
+picked from the desktop number alone can be wrong at 375px. A parenthesised default such
+as `(premium bevel)` means a built-in treatment with no single literal worth quoting.
+
+`styling.tokens` lists global design tokens that component's own rules consume. It is a
+curated read surface into the design system, NOT an exhaustive inventory: shared rhythm
+and measure props (`--pp-band-padding`, `--pp-band-heading-size`, `--measure-*`) are
+documented on the slots that route them rather than repeated in this array. The template-owned chrome pair (`nav`, `footer`) additionally lists
+`chrome_custom_properties`: those are the `--header-*` / `--footer-*` inline custom
+properties the chrome renders from **site options**, which are a different thing from
+design tokens and are set with `update_site_option`, never as style slots.
+
 ---
 
 ## Step 2 -- Apply style slots

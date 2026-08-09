@@ -114,7 +114,8 @@
   "styling": {
     "root_class": "site-footer",
     "variant_classes": [],
-    "tokens": ["--color-border", "--color-muted", "--footer-bg", "--footer-text", "--footer-link-color"]
+    "tokens": ["--color-border", "--color-muted"],
+    "chrome_custom_properties": ["--footer-bg", "--footer-text", "--footer-link-color"]
   },
   "safe_to_edit": ["footer.php", "../../assets/css/components.css (COMPONENT: footer section)"],
   "do_not_touch": ["schema.json without updating README.md"]

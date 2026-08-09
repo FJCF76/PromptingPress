@@ -2,7 +2,7 @@
 Contributors: fjcf76
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 1.12.11
+Stable tag: 1.12.12
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html

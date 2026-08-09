@@ -247,8 +247,10 @@ class SchemaValidationTest extends TestCase
         $expected = [
             'hero'    => 49,
             'section' => 47,
-            'grid'    => 37,
-            'cta'     => 39,
+            // Issue 581 (A-18) added one state twin to each: --grid-item-link-hover-color
+            // and --cta-button2-shadow.
+            'grid'    => 38,
+            'cta'     => 40,
         ];
 
         foreach ($expected as $component => $count) {
@@ -1330,7 +1332,7 @@ class SchemaValidationTest extends TestCase
     {
         // #293's featured/bar slots and the steps badge color are card-scoped: they
         // are consumed within the .grid__item subtree (bar/texture ::before pseudos,
-        // .pp-step-number child), so they must be usable per card (issue 323 AC).
+        // .grid__step-number child), so they must be usable per card (issue 323 AC).
         $result = pp_validate_composition($this->gridCompositionWithItemStyleMap([
             '--grid-item-bar-color'         => '#123456',
             '--grid-item-bar-height'        => '4px',
@@ -1437,7 +1439,8 @@ class SchemaValidationTest extends TestCase
                 '--grid-featured-shadow', '--grid-item-padding', '--grid-item-gap',
                 '--grid-item-text-align', '--grid-item-icon-size',
                 '--grid-item-title-size', '--grid-item-title-color', '--grid-item-text-color',
-                '--grid-item-bullet-color', '--grid-item-link-color', '--grid-step-bg',
+                '--grid-item-bullet-color', '--grid-item-link-color',
+                '--grid-item-link-hover-color', '--grid-step-bg',
                 '--grid-step-text-color',
             ],
             array_keys($scopes['eligible']),
@@ -3406,6 +3409,7 @@ class SchemaValidationTest extends TestCase
         'cta slot --cta-button2-hover-bg' => 'button2_text present',
         'cta slot --cta-button2-hover-border' => 'button2_text present',
         'cta slot --cta-button2-hover-color' => 'button2_text present',
+        'cta slot --cta-button2-shadow' => 'button2_text present',
         'cta slot --cta-overlay-bg' => 'background_image present',
         'cta slot --cta-bg-position' => 'background_image present',
         'embed slot --embed-heading-size' => 'title present',

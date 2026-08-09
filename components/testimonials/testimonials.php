@@ -56,8 +56,16 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
             </div>
         <?php endif; ?>
 
-        <?php if (!empty($items)) : ?>
-            <div class="testimonials__list" data-pp-count="<?php echo esc_attr(count($items)); ?>">
+        <?php
+        // issue 581 (A-28): the list carried data-pp-count and no CSS rule read it. grid
+        // emits the same attribute and DOES select on it at five rules, so this was not a
+        // shared convention — just an inert emission. Removed rather than wired: inventing
+        // count-keyed testimonial layouts is a design decision, not a cleanup. The comment
+        // lives inside this PHP block on purpose, so removing the attribute is the ONLY
+        // change to the emitted markup: an inline PHP comment tag between the markup
+        // lines would leave its own indentation behind in the rendered output.
+        if (!empty($items)) : ?>
+            <div class="testimonials__list">
                 <?php foreach ($items as $item) :
                     $quote     = $item['quote']     ?? '';
                     $author    = $item['author']    ?? '';
