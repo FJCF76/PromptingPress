@@ -167,7 +167,7 @@ $style_attr = $grid_style_parts ? ' style="' . implode('; ', $grid_style_parts) 
                 ?>
                     <li class="grid__item"<?php echo $item_style_attr; ?>>
                         <?php if ($is_steps) : ?>
-                            <span class="pp-step-number"><?php echo esc_html($item_number); ?></span>
+                            <span class="grid__step-number"><?php echo esc_html($item_number); ?></span>
                         <?php endif; ?>
 
                         <?php if ($image_url && !$is_steps) : ?>

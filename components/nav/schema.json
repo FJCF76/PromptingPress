@@ -50,7 +50,8 @@
   "styling": {
     "root_class": "site-header",
     "variant_classes": [],
-    "tokens": ["--color-bg", "--color-text", "--color-accent", "--header-bg", "--header-text", "--header-link-color"]
+    "tokens": ["--color-bg", "--color-text", "--color-accent"],
+    "chrome_custom_properties": ["--header-bg", "--header-text", "--header-link-color"]
   },
   "safe_to_edit": ["nav.php", "../../assets/css/components.css (COMPONENT: nav section)"],
   "do_not_touch": ["schema.json without updating AI_CONTEXT.md"]

@@ -10,8 +10,11 @@
  * @var array $props
  */
 
-$id       = $props['id']       ?? '';
 $location = $props['location'] ?? 'primary';
+// No `id` read here on purpose (issue 581): the header is template-owned chrome
+// (issue 223), nav/schema.json declares no `id` prop, and templates/base.php never
+// passes one — so the read was dead. Do not re-add it; that would be the first step
+// toward a composable header, which the chrome contract rules out.
 $logo     = pp_resolve_logo($props); // {type, url, alt, text} — attachment-ID only
 
 // Header chrome color slots (issue 333). The header is template-owned (issue 223)
@@ -28,7 +31,7 @@ $style_attr = pp_chrome_style_attr([
     '--header-link-color' => ['value' => (string) ($props['link_color'] ?? ''), 'option' => 'pp_header_link_color'],
 ]);
 ?>
-<header<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="site-header" data-pp-component="nav"<?php echo $style_attr; ?>>
+<header class="site-header" data-pp-component="nav"<?php echo $style_attr; ?>>
     <nav class="nav" aria-label="Main navigation">
         <div class="container nav__container">
 

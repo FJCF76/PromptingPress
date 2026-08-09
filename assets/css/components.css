@@ -2591,7 +2591,15 @@
 }
 
 .grid__item-link:hover {
-  color: var(--color-accent-hover);
+  /* Issue 581 (A-18) — the hover half of the card-link pair. This used to be a bare
+     literal, waived in the issue 309 dead-slot ledger because routing it through the
+     REST slot (--grid-item-link-color) would have made hover render identical to rest
+     whenever an author set the resting colour, destroying the hover feedback. Routing
+     it through its own POSITIONAL TWIN has neither problem: unset, the fallback is the
+     same var(--color-accent-hover) literal it always was (byte-identical), and set, the
+     author is deliberately choosing a hover colour rather than accidentally flattening
+     one. The waiver retires with this change. */
+  color: var(--grid-item-link-hover-color, var(--color-accent-hover));
   text-decoration: underline;
 }
 
@@ -2613,7 +2621,7 @@
   padding: var(--space-lg) var(--space-md) var(--space-md);
 }
 
-.grid--steps .pp-step-number {
+.grid--steps .grid__step-number {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2629,7 +2637,7 @@
 }
 
 @media (max-width: 767px) {
-  .grid--steps .pp-step-number {
+  .grid--steps .grid__step-number {
     width: 2.5rem;
     height: 2.5rem;
     font-size: 1.125rem;
@@ -3405,19 +3413,17 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
        premium `background:` SHORTHAND to `background: <color>`, which resets
        background-image to none and CLEARS the gradient that would otherwise MASK the
        slot — the same mechanism #514/#526 used for the hero.
-     - `--cta-button-color` / `--cta-button-shadow: initial` — `initial` IS the
-       guaranteed-invalid value for a custom property, so button2 falls back to its own
-       ink rule above and to the premium bevel instead of the primary's ink/elevation.
-       The ink half is DEFENSIVE today rather than load-bearing: button2's own rules sit
-       at [0,6,0]/[0,7,0] and already outrank every current --cta-button-color consumer
-       (.cta__button:not(...) at [0,4,0], the variant rules at [0,2,0], and the premium
-       `main .btn:not(...)` at [0,4,1]). The shadow half IS load-bearing, since button2
-       has no elevation rule of its own. Both are kept so the isolation holds even if a
-       future rule wires the slots more widely.
-       Consequence, accepted with the fix: flattening the PRIMARY with
-       --cta-button-shadow: none no longer flattens button2 with it. button2 has no
-       elevation slot of its own today; a --cta-button2-shadow slot is the follow-up
-       if a flat pair is wanted.
+     - `--cta-button-color: initial` — `initial` IS the guaranteed-invalid value for a
+       custom property, so button2 falls back to its own ink rule above instead of the
+       primary's ink. This half is DEFENSIVE today rather than load-bearing: button2's own
+       rules sit at [0,6,0]/[0,7,0] and already outrank every current --cta-button-color
+       consumer (.cta__button:not(...) at [0,4,0], the variant rules at [0,2,0], and the
+       premium `main .btn:not(...)` at [0,4,1]). It is kept so the isolation holds even if
+       a future rule wires the slot more widely.
+       The ELEVATION half is load-bearing (button2 has no elevation rule of its own) and
+       is handled by the re-point below — see the --cta-button-shadow comment. Flattening
+       the PRIMARY with --cta-button-shadow: none still does not flatten button2; that is
+       what --cta-button2-shadow is for (issue 581 completed this follow-up).
    Applied to EVERY button2 variant on purpose. The transparent-fill variants DO reach
    --cta-button-* consumers (`.cta__button.btn--outline` and its --secondary/--ghost
    siblings read --cta-button-bg/-color/-border at [0,2,0], and button2 carries the
@@ -3438,7 +3444,18 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   --cta-button-bg: var(--cta-button2-bg);
   --cta-button-hover-bg: var(--cta-button2-hover-bg);
   --cta-button-color: initial;
-  --cta-button-shadow: initial;
+  /* Issue 581 (A-18) — the elevation half, re-pointed rather than hard-invalidated.
+     `initial` killed the primary's leak but left button2 with NO elevation slot of its
+     own, which the comment above recorded as the follow-up. Re-pointing at
+     --cta-button2-shadow uses the identical guaranteed-invalid idiom as
+     --cta-button-bg (#526) and --cta-button-hover-bg (#530) two lines up: UNSET, the
+     var() cannot substitute, so the property is guaranteed-invalid exactly as `initial`
+     was and every downstream var(--cta-button-shadow, <bevel>) still takes its own
+     fallback — byte-identical. SET, button2's elevation enters the premium chain at the
+     position button2's elevation belongs. The isolation stays load-bearing either way:
+     the PRIMARY's inherited --cta-button-shadow still cannot reach button2, so
+     --cta-button-shadow: none flattens the primary only. */
+  --cta-button-shadow: var(--cta-button2-shadow);
 }
 
 /* Full-width: centered block with surface background */
@@ -4530,9 +4547,13 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    Centered: body is constrained to --measure-centered with center-aligned text.
    ========================================================================== */
 
-.section--text-only .section__title {
-  font-size: var(--section-heading-size, var(--pp-band-heading-size));
-}
+/* Issue 581 (A-28) — the `.section--text-only .section__title` font-size rule that used
+   to sit here was deleted. It re-declared the base `.section__title` rule VERBATIM at
+   higher specificity with no comment, so it could only ever resolve to the value the
+   base rule already produced. css-lint pins the equivalence structurally: every
+   font-size declaration on every rule that can match a .section__title routes the same
+   slot to the same fallback, so no specificity ordering can produce a different value
+   and removing one redundant declaration site cannot move a rendered pixel. */
 
 .section--text-only .section__content {
   max-width: var(--section-body-measure, var(--measure-centered));

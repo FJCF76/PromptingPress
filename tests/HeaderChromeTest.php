@@ -431,7 +431,25 @@ class HeaderChromeTest extends TestCase
         foreach (['bg', 'text', 'link_color'] as $prop) {
             $this->assertArrayHasKey($prop, $schema['props'], "nav schema must document the {$prop} prop.");
         }
-        foreach (['--header-bg', '--header-text', '--header-link-color'] as $token) {
+        // Issue 581 — the --header-* properties are CHROME custom properties, rendered
+        // inline from whitelisted site options. They are not design tokens, and listing
+        // them in the same array as --color-bg / --color-text conflated two different
+        // authoring surfaces on the one place an agent reads to learn what it can set.
+        // They now live in their own key; assert BOTH halves, so a "tidy up" that merges
+        // the arrays back together fails here.
+        foreach (['--header-bg', '--header-text', '--header-link-color'] as $property) {
+            $this->assertContains(
+                $property,
+                $schema['styling']['chrome_custom_properties'],
+                "{$property} is a chrome custom property set through a site option."
+            );
+            $this->assertNotContains(
+                $property,
+                $schema['styling']['tokens'],
+                "{$property} is not a design token — keep the two surfaces separate."
+            );
+        }
+        foreach (['--color-bg', '--color-text', '--color-accent'] as $token) {
             $this->assertContains($token, $schema['styling']['tokens']);
         }
     }

@@ -12,8 +12,9 @@
  * @var array $props
  */
 
-$id        = $props['id']        ?? '';
 $location  = $props['location']  ?? 'footer';
+// No `id` read here on purpose (issue 581) — see the matching note in nav.php: the
+// footer is template-owned chrome, declares no `id` prop, and is never passed one.
 $show_logo = !empty($props['show_logo']); // default OFF — opt-in only
 $logo      = $show_logo ? pp_resolve_logo($props) : null; // {type, url, alt, text}
 $blurb     = trim((string) ($props['blurb']     ?? ''));
@@ -95,7 +96,7 @@ $style_attr = pp_chrome_style_attr([
     '--footer-link-color' => ['value' => (string) ($props['link_color'] ?? ''), 'option' => 'pp_footer_link_color'],
 ]);
 ?>
-<footer<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="site-footer" data-pp-component="footer"<?php echo $style_attr; ?>>
+<footer class="site-footer" data-pp-component="footer"<?php echo $style_attr; ?>>
     <div class="container site-footer__inner">
 
         <?php // The three columns (brand · nav · contact) live in one grid track

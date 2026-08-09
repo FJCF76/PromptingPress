@@ -1488,7 +1488,17 @@ class ComponentPropsTest extends TestCase
         return array_merge(['title' => 'Stats', 'items' => [['number' => '40+', 'label' => 'Years']]], $extra);
     }
 
-    public function testFaqSchemaDeclaresAllSevenStyleSlots(): void
+    /**
+     * Both methods below are SUBSET checks over a NAMED slot list: each asserts the slot
+     * exists, carries its declared type, has a `default` key and a non-empty description.
+     * Neither asserts a COUNT. Their old names (…AllSevenStyleSlots / …AllFourStyleSlots)
+     * carried pre-issue-100 numbers and had been wrong for many releases. Deliberately no
+     * replacement count is quoted here: quoting one would re-create exactly the drift that
+     * made the old names wrong. Issue 581 renamed them; the assertions are unchanged,
+     * because they were never broken. Do not "repair" them into count assertions: a count
+     * pin here would fight every legitimate slot addition for no coverage gain.
+     */
+    public function testFaqSchemaDeclaresItsNamedStyleSlots(): void
     {
         $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/faq/schema.json'), true);
         $slots = $schema['styling']['style_slots'];
@@ -1509,7 +1519,7 @@ class ComponentPropsTest extends TestCase
         }
     }
 
-    public function testStatsSchemaDeclaresAllFourStyleSlots(): void
+    public function testStatsSchemaDeclaresItsNamedStyleSlots(): void
     {
         $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/stats/schema.json'), true);
         $slots = $schema['styling']['style_slots'];
@@ -2156,7 +2166,7 @@ class ComponentPropsTest extends TestCase
         $this->assertArrayHasKey('--grid-step-text-color', $slots);
         $this->assertSame('color', $slots['--grid-step-text-color']['type']);
         $this->assertSame('var(--color-bg)', $slots['--grid-step-text-color']['default']);
-        $this->assertTrue($slots['--grid-step-text-color']['item_eligible'], 'The numeral color is consumed on the .pp-step-number child of .grid__item, so it is card-scoped like --grid-step-bg.');
+        $this->assertTrue($slots['--grid-step-text-color']['item_eligible'], 'The numeral color is consumed on the .grid__step-number child of .grid__item, so it is card-scoped like --grid-step-bg.');
     }
 
     // ── Testimonials component (#1) ─────────────────────────────────────

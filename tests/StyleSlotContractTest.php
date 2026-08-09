@@ -329,15 +329,11 @@ class StyleSlotContractTest extends TestCase
      *     can never slip in through a merge unnoticed.
      */
     private const KNOWN_DEAD_SLOT_WAIVERS = [
-        // issue 309 PERMANENT WAIVER — grid link hover (decision-flagged group 1).
-        // Base .grid__item-link { color: var(--grid-item-link-color, ...) } is the resting
-        // color; .grid__item-link:hover { color: var(--color-accent-hover) } is the
-        // hover state, which MUST visually override the slotted resting value.
-        // Routing the hover through the slot would make hover render identical to
-        // rest whenever an author sets --grid-item-link-color, destroying the hover
-        // feedback — the exact "hover state that must override the slot" case the
-        // decision names as a permanent exception.
-        '--grid-item-link-color|.grid__item-link|color'                       => 1,
+        // issue 309's grid-link hover waiver RETIRED in issue 581 (A-18). The waiver
+        // existed because routing the hover through the REST slot would have flattened
+        // hover onto rest. Declaring the positional twin --grid-item-link-hover-color and
+        // routing the hover through THAT solves it without that side effect, so the pair
+        // no longer offends and the entry is gone (ledger is shrink-only).
         // issue 309 PERMANENT WAIVER — testimonials --stack variant resets
         // (decision-flagged group 2). The .testimonials--stack variant is a
         // card-LESS presentation by design (components.css: "single centered column,
@@ -429,9 +425,9 @@ class StyleSlotContractTest extends TestCase
      */
     public function testWaiverLedgerOnlyShrinks(): void
     {
-        $this->assertSame(8, count(self::KNOWN_DEAD_SLOT_WAIVERS),
-            'The waiver ledger changed size. Fixes shrink it (update this pin in the same change); new dead slots are fixed or get their own issue — never silently waived. The 8 entries are the two decision-flagged permanent-waiver groups (grid-link hover + testimonials --stack resets) plus the two issue 609 hero spacing/padding pairs, waived pending that issue.');
-        $this->assertSame(19, array_sum(self::KNOWN_DEAD_SLOT_WAIVERS),
+        $this->assertSame(7, count(self::KNOWN_DEAD_SLOT_WAIVERS),
+            'The waiver ledger changed size. Fixes shrink it (update this pin in the same change); new dead slots are fixed or get their own issue — never silently waived. The 7 entries are the testimonials --stack reset group (the grid-link hover waiver retired in issue 581, when --grid-item-link-hover-color gave the hover its own slot) plus the two issue 609 hero spacing/padding pairs, waived pending that issue.');
+        $this->assertSame(18, array_sum(self::KNOWN_DEAD_SLOT_WAIVERS),
             'Total waived bypass declarations changed. Update this pin in the same change as the ledger edit it reflects.');
     }
 
@@ -1001,9 +997,14 @@ class StyleSlotContractTest extends TestCase
             'The isolation rule must reset --cta-button-color on button2 (issue 474).'
         );
         $this->assertMatchesRegularExpression(
-            '/--cta-button-shadow:\s*initial\s*;/',
+            '/--cta-button-shadow:\s*var\(--cta-button2-shadow\)\s*;/',
             $isolation,
-            'The isolation rule must reset --cta-button-shadow on button2 (issue 474).'
+            'The isolation rule must re-point --cta-button-shadow at --cta-button2-shadow '
+            . '(issue 581, completing the follow-up issue 474 recorded in this rule\'s own '
+            . 'comment). Plain `initial` still kills the primary leak, but it leaves button2 '
+            . 'with no elevation slot of its own, so --cta-button2-shadow would be a declared '
+            . 'slot that renders nothing. Both forms are guaranteed-invalid when unset, so '
+            . 'unset output is identical either way — only the SET path differs.'
         );
         // Issue 530: the SAME re-pointing on the hover surface. Without it the premium hover
         // `background:` shorthand masks --cta-button2-hover-bg (a filled button2 flashes back
@@ -2445,7 +2446,10 @@ class StyleSlotContractTest extends TestCase
     /** Component root class selectors (`.nav`, `.grid`, …). */
     private static function styledComponentRoots(): array
     {
-        return ['.nav', '.hero', '.section', '.faq', '.grid', '.table', '.cta', '.footer', '.stats', '.logos', '.embed', '.testimonials'];
+        // '.site-footer' (issue 581): the footer's RENDERED root class is .site-footer, not
+        // .footer — a '.footer' entry matched nothing, so footer rules were invisible to the
+        // first-component-rule scan that uses this list.
+        return ['.nav', '.hero', '.section', '.faq', '.grid', '.table', '.cta', '.site-footer', '.stats', '.logos', '.embed', '.testimonials'];
     }
 
     /**
@@ -2486,7 +2490,9 @@ class StyleSlotContractTest extends TestCase
         // the second button is deadened: its own author-facing slots are --cta-button2-*,
         // none of which is declared here. --cta-button-bg is re-pointed at
         // --cta-button2-bg (routing the button2 fill into the premium gradient-clearing
-        // chain); the other two are reset to the guaranteed-invalid `initial`.
+        // chain), and issue 581 re-pointed --cta-button-shadow at --cta-button2-shadow the
+        // same way, so button2 finally has an elevation slot of its own. Only
+        // --cta-button-color is still a bare guaranteed-invalid `initial`.
         '.cta .cta__buttons .cta__button--secondary declares --cta-button-bg',
         '.cta .cta__buttons .cta__button--secondary declares --cta-button-color',
         '.cta .cta__buttons .cta__button--secondary declares --cta-button-shadow',

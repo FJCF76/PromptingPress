@@ -427,7 +427,7 @@ test.describe('Safe-surface rendered proof', () => {
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    const numeral = (i: number) => page.locator('.grid__item').nth(i).locator('.pp-step-number');
+    const numeral = (i: number) => page.locator('.grid__item').nth(i).locator('.grid__step-number');
     const numeralColor = (i: number) =>
       numeral(i).evaluate((el) => getComputedStyle(el).color);
     const numeralFill = (i: number) =>
@@ -436,7 +436,7 @@ test.describe('Safe-surface rendered proof', () => {
     for (const width of [1280, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('.pp-step-number')).toHaveCount(3, { timeout: 10000 });
+      await expect(page.locator('.grid__step-number')).toHaveCount(3, { timeout: 10000 });
 
       // The set slot reaches the numeral at BOTH breakpoints — the issue's case.
       expect(await numeralColor(0)).toBe('rgb(16, 16, 16)'); // ink numeral

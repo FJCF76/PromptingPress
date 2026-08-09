@@ -334,18 +334,42 @@ describe('CSS lint: style slot fallback patterns', () => {
         });
     });
 
-    test('hero/section/grid/cta schemas declare 172 style slots (subset of the total)', () => {
+    test('hero/section/grid/cta schemas declare 174 style slots (subset of the total)', () => {
         // 166 -> 172 (#584): +1 hero heading rhythm, +2 hero primary ring slots,
         // +2 section panel-CTA ring slots, +1 cta heading rhythm.
-        expect(allSlots.length).toBe(172);
+        // 172 -> 174 (#581): the two state twins — grid's --grid-item-link-hover-color
+        // and cta's --cta-button2-shadow.
+        expect(allSlots.length).toBe(174);
     });
 
     allSlots.forEach(({ component, slotName }) => {
-        test(`${slotName} has var(${slotName}, ...) fallback in components.css`, () => {
-            // Look for var(--slot-name, at least once in the CSS.
-            // The slot name appears inside a var() with a comma (indicating a fallback).
-            const pattern = new RegExp(`var\\(${slotName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')},`);
-            expect(stripped).toMatch(pattern);
+        test(`${slotName} is consumed with a fallback (or as a guaranteed-invalid re-point) in components.css`, () => {
+            const escaped = slotName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            // The ordinary contract: var(--slot, <fallback>) — the comma is what keeps
+            // unset output byte-identical.
+            const withFallback = new RegExp(`var\\(${escaped},`);
+            // The nested-button isolation idiom (#526 / #530 / #581) is the ONE other way
+            // a slot legitimately reaches the cascade with no comma of its own:
+            //     --other-slot: var(--this-slot);
+            // A var() that cannot substitute makes the DECLARED property guaranteed-invalid,
+            // so with this slot unset every downstream var(--other-slot, <fallback>) takes
+            // ITS fallback. Unset output is preserved by the mechanism rather than by a
+            // local comma — a stronger guarantee, not a weaker one, because it also stops
+            // the outer slot inheriting down onto the nested button. The OUTER property must
+            // itself be a DECLARED slot, not any custom property: `--anything: var(--x);` on
+            // a name no rule ever reads would otherwise satisfy this pin and let a genuinely
+            // dead slot through the very check that exists to catch dead slots. Constraining
+            // it to the declared set makes the guarantee real, because the outer slot's own
+            // case in this same loop independently proves IT is consumed with a fallback.
+            const declaredNames = allSlots
+                .map(s => s.slotName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+                .join('|');
+            const asRepoint = new RegExp(`(?:${declaredNames}):\\s*var\\(${escaped}\\)\\s*;`);
+            expect(
+                withFallback.test(stripped) || asRepoint.test(stripped),
+                `${slotName} is declared by ${component}/schema.json but components.css never ` +
+                `consumes it as var(${slotName}, <fallback>) nor re-points another slot at it.`
+            ).toBe(true);
         });
     });
 });
@@ -889,7 +913,7 @@ describe('CSS lint: primary-button background-color routes through --cta-button-
 
 describe('CSS lint: grid--steps only declared inside the COMPONENT: grid block (#56)', () => {
     // Regression guard: before #56, `.grid--steps .grid__item` and
-    // `.grid--steps .pp-step-number` were each declared a SECOND time,
+    // `.grid--steps .grid__step-number` were each declared a SECOND time,
     // scattered elsewhere in the file as undocumented, unscoped "rescue"
     // overrides with raw rgba magic-number colors — one of which set
     // `overflow: hidden` and silently clipped the arrow connector. The
@@ -903,7 +927,7 @@ describe('CSS lint: grid--steps only declared inside the COMPONENT: grid block (
     const blockMatch = COMPONENTS_CSS.match(/COMPONENT:\s*grid\b([\s\S]*?)(?=\/\*\s*={5,}[\s\S]*?COMPONENT:|$)/);
     const gridBlock = stripComments(blockMatch ? blockMatch[1] : '');
 
-    test.each(['.grid--steps .grid__item', '.grid--steps .pp-step-number'])(
+    test.each(['.grid--steps .grid__item', '.grid--steps .grid__step-number'])(
         '%s is never declared outside the COMPONENT: grid block',
         (selector) => {
             const pattern = new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{', 'g');
@@ -933,7 +957,7 @@ describe('CSS lint: grid steps numeral color routes through --grid-step-text-col
         let m;
         while ((m = ruleRe.exec(stripped)) !== null) {
             const sel = m[1].replace(/\s+/g, ' ').trim();
-            if (/\.grid--steps\s+\.pp-step-number$/.test(sel)) out.push({ sel, body: m[2] });
+            if (/\.grid--steps\s+\.grid__step-number$/.test(sel)) out.push({ sel, body: m[2] });
         }
         return out;
     }
@@ -974,15 +998,15 @@ describe('CSS lint: grid steps numeral color routes through --grid-step-text-col
             const rr = /([^{}]+)\{([^{}]*)\}/g;
             let mm; const out = [];
             while ((mm = rr.exec(fixture)) !== null) {
-                if (!/\.grid--steps\s+\.pp-step-number\s*$/.test(mm[1].replace(/\s+/g, ' ').trim())) continue;
+                if (!/\.grid--steps\s+\.grid__step-number\s*$/.test(mm[1].replace(/\s+/g, ' ').trim())) continue;
                 (mm[2].match(/(?<![-a-z])color\s*:[^;}]+/gi) || []).forEach((d) => {
                     if (!/color\s*:\s*var\(\s*--grid-step-text-color\b/.test(d.trim())) out.push(d);
                 });
             }
             return out;
         };
-        expect(scan('.grid--steps .pp-step-number { color: var(--color-bg); }').length).toBe(1);
-        expect(scan('.grid--steps .pp-step-number { color: var(--grid-step-text-color, var(--color-bg)); }').length).toBe(0);
+        expect(scan('.grid--steps .grid__step-number { color: var(--color-bg); }').length).toBe(1);
+        expect(scan('.grid--steps .grid__step-number { color: var(--grid-step-text-color, var(--color-bg)); }').length).toBe(0);
     });
 });
 
@@ -1075,6 +1099,12 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
         { el: '.section__title', slot: '--section-heading-color', themeVar: '--pp-section-title-theme-color', desktop: true },
         { el: '.section__content', slot: '--section-body-color', themeVar: '--pp-section-text-theme-color', desktop: true },
         { el: '.cta__body', slot: '--cta-body-color', themeVar: '--pp-cta-body-theme-color', desktop: true },
+        // faq (issue 581): it implements the identical three-tier chain — the base and the
+        // >=768px premium rule both read
+        // var(--faq-heading-color, var(--pp-faq-heading-theme-color, var(--color-text)))
+        // with the plumbing declared on .faq--inverted — but it was never listed here, so
+        // the one mechanism most likely to regress was the one nothing pinned.
+        { el: '.faq__heading', slot: '--faq-heading-color', themeVar: '--pp-faq-heading-theme-color', desktop: true },
     ];
 
     // Theme-variant rules (`.grid--inverted .grid__heading`) and page-specific ID
@@ -1177,6 +1207,7 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
         { variant: '.cta--inverted', vars: ['--pp-cta-body-theme-color'] },
         { variant: '.section--has-bg-image', vars: ['--pp-section-title-theme-color', '--pp-section-text-theme-color'] },
         { variant: '.cta--has-bg-image', vars: ['--pp-cta-body-theme-color'] },
+        { variant: '.faq--inverted', vars: ['--pp-faq-heading-theme-color'] },
     ];
 
     VARIANT_DECLARES.forEach(({ variant, vars }) => {
@@ -2693,7 +2724,11 @@ describe('CSS lint: band-level headings share one responsive scale (#436)', () =
     // premium rule ([0,2,1]); both must route the slot to the shared scale, so a
     // multi-selector entry pins every declaration site.
     const BAND_HEADINGS = [
-        { selectors: ['.section__title', '.section--text-only .section__title', 'main > .section .section__title'], slot: '--section-heading-size' },
+        // '.section--text-only .section__title' was DELETED in issue 581 (A-28): it
+        // re-declared the base rule verbatim at higher specificity. The equivalence that
+        // made the deletion safe is pinned structurally by
+        // 'every .section__title font-size declaration is the same declaration' below.
+        { selectors: ['.section__title', 'main > .section .section__title'], slot: '--section-heading-size' },
         { selectors: ['.grid__heading', 'main > .grid .grid__heading'], slot: '--grid-heading-size' },
         { selectors: ['.cta__title'], slot: '--cta-heading-size' },
         { selectors: ['.faq__heading', 'main > .faq .faq__heading'], slot: '--faq-heading-size' },
@@ -2802,6 +2837,124 @@ describe('CSS lint: schema styling.tokens resolve to a consumed var (#438)', () 
 });
 
 /**
+ * Schema/token OWNERSHIP pin (#581). The #438 scan above proves a listed token is
+ * consumed SOMEWHERE in the theme; it cannot tell whether the COMPONENT THAT LISTS IT
+ * can ever reach that consumption. That gap shipped a real falsehood: #438's rationale
+ * for the whole-theme scan was that logos legitimately listed --space-2xl/--space-3xl
+ * because the shared `[data-pp-spacing]` rules consumed them — but those rules were
+ * later narrowed to `.hero[data-pp-spacing=…]`, and only hero.php emits the attribute.
+ * Ten schemas were left advertising spacing tokens no rule of theirs could read.
+ *
+ * The expectation is DERIVED FROM THE SCHEMA ITSELF, never a second hand-maintained
+ * list: a component owns a selector when any class in it belongs to one of that
+ * component's own BEM blocks, and the block set comes from `component` + `root_class`
+ * + the blocks of the template-verified `variant_classes`.
+ *
+ * Blocks are compared as CLASS TOKENS, split on the BEM separators — not as substrings.
+ * Substring matching is the trap here: `.section__grid` contains "grid" but belongs to
+ * section, and `.grid__item-body` contains "item" but belongs to grid. Tokenizing first
+ * is what keeps this a real ownership test instead of a spelling coincidence.
+ */
+describe('CSS lint: schema styling.tokens are reachable BY THE COMPONENT THAT LISTS THEM (#581)', () => {
+    // The BEM block a class token belongs to: everything before the first `__` or `--`.
+    const blockOf = (cls) => cls.split(/__|--/)[0];
+
+    const classesIn = (selector) =>
+        (selector.match(/\.([A-Za-z][\w-]*)/g) || []).map(c => c.slice(1));
+
+    const componentsDir = path.resolve(__dirname, '../../components');
+    const components = fs.readdirSync(componentsDir, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => d.name)
+        .filter(name => fs.existsSync(path.join(componentsDir, name, 'schema.json')))
+        .map(name => {
+            const schema = JSON.parse(fs.readFileSync(path.join(componentsDir, name, 'schema.json'), 'utf-8'));
+            const styling = schema.styling || {};
+            const blocks = new Set([name, styling.root_class || name]);
+            (styling.variant_classes || []).forEach(v => blocks.add(blockOf(v)));
+            return { name, blocks, tokens: styling.tokens || [] };
+        });
+
+    const rules = parseRules();
+
+    // Fail-closed floor: if schema discovery or the rule parser breaks, the per-token
+    // loop would pass vacuously over an empty list.
+    test('discovery finds components, tokens and parsed rules', () => {
+        expect(components.length).toBeGreaterThanOrEqual(10);
+        expect(components.reduce((n, c) => n + c.tokens.length, 0)).toBeGreaterThanOrEqual(10);
+        expect(rules.length).toBeGreaterThan(200);
+    });
+
+    const cases = components.flatMap(c => c.tokens.map(token => ({ component: c.name, token })));
+
+    test.each(cases)('$component can actually reach the $token it lists', ({ component, token }) => {
+        const { blocks } = components.find(c => c.name === component);
+        const consumes = new RegExp('var\\(\\s*' + token.replace(/[-]/g, '\\$&') + '\\s*[,)]');
+        const owned = rules.filter(r =>
+            consumes.test(r.body) &&
+            r.selectors.some(sel => classesIn(sel).some(cls => blocks.has(blockOf(cls))))
+        );
+        expect(
+            owned.length,
+            `${component}/schema.json lists ${token}, but no rule in components.css that ` +
+            `${component} can match consumes it. Either the schema advertises a styling ` +
+            `surface the component cannot reach (remove the token), or a rule that used to ` +
+            `serve this component was narrowed to another one (restore the routing).`
+        ).toBeGreaterThanOrEqual(1);
+    });
+
+    // Detection proof: the exact defect this pin exists to catch must FAIL, and a
+    // genuinely-owned token must PASS, so a parser or tokenizer regression cannot make
+    // the scan vacuous.
+    test('detector rejects a token only another component consumes, and accepts an owned one', () => {
+        const blocks = new Set(['logos']);
+        const owns = (selector) => classesIn(selector).some(cls => blocks.has(blockOf(cls)));
+        // The real #581 defect: logos listed a token only a hero rule reads.
+        expect(owns('main > .hero[data-pp-spacing="spacious"]')).toBe(false);
+        // The substring trap: `.section__grid` must not read as the grid component.
+        expect(new Set(['grid']).has(blockOf(classesIn('.section__grid')[0]))).toBe(false);
+        expect(owns('.logos--inverted .logos__heading')).toBe(true);
+    });
+});
+
+/**
+ * Structural proof for the #581 (A-28) deletion of
+ * `.section--text-only .section__title { font-size: … }`.
+ *
+ * That rule re-declared the base `.section__title` rule VERBATIM at higher specificity
+ * with no comment. Deleting a HIGHER-specificity rule is the kind of change that
+ * usually needs a rendered check, so the byte-identity claim is proven here instead of
+ * asserted: if EVERY font-size declaration that can land on a `.section__title` is the
+ * SAME declaration, then no specificity ordering and no source order can resolve to a
+ * different value, and removing one redundant declaration site cannot move a pixel.
+ *
+ * This also guards the future: re-introducing a `.section__title` font-size that
+ * differs from the shared routing fails here, which is exactly when a duplicate would
+ * stop being redundant.
+ */
+describe('CSS lint: every .section__title font-size is the same declaration (#581)', () => {
+    const titleRules = rulesMatching('.section__title');
+
+    test('the base .section__title rule still declares a font-size', () => {
+        const base = titleRules.filter(r =>
+            r.media === null && r.selectors.some(s => s === '.section__title')
+        );
+        expect(base.length, 'the base .section__title rule vanished').toBeGreaterThanOrEqual(1);
+        expect(base.some(r => /font-size\s*:/.test(r.body))).toBe(true);
+    });
+
+    test('all of them route the slot to the shared scale, with no second value', () => {
+        const decls = titleRules
+            .flatMap(r => r.body.match(/font-size\s*:[^;}]+/g) || [])
+            .map(d => d.replace(/\s+/g, ' ').trim());
+        expect(decls.length, 'no .section__title font-size found at all').toBeGreaterThanOrEqual(1);
+        expect([...new Set(decls)]).toEqual([
+            'font-size: var(--section-heading-size, var(--pp-band-heading-size))',
+        ]);
+    });
+});
+
+/**
  * Band heading-color slot routing pin (#438). table/logos/embed gained a
  * --<comp>-heading-color slot. The keystone StyleSlotContractTest only proves the
  * slot is consumed SOMEWHERE in the component block (satisfied by the base rule),
@@ -2844,6 +2997,17 @@ describe('CSS lint: band heading-color slots route through the slot (#438)', () 
         { selector: '.embed__heading', slot: '--embed-heading-color', fallback: '--color-text' },
         { selector: '.logos--inverted .logos__heading', slot: '--logos-heading-color', fallback: '--color-bg' },
         { selector: '.embed--inverted .embed__heading', slot: '--embed-heading-color', fallback: '--color-bg' },
+        // Widened in issue 581 (A-29). The original list named only the three components
+        // issue 438 had just given a heading-color slot; every OTHER band heading whose
+        // inverted rule is not already covered by the #222 theme-variant guard above was
+        // left unpinned. stats and testimonials carry the same base + inverted pair, and
+        // faq's inverted rule sits outside the three-tier chain the #222 guard checks.
+        // section / grid / cta need no entry here: the #222 THEMED list covers them.
+        { selector: '.stats__heading', slot: '--stats-heading-color', fallback: '--color-text' },
+        { selector: '.stats--inverted .stats__heading', slot: '--stats-heading-color', fallback: '--color-bg' },
+        { selector: '.testimonials__heading', slot: '--testimonials-heading-color', fallback: '--color-text' },
+        { selector: '.testimonials--inverted .testimonials__heading', slot: '--testimonials-heading-color', fallback: '--color-bg' },
+        { selector: '.faq--inverted .faq__heading', slot: '--faq-heading-color', fallback: '--color-bg' },
     ];
 
     test.each(HEADING_COLOR_RULES)('$selector routes color through $slot to var($fallback)', ({ selector, slot, fallback }) => {
