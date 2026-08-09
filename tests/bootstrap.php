@@ -415,8 +415,28 @@ if (!function_exists('get_nav_menu_locations')) {
 }
 
 if (!function_exists('has_nav_menu')) {
+    /**
+     * Mirrors WordPress core's has_nav_menu() on the two points that are
+     * load-bearing for chrome readiness (#582):
+     *
+     *   1. REGISTRATION IS REQUIRED. Core returns false for a location the theme
+     *      never registered, whatever get_nav_menu_locations() says. The
+     *      conditional readiness loop (pp_check_nav_readiness) relies on this to
+     *      justify having no "unregistered" branch of its own; an isset()-only
+     *      stub silently granted that branch's absence for free.
+     *   2. `!empty`, NOT `isset`. Core treats menu id 0 as UNASSIGNED — which is
+     *      exactly what wp_delete_nav_menu() writes when an assigned menu is
+     *      deleted, and what the Customizer writes on "— Select —". An isset()
+     *      stub read that as assigned, so a deleted menu would have looked like
+     *      an assigned-but-empty one and fired a row real WordPress never fires.
+     */
     function has_nav_menu(string $location): bool {
-        return isset($GLOBALS['_pp_test_store']['nav_menu_locations'][$location]);
+        $registered = get_registered_nav_menus();
+        if (!isset($registered[$location])) {
+            return false;
+        }
+        $locations = $GLOBALS['_pp_test_store']['nav_menu_locations'] ?? [];
+        return !empty($locations[$location]);
     }
 }
 

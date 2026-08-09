@@ -598,4 +598,349 @@ class LogoTest extends TestCase
             'footer logo max-height must match the nav logo cap (issue 299 direction)'
         );
     }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  issue 582 — pp_logo_alt is WIRED
+    //
+    //  pp_logo_alt was whitelisted in v0.16.0 and documented on three surfaces
+    //  as THE logo alt surface, but nothing read it: templates/base.php never
+    //  passed `logo_alt`, pp_resolve_logo() only reads $props['logo_alt'], and
+    //  no get_option('pp_logo_alt') existed anywhere. A write succeeded and
+    //  changed nothing rendered. base.php is now that consumer.
+    //
+    //  This is NOT an accessibility fix. The alt was never empty — it falls
+    //  back to the attachment's own alt and then the site title. What was
+    //  missing is a per-site alt override DISTINCT from the attachment's alt.
+    //
+    //  Byte-identity: a site that never set pp_logo_alt renders exactly as
+    //  before, which is what the "unset" pins below exist to prove.
+    // ══════════════════════════════════════════════════════════════════════
+
+    private function renderNav(array $props): string
+    {
+        ob_start();
+        pp_get_component('nav', $props);
+        return ob_get_clean();
+    }
+
+    /** The props base.php passes today, resolved live so a drop here fails loudly. */
+    private function navPropsFromBaseTemplate(): array
+    {
+        return [
+            'location'   => 'primary',
+            'bg'         => (string) get_option('pp_header_bg', ''),
+            'text'       => (string) get_option('pp_header_text', ''),
+            'link_color' => (string) get_option('pp_header_link_color', ''),
+            'logo_alt'   => (string) get_option('pp_logo_alt', ''),
+        ];
+    }
+
+    private function footerPropsFromBaseTemplate(): array
+    {
+        return [
+            'location'  => 'footer',
+            'show_logo' => get_option('pp_footer_show_logo', '') === '1',
+            'logo_id'   => (string) get_option('pp_footer_logo_id', ''),
+            'logo_alt'  => (string) get_option('pp_logo_alt', ''),
+        ];
+    }
+
+    // ── The wiring itself ───────────────────────────────────────────────────
+
+    public function testBaseTemplatePassesLogoAltToBothChromeComponents(): void
+    {
+        $base = file_get_contents(dirname(__DIR__) . '/templates/base.php');
+        $this->assertNotFalse($base, 'templates/base.php must be readable.');
+
+        // Strip comments first: a commented-out example must never satisfy this.
+        $code = preg_replace('~//[^\n]*|/\*.*?\*/~s', '', $base);
+
+        // Anchor the assertion PER COMPONENT. A file-wide count of 2 is satisfied by
+        // the nav call carrying the key twice while the footer carries it zero times —
+        // a plausible bad merge that would silently drop the footer's alt override on
+        // every install.
+        foreach (['nav', 'footer'] as $component) {
+            $this->assertSame(
+                1,
+                preg_match(
+                    "/pp_get_component\(\s*'{$component}'\s*,\s*\[(.*?)\n\]\)/s",
+                    $code,
+                    $m
+                ),
+                "templates/base.php must contain exactly one pp_get_component('{$component}', [...]) call."
+            );
+            $this->assertSame(
+                1,
+                preg_match_all("/'logo_alt'\s*=>\s*\(string\)\s*get_option\(\s*'pp_logo_alt'/", $m[1]),
+                "templates/base.php must pass pp_logo_alt as the {$component}'s logo_alt prop "
+                . 'exactly once. Without a consumer, the whitelisted option is documented on '
+                . 'three surfaces and does nothing.'
+            );
+        }
+    }
+
+    public function testLogoAltWiringKeepsLocationAsTheFirstKeyOfEachChromeCall(): void
+    {
+        // The NavReadinessTest drift guard derives pp_template_owned_menu_locations()
+        // from the FIRST 'location' => key of each pp_get_component() call. Adding
+        // logo_alt ABOVE 'location' would silently break that guard's regex rather
+        // than fail it, so pin the ordering here where the new key was added.
+        $base = file_get_contents(dirname(__DIR__) . '/templates/base.php');
+        $code = preg_replace('~//[^\n]*|/\*.*?\*/~s', '', $base);
+
+        preg_match_all("/pp_get_component\(\s*'[a-z0-9_-]+'\s*,\s*\[\s*'([a-z0-9_]+)'/i", $code, $m);
+        $this->assertSame(
+            ['location', 'location'],
+            $m[1],
+            "Every chrome pp_get_component() call in base.php must open with 'location'."
+        );
+    }
+
+    // ── AUTHORING PATH: the real write surface, not a raw option poke ────────
+
+    public function testAltWrittenThroughTheRealSiteOptionActionReachesTheRenderedImage(): void
+    {
+        // Section 14.1: exercise the authoring contract, not a raw store write.
+        // pp_update_site_option is what the update_site_option action calls, so
+        // this proves validation accepts the value AND that it renders.
+        $this->seedAttachment(41, 'https://example.com/brand.png', 'Attachment Alt');
+        $this->assertTrue(pp_update_site_option('pp_logo_id', '41'));
+        $this->assertTrue(pp_update_site_option('pp_logo_alt', 'NeoCompute'));
+
+        $html = $this->renderNav($this->navPropsFromBaseTemplate());
+        $this->assertStringContainsString('alt="NeoCompute"', $html);
+        $this->assertStringNotContainsString('alt="Attachment Alt"', $html);
+    }
+
+    public function testHostileAltFromTheAuthoringSurfaceStaysEscapedInBothChromeComponents(): void
+    {
+        // #582 turns pp_logo_alt into the first AI-writable site option that reaches
+        // rendered HTML. Its 'string' type is pass-through — pp_validate_site_option_value
+        // has no 'string' branch — so the stored bytes are whatever was written, and
+        // esc_attr() at the two sinks is the ONLY thing standing between the option and
+        // the markup. Pin it: a future template edit that interpolates $logo['alt']
+        // without esc_attr would otherwise ship green.
+        $hostile = '" onerror=alert(1) x="';
+        $this->seedAttachment(50, 'https://example.com/brand.png', 'Attachment Alt');
+        $this->assertTrue(pp_update_site_option('pp_logo_id', '50'));
+        $this->assertTrue(pp_update_site_option('pp_logo_alt', $hostile));
+        update_option('pp_footer_show_logo', '1');
+
+        foreach ([
+            'nav'    => $this->renderNav($this->navPropsFromBaseTemplate()),
+            'footer' => $this->renderFooter($this->footerPropsFromBaseTemplate()),
+        ] as $component => $html) {
+            // The payload text survives inside the attribute VALUE, harmlessly — what
+            // must not survive is the raw double quote that would close the attribute
+            // and start a new one. Assert on the quote-break, not on the words.
+            $this->assertStringNotContainsString(
+                $hostile,
+                $html,
+                "The {$component} logo alt must never reach the markup with its quotes intact."
+            );
+            $this->assertStringContainsString(
+                'alt="' . esc_attr($hostile) . '"',
+                $html,
+                "The {$component} logo alt must be entity-encoded by esc_attr()."
+            );
+        }
+    }
+
+    // ── Set: the option value IS the rendered alt ───────────────────────────
+
+    public function testNavAltUsesTheOptionWhenSet(): void
+    {
+        $this->seedAttachment(42, 'https://example.com/brand.png', 'Attachment Alt');
+        update_option('pp_logo_id', '42');
+        update_option('pp_logo_alt', 'Acme brand mark');
+
+        $html = $this->renderNav($this->navPropsFromBaseTemplate());
+        $this->assertStringContainsString('alt="Acme brand mark"', $html);
+    }
+
+    public function testFooterAltUsesTheSameOptionWhenSet(): void
+    {
+        $this->seedAttachment(43, 'https://example.com/brand.png', 'Attachment Alt');
+        update_option('pp_logo_id', '43');
+        update_option('pp_footer_show_logo', '1');
+        update_option('pp_logo_alt', 'Acme brand mark');
+
+        $html = $this->renderFooter($this->footerPropsFromBaseTemplate());
+        $this->assertStringContainsString('alt="Acme brand mark"', $html);
+    }
+
+    public function testSiteWideAltAlsoOverridesTheFooterLogoOverridesOwnAlt(): void
+    {
+        // There is deliberately no pp_footer_logo_alt: one site-wide alt serves
+        // both chrome logos. Stated because it is intentional — when the footer
+        // runs a DIFFERENT image via pp_footer_logo_id, a set pp_logo_alt still
+        // wins over that attachment's own alt metadata.
+        $this->seedAttachment(44, 'https://example.com/dark.png',  'Header Attachment Alt');
+        $this->seedAttachment(45, 'https://example.com/light.png', 'Footer Attachment Alt');
+        update_option('pp_logo_id', '44');
+        update_option('pp_footer_logo_id', '45');
+        update_option('pp_footer_show_logo', '1');
+        update_option('pp_logo_alt', 'Acme brand mark');
+
+        $html = $this->renderFooter($this->footerPropsFromBaseTemplate());
+        $this->assertStringContainsString('https://example.com/light.png', $html);
+        $this->assertStringContainsString('alt="Acme brand mark"', $html);
+        $this->assertStringNotContainsString('Footer Attachment Alt', $html);
+    }
+
+    // ── Unset: the existing fallback chain is UNCHANGED ─────────────────────
+
+    public function testUnsetOptionLeavesTheAttachmentAltInPlace(): void
+    {
+        $this->seedAttachment(46, 'https://example.com/brand.png', 'Attachment Alt');
+        update_option('pp_logo_id', '46');
+        // pp_logo_alt deliberately never set — base.php passes ''.
+
+        $html = $this->renderNav($this->navPropsFromBaseTemplate());
+        $this->assertStringContainsString('alt="Attachment Alt"', $html);
+    }
+
+    public function testUnsetOptionAndNoAttachmentAltFallsBackToTheSiteTitle(): void
+    {
+        // pp_site_title() reads get_bloginfo('name'), which the test bootstrap
+        // fixes at 'Test Site'.
+        $this->seedAttachment(47, 'https://example.com/brand.png'); // no alt meta
+        update_option('pp_logo_id', '47');
+
+        $html = $this->renderNav($this->navPropsFromBaseTemplate());
+        $this->assertStringContainsString('alt="' . pp_site_title() . '"', $html);
+    }
+
+    public function testEmptyOptionIsTreatedAsAbsentByTheResolver(): void
+    {
+        // base.php passes '' for an unset option, so the resolver MUST treat ''
+        // exactly like an omitted prop. If it did not, wiring the option would
+        // have emptied the alt on every site on earth.
+        $this->seedAttachment(48, 'https://example.com/brand.png', 'Attachment Alt');
+        $explicitEmpty = pp_resolve_logo(['logo_id' => 48, 'logo_alt' => '']);
+        $omitted       = pp_resolve_logo(['logo_id' => 48]);
+        $this->assertSame($omitted, $explicitEmpty);
+        $this->assertSame('Attachment Alt', $explicitEmpty['alt']);
+    }
+
+    // ── Whitespace-only counts as UNPROVIDED (maintainer ruling, #582) ──────
+
+    public function testWhitespaceOnlyAltDoesNotSuppressTheAttachmentsOwnAlt(): void
+    {
+        // The defect this closes: '   ' is not '', so before the trim it counted as
+        // an authored alt. The logo rendered alt="   " — nothing to a screen reader —
+        // and the attachment's real alt was suppressed, leaving the operator strictly
+        // worse off than never setting the option. pp_logo_alt is a 'string' option
+        // with no validation branch, so the value arrives exactly as written.
+        $this->seedAttachment(52, 'https://example.com/brand.png', 'Real attachment alt');
+        $this->assertTrue(pp_update_site_option('pp_logo_id', '52'));
+        $this->assertTrue(pp_update_site_option('pp_logo_alt', '   '));
+
+        $logo = pp_resolve_logo(['logo_alt' => (string) get_option('pp_logo_alt', '')]);
+        $this->assertSame('Real attachment alt', $logo['alt']);
+
+        $html = $this->renderNav($this->navPropsFromBaseTemplate());
+        $this->assertStringContainsString('alt="Real attachment alt"', $html);
+    }
+
+    public function testWhitespaceOnlyAltFallsAllTheWayToTheSiteTitle(): void
+    {
+        // Same rule with no attachment alt to catch it: the chain continues rather
+        // than stopping on a value that means nothing.
+        $this->seedAttachment(53, 'https://example.com/brand.png'); // no alt meta
+        $logo = pp_resolve_logo(['logo_id' => 53, 'logo_alt' => "\t \n "]);
+        $this->assertSame(pp_site_title(), $logo['alt']);
+
+        // And on the text-wordmark branch.
+        $textBranch = pp_resolve_logo(['logo_alt' => '   ']);
+        $this->assertSame('text', $textBranch['type']);
+        $this->assertSame(pp_site_title(), $textBranch['alt']);
+    }
+
+    public function testWhitespaceOnlyLogoTextAlsoFallsBack(): void
+    {
+        // The far end of the same chain: a whitespace-only wordmark must not become
+        // the alt either, or the guarantee is defeated from the last hop.
+        $logo = pp_resolve_logo(['logo_text' => '   ']);
+        $this->assertSame(pp_site_title(), $logo['text']);
+        $this->assertSame(pp_site_title(), $logo['alt']);
+    }
+
+    public function testTrimDecidesOnlyWhetherAValueCountsNeverRewritesIt(): void
+    {
+        // The stored option is untouched and a real value renders VERBATIM, including
+        // its surrounding spaces. trim() is the provided/not-provided test, not a
+        // sanitizer — pinning this stops a future "tidy up" from trimming the output.
+        $this->seedAttachment(54, 'https://example.com/brand.png', 'Attachment Alt');
+        $this->assertTrue(pp_update_site_option('pp_logo_alt', '  Acme brand mark  '));
+        $this->assertSame('  Acme brand mark  ', get_option('pp_logo_alt'));
+
+        $logo = pp_resolve_logo(['logo_id' => 54, 'logo_alt' => (string) get_option('pp_logo_alt', '')]);
+        $this->assertSame('  Acme brand mark  ', $logo['alt']);
+    }
+
+    // ── The contract: alt is NEVER empty, on either branch ──────────────────
+
+    public function testAltIsNeverEmptyOnTheImageBranch(): void
+    {
+        $this->seedAttachment(49, 'https://example.com/brand.png'); // no alt meta
+        $logo = pp_resolve_logo(['logo_id' => 49, 'logo_alt' => '']);
+        $this->assertSame('image', $logo['type']);
+        $this->assertNotSame('', $logo['alt']);
+        $this->assertSame(pp_site_title(), $logo['alt']);
+    }
+
+    public function testAltIsNeverEmptyOnTheTextWordmarkBranch(): void
+    {
+        // The text branch used `?? $text` alone, which was unreachable while
+        // nothing passed the prop. Wiring base.php made '' reachable there, and
+        // `??` does not catch '' — it would have returned an empty alt. Both
+        // branches now normalize empty-as-absent.
+        $logo = pp_resolve_logo(['logo_alt' => '']);
+        $this->assertSame('text', $logo['type']);
+        $this->assertNotSame('', $logo['alt']);
+        $this->assertSame(pp_site_title(), $logo['alt']);
+
+        // An explicit alt still wins on this branch.
+        $explicit = pp_resolve_logo(['logo_alt' => 'Wordmark alt']);
+        $this->assertSame('Wordmark alt', $explicit['alt']);
+    }
+
+    public function testEmptyLogoTextFallsBackToTheSiteTitleOnBothBranches(): void
+    {
+        // The "alt is never empty" contract has THREE inputs, not two: the terminal
+        // hop is logo_text, and it used `??` alone — so logo_text => '' produced an
+        // empty $text and therefore an empty alt on both branches, defeating the
+        // guarantee from the far end. Normalizing it also makes the long-standing
+        // schema claim "Falls back to pp_site_title() when empty" true; before #582 it
+        // fell back only when the key was ABSENT.
+        $this->seedAttachment(51, 'https://example.com/brand.png'); // no alt meta
+
+        $image = pp_resolve_logo(['logo_id' => 51, 'logo_text' => '', 'logo_alt' => '']);
+        $this->assertSame('image', $image['type']);
+        $this->assertSame(pp_site_title(), $image['alt']);
+        $this->assertSame(pp_site_title(), $image['text']);
+
+        $textBranch = pp_resolve_logo(['logo_text' => '', 'logo_alt' => '']);
+        $this->assertSame('text', $textBranch['type']);
+        $this->assertSame(pp_site_title(), $textBranch['alt']);
+        $this->assertSame(pp_site_title(), $textBranch['text']);
+
+        // A real logo_text still wins.
+        $explicit = pp_resolve_logo(['logo_text' => 'My Brand']);
+        $this->assertSame('My Brand', $explicit['text']);
+        $this->assertSame('My Brand', $explicit['alt']);
+    }
+
+    public function testNoLogoImageMeansTheWordmarkRendersUnaffectedByTheOption(): void
+    {
+        // Setting pp_logo_alt on a site with no logo image changes nothing: the
+        // nav renders the text wordmark, which never carries an alt attribute.
+        update_option('pp_logo_alt', 'Acme brand mark');
+
+        $html = $this->renderNav($this->navPropsFromBaseTemplate());
+        $this->assertStringNotContainsString('nav__logo-image', $html);
+        $this->assertStringNotContainsString('Acme brand mark', $html);
+        $this->assertStringContainsString(pp_site_title(), $html);
+    }
 }

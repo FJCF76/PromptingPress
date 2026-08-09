@@ -222,6 +222,11 @@
   color: var(--color-accent);
 }
 
+/* Cap the header logo the same way the footer caps it (.site-footer__logo-image).
+   The header is template-owned with zero style slots, so a real-world wordmark
+   (e.g. 664x150) would otherwise render near intrinsic size and blow out the
+   64px header row. Literal cap, consistent with the footer treatment.
+   issue 299, issue 582 */
 .nav__logo-image {
   display: block;
   max-height: 2.5rem;
@@ -444,6 +449,19 @@
      would show the dropdown while aria-expanded still read false, and it would
      keep the dropdown visible after Escape (which returns focus to the still-
      inside-the-group toggle). The button owns the keyboard path instead. */
+  /* min-width: 12rem is the dropdown panel's floor width (issue 582). A floating
+     panel cannot size to its content without jittering as the menu changes: add or
+     rename one child and the panel's width jumps under the cursor. 12rem is the
+     width at which a typical menu label does not wrap, so the panel reads as a
+     stable object rather than a reflow. No style slot is available to make it
+     authorable — chrome declares ZERO style slots by ratified contract (issue 223),
+     so a stated reason is the only disposition open to this literal.
+     Note the panel is PARTLY token-reachable already: --header-bg routes its
+     background (with a --color-surface fallback that differs from the mobile
+     panel's --color-bg), --radius its corners. Its box-shadow is a literal, like
+     this width. REOPENING CONDITION for both literals: the chrome model's own
+     boundary moving — i.e. if chrome ever gains style slots, they become slot
+     candidates rather than literals. */
   .nav__menu .sub-menu {
     position: absolute;
     top: 100%;
@@ -3754,6 +3772,15 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   height: 1.25rem;
 }
 
+/* max-width: 32ch is the footer's ONLY measure cap (issue 582). The footer is a
+   tight dark-marketing-footer surface, not a general footer builder: a brand blurb
+   is a short descriptor sitting beside two or three menu columns, not body copy. A
+   `ch` unit keeps it short at ANY type size, because it scales with the font rather
+   than fixing a pixel width the next type-scale change would invalidate. No style
+   slot is available to make it authorable — chrome declares ZERO style slots by
+   ratified contract (issue 223) — so a stated reason is the only disposition open
+   to this literal. REOPENING CONDITION: the chrome model's own boundary moving,
+   i.e. if chrome ever gains style slots this becomes a slot candidate. */
 .site-footer__blurb {
   font-size: 0.9rem;
   max-width: 32ch;

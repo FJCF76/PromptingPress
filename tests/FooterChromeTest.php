@@ -802,10 +802,23 @@ class FooterChromeTest extends TestCase
     //  location; legacy single-menu footers stay byte-identical when unset.
     // ══════════════════════════════════════════════════════════════════════
 
-    /** Assigns a (stub) menu to a theme location so has_nav_menu() reports it present. */
+    /**
+     * Assigns a (stub) menu to a theme location so has_nav_menu() reports it present.
+     *
+     * Registers the location as well as assigning it (#582): the bootstrap's
+     * has_nav_menu() stub now mirrors WordPress core, which returns false for a
+     * location the theme never registered no matter what get_nav_menu_locations()
+     * says. functions.php registers footer_secondary on a real site, so seeding
+     * both is what actually models one.
+     */
     private function assignMenuLocation(string $location, int $menuId = 9): void
     {
-        $GLOBALS['_pp_test_store']['nav_menu_locations'][$location] = $menuId;
+        // Seed from get_registered_nav_menus() first: the stub only falls back to the
+        // primary/footer defaults while the key is ABSENT, so writing straight into it
+        // would silently unregister those two for the rest of the test.
+        $GLOBALS['_pp_test_store']['registered_nav_menus'] ??= get_registered_nav_menus();
+        $GLOBALS['_pp_test_store']['registered_nav_menus'][$location] = $location;
+        $GLOBALS['_pp_test_store']['nav_menu_locations'][$location]   = $menuId;
     }
 
     public function testAllowedSiteOptionsIncludesSecondaryLabel(): void

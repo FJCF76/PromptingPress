@@ -356,4 +356,221 @@ class NavReadinessTest extends TestCase
         $blocking = array_filter($checks, fn($c) => !$c['pass'] && (($c['severity'] ?? 'error') !== 'warning'));
         $this->assertEmpty($blocking, 'A nav warning must not count as a blocking failure.');
     }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  issue 582 — the CONDITIONALLY rendered location (footer_secondary)
+    //
+    //  The footer renders a THIRD menu location, footer_secondary, which paints
+    //  only when a menu is assigned to it. It is deliberately NOT in
+    //  pp_template_owned_menu_locations(): adding it there would emit a row on
+    //  every site that never assigned that menu, which is exactly the noise
+    //  pp_check_nav_readiness()'s docstring rules out by name.
+    //
+    //  So the rule is INVERTED for this list. Only one state is worth a word:
+    //
+    //    no menu assigned  -> nothing   (the intended default)
+    //    assigned + items  -> nothing   (no passing row; the surface is optional)
+    //    assigned + EMPTY  -> ONE warning row (otherwise completely silent)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /** Only the footer_secondary rows, by finding_key (never by message prose). */
+    private function secondaryRows(array $checks): array
+    {
+        return array_values(array_filter(
+            $checks,
+            fn($c) => str_starts_with((string) ($c['finding_key'] ?? ''), 'nav_readiness:footer_secondary:')
+        ));
+    }
+
+    /** Registers footer_secondary the way functions.php does. */
+    private function registerSecondaryLocation(): void
+    {
+        $GLOBALS['_pp_test_store']['registered_nav_menus']['footer_secondary'] = 'Footer Secondary Navigation';
+    }
+
+    public function testNoRowWhenNoMenuIsAssignedToTheConditionalLocation(): void
+    {
+        $this->registerSecondaryLocation();
+        // Registered, never assigned — the overwhelmingly common case.
+
+        $checks = pp_check_nav_readiness();
+        $this->assertSame([], $this->secondaryRows($checks));
+        $this->assertStringNotContainsString(
+            'footer_secondary',
+            implode(' | ', array_column($checks, 'message')),
+            'A site that never assigned the optional second footer menu must carry no row '
+            . 'about it at all — not even a passing one.'
+        );
+    }
+
+    public function testAssignedButEmptyConditionalMenuFiresExactlyOneWarningRow(): void
+    {
+        $this->registerSecondaryLocation();
+        $GLOBALS['_pp_test_store']['nav_menu_locations']['footer_secondary'] = 9;
+        $GLOBALS['_pp_test_store']['nav_menu_items'][9] = []; // assigned, but empty
+
+        $rows = $this->secondaryRows(pp_check_nav_readiness());
+        $this->assertCount(1, $rows);
+
+        $row = $rows[0];
+        $this->assertSame('nav_readiness', $row['check']);
+        $this->assertFalse($row['pass']);
+        $this->assertSame('warning', $row['severity']);
+        $this->assertSame('configuration', $row['class']);
+        $this->assertSame('nav_readiness:footer_secondary:empty_menu', $row['finding_key']);
+        $this->assertTrue($row['acknowledgeable']);
+        $this->assertNotSame('', $row['next_action']);
+        $this->assertStringContainsString('empty', $row['message']);
+    }
+
+    public function testAssignedMenuWithNoResolvableItemsIsTreatedAsEmpty(): void
+    {
+        // wp_get_nav_menu_items() returns false for a menu that cannot resolve.
+        // The conditional check uses the IDENTICAL emptiness test as the
+        // template-owned loop, so the two surfaces cannot drift on what "empty"
+        // means.
+        $this->registerSecondaryLocation();
+        $GLOBALS['_pp_test_store']['nav_menu_locations']['footer_secondary'] = 11;
+        // No nav_menu_items entry for 11 at all -> the stub returns false.
+
+        $rows = $this->secondaryRows(pp_check_nav_readiness());
+        $this->assertCount(1, $rows);
+        $this->assertFalse($rows[0]['pass']);
+    }
+
+    public function testHealthyConditionalMenuReportsNothingAtAll(): void
+    {
+        $this->registerSecondaryLocation();
+        $GLOBALS['_pp_test_store']['nav_menu_locations']['footer_secondary'] = 10;
+        $GLOBALS['_pp_test_store']['nav_menu_items'][10] = [['id' => 1], ['id' => 2]];
+
+        $this->assertSame(
+            [],
+            $this->secondaryRows(pp_check_nav_readiness()),
+            'An optional-by-design surface must not leave a standing passing row on every '
+            . 'site that uses it — the same rule the site-logo check follows.'
+        );
+    }
+
+    public function testConditionalRowIsAdditiveAndLeavesTheTemplateOwnedRowsAlone(): void
+    {
+        $this->registerSecondaryLocation();
+        $GLOBALS['_pp_test_store']['nav_menu_locations'] = ['primary' => 7, 'footer' => 8, 'footer_secondary' => 9];
+        $GLOBALS['_pp_test_store']['nav_menu_items']     = [7 => [['id' => 1]], 8 => [['id' => 2]], 9 => []];
+
+        $rows = pp_check_nav_readiness();
+        // menuRows() drops only the logo row, so subtract the conditional rows too.
+        $templateOwned = array_values(array_filter(
+            $this->menuRows($rows),
+            fn($c) => !str_starts_with((string) ($c['finding_key'] ?? ''), 'nav_readiness:footer_secondary:')
+        ));
+        $this->assertCount(2, $templateOwned, 'The two template-owned rows are unchanged.');
+        foreach ($templateOwned as $row) {
+            $this->assertTrue($row['pass'], 'Both template-owned locations are healthy here.');
+        }
+        $this->assertCount(1, $this->secondaryRows($rows));
+    }
+
+    // ── The three things that must NOT have changed ─────────────────────────
+
+    public function testTemplateOwnedLocationListIsUnchangedByTheConditionalSurface(): void
+    {
+        // The conditional location must never leak into the always-on list: that
+        // is the whole point of keeping two lists.
+        $this->assertSame(['primary', 'footer'], pp_template_owned_menu_locations());
+        $this->assertNotContains('footer_secondary', pp_template_owned_menu_locations());
+    }
+
+    public function testTheTwoLocationListsAreDisjoint(): void
+    {
+        // Both loops build the SAME finding_key string ('nav_readiness:<loc>:empty_menu'),
+        // and acknowledgement keys on that string. A slug appearing in both lists would
+        // emit two rows sharing one key, so acknowledging one would silence the other.
+        // The literal pin above covers this incidentally today; this covers it
+        // structurally, so a future addition to either list cannot reintroduce it.
+        $this->assertSame(
+            [],
+            array_intersect(
+                pp_template_owned_menu_locations(),
+                pp_conditionally_rendered_menu_locations()
+            ),
+            'A location cannot be both always-rendered and conditionally-rendered: the two '
+            . 'loops would emit rows sharing one finding_key, and one acknowledgement would '
+            . 'silence both.'
+        );
+    }
+
+    public function testConditionalRowNextActionNamesRealActions(): void
+    {
+        // The row tells the operator to use set_menu / add_menu_item. If either action
+        // stopped existing (or was renamed), the finding would become an unactionable
+        // standing row telling them to run something that is not there.
+        $this->registerSecondaryLocation();
+        $GLOBALS['_pp_test_store']['nav_menu_locations']['footer_secondary'] = 12;
+        $GLOBALS['_pp_test_store']['nav_menu_items'][12] = [];
+
+        $rows       = $this->secondaryRows(pp_check_nav_readiness());
+        $nextAction = $rows[0]['next_action'];
+        $registered = array_keys(pp_get_registered_actions());
+
+        foreach (['set_menu', 'add_menu_item'] as $action) {
+            $this->assertStringContainsString($action, $nextAction);
+            $this->assertContains(
+                $action,
+                $registered,
+                "next_action names the '{$action}' action, which must actually be registered."
+            );
+        }
+    }
+
+    public function testConditionalLocationListMatchesTheBaseTemplate(): void
+    {
+        // The sibling of testTemplateOwnedLocationsMatchBaseTemplate(). base.php
+        // passes the slug as `secondary_location` — deliberately NOT a 'location'
+        // key, so the template-owned drift guard cannot see it and this pin is
+        // the only thing standing between the two.
+        preg_match_all(
+            "/'secondary_location'\s*=>\s*'([a-z0-9_-]+)'/i",
+            $this->baseTemplateCode(),
+            $matches
+        );
+
+        $this->assertSame(
+            pp_conditionally_rendered_menu_locations(),
+            $matches[1],
+            'pp_conditionally_rendered_menu_locations() has drifted from the '
+            . "`secondary_location` slugs in templates/base.php. Update the function "
+            . '(lib/wp.php) to match the template.'
+        );
+    }
+
+    public function testConditionalLocationIsRegisteredByTheTheme(): void
+    {
+        // A conditional location the theme never registered is unassignable (core's
+        // has_nav_menu() requires registration), so the diagnostic could never fire.
+        // Read functions.php back rather than trusting the test store, which seeds
+        // registrations by hand.
+        //
+        // Comments are STRIPPED first, for the reason baseTemplateCode() documents at
+        // the top of this class: functions.php already discusses footer_secondary in a
+        // comment, so a bare file-wide grep would keep passing after the real
+        // register_nav_menus() entry was deleted. Match inside the registration call.
+        $functions = file_get_contents(__DIR__ . '/../functions.php');
+        $this->assertNotFalse($functions, 'functions.php must be readable.');
+        $code = preg_replace('~//[^\n]*|/\*.*?\*/~s', '', $functions);
+
+        $this->assertSame(
+            1,
+            preg_match('/register_nav_menus\s*\(\s*\[(.*?)\]\s*\)/s', $code, $m),
+            'functions.php must call register_nav_menus() with an array literal.'
+        );
+        foreach (pp_conditionally_rendered_menu_locations() as $loc) {
+            $this->assertStringContainsString(
+                "'{$loc}'",
+                $m[1],
+                "functions.php must register the '{$loc}' menu location inside "
+                . 'register_nav_menus(), not merely mention it.'
+            );
+        }
+    }
 }
