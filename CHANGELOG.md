@@ -4,6 +4,36 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.13] — 2026-08-09 — the documented logo alt option now reaches the page, and chrome says what it can actually be told (#582)
+
+**`pp_logo_alt` has been a whitelisted site option documented on three surfaces as THE logo alt surface, and nothing anywhere read it — a write succeeded and changed nothing rendered. It now reaches both chrome logos. Sites that never set it are byte-identical; sites that set it see the alt they asked for. Everything else here is documentation and diagnostics.**
+
+Reported success must equal rendered effect. An option that validates, stores, reports success, and reaches no consumer is the purest form of the failure this gate exists to remove — and this one shipped inside the documented option table, so an operator had every reason to believe it worked. The dev site has it set to a real value that has silently never rendered. Wiring it honours an instruction that was already given.
+
+This is **not** an accessibility fix, and the framing matters. The alt was never empty: it falls back to the attachment's own alt metadata and then the site title. What was missing is a per-site alt override *distinct from* the attachment's own alt. One behaviour did change beyond the wiring: a whitespace-only value now counts as unprovided and falls through that chain. Before, `"   "` would have counted as an authored alt, rendering a blank alt that announces nothing to a screen reader **and** suppressing the attachment's real alt — leaving the operator worse off than never setting the option. The trim decides only whether a value counts as provided; the stored option is untouched and a real value renders verbatim, surrounding spaces included.
+
+The rest is truthfulness work on the template-owned chrome pair. `nav` and `footer` are rendered once by the theme, never composed, and declare zero style slots — so their schemas and READMEs are the only place anyone can learn what a chrome option actually reaches. Several reached more than their names said, and several props looked writable that no supported surface can write.
+
+### Fixed
+
+- `templates/base.php` passes `pp_logo_alt` into both the nav and the footer, so the option documented on three surfaces does what all three say. The resolution chain is unchanged (explicit alt → the attachment's own alt metadata → the site title), so an unset option renders byte-identically. **Deliberate render change on sites that set it** — the new value is the one they asked for, counted rather than waved through.
+- Empty *and whitespace-only* now mean "unprovided" on every hop of the alt chain, including `logo_text`. The text-wordmark branch of `pp_resolve_logo()` previously used `??` alone, which was unreachable while nothing passed the prop and became reachable the moment it was wired; both branches now normalize identically. The resolved alt is never empty for any site that has a title.
+- A **conditional** readiness row fires when a menu is assigned to the optional `footer_secondary` location and that menu is empty — the one state that was previously silent. Leaving the location unassigned is the intended default and reports nothing, and a healthy menu reports nothing either, so no site that has not opted in gains a standing warning. `pp_template_owned_menu_locations()`, the theme's menu registration, and the drift guard are all unchanged.
+- The bootstrap's `has_nav_menu()` test stub now mirrors WordPress core on the two points that decide the above: registration is required, and menu id `0` reads as unassigned (which is what core writes when an assigned menu is deleted). The stub was strictly more permissive, so chrome-readiness tests were being graded against semantics WordPress does not have.
+
+### Docs
+
+- The nav and footer schemas and READMEs now state what the chrome custom properties actually reach: `--header-bg` also paints the mobile menu panel and the desktop dropdown panel (with two different fallbacks when unset), `--header-link-color` has a resting fallback as well as the documented active one, `--footer-text` also colours the column headings and bottom-bar note, and `--footer-link-color` also colours the contact block's `mailto:`/`tel:` links. Hover is pinned to the global accent on six surfaces and is reachable from none of them — stated plainly, with `update_design_token` named as the only lever.
+- Every unreachable prop on `nav`/`footer` states its template-contract status. `nav`'s `logo_id` no longer describes its image-attachment check as if the prop were writable: a composition naming `nav` is rejected outright, so that check only ever runs on the `pp_logo_id` site option.
+- The two chrome CSS literals that can never become style slots carry a stated reason and a reopening condition at the literal: the footer blurb's `32ch` measure cap and the dropdown panel's `12rem` floor width. `.nav__logo-image`'s height cap gained the rationale its footer twin has carried since #299.
+- `AI_CONTEXT.md`, `lib/ai-context.php` and `ai-instructions/set-logo.md` stop listing the chrome logo as a component prop an agent can set, and describe the alt chain including the whitespace rule. The site-options map and the README chrome paragraph gained the `pp_logo_alt` row they never had.
+
+### Tests
+
+- The authoring path is exercised through `pp_update_site_option`, not raw option writes, and a hostile value is pinned as entity-encoded at both render sinks — `pp_logo_alt` is the first agent-writable site option to reach rendered HTML.
+- Both directions of the conditional readiness row are pinned (assigned-and-empty fires; unassigned and healthy report nothing), along with the unchanged location list, the two lists being disjoint so their shared `finding_key` cannot collide, and the row's `next_action` naming actions that are actually registered.
+- `tests/ChromeAuthoringSurfaceTest.php` guards the disclosures against deletion without pinning their wording, and holds the CSS-truth half of each claim so a disclosure cannot quietly become false.
+
 ## [v1.12.12] — 2026-08-09 — schema defaults, descriptions and token lists now say what actually renders (#581)
 
 **Twenty-five declared `default` values described something that has not rendered for releases. They now state the effective value, `default` has a written-down meaning that ships on the authoring surface itself, and two rest-state controls that had no counterpart got one. Rendered output is unchanged with every slot unset; the two markup changes are inert and named below.**
