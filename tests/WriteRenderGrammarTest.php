@@ -25,7 +25,8 @@
  *   A-27  nested item-field contracts (required + item_type)
  *   A-34  the non-blocking transparent-fill advisory
  *
- * A-32 (universal strict enums + the `aliases` consumer) lives with its neighbours:
+ * A-32 (universal strict enums; its `aliases` consumer was retired in #606) lives
+ * with its neighbours:
  * declaration-side pins in SchemaValidationTest, authoring-path pins in ActionsTest.
  *
  * Two rulings constrain every case below and are asserted, not assumed:

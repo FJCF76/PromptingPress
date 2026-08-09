@@ -270,7 +270,7 @@ function pp_ai_system_prompt(): string {
  * silently miss the prop catalog (or vice versa). A field an agent never sees is
  * not in the baseline — it is a comment in a JSON file.
  *
- * Four fields, four jobs:
+ * Three fields, three jobs:
  *
  *   applies_when         when the declaration does anything at all. Rendered as the
  *                        ANDed clause list so the agent can check the condition
@@ -287,13 +287,13 @@ function pp_ai_system_prompt(): string {
  *                        length" resolves to a measure slot — and the emitted line says
  *                        what a literal there costs, since it opts that band out of a
  *                        later site-wide --measure-* retune.
- *   aliases              legacy VALUES still accepted at write. Phrased as
- *                        "also accepts legacy", never as part of the value set:
- *                        canonical values stay clean and an agent must never read
- *                        this as a value to choose. NOTE: no shipped prop declares
- *                        `aliases` any more — the last declaration, `theme`'s legacy
- *                        `dark`, was removed in #605. The mechanism below still works
- *                        and is exercised by synthetic fixtures only.
+ *
+ * There was a fourth, `aliases`, and it is RETIRED (#606). It disclosed legacy VALUES
+ * a prop still accepted at write, phrased as "also accepts legacy" so an agent would
+ * not read it as a value to choose. Every declaration was retired (#603/#604/#605) and
+ * the schema field went with them, so no catalog line carries an accepted-but-
+ * unadvertised tier any more: what a prop advertises is what it accepts. A definition
+ * that still carries the key emits NOTHING here and fails CI as an unknown key.
  *
  * @param  array $definition  A slot or prop definition object from schema.json.
  * @return string             A leading-space suffix, or '' when nothing is declared.
@@ -301,20 +301,6 @@ function pp_ai_system_prompt(): string {
 function pp_ai_definition_suffix(array $definition): string {
     $bits = [];
 
-    if (!empty($definition['aliases']) && is_array($definition['aliases'])) {
-        // ACCEPTED ON READ, NEVER A VALUE TO CHOOSE. The runtime catalog is always
-        // in context; the instruction files are read on demand. A bare "also accepts
-        // X" would put a deprecated value in front of the agent, adjacent to the
-        // canonical ones, with none of the warning an instruction file carries — so
-        // the do-not-write caveat travels WITH the disclosure, never in a file that
-        // may never be read. NO SHIPPED PROP DECLARES ALIASES since #605 removed the
-        // last one, so this branch is currently reached by synthetic fixtures only.
-        $bits[] = 'still accepts the legacy value'
-            . (count($definition['aliases']) === 1 ? ' ' : 's ')
-            . '"' . implode('", "', $definition['aliases']) . '"'
-            . ' on already-stored pages — never write ' . (count($definition['aliases']) === 1 ? 'it' : 'them')
-            . ' on new content; use the canonical values above';
-    }
     if (($definition['role'] ?? null) === 'fill') {
         $bits[] = 'role: fill (this is the component\'s fill colour)';
     }
@@ -423,7 +409,7 @@ function pp_ai_condense_schema(array $schema): string {
         $is_required = !empty($prop_def['required']) || in_array($prop_name, $top_required, true);
         $marker = $is_required ? '' : '?';
         // The prop list is joined with ', ' and the definition suffix can itself
-        // contain ', ' (a multi-value alias list, an `in` clause). Parenthesize the
+        // contain ', ' (a multi-value `in` clause, a conditionality_note). Parenthesize the
         // suffix — as the slot catalog already does — so the prop boundaries stay
         // unambiguous and an agent can still split the line back into props.
         $suffix = pp_ai_definition_suffix($prop_def);

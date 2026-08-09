@@ -1030,9 +1030,9 @@ class AiContextTest extends TestCase
     //
     // A field an agent never sees is not in the baseline — it is a comment in a
     // JSON file. These pin that every declared definition-surface field reaches the
-    // runtime catalog, and that the one field with a wording trap (`aliases`) is
-    // phrased so an agent reads it as "accepted legacy input", never as a value to
-    // choose.
+    // runtime catalog. The one field that carried a wording trap (`aliases`) is retired
+    // outright (#606), so no catalog line advertises an accepted-but-unadvertised tier
+    // any more — what a prop advertises is what it accepts.
 
     /**
      * #605 — the `theme` catalog line is now exactly the three canonical values,
@@ -1078,10 +1078,21 @@ class AiContextTest extends TestCase
             pp_ai_definition_suffix(['type' => 'color', 'role' => 'fill'])
         );
 
+        // The RETIRED field emits nothing (#606). This is the emitter half of the
+        // retirement: the schema surface rejects the key as unknown
+        // (SchemaValidationTest::testTheRetiredAliasesKeyIsNowAnUnknownDefinitionKey),
+        // and here the branch that used to render it is gone, so even a hand-edited
+        // schema that slips the key past CI cannot put a legacy value in front of an
+        // agent. Not a tolerance: the emitter has always read only keys it knows.
         $this->assertSame(
-            '; still accepts the legacy value "legacy_a" on already-stored pages — '
-            . 'never write it on new content; use the canonical values above',
-            pp_ai_definition_suffix(['type' => 'enum', 'aliases' => ['legacy_a']])
+            '',
+            pp_ai_definition_suffix(['type' => 'enum', 'aliases' => ['legacy_a']]),
+            'a retired `aliases` declaration must produce no catalog line'
+        );
+        $this->assertSame(
+            '; role: fill (this is the component\'s fill colour)',
+            pp_ai_definition_suffix(['type' => 'color', 'role' => 'fill', 'aliases' => ['legacy_a']]),
+            'and it must not contaminate a suffix the definition legitimately earns'
         );
 
         $this->assertSame(
@@ -1128,14 +1139,16 @@ class AiContextTest extends TestCase
     }
 
     /**
-     * The prop list is joined with ', ' and a suffix can contain ', ' (a multi-value
-     * alias list, an `in` clause). Without a delimiter an agent cannot split the
-     * line back into props.
+     * The prop list is joined with ', ' and a suffix can contain ', ' — today a
+     * multi-value `applies_when` `in` clause, which is what this re-fixtured onto when
+     * the `aliases` list it used to use was retired (#606). Without a delimiter an
+     * agent cannot split the line back into props.
      */
     public function testPropSuffixIsParenthesizedSoThePropListStaysSplittable(): void
     {
         $condensed = pp_ai_condense_schema(['props' => [
-            'tone'  => ['type' => 'enum', 'values' => ['a', 'b'], 'aliases' => ['x', 'y'], 'required' => false],
+            'tone'  => ['type' => 'enum', 'values' => ['a', 'b'], 'required' => false,
+                        'applies_when' => [['prop' => 'layout', 'in' => ['x', 'y']]]],
             'title' => ['type' => 'string', 'required' => false],
         ]]);
         $this->assertStringContainsString('tone?: "a"|"b" (', $condensed);

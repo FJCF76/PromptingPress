@@ -189,7 +189,6 @@ function pp_prop_definition_keys(): array {
         'type', 'required', 'default', 'description',
         'format', 'values', 'strict',
         'item_type', 'items', 'min', 'max', 'max_items', 'item_max_length',
-        'aliases',              // #575 — legacy VALUES, accepted at write, never advertised (#579 wired the consumer)
         'applies_when',         // #575
         'conditionality_note',  // #575
     ];
@@ -528,8 +527,13 @@ function pp_applies_when_unmet_clauses(array $clauses, string $component, array 
  *                                                   ├─ closed key set (rejects unknown keys)
  *                                                   ├─ applies_when → pp_applies_when_clause_errors()
  *                                                   ├─ conditionality_note → bounded string
- *                                                   ├─ role → pp_slot_roles()      (slots only)
- *                                                   └─ aliases → value list        (props only)
+ *                                                   └─ role → pp_slot_roles()      (slots only)
+ *
+ * The `aliases` leg that hung off the prop surface is GONE (#606). It declared legacy
+ * VALUES accepted at write and never advertised; with every entry retired (#603/#604/
+ * #605) the field itself went, so `aliases` is now an UNKNOWN definition key and fails
+ * the closed key set above — on props, on slots, and on nested `items.<sub>` fields,
+ * which run through this same engine.
  *
  * @param  array  $definition  The decoded definition object.
  * @param  string $kind        'slot' or 'prop'.
@@ -589,46 +593,10 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
         }
     }
 
-    if ($kind === 'prop' && array_key_exists('aliases', $definition)) {
-        $aliases = $definition['aliases'];
-        if (!is_array($aliases) || $aliases === [] || !pp_is_list($aliases)) {
-            $errors[] = "{$label}: `aliases` must be a non-empty ARRAY of accepted legacy values.";
-        } else {
-            // `aliases` names legacy members of a BOUNDED value set, so it is
-            // meaningless on a prop that has no value set to be outside of. A
-            // `{"type":"string","aliases":[...]}` declaration would validate clean
-            // and emit a catalog line an agent cannot act on.
-            if (($definition['type'] ?? null) !== 'enum' || !is_array($definition['values'] ?? null)) {
-                $errors[] = "{$label}: `aliases` applies only to an enum prop that declares `values`.";
-            }
-            // The advertise-but-reject guard that stood here in #575 is GONE, and
-            // its removal is the point of #579: the strict-enum check in
-            // pp_validate_composition_errors() now consults `aliases`, so declaring
-            // both is not a lie any more, it is the whole contract: a strict enum MAY
-            // accept a legacy value it never advertises. No shipped prop does — #605
-            // removed the last one — but any future strict enum may declare aliases
-            // the same way, and this validator still holds it to the contract.
-            $values = $definition['values'] ?? [];
-            foreach ($aliases as $alias) {
-                if (!is_string($alias) || $alias === '') {
-                    $errors[] = "{$label}: every `aliases` member must be a non-empty string.";
-                    continue;
-                }
-                // The AI catalog renders alias members inside double quotes; a value
-                // carrying one would forge the quoting an agent parses. Bound the
-                // shape at authoring time, not in the emitter.
-                if (strpos($alias, '"') !== false) {
-                    $errors[] = "{$label}: an `aliases` member must not contain a double quote.";
-                }
-                // Canonical values stay clean: an alias is accepted at write and
-                // NEVER advertised. A value that appears in both lists is not an
-                // alias, it is an advertised value with a duplicate declaration.
-                if (is_array($values) && in_array($alias, $values, true)) {
-                    $errors[] = "{$label}: alias `{$alias}` is also advertised in `values` — an alias is accepted, never advertised.";
-                }
-            }
-        }
-    }
+    // The `aliases` validation block that stood here is GONE (#606). It shaped a field
+    // that no longer exists: a declaration is now caught one level up, by the closed key
+    // set, as an unknown definition key. That is the STRONGER gate — the old block
+    // accepted a well-shaped alias list, where the key set rejects the concept.
 
     return $errors;
 }
@@ -1119,9 +1087,8 @@ function pp_validate_composition_errors(array $items): array {
         }
 
         // Strict enum props (issue 380, made universal by issue #579 A-32). Every
-        // TOP-LEVEL enum prop declares `strict: true` now. A supplied value
-        // must be one of the declared `values` (or one of the prop's declared
-        // legacy `aliases`, below) — otherwise the write is rejected with the
+        // TOP-LEVEL enum prop declares `strict: true` now. A supplied value must be
+        // one of the declared `values` — otherwise the write is rejected with the
         // standard envelope instead of the renderer silently coercing an unknown
         // value to the default (the reported-success-without-effect class, same
         // rationale as the issue 379 numeric-bounds check above).
@@ -1135,11 +1102,12 @@ function pp_validate_composition_errors(array $items): array {
         // every one of these — so this moves the write path from silent coercion to
         // a named error and changes no pixel.
         //
-        // ALIASES ARE PART OF THE MEMBERSHIP TEST (#579 lands #575's consumer). A
-        // prop may declare `aliases`: legacy values accepted at write and NEVER
-        // advertised in `values`. NO SHIPPED PROP DECLARES ANY — `theme`'s legacy
-        // `dark` was the last, removed in #605 — so this arm is currently unused and
-        // the accepted set equals the advertised set everywhere.
+        // THE ADVERTISED SET IS THE ACCEPTED SET (#606). The membership test used to
+        // union `values` with a prop's declared legacy `aliases` (#575's field, wired
+        // here by #579). Every entry was retired (#603/#604/#605) and the field itself
+        // is now retired too, so there is exactly one accepted set and the catalog
+        // advertises all of it. Nothing rendered or written changed when the arm went:
+        // the union was already over an empty list on every shipped prop.
         //
         // What that costs, stated rather than inferred: the block runs inside
         // pp_validate_composition_errors()'s per-item loop, while update_component
@@ -1186,14 +1154,10 @@ function pp_validate_composition_errors(array $items): array {
                 if ($value === null || $value === '') {
                     continue; // unset sentinel — keeps the prop's default behavior
                 }
-                // Accepted set = advertised values + declared legacy aliases. The
-                // error message names only `values`: an alias is accepted, never
-                // advertised, so an agent reading the error is told what to WRITE.
-                $accepted = $prop_def['values'];
-                if (!empty($prop_def['aliases']) && is_array($prop_def['aliases'])) {
-                    $accepted = array_merge($accepted, $prop_def['aliases']);
-                }
-                if (!in_array($value, $accepted, true)) {
+                // Accepted set = advertised values, and nothing else (#606). What the
+                // error names is exactly what the catalog advertises and exactly what
+                // the gate accepts — one vocabulary, no unadvertised tier.
+                if (!in_array($value, $prop_def['values'], true)) {
                     $errors[] = new WP_Error(
                         'invalid_prop_value',
                         sprintf(
