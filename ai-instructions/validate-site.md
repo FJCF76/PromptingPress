@@ -64,6 +64,17 @@ checklist below.
 every page: the `primary` and `footer` menu locations, and the site logo. It runs
 automatically -- you do not call it directly. The rows appear:
 
+**Conditionally rendered locations (#582).** The footer also renders an optional
+second menu column at `footer_secondary`, which paints only when a menu is
+assigned to it. That location is diagnosed under an INVERTED rule, because
+leaving it unassigned is the intended default rather than a problem: an
+unassigned location reports nothing at all, a healthy assigned menu reports
+nothing either, and the single state that warns is a menu assigned to
+`footer_secondary` that is **empty** -- the footer then renders an empty column
+and nothing else would tell you. Registering it as a template-owned location
+instead would emit a row on every site that never opted in, which is the noise
+this diagnostic exists to avoid.
+
 - in **preflight** output before any mutation (`wp pp apply preflight`), and
 - in the **post-apply validation** report after a composition changes.
 
