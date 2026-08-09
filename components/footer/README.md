@@ -17,12 +17,30 @@ so in practice only `location` is ever set.
 |-------------|--------|----------|------------|-------------|
 | `location`  | string | No       | `'footer'` | WP theme location slug |
 | `show_logo` | bool   | No       | `false`    | Whether to render the site logo in the footer. Not set by composing a `footer` (rejected since #223) — set the `pp_footer_show_logo` site option instead; the base template passes it in |
-| `logo_text` | string | No       | —          | Logo text (falls back to site title). Not reachable from a page |
-| `logo_id`   | int    | No       | —          | Media Library attachment ID for an image logo (takes priority over `logo_text`). Must be an image attachment. Not reachable from a page; use the `pp_footer_logo_id` option (footer override; falls back to `pp_logo_id`) |
-| `logo_alt`  | string | No       | —          | Alt text for the image logo. Not reachable from a page |
+| `logo_text` | string | No       | —          | Logo text (falls back to site title). Not reachable from any surface; change the site title instead |
+| `logo_id`   | int    | No       | —          | Media Library attachment ID for an image logo (takes priority over `logo_text`). Set via the `pp_footer_logo_id` option (footer override; falls back to `pp_logo_id`) |
+| `logo_alt`  | string | No       | —          | Alt text for the image logo. Template-supplied from the `pp_logo_alt` site option (#582) — the **same** option the header uses; not page-authored, and never empty |
 | `bg`         | string | No | — | Footer background. Set via the `pp_footer_bg` site option → `--footer-bg`. A CSS color **or** a bounded `linear-gradient()`/`radial-gradient()` (the shared `gradient` slot type, #333) |
-| `text`       | string | No | — | Footer text color (blurb/contact/copyright). Set via `pp_footer_text` → `--footer-text` |
-| `link_color` | string | No | — | Footer nav-link color. Set via `pp_footer_link_color` → `--footer-link-color` |
+| `text`       | string | No | — | Footer text color. Set via `pp_footer_text` → `--footer-text`. Reaches **every non-link text surface**: blurb, contact, copyright, column headings, bottom-bar note — see below |
+| `link_color` | string | No | — | Footer link color. Set via `pp_footer_link_color` → `--footer-link-color`. Reaches **every link surface**: both menu columns, the social row, and the contact block's mailto:/tel: links — see below |
+
+### What the footer custom properties actually reach (#582)
+
+| Property | Surfaces it paints | Fallback when unset |
+|----------|--------------------|---------------------|
+| `--footer-bg` | the footer band | `--color-surface` |
+| `--footer-text` | the footer body; the brand blurb; the contact block; the copyright line; the column headings (`.site-footer__heading`); the bottom-bar note (`.site-footer__note`) | `inherit`, or `--color-muted` on the copyright and note |
+| `--footer-link-color` | the footer menu links (both columns); the social-icon row; the `mailto:`/`tel:` links inside the contact `<address>` | `--color-muted` |
+
+Hover is **not** reachable from any of them: all three link surfaces hover to the global
+`--color-accent` design token. Change it with `update_design_token` if it is illegible on a
+dark footer — there is no per-footer hover option, and adding one would mean giving chrome a
+style slot, which the chrome contract (#223) rules out.
+
+`.site-footer__blurb` is capped at `32ch`, the footer's only measure cap. The footer is a
+tight dark-marketing-footer surface, not a general footer builder, so a brand blurb stays a
+short descriptor; the `ch` unit keeps it short at any type size. It is a literal, not a
+slot, for the same chrome-contract reason.
 | `blurb`      | string | No | — | Brand/description line under the logo. Set via `pp_footer_blurb` |
 | `contact`    | string | No | — | Contact/secondary text block. Set via `pp_footer_contact`. Rendered inside an `<address>`; email addresses become `mailto:` links and international phone numbers (leading `+`) become `tel:` links (#427). Stays free text — non-matching text passes through unchanged |
 | `copyright`  | string | No | — | Copyright line. Set via `pp_footer_copyright`; empty = the default `© <year> <site title>. All rights reserved.` |
@@ -60,6 +78,7 @@ pp_get_component('footer', ['location' => 'footer']);
 | Add a second footer menu column (e.g. a Legal column) | `assign_menu_location` / `set_menu` with location `footer_secondary`; optional heading via `update_site_option` key `pp_footer_secondary_label` |
 | Show/hide the footer logo | `update_site_option` with key `pp_footer_show_logo` (boolean) |
 | Footer logo override (light variant for a dark footer) | `update_site_option` with key `pp_footer_logo_id` (image attachment ID; unset falls back to `pp_logo_id`) |
+| Logo alt text | `update_site_option` with key `pp_logo_alt` (text, #582) — site-wide, shared with the header. When set it wins over the footer attachment's own alt metadata too. Empty **or whitespace-only** counts as unprovided and falls through the chain |
 | Dark marketing footer (background) | `update_site_option` with key `pp_footer_bg` (a CSS color **or** a bounded gradient) |
 | Footer text / link colors | `update_site_option` with keys `pp_footer_text` / `pp_footer_link_color` (CSS colors) |
 | Brand blurb under the logo | `update_site_option` with key `pp_footer_blurb` (text) |
@@ -75,7 +94,11 @@ properties, so an unset footer looks exactly as before. This is a tight dark-mar
 surface (issue #300), not a general footer builder.
 
 `wp pp apply preflight` reports a `nav_readiness` warning when the `footer` location has no
-menu assigned, or its menu is empty.
+menu assigned, or its menu is empty. The optional `footer_secondary` location is diagnosed
+under an inverted rule (#582): leaving it unassigned is the intended default and reports
+nothing, and a healthy assigned menu reports nothing either — the one state that warns is a
+menu assigned to `footer_secondary` that is **empty**, because the column then renders
+nothing and nothing else would tell you.
 
 ## Setting up the footer menu
 

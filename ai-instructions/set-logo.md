@@ -49,7 +49,7 @@ A site-scoped preflight (no `--post_id`) covers site actions like `update_site_o
 wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_logo_id","value":"109"}'
 ```
 
-Optionally set explicit alt text (defaults to the attachment's own alt metadata, then the site title):
+Optionally override the alt text. You rarely need to: the alt is never empty, because it defaults to the attachment's own alt metadata and then to the site title. Set `pp_logo_alt` only when the logo's alt should differ from the attachment's own alt. It is one site-wide value shared by the header and footer logos (#582):
 
 ```bash
 wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_logo_alt","value":"Acme brand mark"}'
@@ -73,6 +73,16 @@ The nav and footer share one resolver. It picks the first source that yields an 
 4. the text wordmark (`logo_text`, defaulting to the site title).
 
 So if you never set `pp_logo_id`, a logo set through the WordPress Customizer still shows. If nothing resolves to an image, the nav shows the site name as text.
+
+The alt text on the resolved image follows its own chain, in the same order of specificity:
+
+1. the `pp_logo_alt` site option (#582) — the base template passes it into both the nav and the footer, so it is the one alt surface you can write,
+2. the attachment's own alt metadata (`_wp_attachment_image_alt`),
+3. the text wordmark (the site title).
+
+The alt is therefore **never empty**, which is why `pp_logo_alt` is an override rather than a requirement: set it only when the alt should say something different from the attachment's own alt. It is site-wide — the header and footer logos share it even when the footer runs a different image via `pp_footer_logo_id`.
+
+A value that is empty **or whitespace-only** counts as unprovided and falls through to the next hop rather than rendering. Do not write `" "` to "clear" the alt: a blank alt announces nothing to a screen reader and would suppress the attachment's own alt, leaving the site worse off than not setting the option. A real value renders verbatim, surrounding spaces included.
 
 `wp pp apply preflight` warns (`nav_readiness`) when `pp_logo_id` is set to an attachment that is not an image — the resolver silently falls through to the wordmark, so without the warning you would see no logo and no explanation.
 
@@ -171,7 +181,7 @@ Setting it through this action renders the attachment as-is: the Customizer's sq
 | Key | Value | Notes |
 |-----|-------|-------|
 | `pp_logo_id` | Media Library attachment ID (integer) | Must be an image. Never a URL. |
-| `pp_logo_alt` | string | Optional. Defaults to the attachment's alt metadata, then the site title. |
+| `pp_logo_alt` | string | Optional. Overrides the alt on BOTH chrome logos (header and footer — there is no `pp_footer_logo_alt`). Unset defaults to the attachment's own alt metadata, then the site title; the alt is never empty. Empty or whitespace-only counts as unprovided and falls through the chain. |
 | `site_icon` | Media Library attachment ID (integer) | Optional (#414). Must be an image. Never a URL. WP core favicon / app icon; rendered as-is on a direct write (no auto-crop), so supply a square source (ideally >=512px). Renders via `wp_site_icon` in `wp_head`. |
 | `pp_header_bg` | CSS color **or** gradient | Optional. Header background (`--header-bg`). The primary dark/gradient-header control. |
 | `pp_header_text` | CSS color | Optional. Header text color (`--header-text`) — logo wordmark and mobile toggle. |
