@@ -736,24 +736,25 @@ class SchemaValidationTest extends TestCase
     }
 
     /**
-     * #575 declared `aliases`; #579 wired the consumer to the strict-enum gate. This
-     * is a MECHANISM test, not a `dark` test: since #605 removed the last shipped
-     * declaration, NO shipped prop declares `aliases`, so the mechanism is exercised
-     * through a SYNTHETIC definition. The field itself is left working and unused —
-     * whether it survives at all is a separate maintainer decision.
+     * THE RUNTIME SURFACE of the `aliases` retirement (#606), inverted from the pin it
+     * replaces. #575 declared the field, #579 wired it into the strict-enum membership
+     * test, and #605 removed the last shipped declaration; #606 removed the field and
+     * the arm that consumed it. The accepted set is now the ADVERTISED set, full stop.
      *
-     * The shipped counterpart of this test is now the inverse: `theme` declares no
-     * aliases and the strict gate rejects `dark` outright — see
-     * testNoShippedPropDeclaresAliasesAndThemeAdvertisesOnlyCanonicalValues().
+     * Why a synthetic component rather than a deletion. The definition surface is a
+     * repo-CI invariant, NOT a runtime gate (pp_slot_definition_keys' docblock), so a
+     * schema carrying a retired key still LOADS at runtime — its key is simply unread.
+     * That is exactly the state this test drives: a declaration that used to widen the
+     * accepted set is now inert, and the value it named is rejected like any other
+     * unadvertised value. Asserting on a locally computed array would be a tautology
+     * that stays green with the arm restored; this fails if the arm comes back.
+     *
+     * The schema-surface half of the retirement — that the declaration ITSELF is now an
+     * unknown definition key — is deliberately a SEPARATE test
+     * (testTheRetiredAliasesKeyIsNowAnUnknownDefinitionKey). One test, one contract.
      */
-    public function testStrictEnumAcceptsADeclaredLegacyAlias(): void
+    public function testARetiredAliasesDeclarationNoLongerWidensTheStrictEnumSet(): void
     {
-        // Drive the REAL consumer — the `aliases` arm of the strict-enum membership
-        // test in pp_validate_composition_errors() — through a SYNTHETIC component
-        // registered in a temp theme root. Asserting on a locally computed
-        // array_merge() would be a tautology that passes with the arm deleted; this
-        // fails if the arm is removed, which is the whole point of keeping a
-        // mechanism with no shipped declaration.
         $root = sys_get_temp_dir() . '/pp-alias-fixture-' . uniqid('', true);
         mkdir($root . '/components/aliasband', 0777, true);
         file_put_contents($root . '/components/aliasband/aliasband.php', '<?php // fixture');
@@ -762,7 +763,7 @@ class SchemaValidationTest extends TestCase
             'props'     => [
                 'tone' => [
                     'type' => 'enum', 'required' => false, 'default' => 'a',
-                    'description' => 'Synthetic strict enum carrying a legacy alias.',
+                    'description' => 'Synthetic strict enum carrying a RETIRED aliases declaration.',
                     'values' => ['a', 'b'], 'aliases' => ['legacy_a'], 'strict' => true,
                 ],
             ],
@@ -773,25 +774,61 @@ class SchemaValidationTest extends TestCase
         $GLOBALS['_pp_registered_components_invalidate'] = true;
 
         try {
-            // The DECLARED alias is accepted at write even though it is never advertised.
-            $this->assertTrue(
-                \pp_validate_composition([['component' => 'aliasband', 'props' => ['tone' => 'legacy_a']]]),
-                'a declared alias must be part of the strict-enum membership test'
+            // THE INVERSION. The declared value used to be accepted here. It is now
+            // rejected, because the membership test consults `values` and nothing else.
+            $rejected = \pp_validate_composition([
+                ['component' => 'aliasband', 'props' => ['tone' => 'legacy_a']],
+            ]);
+            $this->assertInstanceOf(
+                \WP_Error::class,
+                $rejected,
+                'a retired `aliases` declaration must not widen the strict-enum accepted set (#606)'
             );
+            $this->assertSame('invalid_prop_value', $rejected->get_error_code());
+            // The error names the advertised set — which is now the WHOLE accepted set,
+            // so the message an agent reads is complete rather than merely honest. The
+            // retired value appears ONLY in the `got` clause (it is what was written);
+            // it must never appear in the accepted-set clause, which is the vocabulary
+            // the agent is being told to write next.
+            $message = $rejected->get_error_message();
+            $this->assertStringContainsString('must be one of: a, b; got "legacy_a"', $message);
+            $this->assertStringNotContainsString('legacy_a,', $message,
+                'the retired value must never appear inside the accepted-set list');
 
-            // An advertised value is accepted, and an UNDECLARED neighbour is not:
-            // the accepted set is values + aliases, bounded, nothing more.
+            // The advertised values still validate: the gate was retired-from, not weakened.
             $this->assertTrue(
                 \pp_validate_composition([['component' => 'aliasband', 'props' => ['tone' => 'a']]])
             );
-            $rejected = \pp_validate_composition([
+            $this->assertTrue(
+                \pp_validate_composition([['component' => 'aliasband', 'props' => ['tone' => 'b']]])
+            );
+            // And an unrelated out-of-set value is rejected the same way the retired
+            // alias now is — there is exactly one class of rejection, not two tiers.
+            $this->assertInstanceOf(\WP_Error::class, \pp_validate_composition([
                 ['component' => 'aliasband', 'props' => ['tone' => 'legacy_b']],
+            ]));
+
+            // AUTHORING-PATH proof (Section 14.1). The rule changed here is a
+            // validation rule, so it is exercised through the REAL write surface and
+            // not only through the shared validator: create_page rejects the retired
+            // value even when a canonical sibling band is valid, which is the shape an
+            // agent actually hits — one stale band blocking the whole write.
+            $GLOBALS['_pp_test_store'] = [
+                'post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100, 'custom_css' => '',
+            ];
+            $authored = \pp_validate_action('create_page', [
+                'title'       => 'Retired alias page',
+                'composition' => [
+                    ['component' => 'aliasband', 'props' => ['tone' => 'legacy_a']],
+                    ['component' => 'aliasband', 'props' => ['tone' => 'b']],
+                ],
             ]);
-            $this->assertInstanceOf(\WP_Error::class, $rejected, 'the alias set is bounded');
-            $this->assertSame('invalid_prop_value', $rejected->get_error_code());
-            // The error advertises only `values` — an alias is accepted, never advertised.
-            $this->assertStringContainsString('must be one of: a, b;', $rejected->get_error_message());
-            $this->assertStringNotContainsString('legacy_a', $rejected->get_error_message());
+            $this->assertInstanceOf(
+                \WP_Error::class,
+                $authored,
+                'the retired alias must be rejected at the real authoring surface, not just in the validator'
+            );
+            $this->assertSame('invalid_prop_value', $authored->get_error_code());
         } finally {
             if ($previousRoot === null) {
                 unset($GLOBALS['_pp_test_template_dir']);
@@ -2458,7 +2495,7 @@ class SchemaValidationTest extends TestCase
      * if it were regenerated each run, removing a prop would also remove it from the
      * baseline and the drift would be invisible. A future prop removal/rename leaves
      * the prop here but drops it from the live schema, so the drift-catcher fires
-     * unless the same change adds an alias entry or a migration note. When you
+     * unless the same change adds a migration note. When you
      * intentionally ADD a prop, append it here in the same change.
      */
     private const PINNED_PROP_BASELINE = [
@@ -2554,9 +2591,10 @@ class SchemaValidationTest extends TestCase
         // Symmetric guard (the add-path): a newly ADDED prop that the author forgets
         // to append to PINNED_PROP_BASELINE would leave the baseline stale, so a LATER
         // removal of that prop could escape the drift-catcher. Forcing every live prop
-        // into the baseline makes the alias-at-introduction convention structural in
-        // BOTH directions: a schema change must touch the baseline in the same commit,
-        // and a rename then fails on both the remove-path (needs an alias) and here.
+        // into the baseline makes the convention structural in BOTH directions: a schema
+        // change must touch the baseline in the same commit, and a rename then fails on
+        // both the remove-path (which needs a migration note — the sole escape hatch
+        // since #604, and still the sole one after #606) and here.
         foreach ($this->liveProps() as $component => $props) {
             $baseline = self::PINNED_PROP_BASELINE[$component] ?? null;
             $this->assertNotNull(
@@ -2941,10 +2979,76 @@ class SchemaValidationTest extends TestCase
         $this->assertNotEmpty($errors, 'a misspelled definition key must be rejected');
         $this->assertStringContainsString('unknown slot definition key `appliesWhen`', $errors[0]);
 
-        $prop = ['type' => 'string', 'required' => false, 'description' => 'x', 'alias' => ['dark']];
+        // Re-fixtured off the alias family in #606 — `alias` is no longer a *misspelling*
+        // of anything, it is one more retired word. `strict_values` keeps the original
+        // point: a plausible-looking key that no definition declares must be rejected,
+        // not ignored.
+        $prop = ['type' => 'string', 'required' => false, 'description' => 'x', 'strict_values' => ['a']];
         $propErrors = \pp_schema_definition_errors($prop, 'prop', 'test.x');
         $this->assertNotEmpty($propErrors, 'a misspelled prop definition key must be rejected');
-        $this->assertStringContainsString('unknown prop definition key `alias`', $propErrors[0]);
+        $this->assertStringContainsString('unknown prop definition key `strict_values`', $propErrors[0]);
+    }
+
+    /**
+     * THE SCHEMA SURFACE of the `aliases` retirement (#606), and the strongest form the
+     * retirement can take: the field is not merely unused, it is UNKNOWN, so a schema
+     * that declares one fails CI instead of carrying a key nothing reads.
+     *
+     * Three surfaces, because the closed key set reaches all three through one engine:
+     * a top-level prop, a nested `items.<sub>` field (which
+     * testEveryShippedDefinitionObjectConformsToTheClosedContract runs as kind 'prop'),
+     * and a slot — where it was never valid and now reads the same as everywhere else.
+     * The singular `alias` goes with it: neither spelling means anything now.
+     */
+    public function testTheRetiredAliasesKeyIsNowAnUnknownDefinitionKey(): void
+    {
+        // The key list itself, stated once so the contract is readable and not only
+        // inferable from behaviour.
+        $this->assertNotContains('aliases', \pp_prop_definition_keys(), '`aliases` is retired (#606)');
+        $this->assertNotContains('aliases', \pp_slot_definition_keys());
+
+        // Top-level prop: the surface where it USED to be legal. A well-shaped
+        // declaration — enum, values, strict, a non-colliding member — is the exact
+        // shape #575 accepted, and it is now rejected on the key alone.
+        $prop = [
+            'type' => 'enum', 'required' => false, 'default' => 'a', 'description' => 'x',
+            'values' => ['a', 'b'], 'strict' => true, 'aliases' => ['legacy_a'],
+        ];
+        $propErrors = \pp_schema_definition_errors($prop, 'prop', 'test.x');
+        $this->assertNotEmpty($propErrors, 'a shipped-shape `aliases` declaration must now fail');
+        $this->assertStringContainsString('unknown prop definition key `aliases`', $propErrors[0]);
+
+        // Nested item field: same engine, same answer, so the retirement cannot be
+        // smuggled back in one level down.
+        $this->assertStringContainsString(
+            'unknown prop definition key `aliases`',
+            \pp_schema_definition_errors(
+                ['type' => 'enum', 'values' => ['a'], 'description' => 'x', 'aliases' => ['legacy_a']],
+                'prop',
+                'test.items.sub'
+            )[0]
+        );
+
+        // Slot: previously rejected because `aliases` was prop-only; now rejected
+        // because it is nothing at all.
+        $this->assertStringContainsString(
+            'unknown slot definition key `aliases`',
+            \pp_schema_definition_errors(
+                ['type' => 'color', 'default' => '#fff', 'description' => 'x', 'aliases' => ['legacy_a']],
+                'slot',
+                'test --x'
+            )[0]
+        );
+
+        // The singular spelling is retired with it.
+        $this->assertStringContainsString(
+            'unknown prop definition key `alias`',
+            \pp_schema_definition_errors(
+                ['type' => 'string', 'required' => false, 'description' => 'x', 'alias' => ['dark']],
+                'prop',
+                'test.x'
+            )[0]
+        );
     }
 
     /**
@@ -3063,63 +3167,11 @@ class SchemaValidationTest extends TestCase
         }
     }
 
-    /**
-     * `aliases` names legacy members of a BOUNDED set, so it stays meaningless on a
-     * non-enum prop. #575's OTHER guard — "aliases cannot be declared alongside
-     * strict" — is GONE, and its removal is the point of #579: the guard existed
-     * only because the strict check consulted `values` alone, which would have made
-     * the catalog advertise a legacy value the writer refused. The write path
-     * consumes aliases now, so the combination is the contract rather than a lie.
-     * NO SHIPPED PROP DECLARES IT any more — #605 removed the last declaration, the
-     * `theme` prop's legacy `dark` — so the contract is pinned synthetically below,
-     * plus an assertion that the shipped declaring set is empty.
-     */
-    public function testAliasesRequireAnEnumAndCoexistWithStrict(): void
-    {
-        $this->assertNotEmpty(
-            \pp_schema_definition_errors(
-                ['type' => 'string', 'required' => false, 'description' => 'x', 'aliases' => ['legacy_a']],
-                'prop',
-                'test.x'
-            ),
-            '`aliases` on a non-enum prop emits a catalog line an agent cannot act on'
-        );
-
-        $this->assertSame(
-            [],
-            \pp_schema_definition_errors(
-                ['type' => 'enum', 'required' => false, 'default' => 'a', 'description' => 'x',
-                 'values' => ['a', 'b'], 'aliases' => ['legacy_a'], 'strict' => true],
-                'prop',
-                'test.x'
-            ),
-            'strict + aliases is the shipped contract since #579, not an error'
-        );
-
-        // An alias that is ALSO advertised is still rejected: that is a duplicate
-        // declaration, not an alias.
-        $this->assertNotEmpty(\pp_schema_definition_errors(
-            ['type' => 'enum', 'required' => false, 'default' => 'a', 'description' => 'x',
-             'values' => ['a', 'legacy_a'], 'aliases' => ['legacy_a'], 'strict' => true],
-            'prop',
-            'test.x'
-        ));
-
-        // NO shipped prop declares aliases any more (#605 removed the last one, the
-        // `theme` prop's legacy `dark`). The rule above still holds for any future
-        // declaration; there is simply nothing shipped to walk. Asserting the set is
-        // EMPTY is the meaningful shipped-side statement now — if a declaration
-        // reappears it must come with a deliberate decision, not by accident.
-        $declaring = [];
-        foreach ($this->allSchemas() as $component => $schema) {
-            foreach (($schema['props'] ?? []) as $name => $def) {
-                if (isset($def['aliases'])) {
-                    $declaring[] = "{$component}.{$name}";
-                }
-            }
-        }
-        $this->assertSame([], $declaring, 'no shipped prop may declare `aliases` (#605)');
-    }
+    // The three `aliases` SHAPE tests that stood here are GONE (#606). They validated
+    // the field's grammar — enum-only, non-empty list of non-empty strings, no double
+    // quote, no collision with `values` — and every one of them presumed the field
+    // exists. It does not. What replaced them is stricter and shorter: the key itself
+    // is unknown, pinned by testTheRetiredAliasesKeyIsNowAnUnknownDefinitionKey().
 
     /**
      * The three condition classes that stay PROSE must be named explicitly by the
@@ -3231,34 +3283,6 @@ class SchemaValidationTest extends TestCase
                 "{$component}.theme description must not advertise `dark` either");
         }
         $this->assertSame(8, $seen, 'all eight theme-bearing components must be checked');
-    }
-
-    /** An alias is ACCEPTED, never ADVERTISED — declaring it in both lists is rejected. */
-    public function testAliasThatIsAlsoAdvertisedIsRejected(): void
-    {
-        $def = [
-            'type' => 'enum', 'required' => false, 'default' => 'a', 'description' => 'x',
-            'values' => ['a', 'b'], 'aliases' => ['b'],
-        ];
-        $errors = \pp_schema_definition_errors($def, 'prop', 'test.x');
-        $this->assertNotEmpty($errors);
-        $this->assertStringContainsString('accepted, never advertised', $errors[0]);
-    }
-
-    /** `aliases` is a non-empty list of non-empty strings, and is prop-only. */
-    public function testAliasesShapeIsEnforced(): void
-    {
-        foreach ([[], 'dark', ['legacy' => 'dark'], [''], [123]] as $bad) {
-            $def = ['type' => 'enum', 'required' => false, 'default' => 'a', 'description' => 'x',
-                    'values' => ['a'], 'aliases' => $bad];
-            $this->assertNotEmpty(\pp_schema_definition_errors($def, 'prop', 'test.x'));
-        }
-        // `aliases` is a PROP-definition key. On a slot it is an unknown key.
-        $this->assertNotEmpty(\pp_schema_definition_errors(
-            ['type' => 'color', 'default' => '#fff', 'description' => 'x', 'aliases' => ['legacy_a']],
-            'slot',
-            'test --x'
-        ));
     }
 
     /**

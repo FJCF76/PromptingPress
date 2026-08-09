@@ -119,7 +119,6 @@ never stored anywhere else.
 | `applies_when` | slot + prop | machine-readable conditionality (below) |
 | `conditionality_note` | slot + prop | the bounded prose escape hatch (below) |
 | `role` | slot | `"fill"` — this slot is the component's fill colour; `"measure"` — this slot is a text measure (a heading, prose or content-column `max-width`) |
-| `aliases` | prop | legacy **values** accepted at write, never advertised |
 
 `applies_when` is an **array of clauses, ANDed**. **Exactly four clause forms
 exist and the grammar does not grow:**
@@ -189,19 +188,17 @@ contract fixes one layer down. The bounded value set lives in `pp_slot_roles()`
   already emits the marker so an agent is told a literal here opts that band out of a
   later site-wide `--measure-*` retune.
 
-`aliases` lists legacy **values** of a bounded set. Canonical values stay clean —
-an alias is **accepted, never advertised**, so it must not also appear in `values`,
-and it is valid only on an `enum` prop. The write path **consumes** `aliases`, so an
-alias is part of the strict-enum membership test: declaring `aliases` beside
-`strict: true` is the contract, not an error. Shape, if you ever need one:
-`{"type":"enum","strict":true,"values":["a","b"],"aliases":["legacy_a"]}`.
-
-**No shipped prop declares `aliases`.** The last one, the `theme` prop's legacy
-`dark`, was removed in #605 — its name mispredicted its output, so accepting it
-produced the wrong band silently and cost a permanent caveat line in every AI
-request's context. Do not add a new alias to make a rename easier: backward
-compatibility and legacy tolerance are non-goals. Rename the value and let the
-strict-enum gate reject the old one.
+**There is no `aliases` key, and no way to declare a legacy value (#606).** A prop
+once could: `aliases` listed values accepted at write and never advertised in
+`values`. #605 retired the last such declaration (the `theme` prop's legacy `dark`),
+leaving the field with nothing to declare, and #606 retired the field itself — the
+end of a sweep that also took the slot-name map (#603) and the prop-key map (#604).
+So on a **top-level prop** what the schema advertises is exactly what the write
+path accepts — one vocabulary, no legacy tier, nothing an agent must be warned not to
+write. (The nested `items[]` enum gap below is a separate thing: those values are
+accepted and coerced because the strict gate does not walk them, not because any alias
+mechanism survives.) A schema that still declares `aliases` — on a prop, on a slot, or
+on a nested `items[]` field — now fails CI as an unknown definition key.
 
 **Every TOP-LEVEL enum prop must declare `strict: true`.** Without it the write path
 accepts any string and the renderer coerces it to the default, so the action reports
@@ -221,19 +218,36 @@ own `components/` directory — there is no child-theme or plugin registration p
 
 ### Renaming a slot or a prop later
 
-Names freeze at the first stable contract. **A renamed slot or prop gets no alias — the
-old name simply dies (#603, #604).** Exactly one alias surface survives, and it is for
-prop **values**, never for names:
-
-| Map | Lives in | Maps |
-|---|---|---|
-| `props.<p>.aliases` | `schema.json` | legacy prop **value** (accepted at write, never advertised) |
+Names freeze at the first stable contract. **A rename gets no alias, on any surface —
+the old name simply dies.** There is no alias surface left anywhere in the theme
+(#603, #604, #605), and since #606 there is no alias **mechanism** either: nothing to
+declare, nothing to populate, nothing to resolve.
 
 | Surface | Resolves at | Consequence |
 |---|---|---|
 | prop **key** names | nowhere | there is no prop-key alias surface (#604). A retired prop name is rejected at write with `unknown_prop` and unread at render — one answer on both paths. |
 | style **slot** names | nowhere | there is no slot alias surface (#603). An undeclared slot name is rejected at write with `invalid_style_slot` and dropped at render. |
+| prop **values** | nowhere | there is no value-alias surface (#605 took the last entry, #606 took the field). An unadvertised value on a TOP-LEVEL prop is rejected at write with `invalid_prop_value`; nested `items[]` enums remain accept-and-coerce (the known gap above). |
 | the `variant` prop | nowhere | retired in #69. Rejected on every write path (#388) and, since #604, not decoded on any read path either. |
+
+**How a rename happens now (#606 amends #570 ruling 9).** Ruling 9 used to require the
+alias-and-keep model for any post-freeze rename. It no longer does, because alias-and-keep
+IS the backward-compatibility posture the governing ruling names as a NON-GOAL. **A rename
+is a documented breaking change, ratified by the maintainer at review, gated the way every
+other render-changing entry is gated** — never an aliased migration. Concretely: the new
+name ships, the old name is simply absent, documents that still store it lose that
+declaration with the consequences spelled out below, and the change says so out loud in
+the CHANGELOG.
+
+**Know what CI actually catches here, because it is not symmetric.** A renamed or removed
+**prop** trips the drift-catcher in `tests/SchemaValidationTest.php`, which fails the build
+unless the same change records the rename in `SCHEMA_RENAME_MIGRATION_NOTES` — the note is
+the discipline, forcing the author to state what happens to already-stored documents
+instead of making the problem disappear. A renamed **style slot** has **no such tripwire
+today**: there is no pinned slot baseline, so the rename ships green and every stored
+declaration of the old name silently stops painting. On the slot surface the CHANGELOG
+entry and the maintainer's ratification at review are the only gates, so say it out loud
+there.
 
 **Renaming a slot or a prop is a breaking change, and that is the accepted cost.** A composition
 stored under the old name loses that declaration at render, and the three actions that validate
@@ -264,7 +278,9 @@ as that mechanism. `restore_composition`'s actual contract is narrower: it resto
 snapshot verbatim and **reports findings**, and it never blocks. It does not promise that
 what it restores still paints. Keeping a name alive because an old document might replay
 it is exactly the legacy tolerance the governing ruling names as a NON-GOAL, so the slot
-map was removed outright (#603) and the prop map followed it (#604).
+map was removed outright (#603), the prop map followed it (#604), the last legacy value
+went with them (#605), and #606 retired the `aliases` field itself — mechanism included,
+so there is nothing left to repopulate.
 
 Add a new legacy surface only on evidence it improves the **current** AI-authorable
 baseline — generation reliability, one canonical contract, or easier inspection — never

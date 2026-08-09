@@ -4,6 +4,37 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.18] — 2026-08-09 — the `aliases` schema field is retired, and a top-level prop now accepts exactly the values it advertises (#606)
+
+**Three sibling issues emptied every alias surface in the theme (#603 slot names, #604 prop keys, #605 the `theme: "dark"` value). This one disposes of the machinery they left behind. The `aliases` schema field, its validator, the arm of the strict-enum write gate that consumed it and the AI-catalog line that disclosed it are all deleted. `aliases` is now an UNKNOWN definition key: a schema that declares one fails CI, on a prop, on a slot, and on a nested `items[]` field. Nothing rendered or written changes for any shipped schema, because no shipped prop had declared one since #605.**
+
+This also amends a ratified ruling, which is why it needed a maintainer word before an implementer started. #570 ruling 9 froze slot and prop names and required the #442 alias-and-keep model for any later rename. Alias-and-keep IS the backward-compatibility posture the governing removal directive names as an explicit NON-GOAL, and the ruling's own worked example did not survive its siblings: it cited `pp_theme_class()` as the shipped shape, and #605 removed exactly that shape. The name freeze stands. The alias-and-keep requirement is struck. A post-freeze rename is now a documented breaking change, ratified by the maintainer at review and gated like every other render-changing entry, never an aliased migration.
+
+The removal is a validation STRENGTHENING in two directions, not a relaxation. On the schema surface the old validator ACCEPTED a well-shaped alias list; the closed key set now rejects the concept, which is the stronger gate and reaches nested item-field definitions the old block never covered. On the write path the membership test used to union `values` with a prop's declared aliases; a malformed declaration (an associative map rather than a list) passed `is_array()`, got merged, and admitted its values on any hand-edited install. That value is now rejected. On every TOP-LEVEL prop the advertised set is now the accepted set, so the error message an agent reads names the complete vocabulary rather than a truthful subset of it. Nested `items[]` enums are the one place that is still not true, and they are unchanged here: the strict gate does not walk them, so they remain accept-and-coerce (#600).
+
+### Removed
+
+- `aliases` from `pp_prop_definition_keys()` (`lib/admin.php`), so the closed definition-key contract now rejects it as unknown on every surface the shared engine walks: top-level props, style slots, and nested `props.<p>.items.<sub>` fields.
+- The `aliases` validation block in `pp_schema_definition_errors()` — the non-empty-list check, the enum-only check, the double-quote check and the advertised-collision check. All four presumed a field that no longer exists; the key-set rejection fires before any of them could.
+- The alias merge in the #579 strict-enum gate in `pp_validate_composition_errors()`. `$accepted` is now `$prop_def['values']` and nothing else. **The rest of the gate is untouched**: all 28 top-level enum props still declare `strict: true`, an out-of-set value is still rejected with `invalid_prop_value`, the null/`''` unset sentinel still preserves the prop default, and `restore_composition` still reports rather than blocks (#233).
+- The `aliases` branch of `pp_ai_definition_suffix()` (`lib/ai-context.php`) and its docblock entry. The runtime catalog carries three definition-surface fields now — `applies_when`, `conditionality_note`, `role` — and no line anywhere discloses an accepted-but-unadvertised value.
+
+### Docs
+
+- `ai-instructions/add-component.md` drops the `aliases` row from the definition-key table and replaces the alias-and-keep section with the post-retirement rename policy. It also states what CI actually catches, because the coverage is not symmetric: a renamed PROP trips the drift-catcher unless the same change records a `SCHEMA_RENAME_MIGRATION_NOTES` entry, while a renamed style SLOT has no tripwire at all and rides on the CHANGELOG entry and maintainer ratification alone.
+- `docs/reference-apply-cli.md` and `AI_CONTEXT.md` state that a top-level prop accepts exactly what it advertises. Both scope the claim to top-level props on purpose: nested `items[]` enums remain accept-and-coerce, which is the known gap tracked as #600 and deliberately out of scope here.
+- Nested item-field enums are untouched. No schema was broadened, no validator loosened, and no new tolerance was introduced anywhere.
+
+### Tests
+
+- The three `aliases` SHAPE tests are deleted. They validated the field's grammar and every one of them presumed the field exists; `testTheRetiredAliasesKeyIsNowAnUnknownDefinitionKey` replaces all three by pinning the key list itself plus rejection on the prop, nested-item and slot surfaces.
+- The synthetic-component consumer test #605 made real is INVERTED rather than deleted, so the removal has a live pin rather than an absence. It registers a component whose prop still declares `aliases` and asserts the declared value is now REJECTED — through `pp_validate_composition()` and through `pp_validate_action('create_page', ...)`, the real authoring surface, alongside a canonical sibling band.
+- The five strict-gate pins named in the issue stay green UNCHANGED, which is the proof the gate was not weakened: `testEveryTopLevelEnumPropDeclaresStrict`, `testEveryEnumPropRejectsAnOutOfSetValue`, `testStrictEnumUnsetSentinelStillValidates`, `testNestedItemEnumsAreAKnownAcceptAndCoerceGap`, `testRestoreNeverBlocksOnTheNewStrictEnumRejection`.
+- `AiContextTest` pins that a retired `aliases` declaration emits NOTHING and does not contaminate a suffix the definition legitimately earns; the comma-bearing prop-suffix fixture moves onto an `applies_when` `in` clause.
+- The #604 drift-catcher (migration-note-as-sole-escape-hatch) is green and unmodified, and two stale comments that still justified themselves by the alias surface are corrected.
+
+---
+
 ## [v1.12.17] — 2026-08-09 — a misspelled style slot is rejected by name instead of silently swapped for another one (#607)
 
 **The AI chat preview no longer guesses what you meant. When a `style_component` proposal named a style slot the component does not declare, the preview path used to rewrite the name to the nearest declared slot by Levenshtein distance — up to 40% of the name's length, so a 20-character slot admitted an 8-character rewrite — and return a preview of that DIFFERENT slot flagged only `repaired: true`. It is removed. An undeclared slot name is now `invalid_style_slot`, the same verdict every other surface in the theme reports, and the error names the slot you actually wrote alongside the ones that exist.**
