@@ -448,10 +448,80 @@ function checkSerializationInvariant(jsonString, componentRegistry) {
     }
 
     var diffs = deepDiff(original, roundTripped, '');
+
+    // UNADVERTISED STORED ENUM VALUES (#605). The round-trip above is IN-MEMORY, so
+    // it cannot see this class of drift: `field.value` still holds the stored value
+    // at this point. The mutation is introduced later, by syncAccordionToJson()
+    // reading values back off the DOM — and a <select> built from the advertised
+    // `values` has no option matching an unadvertised stored value, so .val()
+    // returns the FIRST option instead.
+    //
+    // Why this belongs here rather than being tolerated: every shipped enum is
+    // `strict: true` (#579), so the only way to hold an unadvertised value is stale
+    // storage. Without this check, a single keystroke ANYWHERE in the accordion
+    // rewrites every such band to its first advertised value and the save then
+    // PASSES the strict-enum gate — silently laundering past the very validator that
+    // is supposed to reject it, and rewriting bytes on bands the author never opened.
+    //
+    // The fix is to refuse, not to tolerate: no coercion, no migration, no alias.
+    // This is exactly what the notice already says — "opening this composition in the
+    // accordion editor would change its structure" — so it routes into the existing
+    // JSON-only mode, where the author can see and fix the real value.
+    diffs = diffs.concat(unadvertisedEnumDiffs(jsonString, componentRegistry));
+
     if (diffs.length === 0) {
         return { safe: true };
     }
     return { safe: false, diffs: diffs, original: original, roundTripped: roundTripped };
+}
+
+/**
+ * Stored enum values a <select> built from the schema's advertised `values` cannot
+ * represent, and would therefore silently rewrite on DOM readback (#605).
+ *
+ * Deliberately GENERIC — it knows nothing about any particular value. It asks one
+ * question of every enum prop: is the stored value absent from `values`? The `unset`
+ * sentinel (absent / null / empty string) is NOT drift: it is the documented way to
+ * keep a prop's default, and the accordion has always rendered it as the first
+ * option without claiming otherwise.
+ *
+ * @param {string} jsonString        Raw composition JSON.
+ * @param {Array}  componentRegistry Component schemas.
+ * @returns {Array} deepDiff-shaped entries, empty when nothing would drift.
+ */
+function unadvertisedEnumDiffs(jsonString, componentRegistry) {
+    var out = [];
+    var parsed;
+    try { parsed = JSON.parse(jsonString); } catch (e) { return out; }
+    if (!Array.isArray(parsed)) return out;
+
+    var schemaMap = {};
+    componentRegistry.forEach(function (c) { schemaMap[c.name] = c; });
+
+    parsed.forEach(function (item, idx) {
+        if (!item || typeof item !== 'object' || !item.component) return;
+        var comp = schemaMap[item.component];
+        if (!comp || !comp.schema || !comp.schema.props || !item.props) return;
+
+        Object.keys(item.props).forEach(function (propName) {
+            var def = comp.schema.props[propName];
+            if (!def || def.type !== 'enum' || !Array.isArray(def.values)) return;
+
+            var stored = item.props[propName];
+            // Unset sentinel — keeps the default, not drift.
+            if (stored === undefined || stored === null || stored === '') return;
+            if (def.values.indexOf(stored) !== -1) return;
+
+            out.push({
+                path: '[' + idx + '].props.' + propName,
+                before: stored,
+                after: def.values[0],
+                changeType: 'changed'
+            });
+        });
+    });
+
+    return out;
 }
 
 /**
@@ -548,6 +618,7 @@ var _logic = {
     wouldLoseArrayData:             wouldLoseArrayData,
     deepDiff:                       deepDiff,
     checkSerializationInvariant:    checkSerializationInvariant,
+    unadvertisedEnumDiffs:          unadvertisedEnumDiffs,
     formatDiffsForIssue:            formatDiffsForIssue,
     getCollapsedRowPreview:         getCollapsedRowPreview,
 };

@@ -4,12 +4,17 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * Unit coverage for pp_theme_class() — the single source of truth for the band
- * `theme` modifier class and the deprecated `dark` -> `muted` alias (#442).
+ * `theme` modifier class.
  *
- * The alias must map BOTH ways to the SAME legacy `--dark` CSS class so existing
- * pages storing `theme: "dark"` render byte-identically while new pages use `muted`.
- * The genuinely dark band is `--inverted`. Anything unexpected coerces to default
- * (empty string), matching the historical non-strict accept-and-coerce behavior.
+ * TWO DIFFERENT THINGS, and keeping them apart is the whole point of this file:
+ *   INPUT VALUES  `default | muted | inverted`, and nothing else. The `dark` input
+ *                 value was REMOVED in #605 because its name mispredicted its output
+ *                 (it rendered a LIGHT band). Anything outside the set — including a
+ *                 `dark` still sitting in storage — coerces to default (empty string).
+ *   OUTPUT NAME   `muted` still EMITS the legacy `{prefix}--dark` CSS class (#570
+ *                 DG-4). That is a class name, not a value anyone can write, and it
+ *                 is kept so every stylesheet rule and `variant_classes` declaration
+ *                 stays valid. The genuinely dark band is `--inverted`.
  */
 class ThemeClassHelperTest extends TestCase
 {
@@ -20,19 +25,10 @@ class ThemeClassHelperTest extends TestCase
 
     public function testMutedEmitsLegacyDarkClass(): void
     {
-        // muted is the canonical value; it renders under the legacy `--dark` class.
+        // #570 DG-4 — THE class-name carve-out, unchanged by #605. `muted` is the
+        // canonical INPUT value and it still renders under the legacy `--dark` class
+        // NAME. Removing `dark` as an input value must never touch this.
         $this->assertSame(' cta--dark', pp_theme_class('muted', 'cta'));
-    }
-
-    public function testDeprecatedDarkAliasEmitsSameClassAsMuted(): void
-    {
-        // Both values resolve to the identical class — the alias, proven both ways.
-        $this->assertSame(
-            pp_theme_class('muted', 'grid'),
-            pp_theme_class('dark', 'grid'),
-            'dark must be a byte-identical alias of muted at the class level'
-        );
-        $this->assertSame(' grid--dark', pp_theme_class('dark', 'grid'));
     }
 
     public function testInvertedEmitsInvertedClass(): void
@@ -61,6 +57,12 @@ class ThemeClassHelperTest extends TestCase
     public static function unexpectedValues(): array
     {
         return [
+            // #605 — the cleanest statement of the post-removal contract. `dark` is
+            // no longer an accepted input value, so a band STORED with it coerces to
+            // the DEFAULT band (no modifier class) exactly like any other unknown
+            // value. It does NOT fall back to `muted`: that is the intended,
+            // deliberate stale-data breakage, not a regression.
+            'stored legacy dark' => ['dark'],
             'unknown string' => ['neon'],
             'empty string'   => [''],
             'null'           => [null],

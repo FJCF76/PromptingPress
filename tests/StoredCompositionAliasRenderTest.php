@@ -4,15 +4,28 @@
  *
  * The stored-composition legacy-name contract (issues #575 / #495, ended by #603/#604).
  *
- * NO SURFACE IS LEFT. Both alias surfaces this class was built around are gone, and
+ * NO SURFACE IS LEFT. All three alias surfaces this class covers are gone, and
  * pinning their ABSENCE — at the render boundary, on real stored bytes — is now the
  * whole job of the file.
+ *
+ * ONE THING IS DELIBERATELY KEPT, and it is not an alias. `theme: "muted"` still
+ * EMITS the legacy `<root>--dark` CSS class (#570 DG-4). That is an OUTPUT NAME:
+ * renaming it would change the emitted HTML of the installed base and invalidate
+ * every stylesheet rule and `variant_classes` declaration for no authoring gain. Do
+ * not "finish the cleanup" by removing it — input aliasing and output naming are
+ * different things, and only the first one went.
  *
  *   SLOT NAME   pp_legacy_slot_aliases() — REMOVED (#603). Shipped empty in #575,
  *               populated by #576 with 51 renames, deleted outright along with its two
  *               resolution helpers, the pp_normalize_legacy_slots() wrapper and the
  *               public filter. A slot name a component does not declare is rejected at
  *               write and dropped at render, with nothing in between.
+ *   VALUE       the `theme` prop's legacy `dark` — REMOVED (#605). The last shipped
+ *               `aliases` declaration. Its name mispredicted its output (it rendered
+ *               a LIGHT band), so accepting it produced the wrong page silently on the
+ *               very request an agent would generate it for. A retired VALUE differs in
+ *               shape from a retired NAME: the prop stays valid and the value simply
+ *               falls outside its accepted set, so it coerces to the prop default.
  *   PROP KEY    pp_legacy_prop_aliases() — REMOVED (#604). The 13-entry map
  *               (cta_text/cta_url -> button_text/button_url from #495, extended by #576
  *               with hero's button family, cta.text -> body and heading_align ->
@@ -685,5 +698,146 @@ class StoredCompositionAliasRenderTest extends TestCase
         foreach (['4rem', '#f0f0f0', '#101014'] as $dead) {
             $this->assertStringNotContainsString($dead, $html, "the dead declaration {$dead} does not paint");
         }
+    }
+
+    // ── VALUE aliases: the `theme: "dark"` input value (#605) ────────────────
+    //
+    // The third and last alias surface, removed under the same Addendum #4 ruling as
+    // the slot names (#603) and the prop keys (#604). Its shape differs from theirs:
+    // a retired NAME is unread at render, whereas a retired VALUE leaves the prop
+    // itself perfectly valid and simply falls outside its accepted set — so it
+    // coerces to the prop default, which is the base render contract for every enum,
+    // not an alias.
+    //
+    // What is NOT removed, and is asserted alongside every pin here: `theme: "muted"`
+    // still EMITS the legacy `<root>--dark` CSS class (#570 DG-4). Output naming and
+    // input aliasing are different things, and only the second one went.
+
+    public function testAStoredRemovedThemeValueRendersTheDefaultBandNotTheMutedOne(): void
+    {
+        $id = pp_create_page('Stale theme value', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'section', 'props' => ['title' => 'Stale', 'body' => 'held from before #605', 'theme' => 'dark']],
+        ]);
+
+        $html = $this->renderStored($id);
+
+        // The band renders — the page is not broken — but it renders as DEFAULT.
+        $this->assertStringContainsString('Stale', $html, 'the page still renders');
+        $this->assertStringNotContainsString('pp-section--dark', $html, 'no muted surface');
+        $this->assertStringNotContainsString('pp-section--inverted', $html);
+
+        // Storage is never rewritten behind the author.
+        $this->assertSame('dark', pp_get_composition($id)[0]['props']['theme']);
+    }
+
+    public function testTheCanonicalMutedValueStillEmitsTheLegacyDarkClass(): void
+    {
+        // #570 DG-4, pinned on real stored bytes through the render loop: this is the
+        // proof the input-value removal did not touch the emitted class NAME.
+        $id = pp_create_page('Canonical muted band', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'section', 'props' => ['title' => 'Muted', 'body' => 'canonical', 'theme' => 'muted']],
+        ]);
+
+        $this->assertStringContainsString('pp-section--dark', $this->renderStored($id));
+    }
+
+    public function testANewWriteOfTheRemovedThemeValueIsRejected(): void
+    {
+        $composition = [['component' => 'section', 'props' => ['title' => 'A', 'body' => 'B', 'theme' => 'dark']]];
+
+        $result = pp_validate_action('create_page', ['title' => 'Removed theme value', 'composition' => $composition]);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_prop_value', $result->get_error_code());
+        $this->assertStringContainsString('default, muted, inverted', $result->get_error_message());
+    }
+
+    public function testAFreshCanonicalThemeWritesValidatesReadsBackAndRendersOnAllEightBands(): void
+    {
+        // Acceptance criterion 5: fresh-generation correctness. Every band component
+        // that carries a `theme` accepts each of the three canonical values through
+        // the REAL authoring surface, stores it verbatim, and renders the documented
+        // class — `muted` under the legacy `--dark` name, `inverted` under its own,
+        // `default` under none.
+        $bands = [
+            'section'      => ['title' => 'S', 'body' => 'b'],
+            'grid'         => ['title' => 'G', 'items' => [['title' => 'One', 'text' => 'a']]],
+            'cta'          => ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/'],
+            'stats'        => ['title' => 'St', 'items' => [['number' => '10', 'label' => 'Customers']]],
+            'testimonials' => ['title' => 'T', 'items' => [['quote' => 'q', 'author' => 'a']]],
+            'faq'          => ['title' => 'F', 'items' => [['question' => 'q', 'answer' => 'a']]],
+            'embed'        => ['title' => 'E', 'content' => '<p>hi</p>'],
+            'logos'        => ['title' => 'L', 'items' => [['image_url' => 'https://example.com/a.png', 'image_alt' => 'A']]],
+        ];
+        // `section` is the one component whose modifier prefix differs from its name.
+        $prefixes = ['section' => 'pp-section'];
+
+        foreach ($bands as $component => $props) {
+            $prefix = $prefixes[$component] ?? $component;
+            foreach (['default' => null, 'muted' => 'dark', 'inverted' => 'inverted'] as $theme => $slug) {
+                $composition = [['component' => $component, 'props' => $props + ['theme' => $theme]]];
+
+                $this->assertTrue(
+                    pp_validate_action('create_page', ['title' => "Fresh {$component} {$theme}", 'composition' => $composition]),
+                    "{$component}.theme={$theme} must validate through the authoring surface"
+                );
+
+                $id = pp_create_page("Fresh {$component} {$theme}", 'draft');
+                pp_update_composition($id, $composition);
+                $this->assertSame($theme, pp_get_composition($id)[0]['props']['theme'],
+                    "{$component}.theme={$theme} must read back verbatim");
+
+                $html = $this->renderStored($id);
+                if ($slug === null) {
+                    // No THEME modifier. Layout modifiers (cta--full-width, and the
+                    // like) are a different axis and must be left alone.
+                    $this->assertStringNotContainsString("{$prefix}--dark", $html,
+                        "{$component}.theme=default must emit no theme modifier class");
+                    $this->assertStringNotContainsString("{$prefix}--inverted", $html,
+                        "{$component}.theme=default must emit no theme modifier class");
+                } else {
+                    $this->assertStringContainsString("{$prefix}--{$slug}", $html,
+                        "{$component}.theme={$theme} must emit {$prefix}--{$slug}");
+                }
+            }
+        }
+    }
+
+    public function testRestoreOfASnapshotHoldingTheRemovedThemeValueSucceedsAndReportsIt(): void
+    {
+        // Acceptance criterion 4, on the same #233 contract the slot-name pin above
+        // proves: restore RESTORES and REPORTS, never blocks. A snapshot carrying the
+        // removed `theme` value is exactly the case an operator hits after #605.
+        $id = pp_create_page('Restore removed theme value', 'draft');
+        // v1: a snapshot as a pre-#605 install holds it.
+        pp_update_composition($id, [
+            ['component' => 'section', 'props' => ['title' => 'Legacy', 'body' => 'b', 'theme' => 'dark']],
+        ]);
+        // v2: pushes v1 onto the history ring.
+        pp_update_composition($id, [
+            ['component' => 'section', 'props' => ['title' => 'Now', 'body' => 'current']],
+        ]);
+
+        $preview = pp_preview_action('restore_composition', ['post_id' => $id, 'steps_back' => 1]);
+        $result  = pp_execute_action('restore_composition', ['post_id' => $id, 'steps_back' => 1]);
+
+        // NEVER BLOCKS — undo must not become impossible because a value was retired.
+        $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
+
+        // REPORTS, on both channels, so the operator sees it before and after.
+        foreach ([['preview', $preview], ['result', $result]] as [$label, $envelope]) {
+            $encoded = json_encode($envelope['findings'] ?? []);
+            $this->assertStringContainsString('invalid_prop_value', $encoded,
+                "{$label}: the removed value must be reported, not silently swallowed");
+            $this->assertStringContainsString('default, muted, inverted', $encoded, $label);
+        }
+
+        // Restored VERBATIM — restore is not a rewrite — and the band renders default.
+        $this->assertSame('dark', pp_get_composition($id)[0]['props']['theme']);
+        $html = $this->renderStored($id);
+        $this->assertStringContainsString('Legacy', $html, 'the page still renders');
+        $this->assertStringNotContainsString('pp-section--dark', $html, 'but not as the muted band');
     }
 }

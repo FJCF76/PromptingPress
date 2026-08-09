@@ -57,7 +57,7 @@ $header_align_class = $title_align === 'center' ? ' grid__header--center' : '';
 
 $is_steps      = $layout === 'steps';
 $layout_class  = $is_steps ? ' grid--steps' : '';
-// theme coercion + the deprecated 'dark' -> 'muted' alias live in pp_theme_class() (#442).
+// theme coercion lives in pp_theme_class(); `muted` emits the legacy `--dark` class (#570 DG-4).
 $theme_class   = pp_theme_class($theme, 'grid');
 // 'uniform' opts the first card out of the featured emphasis so every card
 // renders identically (issue 226). Default 'featured' emits no class, keeping

@@ -51,12 +51,11 @@
       "values": ["featured", "uniform"],
       "required": false,
       "default": "featured",
-      "description": "Whether the first card gets the emphasized 'featured' treatment (accent top bar, tinted fill, larger title, extra top padding, and — on dark theme — a lift). 'featured' (default, unchanged historical behavior) emphasizes the first card, drawing the eye to a lead item. 'uniform' renders every card identically — use it for a symmetric/peer card row where all cards are equal (e.g. three specification cards whose checklists must line up, or an equal-weight feature/plan row). Cards-layout concept: it has NO VISUAL EFFECT on 'steps', because every featured rule is scoped :not(.grid--steps). The grid--uniform class is still EMITTED on steps markup — that is deliberate, so a future steps-specific first-card emphasis could be guarded with the same hook — so do not read the class's presence as evidence the treatment applied."
+      "description": "Whether the first card gets the emphasized 'featured' treatment (accent top bar, tinted fill, larger title, extra top padding, and — on the muted theme — a lift). 'featured' (default, unchanged historical behavior) emphasizes the first card, drawing the eye to a lead item. 'uniform' renders every card identically — use it for a symmetric/peer card row where all cards are equal (e.g. three specification cards whose checklists must line up, or an equal-weight feature/plan row). Cards-layout concept: it has NO VISUAL EFFECT on 'steps', because every featured rule is scoped :not(.grid--steps). The grid--uniform class is still EMITTED on steps markup — that is deliberate, so a future steps-specific first-card emphasis could be guarded with the same hook — so do not read the class's presence as evidence the treatment applied."
     },
     "theme": {
       "type": "enum", "strict": true,
       "values": ["default", "muted", "inverted"],
-      "aliases": ["dark"],
       "required": false,
       "default": "default",
       "description": "Background color/tone for this band. 'default' = the band's own default background (no tone override). 'muted' = light tinted surface band (renders the --color-surface background with framing top and bottom borders). 'inverted' = inverted dark background for strong contrast; use 'inverted' for a genuinely dark band."

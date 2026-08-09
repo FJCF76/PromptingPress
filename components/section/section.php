@@ -126,7 +126,7 @@ if (!in_array($title_align, $allowed_title_aligns, true)) {
 }
 $header_align_class = $title_align === 'center' ? ' section__header--center' : '';
 
-// theme coercion + the deprecated 'dark' -> 'muted' alias live in pp_theme_class() (#442).
+// theme coercion lives in pp_theme_class(); `muted` emits the legacy `--dark` class (#570 DG-4).
 $theme_class = pp_theme_class($theme, 'pp-section');
 $bg_image_class = $background_image ? ' section--has-bg-image' : '';
 

@@ -284,20 +284,26 @@ test.describe('Safe-surface rendered proof', () => {
     expect(color).toBe('rgb(255, 0, 128)');
   });
 
-  // #442: the `theme` enum value must PREDICT the rendered band background. The static
+  // The `theme` enum value must PREDICT the rendered band background. The static
   // schema/helper tests prove the class mapping; only getComputedStyle proves the CSS
   // cascade actually paints it. Seed one band per theme value and assert the computed
   // background-color matches the documented meaning:
   //   default  -> transparent (page background shows through)
   //   muted    -> --color-surface (#f4f7fb) — the LIGHT tinted band
-  //   dark     -> IDENTICAL to muted (deprecated alias; existing pages unchanged)
   //   inverted -> --color-bg-inverted (#0f172a) — the genuinely dark band
-  test('#442 theme values render the documented band background', async ({ page }) => {
+  //
+  // The fourth band is the STORED-BYTES route (#605). `dark` is no longer an accepted
+  // input value, so this band is seeded directly into composition meta as a page
+  // written before the removal holds it — the write path would now reject it. It must
+  // paint as DEFAULT, not as muted: the deliberate stale-data breakage, proven where
+  // it actually matters, in a real browser's computed cascade.
+  test('theme values render the documented band background; a stored `dark` renders default', async ({ page }) => {
     pageId = createPage('E2E Theme Band Backgrounds');
     setComposition(pageId, [
       { component: 'grid', props: { id: 'pp-theme-default', theme: 'default', items: [{ title: 'D', text: 'x' }] } },
       { component: 'grid', props: { id: 'pp-theme-muted', theme: 'muted', items: [{ title: 'M', text: 'x' }] } },
-      { component: 'grid', props: { id: 'pp-theme-dark', theme: 'dark', items: [{ title: 'K', text: 'x' }] } },
+      // Stale storage only — never writable through create_page/update_component.
+      { component: 'grid', props: { id: 'pp-theme-stale-dark', theme: 'dark', items: [{ title: 'K', text: 'x' }] } },
       { component: 'grid', props: { id: 'pp-theme-inverted', theme: 'inverted', items: [{ title: 'I', text: 'x' }] } },
     ]);
 
@@ -315,12 +321,14 @@ test.describe('Safe-surface rendered proof', () => {
 
     expect(await bg('#pp-theme-default')).toBe(TRANSPARENT);
     const muted = await bg('#pp-theme-muted');
-    const dark = await bg('#pp-theme-dark');
+    const staleDark = await bg('#pp-theme-stale-dark');
     expect(muted).toBe(SURFACE);
-    // The whole point of #442: `muted` is a LIGHT band, not dark.
+    // `muted` is a LIGHT band, not dark — and it still paints through the legacy
+    // `--dark` CSS class name, which #605 deliberately kept (#570 DG-4).
     expect(muted).not.toBe(INVERTED);
-    // The deprecated `dark` alias renders byte-identically to `muted`.
-    expect(dark).toBe(muted);
+    // #605: a stored `dark` no longer renders as muted. It renders as DEFAULT.
+    expect(staleDark).toBe(TRANSPARENT);
+    expect(staleDark).not.toBe(SURFACE);
     expect(await bg('#pp-theme-inverted')).toBe(INVERTED);
   });
 
@@ -2541,16 +2549,20 @@ test.describe('Safe-surface rendered proof', () => {
   // #226: the featured treatment includes a dark-theme lift (translateY on card 0 at
   // >=768px). A partial opt-out that neutralized padding/bar but left the lift would
   // still misalign a dark uniform row, so card_emphasis:uniform must drop it too.
-  test('#226 card_emphasis:uniform neutralizes the dark-theme first-card lift', async ({
+  // The lift keys off the `--dark` surface-band class, which the CANONICAL `muted`
+  // value emits (#570 DG-4). The fixture used to author it as `theme: "dark"`; that
+  // input value was removed in #605, so it now authors `muted` and proves the same
+  // thing through the same emitted class.
+  test('#226 card_emphasis:uniform neutralizes the muted-band first-card lift', async ({
     page,
   }) => {
-    pageId = createPage('E2E Grid Card Emphasis Dark Lift');
+    pageId = createPage('E2E Grid Card Emphasis Muted Lift');
     setComposition(pageId, [
       {
         component: 'grid',
         props: {
-          id: 'pp-grid-dark-uniform',
-          theme: 'dark',
+          id: 'pp-grid-muted-uniform',
+          theme: 'muted',
           card_emphasis: 'uniform',
           title: 'Dark uniform',
           items: [
@@ -2562,8 +2574,8 @@ test.describe('Safe-surface rendered proof', () => {
       {
         component: 'grid',
         props: {
-          id: 'pp-grid-dark-featured',
-          theme: 'dark',
+          id: 'pp-grid-muted-featured',
+          theme: 'muted',
           title: 'Dark featured',
           items: [
             { title: 'One', text: 'First' },
@@ -2579,19 +2591,19 @@ test.describe('Safe-surface rendered proof', () => {
     const transformOf = (sel: string) =>
       page.locator(sel).evaluate((el) => getComputedStyle(el).transform);
 
-    await expect(page.locator('#pp-grid-dark-uniform .grid__item')).toHaveCount(2, {
+    await expect(page.locator('#pp-grid-muted-uniform .grid__item')).toHaveCount(2, {
       timeout: 10000,
     });
 
     // Uniform: card 0 has NO lift — same transform as its sibling.
-    const duFirst = await transformOf('#pp-grid-dark-uniform .grid__item:nth-child(1)');
-    const duSib = await transformOf('#pp-grid-dark-uniform .grid__item:nth-child(2)');
+    const duFirst = await transformOf('#pp-grid-muted-uniform .grid__item:nth-child(1)');
+    const duSib = await transformOf('#pp-grid-muted-uniform .grid__item:nth-child(2)');
     expect(duFirst).toBe(duSib);
     expect(duFirst).toBe('none');
 
     // Featured (default): card 0 IS lifted — a real transform, unlike its sibling.
-    const dfFirst = await transformOf('#pp-grid-dark-featured .grid__item:nth-child(1)');
-    const dfSib = await transformOf('#pp-grid-dark-featured .grid__item:nth-child(2)');
+    const dfFirst = await transformOf('#pp-grid-muted-featured .grid__item:nth-child(1)');
+    const dfSib = await transformOf('#pp-grid-muted-featured .grid__item:nth-child(2)');
     expect(dfFirst).not.toBe('none'); // translateY lift present
     expect(dfFirst).not.toBe(dfSib);
   });
@@ -6064,12 +6076,12 @@ test.describe('Shared section-band rhythm (#431)', () => {
     pageId = createPage('E2E Webfiable Rhythm Shape');
     setComposition(pageId, [
       { component: 'hero', props: { id: 'pp-hero01', title: 'Lead' } },
-      { component: 'stats', props: { id: 'pp-stats01', theme: 'dark', items: [{ number: '10', label: 'Ten' }] } },
+      { component: 'stats', props: { id: 'pp-stats01', theme: 'muted', items: [{ number: '10', label: 'Ten' }] } },
       { component: 'grid', props: { id: 'pp-grid01', title: 'Grid', items: [{ title: 'One', text: 'A' }] } },
-      { component: 'cta', props: { id: 'pp-cta01', theme: 'dark', title: 'CTA', button_text: 'Go', button_url: '/go' } },
+      { component: 'cta', props: { id: 'pp-cta01', theme: 'muted', title: 'CTA', button_text: 'Go', button_url: '/go' } },
       { component: 'grid', props: { id: 'pp-grid02', title: 'Grid Two', items: [{ title: 'Two', text: 'B' }] } },
       { component: 'section', props: { id: 'pp-sec01', body: '<p>Section body.</p>' } },
-      { component: 'cta', props: { id: 'pp-cta02', theme: 'dark', title: 'Closing', button_text: 'Go', button_url: '/go' } },
+      { component: 'cta', props: { id: 'pp-cta02', theme: 'muted', title: 'Closing', button_text: 'Go', button_url: '/go' } },
     ]);
 
     // Every band-level component after the leading hero, by id (grid/cta appear twice).
@@ -6423,12 +6435,12 @@ test.describe('Band heading scale (#436)', () => {
     pageId = createPage('E2E Band Heading Webfiable Shape');
     setComposition(pageId, [
       { component: 'hero', props: { id: 'pp-hero01', title: 'Lead' } },
-      { component: 'stats', props: { id: 'pp-stats01', theme: 'dark', title: 'Stats', items: [{ number: '10', label: 'Ten' }] } },
+      { component: 'stats', props: { id: 'pp-stats01', theme: 'muted', title: 'Stats', items: [{ number: '10', label: 'Ten' }] } },
       { component: 'grid', props: { id: 'pp-grid01', title: 'Grid', items: [{ title: 'One', text: 'A' }] } },
-      { component: 'cta', props: { id: 'pp-cta01', theme: 'dark', title: 'CTA', button_text: 'Go', button_url: '/go' } },
+      { component: 'cta', props: { id: 'pp-cta01', theme: 'muted', title: 'CTA', button_text: 'Go', button_url: '/go' } },
       { component: 'grid', props: { id: 'pp-grid02', title: 'Grid Two', items: [{ title: 'Two', text: 'B' }] } },
       { component: 'section', props: { id: 'pp-sec01', title: 'Section', body: '<p>Section body.</p>' } },
-      { component: 'cta', props: { id: 'pp-cta02', theme: 'dark', title: 'Closing', button_text: 'Go', button_url: '/go' } },
+      { component: 'cta', props: { id: 'pp-cta02', theme: 'muted', title: 'Closing', button_text: 'Go', button_url: '/go' } },
     ]);
 
     await page.setViewportSize({ width: 375, height: 900 });

@@ -31,7 +31,7 @@ $header_align_class = $title_align === 'center' ? ' testimonials__header--center
 
 $is_stack      = $layout === 'stack';
 $layout_class  = $is_stack ? ' testimonials--stack' : '';
-// theme coercion + the deprecated 'dark' -> 'muted' alias live in pp_theme_class() (#442).
+// theme coercion lives in pp_theme_class(); `muted` emits the legacy `--dark` class (#570 DG-4).
 $theme_class   = pp_theme_class($theme, 'testimonials');
 
 // Style slot overrides (per-instance visual customization).

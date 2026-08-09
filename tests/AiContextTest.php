@@ -508,11 +508,11 @@ class AiContextTest extends TestCase
     {
         // Issue #69: inspect surfaces structural `layout` and tonal `theme`
         // separately, and never the retired `variant` key.
-        $item = ['component' => 'grid', 'props' => ['title' => 'Welcome', 'layout' => 'steps', 'theme' => 'dark']];
+        $item = ['component' => 'grid', 'props' => ['title' => 'Welcome', 'layout' => 'steps', 'theme' => 'muted']];
         $result = _pp_summarize_component($item);
         $this->assertStringContainsString('grid', $result);
         $this->assertStringContainsString('layout: steps', $result);
-        $this->assertStringContainsString('theme: dark', $result);
+        $this->assertStringContainsString('theme: muted', $result);
         $this->assertStringNotContainsString('variant', $result);
         $this->assertStringContainsString('Welcome', $result);
     }
@@ -831,19 +831,42 @@ class AiContextTest extends TestCase
         );
     }
 
-    public function testAdjacencyAnnotatedForMutedDarkAlias(): void
+    public function testAdjacencyNotAnnotatedForAStoredRemovedThemeValue(): void
     {
-        // #442: `dark` is a deprecated alias of `muted`; both render the same light
-        // band, so a muted/dark pair must be treated as sharing a background.
+        // #605: `dark` is no longer an accepted `theme` value, so it no longer
+        // resolves into the muted bucket. A muted band beside a band still STORING
+        // `dark` is not a same-background pair — the stale band renders the default
+        // inherited background. The resolver and pp_theme_class() stay in lockstep:
+        // both treat the removed value as unset.
         $system = $this->pageContextFor(702, [
             ['component' => 'grid', 'props' => ['title' => 'A', 'theme' => 'muted']],
             ['component' => 'section', 'props' => ['title' => 'B', 'theme' => 'dark']],
         ]);
 
-        $this->assertStringContainsString(
-            '[0] grid and [1] section share background the muted theme (light surface band) (adjacent — facing paddings/margins control the visible seam)',
-            $system
+        $this->assertStringNotContainsString('[0] grid and [1] section share background', $system);
+
+        // DISCRIMINATING, not merely negative: a bare "no shared background" also
+        // passes if the stale value silently landed in some OTHER bucket. Pin the
+        // resolver directly — a stored `dark` resolves to null, exactly like an
+        // unknown value, which is what "coerces to the default band" means here.
+        $this->assertNull(_pp_resolve_component_bg(['props' => ['theme' => 'dark']]));
+        $this->assertNull(_pp_resolve_component_bg(['props' => ['theme' => 'neon']]));
+        $this->assertSame(
+            'theme:muted',
+            _pp_resolve_component_bg(['props' => ['theme' => 'muted']])['id'],
+            'the canonical value still buckets as muted'
         );
+        $this->assertSame(
+            'theme:inverted',
+            _pp_resolve_component_bg(['props' => ['theme' => 'inverted']])['id']
+        );
+
+        // And it must not fuse with an inverted neighbour either.
+        $withInverted = $this->pageContextFor(703, [
+            ['component' => 'grid', 'props' => ['title' => 'A', 'theme' => 'inverted']],
+            ['component' => 'section', 'props' => ['title' => 'B', 'theme' => 'dark']],
+        ]);
+        $this->assertStringNotContainsString('[0] grid and [1] section share background', $withInverted);
     }
 
     public function testAdjacencyNotAnnotatedForDifferingBackgrounds(): void
@@ -1012,43 +1035,37 @@ class AiContextTest extends TestCase
     // choose.
 
     /**
-     * The `theme` prop's `dark` alias reaches the catalog as an ACCEPTED LEGACY
-     * value, next to (never inside) the advertised value set. If it were folded
-     * into the enum list the agent would start writing `dark` on new bands, which
-     * is exactly the misnomer the #442 migration removed — `dark` renders a LIGHT
-     * band; `inverted` is the dark one.
+     * #605 — the `theme` catalog line is now exactly the three canonical values,
+     * with NO legacy suffix. This is the measurable inspect/maintain win the removal
+     * bought: the alias used to cost a permanent extra line in EVERY AI request's
+     * context, on all eight band components, and it put the trap word `dark` in
+     * front of the agent adjacent to `inverted`.
      */
-    public function testSystemPromptSurfacesThePropAliasAsAcceptedNotAdvertised(): void
+    public function testSystemPromptAdvertisesThemeWithNoLegacySuffix(): void
     {
         $prompt = pp_ai_system_prompt();
-        $this->assertStringContainsString(
-            'theme?: "default"|"muted"|"inverted" (still accepts the legacy value "dark" '
-            . 'on already-stored pages — never write it on new content; use the canonical values above)',
+        $this->assertStringContainsString('theme?: "default"|"muted"|"inverted"', $prompt);
+        $this->assertStringNotContainsString(
+            'theme?: "default"|"muted"|"inverted" (still accepts',
             $prompt,
-            'the catalog must advertise only canonical values and disclose the alias as legacy input.'
+            'the theme entry must carry no accepted-legacy suffix'
         );
     }
 
     /**
-     * The caveat is not decoration. `dark` is a documented trap: it renders the
-     * LIGHT muted band, and ai-instructions/style-component.md tells agents "never
-     * `theme: \"dark\"`". The runtime catalog is always in context and that
-     * instruction file is read on demand, so a bare "also accepts dark" would put
-     * the trap in front of the agent with the warning left behind in a file it may
-     * never open. Pin that the disclosure and the warning travel together.
+     * The whole legacy-warning line is GONE from the runtime catalog, not merely
+     * detached from the `theme` entry. No catalog line anywhere may mention the
+     * removed value: the trap word travels out with the alias that carried it.
      */
-    public function testAliasDisclosureCarriesItsOwnDoNotWriteWarning(): void
+    public function testNoCatalogLineMentionsTheRemovedLegacyValue(): void
     {
         $prompt = pp_ai_system_prompt();
-        $themeLines = array_values(array_filter(
-            explode("\n", $prompt),
-            static fn ($l) => strpos($l, 'legacy value "dark"') !== false
-        ));
-        $this->assertNotEmpty($themeLines, 'the alias must be disclosed at all');
-        foreach ($themeLines as $line) {
-            $this->assertStringContainsString('never write it on new content', $line,
-                'every alias disclosure must carry the do-not-write warning on the SAME line');
-        }
+        $this->assertStringNotContainsString('legacy value "dark"', $prompt);
+        $this->assertStringNotContainsString('never write it on new content', $prompt);
+
+        // And no shipped prop advertises `dark` as a value either.
+        $this->assertStringNotContainsString('"dark"|', $prompt);
+        $this->assertStringNotContainsString('|"dark"', $prompt);
     }
 
     /** Every definition-surface field the emitter can render, pinned at the emitter. */
@@ -1062,9 +1079,9 @@ class AiContextTest extends TestCase
         );
 
         $this->assertSame(
-            '; still accepts the legacy value "dark" on already-stored pages — '
+            '; still accepts the legacy value "legacy_a" on already-stored pages — '
             . 'never write it on new content; use the canonical values above',
-            pp_ai_definition_suffix(['type' => 'enum', 'aliases' => ['dark']])
+            pp_ai_definition_suffix(['type' => 'enum', 'aliases' => ['legacy_a']])
         );
 
         $this->assertSame(

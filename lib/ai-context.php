@@ -290,8 +290,10 @@ function pp_ai_system_prompt(): string {
  *   aliases              legacy VALUES still accepted at write. Phrased as
  *                        "also accepts legacy", never as part of the value set:
  *                        canonical values stay clean and an agent must never read
- *                        this as a value to choose. (The `theme` prop advertises
- *                        default|muted|inverted and accepts the legacy `dark`.)
+ *                        this as a value to choose. NOTE: no shipped prop declares
+ *                        `aliases` any more — the last declaration, `theme`'s legacy
+ *                        `dark`, was removed in #605. The mechanism below still works
+ *                        and is exercised by synthetic fixtures only.
  *
  * @param  array $definition  A slot or prop definition object from schema.json.
  * @return string             A leading-space suffix, or '' when nothing is declared.
@@ -301,13 +303,12 @@ function pp_ai_definition_suffix(array $definition): string {
 
     if (!empty($definition['aliases']) && is_array($definition['aliases'])) {
         // ACCEPTED ON READ, NEVER A VALUE TO CHOOSE. The runtime catalog is always
-        // in context; ai-instructions/style-component.md is read on demand. If this
-        // line said only "also accepts legacy dark" it would put the deprecated
-        // value in front of the agent, adjacent to `inverted`, with none of the
-        // warning the instruction file carries ("renders LIGHT ... never
-        // theme:\"dark\""). An agent asked for a dark band would have a brand-new
-        // reason to write the one value that silently produces a light one. So the
-        // caveat travels WITH the disclosure, not in a file that may never be read.
+        // in context; the instruction files are read on demand. A bare "also accepts
+        // X" would put a deprecated value in front of the agent, adjacent to the
+        // canonical ones, with none of the warning an instruction file carries — so
+        // the do-not-write caveat travels WITH the disclosure, never in a file that
+        // may never be read. NO SHIPPED PROP DECLARES ALIASES since #605 removed the
+        // last one, so this branch is currently reached by synthetic fixtures only.
         $bits[] = 'still accepts the legacy value'
             . (count($definition['aliases']) === 1 ? ' ' : 's ')
             . '"' . implode('", "', $definition['aliases']) . '"'
@@ -699,9 +700,10 @@ function _pp_bg_annotation_value(string $value): string {
  *      paints among flat backgrounds). A `transparent` or empty override reveals the
  *      inherited background, so it resolves to null like the default.
  *   3. `theme` prop bucket, component-independent so section vs grid compare equal:
- *      `inverted` -> the dark inverted band; `muted` (and its deprecated `dark`
- *      alias, #442, which renders the SAME light `--dark` surface) -> muted surface.
- *   4. Otherwise (default/absent/unknown theme) -> null (inherited body background).
+ *      `inverted` -> the dark inverted band; `muted` -> the light muted surface
+ *      (which paints under the legacy `--dark` class name, #570 DG-4).
+ *   4. Otherwise (default/absent/unknown theme, including a `dark` stored before
+ *      #605) -> null (inherited body background).
  *
  * @param array $item  One composition item (defensively typed).
  * @return array{id:string,label:string}|null  Identity + display label, or null.
@@ -737,11 +739,11 @@ function _pp_resolve_component_bg(array $item): ?array {
     if ($theme === 'inverted') {
         return ['id' => 'theme:inverted', 'label' => 'the inverted theme (dark band)'];
     }
-    // #442: `dark` is a deprecated alias of `muted`; both render the same light band.
-    // The accepted alias set here mirrors pp_theme_class() in lib/helpers.php (which
-    // collapses muted/dark to the same `--dark` class) — if that alias set ever
-    // changes (alias removed, new theme added), update both sites in lockstep.
-    if ($theme === 'muted' || $theme === 'dark') {
+    // The accepted set here mirrors pp_theme_class() in lib/helpers.php — if a theme
+    // value is ever added or removed, update both sites in lockstep. A value outside
+    // the set (including a `dark` stored before #605) falls through to the default
+    // bucket below, exactly as pp_theme_class() coerces it to the default band.
+    if ($theme === 'muted') {
         return ['id' => 'theme:muted', 'label' => 'the muted theme (light surface band)'];
     }
 

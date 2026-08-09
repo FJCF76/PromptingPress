@@ -718,23 +718,24 @@ class ActionsTest extends TestCase
         // ComponentPropsTest::testCtaButton2VariantInvalidFallsBackToOutline.
     }
 
-    public function testUpdateComponentAcceptsLegacyThemeAliasOnAnUntouchedBand(): void
+    public function testUpdateComponentIsBlockedByAnUntouchedBandHoldingTheRemovedThemeValue(): void
     {
-        // #579, A-32 + #575's `aliases` consumer. `theme` is STRICT and its schema
-        // advertises only default|muted|inverted, yet `dark` must keep writing.
+        // #605 INVERTS the #579/#575 alias pin this replaces. `theme` is strict and
+        // advertises only default|muted|inverted; `dark` is no longer an accepted
+        // input value, so it is no longer part of the strict membership test.
         //
-        // ONE OF THE TWO EVIDENCE LEGS IS RETIRED (#604), mirroring lib/admin.php.
-        // `dark` used also to be MANUFACTURED at read time by
-        // pp_migrate_legacy_variant_keys() from a stored `variant: "dark"`; that
-        // migration is gone, so `dark` now only reaches the gate when it is literally
-        // the stored or submitted value. The surviving leg is untouched bands that
-        // really do store it — re-evaluating that is the `theme: "dark"` issue's job.
+        // The load-bearing shape is still the SECOND band, and the consequence is now
+        // the deliberate one: the READ-MODIFY-WRITE actions validate the WHOLE
+        // composition, so an untouched band that STORES `theme: "dark"` blocks an
+        // edit to a different band on the same page. That is the accepted stale-data
+        // breakage stated plainly — not a regression, not something to migrate around.
         //
-        // The load-bearing shape is the SECOND band. Every action validates the WHOLE
-        // composition, so if the alias were not part of the strict membership test,
-        // an untouched band's `theme: "dark"` would block an edit to a different band
-        // on the same page — a page that renders correctly and cannot be edited.
-        $id = pp_create_page('Legacy theme alias', 'draft');
+        // The blast radius is UNEVEN and the unevenness is pinned below, not merely
+        // asserted here: `add_component` validates only the item it adds and
+        // `style_component` validates no props at all, so both still succeed on the
+        // same stale page. Exactly the boundary AI_CONTEXT.md describes for retired
+        // prop NAMES; a retired VALUE lands in the same place.
+        $id = pp_create_page('Stale theme value', 'draft');
         pp_update_composition($id, [
             ['component' => 'section', 'props' => ['title' => 'Legacy band', 'body' => 'B', 'theme' => 'dark']],
             ['component' => 'section', 'props' => ['title' => 'Other band', 'body' => 'C']],
@@ -746,16 +747,79 @@ class ActionsTest extends TestCase
             'props'           => ['title' => 'Edited'],
         ]);
 
-        $this->assertTrue($result['ok'], $result['error'] ?? 'the untouched dark band must not block this edit');
+        $this->assertFalse($result['ok'], 'a stored `dark` band must now block the whole-composition validation');
+        $this->assertStringContainsString('default, muted, inverted', $result['error']);
+
+        // Nothing was written: the stale band is untouched and the edit did not land.
         $composition = pp_get_composition($id);
-        $this->assertSame('Edited', $composition[1]['props']['title']);
-        $this->assertSame('dark', $composition[0]['props']['theme'], 'the alias is preserved verbatim, never rewritten');
+        $this->assertSame('Other band', $composition[1]['props']['title']);
+        $this->assertSame('dark', $composition[0]['props']['theme'], 'storage is never rewritten behind the author');
     }
 
-    public function testUpdateComponentAcceptsLegacyThemeAliasWrittenDirectly(): void
+    public function testTheStaleThemeValueDoesNotBlockTheItem_ScopedActions(): void
     {
-        // The alias is accepted at WRITE, not merely tolerated in storage.
-        $id = pp_create_page('Direct alias write', 'draft');
+        // The OTHER half of the uneven blast radius. Same stale page, the two actions
+        // that do not validate the whole composition still work.
+        $id = pp_create_page('Stale theme value, item-scoped actions', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'section', 'props' => ['title' => 'Legacy band', 'body' => 'B', 'theme' => 'dark']],
+        ]);
+
+        $added = pp_execute_action('add_component', [
+            'post_id'   => $id,
+            'component' => 'section',
+            'props'     => ['title' => 'Fresh band', 'body' => 'C', 'theme' => 'muted'],
+        ]);
+        $this->assertTrue($added['ok'], $added['error'] ?? 'add_component validates only the item it adds');
+
+        $styled = pp_execute_action('style_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'style'           => ['--section-bg' => '#101014'],
+        ]);
+        $this->assertTrue($styled['ok'], $styled['error'] ?? 'style_component validates no props at all');
+
+        // Both wrote the stale band back VERBATIM — never silently repaired.
+        $this->assertSame('dark', pp_get_composition($id)[0]['props']['theme']);
+    }
+
+    public function testRepairingTheStaleThemeValueUnblocksTheWholeComposition(): void
+    {
+        // THE WAY OUT. The intended breakage must be escapable through the ordinary
+        // authoring surface, or a stale page would be permanently unwritable — which
+        // would be a bug, not a ruling. Repair the offending band, and the edit that
+        // was blocked lands.
+        $id = pp_create_page('Repairable stale theme value', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'section', 'props' => ['title' => 'Legacy band', 'body' => 'B', 'theme' => 'dark']],
+            ['component' => 'section', 'props' => ['title' => 'Other band', 'body' => 'C']],
+        ]);
+
+        $blocked = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 1, 'props' => ['title' => 'Edited'],
+        ]);
+        $this->assertFalse($blocked['ok'], 'precondition: the stale band blocks the sibling edit');
+
+        // Repair the band that actually holds the retired value.
+        $repair = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 0, 'props' => ['theme' => 'muted'],
+        ]);
+        $this->assertTrue($repair['ok'], $repair['error'] ?? 'the offending band must be repairable in place');
+
+        // And now the previously blocked edit lands.
+        $retry = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 1, 'props' => ['title' => 'Edited'],
+        ]);
+        $this->assertTrue($retry['ok'], $retry['error'] ?? 'repairing the band unblocks the page');
+        $composition = pp_get_composition($id);
+        $this->assertSame('muted', $composition[0]['props']['theme']);
+        $this->assertSame('Edited', $composition[1]['props']['title']);
+    }
+
+    public function testUpdateComponentRejectsTheRemovedThemeValueWrittenDirectly(): void
+    {
+        // The removed value is rejected at WRITE, on the surface an agent actually uses.
+        $id = pp_create_page('Direct removed-value write', 'draft');
         pp_update_composition($id, [['component' => 'section', 'props' => ['title' => 'A', 'body' => 'B']]]);
 
         $result = pp_execute_action('update_component', [
@@ -764,13 +828,15 @@ class ActionsTest extends TestCase
             'props'           => ['theme' => 'dark'],
         ]);
 
-        $this->assertTrue($result['ok'], $result['error'] ?? 'the declared alias must be accepted');
-        $this->assertSame('dark', pp_get_composition($id)[0]['props']['theme']);
+        $this->assertFalse($result['ok'], '`dark` must be rejected, not accepted as an alias');
+        $this->assertStringContainsString('default, muted, inverted', $result['error']);
+        $this->assertArrayNotHasKey('theme', pp_get_composition($id)[0]['props'], 'nothing persisted');
     }
 
     public function testUpdateComponentRejectsAnUndeclaredThemeValue(): void
     {
-        // The alias set is BOUNDED — `dark` is declared, `darkish` is not.
+        // Since #605 there is no alias tier at all: `dark` and `darkish` are both
+        // simply unadvertised values, and both are rejected the same way.
         $id = pp_create_page('Undeclared theme', 'draft');
         pp_update_composition($id, [['component' => 'section', 'props' => ['title' => 'A', 'body' => 'B']]]);
 
@@ -781,10 +847,11 @@ class ActionsTest extends TestCase
         ]);
 
         $this->assertFalse($result['ok']);
-        // The error advertises only the canonical values — an alias is accepted,
-        // never advertised, so an agent reading it is told what to WRITE.
+        // The error names the canonical values — and since #605 that list IS the
+        // whole accepted set, with no accepted-but-unadvertised footnote behind it.
         $this->assertStringContainsString('default, muted, inverted', $result['error']);
         $this->assertStringNotContainsString('dark;', $result['error']);
+        $this->assertStringNotContainsString('legacy', $result['error']);
     }
 
     public function testUpdateComponentRejectsNonScalarStringProp(): void
