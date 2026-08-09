@@ -344,7 +344,10 @@ pp_get_component('mycomponent', [
 > validator reports success. That was issue #223.
 >
 > Declare it: add the name to `pp_template_owned_components()` in `lib/admin.php`, and its menu
-> location to `pp_template_owned_menu_locations()` in `lib/wp.php` if it reads one.
+> location to `pp_template_owned_menu_locations()` in `lib/wp.php` if it reads one — but only
+> when the location renders on EVERY page. A location the component paints only when a menu is
+> assigned to it belongs in `pp_conditionally_rendered_menu_locations()` instead (#582); putting
+> it in the template-owned list would warn every site that never assigned that menu.
 > `pp_validate_composition()` will then reject it from `_pp_composition` with
 > `template_owned_component` on every write-time path, and it will be dropped from the catalog
 > the AI reads. `restore_composition` is the one deliberate exception (#233): it replays stored

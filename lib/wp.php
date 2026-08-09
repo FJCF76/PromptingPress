@@ -540,6 +540,57 @@ function pp_template_owned_menu_locations(): array {
 }
 
 /**
+ * The menu locations the base template renders CONDITIONALLY (#582).
+ *
+ * A deliberate sibling of pp_template_owned_menu_locations(), not an extension of
+ * it. The two lists answer different questions and must never be merged:
+ *
+ *   pp_template_owned_menu_locations()      "renders on EVERY page"
+ *     -> unregistered / unassigned / empty are all findings
+ *
+ *   pp_conditionally_rendered_menu_locations()   "renders ONLY when assigned"
+ *     -> unassigned is the DEFAULT, never a finding; only an assigned-but-broken
+ *        menu is worth a word
+ *
+ * Today that is `footer_secondary` alone (templates/base.php passes it as the
+ * footer's `secondary_location`, functions.php registers it, and the column renders
+ * only behind has_nav_menu()). Adding it to the template-owned list instead would
+ * emit a readiness row on every site that never assigned that menu — precisely the
+ * noise pp_check_nav_readiness()'s docstring rules out by name.
+ *
+ * Kept separate from the template-owned list for a second reason: that list is
+ * drift-guarded against the FIRST `'location' =>` key of each pp_get_component()
+ * call in templates/base.php (NavReadinessTest), and `secondary_location` is
+ * deliberately not that key. This list carries its own drift pin instead.
+ *
+ * @return string[]  Registered nav-menu location slugs rendered only when assigned.
+ */
+function pp_conditionally_rendered_menu_locations(): array {
+    return ['footer_secondary'];
+}
+
+/**
+ * Whether the menu assigned to a location resolves to zero renderable items (#582).
+ *
+ * Extracted so the always-on loop and the conditional loop in
+ * pp_check_nav_readiness() cannot drift on what "empty" means. Both previously
+ * inlined this predicate; a shared helper makes the docblock's claim structural
+ * rather than a promise in prose.
+ *
+ * `false` from wp_get_nav_menu_items() (an unresolvable menu id) and `[]` (a real
+ * but empty menu) are the same finding: the location paints nothing either way.
+ *
+ * @param string $location   Theme location slug.
+ * @param array  $locations  get_nav_menu_locations() result: location => menu_id.
+ * @return bool  True when the location's menu yields no items.
+ */
+function pp_menu_location_is_empty(string $location, array $locations): bool {
+    $menu_id = $locations[$location] ?? 0;
+    $items   = $menu_id ? wp_get_nav_menu_items($menu_id) : false;
+    return empty($items);
+}
+
+/**
  * Diagnoses readiness of the site chrome the base template renders.
  *
  * Scoped to the TEMPLATE-OWNED locations (pp_template_owned_menu_locations()),
@@ -556,6 +607,17 @@ function pp_template_owned_menu_locations(): array {
  *
  * A ready location reports a passing row. Every row is severity=warning: chrome
  * readiness is an operator-facing diagnostic, never a gate on content mutations.
+ *
+ * CONDITIONALLY rendered locations (#582) are diagnosed too, but under an inverted
+ * rule: pp_conditionally_rendered_menu_locations() names locations the footer paints
+ * ONLY when a menu is assigned, so "no menu assigned" is the intended default and
+ * emits nothing at all. The single state worth a word is an ASSIGNED menu that
+ * resolves to zero items — the operator did the work of assigning it and gets a
+ * silently missing column. A healthy one reports NOTHING rather than a passing row,
+ * for the same reason the site-logo check below reports nothing when no logo is set:
+ * an optional-by-design surface must not leave a standing row on every site that
+ * uses it. Emptiness is judged with the identical wp_get_nav_menu_items() test the
+ * template-owned loop uses, so the two surfaces cannot drift on what "empty" means.
  *
  * @return array[]  Rows: ['check'=>'nav_readiness','pass'=>bool,'severity'=>'warning','message'=>string].
  *                  Non-passing rows are configuration-class findings (#496) and
@@ -595,9 +657,7 @@ function pp_check_nav_readiness(): array {
                 'message' => 'Site chrome location "' . $safe_loc . '" has no menu assigned. Use the set_menu action (or Appearance → Menus) to create one and assign it (issue 132).'];
             continue;
         }
-        $menu_id = $locations[$loc] ?? 0;
-        $items   = $menu_id ? wp_get_nav_menu_items($menu_id) : false;
-        if (empty($items)) {
+        if (pp_menu_location_is_empty($loc, $locations)) {
             $checks[] = ['check' => 'nav_readiness', 'pass' => false, 'severity' => 'warning',
                 'class'           => 'configuration',
                 'finding_key'     => 'nav_readiness:' . $loc . ':empty_menu',
@@ -606,9 +666,46 @@ function pp_check_nav_readiness(): array {
                 'message' => 'The menu assigned to site chrome location "' . $safe_loc . '" is empty. Use the set_menu or add_menu_item action (or Appearance → Menus) to add links (issue 132).'];
             continue;
         }
+        $items = wp_get_nav_menu_items($locations[$loc] ?? 0);
         // Healthy: not a finding, no class.
         $checks[] = ['check' => 'nav_readiness', 'pass' => true, 'severity' => 'warning',
             'message' => 'Site chrome location "' . $safe_loc . '" is ready (' . count($items) . ' item(s)).'];
+    }
+
+    // Conditionally rendered locations (#582): fire ONLY on an assigned-but-empty menu.
+    //
+    //   no menu assigned  -> nothing (the default; the column simply is not rendered)
+    //   assigned + items  -> nothing (no passing row — see the docblock)
+    //   assigned + EMPTY  -> one warning row, the state that is otherwise silent
+    //
+    // has_nav_menu() is the gate because it is the same predicate footer.php renders
+    // behind, so this diagnostic can never warn about a column the theme did not emit.
+    // WordPress's has_nav_menu() already requires the location to be registered, which
+    // is why there is no unregistered branch here: an unregistered location is
+    // unassignable, so it cannot reach this check at all.
+    foreach (pp_conditionally_rendered_menu_locations() as $loc) {
+        if (!has_nav_menu($loc)) {
+            continue;
+        }
+        if (!pp_menu_location_is_empty($loc, $locations)) {
+            continue;
+        }
+        // Escaped for the same reason as the loop above: these messages may render in
+        // the admin UI. $loc is a theme constant, not AI-controlled composition data.
+        $safe_loc = esc_html((string) $loc);
+        // The message says "an empty column", not "no column": footer.php gates the
+        // secondary <nav> on has_nav_menu() alone, which is TRUE for an assigned-but-
+        // empty menu, so the landmark and its heading do render — with nothing in them.
+        // Reporting it as invisible would send the operator looking in the wrong place.
+        $checks[] = ['check' => 'nav_readiness', 'pass' => false, 'severity' => 'warning',
+            'class'           => 'configuration',
+            'finding_key'     => 'nav_readiness:' . $loc . ':empty_menu',
+            'acknowledgeable' => true,
+            'next_action'     => 'Add links to the "' . $safe_loc . '" menu via set_menu or add_menu_item (or Appearance → Menus), or unassign the menu from the location to drop the column.',
+            'message' => 'A menu is assigned to the optional site chrome location "' . $safe_loc
+                . '", but it is empty, so the footer renders an empty column. Use the set_menu '
+                . 'or add_menu_item action (or Appearance → Menus) to add links, or unassign the '
+                . 'menu from this location to drop the column deliberately (issue 582).'];
     }
 
     // Site logo: the only chrome surface reachable without the menu API. An id that
@@ -3419,12 +3516,58 @@ function pp_site_option(string $key) {
  * meaningful alt is correct; an empty decorative alt would only apply if a
  * layout rendered both the image AND the visible site title together.)
  *
+ * `logo_alt` reaches this resolver from the `pp_logo_alt` SITE OPTION, which
+ * templates/base.php maps onto both chrome components' `logo_alt` prop (#582).
+ * It is not authored per page: nav and footer are template-owned chrome (#223)
+ * and a composition naming either is rejected outright. Before #582 nothing
+ * passed `logo_alt` at all, so the whitelisted option had no consumer anywhere
+ * and a write to it succeeded while changing nothing rendered.
+ *
+ * EMPTY IS ABSENT, on BOTH branches. base.php passes '' for an unset option, so
+ * the resolver must treat '' exactly like an omitted prop or every site on earth
+ * would get an empty alt the moment the option was wired. The image branch has
+ * always normalized with `=== ''`; the text branch used `??` alone, which was
+ * unreachable while nothing passed the prop and became reachable with #582. Both
+ * branches now fall back, which is what keeps the guarantee below true.
+ *
+ * WHITESPACE-ONLY COUNTS AS UNPROVIDED (#582, maintainer-ruled). The emptiness
+ * test is `trim(...) === ''`, not `=== ''`. `pp_logo_alt` is a 'string' option and
+ * _pp_validate_site_option_value has no 'string' branch, so a value reaches here
+ * exactly as written — and `"   "` is not `''`. Without the trim it counted as an
+ * authored alt: the logo rendered `alt="   "`, which announces nothing to a screen
+ * reader AND suppressed the attachment's own alt metadata, leaving the operator
+ * strictly worse off than not setting the option at all. That is the
+ * reported-success-without-effect class this gate exists to remove, so a
+ * whitespace-only value now falls through exactly like an unset one.
+ *
+ * The trim decides only WHETHER a value counts as provided. It never rewrites one:
+ * the stored option is untouched and a real value renders verbatim, surrounding
+ * spaces included. Fixing this at the write instead was rejected — validation lives
+ * in the shared engines and this repo does not add surface-specific validators.
+ *
+ * `alt` is NEVER empty in the returned shape, for any site that has a title.
+ * That is a contract of this function, not an accident of its callers: nav.php
+ * and footer.php only read `alt` on the image branch today, but a consumer that
+ * reads it on the text branch must not be handed ''. The stated precondition is
+ * the honest one — the chain's terminal hop is pp_site_title(), so a site whose
+ * title is itself empty is the one case that bottoms out at ''. That is not a
+ * regression this function can close; it is what "the site has no name" means.
+ *
+ * `logo_text` is normalized the same empty-is-absent way, whitespace included, for
+ * the same reason and so the guarantee cannot be defeated from the far end (it is
+ * the chain's last hop before the site title). That also makes the long-standing
+ * schema claim "Falls back to pp_site_title() when empty" true — before #582 it
+ * fell back only when the key was ABSENT.
+ *
  * @param array $props  Component props (logo_id, logo_alt, logo_text).
  * @return array{type:string,url:string,alt:string,text:string}
  *         type is 'image' when an attachment resolved to a URL, else 'text'.
  */
 function pp_resolve_logo(array $props): array {
-    $text = $props['logo_text'] ?? pp_site_title();
+    // Empty-is-absent, whitespace included — same rule as logo_alt below (#582).
+    // The value is used VERBATIM when it counts; trim() only decides whether it does.
+    $raw_text = (string) ($props['logo_text'] ?? '');
+    $text     = trim($raw_text) !== '' ? $raw_text : pp_site_title();
 
     $id = 0;
     if (!empty($props['logo_id'])) {
@@ -3443,16 +3586,28 @@ function pp_resolve_logo(array $props): array {
     if (pp_is_image_attachment($id)) {
         $url = wp_get_attachment_image_url($id, 'full');
         if ($url) {
-            $alt = $props['logo_alt'] ?? '';
-            if ($alt === '') {
+            // trim() decides whether an alt was PROVIDED; the value itself is used
+            // verbatim. A whitespace-only pp_logo_alt counts as unprovided, so the
+            // attachment's own alt still wins instead of being suppressed (#582).
+            $alt = (string) ($props['logo_alt'] ?? '');
+            if (trim($alt) === '') {
                 $meta_alt = (string) get_post_meta($id, '_wp_attachment_image_alt', true);
-                $alt = $meta_alt !== '' ? $meta_alt : $text;
+                $alt = trim($meta_alt) !== '' ? $meta_alt : $text;
             }
             return ['type' => 'image', 'url' => $url, 'alt' => $alt, 'text' => $text];
         }
     }
 
-    return ['type' => 'text', 'url' => '', 'alt' => $props['logo_alt'] ?? $text, 'text' => $text];
+    // Same empty-is-absent normalization as the image branch above (#582). There is
+    // no attachment on this branch, so the chain is one hop: explicit alt, else the
+    // wordmark text.
+    $text_alt = (string) ($props['logo_alt'] ?? '');
+    return [
+        'type' => 'text',
+        'url'  => '',
+        'alt'  => trim($text_alt) !== '' ? $text_alt : $text,
+        'text' => $text,
+    ];
 }
 
 // ── Site-state write functions (persistence wrappers) ────────────────────────

@@ -41,6 +41,15 @@ if (!function_exists('pp_base_template')) {
     'bg'         => (string) get_option('pp_header_bg', ''),
     'text'       => (string) get_option('pp_header_text', ''),
     'link_color' => (string) get_option('pp_header_link_color', ''),
+    // Logo alt text (issue 582). pp_logo_alt has been whitelisted for update_site_option
+    // since issue 106 and documented on three surfaces as THE logo alt surface, but
+    // nothing ever read it: no call site passed logo_alt, so a write succeeded and
+    // changed nothing rendered. This is that consumer. pp_resolve_logo's alt chain is
+    // unchanged (explicit alt -> attachment alt -> logo_text/site title), so an unset
+    // option passes '' and every site that never set it renders byte-identically.
+    // The resolver treats empty AND whitespace-only as unprovided, so a blank value
+    // falls through the chain instead of rendering a meaningless alt.
+    'logo_alt'   => (string) get_option('pp_logo_alt', ''),
 ]); ?>
 
 <main id="main">
@@ -76,6 +85,13 @@ if (!function_exists('pp_base_template')) {
     'contact_label' => (string) get_option('pp_footer_contact_label', ''),
     'note'          => (string) get_option('pp_footer_note', ''),
     'logo_id'       => (string) get_option('pp_footer_logo_id', ''),
+    // Logo alt text (issue 582) — the SAME pp_logo_alt option the header reads. There
+    // is deliberately no pp_footer_logo_alt: the alt describes the brand, not the
+    // asset, so one site-wide override serves both chrome logos. Consequence, stated
+    // because it is intentional: on a footer using the pp_footer_logo_id override, a
+    // set pp_logo_alt wins over THAT attachment's own alt metadata, exactly as it does
+    // in the header. Unset passes '' and the per-attachment alt chain is untouched.
+    'logo_alt'      => (string) get_option('pp_logo_alt', ''),
     // Social-icon row (issue 382). JSON list of {network, url}; the footer decodes
     // it and renders inline-SVG icon links in the reserved .site-footer__social slot.
     // Empty/unset = no row (byte-identical footer).

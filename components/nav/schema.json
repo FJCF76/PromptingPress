@@ -12,39 +12,39 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Logo text wordmark. Falls back to pp_site_title() when empty. Shown when no logo image resolves.",
+      "description": "Logo text wordmark. Falls back to pp_site_title() when empty. Shown when no logo image resolves. TEMPLATE CONTRACT (issue 582): NOT reachable from any supported surface — base.php never passes it and a page cannot compose a nav, so it always resolves to the site title in practice. It is documented here because pp_resolve_logo() accepts it, not because you can set it. To change the wordmark, change the site title.",
       "conditionality_note": "NO logo image resolves — a negation the grammar cannot express; with a valid logo_id the image wins and this wordmark is never rendered"
     },
     "logo_id": {
       "type": "number",
       "required": false,
       "default": 0,
-      "description": "Media Library attachment ID for the logo image (NOT a URL). Must be an image attachment; a non-image or non-existent ID is rejected when the action is validated (same rule as the pp_logo_id site option). When set to a valid image it renders an img tag instead of the text wordmark. Resolution order: this prop, then the pp_logo_id site option, then the WP custom_logo theme-mod."
+      "description": "Media Library attachment ID for the logo image (NOT a URL). When set to a valid image it renders an img tag instead of the text wordmark. Resolution order: this prop, then the pp_logo_id site option, then the WP custom_logo theme-mod. TEMPLATE CONTRACT (issue 582): NOT reachable as a prop — base.php never passes it and a composition naming nav is rejected outright with template_owned_component, so the prop-level image check can never actually run on it. Set the logo through the pp_logo_id SITE OPTION (update_site_option); that is the write the image-attachment rule validates — a non-image or non-existent ID is rejected there."
     },
     "logo_alt": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Alt text for the logo image. Defaults to the attachment's own alt metadata, then logo_text/site title.",
+      "description": "Alt text for the logo image. Defaults to the attachment's own alt metadata, then logo_text/site title; it is never empty. TEMPLATE CONTRACT (issue 582): template-supplied, not page-authored — base.php maps the pp_logo_alt SITE OPTION onto this prop, so update_site_option with key pp_logo_alt is the surface. Use it only when the alt should differ from the attachment's own alt metadata; leave it unset otherwise and the attachment's alt is used. The same option also feeds the footer logo. A value that is empty OR WHITESPACE-ONLY counts as unprovided and falls through to the rest of the chain rather than rendering — a blank alt would announce nothing and would suppress the attachment's own alt. A real value renders verbatim, surrounding spaces included.",
       "conditionality_note": "a logo IMAGE resolves, i.e. logo_id points at a real image attachment — a numeric-prop precondition the grammar, whose `present` predicate covers strings and arrays only, cannot express"
     },
     "bg": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Header background (issue 333). Set via the pp_header_bg site option; emitted as the --header-bg custom property. Accepts a CSS color (hex, rgb()/hsl(), transparent, currentColor, or a known color-token reference) OR a bounded linear-gradient()/radial-gradient() with 2+ color stops — the shared `gradient` slot type. Empty = the default page background. This is the primary dark/gradient marketing-header control."
+      "description": "Header background (issue 333). Set via the pp_header_bg site option; emitted as the --header-bg custom property. Accepts a CSS color (hex, rgb()/hsl(), transparent, currentColor, or a known color-token reference) OR a bounded linear-gradient()/radial-gradient() with 2+ color stops — the shared `gradient` slot type. Empty = the default page background. This is the primary dark/gradient marketing-header control. SCOPE (issue 582): it paints THREE surfaces, not one — the header bar, the mobile menu disclosure panel (<768px), and the desktop dropdown submenu panel — so a dark header carries into both panels rather than leaving them light. Note the two panels fall back DIFFERENTLY when this is unset: the mobile panel to --color-bg (matching the header bar) and the dropdown panel to --color-surface. That asymmetry only shows with the option unset; any value you set reaches all three identically."
     },
     "text": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Header text color (issue 333). Set via the pp_header_text site option; emitted as --header-text. Applies to the logo wordmark and the mobile hamburger toggle. A CSS color (no gradient). Empty = the default text color."
+      "description": "Header text color (issue 333). Set via the pp_header_text site option; emitted as --header-text. Applies to the logo wordmark and the mobile hamburger toggle. A CSS color (no gradient). Empty = the default text color (--color-text). HOVER (issue 582): both of those surfaces switch to the global --color-accent design token on hover, which this option does not reach. If the accent is illegible on a themed header, change the accent with update_design_token — there is no per-header hover option."
     },
     "link_color": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Header nav-link color (issue 333). Set via the pp_header_link_color site option; emitted as --header-link-color. A CSS color (no gradient). Empty = the default text color. The active/current link color also follows --header-link-color (issue 355), falling back to --color-accent when unset; the current item keeps its bold weight. Hover keeps --color-accent, which is a global design token."
+      "description": "Header nav-link color (issue 333). Set via the pp_header_link_color site option; emitted as --header-link-color. A CSS color (no gradient). It colors TWO link states, each with its OWN fallback when the option is unset (issue 582): the RESTING link falls back to --color-text, and the ACTIVE/current link falls back to --color-accent (issue 355). Set the option and both states take that one value; the current item keeps its bold weight either way. Hover keeps --color-accent, which is a global design token this option does not reach."
     }
   },
   "styling": {

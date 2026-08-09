@@ -18,21 +18,21 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Footer logo text wordmark (only when show_logo is true). Falls back to pp_site_title() when empty.",
+      "description": "Footer logo text wordmark (only when show_logo is true). Falls back to pp_site_title() when empty. TEMPLATE CONTRACT (issue 582): NOT reachable from any supported surface — base.php never passes it and a page cannot compose a footer, so it always resolves to the site title in practice. It is documented here because pp_resolve_logo() accepts it, not because you can set it. To change the wordmark, change the site title.",
       "conditionality_note": "show_logo is true AND no logo image resolves — a boolean prop plus a negation, neither of which the clause grammar can express"
     },
     "logo_id": {
       "type": "number",
       "required": false,
       "default": 0,
-      "description": "Media Library attachment ID for the footer logo image (NOT a URL; only when show_logo is true). Must be an image attachment; a non-image or non-existent ID is rejected when the action is validated (same rule as the pp_logo_id site option). Set via the pp_footer_logo_id site option (issue 335) so a light logo variant can serve the dark footer while pp_logo_id stays the header logo. Resolution: this prop (pp_footer_logo_id), then the pp_logo_id site option, then the WP custom_logo theme-mod.",
+      "description": "Media Library attachment ID for the footer logo image (NOT a URL; only when show_logo is true). Must be an image attachment; a non-image or non-existent ID is rejected when the action is validated (same rule as the pp_logo_id site option). Set via the pp_footer_logo_id site option (issue 335) so a light logo variant can serve the dark footer while pp_logo_id stays the header logo. TEMPLATE CONTRACT (issue 582): template-supplied, not page-authored — base.php maps pp_footer_logo_id onto this prop, and that site option is the surface the image-attachment rule is enforced on. Resolution: pp_footer_logo_id, then the pp_logo_id site option, then the WP custom_logo theme-mod. The fallback to pp_logo_id applies when pp_footer_logo_id is UNSET; a set-but-invalid override does not fall back, it drops to the text wordmark.",
       "conditionality_note": "show_logo is true — a boolean-prop precondition the grammar, whose predicates cover strings, arrays and bounded values only, cannot express"
     },
     "logo_alt": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Alt text for the footer logo image. Defaults to the attachment's own alt metadata, then logo_text/site title.",
+      "description": "Alt text for the footer logo image. Defaults to the attachment's own alt metadata, then logo_text/site title; it is never empty. TEMPLATE CONTRACT (issue 582): template-supplied, not page-authored — base.php maps the pp_logo_alt SITE OPTION onto this prop, the SAME option the header logo uses. There is deliberately no pp_footer_logo_alt: the alt describes the brand, not the asset. Consequence when the footer runs a different image via pp_footer_logo_id — a set pp_logo_alt wins over THAT attachment's own alt metadata, exactly as it does in the header. Leave pp_logo_alt unset and each attachment's own alt is used. A value that is empty OR WHITESPACE-ONLY counts as unprovided and falls through to the rest of the chain rather than rendering; a real value renders verbatim, surrounding spaces included.",
       "conditionality_note": "show_logo is true AND logo_id points at a real image attachment — a boolean plus a numeric-prop precondition, neither of which the clause grammar can express"
     },
     "bg": {
@@ -45,13 +45,13 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Footer text color (issue 300). Set via the pp_footer_text site option; emitted as --footer-text. Applies to the blurb, contact block, and copyright. Same color validation as bg. Empty = inherit / the muted default."
+      "description": "Footer text color (issue 300). Set via the pp_footer_text site option; emitted as --footer-text. Same color validation as bg. Empty = inherit / the muted default. SCOPE (issue 582): it reaches FIVE surfaces, not the three originally documented — the footer body, the blurb, the contact block, the copyright line, AND the column headings (menu/contact labels) plus the bottom-bar note. In other words every non-link text surface in the footer follows this one option; only links have their own slot (link_color)."
     },
     "link_color": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Footer nav-link color (issue 300). Set via the pp_footer_link_color site option; emitted as --footer-link-color. Same color validation as bg. Empty = the muted default."
+      "description": "Footer link color (issue 300). Set via the pp_footer_link_color site option; emitted as --footer-link-color. Same color validation as bg. Empty = the muted default (--color-muted). SCOPE (issue 582): it colors EVERY link surface in the footer, not just the nav menu — the footer menu links (both columns), the social-icon row, and the mailto:/tel: links the contact <address> block generates. HOVER: all three switch to the global --color-accent design token on hover, which this option does not reach; change the accent with update_design_token if it is illegible on a dark footer."
     },
     "blurb": {
       "type": "string",

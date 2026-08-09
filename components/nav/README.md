@@ -11,21 +11,38 @@ Site header with logo, primary navigation menu, a hamburger toggle for mobile, a
 
 ## Props (template-supplied)
 
-`templates/base.php` calls this component with `location` plus the `pp_header_*` color
-options, so those are the props ever set in practice. The logo props exist because
-`pp_resolve_logo()` accepts them, but no supported surface passes them — a page cannot,
-because a page cannot compose `nav` at all. Set the logo through the `pp_logo_id` option
-instead.
+`templates/base.php` calls this component with `location`, the `pp_header_*` color options,
+and `logo_alt` (from `pp_logo_alt`, #582), so those are the props ever set in practice.
+`logo_text` and `logo_id` exist because `pp_resolve_logo()` accepts them, but no supported
+surface passes them — a page cannot, because a page cannot compose `nav` at all. Set the
+logo through the `pp_logo_id` option instead.
 
 | Prop         | Type   | Required | Default     | Description |
 |--------------|--------|----------|-------------|-------------|
 | `location`   | string | No       | `'primary'` | WP theme location slug |
-| `logo_text`  | string | No       | —           | Logo text (falls back to site title). Not reachable from a page; see below |
-| `logo_id`    | int    | No       | —           | Media Library attachment ID for an image logo (takes priority over `logo_text`). Must be an image attachment. Not reachable from a page; use the `pp_logo_id` option |
-| `logo_alt`   | string | No       | —           | Alt text for the image logo. Not reachable from a page |
-| `bg`         | string | No       | —           | Header background. Set via the `pp_header_bg` site option → `--header-bg`. A CSS color **or** a bounded `linear-gradient()`/`radial-gradient()` (the shared `gradient` slot type, #333) |
-| `text`       | string | No       | —           | Header text color (logo wordmark + mobile toggle). Set via `pp_header_text` → `--header-text`. CSS color only |
-| `link_color` | string | No       | —           | Header nav-link color, including the active/current link (#355). Set via `pp_header_link_color` → `--header-link-color`. CSS color only. The active link falls back to `--color-accent` when this is unset |
+| `logo_text`  | string | No       | —           | Logo text (falls back to site title). Not reachable from any surface; change the site title instead |
+| `logo_id`    | int    | No       | —           | Media Library attachment ID for an image logo (takes priority over `logo_text`). Not reachable as a prop — the image-attachment rule is enforced on the `pp_logo_id` **site option**, which is the surface to use |
+| `logo_alt`   | string | No       | —           | Alt text for the image logo. Template-supplied from the `pp_logo_alt` site option (#582); not page-authored. Defaults to the attachment's own alt, then the site title, and is never empty |
+| `bg`         | string | No       | —           | Header background. Set via the `pp_header_bg` site option → `--header-bg`. A CSS color **or** a bounded `linear-gradient()`/`radial-gradient()` (the shared `gradient` slot type, #333). Paints the header bar **and both menu panels** — see below |
+| `text`       | string | No       | —           | Header text color (logo wordmark + mobile toggle). Set via `pp_header_text` → `--header-text`. CSS color only. Resting fallback `--color-text`; both surfaces hover to `--color-accent` |
+| `link_color` | string | No       | —           | Header nav-link color, including the active/current link (#355). Set via `pp_header_link_color` → `--header-link-color`. CSS color only. Two fallbacks when unset: the resting link falls back to `--color-text`, the active link to `--color-accent` |
+
+### What the header custom properties actually reach (#582)
+
+The three `--header-*` properties do more than their names suggest. Documented here
+because chrome declares no style slots, so this table is the only place to learn it.
+
+| Property | Surfaces it paints | Fallback(s) when unset |
+|----------|--------------------|------------------------|
+| `--header-bg` | the sticky header bar; the **mobile menu disclosure panel** (`<768px`); the **desktop dropdown submenu panel** | header bar and mobile panel → `--color-bg`; dropdown panel → `--color-surface` (deliberately different, visible only when unset) |
+| `--header-text` | the logo wordmark; the mobile hamburger toggle | `--color-text` |
+| `--header-link-color` | resting nav links; the active/current link (#355) | resting → `--color-text`; active → `--color-accent` |
+
+Hover is **not** reachable from any of them: the nav logo, the hamburger toggle, and nav
+links all hover to the global `--color-accent` design token. If the accent is illegible on
+a themed header, change the token with `update_design_token` — there is no per-header hover
+option, and adding one would mean giving chrome a style slot, which the chrome contract
+(#223) rules out.
 
 ## Configuring the header
 
@@ -36,6 +53,7 @@ always has.
 | Goal | Surface |
 |------|---------|
 | Set the site logo | `update_site_option` with key `pp_logo_id` (a Media Library **image** attachment ID, not a URL) |
+| Override the logo's alt text | `update_site_option` with key `pp_logo_alt` (text, #582). Only needed when the alt should differ from the attachment's own alt metadata; unset uses the attachment alt, then the site title. The same option also feeds the footer logo. Empty **or whitespace-only** counts as unprovided and falls through the chain; a real value renders verbatim |
 | Build the header menu | The menu actions: `create_menu` / `set_menu` / `add_menu_item` |
 | Attach a menu to the header | `assign_menu_location` with location `primary` |
 | Dark or gradient header (background) | `update_site_option` with key `pp_header_bg` (a CSS color **or** a bounded gradient) |
