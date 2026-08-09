@@ -186,21 +186,16 @@
 
         if (field.type === 'enum' && field.values) {
             h += '<select id="' + id + '" data-comp="' + compIdx + '" data-field="' + field.name + '">';
-            // A stored value that is no longer advertised (e.g. the deprecated
-            // theme value "dark", which the renderer still accepts as an alias of
-            // "muted", #442) is prepended as its own option so opening + re-saving
-            // an existing band round-trips it losslessly instead of silently
-            // snapping the <select> to its first option and mutating stored state.
-            // Guard the injection to a safe identifier charset: every real enum
-            // value is a lowercase slug, so legacy values still round-trip, but a
-            // malformed stored value is never reflected into the value="" attribute
-            // (esc() is text-safe but does not escape the double-quote used to close
-            // the attribute). A rejected value simply falls back to the default, which
-            // is no worse than the pre-#442 drop behavior.
-            var storedVal = (field.value === undefined || field.value === null) ? '' : String(field.value);
-            if (storedVal !== '' && field.values.indexOf(field.value) === -1 && /^[a-z0-9_-]+$/i.test(storedVal)) {
-                h += '<option value="' + esc(storedVal) + '" selected>' + esc(storedVal) + ' (legacy)</option>';
-            }
+            // The <select> is built from the advertised `values` and nothing else
+            // (#605). Every shipped enum is `strict: true` (#579), so the only way to
+            // hold an unadvertised value is stale storage — and tolerating stale data
+            // is an explicit non-goal. A stored value outside `values` therefore
+            // matches no option and the browser selects the FIRST advertised one.
+            //
+            // Precisely, because it is easy to overstate: that is `values[0]`, which is
+            // not necessarily the prop's schema `default` (hero.layout advertises
+            // `left` first but defaults to `centered`). So the fallback shown here is
+            // "the first advertised value", not "what the renderer would have done".
             field.values.forEach(function (v) {
                 var sel = v === field.value ? ' selected' : '';
                 h += '<option value="' + esc(v) + '"' + sel + '>' + esc(v) + '</option>';

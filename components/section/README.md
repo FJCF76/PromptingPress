@@ -43,7 +43,7 @@ If `image_url` is empty, image-left/image-right layouts fall back to `text-only`
 
 Background color/tone (`theme`), independent of layout:
 - **default** — Page background.
-- **dark** — Surface background with borders.
+- **muted** — Surface background with borders. (Renders under the legacy `--dark` CSS class name; `muted` is the value you write.)
 - **inverted** — Inverted background for strong contrast.
 
 ## Usage

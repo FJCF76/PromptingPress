@@ -109,7 +109,7 @@ class SchemaThemeConsistencyTest extends TestCase
                 $theme['values'],
                 "'{$component}' theme enum must advertise default|muted|inverted (no dark) — #442"
             );
-            $this->assertNotContains('dark', $theme['values'], "'{$component}' still advertises the deprecated 'dark'");
+            $this->assertNotContains('dark', $theme['values'], "'{$component}' still advertises the removed 'dark' (#605)");
             // The description must steer toward inverted for a dark band, and must not
             // present 'dark' as an offered value.
             $this->assertStringContainsString('muted', $theme['description']);

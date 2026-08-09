@@ -191,10 +191,17 @@ contract fixes one layer down. The bounded value set lives in `pp_slot_roles()`
 
 `aliases` lists legacy **values** of a bounded set. Canonical values stay clean —
 an alias is **accepted, never advertised**, so it must not also appear in `values`,
-and it is valid only on an `enum` prop. The `theme` prop advertises
-`["default","muted","inverted"]` and declares `"aliases": ["dark"]`. The write path
-**consumes** `aliases`, so an alias is part of the strict-enum membership test:
-declaring `aliases` beside `strict: true` is the contract, not an error.
+and it is valid only on an `enum` prop. The write path **consumes** `aliases`, so an
+alias is part of the strict-enum membership test: declaring `aliases` beside
+`strict: true` is the contract, not an error. Shape, if you ever need one:
+`{"type":"enum","strict":true,"values":["a","b"],"aliases":["legacy_a"]}`.
+
+**No shipped prop declares `aliases`.** The last one, the `theme` prop's legacy
+`dark`, was removed in #605 — its name mispredicted its output, so accepting it
+produced the wrong band silently and cost a permanent caveat line in every AI
+request's context. Do not add a new alias to make a rename easier: backward
+compatibility and legacy tolerance are non-goals. Rename the value and let the
+strict-enum gate reject the old one.
 
 **Every TOP-LEVEL enum prop must declare `strict: true`.** Without it the write path
 accepts any string and the renderer coerces it to the default, so the action reports

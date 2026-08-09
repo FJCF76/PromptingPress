@@ -129,3 +129,92 @@ describe('DOM selector alignment — array field round-trip', () => {
         expect(result).toHaveLength(0);
     });
 });
+
+// ─── Enum <select> rendering (#605) ─────────────────────────────────────────
+//
+// Re-homed from the deleted pp-editor-enum-legacy.test.js. That file existed to
+// pin the #442 legacy-value injection, which prepended any stored-but-unadvertised
+// enum value as its own `<option>` so re-saving round-tripped it. #605 deleted the
+// injection: every shipped enum is `strict: true` (#579), so the only way to hold
+// an unadvertised value is stale storage, and tolerating stale data is an explicit
+// non-goal. These keep the assertions that were never about legacy values, and add
+// the one that pins the new contract.
+
+/**
+ * Mirrors the enum branch of buildFieldHtml in pp-admin-editor.js — post-#605, the
+ * <select> is built from the advertised `values` and nothing else.
+ */
+function buildEnumSelectHtml(field) {
+    function esc(str) {
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    let h = '<select data-field="' + field.name + '">';
+    if (field.type === 'enum' && field.values) {
+        field.values.forEach(function (v) {
+            const sel = v === field.value ? ' selected' : '';
+            h += '<option value="' + esc(v) + '"' + sel + '>' + esc(v) + '</option>';
+        });
+    }
+    h += '</select>';
+    return h;
+}
+
+function selectedValue(html) {
+    document.body.innerHTML = html;
+    return document.querySelector('select').value;
+}
+
+describe('accordion editor enum <select>', () => {
+    const themeValues = ['default', 'muted', 'inverted'];
+
+    test('selects an advertised value normally', () => {
+        const html = buildEnumSelectHtml({ name: 'theme', type: 'enum', values: themeValues, value: 'muted' });
+        expect(selectedValue(html)).toBe('muted');
+        expect((html.match(/<option/g) || []).length).toBe(3);
+    });
+
+    test('does not inject a stray option when no value is stored', () => {
+        const html = buildEnumSelectHtml({ name: 'theme', type: 'enum', values: themeValues, value: undefined });
+        expect((html.match(/<option/g) || []).length).toBe(3);
+        // Browser defaults to the first option.
+        expect(selectedValue(html)).toBe('default');
+    });
+
+    test('does not double-count when the stored value is the default', () => {
+        const html = buildEnumSelectHtml({ name: 'theme', type: 'enum', values: themeValues, value: 'default' });
+        expect((html.match(/<option/g) || []).length).toBe(3);
+        expect(selectedValue(html)).toBe('default');
+    });
+
+    // SOURCE TRIPWIRE. Everything above mirrors the editor's enum branch rather
+    // than importing it (buildFieldHtml lives inside an IIFE and is unexported), so
+    // on its own it would keep passing if the shipped file drifted. This asserts
+    // against the shipped bytes: the legacy-option injection is gone from
+    // pp-admin-editor.js and re-introducing it fails here (#605).
+    test('the shipped editor contains no legacy-option injection', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(
+            path.join(__dirname, '..', '..', 'assets', 'js', 'pp-admin-editor.js'),
+            'utf-8'
+        );
+        expect(src).not.toContain('(legacy)');
+        // The guard that only existed to protect the injection goes with it.
+        expect(src).not.toContain('/^[a-z0-9_-]+$/i');
+        // And the <select> is still built from the advertised values.
+        expect(src).toContain('field.values.forEach');
+    });
+
+    test('a stored value outside the advertised set falls back to the first option', () => {
+        // THE #605 CONTRACT, and the reason it is safe to state the consequence in
+        // the release notes: the editor serializes from the DOM (pp-admin-editor.js
+        // reads $input.val() off the live <select>), so a band still holding the
+        // removed theme value "dark" shows — and re-saves — the default. No stray
+        // "(legacy)" option, no round-trip of stale storage.
+        const html = buildEnumSelectHtml({ name: 'theme', type: 'enum', values: themeValues, value: 'dark' });
+        expect(html).not.toContain('(legacy)');
+        expect(html).not.toContain('dark');
+        expect((html.match(/<option/g) || []).length).toBe(3);
+        expect(selectedValue(html)).toBe('default');
+    });
+});

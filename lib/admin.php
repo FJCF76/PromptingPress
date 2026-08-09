@@ -604,9 +604,10 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
             // The advertise-but-reject guard that stood here in #575 is GONE, and
             // its removal is the point of #579: the strict-enum check in
             // pp_validate_composition_errors() now consults `aliases`, so declaring
-            // both is not a lie any more, it is the whole contract —
-            // `theme` is strict AND still accepts the legacy `dark` it never
-            // advertises. Any future strict enum may declare aliases the same way.
+            // both is not a lie any more, it is the whole contract: a strict enum MAY
+            // accept a legacy value it never advertises. No shipped prop does — #605
+            // removed the last one — but any future strict enum may declare aliases
+            // the same way, and this validator still holds it to the contract.
             $values = $definition['values'] ?? [];
             foreach ($aliases as $alias) {
                 if (!is_string($alias) || $alias === '') {
@@ -1136,22 +1137,25 @@ function pp_validate_composition_errors(array $items): array {
         //
         // ALIASES ARE PART OF THE MEMBERSHIP TEST (#579 lands #575's consumer). A
         // prop may declare `aliases`: legacy values accepted at write and NEVER
-        // advertised in `values`. `theme` declares `["dark"]`. Without this the gate
-        // would be actively destructive rather than merely strict: the block runs
-        // inside pp_validate_composition_errors()'s per-item loop, while
-        // update_component validates the WHOLE composition (lib/actions.php), so one
-        // untouched band still carrying `theme: "dark"` would block an edit to a
-        // DIFFERENT band on the same page. `dark` keeps rendering identically
-        // (pp_theme_class, lib/helpers.php).
+        // advertised in `values`. NO SHIPPED PROP DECLARES ANY — `theme`'s legacy
+        // `dark` was the last, removed in #605 — so this arm is currently unused and
+        // the accepted set equals the advertised set everywhere.
         //
-        // ONE OF #579's TWO EVIDENCE LEGS IS RETIRED (#604). `dark` used also to be
-        // MANUFACTURED at read time by pp_migrate_legacy_variant_keys() from a
+        // What that costs, stated rather than inferred: the block runs inside
+        // pp_validate_composition_errors()'s per-item loop, while update_component
+        // validates the WHOLE composition (lib/actions.php), so one untouched band
+        // still carrying a retired value blocks an edit to a DIFFERENT band on the
+        // same page. That is the accepted stale-data breakage, not a reason to
+        // re-add an alias: backward compatibility is an explicit non-goal.
+        //
+        // BOTH OF #579's EVIDENCE LEGS ARE RETIRED (#604, then #605). `dark` used to
+        // be MANUFACTURED at read time by pp_migrate_legacy_variant_keys() from a
         // stored `variant: "dark"`, so it materialised on pages where the string
-        // never appeared in storage. That migration is gone: `dark` now only ever
-        // reaches this gate when it is literally the stored/submitted value. The
-        // remaining leg — untouched bands that really do store `dark` — is what
-        // keeps the alias, and re-evaluating it is the `theme: "dark"` issue's job,
-        // not this one's.
+        // never appeared in storage; #604 deleted that migration. The remaining leg
+        // — untouched bands that really do store `dark` — was the last thing keeping
+        // the alias, and #605 removed the alias rather than keeping it: a stored
+        // `dark` now reaches this gate as an ordinary unadvertised value and is
+        // rejected. Nothing here is waiting on a further decision.
         //
         // SCOPE, stated so nobody reads more into it than is true: this walks
         // $schema['props'], i.e. TOP-LEVEL props only, exactly as the #379/#475

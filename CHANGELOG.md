@@ -4,6 +4,46 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.16] — 2026-08-09 — the `theme: "dark"` input value is gone; the emitted `--dark` class stays (#605)
+
+**`dark` was the last legacy VALUE any prop accepted at write, and the only one whose name mispredicted its own output: `theme: "dark"` rendered a LIGHT band. It is removed. `theme` now accepts exactly `default | muted | inverted`, the strict-enum gate (#579) rejects everything else, and the value an agent writes matches the values the catalog advertises with no footnote. The CSS class `<root>--dark` that `theme: "muted"` emits is KEPT and unchanged — that is an output name, not a value anyone can write (#570 DG-4).**
+
+The alias failed the one test that could have saved it. `dark` is a natural word for a model to reach for, but accepting it produced the wrong visual result silently on exactly the request it was most likely to be generated for: an agent asked for a dark band got a pale tint. The correct behaviour is the strict rejection, whose message names `default, muted, inverted` and teaches the real vocabulary on the spot. Accepting-and-mis-rendering taught nothing and shipped a wrong page.
+
+It also cost a permanent line in every AI request's context. `pp_ai_definition_suffix()` appended `still accepts the legacy value "dark" ... never write it on new content` to the `theme` entry of the runtime catalog for all eight band components — always in context, and putting the trap word in front of the agent next to `inverted`. That line is gone, and this release pins that no catalog line anywhere mentions it.
+
+Both evidence legs #570's DG-5 stood on are void: stale dev pages are an explicit non-goal, and the read-time manufacture path (`variant: "dark"` -> `theme: "dark"`) was deleted by #604. The `aliases` FIELD mechanism itself is untouched and now has zero shipped declarations; whether it survives is filed separately. Its validator, consumer and emitter still work and are pinned against a synthetic fixture.
+
+**What breaks, stated plainly.** A band stored with `theme: "dark"` renders as `default` — no muted surface, no framing borders — instead of the light tinted band it used to paint. On the dev corpus that is roughly 10 declarations across 6 of 12 compositions. The three actions that validate the whole composition (`create_page`, `update_composition`, `update_component`) reject such a page by value, including when the edit targets a different band; `add_component` and `style_component` still succeed on it, and this release pins both halves of that uneven blast radius plus the repair path that unblocks the page. There is deliberately no migration, no coercion and no warning-only tolerance. `restore_composition` still restores verbatim and reports the violation rather than blocking (#233). Fresh generation is unaffected: a proof authors all eight band components with each of the three canonical values and asserts they validate, read back unchanged and render the documented class.
+
+### Removed
+
+- The `"aliases": ["dark"]` declaration from all eight band component schemas (`section`, `grid`, `cta`, `stats`, `testimonials`, `faq`, `embed`, `logos`). `values` and `strict: true` are untouched — no schema was broadened and no validator weakened.
+- `'dark'` from `pp_theme_class()`'s accepted set (`lib/helpers.php`). The `$slug = ($theme === 'muted') ? 'dark' : $theme;` mapping on the next line is deliberately unchanged: it is what keeps every stylesheet rule and `variant_classes` declaration valid.
+- The `|| $theme === 'dark'` branch from `_pp_resolve_component_bg()` (`lib/ai-context.php`), so a stored `dark` no longer shares a background bucket with `muted`.
+- The composition editor's legacy-`<option>` injection (`assets/js/pp-admin-editor.js`), which prepended any stored-but-unadvertised enum value so re-saving round-tripped it. Every shipped enum is strict, so its only remaining input was stale storage.
+
+### Fixed
+
+- The composition editor no longer silently rewrites a stale enum value. `checkSerializationInvariant()` (`assets/js/pp-editor-logic.js`) now reports any stored enum value the schema does not advertise, routing the composition into the existing JSON-only mode instead of the accordion. Without this, the `<select>` had no option matching such a value, and because the accordion reads every field of every component on any input event, a single keystroke anywhere on the page rewrote those bands to their first advertised value — and the save then passed the strict-enum gate that is supposed to reject it. The check is generic (any unadvertised stored enum, not just `theme`) and adds no tolerance, coercion or migration: it refuses, and shows the author the real value.
+
+### Docs
+
+- `AI_CONTEXT.md`, `ai-instructions/composition.md`, `ai-instructions/style-component.md` and `ai-instructions/add-component.md` drop the "still renders"/"deprecated alias" caveats and state the post-removal contract, including that a `muted` band still emits the legacy `--dark` class name.
+- `ai-instructions/add-component.md` re-illustrates `aliases` with a synthetic example and records that no shipped prop declares one, with the reason not to add a new one.
+- `docs/reference-apply-cli.md`, `components/section/README.md` (which still listed `dark` as the tinted value with `muted` absent), and the `grid`, `logos` and `embed` READMEs corrected.
+- `components/grid/schema.json`'s `card_emphasis` description, which ships in the runtime AI catalog, no longer says the first-card lift applies "on dark theme".
+- The `.grid--dark` block comment in `assets/css/components.css` now carries the DG-4 rationale for keeping the class instead of a back-compat premise this change deletes. Comment-only: the stylesheet is byte-identical with comments stripped.
+
+### Tests
+
+- The write path is pinned as a REJECTION through the real authoring surface (`create_page`), with the error naming `default, muted, inverted` and carrying no legacy footnote.
+- `pp_theme_class()` gains `'dark'` to its unexpected-values provider — a stored `dark` coerces to the default band, not to `muted`.
+- DG-4 regression proof: `pp_theme_class('muted', 'cta') === ' cta--dark'`, the render-layer `--dark` pins, and the `variant_classes` declarations all stay green unchanged.
+- New pins for the stored-bytes route, the uneven blast radius (`add_component` / `style_component` still succeed), the repair path that unblocks a stale page, and `restore_composition` reporting rather than blocking.
+- The `aliases` mechanism is now covered by a real consumer test driving `pp_validate_composition()` against a synthetic component in a temp theme root, instead of a self-referential assertion that would pass with the consumer deleted.
+- A source tripwire pins that the shipped editor contains no legacy-option injection, and the new unadvertised-enum guard is pinned directly.
+
 ## [v1.12.15] — 2026-08-09 — the legacy prop-key alias map, the `variant` read migration and the `type` alias are gone (#604)
 
 **Three mechanisms rewrote composition keys behind the author's back: a 13-entry prop-KEY alias map, the retired `variant` -> `layout`/`theme` READ-path migration, and a `type` -> `component` item-key alias. All three are deleted. A prop name now means exactly one thing on every path, and the 13 retired names return to the strict `unknown_prop` gate — this removal STRENGTHENS validation rather than relaxing it.**

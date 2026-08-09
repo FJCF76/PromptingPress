@@ -78,7 +78,6 @@
     "theme": {
       "type": "enum", "strict": true,
       "values": ["default", "muted", "inverted"],
-      "aliases": ["dark"],
       "required": false,
       "default": "default",
       "description": "Background color/tone for this band. 'default' = the band's own default background (no tone override). 'muted' = light tinted surface band (renders the --color-surface background with framing top and bottom borders). 'inverted' = inverted dark background for strong contrast; use 'inverted' for a genuinely dark band."

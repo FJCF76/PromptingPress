@@ -16,6 +16,7 @@ const {
     wouldLoseArrayData,
     deepDiff,
     checkSerializationInvariant,
+    unadvertisedEnumDiffs,
     formatDiffsForIssue,
     getCollapsedRowPreview,
 } = require('../../assets/js/pp-editor-logic.js');
@@ -58,7 +59,7 @@ const SECTION = {
             body:    { type: 'string',  required: true, description: 'HTML body content.' },
             title:   { type: 'string',  required: false, default: '' },
             layout:  { type: 'enum', values: ['text-only', 'image-left', 'image-right', 'centered'], required: false, default: 'text-only' },
-            theme:   { type: 'enum', values: ['default', 'dark', 'inverted'], required: false, default: 'default' },
+            theme:   { type: 'enum', values: ['default', 'muted', 'inverted'], required: false, default: 'default' },
         },
     },
 };
@@ -945,5 +946,95 @@ describe('shared PHP<->JS validation contract (D5)', () => {
                 expect(errors.length).toBeGreaterThan(0);
             }
         });
+    });
+});
+
+// ─── unadvertisedEnumDiffs (#605) ───────────────────────────────────────────
+//
+// The accordion builds every enum <select> from the schema's advertised `values`.
+// A stored value outside that set matches no option, so reading the field back off
+// the DOM returns the FIRST option instead — and because syncAccordionToJson()
+// reads EVERY field of EVERY component on any input event, one keystroke anywhere
+// would rewrite such a band and the save would then pass the strict-enum gate.
+// The guard refuses instead of laundering: it reports the drift so the invariant
+// check routes the composition into JSON-only mode.
+
+describe('unadvertisedEnumDiffs (#605)', () => {
+    it('flags a stored enum value that is no longer advertised', () => {
+        const json = JSON.stringify([
+            { component: 'section', props: { body: 'x', theme: 'dark' } },
+        ]);
+        const diffs = unadvertisedEnumDiffs(json, REGISTRY);
+        expect(diffs).toHaveLength(1);
+        expect(diffs[0].path).toBe('[0].props.theme');
+        expect(diffs[0].before).toBe('dark');
+        // Names what the DOM would actually substitute: the FIRST advertised value.
+        expect(diffs[0].after).toBe('default');
+    });
+
+    it('is generic — it flags ANY unadvertised enum value, not just theme', () => {
+        const json = JSON.stringify([
+            { component: 'section', props: { body: 'x', layout: 'split' } },
+        ]);
+        const diffs = unadvertisedEnumDiffs(json, REGISTRY);
+        expect(diffs).toHaveLength(1);
+        expect(diffs[0].path).toBe('[0].props.layout');
+        expect(diffs[0].after).toBe('text-only');
+    });
+
+    it('reports the band index so the author can find it', () => {
+        const json = JSON.stringify([
+            { component: 'section', props: { body: 'ok', theme: 'muted' } },
+            { component: 'section', props: { body: 'stale', theme: 'dark' } },
+        ]);
+        const diffs = unadvertisedEnumDiffs(json, REGISTRY);
+        expect(diffs).toHaveLength(1);
+        expect(diffs[0].path).toBe('[1].props.theme');
+    });
+
+    it('does not flag advertised values', () => {
+        const json = JSON.stringify([
+            { component: 'section', props: { body: 'x', theme: 'muted', layout: 'centered' } },
+        ]);
+        expect(unadvertisedEnumDiffs(json, REGISTRY)).toEqual([]);
+    });
+
+    it('does not flag the unset sentinel (absent, null, or empty string)', () => {
+        // The documented way to keep a prop's default. Not drift.
+        const absent = JSON.stringify([{ component: 'section', props: { body: 'x' } }]);
+        const nulled = JSON.stringify([{ component: 'section', props: { body: 'x', theme: null } }]);
+        const empty  = JSON.stringify([{ component: 'section', props: { body: 'x', theme: '' } }]);
+        expect(unadvertisedEnumDiffs(absent, REGISTRY)).toEqual([]);
+        expect(unadvertisedEnumDiffs(nulled, REGISTRY)).toEqual([]);
+        expect(unadvertisedEnumDiffs(empty, REGISTRY)).toEqual([]);
+    });
+
+    it('ignores unknown components and malformed JSON rather than throwing', () => {
+        expect(unadvertisedEnumDiffs('not json', REGISTRY)).toEqual([]);
+        expect(unadvertisedEnumDiffs('{}', REGISTRY)).toEqual([]);
+        expect(unadvertisedEnumDiffs(
+            JSON.stringify([{ component: 'nope', props: { theme: 'dark' } }]), REGISTRY
+        )).toEqual([]);
+    });
+});
+
+describe('checkSerializationInvariant blocks a stale enum value (#605)', () => {
+    it('is UNSAFE when a stored enum value is no longer advertised', () => {
+        // THE LOAD-BEARING PIN. Without it the in-memory round-trip reports safe
+        // (field.value still holds "dark"), the accordion renders, and the DOM
+        // readback silently rewrites the band.
+        const json = JSON.stringify([
+            { component: 'section', props: { body: 'x', theme: 'dark' } },
+        ]);
+        const result = checkSerializationInvariant(json, REGISTRY);
+        expect(result.safe).toBe(false);
+        expect(result.diffs.some((d) => d.path === '[0].props.theme')).toBe(true);
+    });
+
+    it('stays SAFE for a composition whose enum values are all advertised', () => {
+        const json = JSON.stringify([
+            { component: 'section', props: { body: 'x', theme: 'muted' } },
+        ]);
+        expect(checkSerializationInvariant(json, REGISTRY).safe).toBe(true);
     });
 });

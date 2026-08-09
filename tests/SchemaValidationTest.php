@@ -736,22 +736,75 @@ class SchemaValidationTest extends TestCase
     }
 
     /**
-     * #575 declared `aliases`; #579 wires the consumer. `theme` is strict AND still
-     * accepts `dark`, which it never advertises — without that the strict gate would
-     * reject a value six shipped compositions carry and one MANUFACTURES at read
-     * time from a stored `variant: "dark"`.
+     * #575 declared `aliases`; #579 wired the consumer to the strict-enum gate. This
+     * is a MECHANISM test, not a `dark` test: since #605 removed the last shipped
+     * declaration, NO shipped prop declares `aliases`, so the mechanism is exercised
+     * through a SYNTHETIC definition. The field itself is left working and unused —
+     * whether it survives at all is a separate maintainer decision.
+     *
+     * The shipped counterpart of this test is now the inverse: `theme` declares no
+     * aliases and the strict gate rejects `dark` outright — see
+     * testNoShippedPropDeclaresAliasesAndThemeAdvertisesOnlyCanonicalValues().
      */
     public function testStrictEnumAcceptsADeclaredLegacyAlias(): void
     {
-        $result = pp_validate_composition([
-            ['component' => 'grid', 'props' => ['theme' => 'dark', 'items' => [['title' => 'One']]]],
-        ]);
-        $this->assertTrue($result, 'the declared `dark` alias must remain writable');
+        // Drive the REAL consumer — the `aliases` arm of the strict-enum membership
+        // test in pp_validate_composition_errors() — through a SYNTHETIC component
+        // registered in a temp theme root. Asserting on a locally computed
+        // array_merge() would be a tautology that passes with the arm deleted; this
+        // fails if the arm is removed, which is the whole point of keeping a
+        // mechanism with no shipped declaration.
+        $root = sys_get_temp_dir() . '/pp-alias-fixture-' . uniqid('', true);
+        mkdir($root . '/components/aliasband', 0777, true);
+        file_put_contents($root . '/components/aliasband/aliasband.php', '<?php // fixture');
+        file_put_contents($root . '/components/aliasband/schema.json', json_encode([
+            'component' => 'aliasband',
+            'props'     => [
+                'tone' => [
+                    'type' => 'enum', 'required' => false, 'default' => 'a',
+                    'description' => 'Synthetic strict enum carrying a legacy alias.',
+                    'values' => ['a', 'b'], 'aliases' => ['legacy_a'], 'strict' => true,
+                ],
+            ],
+        ]));
 
-        $rejected = pp_validate_composition([
-            ['component' => 'grid', 'props' => ['theme' => 'darkish', 'items' => [['title' => 'One']]]],
-        ]);
-        $this->assertInstanceOf(\WP_Error::class, $rejected, 'the alias set is bounded');
+        $previousRoot = $GLOBALS['_pp_test_template_dir'] ?? null;
+        $GLOBALS['_pp_test_template_dir'] = $root;
+        $GLOBALS['_pp_registered_components_invalidate'] = true;
+
+        try {
+            // The DECLARED alias is accepted at write even though it is never advertised.
+            $this->assertTrue(
+                \pp_validate_composition([['component' => 'aliasband', 'props' => ['tone' => 'legacy_a']]]),
+                'a declared alias must be part of the strict-enum membership test'
+            );
+
+            // An advertised value is accepted, and an UNDECLARED neighbour is not:
+            // the accepted set is values + aliases, bounded, nothing more.
+            $this->assertTrue(
+                \pp_validate_composition([['component' => 'aliasband', 'props' => ['tone' => 'a']]])
+            );
+            $rejected = \pp_validate_composition([
+                ['component' => 'aliasband', 'props' => ['tone' => 'legacy_b']],
+            ]);
+            $this->assertInstanceOf(\WP_Error::class, $rejected, 'the alias set is bounded');
+            $this->assertSame('invalid_prop_value', $rejected->get_error_code());
+            // The error advertises only `values` — an alias is accepted, never advertised.
+            $this->assertStringContainsString('must be one of: a, b;', $rejected->get_error_message());
+            $this->assertStringNotContainsString('legacy_a', $rejected->get_error_message());
+        } finally {
+            if ($previousRoot === null) {
+                unset($GLOBALS['_pp_test_template_dir']);
+            } else {
+                $GLOBALS['_pp_test_template_dir'] = $previousRoot;
+            }
+            $GLOBALS['_pp_registered_components_invalidate'] = true;
+            @unlink($root . '/components/aliasband/schema.json');
+            @unlink($root . '/components/aliasband/aliasband.php');
+            @rmdir($root . '/components/aliasband');
+            @rmdir($root . '/components');
+            @rmdir($root);
+        }
     }
 
     /**
@@ -3016,14 +3069,16 @@ class SchemaValidationTest extends TestCase
      * strict" — is GONE, and its removal is the point of #579: the guard existed
      * only because the strict check consulted `values` alone, which would have made
      * the catalog advertise a legacy value the writer refused. The write path
-     * consumes aliases now, so the combination is the contract rather than a lie,
-     * and every shipped `theme` prop declares both.
+     * consumes aliases now, so the combination is the contract rather than a lie.
+     * NO SHIPPED PROP DECLARES IT any more — #605 removed the last declaration, the
+     * `theme` prop's legacy `dark` — so the contract is pinned synthetically below,
+     * plus an assertion that the shipped declaring set is empty.
      */
     public function testAliasesRequireAnEnumAndCoexistWithStrict(): void
     {
         $this->assertNotEmpty(
             \pp_schema_definition_errors(
-                ['type' => 'string', 'required' => false, 'description' => 'x', 'aliases' => ['dark']],
+                ['type' => 'string', 'required' => false, 'description' => 'x', 'aliases' => ['legacy_a']],
                 'prop',
                 'test.x'
             ),
@@ -3034,7 +3089,7 @@ class SchemaValidationTest extends TestCase
             [],
             \pp_schema_definition_errors(
                 ['type' => 'enum', 'required' => false, 'default' => 'a', 'description' => 'x',
-                 'values' => ['a', 'b'], 'aliases' => ['dark'], 'strict' => true],
+                 'values' => ['a', 'b'], 'aliases' => ['legacy_a'], 'strict' => true],
                 'prop',
                 'test.x'
             ),
@@ -3045,24 +3100,25 @@ class SchemaValidationTest extends TestCase
         // declaration, not an alias.
         $this->assertNotEmpty(\pp_schema_definition_errors(
             ['type' => 'enum', 'required' => false, 'default' => 'a', 'description' => 'x',
-             'values' => ['a', 'dark'], 'aliases' => ['dark'], 'strict' => true],
+             'values' => ['a', 'legacy_a'], 'aliases' => ['legacy_a'], 'strict' => true],
             'prop',
             'test.x'
         ));
 
-        // Every shipped prop declaring aliases is a strict enum.
-        $found = 0;
+        // NO shipped prop declares aliases any more (#605 removed the last one, the
+        // `theme` prop's legacy `dark`). The rule above still holds for any future
+        // declaration; there is simply nothing shipped to walk. Asserting the set is
+        // EMPTY is the meaningful shipped-side statement now — if a declaration
+        // reappears it must come with a deliberate decision, not by accident.
+        $declaring = [];
         foreach ($this->allSchemas() as $component => $schema) {
             foreach (($schema['props'] ?? []) as $name => $def) {
-                if (!isset($def['aliases'])) {
-                    continue;
+                if (isset($def['aliases'])) {
+                    $declaring[] = "{$component}.{$name}";
                 }
-                $found++;
-                $this->assertSame('enum', $def['type'] ?? null, "{$component}.{$name}");
-                $this->assertNotEmpty($def['strict'] ?? null, "{$component}.{$name} must be strict");
             }
         }
-        $this->assertGreaterThan(0, $found, 'no alias-bearing prop found — the walk is broken');
+        $this->assertSame([], $declaring, 'no shipped prop may declare `aliases` (#605)');
     }
 
     /**
@@ -3151,14 +3207,12 @@ class SchemaValidationTest extends TestCase
     }
 
     /**
-     * The `theme` prop accepts the legacy value `dark` at write and NEVER advertises
-     * it. Dropping the alias is byte-identical at render (pp_theme_class() coerces
-     * `dark` forever) but breaks the WRITE path: the enum check runs on the WHOLE
-     * composition, so an untouched band's theme:"dark" would block an edit to a
-     * DIFFERENT band on the same page. This is the hard prerequisite for making enum
-     * props strict in a later gate.
+     * #605 — the `theme` prop declares NO aliases on any of the eight band
+     * components, and advertises exactly the three canonical values. What an agent
+     * writes now matches what the catalog advertises, with no footnote and no
+     * accepted-but-unadvertised tier.
      */
-    public function testEveryThemePropDeclaresTheDarkAliasAndAdvertisesOnlyCanonicalValues(): void
+    public function testNoShippedPropDeclaresAliasesAndThemeAdvertisesOnlyCanonicalValues(): void
     {
         $seen = 0;
         foreach ($this->allSchemas() as $component => $schema) {
@@ -3169,14 +3223,14 @@ class SchemaValidationTest extends TestCase
             $seen++;
             $this->assertSame(['default', 'muted', 'inverted'], $theme['values'] ?? null,
                 "{$component}.theme must advertise only the canonical values");
-            $this->assertSame(['dark'], $theme['aliases'] ?? null,
-                "{$component}.theme must accept the legacy `dark` value as an alias");
+            $this->assertArrayNotHasKey('aliases', $theme,
+                "{$component}.theme must declare no aliases — `dark` was removed (#605)");
             $this->assertNotContains('dark', $theme['values'],
                 "{$component}.theme must never advertise `dark`");
             $this->assertStringNotContainsString('"dark"', $theme['description'] ?? '',
                 "{$component}.theme description must not advertise `dark` either");
         }
-        $this->assertSame(8, $seen, 'all eight theme-bearing components must declare the alias');
+        $this->assertSame(8, $seen, 'all eight theme-bearing components must be checked');
     }
 
     /** An alias is ACCEPTED, never ADVERTISED — declaring it in both lists is rejected. */
@@ -3201,39 +3255,28 @@ class SchemaValidationTest extends TestCase
         }
         // `aliases` is a PROP-definition key. On a slot it is an unknown key.
         $this->assertNotEmpty(\pp_schema_definition_errors(
-            ['type' => 'color', 'default' => '#fff', 'description' => 'x', 'aliases' => ['dark']],
+            ['type' => 'color', 'default' => '#fff', 'description' => 'x', 'aliases' => ['legacy_a']],
             'slot',
             'test --x'
         ));
     }
 
     /**
-     * AUTHORING-PATH proof (Section 14.1) that the `dark` VALUE survives the REAL
-     * write surface, not just a schema-shape assertion.
+     * AUTHORING-PATH proof (Section 14.1) that `theme: "dark"` is REJECTED by the
+     * REAL write surface, not just absent from the schema files.
      *
-     * SCOPE, stated precisely: this pins the BEHAVIOUR the alias declaration
-     * describes, not the declaration's enforcement. Nothing reads
-     * `props.theme.aliases` yet — `dark` is accepted today because `theme` is a
-     * NON-STRICT enum, and pp_theme_class() (lib/helpers.php) coerces it at render.
-     * Deleting the `aliases` key from every schema would leave this test green. That
-     * is correct for #575, which lands the declaration and explicitly defers the
-     * consumer to the strict-enum gate; it is the reason
-     * pp_schema_definition_errors() rejects `aliases` alongside `strict` until that
-     * consumer exists, so the surface can never advertise what the writer refuses.
-     * The strict-enum gate owns the discriminating test.
+     * History, one line: this pin was born under #575 asserting the opposite (the
+     * alias survives the write path). #605 removed the alias and inverted it.
      *
-     * Why the value must keep working at all: the enum check runs on the WHOLE
-     * composition, so an untouched band's theme:"dark" would otherwise block an edit
-     * to a DIFFERENT band on the same page.
-     *
-     * Three things are asserted, because validating is not the same as storing and
-     * storing is not the same as rendering:
-     *   1. create_page ACCEPTS the legacy value alongside a canonical sibling;
-     *   2. the value is STORED as authored (an accepted alias is not silently
-     *      rewritten at write — pp_theme_class() is what resolves it);
-     *   3. the band RENDERS the tinted `--dark` class, byte-identical to `muted`.
+     * Three things are asserted, because rejecting is not the same as rendering:
+     *   1. create_page REJECTS the removed value, even beside a canonical sibling;
+     *   2. the error names the WHOLE accepted set — `default, muted, inverted` — with
+     *      no footnote, so the message teaches the real vocabulary on the spot;
+     *   3. a band that nonetheless HOLDS the value in storage renders the DEFAULT
+     *      band, not the tinted one. `dark` used to render a LIGHT band under the
+     *      `--dark` class; it now renders no modifier at all.
      */
-    public function testThemeDarkAliasSurvivesTheRealAuthoringSurface(): void
+    public function testThemeDarkIsRejectedByTheRealAuthoringSurface(): void
     {
         $GLOBALS['_pp_test_store'] = [
             'post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100, 'custom_css' => '',
@@ -3244,21 +3287,23 @@ class SchemaValidationTest extends TestCase
             ['component' => 'section', 'props' => ['theme' => 'inverted', 'body' => 'Canonical band.']],
         ];
 
-        $this->assertTrue(
-            \pp_validate_action('create_page', ['title' => 'Legacy theme page', 'composition' => $composition]),
-            'a stored theme:"dark" must not block authoring — that is what the alias is for.'
-        );
+        $result = \pp_validate_action('create_page', ['title' => 'Legacy theme page', 'composition' => $composition]);
+        $this->assertInstanceOf(\WP_Error::class, $result, 'theme:"dark" must be rejected at the authoring surface');
+        $this->assertSame('invalid_prop_value', $result->get_error_code());
+        $this->assertStringContainsString('default, muted, inverted', $result->get_error_message(),
+            'the error must name the whole accepted set, with no legacy footnote');
+        $this->assertStringNotContainsString('legacy', $result->get_error_message());
 
-        $id = \pp_create_page('Legacy theme page', 'draft');
-        \pp_update_composition($id, $composition);
-        $stored = \pp_get_composition($id);
-        $this->assertSame('dark', $stored[0]['props']['theme'], 'an accepted alias is stored as authored, not rewritten');
-
+        // Storage route: bytes that predate the removal still render, as the default.
         ob_start();
-        \pp_get_component('section', $stored[0]['props']);
+        \pp_get_component('section', ['theme' => 'dark', 'body' => 'Legacy band.']);
         $html = ob_get_clean();
-        $this->assertStringContainsString('pp-section--dark', $html, 'the legacy value renders the tinted band');
-        $this->assertStringNotContainsString('pp-section--inverted', $html, '`dark` is the LIGHT tinted band, not the dark one');
+        $this->assertStringNotContainsString('pp-section--dark', $html, 'a stored `dark` no longer paints the tinted band');
+        $this->assertStringNotContainsString('pp-section--inverted', $html);
+        // The band still renders — it just renders as the DEFAULT band. Note the
+        // base class is `section`; `pp-section` is only the modifier prefix.
+        $this->assertStringContainsString('class="section section--text-only"', $html);
+        $this->assertStringContainsString('Legacy band.', $html);
     }
 
     /**

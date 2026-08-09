@@ -114,7 +114,7 @@ Controls per-section background color/tone for visual rhythm on marketing pages.
 | `muted`    | Light tinted surface band (`--color-surface`) with framing borders. Subtle differentiation. |
 | `inverted` | Inverted **dark** background (`--color-bg-inverted`). Strong contrast — use this for a genuinely dark band. |
 
-> `muted` is a LIGHT band, not a dark one. For a dark band use `inverted`. The legacy value `dark` still renders (it is a deprecated alias of `muted`, i.e. also LIGHT), but do not use it on new pages — its name mispredicts its output.
+> `muted` is a LIGHT band, not a dark one. For a dark band use `inverted`.
 
 Example — alternating section rhythm:
 ```json
@@ -273,9 +273,9 @@ Renders numbered process cards. Use for How-It-Works or sequential flows. Cards 
 
 ### grid.card_emphasis: "featured" | "uniform"
 
-Controls whether the **first card** gets the emphasized "featured" treatment. Default `featured` (unchanged historical behavior) gives card 1 an accent top bar, a tinted fill, a larger title, extra body top-padding, and — on the `dark` theme — a slight lift, drawing the eye to a lead item.
+Controls whether the **first card** gets the emphasized "featured" treatment. Default `featured` (unchanged historical behavior) gives card 1 an accent top bar, a tinted fill, a larger title, extra body top-padding, and — on the `muted` theme — a slight lift, drawing the eye to a lead item.
 
-Set `card_emphasis: "uniform"` to render **every card identically**. Use it for a symmetric/peer card row where the cards are equal and the featured emphasis would mislead or misalign them: specification/comparison cards whose checklists must line up across the row (the featured card's extra top-padding otherwise pushes its content down relative to its neighbors), or an equal-weight feature/plan row. Keep `featured` when one card is genuinely the lead. Cards-layout concept; ignored on `steps`. This is a grid prop (set with `create_page` / `update_component`), not a style slot, and it drops the *whole* featured treatment — more complete than the slot-level `uniform-cards` recipe, which cannot reach the first-card top-padding or the dark lift.
+Set `card_emphasis: "uniform"` to render **every card identically**. Use it for a symmetric/peer card row where the cards are equal and the featured emphasis would mislead or misalign them: specification/comparison cards whose checklists must line up across the row (the featured card's extra top-padding otherwise pushes its content down relative to its neighbors), or an equal-weight feature/plan row. Keep `featured` when one card is genuinely the lead. Cards-layout concept; ignored on `steps`. This is a grid prop (set with `create_page` / `update_component`), not a style slot, and it drops the *whole* featured treatment — more complete than the slot-level `uniform-cards` recipe, which cannot reach the first-card top-padding or the muted-band lift.
 
 ```json
 {

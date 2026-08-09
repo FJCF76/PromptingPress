@@ -14,7 +14,7 @@ $title   = $props['title']   ?? '';
 $theme = $props['theme'] ?? 'default';
 $items   = $props['items']   ?? [];
 
-// theme coercion + the deprecated 'dark' -> 'muted' alias live in pp_theme_class() (#442).
+// theme coercion lives in pp_theme_class(); `muted` emits the legacy `--dark` class (#570 DG-4).
 $theme_class = pp_theme_class($theme, 'logos');
 
 $slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'logos');

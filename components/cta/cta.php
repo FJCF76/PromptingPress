@@ -55,7 +55,7 @@ $button2_variant_class = $button2_variant !== 'primary' ? ' btn--' . $button2_va
 // after the guard keeps a legitimate "0" label working, which a truthy check would drop.
 $has_button2 = is_scalar($button2_text) && (string) $button2_text !== '';
 
-// theme coercion + the deprecated 'dark' -> 'muted' alias live in pp_theme_class() (#442).
+// theme coercion lives in pp_theme_class(); `muted` emits the legacy `--dark` class (#570 DG-4).
 $theme_class    = pp_theme_class($theme, 'cta');
 $bg_image_class = $background_image ? ' cta--has-bg-image' : '';
 

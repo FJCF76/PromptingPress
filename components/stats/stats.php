@@ -16,7 +16,7 @@ $theme            = $props['theme']            ?? 'default';
 $items            = $props['items']            ?? [];
 $background_image = $props['background_image'] ?? '';
 
-// theme coercion + the deprecated 'dark' -> 'muted' alias live in pp_theme_class() (#442).
+// theme coercion lives in pp_theme_class(); `muted` emits the legacy `--dark` class (#570 DG-4).
 $theme_class    = pp_theme_class($theme, 'stats');
 $bg_image_class = $background_image ? ' stats--has-bg-image' : '';
 

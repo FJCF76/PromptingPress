@@ -155,7 +155,7 @@ class ComponentPropsTest extends TestCase
     {
         $html = $this->render('grid', [
             'card_emphasis' => 'uniform',
-            'theme' => 'dark',
+            'theme' => 'muted',
             'items' => [['title' => 'One', 'text' => 'a']],
         ]);
         $this->assertStringContainsString('grid--dark', $html);
@@ -256,7 +256,7 @@ class ComponentPropsTest extends TestCase
     {
         $html = $this->render('grid', [
             'columns' => 2,
-            'theme' => 'dark',
+            'theme' => 'muted',
             'card_emphasis' => 'uniform',
             'items' => [['title' => 'One'], ['title' => 'Two']],
         ]);
@@ -337,7 +337,7 @@ class ComponentPropsTest extends TestCase
     {
         $html = $this->render('grid', [
             'image_treatment' => 'icon',
-            'theme' => 'dark',
+            'theme' => 'muted',
             'card_emphasis' => 'uniform',
             'items' => [
                 ['title' => 'One', 'image_url' => 'a.png', 'bullets' => ['Fast', 'Cheap']],
@@ -1628,12 +1628,6 @@ class ComponentPropsTest extends TestCase
         $this->assertStringContainsString('--faq-eyebrow-bg: #111111', $html);
     }
 
-    public function testFaqDarkThemeAddsClass(): void
-    {
-        $html = $this->render('faq', $this->faqProps(['theme' => 'dark']));
-        $this->assertStringContainsString('class="faq faq--dark"', $html);
-    }
-
     public function testFaqInvertedThemeAddsClass(): void
     {
         $html = $this->render('faq', $this->faqProps(['theme' => 'inverted']));
@@ -1649,19 +1643,19 @@ class ComponentPropsTest extends TestCase
 
     public function testFaqUnknownThemeClampsToDefault(): void
     {
-        // Composition validation does not check enum values (that is #147, deferred),
-        // so the render is the actual contract: an unknown theme must not emit an
-        // unstyled faq--<garbage> class (mirrors section/grid clamping).
+        // The write path rejects an unadvertised enum value outright (#579 strict
+        // enums), so this pins the RENDER-side contract for bytes already in storage:
+        // an unknown theme must not emit an unstyled faq--<garbage> class.
         $html = $this->render('faq', $this->faqProps(['theme' => 'neon']));
         $this->assertStringNotContainsString('faq--neon', $html);
         $this->assertStringContainsString('class="faq"', $html);
     }
 
-    // ── #442: theme `muted` migration + deprecated `dark` alias (render layer) ──
-    // The canonical value `muted` and the deprecated legacy value `dark` must BOTH
-    // emit the legacy `--dark` surface-band class, so pages authored before the
-    // rename render byte-identically forever while new pages use `muted`. Proven
-    // at the render layer (not just the helper) so the template wiring is pinned.
+    // ── theme `muted` emits the legacy `--dark` class (#570 DG-4, render layer) ──
+    // The canonical value `muted` emits the legacy `--dark` surface-band class. That
+    // is an OUTPUT NAME the #605 input-alias removal deliberately kept, so these are
+    // the DG-4 regression proof: they must stay green, unchanged, forever. Proven at
+    // the render layer (not just the helper) so the template wiring is pinned.
 
     public function testFaqMutedThemeEmitsLegacyDarkClass(): void
     {
@@ -1669,29 +1663,28 @@ class ComponentPropsTest extends TestCase
         $this->assertStringContainsString('class="faq faq--dark"', $html);
     }
 
-    public function testFaqMutedAndLegacyDarkRenderByteIdentically(): void
-    {
-        $muted = $this->render('faq', $this->faqProps(['theme' => 'muted']));
-        $dark  = $this->render('faq', $this->faqProps(['theme' => 'dark']));
-        $this->assertSame($dark, $muted, 'muted must render byte-identically to the legacy dark alias');
-    }
-
     public function testGridMutedThemeEmitsLegacyDarkClass(): void
     {
         $muted = $this->render('grid', ['theme' => 'muted', 'items' => [['title' => 'One', 'text' => 'a']]]);
-        $dark  = $this->render('grid', ['theme' => 'dark', 'items' => [['title' => 'One', 'text' => 'a']]]);
         $this->assertStringContainsString('grid--dark', $muted);
-        $this->assertSame($dark, $muted);
+    }
+
+    public function testGridStoredLegacyDarkRendersTheDefaultBandNotMuted(): void
+    {
+        // #605 at the RENDER layer, on the stored-bytes route: a band still holding
+        // the removed input value paints the DEFAULT band. Pinned as the deliberate
+        // breakage, and as proof the removal did not quietly re-alias it to muted.
+        $stale = $this->render('grid', ['theme' => 'dark', 'items' => [['title' => 'One', 'text' => 'a']]]);
+        $this->assertStringNotContainsString('grid--dark', $stale);
+        $this->assertStringNotContainsString('grid--', $stale);
     }
 
     public function testCtaMutedEmitsDarkAndInvertedStaysInverted(): void
     {
         $base     = ['title' => 'Go', 'button_text' => 'Click', 'button_url' => '/'];
         $muted    = $this->render('cta', $base + ['theme' => 'muted']);
-        $dark     = $this->render('cta', $base + ['theme' => 'dark']);
         $inverted = $this->render('cta', $base + ['theme' => 'inverted']);
         $this->assertStringContainsString('cta--dark', $muted);
-        $this->assertSame($dark, $muted, 'cta muted must equal the legacy dark alias');
         $this->assertStringContainsString('cta--inverted', $inverted);
         $this->assertStringNotContainsString('cta--dark', $inverted);
     }
