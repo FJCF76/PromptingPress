@@ -4,6 +4,46 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.15] — 2026-08-09 — the legacy prop-key alias map, the `variant` read migration and the `type` alias are gone (#604)
+
+**Three mechanisms rewrote composition keys behind the author's back: a 13-entry prop-KEY alias map, the retired `variant` -> `layout`/`theme` READ-path migration, and a `type` -> `component` item-key alias. All three are deleted. A prop name now means exactly one thing on every path, and the 13 retired names return to the strict `unknown_prop` gate — this removal STRENGTHENS validation rather than relaxing it.**
+
+The prop map was accepted at write and healed silently, emitting no `changes` entry. An agent that wrote `cta_text` got `ok:true` and never learned it had used a retired name, so the mechanism sold as generation reliability was in fact a hole in the #147 strict gate, sized at exactly 13 names. Fresh generation was already canonical-only: `AI_CONTEXT.md`, the runtime catalog and every `ai-instructions/*.md` example advertise `button_text` / `subheading` / `body` / `title_align` and never the legacy names.
+
+The `variant` migration was worse-shaped. It ran on READ only, purely to decode pre-1.0 storage and history-ring snapshots, while the write path had rejected `variant` since #388. One key, two contradictory answers depending on which direction you crossed the boundary. The `type` alias absorbed a hallucinated item key so the agent was never corrected, and forced two fallback reads every future item-shape change would have had to keep honouring.
+
+With both prop surfaces gone, `pp_migrate_stored_composition()` (`lib/wp.php`) had no body left and is deleted outright, its three call sites inlined. #603 removed the slot half; this removes the rest. No composition read resolves any name any more.
+
+**What breaks, stated plainly.** A composition storing `cta_text`, `subtitle`, `heading_align` or `variant` renders the schema default instead of the authored value, and the three actions that validate the whole composition — `create_page`, `update_composition`, `update_component` — now reject it by name, including when the edit targets a different band. The blast radius is deliberately uneven: `add_component` validates only the item it adds, and `remove_component`, `reorder_components` and `style_component` validate no props, so those four still succeed on a stale page. Where a retired name was the only thing satisfying a required prop (cta's `button_text`/`button_url`), the rejection is a missing-required-prop error instead. On the dev corpus this is roughly 62 prop declarations across 10 of 12 compositions plus at least one `variant`-keyed page. There is deliberately no migration, no history-ring rewrite, no warning-only tolerance and no widened schema. `restore_composition` still restores verbatim and reports the violations rather than blocking (#233), and this release pins that. Freshly authored compositions are unaffected: a proof authors all eight composable components from the current canonical vocabulary and asserts they validate, read back unchanged and render every authored value.
+
+### Removed
+
+- `pp_legacy_prop_aliases()` (the 13-entry map), `_pp_apply_legacy_prop_aliases()` and `pp_normalize_legacy_props()` — all of `lib/admin.php`, with all eight call sites in `lib/actions.php` dropped.
+- `pp_migrate_legacy_variant_keys()` (`lib/admin.php`) and its call on the editor read path.
+- `pp_migrate_stored_composition()` (`lib/wp.php`) entirely, inlined at `pp_composition()` and both `pp_get_composition_result()` returns; and the `pp_normalize_legacy_props()` guard in `pp_resolve_front_page_render()`.
+- The `type` -> `component` rewrite in `pp_normalize_composition()`, which now only strips empty `style` arrays, plus both `$item['component'] ?? $item['type']` fallbacks. No `$item['type']` remains as a component-name source.
+- The transient canonical view inside `pp_validate_composition_errors()` — the functional heart of the change, and what returns the 13 names to the `unknown_prop` gate.
+
+### Fixed
+
+- Preview and execute now agree byte-for-byte on `add_component` and `update_component`. Both previously validated one shape and wrote another, because execute applied the alias map after validation had merged the patch verbatim.
+
+### Docs
+
+- `AI_CONTEXT.md` states the post-removal contract: no name is canonicalized on any path, what you read is the stored bytes, and the three whole-composition actions are named explicitly. The `variant` paragraph drops its read-path parenthetical and becomes unconditionally true.
+- `ai-instructions/add-component.md` records that slots and props are now treated identically; the only surviving alias surface is prop **values** (`props.<p>.aliases`).
+- `docs/reference-apply-cli.md` and `docs/AI_IMPLEMENTATION_RECIPES.md` no longer claim restore canonicalizes legacy shape; the #241 preflight baseline is the literal stored bytes.
+- The restore-findings granularity is stated where it was previously over-promised: the unknown-prop gate short-circuits its item, so findings are per-item first-blocking-problem.
+
+### Tests
+
+- Every one of the 13 retired prop names is pinned rejecting on all four write actions through the REAL action surface (Section 14.1), 52 cases in total.
+- New pins for the behaviour that actually changed: an untouched stale band blocking an edit to another band (both rejection shapes), the both-keys case rejecting without touching stored bytes, restore keeping retired names verbatim while reporting them, and `add_component` preview/execute parity.
+- The schema-rename drift-catcher survives with its alias branch removed, so an explicit migration note is now the sole escape hatch. `detectSchemaRenameDrift()` drops its `$aliasMap` parameter rather than being passed `[]` forever.
+- Full suite: 2969 PHP tests green (up from 2933), 1105 JS tests green.
+
+---
+
 ## [v1.12.14] — 2026-08-09 — the legacy style-slot alias surface is gone, and a slot name now has exactly one meaning (#603)
 
 **`pp_legacy_slot_aliases()` carried 51 renames and quietly rewrote stored slot names on read and again at render, while the write path rejected those same names. Two contradictory answers about `--hero-text` collapse into one: it is not a slot. Compositions stored before the #576 vocabulary rename lose those declarations, and that is the intended outcome, not a regression.**
