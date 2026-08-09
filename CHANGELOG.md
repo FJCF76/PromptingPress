@@ -4,6 +4,38 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.19] — 2026-08-10 — every ratified default now states its reason where an agent will read it (#585)
+
+**Forty CSS literals were ratified as deliberate product defaults and eight decorative capabilities as deliberately unauthorable. Thirty-nine of those forty had no stated reason on any surface an authoring agent reads, so "why can't I change this?" had no answer anywhere. This lands the reasons and their reopening conditions on the authoring surfaces — component READMEs, schema `description` text, and `ai-instructions/style-component.md` — reconciles fourteen places where the docs had drifted from the schemas, and ships the eyebrow anti-uniformity guidance line. Rendered output is byte-identical: no CSS declaration, schema shape, default or enum changed.**
+
+A literal is a product default only if someone states the reason. That is the rule this release makes real. Every stated reason is paired with the condition that would reopen it, and the bar for adding a control is a NAMED INCIDENT — a real composition that could not be built — not a hypothesis. The middot separator's reason moved off a CSS comment onto the authoring surface, because nothing routes an agent to `components.css`.
+
+Seven component READMEs documented zero style slots; all ten composable components now list every slot their schema declares, grouped, with the conditional ones marked. `table`, `embed`, `logos` and `faq` gained the paragraphs and recipe-table entries they never had. `--table-bg`, `--embed-bg` and `--logos-bg` are documented as a deferred family with a stated entry criterion, so their absence is legible rather than silent.
+
+### Fixed
+
+- `cta/README.md` called `title` required; the schema has had it optional since #294, and the heading-less standalone-button pattern depends on that.
+- `section/README.md` omitted all six `panel_*` props and left `text-panel` out of the `layout` list twice.
+- `table/README.md` omitted the `id` prop, and three surfaces described the horizontal scroll as a mobile behaviour. The mechanism is `overflow-x: auto` with no media query — a wide table scrolls at 1440px exactly as at 375px.
+- `faq/README.md` said the JSON-LD is emitted after the component's markup; #432 moved it inside the `<section>`, and the placement is load-bearing for band adjacency, not for SEO.
+- `update_site_option`'s own description and semantics enumerated 24 of the 25 whitelisted keys. `pp_footer_social` was reachable, validated, and documented nowhere the writer would look.
+- `composition.md`'s markup-contract table listed two of the five rich-HTML surfaces. `table` cells, `embed.content` and `hero.proof` are all `wp_kses_post` and are now named, along with the plain-text props an author could confuse with them.
+- `do_not_touch` told three different stories across twelve components. It now names both docs a schema change actually invalidates.
+- README's "What exists today" block was pinned to a version five minors stale, and listed four `section` layouts when there are five.
+
+### Docs
+
+- **Stated defaults** sections on hero, section, cta, grid, testimonials, faq, stats, table, logos and embed, each row pairing a reason with its reopening condition.
+- The eyebrow authoring-guidance line: an eyebrow is optional framing, not a default part of a section, and a page whose every band opens with the same uppercase pill is the cookie-cutter rhythm the anti-slop rules exist to prevent. The pill's geometry is called out as the one property that does not move when the rest of the family does.
+- Chrome's two literals (`32ch` footer blurb, `12rem` dropdown floor) now carry reopening conditions, and the dropdown's reason moved onto `nav/README.md` — chrome declares zero style slots, so a stated reason is the only disposition available, not a second-best one.
+- Three number pairs that differed with no recorded rationale (the 58rem/56rem four-card caps, the two stripe periods, and the slotted-versus-bare stripe) are explained rather than equalised, and marked as reasons recorded now rather than recovered.
+
+### Tests
+
+- `tests/DocsCoverageTest.php` derives every claim from `schema.json` and the action registry: slot coverage both directions, prop coverage, the required column, the slot census in `AI_CONTEXT.md` and `style-component.md`, the recipe table, the site-option whitelist, the rich-HTML markup table, and the three deferred band-background slots.
+- `tests/StatedReasonsTest.php` pins that each ratified literal still names its value on its authoring surface and that each surface still offers a reopening condition. It pins presence, not prose — the eyebrow line's wording is deliberately unpinned so it can be rewritten without failing the build.
+- `TextPropMarkupContractTest` gained the three rich props its enumeration had missed.
+
 ## [v1.12.18] — 2026-08-09 — the `aliases` schema field is retired, and a top-level prop now accepts exactly the values it advertises (#606)
 
 **Three sibling issues emptied every alias surface in the theme (#603 slot names, #604 prop keys, #605 the `theme: "dark"` value). This one disposes of the machinery they left behind. The `aliases` schema field, its validator, the arm of the strict-enum write gate that consumed it and the AI-catalog line that disclosed it are all deleted. `aliases` is now an UNKNOWN definition key: a schema that declares one fails CI, on a prop, on a slot, and on a nested `items[]` field. Nothing rendered or written changes for any shipped schema, because no shipped prop had declared one since #605.**
