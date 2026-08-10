@@ -5183,6 +5183,328 @@ class ActionsTest extends TestCase
         $this->assertInstanceOf(\stdClass::class, $result3['cross_component_hints']);
     }
 
+    // ── Response Bounds ─────────────────────────────────────────────────
+    //
+    // The bounds on a chat-side error response exist to keep a pathological input
+    // from producing a pathological response. The load-bearing property is the
+    // other direction: an ORDINARY rejection must come back exactly as it did
+    // before. Most of the tests below pin that, against the shipped registry and
+    // the shipped starter composition rather than hand-picked values, because a
+    // bound tuned to a fixture is a bound that fires in production.
+
+    public function testEveryComponentsValidatorMessageReachesTheAuthorIntact(): void
+    {
+        // raw_error carries the "Available: <every declared slot>" list, which is
+        // the part of the message an author reads to find the name they meant. It
+        // runs to 1290 characters on the widest component. Nothing may shorten it.
+        $trimmed = [];
+
+        foreach (array_keys(pp_get_registered_components()) as $component) {
+            $slots = pp_get_style_slots($component);
+            if ($slots === []) {
+                continue;
+            }
+            $message = sprintf(
+                'Component "%s" has no style slot "%s". Available: %s',
+                $component,
+                '--typo-slot',
+                implode(', ', array_keys($slots))
+            );
+
+            $friendly = _pp_build_friendly_error(
+                new WP_Error('invalid_style_slot', $message),
+                []
+            );
+
+            if ($friendly['raw_error'] !== $message) {
+                $trimmed[] = $component;
+            }
+        }
+
+        $this->assertSame([], $trimmed, 'No component\'s real rejection message may be shortened.');
+    }
+
+    public function testOrdinaryRejectionRoundTripsUnchanged(): void
+    {
+        $post_id = pp_create_page('Bounds baseline');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+        ]);
+
+        $params = [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--hero-bgs' => '#1a1a2e'],
+        ];
+        $error    = pp_preview_action('style_component', $params);
+        $friendly = _pp_build_friendly_error($error, $params);
+
+        $this->assertSame(
+            $error->get_error_message(),
+            $friendly['raw_error'],
+            'A single mistyped slot is the common case and must pass through untouched.'
+        );
+        $this->assertStringContainsString('--hero-bgs', $friendly['raw_error']);
+        $this->assertArrayNotHasKey(
+            'unknown_slots_unscanned',
+            $friendly,
+            'The response shape on an ordinary rejection is unchanged.'
+        );
+    }
+
+    public function testWidestShippedStyleMapIsReportedComplete(): void
+    {
+        // The widest style map the theme itself ships, aimed at the wrong component.
+        // This is the ordinary mistake cross-component hints exist to explain, so it
+        // is precisely the case that must never come back partial.
+        $widest = [];
+        foreach (pp_default_homepage_composition() as $band) {
+            $style = $band['style'] ?? [];
+            if (count($style) > count($widest)) {
+                $widest = $style;
+            }
+        }
+        $this->assertGreaterThanOrEqual(20, count($widest), 'The starter still carries a wide style map.');
+
+        $post_id = pp_create_page('Widest shipped map');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
+        ]);
+
+        $result = _pp_build_friendly_error(
+            new WP_Error('invalid_style_slot', 'Component "section" has no style slot.'),
+            ['post_id' => $post_id, 'component_index' => 0, 'style' => $widest]
+        );
+
+        $this->assertArrayNotHasKey('unknown_slots_unscanned', $result);
+    }
+
+    public function testWidestComponentsFullSlotSetIsReportedComplete(): void
+    {
+        // The largest legitimate case there is: every slot the widest component
+        // declares, aimed at a different component.
+        $widest_name  = '';
+        $widest_slots = [];
+        foreach (array_keys(pp_get_registered_components()) as $component) {
+            $slots = pp_get_style_slots($component);
+            if (count($slots) > count($widest_slots)) {
+                $widest_slots = $slots;
+                $widest_name  = $component;
+            }
+        }
+        $this->assertNotSame('section', $widest_name, 'The target below must differ from the source.');
+
+        $style = [];
+        foreach (array_keys($widest_slots) as $slot) {
+            $style[$slot] = '1rem';
+        }
+
+        $post_id = pp_create_page('Widest component map');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
+        ]);
+
+        $result = _pp_build_friendly_error(
+            new WP_Error('invalid_style_slot', 'Component "section" has no style slot.'),
+            ['post_id' => $post_id, 'component_index' => 0, 'style' => $style]
+        );
+
+        $this->assertArrayNotHasKey(
+            'unknown_slots_unscanned',
+            $result,
+            sprintf('%s declares %d slots, which must sit inside the bound.', $widest_name, count($widest_slots))
+        );
+    }
+
+    public function testUnknownSlotKeysBeyondTheBoundAreCounted(): void
+    {
+        $post_id = pp_create_page('Bound applied');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
+        ]);
+
+        // Names no component declares, so the count is exact rather than dependent
+        // on which of them happen to match somewhere.
+        $style = [];
+        for ($i = 0; $i < PP_CROSS_COMPONENT_HINT_MAX + 6; $i++) {
+            $style['--zz-unknown-' . $i] = '1rem';
+        }
+
+        $result = _pp_build_friendly_error(
+            new WP_Error('invalid_style_slot', 'Component "section" has no style slot.'),
+            ['post_id' => $post_id, 'component_index' => 0, 'style' => $style]
+        );
+
+        $this->assertSame(6, $result['unknown_slots_unscanned']);
+        $this->assertLessThanOrEqual(
+            PP_CROSS_COMPONENT_HINT_MAX,
+            count((array) $result['cross_component_hints'])
+        );
+    }
+
+    public function testKeysBeyondTheBoundAreNotExaminedForHints(): void
+    {
+        // The cost of bounding the scan, pinned so it is a recorded trade-off rather
+        // than a surprise: the cap cuts the key list before any matching runs, so a
+        // key that WOULD have produced a hint is dropped when it sits past the bound.
+        // Deciding otherwise would mean scanning every key to find out, which is the
+        // work the cap exists to avoid.
+        $post_id = pp_create_page('Beyond the bound');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
+        ]);
+
+        $style = [];
+        for ($i = 0; $i < PP_CROSS_COMPONENT_HINT_MAX; $i++) {
+            $style['--zz-unknown-' . $i] = '1rem';
+        }
+        // Real slots on another component, positioned past the bound.
+        $tail = array_slice(array_keys(pp_get_style_slots('hero')), 0, 5);
+        foreach ($tail as $slot) {
+            $style[$slot] = '1rem';
+        }
+
+        $result = _pp_build_friendly_error(
+            new WP_Error('invalid_style_slot', 'Component "section" has no style slot.'),
+            ['post_id' => $post_id, 'component_index' => 0, 'style' => $style]
+        );
+
+        $this->assertSame(count($tail), $result['unknown_slots_unscanned']);
+        $this->assertEmpty(
+            (array) $result['cross_component_hints'],
+            'Keys past the bound are not examined, so their hints are not found.'
+        );
+    }
+
+    public function testNameLongerThanTheErrorBudgetDegradesWithoutReflectingIt(): void
+    {
+        // The two bounds interact: raw_error is cut to its own budget first, which
+        // takes the closing quote off a name longer than that budget, so the slot
+        // name can no longer be extracted for user_message. The message degrades to
+        // its generic form. That is the safe direction — the alternative is echoing
+        // a multi-kilobyte name back — so pin it rather than leave it incidental.
+        $long   = '--hero-' . str_repeat('x', PP_REFLECTED_ERROR_MAX);
+        $result = _pp_build_friendly_error(
+            new WP_Error('invalid_style_value', sprintf('Style slot "%s": not a length.', $long)),
+            []
+        );
+
+        $this->assertStringNotContainsString(str_repeat('x', 300), $result['user_message']);
+        $this->assertStringContainsString('the style slot', $result['user_message']);
+        $this->assertLessThanOrEqual(PP_REFLECTED_ERROR_MAX, mb_strlen($result['raw_error']));
+    }
+
+    public function testReflectedTextDropsTheWiderInvisibleCharacterSet(): void
+    {
+        // The categories, not a hand-listed subset: U+061C sits with the other
+        // bidirectional controls, U+00AD and the U+E0000 tag block are invisible the
+        // same way the zero-width set is, and an enumeration reaches none of them.
+        foreach (["\u{061C}", "\u{00AD}", "\u{180E}", "\u{206A}", "\u{FEFF}", "\u{E0041}"] as $ch) {
+            $this->assertSame(
+                '--hero-bg',
+                _pp_clean_reflected_text('--hero-' . $ch . 'bg', PP_REFLECTED_NAME_MAX),
+                sprintf('U+%04X must be dropped.', mb_ord($ch))
+            );
+        }
+    }
+
+    public function testReflectedNameLengthIsBounded(): void
+    {
+        // user_message quotes back the name the validator rejected, which the
+        // validator took from the caller. This is the surface where the name budget
+        // does real work: the value bound (below) leaves room for a name this long,
+        // and nothing else shortens it.
+        $post_id = pp_create_page('Long name');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+        ]);
+
+        $long   = '--hero-' . str_repeat('x', 2000);
+        $result = _pp_build_friendly_error(
+            new WP_Error('invalid_style_value', sprintf('Style slot "%s": not a length.', $long)),
+            ['post_id' => $post_id, 'component_index' => 0, 'style' => [$long => '2rem']]
+        );
+
+        $this->assertStringNotContainsString(str_repeat('x', 300), $result['user_message']);
+        $this->assertLessThan(600, mb_strlen($result['user_message']));
+    }
+
+    public function testDeclaredSlotNameSurvivesInTheMessage(): void
+    {
+        // The other half of the bound above: a real name is quoted back in full.
+        $post_id = pp_create_page('Real name');
+        pp_update_composition($post_id, [
+            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+        ]);
+
+        $result = _pp_build_friendly_error(
+            new WP_Error('invalid_style_value', 'Style slot "--hero-bg": not a colour.'),
+            ['post_id' => $post_id, 'component_index' => 0, 'style' => ['--hero-bg' => 'nope']]
+        );
+
+        $this->assertStringContainsString('"--hero-bg"', $result['user_message']);
+    }
+
+    public function testReflectedErrorLengthIsBounded(): void
+    {
+        $result = _pp_build_friendly_error(
+            new WP_Error('invalid_style_slot', str_repeat('a', 20000)),
+            []
+        );
+
+        $this->assertLessThanOrEqual(PP_REFLECTED_ERROR_MAX, mb_strlen($result['raw_error']));
+        $this->assertStringEndsWith('...', $result['raw_error']);
+    }
+
+    public function testReflectedTextDropsCharactersThatCarryNoMeaning(): void
+    {
+        // Control, zero-width and bidirectional-formatting characters. None of them
+        // belong in a slot name, and all of them survive into whatever renders the
+        // response, where they are invisible.
+        $this->assertSame(
+            '--hero-bg',
+            _pp_clean_reflected_text("--hero\x00-\x1Fbg", PP_REFLECTED_NAME_MAX),
+            'Control characters are dropped.'
+        );
+        $this->assertSame(
+            '--hero-bg',
+            _pp_clean_reflected_text("--hero\u{200B}-\u{FEFF}bg", PP_REFLECTED_NAME_MAX),
+            'Zero-width characters are dropped.'
+        );
+        $this->assertSame(
+            '--hero-bg',
+            _pp_clean_reflected_text("--hero\u{202E}-\u{2069}bg", PP_REFLECTED_NAME_MAX),
+            'Bidirectional-formatting characters are dropped.'
+        );
+        $this->assertSame(
+            'Component "section" has no style slot "--x".',
+            _pp_clean_reflected_text('Component "section" has no style slot "--x".', PP_REFLECTED_ERROR_MAX),
+            'Ordinary text is returned byte-identical.'
+        );
+    }
+
+    public function testReflectedTextSurvivesUndecodableInput(): void
+    {
+        // Returning null here would blank the field, which reads to the author as
+        // "no detail was reported" rather than "the detail was unprintable".
+        $result = _pp_clean_reflected_text("bad\xC3\x28name\x07", PP_REFLECTED_NAME_MAX);
+
+        $this->assertIsString($result);
+        $this->assertNotSame('', $result);
+        $this->assertStringNotContainsString("\x07", $result);
+    }
+
+    public function testReflectedTextCountsCharactersNotBytes(): void
+    {
+        // A budget measured in bytes would cut a multi-byte name at a fraction of
+        // the stated length and could split a character in half.
+        $name   = str_repeat('é', 400);
+        $result = _pp_clean_reflected_text($name, PP_REFLECTED_NAME_MAX);
+
+        $this->assertSame(PP_REFLECTED_NAME_MAX, mb_strlen($result));
+        $this->assertSame($result, mb_convert_encoding($result, 'UTF-8', 'UTF-8'));
+    }
+
     // ── CSS Keyword Rejection + Alternative Suggestions ─────────────────
 
     public function testFriendlyErrorForCssKeywordNoneOnMaxWidthSlot(): void

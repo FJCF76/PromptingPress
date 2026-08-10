@@ -4,6 +4,35 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.12.20] — 2026-08-10 — one escaper for the accordion editor's markup, and bounded reflection in chat error responses
+
+**The in-admin accordion editor assembles its markup by string concatenation, so every interpolated value lands in either a text node or a quoted attribute. Those two contexts have different escaping obligations, and the builder had been treating them as one. This adds a single attribute-safe escaper to `assets/js/pp-editor-logic.js` — the pure, exported, unit-testable module the editor already depends on — and routes every interpolation in the accordion builder through it, text and attribute alike. Separately, the AI chat's style-slot error response now bounds what it reflects back: the length of a reflected name, the length of the validator message, and the number of unknown slot keys examined when searching other components for a matching slot. Ordinary compositions render byte-identically, and an ordinary rejection's response shape is unchanged.**
+
+One escaper rather than a text variant and an attribute variant is the deliberate part. An attribute-safe escaper is a strict superset: `&quot;` and `&#39;` render as `"` and `'` in a text node, and the accordion reads values back with `.val()`, which hands back the decoded character — so a value still survives render, read and re-serialize unchanged. With two escapers, every future interpolation site becomes a fresh chance to reach for the wrong one. Field names are not a constrained vocabulary here: `buildAccordionData` derives them from `Object.keys(props)` on the pass-through and unknown-component branches, so any JSON object key in a stored composition reaches the builder.
+
+Every bound is a measurement of the shipped registry, not a number picked for looking round, because a bound that fires on real output is worse than no bound — the thing it removes is exactly what the author needed to read. The longest style slot name any component declares is 39 characters, so reflected names are bounded at 256. The longest legitimate validator message, including its full `Available: <every declared slot>` list, is 1290 characters, so that message is bounded at 4096 rather than at the name budget, which would have truncated the list on 7 of the 10 components that declare slots. The widest component declares 49 style slots, so the cross-component search examines up to 64 unknown keys — a style map applied wholesale to the wrong component, which is the ordinary mistake those hints exist to explain, is reported complete.
+
+### Fixed
+
+- The accordion builder's escaper is attribute-safe. `esc()` in `pp-admin-editor.js` now delegates to `PPEditorLogic.escapeHtml`, which escapes `&`, `<`, `>`, `"` and `'` in one pass over the string. The predecessor also threw on `undefined`, because jQuery treats `.text(undefined)` as a getter and a string has no `.html()`.
+- Every interpolation in `buildFieldHtml`, `buildArrayFieldHtml`, `buildInsertDropdown`, `renderAccordion` and `showSerializationNotice` is escaped, including the `data-field` attributes on the array container, the per-row remove button and the add button, and the `id`/`for` pair.
+- `_pp_build_friendly_error()` bounds reflected text. Reflected names are capped at `PP_REFLECTED_NAME_MAX`, `raw_error` at `PP_REFLECTED_ERROR_MAX`, and the cross-component scan at `PP_CROSS_COMPONENT_HINT_MAX` unknown keys. Bounding `raw_error` at the single point where the message is read means all eight return sites inherit it, including any added later.
+- Reflected text is stripped of the Unicode control and format categories (`\p{Cc}`, `\p{Cf}`). Naming the categories covers the zero-width set, the bidirectional-formatting set, the BOM and the tag block without an enumeration that has to be maintained by hand. Undecodable input is repaired and re-scanned with the same pattern rather than falling back to a weaker strip.
+- When the cross-component scan hits its bound, the response carries `unknown_slots_unscanned` (int). The key is absent otherwise, so an ordinary rejection's shape is exactly what it was. It counts keys that were never examined, not hints that were suppressed — most unknown keys yield no hint even when scanned.
+
+### Docs
+
+- `AI_CONTEXT.md` records the sixth, conditional response key and the three bounds on `_pp_build_friendly_error()`, and notes that the cross-component search is bounded.
+- `AI_RULES.md` adds `escapeHtml` to the list of `pp-editor-logic.js` functions that require running the JS suite before committing, with a note on why its behaviour is load-bearing for the generated markup.
+
+### Tests
+
+- `tests/js/pp-editor-attribute-render.test.js` boots the real `pp-admin-editor.js` under jsdom with a CodeMirror stub and asserts on the markup it actually produces. The existing DOM test re-implements the builder's markup in the test body, which pins the copy rather than the product; this one cannot drift. Verified as a regression guard: reverting the escaper fails five of its twelve pins.
+- Benign values are pinned to round-trip byte-identically through render and read, including values carrying apostrophes, double quotes and markup characters.
+- `ActionsTest` pins that every component's real rejection message reaches the author intact, that an ordinary rejection round-trips unchanged and carries no truncation key, and that neither the widest style map in the shipped starter composition nor the widest component's full slot set trips the cross-component bound.
+- The cost of bounding the scan is pinned as a recorded trade-off: keys past the bound are not examined, so hints they would have produced are not found.
+- `escapeHtml` is pinned for character coverage, replacement ordering, non-string coercion, and leaving representative registry vocabulary unchanged.
+
 ## [v1.12.19] — 2026-08-10 — every ratified default now states its reason where an agent will read it (#585)
 
 **Forty CSS literals were ratified as deliberate product defaults and eight decorative capabilities as deliberately unauthorable. Thirty-nine of those forty had no stated reason on any surface an authoring agent reads, so "why can't I change this?" had no answer anywhere. This lands the reasons and their reopening conditions on the authoring surfaces — component READMEs, schema `description` text, and `ai-instructions/style-component.md` — reconciles fourteen places where the docs had drifted from the schemas, and ships the eyebrow anti-uniformity guidance line. Rendered output is byte-identical: no CSS declaration, schema shape, default or enum changed.**

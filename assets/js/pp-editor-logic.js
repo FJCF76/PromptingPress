@@ -184,6 +184,54 @@ function getInsertPosition(compositionText, cursorOffset) {
 }
 
 /**
+ * Escape a value for interpolation into the accordion builder's generated markup.
+ *
+ * The builder assembles HTML by string concatenation, so every interpolated value
+ * lands in one of two contexts:
+ *
+ *   text node   <label>VALUE</label>
+ *   attribute   <input data-field="VALUE" value="VALUE">
+ *
+ *                     & < >   " '
+ *   text node          ✓      not required
+ *   attribute          ✓      ✓            ← strict superset
+ *
+ * This escapes for the superset and is used in BOTH contexts throughout the
+ * accordion builder. One escaper there is deliberate: with a text-only and an
+ * attribute-only variant, every future interpolation site becomes a fresh chance to
+ * reach for the wrong one, which is exactly the failure mode a single escaper
+ * removes. (pp-ai-chat.js keeps its own text-only escaper for the markdown
+ * pipeline, where the output is only ever a text node.) Escaping the quote
+ * characters in a text node costs nothing: `&quot;` and `&#39;` render as `"` and
+ * `'`, and the accordion reads values back with jQuery's `.val()`, which hands back
+ * the DECODED character — so a value survives render → read → serializeAccordionData
+ * byte-identically.
+ *
+ * Field names are not a constrained vocabulary: buildAccordionData() derives them
+ * from Object.keys(props) on the pass-through and unknown-component branches, so
+ * any JSON object key in stored composition reaches this function.
+ *
+ * One pass over the string via a lookup map, so there is no ordering hazard: a
+ * sequential-replace form has to run `&` first or it re-escapes the ampersands its
+ * own later replacements introduce (`<` → `&lt;` → `&amp;lt;`).
+ *
+ * @param  {*} value  Any value; null/undefined coerce to the empty string.
+ * @return {string}   Safe to interpolate into a text node or a quoted attribute.
+ */
+var HTML_ESCAPES = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+};
+
+function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value).replace(/[&<>"']/g, function (ch) { return HTML_ESCAPES[ch]; });
+}
+
+/**
  * Multi-line field names. Fields with these names render as <textarea>
  * instead of <input> in the accordion. Pure display affordance — the JSON
  * value is the same string either way.
@@ -610,6 +658,7 @@ function getCollapsedRowPreview(compData) {
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 var _logic = {
+    escapeHtml:                     escapeHtml,
     getJsonContextFromText:         getJsonContextFromText,
     validateCompositionData:        validateCompositionData,
     getInsertPosition:              getInsertPosition,

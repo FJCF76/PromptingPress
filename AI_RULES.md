@@ -100,7 +100,9 @@ npm test            # run once
 npm run test:watch  # watch mode
 ```
 
-The logic under test is in `assets/js/pp-editor-logic.js`. When editing `getJsonContextFromText`, `validateCompositionData`, `getInsertPosition`, `buildAccordionData`, `serializeAccordionData`, `deepDiff`, `checkSerializationInvariant`, or `formatDiffsForIssue`, run tests before committing.
+The logic under test is in `assets/js/pp-editor-logic.js`. When editing `escapeHtml`, `getJsonContextFromText`, `validateCompositionData`, `getInsertPosition`, `buildAccordionData`, `serializeAccordionData`, `deepDiff`, `checkSerializationInvariant`, or `formatDiffsForIssue`, run tests before committing.
+
+`escapeHtml` is the accordion builder's only escaper: `pp-admin-editor.js` builds its markup by string concatenation and routes every interpolation, text and attribute alike, through it. Changing what it escapes changes what that markup means, so `tests/js/pp-editor-attribute-render.test.js` boots the real editor and asserts on rendered output rather than re-deriving it.
 
 ## E2E tests
 

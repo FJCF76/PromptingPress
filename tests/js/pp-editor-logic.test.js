@@ -8,6 +8,7 @@
  */
 
 const {
+    escapeHtml,
     getJsonContextFromText,
     validateCompositionData,
     getInsertPosition,
@@ -1036,5 +1037,57 @@ describe('checkSerializationInvariant blocks a stale enum value (#605)', () => {
             { component: 'section', props: { body: 'x', theme: 'muted' } },
         ]);
         expect(checkSerializationInvariant(json, REGISTRY).safe).toBe(true);
+    });
+});
+
+// ─── escapeHtml ──────────────────────────────────────────────────────────────
+
+describe('escapeHtml covers both markup and quote characters', () => {
+    it('escapes the markup characters', () => {
+        expect(escapeHtml('a<b>c&d')).toBe('a&lt;b&gt;c&amp;d');
+    });
+
+    it('escapes both quote characters', () => {
+        // The reason this helper exists. jQuery's .text().html() round-trip that
+        // preceded it escaped & < > and passed " and ' through unchanged, which is
+        // correct for a text node and wrong for a quoted attribute.
+        expect(escapeHtml('a"b')).toBe('a&quot;b');
+        expect(escapeHtml("a'b")).toBe('a&#39;b');
+    });
+
+    it('replaces & first, so escaped output is not double-escaped', () => {
+        // Replacing < before & would turn "<" into "&lt;" and then into "&amp;lt;",
+        // which renders as the literal text "&lt;" instead of "<".
+        expect(escapeHtml('<')).toBe('&lt;');
+        expect(escapeHtml('&lt;')).toBe('&amp;lt;');
+    });
+
+    it('leaves a value with no special characters byte-identical', () => {
+        const benign = 'Turn AI-assisted site drafts into maintainable WordPress composition.';
+        expect(escapeHtml(benign)).toBe(benign);
+    });
+
+    it('leaves representative style slot and component names unchanged', () => {
+        // The identical-rendering guarantee over a sample of the real vocabulary,
+        // including the longest slot name the registry declares. The registry-wide
+        // version of this guarantee is pinned PHP-side, where the registry is
+        // readable (ActionsTest::testEveryComponentsValidatorMessageReachesTheAuthorIntact).
+        ['hero', 'section', 'grid', 'cta', '--hero-bg', '--section-padding-block',
+         '--testimonials-subheading-margin-bottom', 'title', 'body_items', 'image_url']
+            .forEach((name) => expect(escapeHtml(name)).toBe(name));
+    });
+
+    it('coerces non-string input instead of throwing', () => {
+        // The predecessor threw on undefined: jQuery treats .text(undefined) as a
+        // getter, which returns a string, and a string has no .html().
+        expect(escapeHtml(undefined)).toBe('');
+        expect(escapeHtml(null)).toBe('');
+        expect(escapeHtml(0)).toBe('0');
+        expect(escapeHtml(false)).toBe('false');
+    });
+
+    it('produces output that cannot terminate a quoted attribute', () => {
+        const hostile = '" data-comp="9';
+        expect(escapeHtml(hostile).indexOf('"')).toBe(-1);
     });
 });

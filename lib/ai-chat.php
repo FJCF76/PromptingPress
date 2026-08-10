@@ -343,13 +343,123 @@ function _pp_component_target_not_found(array $params, int $resolved_index): boo
     return isset($params['component_id']) && $params['component_id'] !== '' && $resolved_index < 0;
 }
 
+// ── Response bounds (chat-side error responses) ───────────────────────────
+//
+// A failed style_component proposal echoes caller-supplied text back to the
+// author: the name that was rejected, and the message the validator wrote around
+// it. Both are unbounded at their source, so the response they build is unbounded
+// too. These three constants bound it. Every value is derived from a measurement
+// of the shipped registry rather than picked, so that none of them can fire on a
+// legitimate rejection — a cap that truncates real output is worse than no cap,
+// because the thing it removes is exactly what the author needed to read.
+//
+//   measurement (shipped registry + starter composition)        value    constant
+//   ─────────────────────────────────────────────────────────   ─────    ────────
+//   longest DECLARED style slot name                              39  ┐
+//                                                                    ├→  256
+//   (6.5x headroom over the longest real name)                       ┘
+//
+//   longest LEGITIMATE raw_error, i.e. the validator's message
+//   including its full "Available: <every declared slot>" list    1290  ┐
+//                                                                       ├→ 4096
+//   (3.2x headroom; capping this at the name budget instead would        ┘
+//    truncate that list on 7 of the 10 components that declare
+//    slots at all, and the list is the part of raw_error the
+//    author is meant to learn from. footer and nav declare none,
+//    so they report no_style_slots and never reach this branch)
+//
+//   most style slots any one component declares                     49  ┐
+//   widest style map in the shipped starter composition             20  ├→   64
+//   (so a style map applied wholesale to the wrong component —         ┘
+//    the mistake cross-component hints exist to explain — is
+//    reported complete, never truncated)
+
+/** Longest caller-supplied name echoed back in a response. */
+const PP_REFLECTED_NAME_MAX = 256;
+
+/** Longest validator message echoed back as raw_error. */
+const PP_REFLECTED_ERROR_MAX = 4096;
+
+/** Most unknown style-slot keys examined for a cross-component hint. */
+const PP_CROSS_COMPONENT_HINT_MAX = 64;
+
+/**
+ * Normalizes a piece of caller-supplied text for inclusion in a response.
+ *
+ * Both callers pass caller-derived text: a style slot name, or the validator
+ * message that quotes one. Two jobs.
+ *
+ * First, drop every character that carries no meaning in either but survives into
+ * whatever renders the response. `\p{Cc}` is the C0 and C1 control ranges — tab and
+ * newline included, because these messages are single-line. `\p{Cf}` is the format
+ * characters: the zero-width set, the bidirectional-formatting set (including
+ * U+061C, which the bidi controls are easy to enumerate without), the BOM, and the
+ * U+E0000 tag block. Those are invisible, so two different names can present
+ * identically to a reader deciding whether the name they typed is the name that was
+ * rejected. Naming the two Unicode categories beats listing ranges by hand: the
+ * category is the definition, an enumeration is a snapshot of it.
+ *
+ * Second, bound the length. Truncation follows the existing convention in
+ * lib/ai-context.php: cut to `$max_length - 3` and mark it, so the result never
+ * exceeds the stated budget.
+ *
+ * @param  string $text        Caller-supplied or caller-derived text.
+ * @param  int    $max_length  Character budget, not byte budget.
+ * @return string              Valid UTF-8, at most $max_length characters.
+ */
+function _pp_clean_reflected_text(string $text, int $max_length): string {
+    // Bound the INPUT before scanning it, not just the output. The rejected name is
+    // interpolated into the validator's message verbatim (lib/actions.php:2622), so
+    // a multi-megabyte name means preg_replace allocates a multi-megabyte copy to
+    // produce a result that is thrown away down to $max_length. A byte-length test
+    // is O(1), and 4 bytes is the widest UTF-8 encoding of one character, so
+    // $max_length * 4 bytes always holds at least $max_length characters.
+    //
+    // Not a no-op in every case: text made mostly of characters the strip removes
+    // could carry meaningful content past the byte cut and lose it. That only
+    // happens for input already far outside the shape of a slot name or a validator
+    // message, where a bounded response matters more than a faithful one.
+    if (strlen($text) > $max_length * 4) {
+        $text = substr($text, 0, $max_length * 4);
+    }
+
+    $clean = preg_replace('/[\p{Cc}\p{Cf}]/u', '', $text);
+
+    if ($clean === null) {
+        // The /u pattern returns null on invalid UTF-8 — which the byte-wise cut
+        // above can itself produce by landing mid-sequence. Repair the encoding and
+        // re-run the SAME pattern rather than falling back to a weaker one: a
+        // second definition of "clean" would quietly let the whole zero-width and
+        // bidi set through on exactly the malformed input that most warrants it.
+        //
+        // The `?? ''` is reachable, not ceremony: this retry uses the same /u
+        // pattern, so any PCRE failure that is not an encoding problem returns null
+        // again, and this function's `: string` return type would make that a fatal.
+        $clean = preg_replace('/[\p{Cc}\p{Cf}]/u', '', mb_convert_encoding($text, 'UTF-8', 'UTF-8')) ?? '';
+    }
+
+    if (mb_strlen($clean) > $max_length) {
+        $clean = mb_substr($clean, 0, $max_length - 3) . '...';
+    }
+
+    return $clean;
+}
+
 /**
  * Builds a structured, user-friendly error response for preview failures.
- * Returns an associative array with error_code, user_message, and alternatives.
+ *
+ * Returns `{error_code, user_message, alternatives, cross_component_hints,
+ * raw_error}` on every path, plus `unknown_slots_unscanned` (int) on the
+ * invalid_style_slot path only, and only when the cross-component scan hit
+ * PP_CROSS_COMPONENT_HINT_MAX — so an ordinary rejection's shape is unchanged.
+ *
+ * Bounding raw_error here, at the single point where it is read, means every
+ * return site below inherits it — including any added later, which a per-site
+ * bound would silently miss.
  */
 function _pp_build_friendly_error(WP_Error $error, array $params): array {
     $code    = $error->get_error_code();
-    $raw_msg = $error->get_error_message();
+    $raw_msg = _pp_clean_reflected_text($error->get_error_message(), PP_REFLECTED_ERROR_MAX);
 
     switch ($code) {
         case 'invalid_style_slot':
@@ -374,20 +484,47 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
             }
 
             // Cross-component hint: does this slot exist on a different component?
+            //
+            // Each unknown key costs a pass over every registered component and every
+            // slot it declares, so the size of this list sets both the work done and
+            // the size of the object emitted. Bound it here, once, before the scan.
             $cross_hints  = (object) [];
             $style        = $params['style'] ?? [];
             $invalid_slots = array_diff(array_keys($style), $available);
+
+            // The cap applies to the keys BEFORE any matching, because bounding the
+            // scan is the point — deciding which keys are worth reporting would mean
+            // doing the very work the cap exists to avoid. So when it fires, keys
+            // that would have produced a hint can be among the ones dropped, and the
+            // count below reports unexamined KEYS, not suppressed hints.
+            $slots_unscanned = count($invalid_slots) - PP_CROSS_COMPONENT_HINT_MAX;
+            if ($slots_unscanned > 0) {
+                $invalid_slots = array_slice($invalid_slots, 0, PP_CROSS_COMPONENT_HINT_MAX);
+            } else {
+                $slots_unscanned = 0;
+            }
+
             $all_components = pp_get_registered_components();
             foreach ($invalid_slots as $invalid_slot) {
+                // Defence in depth rather than a live path, and the reason is an
+                // invariant worth stating: a key reaches either assignment below only
+                // by equalling a declared slot name (exact) or by sharing a normalized
+                // suffix with one (suffix). Declared names are clean and at most 39
+                // characters, and neither a name carrying stripped characters nor one
+                // past the length budget can satisfy either test — the comparisons run
+                // on the RAW key. So wherever $reflected is used below it is equal to
+                // $invalid_slot, and the cleaning is a no-op that costs one call and
+                // keeps this from being a premise the registry could stop satisfying.
+                $reflected = _pp_clean_reflected_text((string) $invalid_slot, PP_REFLECTED_NAME_MAX);
                 $suffix = preg_replace('/^--[a-z]+-/', '--*-', $invalid_slot);
                 foreach ($all_components as $other_name => $other_schema) {
                     if ($other_name === $component_name) continue;
                     $other_slots = pp_get_style_slots($other_name);
                     // Exact match
                     if (isset($other_slots[$invalid_slot])) {
-                        $cross_hints->{$invalid_slot} = [
+                        $cross_hints->{$reflected} = [
                             'component' => $other_name,
-                            'slot'      => $invalid_slot,
+                            'slot'      => $reflected,
                             'match'     => 'exact',
                         ];
                         break;
@@ -396,7 +533,7 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
                     foreach ($other_slots as $other_slot_name => $other_slot_def) {
                         $other_suffix = preg_replace('/^--[a-z]+-/', '--*-', $other_slot_name);
                         if ($suffix === $other_suffix) {
-                            $cross_hints->{$invalid_slot} = [
+                            $cross_hints->{$reflected} = [
                                 'component' => $other_name,
                                 'slot'      => $other_slot_name,
                                 'match'     => 'suffix',
@@ -431,13 +568,22 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
                 );
             }
 
-            return [
+            $response = [
                 'error_code'            => $code,
                 'user_message'          => $user_message,
                 'alternatives'          => $available,
                 'cross_component_hints' => $cross_hints,
                 'raw_error'             => $raw_msg,
             ];
+            // Present only when the bound actually applied, so the response shape on
+            // every ordinary rejection is exactly what it was before. Named for what
+            // it counts: keys that were never examined. Most unknown keys yield no
+            // hint even when scanned, so calling it a count of omitted hints would
+            // overstate what was lost.
+            if ($slots_unscanned > 0) {
+                $response['unknown_slots_unscanned'] = $slots_unscanned;
+            }
+            return $response;
 
         case 'invalid_style_value':
             // Extract the slot name, type, and description from schema.
@@ -446,7 +592,10 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
             $slot_desc   = '';
             $slot_default = '';
             if (preg_match('/^Style slot "([^"]+)"/', $raw_msg, $m)) {
-                $slot_name = $m[1];
+                // Cleaned once, then used for both the schema lookup and the message.
+                // A name that this changes cannot match a declared slot anyway, and a
+                // declared name (39 characters at the longest) passes through untouched.
+                $slot_name = _pp_clean_reflected_text($m[1], PP_REFLECTED_NAME_MAX);
                 $composition = pp_get_composition($params['post_id'] ?? 0);
                 $idx         = _pp_resolve_component_index_for_error($params);
                 $comp_name   = $composition[$idx]['component'] ?? '';
