@@ -49,8 +49,13 @@
         };
     }
 
+    // Attribute-safe escaping for the markup this file builds by concatenation.
+    // Delegates to the shared implementation in pp-editor-logic.js so the escaper
+    // that SHIPS is the escaper the tests exercise: this file is an IIFE with no
+    // exports, so anything defined here could only ever be pinned by a copy of
+    // itself, and a copy stays green while the original regresses.
     function esc(text) {
-        return $('<span>').text(text).html();
+        return logic.escapeHtml(text);
     }
 
     function getComponentByName(name) {
@@ -178,14 +183,28 @@
         return map;
     }
 
+    // `compIdx` / `itemIdx` are always loop indices (numbers) from renderAccordion
+    // and buildArrayFieldHtml, so they carry no escaping obligation.
+    //
+    // `id` is defence in depth. buildArrayFieldHtml passes `field.name + '.' + sk`
+    // as fieldIdx, which looks like it puts a composition-supplied name into the id,
+    // but that branch is reachable only for SCHEMA-declared array props: `field.items`
+    // is assigned in one place (pp-editor-logic.js:285, the schema branch), so a
+    // pass-through array prop has no `items`, `subKeys` is empty, and the loop that
+    // composes that fieldIdx never runs. Escaping it costs one call and keeps that
+    // from being a premise the schema shape could quietly stop satisfying.
+    //
+    // `field.name` IS caller-supplied. Escape both once here and reuse everywhere.
     function buildFieldHtml(field, compIdx, fieldIdx, itemIdx) {
         var id = 'pp-field-' + compIdx + '-' + fieldIdx + (itemIdx !== undefined ? '-' + itemIdx : '');
+        var idAttr   = esc(id);
+        var nameAttr = esc(field.name);
         var reqClass = field.required ? ' pp-accordion-field--required' : '';
         var h = '<div class="pp-accordion-field' + reqClass + '">';
-        h += '<label for="' + id + '">' + esc(field.name) + '</label>';
+        h += '<label for="' + idAttr + '">' + nameAttr + '</label>';
 
         if (field.type === 'enum' && field.values) {
-            h += '<select id="' + id + '" data-comp="' + compIdx + '" data-field="' + field.name + '">';
+            h += '<select id="' + idAttr + '" data-comp="' + compIdx + '" data-field="' + nameAttr + '">';
             // The <select> is built from the advertised `values` and nothing else
             // (#605). Every shipped enum is `strict: true` (#579), so the only way to
             // hold an unadvertised value is stale storage — and tolerating stale data
@@ -202,11 +221,11 @@
             });
             h += '</select>';
         } else if (field.multiline) {
-            h += '<textarea id="' + id + '" rows="4" data-comp="' + compIdx + '" data-field="' + field.name + '"';
+            h += '<textarea id="' + idAttr + '" rows="4" data-comp="' + compIdx + '" data-field="' + nameAttr + '"';
             h += ' placeholder="' + esc(field.description || '') + '"';
             h += '>' + esc(String(field.value || '')) + '</textarea>';
         } else if (field.type === 'string') {
-            h += '<input type="text" id="' + id + '" data-comp="' + compIdx + '" data-field="' + field.name + '"';
+            h += '<input type="text" id="' + idAttr + '" data-comp="' + compIdx + '" data-field="' + nameAttr + '"';
             h += ' value="' + esc(String(field.value || '')) + '"';
             h += ' placeholder="' + esc(field.description || '') + '"';
             h += ' />';
@@ -220,16 +239,17 @@
         var items = Array.isArray(field.value) ? field.value : [];
         var subSchema = field.items || {};
         var subKeys = Object.keys(subSchema);
+        var nameAttr = esc(field.name);
         var h = '<div class="pp-accordion-field pp-accordion-field--required">';
-        h += '<label>' + esc(field.name) + '</label>';
+        h += '<label>' + nameAttr + '</label>';
         h += '</div>';
-        h += '<div class="pp-accordion-array" data-comp="' + compIdx + '" data-field="' + field.name + '">';
+        h += '<div class="pp-accordion-array" data-comp="' + compIdx + '" data-field="' + nameAttr + '">';
 
         items.forEach(function (item, itemIdx) {
             h += '<div class="pp-accordion-array-item" data-item="' + itemIdx + '">';
             h += '<div class="pp-accordion-array-item-header">';
             h += '<span>Item ' + (itemIdx + 1) + '</span>';
-            h += '<button class="pp-array-remove-btn" data-comp="' + compIdx + '" data-field="' + field.name + '" data-item="' + itemIdx + '" aria-label="Remove item ' + (itemIdx + 1) + '">&times;</button>';
+            h += '<button class="pp-array-remove-btn" data-comp="' + compIdx + '" data-field="' + nameAttr + '" data-item="' + itemIdx + '" aria-label="Remove item ' + (itemIdx + 1) + '">&times;</button>';
             h += '</div>';
             subKeys.forEach(function (sk) {
                 var subField = {
@@ -245,7 +265,7 @@
             h += '</div>';
         });
 
-        h += '<button class="pp-accordion-add-btn pp-array-add-btn" data-comp="' + compIdx + '" data-field="' + field.name + '">+ Add item</button>';
+        h += '<button class="pp-accordion-add-btn pp-array-add-btn" data-comp="' + compIdx + '" data-field="' + nameAttr + '">+ Add item</button>';
         h += '</div>';
         return h;
     }
@@ -1041,7 +1061,11 @@
             var compLabel = compMatch ? 'Component ' + compMatch[1] : '\u2014';
             var before = d.before === undefined ? '<em>(absent)</em>' : '<code>' + esc(JSON.stringify(d.before)) + '</code>';
             var after = d.after === undefined ? '<em>(absent)</em>' : '<code>' + esc(JSON.stringify(d.after)) + '</code>';
-            var badge = '<span class="pp-diff-badge pp-diff-badge--' + d.changeType + '">' + d.changeType + '</span>';
+            // changeType is a fixed internal vocabulary (added/removed/changed/
+            // type_mismatch — see deepDiff in pp-editor-logic.js), so this escape is
+            // uniformity rather than necessity: no interpolation in this file is left
+            // as the one a reader has to reason about individually.
+            var badge = '<span class="pp-diff-badge pp-diff-badge--' + esc(d.changeType) + '">' + esc(d.changeType) + '</span>';
 
             tableRows += '<tr><td>' + esc(compLabel) + '</td><td><code>' + esc(d.path) + '</code></td><td>' + before + '</td><td>' + after + '</td><td>' + badge + '</td></tr>';
             cards += '<div class="pp-diff-card"><div class="pp-diff-card__component">' + esc(compLabel) + '</div><div class="pp-diff-card__path">' + esc(d.path) + '</div><div class="pp-diff-card__values">' + before + ' <span class="pp-diff-card__arrow">\u2192</span> ' + after + ' ' + badge + '</div></div>';
