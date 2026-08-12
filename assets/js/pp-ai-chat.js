@@ -394,13 +394,31 @@ function ppChatGetStatusMessage(data) {
 }
 
 /**
+ * Maps a restore finding's severity to its display class (#622).
+ *
+ * `severity: 'error'` means a normal write of the restored composition would be
+ * REJECTED by current rules; `severity: 'warning'` is advisory. Anything else (an
+ * older payload, a missing key) degrades to the warning class rather than
+ * over-escalating.
+ */
+function ppChatFindingClass(item) {
+    return (item && item.severity === 'error') ? 'pp-ai-step-failed' : 'pp-ai-step-warning';
+}
+
+/**
  * Renders restore_composition's findings on a SUCCESSFUL undo (#233).
  *
  * Restore is never blocked by current validation rules — a snapshot today's validators
  * reject still restores, because undo is the user's safety net and must not fail. The
- * findings therefore describe a write that happened. They render as warnings on a
- * succeeded undo; rendering them as an error would tell the user undo broke when it
- * worked, which is its own trust bug.
+ * findings therefore describe a write that happened, so the HEADING stays a warning and
+ * still says "Restored": telling the user undo broke when it worked is its own trust bug.
+ *
+ * The ITEMS, though, are styled per severity (#622). Every finding used to render as a
+ * warning regardless of `severity`. Before #604 the read path canonicalized legacy keys,
+ * which suppressed error-severity findings on old snapshots and made that path close to
+ * unreachable; now undoing any pre-vocabulary-freeze snapshot produces them, and an
+ * error-severity finding ("a normal write of this would be rejected") shown in the same
+ * grey as an advisory smell understates what the user has to fix.
  *
  * Renders `findings` only. The AJAX handler also injects `validation`
  * (pp_post_apply_validate), which flags template-owned chrome as well, so rendering both
@@ -420,24 +438,47 @@ function ppChatAppendUndoFindings(card, findings) {
         + ' under current rules:';
     section.appendChild(heading);
 
-    ppChatAppendValidationItems(section, findings, 'pp-ai-step-warning');
+    ppChatAppendValidationItems(section, findings, ppChatFindingClass);
     card.appendChild(section);
 }
 
 /**
  * Appends validation items (errors or warnings) to a container.
  * Shows first 5 inline; collapses the rest in a <details> disclosure (D6).
+ *
+ * `className` is either a fixed class string (the post-apply validation paths, whose
+ * items are already split into an errors list and a warnings list) or a function
+ * (item) -> class for a list that carries its own per-item severity — today the restore
+ * findings (#622). In the per-item form the disclosure summary's noun is derived from
+ * the hidden items' own severities ("errors", "warnings", or "issues" when they are
+ * mixed), never from the class string: calling a set that contains errors "warnings"
+ * is the same misreport one level up.
  */
 function ppChatAppendValidationItems(container, items, className) {
     if (!items || !items.length) return;
+
+    var perItem = (typeof className === 'function');
+    var classFor = perItem ? className : function () { return className; };
 
     var MAX_INLINE = 5;
     var shown = items.slice(0, MAX_INLINE);
     var overflow = items.slice(MAX_INLINE);
 
+    var noun;
+    if (!perItem) {
+        noun = (className.indexOf('warning') !== -1) ? 'warning' : 'error';
+    } else {
+        var hasError = false;
+        var hasOther = false;
+        overflow.forEach(function (item) {
+            if (item && item.severity === 'error') { hasError = true; } else { hasOther = true; }
+        });
+        noun = (hasError && hasOther) ? 'issue' : (hasError ? 'error' : 'warning');
+    }
+
     shown.forEach(function (item) {
         var div = document.createElement('div');
-        div.className = className;
+        div.className = classFor(item);
         div.textContent = item.message;
         container.appendChild(div);
     });
@@ -446,12 +487,12 @@ function ppChatAppendValidationItems(container, items, className) {
         var details = document.createElement('details');
         details.className = 'pp-ai-preview-error-detail';
         var summary = document.createElement('summary');
-        summary.textContent = 'Show ' + overflow.length + ' more ' + (className.indexOf('warning') !== -1 ? 'warning' : 'error') + (overflow.length === 1 ? '' : 's');
+        summary.textContent = 'Show ' + overflow.length + ' more ' + noun + (overflow.length === 1 ? '' : 's');
         details.appendChild(summary);
 
         overflow.forEach(function (item) {
             var div = document.createElement('div');
-            div.className = className;
+            div.className = classFor(item);
             div.textContent = item.message;
             details.appendChild(div);
         });
@@ -2177,6 +2218,7 @@ if (typeof module !== 'undefined' && module.exports) {
         getStatusMessage: ppChatGetStatusMessage,
         appendValidationItems: ppChatAppendValidationItems,
         appendUndoFindings: ppChatAppendUndoFindings,
+        findingClass: ppChatFindingClass,
         buildCompositionSummary: ppChatBuildCompositionSummary,
         detectPageId: ppChatDetectPageId,
         findPageById: ppChatFindPageById,

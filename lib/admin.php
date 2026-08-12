@@ -639,24 +639,6 @@ function pp_normalize_composition(array $items): array {
 }
 
 /**
- * Validates a decoded composition array and returns EVERY error it finds.
- *
- * The collect-all engine behind pp_validate_composition(). Both read the same rules;
- * they differ only in how much they report. Write-time callers want the first error
- * (fail fast, one actionable message); reporting callers — restore_composition's
- * `findings` (#233) — need the complete set, or a caller fixes one violation, retries,
- * and discovers the next one only on the following run.
- *
- * At most ONE error per item: each item stops at its first failing check and moves on.
- * That keeps errors[0] identical to the single error pp_validate_composition() has
- * always returned (same code, same message, same document order), and it stops a
- * malformed item from cascading bogus follow-on errors from the checks below it.
- *
- * @param  array      $items  Decoded composition array.
- * @return WP_Error[]         Empty when the composition is valid.
- */
-
-/**
  * Validates a style-slot override map against a component's declared style slots.
  *
  * The single shared gate for BOTH grid-level component style (`item['style']`) and
@@ -737,6 +719,25 @@ function _pp_validate_style_slot_map(array $style, array $available_slots, strin
                     $where,
                     $slot_name,
                     $available ?: '(none)'
+                )
+            );
+        }
+        // A slot value must be scalar before it can be cast (#622). Every sibling rule in
+        // pp_validate_composition_errors() already guards this way; this engine cast
+        // blind, so a stored `style: {"--hero-bg": {...}}` emitted an "Array to string
+        // conversion" warning and a stored object was an UNCAUGHT Error. #622 routes this
+        // engine into `wp pp check page` / `wp pp validate site`, which run over
+        // compositions that never passed write validation — a warning injected into an
+        // AJAX findings response, or a fatal that kills the command, both defeat the
+        // report-don't-die contract (#144) those surfaces exist to honor.
+        if (!is_scalar($slot_value)) {
+            return new WP_Error(
+                'invalid_style_value',
+                sprintf(
+                    '%s style slot "%s" must be a scalar value; got %s.',
+                    $where,
+                    $slot_name,
+                    gettype($slot_value)
                 )
             );
         }
@@ -870,13 +871,165 @@ function _pp_link_url_error_message(string $component, string $prop_name, ?int $
     );
 }
 
+/**
+ * Builds a composition error that carries its composition offset (#622).
+ *
+ * Every rule inside pp_validate_composition_errors()'s per-item loop names the
+ * COMPONENT ("Component \"cta\" is missing required prop ...") but not WHICH band
+ * on the page it is. On a page with two `cta` bands that is not enough to act on:
+ * `_pp_composition_findings()` recorded `'index' => null` for every error-derived
+ * finding, so the read-only diagnostics could not say which band was dead while the
+ * sibling smells could.
+ *
+ * The offset rides as WP_Error DATA, not as a message prefix: the messages are the
+ * write path's public rejection strings (returned verbatim by pp_validate_composition()
+ * to create_page / update_composition / update_component / the editor save), and
+ * rewording them is a separate, wider change. Data is inert for every existing
+ * consumer — the action layer reads only get_error_code() / get_error_message() —
+ * and `_pp_composition_findings()` reads it to fill the finding's `index`.
+ *
+ * Cross-item rules (duplicate_component_id) do NOT use this helper: they belong to
+ * no single offset and already name every colliding index in the message.
+ *
+ * `$index` is deliberately untyped: it is the foreach key over a composition that may
+ * never have passed validation (a raw meta write or a history-ring snapshot stored as a
+ * JSON object yields string keys). Declaring `int` here would turn that into a TypeError
+ * fatal on the very read-only diagnostics #622 exists to make survivable. A non-int key
+ * records no locator rather than a coerced one — the same honest-null contract
+ * pp_composition_error_index() enforces on the way out.
+ *
+ * @param  mixed  $index    Composition offset of the offending item.
+ * @param  string $code     WP_Error code.
+ * @param  string $message  Human-readable rejection message.
+ * @return WP_Error
+ */
+function _pp_composition_item_error($index, string $code, string $message): WP_Error {
+    return new WP_Error($code, $message, ['index' => is_int($index) ? $index : null]);
+}
+
+/**
+ * Reads the composition offset stamped by _pp_composition_item_error() (#622).
+ *
+ * Returns null for a cross-item error (duplicate_component_id) and for any WP_Error
+ * built without the stamp, so callers get an honest "no single band owns this"
+ * rather than a fabricated 0.
+ *
+ * @param  WP_Error $error
+ * @return int|null
+ */
+function pp_composition_error_index(WP_Error $error): ?int {
+    $data = $error->get_error_data();
+
+    return (is_array($data) && isset($data['index']) && is_int($data['index']))
+        ? $data['index']
+        : null;
+}
+
+/**
+ * Lists the prop keys an item carries that its component's schema does not declare.
+ *
+ * Feeds the missing-required-prop message (#622). Post-#604 there is no alias map and
+ * no "formerly known as" list to consult — the schema is the only source of accepted
+ * prop names — so the honest help is to name the keys that are actually present and
+ * unrecognized. When a value has been authored under a retired name, that name shows
+ * up here and the operator can see what to rename.
+ *
+ * @param  array $item    Composition item.
+ * @param  array $schema  The component's registered schema.
+ * @return string[]       Undeclared prop keys, in authored order. Empty when clean.
+ */
+function _pp_undeclared_prop_keys(array $item, array $schema): array {
+    if (!isset($item['props']) || !is_array($item['props'])) {
+        return [];
+    }
+    $declared = (isset($schema['props']) && is_array($schema['props'])) ? $schema['props'] : [];
+    $unknown  = [];
+    foreach ($item['props'] as $prop_name => $ignored) {
+        if (!array_key_exists($prop_name, $declared)) {
+            $unknown[] = (string) $prop_name;
+        }
+    }
+
+    return $unknown;
+}
+
+/** Most undeclared prop keys named in one missing-required-prop message (#622). */
+const PP_UNDECLARED_KEYS_SHOWN = 10;
+
+/** Longest single prop key echoed back in that message, in characters (#622). */
+const PP_UNDECLARED_KEY_MAX_LENGTH = 64;
+
+/**
+ * Renders undeclared prop keys for inclusion in an error message (#622).
+ *
+ * These keys come from stored or caller-supplied composition data and travel out through
+ * the CLI, the action envelope, the dashboard editor and the AI chat, so they get the
+ * same treatment #633 gave the style-slot reflection rather than being echoed raw:
+ *
+ *   - control and format characters are stripped, so two different keys cannot present
+ *     identically to the operator deciding whether the name they typed is the name that
+ *     was rejected (and so a stored ANSI/bidi sequence cannot reach a terminal);
+ *   - each key is capped, and the list is capped, so a pathological item cannot bloat
+ *     the response the way an unbounded echo would.
+ *
+ * The count in the "and N more" tail is the TRUE total, so a truncated list never reads
+ * as a complete one.
+ *
+ * @param  string[] $keys  Output of _pp_undeclared_prop_keys().
+ * @return string          Comma-separated, bounded list. Empty string when $keys is empty.
+ */
+function _pp_render_undeclared_prop_keys(array $keys): string {
+    if ($keys === []) {
+        return '';
+    }
+    $total = count($keys);
+    $shown = [];
+    foreach (array_slice($keys, 0, PP_UNDECLARED_KEYS_SHOWN) as $key) {
+        $clean = preg_replace('/[\p{Cc}\p{Cf}]+/u', '', $key);
+        if ($clean === null) {
+            $clean = ''; // non-UTF-8 input: report the key as unprintable, never raw
+        }
+        if (mb_strlen($clean) > PP_UNDECLARED_KEY_MAX_LENGTH) {
+            $clean = mb_substr($clean, 0, PP_UNDECLARED_KEY_MAX_LENGTH) . '...';
+        }
+        $shown[] = $clean === '' ? '(unprintable key)' : $clean;
+    }
+    $rendered = implode(', ', $shown);
+    if ($total > PP_UNDECLARED_KEYS_SHOWN) {
+        $rendered .= sprintf(' and %d more', $total - PP_UNDECLARED_KEYS_SHOWN);
+    }
+
+    return $rendered;
+}
+
+/**
+ * Validates a decoded composition array and returns EVERY error it finds.
+ *
+ * The collect-all engine behind pp_validate_composition(). Both read the same rules;
+ * they differ only in how much they report. Write-time callers want the first error
+ * (fail fast, one actionable message); reporting callers — restore_composition's
+ * `findings` (#233) — need the complete set, or a caller fixes one violation, retries,
+ * and discovers the next one only on the following run.
+ *
+ * At most ONE error per item: each item stops at its first failing check and moves on.
+ * That keeps errors[0] identical to the single error pp_validate_composition() has
+ * always returned (same code, same message, same document order), and it stops a
+ * malformed item from cascading bogus follow-on errors from the checks below it.
+ *
+ * Every per-item error carries its composition offset as WP_Error data (#622); read it
+ * with pp_composition_error_index(). Cross-item errors (duplicate_component_id) carry
+ * none — they belong to no single band and name every colliding index in the message.
+ *
+ * @param  array      $items  Decoded composition array.
+ * @return WP_Error[]         Empty when the composition is valid.
+ */
 function pp_validate_composition_errors(array $items): array {
     $registered = pp_get_registered_components();
     $errors     = [];
 
     foreach ($items as $i => $item) {
         if (!isset($item['component'])) {
-            $errors[] = new WP_Error(
+            $errors[] = _pp_composition_item_error($i,
                 'invalid_composition',
                 sprintf('Item %d is missing the "component" key.', $i)
             );
@@ -888,7 +1041,7 @@ function pp_validate_composition_errors(array $items): array {
         // "Array". restore's findings (#233) run these rules over arbitrary history-ring
         // snapshots, so malformed shapes reach this line — name the real problem instead.
         if (!is_scalar($item['component'])) {
-            $errors[] = new WP_Error(
+            $errors[] = _pp_composition_item_error($i,
                 'invalid_composition',
                 sprintf('Item %d has a non-scalar "component" key.', $i)
             );
@@ -898,7 +1051,7 @@ function pp_validate_composition_errors(array $items): array {
         $name = (string) $item['component'];
 
         if (!isset($registered[$name])) {
-            $errors[] = new WP_Error(
+            $errors[] = _pp_composition_item_error($i,
                 'invalid_composition',
                 sprintf('Unknown component: "%s".', $name)
             );
@@ -921,7 +1074,7 @@ function pp_validate_composition_errors(array $items): array {
         // Distinct error code so the action layer can tell "that name is chrome"
         // apart from "that name doesn't exist" (issue #223).
         if (pp_is_template_owned_component($name)) {
-            $errors[] = new WP_Error(
+            $errors[] = _pp_composition_item_error($i,
                 'template_owned_component',
                 pp_template_owned_component_message($name)
             );
@@ -938,14 +1091,38 @@ function pp_validate_composition_errors(array $items): array {
         $schema = $registered[$name];
         if (!empty($schema['props'])) {
             foreach ($schema['props'] as $prop_name => $prop_def) {
+                // `is_array($item['props'])` is load-bearing, not defensive noise (#622).
+                // This engine runs over compositions that never passed write-time
+                // validation — raw meta writes and every history-ring snapshot — and #622
+                // routes it into `wp pp check page` / `wp pp validate site`, which must
+                // REPORT a corrupt row rather than die on it (the #144 contract). A stored
+                // `props: "oops"` used to reach array_key_exists() and fatal with a
+                // TypeError; it is now what it always meant: the required prop is absent.
                 if (
                     !empty($prop_def['required']) &&
-                    (!isset($item['props']) || !array_key_exists($prop_name, $item['props']))
+                    (!isset($item['props']) || !is_array($item['props']) || !array_key_exists($prop_name, $item['props']))
                 ) {
-                    $errors[] = new WP_Error(
-                        'invalid_composition',
-                        sprintf('Component "%s" is missing required prop "%s".', $name, $prop_name)
-                    );
+                    // Name the undeclared keys this item DOES carry (#622). The
+                    // unknown-prop gate further down would have named them, but the
+                    // required-prop check fires first and `continue 2` ends the item,
+                    // so without this the operator is told a canonical name is missing
+                    // and never told that a value is sitting under an unrecognized key
+                    // right next to it. Derived from the schema — the current contract
+                    // is the only source consulted. There is no retired-name lookup
+                    // here and there must never be one (#603/#604/#605/#606 removed
+                    // every alias map; a "formerly known as" hint list would be that
+                    // machinery again under a different name).
+                    $message    = sprintf('Component "%s" is missing required prop "%s".', $name, $prop_name);
+                    $undeclared = _pp_undeclared_prop_keys($item, $schema);
+                    if ($undeclared !== []) {
+                        $message .= sprintf(
+                            ' This item also carries prop key(s) "%s" does not declare: %s. Available props: %s.',
+                            $name,
+                            _pp_render_undeclared_prop_keys($undeclared),
+                            implode(', ', array_keys($schema['props']))
+                        );
+                    }
+                    $errors[] = _pp_composition_item_error($i, 'invalid_composition', $message);
                     continue 2;
                 }
             }
@@ -996,7 +1173,7 @@ function pp_validate_composition_errors(array $items): array {
                 $message = isset($schema['content_requirement']['message'])
                     ? (string) $schema['content_requirement']['message']
                     : 'has no renderable content';
-                $errors[] = new WP_Error(
+                $errors[] = _pp_composition_item_error($i,
                     'invalid_composition',
                     sprintf('Component "%s" %s.', $name, $message)
                 );
@@ -1028,7 +1205,7 @@ function pp_validate_composition_errors(array $items): array {
             foreach ($item['props'] as $prop_name => $prop_value) {
                 if (!array_key_exists($prop_name, $declared)) {
                     $available = implode(', ', array_keys($declared));
-                    $errors[]  = new WP_Error(
+                    $errors[]  = _pp_composition_item_error($i,
                         'unknown_prop',
                         sprintf(
                             'Component "%s" has no prop "%s". Available props: %s',
@@ -1070,7 +1247,7 @@ function pp_validate_composition_errors(array $items): array {
                 $min = (int) $prop_def['min'];
                 $max = (int) $prop_def['max'];
                 if (!$is_integer || (int) $value < $min || (int) $value > $max) {
-                    $errors[] = new WP_Error(
+                    $errors[] = _pp_composition_item_error($i,
                         'invalid_prop_value',
                         sprintf(
                             'Component "%s" prop "%s" must be an integer between %d and %d; got "%s".',
@@ -1158,7 +1335,7 @@ function pp_validate_composition_errors(array $items): array {
                 // error names is exactly what the catalog advertises and exactly what
                 // the gate accepts — one vocabulary, no unadvertised tier.
                 if (!in_array($value, $prop_def['values'], true)) {
-                    $errors[] = new WP_Error(
+                    $errors[] = _pp_composition_item_error($i,
                         'invalid_prop_value',
                         sprintf(
                             'Component "%s" prop "%s" must be one of: %s; got "%s".',
@@ -1202,7 +1379,7 @@ function pp_validate_composition_errors(array $items): array {
                     continue; // unset sentinel — keeps the prop's default (empty row)
                 }
                 if (!is_array($value)) {
-                    $errors[] = new WP_Error(
+                    $errors[] = _pp_composition_item_error($i,
                         'invalid_prop_value',
                         sprintf(
                             'Component "%s" prop "%s" must be an array of strings; got %s.',
@@ -1214,7 +1391,7 @@ function pp_validate_composition_errors(array $items): array {
                     continue 2;
                 }
                 if (isset($prop_def['max_items']) && count($value) > (int) $prop_def['max_items']) {
-                    $errors[] = new WP_Error(
+                    $errors[] = _pp_composition_item_error($i,
                         'invalid_prop_value',
                         sprintf(
                             'Component "%s" prop "%s" accepts at most %d items; got %d.',
@@ -1229,7 +1406,7 @@ function pp_validate_composition_errors(array $items): array {
                 $item_max_length = isset($prop_def['item_max_length']) ? (int) $prop_def['item_max_length'] : null;
                 foreach ($value as $entry) {
                     if (!is_string($entry)) {
-                        $errors[] = new WP_Error(
+                        $errors[] = _pp_composition_item_error($i,
                             'invalid_prop_value',
                             sprintf(
                                 'Component "%s" prop "%s" items must be strings; got %s.',
@@ -1241,7 +1418,7 @@ function pp_validate_composition_errors(array $items): array {
                         continue 3;
                     }
                     if ($item_max_length !== null && mb_strlen($entry) > $item_max_length) {
-                        $errors[] = new WP_Error(
+                        $errors[] = _pp_composition_item_error($i,
                             'invalid_prop_value',
                             sprintf(
                                 'Component "%s" prop "%s" items must be at most %d characters; got %d.',
@@ -1288,7 +1465,7 @@ function pp_validate_composition_errors(array $items): array {
                     // renders as "Array" with a PHP warning. null is the unset
                     // sentinel; the empty string is a valid string value (is_scalar).
                     if ($value !== null && !is_scalar($value)) {
-                        $errors[] = new WP_Error(
+                        $errors[] = _pp_composition_item_error($i,
                             'invalid_prop_value',
                             sprintf(
                                 'Component "%s" prop "%s" must be a string; got %s.',
@@ -1305,7 +1482,7 @@ function pp_validate_composition_errors(array $items): array {
                     // for grid.columns, so this stays consistent). null/'' are the
                     // unset sentinel (keeps the prop default, e.g. logo_id => 0).
                     if ($value !== null && $value !== '' && !is_numeric($value)) {
-                        $errors[] = new WP_Error(
+                        $errors[] = _pp_composition_item_error($i,
                             'invalid_prop_value',
                             sprintf(
                                 'Component "%s" prop "%s" must be a number; got %s.',
@@ -1321,7 +1498,7 @@ function pp_validate_composition_errors(array $items): array {
                     // sentinel (an empty row renders nothing). A present scalar is the
                     // silent-wrong case the renderer's is_array() guards swallow.
                     if ($value !== null && $value !== '' && $value !== [] && !is_array($value)) {
-                        $errors[] = new WP_Error(
+                        $errors[] = _pp_composition_item_error($i,
                             'invalid_prop_value',
                             sprintf(
                                 'Component "%s" prop "%s" must be an array; got %s.',
@@ -1345,7 +1522,7 @@ function pp_validate_composition_errors(array $items): array {
                             $is_object_shape = is_array($entry)
                                 && ($entry === [] || !pp_is_list($entry));
                             if (!$is_object_shape) {
-                                $errors[] = new WP_Error(
+                                $errors[] = _pp_composition_item_error($i,
                                     'invalid_prop_value',
                                     sprintf(
                                         'Component "%s" prop "%s" item %s must be an object; got %s.',
@@ -1371,7 +1548,7 @@ function pp_validate_composition_errors(array $items): array {
                     if (($prop_def['item_type'] ?? null) === 'array' && is_array($value)) {
                         foreach ($value as $entry_index => $entry) {
                             if (!is_array($entry)) {
-                                $errors[] = new WP_Error(
+                                $errors[] = _pp_composition_item_error($i,
                                     'invalid_prop_value',
                                     sprintf(
                                         'Component "%s" prop "%s" item %s must be an array; got %s.',
@@ -1453,7 +1630,7 @@ function pp_validate_composition_errors(array $items): array {
                         if (!empty($field_def['required'])
                             && !array_key_exists($field_name, $entry)
                         ) {
-                            $errors[] = new WP_Error(
+                            $errors[] = _pp_composition_item_error($i,
                                 'invalid_composition',
                                 sprintf(
                                     'Component "%s" prop "%s" item %s is missing required field "%s".',
@@ -1472,7 +1649,7 @@ function pp_validate_composition_errors(array $items): array {
                         ) {
                             foreach ($entry[$field_name] as $bullet) {
                                 if (!is_string($bullet)) {
-                                    $errors[] = new WP_Error(
+                                    $errors[] = _pp_composition_item_error($i,
                                         'invalid_prop_value',
                                         sprintf(
                                             'Component "%s" prop "%s" item %s field "%s" items must be strings; got %s.',
@@ -1516,7 +1693,7 @@ function pp_validate_composition_errors(array $items): array {
                     && array_key_exists($prop_name, $item['props'])
                     && !_pp_link_url_is_valid($item['props'][$prop_name])
                 ) {
-                    $errors[] = new WP_Error(
+                    $errors[] = _pp_composition_item_error($i,
                         'invalid_prop_value',
                         _pp_link_url_error_message($name, $prop_name, null, null, $item['props'][$prop_name])
                     );
@@ -1540,7 +1717,7 @@ function pp_validate_composition_errors(array $items): array {
                             }
                             foreach ($link_fields as $field) {
                                 if (array_key_exists($field, $entry) && !_pp_link_url_is_valid($entry[$field])) {
-                                    $errors[] = new WP_Error(
+                                    $errors[] = _pp_composition_item_error($i,
                                         'invalid_prop_value',
                                         _pp_link_url_error_message($name, $prop_name, (int) $entry_index, $field, $entry[$field])
                                     );
@@ -1558,7 +1735,10 @@ function pp_validate_composition_errors(array $items): array {
         if (isset($item['style']) && is_array($item['style']) && !empty($item['style'])) {
             $style_error = _pp_validate_style_slot_map($item['style'], $available_slots, $name, null);
             if (is_wp_error($style_error)) {
-                $errors[] = $style_error;
+                // Built by the shared slot engine, which has no view of the composition
+                // offset — restamp it here so this error carries the same locator as
+                // every sibling in this loop (#622).
+                $errors[] = _pp_composition_item_error($i, $style_error->get_error_code(), $style_error->get_error_message());
                 continue;
             }
         }
@@ -1597,7 +1777,9 @@ function pp_validate_composition_errors(array $items): array {
                         (int) $elem_index
                     );
                     if (is_wp_error($style_error)) {
-                        $errors[] = $style_error;
+                        // Same restamp as the component-level style map above (#622):
+                        // the shared slot engine names the card, this adds the band.
+                        $errors[] = _pp_composition_item_error($i, $style_error->get_error_code(), $style_error->get_error_message());
                         continue 3;
                     }
                 }
