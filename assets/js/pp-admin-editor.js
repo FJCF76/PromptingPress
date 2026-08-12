@@ -590,15 +590,26 @@
 
     function initViewToggle() {
         $(document).on('click', '#pp-view-toggle', function () {
-            // Both directions read the buffer — the JSON view renders it, and the
-            // accordion direction validates it before switching — so a pending
-            // edit has to land before either does.
-            flushPendingFieldEdits();
             var $btn = $(this);
             var $accordion = $('#pp-accordion-view');
             var $json = $('#pp-json-view');
 
             if (currentView === 'accordion') {
+                // Leaving the accordion: the JSON view is about to render this
+                // buffer, so a pending edit has to land in it first or the author
+                // is shown their own composition minus what they just typed.
+                //
+                // Deliberately not flushed on the way back. In that direction the
+                // buffer is what the author has been hand-editing and the
+                // accordion is hidden, so settling a sync there would write a read
+                // of the hidden form over their JSON. Today a flush there would be
+                // a no-op — only an input event on the accordion schedules a sync,
+                // and it cannot fire while the accordion is hidden — but the
+                // direction that is SAFE to flush is the one where the form is the
+                // authority, and that is only this one. Relying on the no-op would
+                // make the safety a property of what happens to be scheduled
+                // rather than of which pane the author is editing.
+                flushPendingFieldEdits();
                 // Switch to JSON view
                 $accordion.hide();
                 $json.show();

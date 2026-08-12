@@ -1006,11 +1006,16 @@ describe('an array the row controls cannot represent survives a sync', () => {
             { component: 'card', props: { title: 'Heading', items: { one: 'a' } } },
         ]);
         const { $, getBuffer } = await bootEditor(json, SCALAR_FIRST);
-        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
         const parsed = await editAndSync($, scalarControl($, 'title'), 'Heading edited', getBuffer);
 
         expect(parsed[0].props.items).toEqual({ one: 'a' });
+        // Named explicitly: syncAccordionToJson has an EARLIER skip path for the
+        // same field ("no array container resolved"), so without pinning which
+        // warning fired this would stay green if the container stopped resolving
+        // at all — passing for a reason that has nothing to do with the guard.
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('data-loss guard fired'));
     });
 
     it('still lets a user empty a real array by removing its last row', async () => {

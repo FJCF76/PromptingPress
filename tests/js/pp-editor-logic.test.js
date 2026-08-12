@@ -710,6 +710,20 @@ describe('wouldLoseArrayData', () => {
         expect(wouldLoseArrayData([], undefined)).toBe(false);
     });
 
+    // A MIXED read: one row carrying content, one keyless. The all-empty rule
+    // does not fire (not every row is empty), so the per-item rule decides it,
+    // and a keyless row counts as all-empty vacuously. Pinned because without
+    // this case the vacuous-true is unobserved: making readAllEmpty require at
+    // least one key leaves the rest of the suite green.
+    test('a keyless row over a non-object original → true, even beside a filled row', () => {
+        expect(wouldLoseArrayData([{ question: 'kept' }, {}], [{ question: 'kept' }, 7])).toBe(true);
+    });
+
+    test('a keyless row over an object original → false, that is a normal edit', () => {
+        expect(wouldLoseArrayData(
+            [{ question: 'kept' }, {}], [{ question: 'kept' }, { question: 'Q2' }])).toBe(false);
+    });
+
     test('some items empty, others have content (partial edit) → false', () => {
         const newItems = [{ question: 'Edited Q' }, {}, { question: 'Another Q', answer: 'Another A' }];
         const origItems = [{ question: 'Q1' }, { question: 'Q2' }, { question: 'Q3', answer: 'A3' }];
