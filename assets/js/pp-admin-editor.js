@@ -341,6 +341,49 @@
         return h;
     }
 
+    // Resolve the element(s) carrying a given component index and field name.
+    //
+    // The match is made against the live attribute values rather than by
+    // interpolating `fieldName` into a selector string. Field names are raw
+    // composition keys: buildAccordionData passes `Object.keys(props)` straight
+    // through as `field.name` in buildAccordionData's pass-through branch (a prop
+    // the schema does not declare) and in its unknown-component branch, so a name
+    // may legitimately contain characters that are STRUCTURAL in a selector —
+    // quotes, brackets, backslashes, dots. Compared as strings those are just
+    // characters; interpolated into a selector they are syntax, and the lookup
+    // then resolves to the wrong element set or none at all.
+    //
+    //   $scope --find(baseSelector)--> candidates --filter(exact attrs)--> result
+    //
+    // `compIdx` is stringified because it arrives as a loop index (a number)
+    // while an attribute always reads back as a string. `fieldName` needs no
+    // such conversion: every caller sources it from Object.keys(), which yields
+    // strings only.
+    function findByCompField($scope, compIdx, fieldName, baseSelector) {
+        var comp = String(compIdx);
+        return $scope.find(baseSelector).filter(function () {
+            // Raw attribute reads: `getAttribute` returns null when the attribute
+            // is absent, which fails the strict comparison exactly as jQuery's
+            // undefined did. This runs once per candidate inside the component x
+            // field loops below, so it stays off jQuery's accessor pipeline.
+            return this.getAttribute('data-comp') === comp
+                && this.getAttribute('data-field') === fieldName;
+        });
+    }
+
+    // The value-reading lookups below finish with .val(), so they resolve form
+    // controls only: buildArrayFieldHtml also stamps data-comp/data-field onto the
+    // array container and its add/remove buttons, and reading one of those for a
+    // value would serialize an array prop as a string.
+    //
+    // Narrowing to controls does NOT make (data-comp, data-field) a unique key.
+    // An array row's sub-field control carries the same data-comp and a data-field
+    // equal to its SUB-KEY, which lives in a different namespace from the prop
+    // names and can equal one (grid ships a top-level `title` and an `items[].title`).
+    // The scalar lookup therefore keeps the previous selector's exact match set,
+    // first-in-document-order included — see the scalar call site below.
+    var FIELD_CONTROLS = 'input, textarea, select';
+
     var syncAccordionToJson = debounce(function () {
         if (!cm) return;
         var data = logic.buildAccordionData(cm.getValue(), components);
@@ -349,19 +392,41 @@
         var $container = $('#pp-accordion-view');
 
         data.components.forEach(function (comp, compIdx) {
+            // Scope every lookup for this component to its own card. The card index
+            // is a loop counter, never a composition key, so it is the one value in
+            // this function that is safe to interpolate. The predicate already
+            // required data-comp === compIdx and a card contains exactly the
+            // controls carrying that value, so this narrows the candidate set
+            // without changing which elements match: without it, each scalar lookup
+            // rescans every control in the whole accordion, and array rows make that
+            // grow with total row count rather than with the component's own fields.
+            var $card = $container.find('.pp-accordion-card[data-comp-idx="' + compIdx + '"]');
+            var $scope = $card.length ? $card : $container;
+
             comp.fields.forEach(function (field) {
                 if (field.type === 'array') {
                     // Rebuild array value from DOM
                     var items = [];
-                    var $arrayItems = $container.find('.pp-accordion-array[data-comp="' + compIdx + '"][data-field="' + field.name + '"] .pp-accordion-array-item');
+                    var $arrayContainer = findByCompField($scope, compIdx, field.name, '.pp-accordion-array');
+                    // An unresolved container and a genuinely empty array are the
+                    // same `items` value further down, and only one of them should
+                    // be written back. Distinguish them here, while the difference
+                    // is still visible, and leave the field as it was.
+                    if (!$arrayContainer.length) {
+                        console.warn('pp-editor: no array container resolved for "' + field.name +
+                            '" — sync skipped for this field.');
+                        return;
+                    }
+                    var $arrayItems = $arrayContainer.find('.pp-accordion-array-item');
                     var subSchema = field.items || {};
                     var subKeys = Object.keys(subSchema);
-                    $arrayItems.each(function (itemIdx) {
+                    $arrayItems.each(function () {
+                        var $item = $(this);
                         var item = {};
                         subKeys.forEach(function (sk) {
-                            var $input = $(this).find('[data-field="' + sk + '"][data-comp="' + compIdx + '"]');
+                            var $input = findByCompField($item, compIdx, sk, FIELD_CONTROLS);
                             if ($input.length) item[sk] = $input.val();
-                        }.bind(this));
+                        });
                         items.push(item);
                     });
                     if (logic.wouldLoseArrayData(items, field.value)) {
@@ -372,10 +437,20 @@
                     field.value = items;
                     field.userTouched = true;
                 } else {
-                    var $input = $container.find('[data-comp="' + compIdx + '"][data-field="' + field.name + '"]');
+                    // Card-wide, so an array row's sub-field control is a candidate
+                    // whenever a sub-key equals this prop's name. .val() then takes
+                    // the first in document order, which is the scalar's own input
+                    // for every schema that declares the prop before the array. That
+                    // is the pre-existing resolution rule, preserved here unchanged.
+                    var $input = findByCompField($scope, compIdx, field.name, FIELD_CONTROLS);
                     if ($input.length) {
                         field.value = $input.val();
                         field.userTouched = true;
+                    } else {
+                        // Matches the array branch's reporting: a field the sync
+                        // could not resolve is left alone, and says so.
+                        console.warn('pp-editor: no control resolved for "' + field.name +
+                            '" — sync skipped for this field.');
                     }
                 }
             });
@@ -429,7 +504,12 @@
         $container.on('click', '.pp-accordion-toggle', function () {
             var $header = $(this);
             var expanded = $header.attr('aria-expanded') === 'true';
-            var $body = $('#' + $header.attr('aria-controls'));
+            // getElementById takes a raw id string, so nothing here is parsed as
+            // a selector. The id is written by renderAccordion as
+            // 'pp-card-body-<loop index>' and so is already selector-safe; going
+            // through the DOM API keeps that from being a premise this lookup
+            // silently depends on.
+            var $body = $(document.getElementById($header.attr('aria-controls')));
 
             if (expanded) {
                 $header.attr('aria-expanded', 'false');
@@ -543,6 +623,9 @@
             finally { isSyncingFromAccordion = false; }
             renderAccordion(newMap);
             announce(temp.component + ' moved up');
+            // Safe to interpolate: `idx` is parseInt'd and bounds-checked above, so
+            // the value reaching the selector is always a JS number, which
+            // stringifies to digits (or NaN) and never to selector syntax.
             var $header = $container.find('.pp-accordion-card[data-comp-idx="' + (idx - 1) + '"] .pp-accordion-toggle');
             if ($header.length) $header.focus();
         });
@@ -569,6 +652,7 @@
             finally { isSyncingFromAccordion = false; }
             renderAccordion(newMap);
             announce(temp.component + ' moved down');
+            // Numeric for the same reason as the move-up handler above.
             var $header = $container.find('.pp-accordion-card[data-comp-idx="' + (idx + 1) + '"] .pp-accordion-toggle');
             if ($header.length) $header.focus();
         });

@@ -1,8 +1,15 @@
 /**
- * DOM selector alignment tests for the accordion editor.
+ * data-field naming alignment for the accordion editor's array rows.
  *
- * Proves that the data-field attributes rendered by buildArrayFieldHtml
- * match the selectors used by syncAccordionToJson to read values back.
+ * Proves that buildArrayFieldHtml stamps each array sub-field with the SUB-KEY
+ * as its data-field (`question`), not the composite `fieldName.sk`
+ * (`items.question`), and that a read keyed on the sub-key therefore round-trips
+ * while a read keyed on the composite finds nothing.
+ *
+ * Scope note: the helpers below re-implement a read in the test body, so they
+ * pin the NAMING contract only — they are not the shipped lookup and cannot
+ * regress with it. syncAccordionToJson no longer builds a selector from a field
+ * name at all; tests/js/pp-editor-field-lookup.test.js drives the real one.
  *
  * @vitest-environment jsdom
  */
@@ -31,8 +38,9 @@ function buildArrayItemHtml(compIdx, fieldName, subKeys, items) {
 }
 
 /**
- * Reproduce the read logic from syncAccordionToJson (pp-admin-editor.js lines 321-328).
- * Uses the FIXED selector: data-field="sk" (not the broken "fieldName.sk").
+ * A read keyed on the sub-key: data-field="sk". This is the naming the renderer
+ * emits, so it resolves. (Illustrative of the contract, not a copy of the
+ * shipped lookup — see the scope note at the top of this file.)
  */
 function readArrayItemsFixed(compIdx, fieldName, subKeys, $container) {
     var items = [];
@@ -50,7 +58,8 @@ function readArrayItemsFixed(compIdx, fieldName, subKeys, $container) {
 }
 
 /**
- * Reproduce the BROKEN read logic (pre-fix): data-field="fieldName.sk".
+ * A read keyed on the composite: data-field="fieldName.sk". Nothing renders that
+ * name, so it resolves to nothing — the witness for why the naming matters.
  */
 function readArrayItemsBroken(compIdx, fieldName, subKeys, $container) {
     var items = [];
