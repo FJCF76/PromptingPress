@@ -478,7 +478,14 @@ describe('the shipped editor builds no selector from a field name', () => {
         expect(src.match(/findByCompField\(/g).length).toBeGreaterThanOrEqual(4);
         expect(src).toContain("findByCompField($scope, compIdx, field.name, '.pp-accordion-array')");
         expect(src).toContain('findByCompField($item, compIdx, sk, FIELD_CONTROLS)');
-        expect(src).toContain('findByCompField($scope, compIdx, field.name, FIELD_CONTROLS)');
+
+        // The scalar lookup reaches the helper one step removed: findScalarControl
+        // delegates to it and then drops candidates inside an array row, so a
+        // sub-key that shares a prop's name cannot answer for the prop. Both ends
+        // of that indirection are pinned, so neither can be bypassed silently.
+        expect(src).toContain('function findScalarControl(');
+        expect(src).toContain('findByCompField($scope, compIdx, fieldName, FIELD_CONTROLS)');
+        expect(src).toContain('findScalarControl($scope, compIdx, field.name)');
     });
 
     it('keeps the array data-loss guard', () => {

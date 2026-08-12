@@ -373,8 +373,37 @@ function serializeAccordionData(components) {
 
 /**
  * Detect when DOM-read array items would lose content compared to originals.
- * Returns true if all new items are empty objects but at least one original
- * had content — indicating a sync bug, not a legitimate user edit.
+ * Returns true when every DOM-read item came back as an empty object while the
+ * stored value was a non-empty array — the shape of a failed read, not of an
+ * edit the user could have performed.
+ *
+ * A read item is `{}` only when NONE of the sub-key lookups resolved a control:
+ * syncAccordionToJson assigns `item[sk]` for every sub-key whose control it
+ * finds, and an emptied text field still yields `{sk: ''}`. So "all items empty"
+ * is unreachable through editing, and always means the row controls were not
+ * there to read — which is the permanent state of a pass-through array, whose
+ * items have no schema `items` spec and therefore render no sub-field controls
+ * at all.
+ *
+ * The originals are deliberately NOT inspected item by item. Doing so asked
+ * `Object.keys(orig).length > 0`, which is a question only an object can answer:
+ * `Object.keys(1)` and `Object.keys(true)` are both `[]`, so a stored `[1,2,3]`
+ * read as "no content", stood the guard down, and was written back as
+ * `[{},{},{}]`. Item type is not what makes an array worth protecting; having
+ * any items at all is. Where the originals really were empty objects, both
+ * answers write the same value, so the simpler rule gives up nothing.
+ *
+ * WHAT THIS DOES NOT COVER. The guard keys on the read coming back EMPTY, so it
+ * only sees arrays that render no sub-field controls — those whose schema
+ * declares no `items` spec. An array whose schema DOES declare sub-keys renders
+ * a control per sub-key, and if a stored item is a scalar rather than an object,
+ * each control reads back as `''` and the item arrives as `{sub: ''}` — not
+ * empty, so the guard stays down and the scalar is still overwritten. Detecting
+ * that needs a comparison against the ORIGINAL item's type, which is a different
+ * question from the one this function asks.
+ *
+ * Structural row changes do not pass through here — add/remove rewrite the JSON
+ * buffer directly — so a skipped sync never blocks one.
  *
  * @param {Array<Object>} newItems  - Items read from the DOM
  * @param {*}             origItems - Original field value (from CodeMirror JSON)
@@ -383,8 +412,7 @@ function serializeAccordionData(components) {
 function wouldLoseArrayData(newItems, origItems) {
     return newItems.length > 0 &&
         Array.isArray(origItems) && origItems.length > 0 &&
-        newItems.every(function (item) { return Object.keys(item).length === 0; }) &&
-        origItems.some(function (orig) { return orig && Object.keys(orig).length > 0; });
+        newItems.every(function (item) { return Object.keys(item).length === 0; });
 }
 
 /**

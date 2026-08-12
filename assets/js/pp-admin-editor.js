@@ -40,13 +40,45 @@
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    // Debounced call with a `flush` handle, so a caller that is about to read the
+    // state the debounced function WRITES can settle it first.
+    //
+    //   trailing edge (normal)   ...call, call, call ──300ms──> fn()
+    //   flush()                  ...call, call, flush ─────────> fn() immediately
+    //
+    // `scheduled` tracks pendency explicitly rather than testing the timer handle:
+    // setTimeout returns a number in browsers and an object in Node, and a falsy
+    // handle would silently make flush a no-op.
+    //
+    // flush() clears the timer BEFORE invoking, so the trailing edge cannot also
+    // fire afterwards — a second run would land after the caller re-rendered and
+    // read a DOM that no longer matches what it captured. Args are dropped once
+    // invoked, so a later flush can never replay a stale call.
     function debounce(fn, ms) {
-        var timer;
-        return function () {
-            var args = arguments;
+        var timer = null, pendingArgs = null, scheduled = false;
+
+        function invoke() {
+            var args = pendingArgs;
+            scheduled = false; timer = null; pendingArgs = null;
+            fn.apply(null, args);
+        }
+
+        function debounced() {
+            pendingArgs = arguments;
+            if (scheduled) clearTimeout(timer);
+            timer = setTimeout(invoke, ms);
+            scheduled = true;
+        }
+
+        // No-op when nothing is pending: the structural handlers below call this
+        // unconditionally, and a click with no pending edit must not rewrite JSON.
+        debounced.flush = function () {
+            if (!scheduled) return;
             clearTimeout(timer);
-            timer = setTimeout(function () { fn.apply(null, args); }, ms);
+            invoke();
         };
+
+        return debounced;
     }
 
     // Attribute-safe escaping for the markup this file builds by concatenation.
@@ -203,6 +235,14 @@
         var h = '<div class="pp-accordion-field' + reqClass + '">';
         h += '<label for="' + idAttr + '">' + nameAttr + '</label>';
 
+        // The two value-bearing branches below (textarea, text input) hand the
+        // value straight to esc(), rather than through String(value || '').
+        // The `|| ''` in that idiom is falsy-based, so it does not mean "default
+        // when absent" — it also swallows the values 0 and false, which then
+        // render as empty and are read back off the DOM as the empty string by
+        // the next sync. esc() coerces only null/undefined to '' (see escapeHtml
+        // in pp-editor-logic.js), which is the rule this wants: absent renders
+        // empty, present renders its own text. Strings are unaffected either way.
         if (field.type === 'enum' && field.values) {
             h += '<select id="' + idAttr + '" data-comp="' + compIdx + '" data-field="' + nameAttr + '">';
             // The <select> is built from the advertised `values` and nothing else
@@ -223,10 +263,10 @@
         } else if (field.multiline) {
             h += '<textarea id="' + idAttr + '" rows="4" data-comp="' + compIdx + '" data-field="' + nameAttr + '"';
             h += ' placeholder="' + esc(field.description || '') + '"';
-            h += '>' + esc(String(field.value || '')) + '</textarea>';
+            h += '>' + esc(field.value) + '</textarea>';
         } else if (field.type === 'string') {
             h += '<input type="text" id="' + idAttr + '" data-comp="' + compIdx + '" data-field="' + nameAttr + '"';
-            h += ' value="' + esc(String(field.value || '')) + '"';
+            h += ' value="' + esc(field.value) + '"';
             h += ' placeholder="' + esc(field.description || '') + '"';
             h += ' />';
         }
@@ -256,7 +296,12 @@
                     name: sk,
                     type: 'string',
                     required: !!(subSchema[sk] && subSchema[sk].required),
-                    value: item[sk] || '',
+                    // Same rule as the scalar branch of buildFieldHtml: coercing
+                    // here with `|| ''` would blank a stored 0 or false before the
+                    // renderer ever sees it, so fixing only that branch would still
+                    // leave row values of those types rendering empty. esc() applies
+                    // the null/undefined rule once, at the point of render.
+                    value: item[sk],
                     description: (subSchema[sk] && subSchema[sk].description) || '',
                     multiline: ['body', 'content', 'answer'].indexOf(sk) !== -1
                 };
@@ -380,9 +425,40 @@
     // An array row's sub-field control carries the same data-comp and a data-field
     // equal to its SUB-KEY, which lives in a different namespace from the prop
     // names and can equal one (grid ships a top-level `title` and an `items[].title`).
-    // The scalar lookup therefore keeps the previous selector's exact match set,
-    // first-in-document-order included — see the scalar call site below.
     var FIELD_CONTROLS = 'input, textarea, select';
+
+    // A top-level scalar prop resolves to the card's OWN control, never to a
+    // control inside one of the card's array rows.
+    //
+    //   .pp-accordion-card [data-comp-idx=0]
+    //     ├── <input data-comp=0 data-field="title">      ← the scalar. Wins.
+    //     └── .pp-accordion-array [data-field="items"]
+    //           └── .pp-accordion-array-item
+    //                 └── <input data-comp=0 data-field="title">   ← a row sub-key
+    //
+    // Sub-keys and prop names are different namespaces that can collide, and the
+    // shipped grid schema does collide (`title` and `items[].title`). Resolution
+    // used to fall out of document order — .val() returns the first match — which
+    // happens to pick the scalar only because grid declares `title` above `items`.
+    // Ordering is a property of the schema file, not a rule the sync enforced, so
+    // the same collision under a different declaration order resolved a top-level
+    // prop to a ROW's value. Excluding array descendants makes the winner explicit
+    // and order-independent; on every shipped schema it selects the same element
+    // document order already did, so the resolved set does not move.
+    //
+    // A prop whose scalar control is absent now resolves to nothing and takes the
+    // "no control resolved" branch, which leaves the stored value alone — the
+    // deliberate choice over adopting an unrelated row's value.
+    //
+    // Native closest() rather than jQuery's: this runs once per candidate inside
+    // the component x field loops, the same reason findByCompField reads raw
+    // attributes. Only array rows nest controls (buildArrayFieldHtml renders row
+    // sub-fields through buildFieldHtml, which never emits a nested array
+    // container), so one ancestor test is the whole rule.
+    function findScalarControl($scope, compIdx, fieldName) {
+        return findByCompField($scope, compIdx, fieldName, FIELD_CONTROLS)
+            .filter(function () { return !this.closest('.pp-accordion-array'); });
+    }
 
     var syncAccordionToJson = debounce(function () {
         if (!cm) return;
@@ -437,12 +513,7 @@
                     field.value = items;
                     field.userTouched = true;
                 } else {
-                    // Card-wide, so an array row's sub-field control is a candidate
-                    // whenever a sub-key equals this prop's name. .val() then takes
-                    // the first in document order, which is the scalar's own input
-                    // for every schema that declares the prop before the array. That
-                    // is the pre-existing resolution rule, preserved here unchanged.
-                    var $input = findByCompField($scope, compIdx, field.name, FIELD_CONTROLS);
+                    var $input = findScalarControl($scope, compIdx, field.name);
                     if ($input.length) {
                         field.value = $input.val();
                         field.userTouched = true;
@@ -500,6 +571,39 @@
     function initAccordionEvents() {
         var $container = $('#pp-accordion-view');
 
+        // The six structural handlers below (insert, move up, move down, delete,
+        // array-row add, array-row remove) rebuild the composition from
+        // cm.getValue() and then re-render the accordion from it. A field edit
+        // reaches that buffer only through syncAccordionToJson, which is debounced
+        // — so an edit made inside the debounce window is still sitting in the
+        // DOM, unwritten, when such a handler reads the buffer:
+        //
+        //   type ──> [sync pending, 300ms] ──> click move/delete/add
+        //                                        │
+        //             reads cm (edit absent) ────┤
+        //             re-renders from it   ──────┘   ← DOM value replaced
+        //
+        // The re-render replaces the control, so the edit is gone from the DOM as
+        // well and the later trailing-edge run has nothing to recover. Settling the
+        // sync first makes the buffer current before it is read, which keeps the
+        // edit and the structural change both. Settling rather than discarding is
+        // the point — the edit is the user's, so it has to land, not be dropped.
+        // The throw is contained deliberately. Before the flush existed, the sync
+        // ran from a timer, so a failure inside it could not reach the click that
+        // happened to precede it — a delete still deleted. Calling it inline puts
+        // it on the handler's own stack, where an exception would abort the
+        // structural action and read to the user as a button that does nothing.
+        // A failed sync should cost the pending edit, not the operation.
+        function flushPendingFieldEdits() {
+            try {
+                syncAccordionToJson.flush();
+            } catch (e) {
+                if (window.console) {
+                    console.error('pp-editor: could not settle pending edits before this operation.', e);
+                }
+            }
+        }
+
         // Expand/collapse
         $container.on('click', '.pp-accordion-toggle', function () {
             var $header = $(this);
@@ -529,8 +633,18 @@
             }
         });
 
-        // Field change
+        // Field change.
+        //
+        // The insert dropdown is excluded because it is chrome, not a field: it
+        // carries no data-comp/data-field, holds no composition value, and its
+        // own handler rebuilds the buffer from scratch. Letting a `change` on it
+        // schedule a sync meant choosing a component to add always left one
+        // pending, so the flush below could never be the no-op it is meant to be
+        // and an insert rewrote the whole composition — marking every resolved
+        // control touched, which writes schema defaults into bands the author
+        // never opened. Selecting from it now schedules nothing.
         $container.on('input change', 'input, textarea, select', function () {
+            if ($(this).hasClass('pp-accordion-insert')) return;
             syncAccordionToJson();
         });
 
@@ -558,6 +672,7 @@
 
         // Component insert
         $container.on('change', '.pp-accordion-insert', function () {
+            flushPendingFieldEdits();
             var name = $(this).val();
             if (!name) return;
             $(this).val(''); // reset dropdown
@@ -601,6 +716,7 @@
 
         // Move up
         $container.on('click', '.pp-move-up', function () {
+            flushPendingFieldEdits();
             var idx = parseInt($(this).data('idx'), 10);
             if (idx <= 0) return;
             var parsed;
@@ -632,6 +748,7 @@
 
         // Move down
         $container.on('click', '.pp-move-down', function () {
+            flushPendingFieldEdits();
             var idx = parseInt($(this).data('idx'), 10);
             var parsed;
             try { parsed = JSON.parse(cm.getValue()); } catch (e) { return; }
@@ -659,6 +776,7 @@
 
         // Delete
         $container.on('click', '.pp-delete-btn', function () {
+            flushPendingFieldEdits();
             var idx = parseInt($(this).data('idx'), 10);
             var parsed;
             try { parsed = JSON.parse(cm.getValue()); } catch (e) { return; }
@@ -689,6 +807,7 @@
 
         // Array item add
         $container.on('click', '.pp-array-add-btn', function () {
+            flushPendingFieldEdits();
             var compIdx = parseInt($(this).data('comp'), 10);
             var fieldName = $(this).data('field');
             var parsed;
@@ -714,6 +833,7 @@
 
         // Array item remove
         $container.on('click', '.pp-array-remove-btn', function () {
+            flushPendingFieldEdits();
             var compIdx = parseInt($(this).data('comp'), 10);
             var fieldName = $(this).data('field');
             var itemIdx = parseInt($(this).data('item'), 10);
