@@ -37,7 +37,7 @@ const path = require('path');
 const LOGIC_PATH  = path.join(__dirname, '..', '..', 'assets', 'js', 'pp-editor-logic.js');
 const EDITOR_PATH = path.join(__dirname, '..', '..', 'assets', 'js', 'pp-admin-editor.js');
 
-const { wouldLoseArrayData } = require(LOGIC_PATH);
+const { wouldLoseArrayData, reconcileArrayItems } = require(LOGIC_PATH);
 
 // ─── Registries ─────────────────────────────────────────────────────────────
 //
@@ -596,55 +596,88 @@ describe('a read of no rows at all does not stand in for stored content', () => 
     });
 });
 
-describe('a row of empty strings is measured against what the original was', () => {
-    // A schema that declares an `items` spec renders a control per sub-key. Over
-    // a stored SCALAR item those controls read `item[sk]` off a scalar —
-    // `(1)['n']` is undefined — so each shows '' and the row arrives as
-    // `{n:'', l:''}`. Non-empty by key count, so the older rules miss it.
-    it('fires when the original item was a number', () => {
-        expect(wouldLoseArrayData([{ n: '', l: '' }], [1])).toBe(true);
-        expect(wouldLoseArrayData(
-            [{ n: '', l: '' }, { n: '', l: '' }, { n: '', l: '' }], [1, 2, 3])).toBe(true);
+describe('a row is settled against what its own stored item held', () => {
+    // These read the merge, not the whole-field guard: one unreadable row costs
+    // that row and nothing else. `restored` names the indices that kept their
+    // stored value, which is what the sync warns about.
+    const merge = (read, stored) => reconcileArrayItems(read, stored);
+
+    it('keeps a scalar item the controls could not show', () => {
+        expect(merge([{ n: '', l: '' }], [1])).toEqual({ items: [1], restored: [0] });
+        expect(merge([{ n: '', l: '' }, { n: '', l: '' }], [1, 2]))
+            .toEqual({ items: [1, 2], restored: [0, 1] });
     });
 
-    it('fires when the original item was a string or boolean', () => {
-        expect(wouldLoseArrayData([{ title: '' }], ['stored'])).toBe(true);
-        expect(wouldLoseArrayData([{ title: '' }], [true])).toBe(true);
+    it('keeps a string, boolean, null or array item', () => {
+        expect(merge([{ title: '' }], ['stored']).items).toEqual(['stored']);
+        expect(merge([{ title: '' }], [true]).items).toEqual([true]);
+        expect(merge([{ title: '' }], [null]).items).toEqual([null]);
+        expect(merge([{ title: '' }], [[1, 2]]).items).toEqual([[1, 2]]);
     });
 
-    it('fires when the original item was null or an array', () => {
-        expect(wouldLoseArrayData([{ title: '' }], [null])).toBe(true);
-        expect(wouldLoseArrayData([{ title: '' }], [[1, 2]])).toBe(true);
+    // The case the type test missed: an ordinary object carrying keys the schema
+    // does not declare. Those keys get no control, so they read back absent.
+    it('keeps an object item holding sub-keys the schema does not declare', () => {
+        expect(merge([{ title: '', body: '' }], [{ foo: 'bar' }]))
+            .toEqual({ items: [{ foo: 'bar' }], restored: [0] });
     });
 
-    it('fires when only one row of several sits over a scalar', () => {
-        expect(wouldLoseArrayData(
-            [{ title: 'kept' }, { title: '' }], [{ title: 'kept' }, 7])).toBe(true);
+    it('keeps the undeclared keys even when a declared one sits beside them', () => {
+        expect(merge([{ title: '', body: '' }], [{ title: '', foo: 'bar' }]).items)
+            .toEqual([{ title: '', foo: 'bar' }]);
     });
 
-    // The non-regression that makes the rule safe. Clearing every field of a real
-    // object row produces exactly the same read — and there it IS the edit, so it
-    // has to write through. Only the original's type separates the two.
-    it('stays down when the original item was an object the user emptied', () => {
+    // The non-regression: every stored key was on screen, so clearing them is
+    // the edit and it lands.
+    it('takes the read when the author cleared an object whose keys were all shown', () => {
+        expect(merge([{ title: '' }], [{ title: 'was here' }]))
+            .toEqual({ items: [{ title: '' }], restored: [] });
+        expect(merge([{ title: '', body: '' }], [{ title: 'a', body: 'b' }]).restored).toEqual([]);
+    });
+
+    it('takes the read over an item that was already empty', () => {
+        expect(merge([{ title: '', body: '' }], [{}]).items).toEqual([{ title: '', body: '' }]);
+    });
+
+    it('takes the read wherever the author typed something', () => {
+        expect(merge([{ n: 'typed', l: '' }], [1])).toEqual({ items: [{ n: 'typed', l: '' }], restored: [] });
+        expect(merge([{ title: '   ' }], [1]).items).toEqual([{ title: '   ' }]);
+    });
+
+    // The point of the merge: the unreadable row and the edited row coexist.
+    it('keeps the unreadable row and lands the edit beside it', () => {
+        expect(merge([{ title: '', body: '' }, { title: 'A2', body: 'B' }], ['plain', { title: 'A', body: 'B' }]))
+            .toEqual({ items: ['plain', { title: 'A2', body: 'B' }], restored: [0] });
+    });
+
+    it('leaves rows past the end of the original alone', () => {
+        expect(merge([{ title: 'a' }, { title: '' }], [{ title: 'a' }]).restored).toEqual([]);
+    });
+
+    it('passes a read straight through when the original was not an array', () => {
+        expect(merge([{ title: '' }], 'not an array'))
+            .toEqual({ items: [{ title: '' }], restored: [] });
+    });
+});
+
+describe('the whole-field guard answers only whole-field questions', () => {
+    // Per-row shapes moved to reconcileArrayItems above: refusing the field for
+    // one bad row would take the other rows' edits with it. What is left here is
+    // the set of reads that tell us nothing about ANY row.
+    it('stays down for a row-shaped read, whatever the originals were', () => {
+        expect(wouldLoseArrayData([{ n: '', l: '' }], [1])).toBe(false);
+        expect(wouldLoseArrayData([{ title: '' }], ['stored'])).toBe(false);
+        expect(wouldLoseArrayData([{ title: 'kept' }, { title: '' }], [{ title: 'kept' }, 7]))
+            .toBe(false);
+    });
+
+    it('fires when rows went missing', () => {
+        // Rows are rendered from the stored value, so a short read lost some.
+        expect(wouldLoseArrayData([{ title: 'a' }], [{ title: 'a' }, { title: 'b' }])).toBe(true);
+    });
+
+    it('stays down when the read has as many rows as were stored', () => {
         expect(wouldLoseArrayData([{ title: '' }], [{ title: 'was here' }])).toBe(false);
-        expect(wouldLoseArrayData(
-            [{ title: '', body: '' }], [{ title: 'a', body: 'b' }])).toBe(false);
-    });
-
-    // Typing into a scalar row's control is content, not a substitution, so the
-    // shape change from scalar to object is the user's own and lands.
-    it('stays down when the user typed into a scalar row', () => {
-        expect(wouldLoseArrayData([{ n: 'typed', l: '' }], [1])).toBe(false);
-    });
-
-    // Whitespace is something the author put there; `.val()` hands it back as-is.
-    it('stays down when a row holds whitespace', () => {
-        expect(wouldLoseArrayData([{ title: '   ' }], [1])).toBe(false);
-    });
-
-    // Rows beyond the original's length have no stored item behind them, so
-    // there is nothing there to protect.
-    it('stays down for a row past the end of the original', () => {
         expect(wouldLoseArrayData([{ title: 'a' }, { title: '' }], [{ title: 'a' }])).toBe(false);
     });
 });
@@ -1016,6 +1049,43 @@ describe('an array the row controls cannot represent survives a sync', () => {
         // warning fired this would stay green if the container stopped resolving
         // at all — passing for a reason that has nothing to do with the guard.
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('data-loss guard fired'));
+    });
+
+    it('keeps sub-keys the schema does not declare when another field is edited', async () => {
+        // The row IS an object, so a rule that only asked about the original's
+        // type would call this a normal edit and write `{title:'',body:''}` over
+        // it. `foo` gets no control, reads back absent, and would be gone.
+        const json = JSON.stringify([
+            { component: 'card', props: { title: 'Heading', items: [{ foo: 'bar' }] } },
+        ]);
+        const { $, getBuffer } = await bootEditor(json, SCALAR_FIRST);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const parsed = await editAndSync($, scalarControl($, 'title'), 'Heading edited', getBuffer);
+
+        expect(parsed[0].props.title).toBe('Heading edited');
+        expect(parsed[0].props.items).toEqual([{ foo: 'bar' }]);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('data-loss guard fired'));
+    });
+
+    it('lands an edit in one row while the row beside it keeps a value it could not show', async () => {
+        // A mixed array. Refusing the whole field to protect row 0 would throw
+        // away the edit the author just made to row 1; taking the whole field
+        // would overwrite row 0. Each row is settled on its own.
+        const json = JSON.stringify([
+            {
+                component: 'card',
+                props: { title: 'Heading', items: ['plain string', { title: 'A', body: 'B' }] },
+            },
+        ]);
+        const { $, getBuffer } = await bootEditor(json, SCALAR_FIRST);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const parsed = await editAndSync($, rowControl($, 'title', 1), 'A edited', getBuffer);
+
+        expect(parsed[0].props.items[0]).toBe('plain string');
+        expect(parsed[0].props.items[1]).toEqual({ title: 'A edited', body: 'B' });
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('item 0'));
     });
 
     it('still lets a user empty a real array by removing its last row', async () => {

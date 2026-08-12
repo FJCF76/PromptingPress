@@ -517,7 +517,19 @@
                             'stored value. Sync skipped for this field.');
                         return;
                     }
-                    field.value = items;
+                    // The read can be right about some rows and wrong about
+                    // others, so the rows are settled one at a time rather than
+                    // the field being taken or refused whole. A row the author
+                    // edited always wins; a row whose read carries nothing its
+                    // stored item could have produced keeps what was stored.
+                    var reconciled = logic.reconcileArrayItems(items, field.value);
+                    reconciled.restored.forEach(function (itemIdx) {
+                        console.warn('pp-editor: data-loss guard fired for "' + field.name +
+                            '" item ' + itemIdx + ' — the DOM read carried nothing the stored item ' +
+                            'could have produced, so that item kept its stored value. The rest of ' +
+                            'the field synced.');
+                    });
+                    field.value = reconciled.items;
                     field.userTouched = true;
                 } else {
                     var $input = findScalarControl($scope, compIdx, field.name);

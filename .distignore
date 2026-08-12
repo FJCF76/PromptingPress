@@ -52,3 +52,8 @@ integrity-manifest.json
 
 # Hidden files/folders (catch-all)
 .*
+
+# Local evidence artifacts (screenshots, captures) kept beside a working tree.
+# Not hidden, so the catch-all above does not reach them, and large enough to
+# push the zip past its size limit if they are swept in.
+evidence/

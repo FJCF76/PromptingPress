@@ -403,17 +403,17 @@ function serializeAccordionData(components) {
  *   array, whose items have no schema `items` spec and render no sub-field
  *   controls at all.
  *
- *   A ROW OF EMPTY STRINGS OVER A NON-OBJECT ORIGINAL. Where the schema DOES
- *   declare an `items` spec, a stored scalar item renders a control per sub-key,
- *   each reading `item[sk]` off a scalar — `(1)['title']` is undefined — so every
- *   control shows '' and the row arrives as `{title:'', body:''}`. That is not
- *   empty by key count, which is why the first two shapes miss it. It is caught
- *   by asking what the ORIGINAL item was: only an object can be edited down to
- *   empty strings, so an all-empty read paired with a non-object original is a
- *   failed read, while the same read paired with an object original is a user who
- *   cleared the fields and must be written through. Typing into any one control
- *   of a scalar row also writes through — the read is no longer all-empty, and a
- *   row the author has actually filled in is content, not a substitution.
+ *   ROWS MISSING. A read holding fewer rows than were stored lost some; the
+ *   no-rows case is just its extreme. Rows are rendered from the stored value,
+ *   so the two agree unless the read failed.
+ *
+ * A FOURTH shape is deliberately NOT here. A row that reads back empty while its
+ * stored item held something the controls never showed is also a failed read,
+ * but it is a failure of ONE ROW, and refusing the whole field to protect it
+ * would discard whatever the author legitimately edited in the other rows. That
+ * case belongs to `reconcileArrayItems`, which settles it index by index. This
+ * function keeps only the questions whose answer really is about the whole
+ * field.
  *
  * "Something is stored" is deliberately not a truthiness test. `0` and `false`
  * are values an author can mean, for the same reason the renderer stops using
@@ -444,15 +444,73 @@ function wouldLoseArrayData(newItems, origItems) {
     // No control resolved on any row.
     if (newItems.every(function (item) { return Object.keys(item).length === 0; })) return true;
 
-    // A row read back carrying only empty strings, over an original that no
-    // control could have shown. Bounded to indices the original actually has:
-    // beyond its length there is no stored item to protect.
-    // Array-only because a non-array original always reads back as zero rows and
-    // is caught above; keeping the test here also stops the predicate indexing a
-    // value that cannot be indexed.
-    return Array.isArray(origItems) && newItems.some(function (item, i) {
-        return i < origItems.length && !isPlainObject(origItems[i]) && readAllEmpty(item);
+    // Rows went missing. Rows are rendered from the stored value, so a read
+    // holding fewer than were stored lost some — the extreme of which is the
+    // no-rows case above. Removing a row does not arrive here: that handler
+    // rewrites the buffer and re-renders, so the next read matches again.
+    return Array.isArray(origItems) && newItems.length < origItems.length;
+}
+
+/**
+ * Merge a DOM read of an array field with the value it was rendered from, index
+ * by index, so that one unreadable row costs only that row.
+ *
+ * `wouldLoseArrayData` answers a whole-field question and can only refuse the
+ * whole field. That is the right answer when the read tells us nothing, but not
+ * when it tells us something about SOME rows: a stored `["plain", {title:'A'}]`
+ * renders one row the controls cannot represent and one they can, and vetoing
+ * the field to protect the first would silently discard an edit the author made
+ * to the second.
+ *
+ *   read   [ {title:'', body:''} , {title:'A2'} ]
+ *   stored [ "plain"             , {title:'A' } ]
+ *            └ unrepresentable     └ a real edit
+ *              keep the stored       keep the read
+ *
+ * The rule per index is the one question again, asked of one row: could the
+ * author have produced this read by editing? Content in the read is always an
+ * edit and always wins — this never fabricates a value, it only declines to
+ * replace one. An all-empty read is an edit only if every key the stored item
+ * had was on screen to be cleared:
+ *
+ *   stored {title:'a'}   read {title:'', body:''}  -> the author cleared it, take the read
+ *   stored {foo:'bar'}   read {title:'', body:''}  -> `foo` had no control, keep the stored
+ *   stored "plain" / 1   read {title:'', body:''}  -> nothing had a control, keep the stored
+ *   stored {}            read {title:'', body:''}  -> nothing to lose, take the read
+ *
+ * The `{foo:'bar'}` row is why the test is the stored item's own KEYS and not
+ * its type. A row can be a perfectly ordinary object and still hold keys the
+ * schema does not declare — the accordion renders a control per DECLARED
+ * sub-key, so those keys are never on screen, read back as absent, and would be
+ * dropped by a rule that only asked whether the original was an object.
+ *
+ * @param {Array<Object>} newItems  - Items read from the DOM
+ * @param {*}             origItems - Original field value (from CodeMirror JSON)
+ * @returns {{items: Array, restored: number[]}} `items` is what to write;
+ *          `restored` lists the indices that kept their stored value.
+ */
+function reconcileArrayItems(newItems, origItems) {
+    if (!Array.isArray(origItems)) return { items: newItems, restored: [] };
+
+    var restored = [];
+    var items = newItems.map(function (item, i) {
+        if (i < origItems.length && readCannotRepresent(item, origItems[i])) {
+            restored.push(i);
+            return origItems[i];
+        }
+        return item;
     });
+    return { items: items, restored: restored };
+}
+
+/** Whether a row's read carries nothing the stored item could have produced. */
+function readCannotRepresent(readItem, origItem) {
+    // Anything typed is content, and content is always the author's.
+    if (!readAllEmpty(readItem)) return false;
+    // No control ever showed a non-object, so there was nothing to clear.
+    if (!isPlainObject(origItem)) return true;
+    // An object is clearable only through the keys that got a control.
+    return Object.keys(origItem).some(function (k) { return !(k in readItem); });
 }
 
 /**
@@ -763,6 +821,7 @@ var _logic = {
     buildAccordionData:             buildAccordionData,
     serializeAccordionData:         serializeAccordionData,
     wouldLoseArrayData:             wouldLoseArrayData,
+    reconcileArrayItems:            reconcileArrayItems,
     deepDiff:                       deepDiff,
     checkSerializationInvariant:    checkSerializationInvariant,
     unadvertisedEnumDiffs:          unadvertisedEnumDiffs,
