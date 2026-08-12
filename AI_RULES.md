@@ -104,6 +104,8 @@ The logic under test is in `assets/js/pp-editor-logic.js`. When editing `escapeH
 
 `escapeHtml` is the accordion builder's only escaper: `pp-admin-editor.js` builds its markup by string concatenation and routes every interpolation, text and attribute alike, through it. Changing what it escapes changes what that markup means, so `tests/js/pp-editor-attribute-render.test.js` boots the real editor and asserts on rendered output rather than re-deriving it.
 
+The read-back path carries the opposite rule: it puts nothing dynamic into a selector at all. Field names are raw composition keys, so a name can contain characters that are structural in a selector; `syncAccordionToJson` therefore resolves fields by comparing `data-comp` and `data-field` attribute values (`findByCompField`) rather than interpolating them into one. `tests/js/pp-editor-field-lookup.test.js` drives a real edit through the real debounced sync to pin that.
+
 ## E2E tests
 
 Playwright tests in `tests/e2e/` run against a live WordPress instance via wp-env (Docker).
