@@ -694,10 +694,20 @@ describe('wouldLoseArrayData', () => {
         expect(wouldLoseArrayData(newItems, undefined)).toBe(false);
     });
 
-    test('items array is empty (all items removed via button) → false', () => {
+    // Removing every row through the button does NOT arrive here: that handler
+    // splices the JSON buffer and re-renders, so the next sync already compares
+    // against a stored `[]`. A zero-row read while rows are still stored is a
+    // failed read, and the guard now says so. The end-to-end removal path is
+    // pinned in pp-editor-form-sync.test.js.
+    test('items array is empty while originals had content → true', () => {
         const newItems = [];
         const origItems = [{ question: 'Q?', answer: 'A.' }];
-        expect(wouldLoseArrayData(newItems, origItems)).toBe(false);
+        expect(wouldLoseArrayData(newItems, origItems)).toBe(true);
+    });
+
+    test('items array is empty and originals were too → false', () => {
+        expect(wouldLoseArrayData([], [])).toBe(false);
+        expect(wouldLoseArrayData([], undefined)).toBe(false);
     });
 
     test('some items empty, others have content (partial edit) → false', () => {

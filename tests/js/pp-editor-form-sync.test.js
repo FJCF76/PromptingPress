@@ -126,6 +126,8 @@ function installDom() {
         '<div id="pp-accordion-view"></div>',
         '<div id="pp-json-view"></div>',
         '<button id="pp-view-toggle">JSON</button>',
+        '<button id="pp-save-btn">Save draft</button>',
+        '<button id="pp-publish-btn">Publish</button>',
         '<div class="pp-pane pp-pane--editor">',
         '<div class="pp-pane-header"></div>',
         '<div class="pp-pane-body">',
@@ -148,8 +150,16 @@ async function bootEditor(json, components) {
 
     // The sync path ends in runPreview(), which POSTs to admin-ajax. Stub it to
     // a chainable no-op so the test never opens a socket.
+    //
+    // The handlers are recorded but never invoked, which is deliberate: the save
+    // path's .done() runs cm.setValue(res.data.composition) on the server's
+    // normalized reply, so a stub that resolved would rewrite the buffer for
+    // reasons unrelated to the flush and make "did the flush settle the edit?"
+    // unanswerable from the buffer. Leaving the request pending isolates the
+    // question to what was actually POSTed.
+    const posts = [];
     const chainable = { done() { return this; }, fail() { return this; }, always() { return this; } };
-    jquery.post = () => chainable;
+    jquery.post = (url, data) => { posts.push(data); return chainable; };
 
     let buffer = json;
     // Counting writes, not just reading the final buffer: a sync that runs a
@@ -220,7 +230,11 @@ async function bootEditor(json, components) {
         }
     });
 
-    return { $: jquery, getBuffer: () => buffer, getWrites: () => writes };
+    /** Every composition-write POST, in order — preview traffic filtered out. */
+    const savePosts = () => posts.filter((p) =>
+        p.action === 'pp_save_composition' || p.action === 'pp_publish_page');
+
+    return { $: jquery, getBuffer: () => buffer, getWrites: () => writes, savePosts };
 }
 
 /**
@@ -521,10 +535,110 @@ describe('the array guard measures whether originals exist, not what type they a
     it('stays down when there were no originals', () => {
         expect(wouldLoseArrayData([{}, {}], [])).toBe(false);
         expect(wouldLoseArrayData([{}, {}], undefined)).toBe(false);
+        expect(wouldLoseArrayData([{}, {}], null)).toBe(false);
+    });
+});
+
+// ─── 2c. Reads that cannot have come from editing ───────────────────────────
+
+describe('a read of no rows at all does not stand in for stored content', () => {
+    // The reachable case: an array-typed prop holding something that is not an
+    // array. buildArrayFieldHtml renders rows from
+    // `Array.isArray(field.value) ? field.value : []`, so the container comes up
+    // empty and the read is `[]` — a value no control ever showed.
+    it('fires over a stored string', () => {
+        expect(wouldLoseArrayData([], 'not an array')).toBe(true);
     });
 
-    it('stays down when every row was removed', () => {
-        expect(wouldLoseArrayData([], [{ title: 'a' }])).toBe(false);
+    it('fires over a stored object', () => {
+        expect(wouldLoseArrayData([], { title: 'a' })).toBe(true);
+    });
+
+    it('fires over a stored number, including zero', () => {
+        expect(wouldLoseArrayData([], 42)).toBe(true);
+        expect(wouldLoseArrayData([], 0)).toBe(true);
+    });
+
+    it('fires over a stored boolean, including false', () => {
+        expect(wouldLoseArrayData([], true)).toBe(true);
+        expect(wouldLoseArrayData([], false)).toBe(true);
+    });
+
+    // 0, false and '' are values an author can mean. A truthiness test for
+    // "is anything stored" would drop exactly those three, which is the same
+    // mistake `|| ''` made in the renderer.
+    it('fires over a stored empty string', () => {
+        expect(wouldLoseArrayData([], '')).toBe(true);
+    });
+
+    // This one reads like a false positive and is not: emptying an array through
+    // the UI never arrives here. The row-remove handler splices the JSON buffer
+    // and re-renders, so by the time any sync runs the stored value is already
+    // `[]` and the guard stands down on the no-originals rule above. The
+    // integration test 'empties an array when its last row is removed' pins that
+    // end to end. What is left for this shape to mean is a read that came back
+    // with nothing while rows were stored, which is a failed read.
+    it('fires over a non-empty stored array', () => {
+        expect(wouldLoseArrayData([], [{ title: 'a' }])).toBe(true);
+    });
+
+    it('stays down when nothing was stored either', () => {
+        expect(wouldLoseArrayData([], [])).toBe(false);
+        expect(wouldLoseArrayData([], undefined)).toBe(false);
+        expect(wouldLoseArrayData([], null)).toBe(false);
+    });
+});
+
+describe('a row of empty strings is measured against what the original was', () => {
+    // A schema that declares an `items` spec renders a control per sub-key. Over
+    // a stored SCALAR item those controls read `item[sk]` off a scalar —
+    // `(1)['n']` is undefined — so each shows '' and the row arrives as
+    // `{n:'', l:''}`. Non-empty by key count, so the older rules miss it.
+    it('fires when the original item was a number', () => {
+        expect(wouldLoseArrayData([{ n: '', l: '' }], [1])).toBe(true);
+        expect(wouldLoseArrayData(
+            [{ n: '', l: '' }, { n: '', l: '' }, { n: '', l: '' }], [1, 2, 3])).toBe(true);
+    });
+
+    it('fires when the original item was a string or boolean', () => {
+        expect(wouldLoseArrayData([{ title: '' }], ['stored'])).toBe(true);
+        expect(wouldLoseArrayData([{ title: '' }], [true])).toBe(true);
+    });
+
+    it('fires when the original item was null or an array', () => {
+        expect(wouldLoseArrayData([{ title: '' }], [null])).toBe(true);
+        expect(wouldLoseArrayData([{ title: '' }], [[1, 2]])).toBe(true);
+    });
+
+    it('fires when only one row of several sits over a scalar', () => {
+        expect(wouldLoseArrayData(
+            [{ title: 'kept' }, { title: '' }], [{ title: 'kept' }, 7])).toBe(true);
+    });
+
+    // The non-regression that makes the rule safe. Clearing every field of a real
+    // object row produces exactly the same read — and there it IS the edit, so it
+    // has to write through. Only the original's type separates the two.
+    it('stays down when the original item was an object the user emptied', () => {
+        expect(wouldLoseArrayData([{ title: '' }], [{ title: 'was here' }])).toBe(false);
+        expect(wouldLoseArrayData(
+            [{ title: '', body: '' }], [{ title: 'a', body: 'b' }])).toBe(false);
+    });
+
+    // Typing into a scalar row's control is content, not a substitution, so the
+    // shape change from scalar to object is the user's own and lands.
+    it('stays down when the user typed into a scalar row', () => {
+        expect(wouldLoseArrayData([{ n: 'typed', l: '' }], [1])).toBe(false);
+    });
+
+    // Whitespace is something the author put there; `.val()` hands it back as-is.
+    it('stays down when a row holds whitespace', () => {
+        expect(wouldLoseArrayData([{ title: '   ' }], [1])).toBe(false);
+    });
+
+    // Rows beyond the original's length have no stored item behind them, so
+    // there is nothing there to protect.
+    it('stays down for a row past the end of the original', () => {
+        expect(wouldLoseArrayData([{ title: 'a' }, { title: '' }], [{ title: 'a' }])).toBe(false);
     });
 });
 
@@ -827,5 +941,227 @@ describe('a pending edit to a name shared with a row lands on the right field', 
         const parsed = JSON.parse(getBuffer());
         expect(parsed[1].props.title).toBe('0');
         expect(parsed[1].props.items[0].body).toBe('Body edited');
+    });
+});
+
+// ─── 5. Array values whose stored shape the row controls cannot show ─────────
+
+describe('an array the row controls cannot represent survives a sync', () => {
+    // `items` IS schema-declared here, so its rows render a control per sub-key
+    // — which is what separates these fixtures from the pass-through case above.
+    // The read comes back looking populated, or comes back empty for a reason
+    // that is not "the user emptied it".
+
+    it('keeps scalar items when another field is edited', async () => {
+        const json = JSON.stringify([
+            { component: 'card', props: { title: 'Heading', items: [1, 2, 3] } },
+        ]);
+        const { $, getBuffer } = await bootEditor(json, SCALAR_FIRST);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const parsed = await editAndSync($, scalarControl($, 'title'), 'Heading edited', getBuffer);
+
+        expect(parsed[0].props.title).toBe('Heading edited');
+        expect(parsed[0].props.items).toEqual([1, 2, 3]);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('data-loss guard fired'));
+    });
+
+    it('renders scalar rows as empty controls, which is why the read looks populated', async () => {
+        // Fixture guard. If the rows ever stopped rendering controls over scalar
+        // items, the read would come back as `{}` and the older rule would catch
+        // it — making the assertion above pass for the wrong reason.
+        const json = JSON.stringify([
+            { component: 'card', props: { title: 'Heading', items: [1, 2, 3] } },
+        ]);
+        const { $ } = await bootEditor(json, SCALAR_FIRST);
+
+        expect($('#pp-accordion-view .pp-accordion-array-item').length).toBe(3);
+        expect(rowControl($, 'title', 0).length).toBe(1);
+        expect(rowControl($, 'title', 0).val()).toBe('');
+    });
+
+    it('keeps a string stored under an array-typed prop', async () => {
+        const json = JSON.stringify([
+            { component: 'card', props: { title: 'Heading', items: 'not an array' } },
+        ]);
+        const { $, getBuffer } = await bootEditor(json, SCALAR_FIRST);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const parsed = await editAndSync($, scalarControl($, 'title'), 'Heading edited', getBuffer);
+
+        expect(parsed[0].props.title).toBe('Heading edited');
+        expect(parsed[0].props.items).toBe('not an array');
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('data-loss guard fired'));
+    });
+
+    it('keeps an object stored under an array-typed prop', async () => {
+        const json = JSON.stringify([
+            { component: 'card', props: { title: 'Heading', items: { one: 'a' } } },
+        ]);
+        const { $, getBuffer } = await bootEditor(json, SCALAR_FIRST);
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const parsed = await editAndSync($, scalarControl($, 'title'), 'Heading edited', getBuffer);
+
+        expect(parsed[0].props.items).toEqual({ one: 'a' });
+    });
+
+    it('still lets a user empty a real array by removing its last row', async () => {
+        // The counterweight to the guard's no-rows rule. Removal rewrites the
+        // buffer directly rather than going through the read, so the stored value
+        // is already `[]` when the next sync compares — the guard never sees a
+        // zero-row read over stored rows and cannot block this.
+        const json = JSON.stringify([
+            { component: 'card', props: { title: 'Heading', items: [{ title: 'Row one', body: 'B' }] } },
+        ]);
+        const { $, getBuffer } = await bootEditor(json, SCALAR_FIRST);
+
+        $('#pp-accordion-view .pp-array-remove-btn').first().trigger('click');
+        await new Promise((resolve) => setTimeout(resolve, 600));
+
+        expect(JSON.parse(getBuffer())[0].props.items).toEqual([]);
+
+        // And a later field edit does not resurrect them.
+        const parsed = await editAndSync($, scalarControl($, 'title'), 'Heading edited', getBuffer);
+        expect(parsed[0].props.items).toEqual([]);
+    });
+
+    it('still lets a user clear every field of a real object row', async () => {
+        // Same read shape as the scalar case, opposite meaning: here the controls
+        // did show the stored value, so emptying them is the edit and must land.
+        const json = JSON.stringify([
+            { component: 'card', props: { title: 'Heading', items: [{ title: 'Row one', body: 'B' }] } },
+        ]);
+        const { $, getBuffer } = await bootEditor(json, SCALAR_FIRST);
+
+        rowControl($, 'title', 0).val('');
+        const parsed = await editAndSync($, rowControl($, 'body', 0), '', getBuffer);
+
+        expect(parsed[0].props.items).toEqual([{ title: '', body: '' }]);
+    });
+});
+
+// ─── 6. Pending edits settle before the buffer is read ──────────────────────
+
+describe('a pending edit settles before save and publish read the buffer', () => {
+    const FIXTURE = JSON.stringify([
+        { component: 'card', props: { title: 'Original', items: [] } },
+    ]);
+
+    /** The composition actually POSTed by the last save/publish request. */
+    function postedComposition(savePosts) {
+        expect(savePosts().length).toBe(1);
+        return JSON.parse(savePosts()[savePosts().length - 1].composition);
+    }
+
+    it('posts the typed value when Save is clicked inside the debounce window', async () => {
+        const { $, savePosts } = await bootEditor(FIXTURE, SCALAR_FIRST);
+
+        scalarControl($, 'title').val('Typed then saved').trigger('input');
+        $('#pp-save-btn').trigger('click');
+
+        expect(postedComposition(savePosts)[0].props.title).toBe('Typed then saved');
+    });
+
+    it('posts the typed value when Publish is clicked inside the debounce window', async () => {
+        const { $, savePosts } = await bootEditor(FIXTURE, SCALAR_FIRST);
+
+        scalarControl($, 'title').val('Typed then published').trigger('input');
+        $('#pp-publish-btn').trigger('click');
+
+        const posted = postedComposition(savePosts);
+        expect(savePosts()[0].action).toBe('pp_publish_page');
+        expect(posted[0].props.title).toBe('Typed then published');
+    });
+
+    it('leaves the optimistic-locking baseline exactly as it was', async () => {
+        // The flush moves composition bytes and nothing else (#13). If it ever
+        // started touching the version handling, a save would either false-conflict
+        // or stop conflicting when it should.
+        const { $, savePosts } = await bootEditor(FIXTURE, SCALAR_FIRST);
+
+        scalarControl($, 'title').val('Typed then saved').trigger('input');
+        $('#pp-save-btn').trigger('click');
+
+        expect(savePosts()[0].expected_version).toBe(1);
+        expect(savePosts()[0].post_id).toBe(1);
+        expect(savePosts()[0].nonce).toBe('test-nonce');
+    });
+
+    it('does not fire a second sync on the trailing edge after saving', async () => {
+        // A flush that invoked without disarming its timer would run the sync again
+        // 300ms later — after the POST, against whatever the DOM held by then.
+        const { $, getWrites, savePosts } = await bootEditor(FIXTURE, SCALAR_FIRST);
+
+        const before = getWrites();
+        scalarControl($, 'title').val('Typed then saved').trigger('input');
+        $('#pp-save-btn').trigger('click');
+
+        const afterClick = getWrites();
+        expect(afterClick - before).toBe(1);   // the settled edit, nothing more
+
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        expect(getWrites()).toBe(afterClick);
+        expect(savePosts().length).toBe(1);
+    });
+
+    it('rewrites nothing when Save is clicked with no edit pending', async () => {
+        // `subheading` is declared but absent from the fixture, so it is the probe
+        // for a sync that ran when none was scheduled: a sync marks every resolved
+        // control touched and would add the prop.
+        const { $, getWrites, savePosts } = await bootEditor(FIXTURE, SCALAR_FIRST);
+
+        const before = getWrites();
+        $('#pp-save-btn').trigger('click');
+
+        expect(getWrites()).toBe(before);
+        const posted = postedComposition(savePosts);
+        expect(posted[0].props.title).toBe('Original');
+        expect('subheading' in posted[0].props).toBe(false);
+    });
+});
+
+describe('a pending edit settles before the view toggle reads the buffer', () => {
+    const FIXTURE = JSON.stringify([
+        { component: 'card', props: { title: 'Original', items: [] } },
+    ]);
+
+    it('shows the typed value in the JSON view', async () => {
+        const { $, getBuffer } = await bootEditor(FIXTURE, SCALAR_FIRST);
+
+        scalarControl($, 'title').val('Typed then toggled').trigger('input');
+        $('#pp-view-toggle').trigger('click');
+
+        // The JSON view renders this buffer, so what it holds at the moment of the
+        // switch is what the author is shown.
+        expect(JSON.parse(getBuffer())[0].props.title).toBe('Typed then toggled');
+        // The switch itself happened: jsdom implements no layout, so `:visible`
+        // is unusable here — assert the state the handler actually sets.
+        expect($('#pp-accordion-view').css('display')).toBe('none');
+        expect($('#pp-view-toggle').text()).toBe('Accordion');
+    });
+
+    it('does not fire a second sync on the trailing edge after toggling', async () => {
+        const { $, getWrites } = await bootEditor(FIXTURE, SCALAR_FIRST);
+
+        const before = getWrites();
+        scalarControl($, 'title').val('Typed then toggled').trigger('input');
+        $('#pp-view-toggle').trigger('click');
+
+        const afterClick = getWrites();
+        expect(afterClick - before).toBe(1);
+
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        expect(getWrites()).toBe(afterClick);
+    });
+
+    it('rewrites nothing when the toggle is clicked with no edit pending', async () => {
+        const { $, getWrites, getBuffer } = await bootEditor(FIXTURE, SCALAR_FIRST);
+
+        const before = getWrites();
+        $('#pp-view-toggle').trigger('click');
+
+        expect(getWrites()).toBe(before);
+        expect('subheading' in JSON.parse(getBuffer())[0].props).toBe(false);
     });
 });
