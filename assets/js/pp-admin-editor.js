@@ -70,8 +70,10 @@
             scheduled = true;
         }
 
-        // No-op when nothing is pending: the structural handlers below call this
-        // unconditionally, and a click with no pending edit must not rewrite JSON.
+        // No-op when nothing is pending: every caller of flushPendingFieldEdits
+        // (the six structural handlers, save, publish, the view toggle) calls it
+        // unconditionally, and an operation with no pending edit must not
+        // rewrite JSON.
         debounced.flush = function () {
             if (!scheduled) return;
             clearTimeout(timer);
@@ -552,12 +554,20 @@
     //                                        │
     //                          sees the PRE-edit value ──> acts on it
     //
-    // Every such reader calls this first. The six structural handlers (insert,
-    // move up/down, delete, array-row add/remove) re-render from what they read,
-    // which replaces the control and leaves the trailing edge nothing to recover.
-    // Save and publish POST what they read. The view toggle shows what it reads.
-    // Settling rather than discarding is the point — the edit is the user's, so
-    // it has to land, not be dropped.
+    // Every reader that acts on the buffer from a user gesture calls this first.
+    // The six structural handlers (insert, move up/down, delete, array-row
+    // add/remove) re-render from what they read, which replaces the control and
+    // leaves the trailing edge nothing to recover. Save and publish POST what
+    // they read. The view toggle shows what it reads. Settling rather than
+    // discarding is the point — the edit is the user's, so it has to land, not
+    // be dropped.
+    //
+    // The debounced readers are exempt, deliberately. runValidation and
+    // runPreview also read the buffer, but the sync re-drives both on its own
+    // trailing edge, so they see the settled value a tick later without anyone
+    // flushing for them; the boot-time invariant check reads it before an edit
+    // can exist. Flushing from those would put a buffer write on a timer, which
+    // is the thing this function exists to keep explicit.
     //
     // The throw is contained deliberately. Before the flush existed, the sync ran
     // from a timer, so a failure inside it could not reach the click that happened

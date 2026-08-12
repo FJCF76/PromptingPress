@@ -415,7 +415,7 @@ Enforced by `AI_RULES.md` and verified by automated tests:
 composer install && composer test
 ```
 
-**JS unit tests** — JSON context, composition validator, accordion data, insert position, data-loss guard, DOM selector alignment, attribute-context escaping (rendered against the real editor), field lookup for names with selector-significant characters, form sync (numeric and boolean round-trip, scalar-vs-array-row field resolution, pending edits across row operations), serialization invariant (deep diff + round-trip gate), CSS lint, docs lint, packaging, proposal card, guided error card, page targeting, post-apply validation, shared PHP/JS validation contract, server-driven warning lookup:
+**JS unit tests** — JSON context, composition validator, accordion data, insert position, data-loss guard, DOM selector alignment, attribute-context escaping (rendered against the real editor), field lookup for names with selector-significant characters, form sync (numeric and boolean round-trip, scalar-vs-array-row field resolution, pending edits across row operations and before save/publish/view-switch, array values whose stored shape the row controls cannot show), serialization invariant (deep diff + round-trip gate), CSS lint, docs lint, packaging, proposal card, guided error card, page targeting, post-apply validation, shared PHP/JS validation contract, server-driven warning lookup:
 
 ```bash
 npm install && npm test

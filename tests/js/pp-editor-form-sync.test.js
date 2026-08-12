@@ -487,9 +487,16 @@ describe('a stored value renders as itself and reads back as itself', () => {
     });
 });
 
-// ─── 2b. The array guard, on originals that are not objects ─────────────────
+// ─── 2b. The array guard on an all-empty read, whatever the originals are ───
+//
+// These cases and the ones in section 2c call the pure `wouldLoseArrayData`
+// directly, mirroring the unit coverage in pp-editor-logic.test.js. That is
+// deliberate here: section 5 drives the same rules end to end through the real
+// DOM, and keeping the pure cases beside them shows which rule each integration
+// test is exercising. pp-editor-logic.test.js remains the home for the rule's
+// own edge table.
 
-describe('the array guard measures whether originals exist, not what type they are', () => {
+describe('the array guard fires on an all-empty read whatever type the originals are', () => {
     it('fires for object originals', () => {
         expect(wouldLoseArrayData([{}, {}], [{ title: 'a' }, { title: 'b' }])).toBe(true);
     });
@@ -1048,10 +1055,11 @@ describe('a pending edit settles before save and publish read the buffer', () =>
         { component: 'card', props: { title: 'Original', items: [] } },
     ]);
 
-    /** The composition actually POSTed by the last save/publish request. */
+    /** The composition of the one save/publish request the click produced. */
     function postedComposition(savePosts) {
-        expect(savePosts().length).toBe(1);
-        return JSON.parse(savePosts()[savePosts().length - 1].composition);
+        const posts = savePosts();
+        expect(posts.length).toBe(1);
+        return JSON.parse(posts[0].composition);
     }
 
     it('posts the typed value when Save is clicked inside the debounce window', async () => {
@@ -1103,6 +1111,35 @@ describe('a pending edit settles before save and publish read the buffer', () =>
         await new Promise((resolve) => setTimeout(resolve, 600));
         expect(getWrites()).toBe(afterClick);
         expect(savePosts().length).toBe(1);
+    });
+
+    it('still saves when settling the edit throws, and says so', async () => {
+        // The flush contains its own exception on purpose: it runs on the
+        // clicking handler's stack, so letting a throw escape would abort the
+        // save and read to the author as a button that does nothing. The
+        // documented trade is that the pending edit is lost while the operation
+        // completes — which is what the buffer held before the flush existed, so
+        // this path is no worse than not flushing at all. Nothing else in this
+        // change pins it, because nothing else makes the sync fail.
+        const { $, savePosts } = await bootEditor(FIXTURE, SCALAR_FIRST);
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        // Patched on the shared logic object the editor resolves through at call
+        // time, so the throw lands inside syncAccordionToJson rather than here.
+        window.PPEditorLogic.serializeAccordionData = () => {
+            throw new Error('serialization blew up');
+        };
+
+        scalarControl($, 'title').val('Typed then saved').trigger('input');
+        $('#pp-save-btn').trigger('click');
+
+        // The operation completed rather than dying on the flush.
+        const posted = postedComposition(savePosts);
+        expect(error).toHaveBeenCalledWith(
+            expect.stringContaining('could not settle pending edits'), expect.any(Error));
+        // And it posted the buffer as it stood — the pre-edit value, which is
+        // exactly what a save did before anything flushed.
+        expect(posted[0].props.title).toBe('Original');
     });
 
     it('rewrites nothing when Save is clicked with no edit pending', async () => {

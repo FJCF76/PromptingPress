@@ -390,10 +390,12 @@ function serializeAccordionData(components) {
  *   NO ROWS AT ALL. buildArrayFieldHtml renders rows from
  *   `Array.isArray(field.value) ? field.value : []`, so a non-array under an
  *   array-typed prop (a string, an object) renders an empty container and reads
- *   back as `[]`. Nothing on screen ever showed that value, so there was nothing
- *   to clear. Removing the last row does not arrive here: the row handlers
- *   rewrite the JSON buffer directly and re-render, so the next sync compares
- *   against an already-empty stored array.
+ *   back as `[]`. It also fires when the read comes back empty while rows ARE
+ *   stored, which is a failed read rather than an edit. The branch keys on the
+ *   read being empty rather than on the stored value's type because both causes
+ *   mean the same thing: nothing on screen ever carried the stored value, so
+ *   there was nothing to clear. (Emptying an array through the UI does not
+ *   arrive here — see the structural-changes note below.)
  *
  *   EVERY ROW `{}`. syncAccordionToJson assigns `item[sk]` for every sub-key
  *   whose control it resolves, and an emptied text field still yields `{sk: ''}`.
@@ -434,7 +436,7 @@ function serializeAccordionData(components) {
  * @returns {boolean}
  */
 function wouldLoseArrayData(newItems, origItems) {
-    if (!hasStoredItems(origItems)) return false;
+    if (!hasStoredContent(origItems)) return false;
 
     // The read produced no rows, so it carries nothing of the stored value.
     if (newItems.length === 0) return true;
@@ -445,13 +447,20 @@ function wouldLoseArrayData(newItems, origItems) {
     // A row read back carrying only empty strings, over an original that no
     // control could have shown. Bounded to indices the original actually has:
     // beyond its length there is no stored item to protect.
+    // Array-only because a non-array original always reads back as zero rows and
+    // is caught above; keeping the test here also stops the predicate indexing a
+    // value that cannot be indexed.
     return Array.isArray(origItems) && newItems.some(function (item, i) {
         return i < origItems.length && !isPlainObject(origItems[i]) && readAllEmpty(item);
     });
 }
 
-/** Whether the stored value holds anything the read could stand in for. */
-function hasStoredItems(origItems) {
+/**
+ * Whether anything is stored that the read could stand in for. Not a count of
+ * items: a stored `42` or `"bad"` has no items at all, and is exactly the kind of
+ * value this asks about.
+ */
+function hasStoredContent(origItems) {
     if (origItems === undefined || origItems === null) return false;
     if (Array.isArray(origItems)) return origItems.length > 0;
     // A non-array under an array-typed prop: not representable as rows, so any
