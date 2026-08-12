@@ -53,11 +53,13 @@ if (!class_exists('WP_CLI')) {
         public static array $lines = [];
         /** @var string[] Captured warning() output — the advisory stderr channel. */
         public static array $warnings = [];
+        /** @var string[] Captured success() output — the "all clear" channel (#622 asserts its ABSENCE on a stale page). */
+        public static array $successes = [];
         public static function error($message, $exit = true): void { throw new WpCliExitException((string) $message); }
         public static function add_command($name, $handler, $args = []): void {}
         public static function line($message = ''): void { self::$lines[] = (string) $message; }
         public static function warning($message = ''): void { self::$warnings[] = (string) $message; }
-        public static function success($message = ''): void {}
+        public static function success($message = ''): void { self::$successes[] = (string) $message; }
         public static function debug($message = '', $group = false): void {}
         public static function log($message = ''): void {}
         public static function halt($code = 0): void { throw new WpCliHaltException((string) $code, (int) $code); }

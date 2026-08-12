@@ -2069,13 +2069,18 @@ pp_register_action('remove_component', [
  *   pp_validate_composition_errors()  -> severity 'error'    (collect-all; would block a write)
  *   pp_validate_composition_smells()  -> severity 'warning'  (advisory; never blocks a write)
  *
- * `index` is the composition offset for smells, null for errors (whose messages already name
- * the offending item or component).
+ * `index` is the composition offset for BOTH kinds of finding (#622). Smells always carried
+ * one; errors used to be hardcoded to null, which left the operator of a page with two `cta`
+ * bands unable to tell which one was dead. Errors now read it from the WP_Error data
+ * pp_validate_composition_errors() stamps. It stays null for a cross-item error
+ * (duplicate_component_id), which belongs to no single band and names every colliding index
+ * in its message — an honest "no single band owns this", not a fabricated 0.
  *
- * `severity` separates "a write-time rule rejects this" from "advisory". It is payload, not
- * styling: the chat renders every finding as a warning, because by the time a caller reads
- * them the restore has already succeeded. The distinction is for CLI/agent consumers reading
- * the JSON result, which need to know which findings block a subsequent normal write.
+ * `severity` separates "a write-time rule rejects this" from "advisory". It is payload, and
+ * every consumer renders it: the read-only CLI diagnostics (`wp pp check page`,
+ * `wp pp validate site`) split on it, and the chat's undo card picks the per-item class from
+ * it (#622). The restore itself is still never blocked (#233) — the card's header still says
+ * the restore succeeded; only the per-finding styling tells errors from advisories.
  *
  * @param  array $items  Decoded composition array, already normalized.
  * @return array[]       Each: ['type' => string, 'severity' => string, 'message' => string,
@@ -2089,7 +2094,7 @@ function _pp_composition_findings(array $items): array {
             'type'     => $error->get_error_code(),
             'severity' => 'error',
             'message'  => $error->get_error_message(),
-            'index'    => null,
+            'index'    => pp_composition_error_index($error),
         ];
     }
 

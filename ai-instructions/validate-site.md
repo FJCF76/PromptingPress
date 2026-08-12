@@ -20,17 +20,24 @@ wp pp validate site
 
 This checks:
 1. **Custom CSS conflicts** — selectors in WordPress Custom CSS that target PP component classes (also surfaced via admin notice on composition edit screens)
-2. **Composition styling** — duplicate component types without authored IDs (ambiguous targeting; auto-generated `pp-<hex8>` ids do not count as stable), and duplicate authored IDs (two components sharing the same `id` — rejected at write time, reported here as a `duplicate_component_id` smell for state that predates the rule)
+2. **Composition styling (ambiguous targeting)** — duplicate component types without authored IDs (auto-generated `pp-<hex8>` ids do not count as stable). Duplicate authored IDs (two components sharing the same `id`) are reported under item 5 as an error-severity `duplicate_component_id` finding, plus the matching advisory smell for state that predates the rule.
 3. **Composition data integrity** — a page whose stored composition is corrupt (undecodable JSON) or not a valid composition list is flagged as a data-integrity error and fails validation, instead of being silently treated as a blank page (issue 144). `wp pp check page` reports the same corruption distinctly from "no composition".
 4. **Composition smells** — the advisory findings `wp pp check page` reports, including `empty_section`, `transparent_fill`, and `inert_slot` (a style slot whose declared `applies_when` condition is unmet on that component, so the stored value renders nothing). These are ADVISORIES about the composition, not errors in it: the writes that produced them were accepted and the values are stored as authored. **They still make `wp pp validate site` exit non-zero**, because this command is the "nothing is quietly wrong" gate. Resolve an `inert_slot` by setting the prop the slot needs (`layout`, `eyebrow`, `button2_text`, ...) or by dropping the slot — the message names the slot and every unmet clause.
+5. **Composition validity** — findings from the same write-time rules that would reject a normal edit: a missing required prop, an unknown prop key, an out-of-set enum value, a wrong-typed value, template-owned chrome in the body, duplicate authored ids. These are ERRORS, not advisories, and they also make `wp pp validate site` exit non-zero (#622).
+
+Item 5 is the one to read first when a page misbehaves. Before the vocabulary freeze (#603/#604/#605/#606) the read path canonicalized retired prop and value names, so a page written under the old vocabulary validated clean; it no longer does, and that break is deliberate. What changed in #622 is that the read-only diagnostics REPORT it. A page carrying pre-freeze names now shows up here instead of looking healthy right up until its next edit is refused. Fix it by authoring the canonical names — the error message names the undeclared keys the item is carrying and lists the props the component actually declares. Never re-add a compatibility shim; the shipped starter composition and freshly authored content are clean and keep this command at exit 0.
+
+Every composition finding — error or advisory — is printed in one format, `[type] index N: message`, so `index` always tells you which band to fix. It is omitted only for `duplicate_component_id`, which spans two bands and names both indices in its message.
 
 Individual checks:
 
 ```bash
 wp pp check conflicts              # Custom CSS conflicts only
-wp pp check page --post_id=42      # Composition styling for one page (raw composition data)
+wp pp check page --post_id=42      # Composition validity + styling + smells for one page (raw composition data)
 wp pp validate page --post_id=42   # Rendered-HTML validation for one page (see below)
 ```
+
+`wp pp check page` reports the same composition errors but never changes its exit code — it is the per-page inspector. `wp pp validate site` is the gate.
 
 ## Rendered-HTML validation (per page)
 
@@ -56,7 +63,14 @@ checklist below.
 |---|---|---|
 | Custom CSS conflict | `.hero { ... }` in Additional CSS | Run `clear_custom_css` action, move styling to tokens or components.css |
 | Ambiguous targeting | Two `section` components without IDs | Save the composition (IDs auto-assign) or set explicit IDs |
-| `template_owned_component` | A `nav` or `footer` in the composition — the template already renders both, so the page shows the chrome twice (#223) | Remove them with `remove_component`, highest index first. Configure the logo via `pp_logo_id` and the menus via `set_menu` / `assign_menu_location` |
+| `template_owned_component` (ERROR) | A `nav` or `footer` in the composition — the template already renders both, so the page shows the chrome twice (#223) | Remove them with `remove_component`, highest index first. Configure the logo via `pp_logo_id` and the menus via `set_menu` / `assign_menu_location` |
+| `invalid_composition` (ERROR) | A missing required prop. When the item also carries keys the schema does not declare, the message names them and lists the props the component does declare | Author the canonical prop name. If a value is sitting under a retired name, rename it — never re-add an alias |
+| `unknown_prop` (ERROR) | A prop key the component's `schema.json` does not declare | Rename it to a declared prop, or drop it. The message lists the available props |
+| `invalid_prop_value` (ERROR) | An out-of-set enum value, an out-of-range number, a wrong-typed value | Use one of the advertised values; the message names the accepted set |
+| `invalid_style_value` / `invalid_style_slot` (ERROR) | A style slot the component does not declare, an unusable value, or a non-scalar value where a scalar belongs (#622) | Set a declared slot with a scalar value, or drop it |
+| `duplicate_component_id` (ERROR) | Two components sharing the same authored `id` — id-based targeting silently resolves to the first (#238) | Give each component a unique `id`. This is the one error-severity finding with no `index`: it spans two bands and names both in its message |
+
+Every ERROR row above means the same thing: a normal write of that composition would be REJECTED, so the page will refuse its next edit until it is fixed. They are printed before the advisories and tagged `(would be rejected on write)`.
 
 ## Site chrome readiness (v0.12.0, rescoped in #223)
 
@@ -141,7 +155,7 @@ After automated checks pass, verify rendered output:
 ## Clean site criteria
 
 A site passes validation when:
-1. `wp pp validate site` returns success (exit code 0)
+1. `wp pp validate site` returns success (exit code 0). Since #622 this also fails on any composition current write rules reject, so a site carrying pre-vocabulary-freeze prop or value names goes red here — deliberately, because those pages would refuse their next edit. Author the canonical names; do not add a compatibility shim and do not weaken the gate.
 2. No Custom CSS exists
 3. All composition components have IDs in the DOM (authored `id` props for anything you need to target durably — `wp pp check page` warns about components with only auto-generated ids)
 4. Desktop and mobile rendered review passes

@@ -1050,6 +1050,124 @@ WP_CLI::add_command('pp apply', 'PP_Apply_Command');
 
 // ── Check / Validate CLI ──────────────────────────────────────────────────
 
+/**
+ * The read-only per-page diagnostic bundle shared by `wp pp check page` and
+ * `wp pp validate site` (#622).
+ *
+ * Both commands used to call pp_validate_composition_styling() +
+ * pp_validate_composition_smells() and NOTHING else, so a page whose stored
+ * composition current write rules reject — a missing required prop, an unknown prop
+ * key, a retired enum value — was reported as clean. #604 made that actively wrong:
+ * the read path no longer canonicalizes anything, so the diagnostic contradicted both
+ * the write path and the renderer, and a stale page looked healthy right up until an
+ * edit was refused. Stale-data breakage after the vocabulary freeze is the intended
+ * outcome; these are the surfaces that have to REPORT it.
+ *
+ * Reads _pp_composition_findings() — the same engine restore_composition's `findings`
+ * uses — rather than adding a third validator. Every rule that lands in
+ * pp_validate_composition_errors() / pp_validate_composition_smells() from now on is
+ * inherited by both commands for free. Split by severity here so one function owns the
+ * bucketing and both commands render it identically:
+ *
+ *     errors   severity 'error'    a normal write of this composition would be REJECTED
+ *     smells   severity 'warning'  advisory; the write that produced it was accepted
+ *     styling  ambiguous targeting (duplicate types without authored ids)
+ *
+ * Pure: it takes a decoded composition and returns arrays. No WP_CLI, no exit — the
+ * commands own presentation and exit codes.
+ *
+ * @param  array $composition  Decoded composition array.
+ * @return array{errors: array[], smells: array[], styling: array[]}
+ */
+function _pp_cli_page_diagnostics(array $composition): array {
+    $errors = [];
+    $smells = [];
+
+    foreach (_pp_composition_findings($composition) as $finding) {
+        if (($finding['severity'] ?? '') === 'error') {
+            $errors[] = $finding;
+        } else {
+            $smells[] = $finding;
+        }
+    }
+
+    return [
+        'errors'  => $errors,
+        'smells'  => $smells,
+        'styling' => pp_validate_composition_styling($composition),
+    ];
+}
+
+/**
+ * Whether one page's diagnostics make `wp pp validate site` fail (#622).
+ *
+ * Extracted as a pure predicate for the same reason as the #390 gate predicates: the
+ * decision is load-bearing (it is the exit code of the command CI runs) and the command
+ * itself ends in WP_CLI::halt(), which is hostile to unit testing. pp_composition_pages()
+ * additionally caches statically for the life of the process, so the per-page decision
+ * is the only part of that loop a test can address directly.
+ *
+ * All three buckets fail the gate. Advisory smells already did — this is the
+ * "nothing is quietly wrong" command, not a severity filter — and #622 adds the error
+ * bucket, which is the stronger claim: that page's next ordinary edit would be REFUSED.
+ *
+ * @param  array $diagnostics  Result of _pp_cli_page_diagnostics().
+ * @return bool                True when this page must fail site validation.
+ */
+function _pp_cli_page_fails_site_validation(array $diagnostics): bool {
+    return $diagnostics['errors'] !== []
+        || $diagnostics['styling'] !== []
+        || $diagnostics['smells'] !== [];
+}
+
+/**
+ * Renders one finding as a CLI list line (#622).
+ *
+ * Errors and smells share one locator format — `[type] index N: message` — so an
+ * operator reads both the same way. `index` is null only for a cross-item error
+ * (duplicate_component_id), whose message already names every colliding index; the
+ * locator is then omitted rather than faked.
+ *
+ * Control and format characters are stripped from the message before it reaches stdout.
+ * Composition error messages quote stored prop keys and values verbatim, and the whole
+ * point of #622 is to point these commands at data that never passed write validation —
+ * so an ANSI or bidi sequence sitting in a raw-written `_pp_composition` would otherwise
+ * reach the operator's terminal intact. Stripping here covers every finding in one place
+ * regardless of which engine produced it, and also keeps a list item on one line.
+ *
+ * @param  array $finding  One entry from _pp_composition_findings().
+ * @return string
+ */
+function _pp_cli_finding_line(array $finding): string {
+    $locator = isset($finding['index']) && $finding['index'] !== null
+        ? ' index ' . $finding['index']
+        : '';
+
+    return '  - [' . _pp_cli_printable((string) ($finding['type'] ?? ''))
+        . ']' . $locator . ': ' . _pp_cli_printable((string) ($finding['message'] ?? ''));
+}
+
+/**
+ * Makes an arbitrary stored string safe to print as one CLI line (#622).
+ *
+ * Strips Unicode control and format characters. On invalid UTF-8 — where the `/u`
+ * pattern refuses to run — it falls back to a byte-wise strip rather than discarding the
+ * string: the readable part of a finding names the component, the prop and the rule, and
+ * throwing all of that away over one bad byte would leave the operator with a diagnostic
+ * that diagnoses nothing.
+ *
+ * @param  string $text
+ * @return string
+ */
+function _pp_cli_printable(string $text): string {
+    $clean = preg_replace('/[\p{Cc}\p{Cf}]+/u', ' ', $text);
+    if ($clean === null) {
+        $clean = preg_replace('/[\x00-\x1f\x7f]+/', ' ', $text);
+    }
+
+    return $clean === null ? '(unprintable)' : $clean;
+}
+
 class PP_Check_Command extends WP_CLI_Command {
 
     /**
@@ -1073,7 +1191,12 @@ class PP_Check_Command extends WP_CLI_Command {
     }
 
     /**
-     * Validates composition styling for a specific page.
+     * Validates a page's stored composition: write-rule errors, styling, smells.
+     *
+     * Reports BOTH what current write rules reject (error severity — a normal edit
+     * of this composition would be refused) and the advisory findings (#622).
+     * Exit code is unchanged: this is the per-page inspector and it never halts.
+     * `wp pp validate site` is the gate that exits non-zero.
      *
      * ## OPTIONS
      *
@@ -1105,13 +1228,28 @@ class PP_Check_Command extends WP_CLI_Command {
             return;
         }
 
-        $warnings  = pp_validate_composition_styling($composition);
-        $smells    = pp_validate_composition_smells($composition);
-        $generated = pp_find_generated_component_ids($composition);
+        $diagnostics = _pp_cli_page_diagnostics($composition);
+        $errors      = $diagnostics['errors'];
+        $warnings    = $diagnostics['styling'];
+        $smells      = $diagnostics['smells'];
+        $generated   = pp_find_generated_component_ids($composition);
 
-        if (empty($warnings) && empty($smells) && empty($generated)) {
-            WP_CLI::success('Page ' . $post_id . ': all components have explicit stable IDs, no ambiguous targeting, no composition smells.');
+        // Reuses the same predicate `validate site` gates on, so "which diagnostic
+        // buckets count" is owned in one place and a future fourth bucket cannot reach
+        // one command and silently skip the other (#622). `$generated` is the one bucket
+        // that is genuinely check-page-only.
+        if (!_pp_cli_page_fails_site_validation($diagnostics) && empty($generated)) {
+            WP_CLI::success('Page ' . $post_id . ': valid under current write rules, all components have explicit stable IDs, no ambiguous targeting, no composition smells.');
             return;
+        }
+
+        // Errors first: they are the only findings that say a subsequent edit will be
+        // REFUSED. Everything below them is advisory (#622).
+        if (!empty($errors)) {
+            WP_CLI::warning(count($errors) . ' composition error(s) — a normal write of this composition would be rejected:');
+            foreach ($errors as $e) {
+                WP_CLI::line(_pp_cli_finding_line($e));
+            }
         }
 
         if (!empty($generated)) {
@@ -1138,7 +1276,7 @@ class PP_Check_Command extends WP_CLI_Command {
         if (!empty($smells)) {
             WP_CLI::warning(count($smells) . ' composition smell(s):');
             foreach ($smells as $s) {
-                WP_CLI::line('  - [' . $s['type'] . '] index ' . $s['index'] . ': ' . $s['message']);
+                WP_CLI::line(_pp_cli_finding_line($s));
             }
         }
     }
@@ -1189,8 +1327,15 @@ class PP_Validate_Command extends WP_CLI_Command {
     /**
      * Runs full site validation battery.
      *
-     * Checks: Custom CSS conflicts, composition styling for all pages,
-     * components without IDs.
+     * Checks: Custom CSS conflicts, composition validity + styling + smells for all
+     * pages, and composition data integrity.
+     *
+     * EXIT CODE (#622). This is the "nothing is quietly wrong" gate and the command CI
+     * runs, so it now exits non-zero for a page whose stored composition current write
+     * rules REJECT, not only for advisory smells. On content written before the #603/
+     * #604/#605/#606 vocabulary freeze that is a deliberate red: the page really would
+     * refuse its next edit, and reporting it clean was the bug. The shipped starter
+     * composition and freshly authored content are clean and stay exit-0.
      *
      * ## EXAMPLES
      *
@@ -1211,9 +1356,9 @@ class PP_Validate_Command extends WP_CLI_Command {
             WP_CLI::line('OK: No Custom CSS conflicts.');
         }
 
-        // 2. Composition styling per page
+        // 2. Composition validity + styling per page
         WP_CLI::line('');
-        WP_CLI::line('--- Composition styling ---');
+        WP_CLI::line('--- Composition validity and styling ---');
         $pages = pp_composition_pages();
         if (empty($pages)) {
             WP_CLI::line('No composition pages found.');
@@ -1231,18 +1376,26 @@ class PP_Validate_Command extends WP_CLI_Command {
                     continue;
                 }
                 $composition = $result['composition'];
-                $warnings    = pp_validate_composition_styling($composition);
-                $smells      = pp_validate_composition_smells($composition);
+                $diagnostics = _pp_cli_page_diagnostics($composition);
+                $errors      = $diagnostics['errors'];
+                $warnings    = $diagnostics['styling'];
+                $smells      = $diagnostics['smells'];
 
-                if (!empty($warnings) || !empty($smells)) {
+                if (_pp_cli_page_fails_site_validation($diagnostics)) {
                     $pass = false;
-                    $issue_count = count($warnings) + count($smells);
+                    $issue_count = count($errors) + count($warnings) + count($smells);
                     WP_CLI::warning("Page {$post_id} ({$title}): {$issue_count} issue(s)");
+                    // Error-severity findings first — these say a normal write of this
+                    // composition would be REJECTED, which is a different claim from the
+                    // advisories below them (#622).
+                    foreach ($errors as $e) {
+                        WP_CLI::line(_pp_cli_finding_line($e) . ' (would be rejected on write)');
+                    }
                     foreach ($warnings as $w) {
                         WP_CLI::line("  - {$w['component']} at indices " . implode(', ', $w['indices']) . ' (no authored IDs — ambiguous targeting; add explicit `id` props)');
                     }
                     foreach ($smells as $s) {
-                        WP_CLI::line("  - [{$s['type']}] index {$s['index']}: {$s['message']}");
+                        WP_CLI::line(_pp_cli_finding_line($s));
                     }
                 } else {
                     WP_CLI::line("OK: Page {$post_id} ({$title})");
@@ -1268,8 +1421,8 @@ class PP_Validate_Command extends WP_CLI_Command {
      * failures, empty rendered output, broken/empty image sources, missing
      * local media references, invalid inline background-image URLs, empty
      * links, and component-count mismatches. Distinct from `wp pp check
-     * page`, which validates composition styling/smells against the raw
-     * composition data, not the rendered HTML.
+     * page`, which validates the raw composition data — write-rule errors,
+     * styling and smells — not the rendered HTML.
      *
      * ## OPTIONS
      *

@@ -142,7 +142,7 @@ wp pp action execute restore_composition --run-id=$RUN --params='{"post_id":42,"
 wp pp action execute restore_composition --run-id=$RUN --params='{"post_id":42,"steps_back":1}' | jq '.findings'
 ```
 
-Empty array means the restored page is clean. Otherwise each entry has a `severity` of `error` (a normal write of this composition would be rejected) or `warning` (advisory). Fix them with ordinary actions — `remove_component` and friends — then re-check with `wp pp check page --post_id=42`. Nothing was stripped from the snapshot on your behalf. See [`reference-apply-cli.md`](reference-apply-cli.md#restore-reports-it-does-not-block-233) for the full shape.
+Empty array means the restored page is clean. Otherwise each entry has a `severity` of `error` (a normal write of this composition would be rejected) or `warning` (advisory), and an `index` naming the band to fix — `null` only for `duplicate_component_id`, which spans two and names both in its message (#622). Fix them with ordinary actions — `remove_component` and friends — then re-check with `wp pp check page --post_id=42`, which reports the same errors and advisories. Nothing was stripped from the snapshot on your behalf. See [`reference-apply-cli.md`](reference-apply-cli.md#restore-reports-it-does-not-block-233) for the full shape.
 
 `wp pp action preview restore_composition` returns the same findings and writes nothing, so you can see this before you commit to the restore.
 

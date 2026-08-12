@@ -547,8 +547,10 @@ templates/base.php
 ```
 
 Adding either to `_pp_composition` is rejected at write time with the error code
-`template_owned_component`, and `wp pp check page` / `wp pp validate page` /
-`wp pp validate site` all fail on a page that already contains one.
+`template_owned_component`. A page that already contains one is reported by
+`wp pp check page` (as an error-severity finding plus the matching advisory smell,
+without changing its exit code — it is the per-page inspector), and FAILS
+`wp pp validate page` and `wp pp validate site`.
 
 To configure the chrome, use these surfaces instead:
 
