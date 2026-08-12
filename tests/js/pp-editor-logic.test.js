@@ -15,6 +15,7 @@ const {
     buildAccordionData,
     serializeAccordionData,
     wouldLoseArrayData,
+    reconcileArrayItems,
     deepDiff,
     checkSerializationInvariant,
     unadvertisedEnumDiffs,
@@ -694,10 +695,58 @@ describe('wouldLoseArrayData', () => {
         expect(wouldLoseArrayData(newItems, undefined)).toBe(false);
     });
 
-    test('items array is empty (all items removed via button) → false', () => {
+    // Removing every row through the button does NOT arrive here: that handler
+    // splices the JSON buffer and re-renders, so the next sync already compares
+    // against a stored `[]`. A zero-row read while rows are still stored is a
+    // failed read, and the guard now says so. The end-to-end removal path is
+    // pinned in pp-editor-form-sync.test.js.
+    test('items array is empty while originals had content → true', () => {
         const newItems = [];
         const origItems = [{ question: 'Q?', answer: 'A.' }];
-        expect(wouldLoseArrayData(newItems, origItems)).toBe(false);
+        expect(wouldLoseArrayData(newItems, origItems)).toBe(true);
+    });
+
+    test('items array is empty and originals were too → false', () => {
+        expect(wouldLoseArrayData([], [])).toBe(false);
+        expect(wouldLoseArrayData([], undefined)).toBe(false);
+    });
+
+    // A MIXED read — one row carrying content, one keyless — is not a
+    // whole-field question: refusing the field would discard the content the
+    // author typed into the other row. reconcileArrayItems settles it per row.
+    test('a mixed read is left to the per-row merge, not refused wholesale', () => {
+        expect(wouldLoseArrayData([{ question: 'kept' }, {}], [{ question: 'kept' }, 7])).toBe(false);
+    });
+});
+
+// ─── reconcileArrayItems ────────────────────────────────────────────────────
+
+describe('reconcileArrayItems', () => {
+    test('keeps a row whose stored item held keys that got no control', () => {
+        expect(reconcileArrayItems([{ question: '', answer: '' }], [{ legacy: 'kept' }]))
+            .toEqual({ items: [{ legacy: 'kept' }], restored: [0] });
+    });
+
+    test('keeps a row whose stored item was not an object at all', () => {
+        expect(reconcileArrayItems([{ question: '' }], [7]))
+            .toEqual({ items: [7], restored: [0] });
+    });
+
+    test('takes the read when every stored key was on screen to be cleared', () => {
+        expect(reconcileArrayItems([{ question: '' }], [{ question: 'Q?' }]))
+            .toEqual({ items: [{ question: '' }], restored: [] });
+    });
+
+    test('never fabricates: a row the author typed into always wins', () => {
+        expect(reconcileArrayItems([{ question: 'typed' }], [{ legacy: 'kept' }]))
+            .toEqual({ items: [{ question: 'typed' }], restored: [] });
+    });
+
+    test('settles each row on its own', () => {
+        expect(reconcileArrayItems(
+            [{ question: '' }, { question: 'edited' }],
+            [7, { question: 'Q2' }]
+        )).toEqual({ items: [7, { question: 'edited' }], restored: [0] });
     });
 
     test('some items empty, others have content (partial edit) → false', () => {

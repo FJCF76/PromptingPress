@@ -372,47 +372,175 @@ function serializeAccordionData(components) {
 }
 
 /**
- * Detect when DOM-read array items would lose content compared to originals.
- * Returns true when every DOM-read item came back as an empty object while the
- * stored value was a non-empty array — the shape of a failed read, not of an
- * edit the user could have performed.
+ * Whether writing the DOM-read items back would replace stored content with a
+ * read that never represented it. True means the sync leaves the field alone.
  *
- * A read item is `{}` only when NONE of the sub-key lookups resolved a control:
- * syncAccordionToJson assigns `item[sk]` for every sub-key whose control it
- * finds, and an emptied text field still yields `{sk: ''}`. So "all items empty"
- * is unreachable through editing, and always means the row controls were not
- * there to read — which is the permanent state of a pass-through array, whose
- * items have no schema `items` spec and therefore render no sub-field controls
- * at all.
+ * The question is always the same one: could a user have produced this read by
+ * editing? If yes, it is an edit and must land. If no, the controls did not
+ * carry the stored value in the first place, and writing the read back would
+ * substitute the form's idea of the field for the author's.
  *
- * The originals are deliberately NOT inspected item by item. Doing so asked
- * `Object.keys(orig).length > 0`, which is a question only an object can answer:
- * `Object.keys(1)` and `Object.keys(true)` are both `[]`, so a stored `[1,2,3]`
- * read as "no content", stood the guard down, and was written back as
- * `[{},{},{}]`. Item type is not what makes an array worth protecting; having
- * any items at all is. Where the originals really were empty objects, both
- * answers write the same value, so the simpler rule gives up nothing.
+ *   stored value ──renders──> row controls ──.val()──> read items
+ *                                  │
+ *              a value the controls cannot represent renders nothing to read,
+ *              so the read comes back contentless no matter what is stored
  *
- * WHAT THIS DOES NOT COVER. The guard keys on the read coming back EMPTY, so it
- * only sees arrays that render no sub-field controls — those whose schema
- * declares no `items` spec. An array whose schema DOES declare sub-keys renders
- * a control per sub-key, and if a stored item is a scalar rather than an object,
- * each control reads back as `''` and the item arrives as `{sub: ''}` — not
- * empty, so the guard stays down and the scalar is still overwritten. Detecting
- * that needs a comparison against the ORIGINAL item's type, which is a different
- * question from the one this function asks.
+ * Three shapes of contentless read, none of them reachable by editing:
+ *
+ *   NO ROWS AT ALL. buildArrayFieldHtml renders rows from
+ *   `Array.isArray(field.value) ? field.value : []`, so a non-array under an
+ *   array-typed prop (a string, an object) renders an empty container and reads
+ *   back as `[]`. It also fires when the read comes back empty while rows ARE
+ *   stored, which is a failed read rather than an edit. The branch keys on the
+ *   read being empty rather than on the stored value's type because both causes
+ *   mean the same thing: nothing on screen ever carried the stored value, so
+ *   there was nothing to clear. (Emptying an array through the UI does not
+ *   arrive here — see the structural-changes note below.)
+ *
+ *   EVERY ROW `{}`. syncAccordionToJson assigns `item[sk]` for every sub-key
+ *   whose control it resolves, and an emptied text field still yields `{sk: ''}`.
+ *   So `{}` means no control resolved — the permanent state of a pass-through
+ *   array, whose items have no schema `items` spec and render no sub-field
+ *   controls at all.
+ *
+ *   ROWS MISSING. A read holding fewer rows than were stored lost some; the
+ *   no-rows case is just its extreme. Rows are rendered from the stored value,
+ *   so the two agree unless the read failed.
+ *
+ * A FOURTH shape is deliberately NOT here. A row that reads back empty while its
+ * stored item held something the controls never showed is also a failed read,
+ * but it is a failure of ONE ROW, and refusing the whole field to protect it
+ * would discard whatever the author legitimately edited in the other rows. That
+ * case belongs to `reconcileArrayItems`, which settles it index by index. This
+ * function keeps only the questions whose answer really is about the whole
+ * field.
+ *
+ * "Something is stored" is deliberately not a truthiness test. `0` and `false`
+ * are values an author can mean, for the same reason the renderer stops using
+ * `|| ''` on them; only undefined, null, and an empty array are nothing.
  *
  * Structural row changes do not pass through here — add/remove rewrite the JSON
- * buffer directly — so a skipped sync never blocks one.
+ * buffer directly — so a skipped sync never blocks one. In particular, emptying
+ * an array by removing its last row is not the no-rows case above: the remove
+ * handler splices the buffer and re-renders, so the next sync already compares
+ * against a stored `[]` and the guard stands down.
+ *
+ * The cost of refusing is that the accordion cannot repair a value it could not
+ * show — a prop left holding `"bad"` keeps holding it however many times the
+ * form is synced. That is the intended trade: the JSON view is one toggle away
+ * and edits the buffer directly, so the author has a way to fix the value, and
+ * it is the only way that does not involve the form guessing what was meant.
  *
  * @param {Array<Object>} newItems  - Items read from the DOM
  * @param {*}             origItems - Original field value (from CodeMirror JSON)
  * @returns {boolean}
  */
 function wouldLoseArrayData(newItems, origItems) {
-    return newItems.length > 0 &&
-        Array.isArray(origItems) && origItems.length > 0 &&
-        newItems.every(function (item) { return Object.keys(item).length === 0; });
+    if (!hasStoredContent(origItems)) return false;
+
+    // The read produced no rows, so it carries nothing of the stored value.
+    if (newItems.length === 0) return true;
+
+    // No control resolved on any row.
+    if (newItems.every(function (item) { return Object.keys(item).length === 0; })) return true;
+
+    // Rows went missing. Rows are rendered from the stored value, so a read
+    // holding fewer than were stored lost some — the extreme of which is the
+    // no-rows case above. Removing a row does not arrive here: that handler
+    // rewrites the buffer and re-renders, so the next read matches again.
+    return Array.isArray(origItems) && newItems.length < origItems.length;
+}
+
+/**
+ * Merge a DOM read of an array field with the value it was rendered from, index
+ * by index, so that one unreadable row costs only that row.
+ *
+ * `wouldLoseArrayData` answers a whole-field question and can only refuse the
+ * whole field. That is the right answer when the read tells us nothing, but not
+ * when it tells us something about SOME rows: a stored `["plain", {title:'A'}]`
+ * renders one row the controls cannot represent and one they can, and vetoing
+ * the field to protect the first would silently discard an edit the author made
+ * to the second.
+ *
+ *   read   [ {title:'', body:''} , {title:'A2'} ]
+ *   stored [ "plain"             , {title:'A' } ]
+ *            └ unrepresentable     └ a real edit
+ *              keep the stored       keep the read
+ *
+ * The rule per index is the one question again, asked of one row: could the
+ * author have produced this read by editing? Content in the read is always an
+ * edit and always wins — this never fabricates a value, it only declines to
+ * replace one. An all-empty read is an edit only if every key the stored item
+ * had was on screen to be cleared:
+ *
+ *   stored {title:'a'}   read {title:'', body:''}  -> the author cleared it, take the read
+ *   stored {foo:'bar'}   read {title:'', body:''}  -> `foo` had no control, keep the stored
+ *   stored "plain" / 1   read {title:'', body:''}  -> nothing had a control, keep the stored
+ *   stored {}            read {title:'', body:''}  -> nothing to lose, take the read
+ *
+ * The `{foo:'bar'}` row is why the test is the stored item's own KEYS and not
+ * its type. A row can be a perfectly ordinary object and still hold keys the
+ * schema does not declare — the accordion renders a control per DECLARED
+ * sub-key, so those keys are never on screen, read back as absent, and would be
+ * dropped by a rule that only asked whether the original was an object.
+ *
+ * @param {Array<Object>} newItems  - Items read from the DOM
+ * @param {*}             origItems - Original field value (from CodeMirror JSON)
+ * @returns {{items: Array, restored: number[]}} `items` is what to write;
+ *          `restored` lists the indices that kept their stored value.
+ */
+function reconcileArrayItems(newItems, origItems) {
+    if (!Array.isArray(origItems)) return { items: newItems, restored: [] };
+
+    var restored = [];
+    var items = newItems.map(function (item, i) {
+        if (i < origItems.length && readCannotRepresent(item, origItems[i])) {
+            restored.push(i);
+            return origItems[i];
+        }
+        return item;
+    });
+    return { items: items, restored: restored };
+}
+
+/** Whether a row's read carries nothing the stored item could have produced. */
+function readCannotRepresent(readItem, origItem) {
+    // Anything typed is content, and content is always the author's.
+    if (!readAllEmpty(readItem)) return false;
+    // No control ever showed a non-object, so there was nothing to clear.
+    if (!isPlainObject(origItem)) return true;
+    // An object is clearable only through the keys that got a control.
+    return Object.keys(origItem).some(function (k) { return !(k in readItem); });
+}
+
+/**
+ * Whether anything is stored that the read could stand in for. Not a count of
+ * items: a stored `42` or `"bad"` has no items at all, and is exactly the kind of
+ * value this asks about.
+ */
+function hasStoredContent(origItems) {
+    if (origItems === undefined || origItems === null) return false;
+    if (Array.isArray(origItems)) return origItems.length > 0;
+    // A non-array under an array-typed prop: not representable as rows, so any
+    // value at all is content the read cannot have come from.
+    return true;
+}
+
+/**
+ * A row whose every resolved control read back as the empty string. A row with
+ * no keys at all is vacuously all-empty, which is the intended answer and not an
+ * accident of `every`: a keyless row resolved no control, so it carries no more
+ * of the stored value than a row of empty strings does. The all-`{}` rule above
+ * reaches that case first today, so this only decides it for a MIXED read — some
+ * rows keyless, some not — where the same reasoning applies row by row.
+ */
+function readAllEmpty(item) {
+    return Object.keys(item).every(function (k) { return item[k] === ''; });
+}
+
+/** An object an author could have edited field by field — not an array, not null. */
+function isPlainObject(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -693,6 +821,7 @@ var _logic = {
     buildAccordionData:             buildAccordionData,
     serializeAccordionData:         serializeAccordionData,
     wouldLoseArrayData:             wouldLoseArrayData,
+    reconcileArrayItems:            reconcileArrayItems,
     deepDiff:                       deepDiff,
     checkSerializationInvariant:    checkSerializationInvariant,
     unadvertisedEnumDiffs:          unadvertisedEnumDiffs,

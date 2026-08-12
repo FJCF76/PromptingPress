@@ -70,8 +70,10 @@
             scheduled = true;
         }
 
-        // No-op when nothing is pending: the structural handlers below call this
-        // unconditionally, and a click with no pending edit must not rewrite JSON.
+        // No-op when nothing is pending: every caller of flushPendingFieldEdits
+        // (the six structural handlers, save, publish, the view toggle) calls it
+        // unconditionally, and an operation with no pending edit must not
+        // rewrite JSON.
         debounced.flush = function () {
             if (!scheduled) return;
             clearTimeout(timer);
@@ -506,11 +508,28 @@
                         items.push(item);
                     });
                     if (logic.wouldLoseArrayData(items, field.value)) {
+                        // Deliberately describes the read rather than naming which
+                        // of the guard's branches fired: the branches all mean the
+                        // same thing to the reader, and a per-branch message would
+                        // have to be kept in step with a rule that lives elsewhere.
                         console.warn('pp-editor: data-loss guard fired for "' + field.name +
-                            '" — all ' + items.length + ' items read as empty but originals had content. Sync skipped.');
+                            '" — the DOM read (' + items.length + ' item(s)) does not represent the ' +
+                            'stored value. Sync skipped for this field.');
                         return;
                     }
-                    field.value = items;
+                    // The read can be right about some rows and wrong about
+                    // others, so the rows are settled one at a time rather than
+                    // the field being taken or refused whole. A row the author
+                    // edited always wins; a row whose read carries nothing its
+                    // stored item could have produced keeps what was stored.
+                    var reconciled = logic.reconcileArrayItems(items, field.value);
+                    reconciled.restored.forEach(function (itemIdx) {
+                        console.warn('pp-editor: data-loss guard fired for "' + field.name +
+                            '" item ' + itemIdx + ' — the DOM read carried nothing the stored item ' +
+                            'could have produced, so that item kept its stored value. The rest of ' +
+                            'the field synced.');
+                    });
+                    field.value = reconciled.items;
                     field.userTouched = true;
                 } else {
                     var $input = findScalarControl($scope, compIdx, field.name);
@@ -537,6 +556,50 @@
         runPreview();
     }, 300);
 
+    // Settle any pending field edit before reading the buffer.
+    //
+    // A field edit reaches the buffer only through syncAccordionToJson, which is
+    // debounced — so an edit made inside the 300ms window is still sitting in the
+    // DOM, unwritten, when anything else reads cm.getValue():
+    //
+    //   type ──> [sync pending, 300ms] ──> read the buffer
+    //                                        │
+    //                          sees the PRE-edit value ──> acts on it
+    //
+    // Every reader that acts on the buffer from a user gesture calls this first.
+    // The six structural handlers (insert, move up/down, delete, array-row
+    // add/remove) re-render from what they read, which replaces the control and
+    // leaves the trailing edge nothing to recover. Save and publish POST what
+    // they read. The view toggle shows what it reads. Settling rather than
+    // discarding is the point — the edit is the user's, so it has to land, not
+    // be dropped.
+    //
+    // The debounced readers are exempt, deliberately. runValidation and
+    // runPreview also read the buffer, but the sync re-drives both on its own
+    // trailing edge, so they see the settled value a tick later without anyone
+    // flushing for them; the boot-time invariant check reads it before an edit
+    // can exist. Flushing from those would put a buffer write on a timer, which
+    // is the thing this function exists to keep explicit.
+    //
+    // The throw is contained deliberately. Before the flush existed, the sync ran
+    // from a timer, so a failure inside it could not reach the click that happened
+    // to precede it — a delete still deleted. Calling it inline puts it on the
+    // caller's own stack, where an exception would abort the operation and read to
+    // the user as a button that does nothing. A failed sync should cost the
+    // pending edit, not the operation. On that path save posts the buffer as it
+    // stands, which is what it did before this function was called at all — so
+    // containment is never worse than the old behavior, and the console carries
+    // the reason.
+    function flushPendingFieldEdits() {
+        try {
+            syncAccordionToJson.flush();
+        } catch (e) {
+            if (window.console) {
+                console.error('pp-editor: could not settle pending edits before this operation.', e);
+            }
+        }
+    }
+
     function initViewToggle() {
         $(document).on('click', '#pp-view-toggle', function () {
             var $btn = $(this);
@@ -544,6 +607,21 @@
             var $json = $('#pp-json-view');
 
             if (currentView === 'accordion') {
+                // Leaving the accordion: the JSON view is about to render this
+                // buffer, so a pending edit has to land in it first or the author
+                // is shown their own composition minus what they just typed.
+                //
+                // Deliberately not flushed on the way back. In that direction the
+                // buffer is what the author has been hand-editing and the
+                // accordion is hidden, so settling a sync there would write a read
+                // of the hidden form over their JSON. Today a flush there would be
+                // a no-op — only an input event on the accordion schedules a sync,
+                // and it cannot fire while the accordion is hidden — but the
+                // direction that is SAFE to flush is the one where the form is the
+                // authority, and that is only this one. Relying on the no-op would
+                // make the safety a property of what happens to be scheduled
+                // rather than of which pane the author is editing.
+                flushPendingFieldEdits();
                 // Switch to JSON view
                 $accordion.hide();
                 $json.show();
@@ -573,36 +651,8 @@
 
         // The six structural handlers below (insert, move up, move down, delete,
         // array-row add, array-row remove) rebuild the composition from
-        // cm.getValue() and then re-render the accordion from it. A field edit
-        // reaches that buffer only through syncAccordionToJson, which is debounced
-        // — so an edit made inside the debounce window is still sitting in the
-        // DOM, unwritten, when such a handler reads the buffer:
-        //
-        //   type ──> [sync pending, 300ms] ──> click move/delete/add
-        //                                        │
-        //             reads cm (edit absent) ────┤
-        //             re-renders from it   ──────┘   ← DOM value replaced
-        //
-        // The re-render replaces the control, so the edit is gone from the DOM as
-        // well and the later trailing-edge run has nothing to recover. Settling the
-        // sync first makes the buffer current before it is read, which keeps the
-        // edit and the structural change both. Settling rather than discarding is
-        // the point — the edit is the user's, so it has to land, not be dropped.
-        // The throw is contained deliberately. Before the flush existed, the sync
-        // ran from a timer, so a failure inside it could not reach the click that
-        // happened to precede it — a delete still deleted. Calling it inline puts
-        // it on the handler's own stack, where an exception would abort the
-        // structural action and read to the user as a button that does nothing.
-        // A failed sync should cost the pending edit, not the operation.
-        function flushPendingFieldEdits() {
-            try {
-                syncAccordionToJson.flush();
-            } catch (e) {
-                if (window.console) {
-                    console.error('pp-editor: could not settle pending edits before this operation.', e);
-                }
-            }
-        }
+        // cm.getValue() and then re-render the accordion from it, so each one
+        // settles pending edits first — see flushPendingFieldEdits above.
 
         // Expand/collapse
         $container.on('click', '.pp-accordion-toggle', function () {
@@ -979,6 +1029,12 @@
 
     function doSaveDraft() {
         if (!cm) return;
+        // Settle first: what gets validated and POSTed has to be what the user
+        // last typed, not the buffer as it stood before the pending sync. Nothing
+        // below this line changes — expected_version still carries the baseline
+        // this editor is holding (#13), so the flush moves only the composition
+        // bytes, never the optimistic-locking comparison.
+        flushPendingFieldEdits();
         var value = cm.getValue().trim();
         var errors = validateComposition(value);
         if (errors.length) {
@@ -1069,6 +1125,9 @@
 
     function doPublishOrUpdate() {
         if (!cm) return;
+        // Same rule as doSaveDraft: settle the pending edit before the read, and
+        // leave expected_version handling exactly as it was.
+        flushPendingFieldEdits();
         var value = cm.getValue().trim();
         var errors = validateComposition(value);
         if (errors.length) {
