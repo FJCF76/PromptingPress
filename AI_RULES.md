@@ -106,6 +106,10 @@ The logic under test is in `assets/js/pp-editor-logic.js`. When editing `escapeH
 
 The read-back path carries the opposite rule: it puts nothing dynamic into a selector at all. Field names are raw composition keys, so a name can contain characters that are structural in a selector; `syncAccordionToJson` therefore resolves fields by comparing `data-comp` and `data-field` attribute values (`findByCompField`) rather than interpolating them into one. `tests/js/pp-editor-field-lookup.test.js` drives a real edit through the real debounced sync to pin that.
 
+That pair does not identify a control on its own. Prop names and array sub-keys are separate namespaces that may collide, and a shipped schema does collide (`grid` declares a top-level `title` and an `items[].title`), so a card can hold several controls answering to the same pair. A top-level prop resolves through `findScalarControl`, which delegates to `findByCompField` and then drops candidates sitting inside an array row, making the winner explicit rather than a consequence of the order props happen to be declared in.
+
+Two more rules hold on the same path. Values reach the markup through `esc(value)` and are never pre-coerced with `String(value || '')`: that idiom is falsy-based, so it blanks a stored `0` or `false`, and the next read-back takes the blank as the value. And anything that reads the JSON buffer and then re-renders from it — the six structural row handlers — calls `syncAccordionToJson.flush()` first, because the sync is debounced and an edit made inside that window is otherwise still in the DOM, unwritten, when the buffer is read. `tests/js/pp-editor-form-sync.test.js` pins all three.
+
 ## E2E tests
 
 Playwright tests in `tests/e2e/` run against a live WordPress instance via wp-env (Docker).
