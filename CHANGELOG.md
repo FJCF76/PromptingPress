@@ -4,6 +4,34 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.13.3] — 2026-08-13 — editor: form-sync completeness
+
+**Pending edits now settle before the composition editor saves, publishes, or switches views, and array values whose stored shape the row controls cannot show round-trip safely.** Two properties of the accordion-to-JSON sync are involved, both on the path that reads edited values back out of the DOM. The sync is debounced, and v1.13.2 settled it before the six handlers that rebuild the composition — but not before save, publish, or the view toggle, which read the same buffer without re-rendering. And the guard that protects array fields could only answer for the field as a whole, which is the wrong grain when a read is right about one row and wrong about the row beside it.
+
+Settling before the reads is a change of timing, not of protocol: the flush moves which buffer content is posted and nothing else, so the optimistic-locking baseline each save carries is untouched. The array work splits one question into two. Reads that say nothing about any row still refuse the field. Everything else is settled row by row, and content in the read always wins, so the merge never fabricates a value — it only declines to replace one. A row that reads back empty keeps what was stored when that value held anything no control could have shown, which includes an ordinary object carrying keys the schema does not declare: the accordion renders a control per declared sub-key, so those keys are never on screen and read back absent.
+
+### Fixed
+
+- **Save, publish, and the view toggle settle pending edits first (`assets/js/pp-admin-editor.js`).** `flushPendingFieldEdits` moved to module scope and is now called by `doSaveDraft`, `doPublishOrUpdate`, and the accordion-to-JSON leg of the view toggle, alongside the six structural row handlers that already used it. An edit made inside the 300ms debounce window was previously read as its pre-edit value — POSTed on save, and absent from the JSON view. `expected_version`, the nonce, and the post id are untouched, so conflict detection behaves exactly as before. The JSON-to-accordion leg deliberately does not flush: there the buffer is what the author has been hand-editing, so settling a read of the hidden form over it would be the loss rather than the fix.
+- **Array rows are settled one at a time (`assets/js/pp-editor-logic.js`).** `wouldLoseArrayData` keeps only the whole-field questions — no rows read at all, every row read as `{}`, or fewer rows read than were stored — and the new `reconcileArrayItems` settles the surviving rows individually. Refusing a field to protect one unreadable row used to discard the author's edits to the others; taking the field overwrote the unreadable row.
+- **Array rows keep sub-keys the schema does not declare.** The per-row test is the stored item's own keys rather than its type, so `{foo: 'bar'}` under a schema declaring `title` and `body` is no longer replaced by `{title: '', body: ''}` when an unrelated field is edited. Clearing a row whose keys were all on screen is still an edit and still lands. Each row that keeps its stored value is reported by index.
+- **A non-array stored under an array-typed prop survives.** Such a value renders an empty container and reads back as `[]`; the guard's first clause used to skip on exactly that shape, so the stored value was replaced. Emptying an array by removing its last row is unaffected, because that rewrites the buffer directly rather than going through the read.
+
+### Docs
+
+- `AI_RULES.md` states the flush rule as "every reader that acts on the buffer from a user gesture", names the deliberate exemptions, and describes the array guard at both grains.
+- `README.md` and `TODOS.md` track the widened test coverage and the one case that remains deliberately unguarded.
+
+### Tests
+
+- `tests/js/pp-editor-form-sync.test.js` and `tests/js/pp-editor-logic.test.js` cover the new reads end to end and as pure cases: typing then immediately saving, publishing, or switching views; an unchanged optimistic-locking baseline; no second sync on the trailing edge; a mixed array where one row's edit lands while its neighbour keeps a value the controls could not show; undeclared sub-keys preserved; and the non-regressions that keep ordinary editing working.
+
+### Packaging
+
+- `evidence/` is excluded from the distribution zip. It is not hidden, so the `.distignore` catch-all did not reach it.
+
+---
+
 ## [v1.13.2] — 2026-08-12 — editor: form-sync robustness
 
 **Values that are numbers or booleans now survive the composition editor's accordion, fields resolve to the control the author typed into, and an edit made a moment before a row operation is no longer dropped.** Three properties of the accordion-to-JSON sync are involved, all on the path that reads edited values back out of the DOM. A stored `0` or `false` rendered as an empty field and was read back as the empty string. A top-level prop and an array row's sub-field can carry the same name — `grid` ships a `title` and an `items[].title` — and which one answered for the prop depended on the order the schema happened to declare them in. And the sync is debounced, so an edit made within that window was still sitting in the DOM, unwritten, when a move, delete, or add read the buffer and re-rendered from it.
