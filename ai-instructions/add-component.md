@@ -254,7 +254,10 @@ stored under the old name loses that declaration at render, and the three action
 the WHOLE composition — `create_page`, `update_composition`, `update_component` — reject it by
 name. `add_component` validates only the item it adds; `remove_component`, `reorder_components`
 and `style_component` validate no props, so those four still succeed on a stale page. `restore_composition` still succeeds and
-**reports** the dead slots (#233) rather than blocking. Do not add a migration, a
+**reports** the dead slots (#233) rather than blocking. Neither an attempted edit nor a
+restore is the only way to find out: `wp pp check page --post_id=N` and
+`wp pp validate site` report the same error-severity findings on the STORED page, and
+`validate site` exits non-zero for them (#622). Do not add a migration, a
 tolerance, or a widened schema to soften this: backward compatibility, stale demo pages
 and old compositions are explicit NON-GOALS. Author with canonical names — the runtime
 catalog and `AI_CONTEXT.md` advertise nothing else.
