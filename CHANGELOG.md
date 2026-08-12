@@ -4,6 +4,32 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.13.2] — 2026-08-12 — editor: form-sync robustness
+
+**Values that are numbers or booleans now survive the composition editor's accordion, fields resolve to the control the author typed into, and an edit made a moment before a row operation is no longer dropped.** Three properties of the accordion-to-JSON sync are involved, all on the path that reads edited values back out of the DOM. A stored `0` or `false` rendered as an empty field and was read back as the empty string. A top-level prop and an array row's sub-field can carry the same name — `grid` ships a `title` and an `items[].title` — and which one answered for the prop depended on the order the schema happened to declare them in. And the sync is debounced, so an edit made within that window was still sitting in the DOM, unwritten, when a move, delete, or add read the buffer and re-rendered from it.
+
+The value fix is a deliberate correction rather than a widening. Values reach the markup through the shared escaper, which already treats only `null` and `undefined` as absent; the previous `String(value || '')` wrapper was falsy-based, so it could not tell "no value" from "the value zero". Strings render exactly as before. Field resolution now excludes controls inside an array row when resolving a top-level prop, which selects the same element document order already selected on every shipped schema — the resolution becomes a stated rule instead of a consequence of declaration order. Pending edits are settled before any handler that rebuilds the composition reads it, so the edit and the structural change both land; a handler with no edit pending settles nothing and leaves the composition byte-identical.
+
+### Fixed
+
+- **Numeric and boolean values round-trip (`assets/js/pp-admin-editor.js`).** `buildFieldHtml` renders `esc(field.value)` in both value-bearing branches, and `buildArrayFieldHtml` passes row values through unchanged, so `0` renders as `0` and `false` as `false` at both levels. Absent values still render empty.
+- **Deterministic field resolution for nested rows.** `findScalarControl` delegates to `findByCompField` and drops candidates inside a `.pp-accordion-array`, so a sub-key never answers for a top-level prop of the same name. A prop whose own control is absent is now reported and left alone rather than taking a row's value. The array-container and row lookups are unchanged.
+- **Pending edits survive row operations.** `debounce` gained a `flush` handle, and the six handlers that rebuild the composition from the buffer — component insert, move up, move down, delete, array row add, array row remove — settle any pending edit first. `flush` disarms the timer before running, so the trailing edge cannot fire a second time against the re-rendered DOM, and it does nothing when no edit is pending. A failure while settling is contained so it cannot abort the operation.
+- **The insert dropdown is no longer treated as a field.** It sits inside the accordion and matched the generic field-change handler, so choosing a component to add left a sync pending and rewrote the whole composition, marking every resolved control touched and writing schema defaults into bands the author never opened.
+- **Array guard reads item presence, not item shape (`assets/js/pp-editor-logic.js`).** `wouldLoseArrayData` asked `Object.keys(orig).length > 0` of each original, a question only an object answers, so a stored `[1, 2, 3]` read as empty and stood the guard down. Any non-empty stored array now counts. The documented limit is stated in place: the guard sees only arrays that render no row controls, so an array whose schema declares sub-keys is outside its reach.
+
+### Docs
+
+- `AI_RULES.md` records the three read-path rules alongside the existing lookup rule: prop names and sub-keys are separate namespaces that can collide, values are never pre-coerced with a falsy default, and a handler that reads the buffer settles pending edits first.
+- `README.md` lists form sync in the JS unit-test coverage summary.
+
+### Tests
+
+- `tests/js/pp-editor-form-sync.test.js` (new, 52 cases) boots the real `pp-admin-editor.js` under jsdom and drives real events through the real debounced sync, asserting on the JSON the editor actually serialized. Field resolution is asserted against two registries differing only in declaration order, with identical expectations, so a resolution that depended on order fails one of them. Value cases cover `0`, `false`, non-zero numbers, `true`, empty string, plain strings, absent and `null`, across text inputs, textareas and array rows. Row-operation cases cover all six handlers plus a row sub-field edit, and pin that an operation with nothing pending leaves the composition unchanged. Write counts distinguish one settled sync from two.
+- `tests/js/pp-editor-field-lookup.test.js` follows the scalar lookup through `findScalarControl`, pinning both ends of the indirection.
+
+---
+
 ## [v1.13.1] — 2026-08-12 — editor: robust field lookup during form sync
 
 **Field names with CSS-selector-significant characters now resolve correctly in the composition editor's accordion.** `syncAccordionToJson` read every edited value back out of the DOM by building a jQuery attribute selector around the field's name. Field names are raw composition keys — `buildAccordionData` passes `Object.keys(props)` straight through for any prop the schema does not declare — so a name may contain `"`, `]`, `\` or `.`, which are structure in a selector and merely characters in a name. Those names now resolve by comparing `data-comp` and `data-field` attribute values instead, so nothing about a name is ever parsed as syntax. Behavior is unchanged for every field name the shipped schemas declare.
