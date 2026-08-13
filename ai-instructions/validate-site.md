@@ -27,6 +27,8 @@ This checks:
 
 Item 5 is the one to read first when a page misbehaves. Before the vocabulary freeze (#603/#604/#605/#606) the read path canonicalized retired prop and value names, so a page written under the old vocabulary validated clean; it no longer does, and that break is deliberate. What changed in #622 is that the read-only diagnostics REPORT it. A page carrying pre-freeze names now shows up here instead of looking healthy right up until its next edit is refused. Fix it by authoring the canonical names — the error message names the undeclared keys the item is carrying and lists the props the component actually declares. Never re-add a compatibility shim; the shipped starter composition and freshly authored content are clean and keep this command at exit 0.
 
+Expect MORE THAN ONE line per band (#621). A band reports every problem it has — each missing required prop, each unrecognized key, a dead style slot, a dead card link — rather than the first one, so you can repair a band in one pass instead of fixing, re-running, and discovering the next. Two exceptions: a band whose identity is unusable (unknown component, site chrome) reports that alone, because nothing else about it can be judged; and a `style` map reports its first dead slot only.
+
 Every composition finding — error or advisory — is printed in one format, `[type] index N: message`, so `index` always tells you which band to fix. It is omitted only for `duplicate_component_id`, which spans two bands and names both indices in its message.
 
 Individual checks:
