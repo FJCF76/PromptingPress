@@ -4,6 +4,34 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.13.6] — 2026-08-13 — diagnostics: nested item locators name the stored key instead of fabricating item 0 (#634)
+
+**`pp_validate_composition_errors()` answered "which item?" two ways inside one function, and one of them lied.** Six nested rules rendered the `items[]` array key honestly; the link-URL and per-item-style paths hard-cast it, so a composition whose `items` decoded to a JSON object rather than a list reported `item 0` — `(int) "aa"` is 0, and there is no item 0. The message sent the operator to repair an element that does not exist, which is worse than carrying no locator at all.
+
+The population this hits is exactly the one the read-only diagnostics exist for. #622 routed the error engine into `wp pp check page` and `wp pp validate site`, whose whole job is to be pointed at compositions that never passed write validation — a raw `update_post_meta()` write, or a history-ring snapshot stored as an object. The write path produces it too: a JSON object where a list belongs survives `pp_execute_action`'s params intact, so `create_page` and `update_composition` fabricated the same locator on input an author actually sent.
+
+All eight locator sites now render the key through one helper, `_pp_item_index_label()`. That is the anti-drift half of the fix: #614 and #600 each added a nested rule and each left the idiom copied inline, and #621/#643/#644 will add more. One renderer means a new rule inherits the honest locator by calling it, and a source tripwire fails the suite if a ninth site casts on the way in — proven against that exact evasion rather than assumed.
+
+**Nothing about what is accepted or rejected changes.** A string-keyed `items` map is exactly as valid as it was; only the text of the message moves. No coercion, no alias, no validator weakened — the v1.13.0 posture is untouched. An ordinary list still reports its integer position, which is what every shipped example shows.
+
+### Fixed
+
+- Nested `items[]` locators name the stored array key rather than an integer cast of it (#634). `_pp_link_url_error_message()` and the per-item `_pp_validate_style_slot_map()` call in `pp_validate_composition_errors()` (`lib/admin.php`) dropped their `(int)` casts, so a `{"aa": {...}}` items map reports `Component "grid" prop "items" item aa field "link_url" ...` and `Component "grid" item aa has no style slot ...` instead of pointing at item 0.
+
+### Changed
+
+- `_pp_item_index_label()` (`lib/admin.php`) is the single renderer for the `item N` fragment; all eight nested locator sites call it, including the six that were already honest. `_pp_link_url_error_message()` and `_pp_validate_style_slot_map()` widened their `?int $item_index` parameter to `int|string|null` — a PHP array key is exactly that, and the `!== null` per-item scope gate (#323) is unaffected, so a string-keyed item still enforces card-scoped slots.
+
+### Docs
+
+- `docs/reference-apply-cli.md` says what the `item N` locator names — the stored key, identical to the counted position for a list, different for an object-shaped `items` value — and how to act on the object-shaped case.
+
+### Tests
+
+- `tests/DiagnosticReachTest.php` gains the locator family: both repaired sites at a string key, the list shape still reporting integer positions, one key rendered identically by three different nested rules, the #323 scope gate under a string key, the authoring path through `update_composition` and `create_page` (with the stored composition proven unchanged after rejection), the `wp pp check page` reach, and a drift-catcher that pins every `item %s` locator to one renderer call and rejects a cast passed into it.
+
+---
+
 ## [v1.13.5] — 2026-08-13 — validation: nested items[] enums are strict at write (#600)
 
 **A nested `items[]` enum field is held to its declared values at the write path now, so `text_role: "terminal"` is rejected by name instead of persisting behind an `ok:true` and rendering as ordinary body text.** This was the last accept-at-write / coerce-at-render surface in the composition grammar. `strict` shipped in #380 and #579 made every top-level enum declare it, but the gate that reads the flag walked `$schema['props']` only — so one level down, declaring `"strict": true` was a silent no-op and an out-of-set value sailed through every write surface.
