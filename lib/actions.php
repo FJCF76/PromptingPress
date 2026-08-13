@@ -2191,12 +2191,13 @@ pp_register_action('restore_composition', [
         // blocks, so the operator learns the declaration is dead instead of it being
         // silently rewritten under them.
         //
-        // GRANULARITY, stated because it is easy to over-read: the unknown-prop gate in
-        // pp_validate_composition_errors() does `continue 2`, so one item reports its
-        // FIRST blocking problem, not all of them. A band with both a retired prop name
-        // and a dead style slot reports the prop; the slot surfaces on the next pass.
-        // That short-circuit is pre-existing (#147) — #604 only routes 13 more names
-        // into it. Making the gate collect-and-continue is a separate call.
+        // GRANULARITY (#621): a band reports EVERY problem it has, not its first. A band
+        // with both a retired prop name and a dead style slot reports both here, so the
+        // operator repairs the band in one pass instead of restoring, fixing, restoring
+        // again. The unit is the authored location a message can name; the two deliberate
+        // limits are a band whose identity is unusable (unknown component, chrome — one
+        // finding, nothing below it is judgeable) and a `style` map, which still reports
+        // its first dead slot only. See pp_validate_composition_errors().
         $target  = is_wp_error($idx)
             ? []
             : pp_normalize_composition($history[$idx]['composition']);

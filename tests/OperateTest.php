@@ -3326,6 +3326,41 @@ class OperateTest extends TestCase
         pp_operate_cleanup_run($run_id);
     }
 
+    /**
+     * #236 findings are the same engine restore_composition reports through, so #621's
+     * exhaustiveness has to arrive here too — this is the report a `wp pp apply
+     * restore-composition` operator reads after a batch rollback. Section 14.1: driven
+     * through the real producer (pp_operate_restore_run_compositions), not the validator.
+     *
+     * The snapshot band carries a retired prop name AND a dead style slot. Before #621
+     * the rollback report named the prop and the operator discovered the slot only on a
+     * later pass — on a rollback, where the whole point is "tell me what I just put
+     * back", one-problem-at-a-time is the report failing at its job. The rollback itself
+     * is still never blocked (#233/#236).
+     */
+    public function testRunRollbackFindingsNameEveryProblemInARestoredBand(): void
+    {
+        $GLOBALS['_pp_test_store']['post_meta'] = [];
+        pp_update_composition(823, [
+            ['component' => 'cta', 'props' => [
+                'title' => 'Ready?', 'button_text' => 'Go', 'button_url' => '/go', 'cta_text' => 'Go',
+            ], 'style' => ['--cta-not-a-slot' => 'red']],
+        ]);
+        $run_id = pp_operate_create_run();
+        pp_operate_record_composition_content_snapshot($run_id, 823, pp_get_composition(823));
+        pp_update_composition(823, [['component' => 'hero', 'props' => ['title' => 'Overwritten']]]);
+        pp_operate_record_touched_post_id($run_id, 823);
+
+        $report = pp_operate_restore_run_compositions($run_id);
+
+        $this->assertTrue($report['ok'], 'a rollback is never blocked by current rules');
+        $this->assertSame('cta', pp_get_composition(823)[0]['component'], 'the snapshot is back');
+        $types = array_column($report['reverted'][0]['findings'], 'type');
+        $this->assertContains('unknown_prop', $types);
+        $this->assertContains('invalid_style_slot', $types, 'the dead slot #621 unmasked');
+        pp_operate_cleanup_run($run_id);
+    }
+
     // ── apply reset rollback trail (#122) ──────────────────────────────────
 
     public function testApplyResetRecordsTouchedTokensRestorableViaRevert(): void

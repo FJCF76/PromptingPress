@@ -773,17 +773,19 @@ class SchemaValidationTest extends TestCase
     }
 
     /**
-     * ONE ERROR PER COMPONENT, which is the depth accounting the RULE 4 comment
-     * spells out (`continue 4` = next component, not `continue 3` = next prop of the
-     * same component). Three shapes are needed to pin all of it, and the third is
-     * the one that catches an off-by-one in the continue level: the first band also
-     * carries a DEAD link_url, whose rule lives in a LATER block of the same
-     * per-component loop. With `continue 4` the band reports the enum and stops;
-     * with `continue 3` execution falls through to that later block and the band
-     * reports twice. Two violating items in one band still collapse to one error,
-     * and the second band is still reached.
+     * ONE ERROR PER OFFENDING FIELD, and every band reached (#621 rewrote this from
+     * "one error per component"). The shape is chosen to pin the whole traversal:
+     * the first band has two cards with out-of-set roles AND a dead link_url whose
+     * rule lives in a LATER block of the same per-component loop, and there is a
+     * second band behind it. Four findings, in traversal order — the nested-field
+     * walk first (both cards), then the link_url block, then the next band.
+     *
+     * Before #621 this asserted TWO findings: the enum rule ended the whole component
+     * item, so card 1's role and card 0's dead link were invisible until card 0's role
+     * was repaired. The band-index assertions are what stop the fix from smearing one
+     * band's findings onto another.
      */
-    public function testTheNestedEnumReportsOneErrorPerComponentAcrossBands(): void
+    public function testTheNestedEnumReportsEveryOffendingFieldAcrossBands(): void
     {
         $errors = pp_validate_composition_errors([
             ['component' => 'grid', 'props' => ['items' => [
@@ -795,14 +797,16 @@ class SchemaValidationTest extends TestCase
             ]]],
         ]);
 
-        $this->assertCount(2, $errors, 'one error per component item, not one per offending field');
-        $this->assertStringContainsString('terminal', $errors[0]->get_error_message(), 'the first band reports its FIRST offending item');
-        $this->assertStringNotContainsString('console', $errors[0]->get_error_message());
-        $this->assertStringContainsString('shell', $errors[1]->get_error_message(), 'the second band is still reached');
+        $this->assertCount(4, $errors, 'every offending field is named, not just the first');
+        $messages = array_map(static fn ($e) => $e->get_error_message(), $errors);
+        $this->assertStringContainsString('terminal', $messages[0]);
+        $this->assertStringContainsString('console', $messages[1], 'the SECOND card of the same band is reached');
+        $this->assertStringContainsString('link_url', $messages[2], 'a later rule block on the same band still runs');
+        $this->assertStringContainsString('shell', $messages[3], 'the second band is still reached');
         $this->assertSame(
-            [0, 1],
-            [pp_composition_error_index($errors[0]), pp_composition_error_index($errors[1])],
-            'each error carries its own band index'
+            [0, 0, 0, 1],
+            array_map(static fn ($e) => pp_composition_error_index($e), $errors),
+            'each error carries the band that owns it'
         );
     }
 
@@ -2113,6 +2117,455 @@ class SchemaValidationTest extends TestCase
         $this->assertSame('unknown_prop', $result->get_error_code());
     }
 
+    // ── Exhaustive per-item findings (#621) ────────────────────────────────
+    //
+    // pp_validate_composition_errors() reports EVERY problem in an item, at the
+    // granularity of the authored location its message can name. The write path is
+    // untouched: pp_validate_composition() still returns errors[0]. These pin both
+    // halves, plus the suppression that stops one bad value being reported twice.
+
+    /** The issue's own repro: a retired prop name next to a dead style slot. */
+    private function propAndSlotComposition(): array
+    {
+        return [[
+            'component' => 'cta',
+            'props'     => ['title' => 'T', 'button_text' => 'Go', 'button_url' => '/go', 'text' => 'legacy'],
+            'style'     => ['--cta-nonexistent-slot' => '#fff'],
+        ]];
+    }
+
+    public function testOneItemReportsBothItsUnknownPropAndItsDeadStyleSlot(): void
+    {
+        // #621 verbatim: before this, the unknown-prop gate's `continue 2` ended the item
+        // and the slot surfaced only after the prop was repaired.
+        $errors = pp_validate_composition_errors($this->propAndSlotComposition());
+
+        $this->assertSame(
+            ['unknown_prop', 'invalid_style_slot'],
+            array_map(static fn ($e) => $e->get_error_code(), $errors)
+        );
+        $this->assertStringContainsString('"text"', $errors[0]->get_error_message());
+        $this->assertStringContainsString('--cta-nonexistent-slot', $errors[1]->get_error_message());
+    }
+
+    public function testTheWritePathStillRejectsThatItemWithTheFirstErrorOnly(): void
+    {
+        // The other half of the contract, asserted on the exact message bytes: an
+        // exhaustive report must not change one character of what a rejected write says.
+        $result = pp_validate_composition($this->propAndSlotComposition());
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('unknown_prop', $result->get_error_code());
+        $this->assertSame(
+            'Component "cta" has no prop "text". Available props: id, title, title_accent, eyebrow, body, '
+            . 'button_text, button_url, button2_text, button2_url, button2_variant, layout, theme, '
+            . 'background_image, button_variant',
+            $result->get_error_message()
+        );
+    }
+
+    public function testTwoRulesJudgingOneValueReportItOnce(): void
+    {
+        // `columns` declares numeric bounds (#379) AND type number (#507). Both reject
+        // "abc". The claim set keeps the more precise bounds message and drops the
+        // generic one — one problem, one finding, no phantom second repair.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'grid', 'props' => ['columns' => 'abc', 'items' => [['title' => 'x']]]],
+        ]);
+
+        $this->assertCount(1, $errors);
+        $this->assertStringContainsString('must be an integer between', $errors[0]->get_error_message());
+        $this->assertStringNotContainsString('must be a number', $errors[0]->get_error_message());
+    }
+
+    public function testABoundedArrayPropRejectedByTwoFamiliesReportsOnce(): void
+    {
+        // The second reachable pair: a scalar `body_items` fails the #475 bounded
+        // string-array family AND the #507 generic `array` type check. #475 runs first
+        // and its message is the more specific of the two.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'section', 'props' => ['body' => 'copy', 'body_items' => 'oops']],
+        ]);
+
+        $this->assertCount(1, $errors);
+        $this->assertStringContainsString('must be an array of strings', $errors[0]->get_error_message());
+    }
+
+    public function testAnArrayValuedNestedEnumFieldIsReportedOnce(): void
+    {
+        // One value, one finding at depth too. `text_role` declares `type: "enum"`, so
+        // #614's scalar fence deliberately passes it through and #600's membership rule
+        // owns the field — the two nested rules cannot both speak for one value.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'grid', 'props' => ['items' => [['title' => 'x', 'text_role' => ['mono']]]]],
+        ]);
+
+        $this->assertCount(1, $errors);
+        $this->assertStringContainsString('must be one of', $errors[0]->get_error_message());
+        $this->assertStringContainsString('item 0 field "text_role"', $errors[0]->get_error_message());
+    }
+
+    public function testEveryOffendingCardInOneBandIsNamed(): void
+    {
+        // Entry-level locations: three cards, two of them carrying a dead per-card style
+        // slot. The message names the card, so both are reported and the healthy card is
+        // not. This is the case an operator most needs exhaustive: repairing card 0 and
+        // rediscovering card 2 on the next restore is the loop #621 closes.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'grid', 'props' => ['items' => [
+                ['title' => 'A', 'style' => ['--nope' => 'red']],
+                ['title' => 'B'],
+                ['title' => 'C', 'style' => ['--also-nope' => 'blue']],
+            ]]],
+        ]);
+
+        $this->assertCount(2, $errors);
+        $this->assertStringContainsString('item 0', $errors[0]->get_error_message());
+        $this->assertStringContainsString('item 2', $errors[1]->get_error_message());
+    }
+
+    /**
+     * EVERY DE-SHORT-CIRCUITED RULE, one row each. The rules below all used to end their
+     * item; the pin is that each one now lets a LATER rule on the same band speak. Each
+     * row carries a dead style slot as the witness, because the style map is the last
+     * rule in the per-item loop — so if any rule under test still abandons the item, its
+     * row loses the `invalid_style_slot` and fails here. Without this, reverting one
+     * `continue` back to `continue 2` would leave the suite green.
+     *
+     * @dataProvider deShortCircuitedRuleProvider
+     */
+    public function testEveryDeShortCircuitedRuleStillLetsALaterRuleSpeak(array $item, string $firstCode): void
+    {
+        $errors = pp_validate_composition_errors([$item + ['style' => ['--nope' => 'red']]]);
+        $codes  = array_map(static fn ($e) => $e->get_error_code(), $errors);
+
+        $this->assertSame($firstCode, $codes[0], 'the rule under test still reports first');
+        $this->assertContains('invalid_style_slot', $codes, 'and no longer hides the rules below it');
+        foreach ($errors as $error) {
+            $this->assertSame(0, pp_composition_error_index($error));
+        }
+    }
+
+    public static function deShortCircuitedRuleProvider(): array
+    {
+        return [
+            // #622 required prop
+            'missing required prop' => [
+                ['component' => 'cta', 'props' => []],
+                'invalid_composition',
+            ],
+            // #488 content requirement
+            'no renderable content' => [
+                ['component' => 'section', 'props' => ['title' => 'T']],
+                'invalid_composition',
+            ],
+            // #147 unknown prop
+            'unknown prop key' => [
+                ['component' => 'hero', 'props' => ['title' => 'A', 'nope' => 'x']],
+                'unknown_prop',
+            ],
+            // #379 numeric bounds
+            'out-of-range numeric prop' => [
+                ['component' => 'grid', 'props' => ['columns' => 99, 'items' => [['title' => 'A']]]],
+                'invalid_prop_value',
+            ],
+            // #380/#579 strict enum
+            'out-of-set enum prop' => [
+                ['component' => 'hero', 'props' => ['title' => 'A', 'layout' => 'neon']],
+                'invalid_prop_value',
+            ],
+            // #475 bounded string array
+            'scalar where a string array belongs' => [
+                ['component' => 'section', 'props' => ['body' => 'copy', 'body_items' => 'oops']],
+                'invalid_prop_value',
+            ],
+            // #475 per-entry
+            'non-string entry in a string array' => [
+                ['component' => 'section', 'props' => ['body' => 'copy', 'body_items' => [['deep']]]],
+                'invalid_prop_value',
+            ],
+            // #507 declared string type
+            'array where a string belongs' => [
+                ['component' => 'hero', 'props' => ['title' => ['A']]],
+                'invalid_prop_value',
+            ],
+            // #507 declared number type
+            'non-numeric where a number belongs' => [
+                ['component' => 'hero', 'props' => ['title' => 'A', 'image_id' => 'abc']],
+                'invalid_prop_value',
+            ],
+            // #507 declared array type
+            'scalar where an array belongs' => [
+                ['component' => 'grid', 'props' => ['items' => 'oops']],
+                'invalid_prop_value',
+            ],
+            // #507 item_type: object
+            'scalar entry where an object belongs' => [
+                ['component' => 'grid', 'props' => ['items' => ['oops']]],
+                'invalid_prop_value',
+            ],
+            // #507 item_type: array (table.rows)
+            'scalar row where an array belongs' => [
+                ['component' => 'table', 'props' => ['headers' => ['A'], 'rows' => ['oops']]],
+                'invalid_prop_value',
+            ],
+            // #579 A-27 nested required field
+            'items entry missing a required field' => [
+                ['component' => 'logos', 'props' => ['items' => [['image_alt' => 'A']]]],
+                'invalid_composition',
+            ],
+            // #614 RULE 3 nested scalar type
+            'nested field of the wrong scalar type' => [
+                ['component' => 'logos', 'props' => ['items' => [['image_url' => ['/a.png'], 'image_alt' => 'A']]]],
+                'invalid_prop_value',
+            ],
+            // #600 RULE 4 nested enum
+            'nested enum out of set' => [
+                ['component' => 'grid', 'props' => ['items' => [['title' => 'A', 'text_role' => 'nope']]]],
+                'invalid_prop_value',
+            ],
+            // #579 A-27 nested bullets
+            'non-string bullet in a nested string array' => [
+                ['component' => 'grid', 'props' => ['items' => [['title' => 'A', 'bullets' => [['deep']]]]]],
+                'invalid_prop_value',
+            ],
+            // #507/#154 top-level link_url
+            'dead top-level link' => [
+                ['component' => 'cta', 'props' => [
+                    'title' => 'A', 'button_text' => 'Go', 'button_url' => 'javascript:alert(1)',
+                ]],
+                'invalid_prop_value',
+            ],
+            // #507/#154 nested link_url
+            'dead card link' => [
+                ['component' => 'grid', 'props' => ['items' => [
+                    ['title' => 'A', 'link_url' => 'javascript:alert(1)'],
+                ]]],
+                'invalid_prop_value',
+            ],
+        ];
+    }
+
+    public function testAContentlessBandAlsoReportsItsOtherViolations(): void
+    {
+        // The content requirement is the one rule with no `continue` at all now, so it is
+        // pinned separately from the provider above: an empty band is exactly where an
+        // operator wants every problem at once, not "fill this in, then come back".
+        $errors = pp_validate_composition_errors([
+            ['component' => 'section', 'props' => ['title' => 'T', 'nope' => 'x']],
+        ]);
+
+        $this->assertSame(
+            ['invalid_composition', 'unknown_prop'],
+            array_map(static fn ($e) => $e->get_error_code(), $errors)
+        );
+        $this->assertStringContainsString('needs at least one of', $errors[0]->get_error_message());
+    }
+
+    public function testEveryOffendingFieldOfOneItemsEntryIsNamed(): void
+    {
+        // Field-level exhaustiveness inside ONE entry: a logos card missing both required
+        // fields names both, and a sibling card's own problem is reported too. Before
+        // #621 this whole band reported exactly one finding.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'logos', 'props' => ['items' => [
+                [],
+                ['image_url' => '/ok.png', 'image_alt' => 'Fine'],
+                ['image_url' => ['/nope.png'], 'image_alt' => 'Typed wrong'],
+            ]]],
+        ]);
+
+        $messages = array_map(static fn ($e) => $e->get_error_message(), $errors);
+        $this->assertCount(3, $errors);
+        $this->assertStringContainsString('item 0 is missing required field "image_url"', $messages[0]);
+        $this->assertStringContainsString('item 0 is missing required field "image_alt"', $messages[1]);
+        $this->assertStringContainsString('item 2 field "image_url" must be a string', $messages[2]);
+    }
+
+    public function testANonScalarNestedLinkIsReportedOnceByTheTypeRule(): void
+    {
+        // grid.items[].link_url declares `type: "string"` AND `format: "link_url"`, so it
+        // is the one nested field two rule blocks can both look at. A non-scalar trips
+        // RULE 3, and the later link_url block must produce nothing further for that same
+        // field — one bad value, one finding, at depth as at the top level.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'grid', 'props' => ['items' => [['title' => 'A', 'link_url' => ['/a']]]]],
+        ]);
+
+        $this->assertCount(1, $errors);
+        $this->assertStringContainsString('field "link_url" must be a string', $errors[0]->get_error_message());
+    }
+
+    /**
+     * NO CASCADE from a malformed parent. Each shape below is reported by exactly the one
+     * rule that owns it; the rules underneath skip it through their existing is_array() /
+     * array_key_exists() guards rather than inventing follow-on errors. Removing the
+     * short-circuits could only have been safe if that were true, so it is asserted.
+     *
+     * @dataProvider malformedParentProvider
+     */
+    public function testAMalformedParentIsReportedOnceAndNeverCascades(array $composition, string $expected): void
+    {
+        $errors = pp_validate_composition_errors($composition);
+
+        $this->assertCount(1, $errors);
+        $this->assertStringContainsString($expected, $errors[0]->get_error_message());
+    }
+
+    public static function malformedParentProvider(): array
+    {
+        return [
+            'props is a string' => [
+                [['component' => 'hero', 'props' => 'oops']],
+                'missing required prop "title"',
+            ],
+            'items is a scalar' => [
+                [['component' => 'grid', 'props' => ['items' => 'oops']]],
+                'prop "items" must be an array',
+            ],
+            'an items entry is a scalar' => [
+                [['component' => 'grid', 'props' => ['items' => ['oops']]]],
+                'item 0 must be an object',
+            ],
+            // A JSON LIST passes is_array(), so this is the shape that cascaded: the
+            // field rules reported every required field as missing on a value whose real
+            // problem is that it is not an object. `[["/a.png","Alt"]]` is a common
+            // authoring-agent mistake, and the extra findings sent the agent to add keys
+            // to a list — a repair that can never satisfy the shape rule.
+            'an items entry is a JSON list' => [
+                [['component' => 'logos', 'props' => ['items' => [[1, 2]]]]],
+                'item 0 must be an object',
+            ],
+        ];
+    }
+
+    public function testAnEmptyObjectEntryStillReportsEveryMissingRequiredField(): void
+    {
+        // The other side of the cascade guard: `{}` is an object shape, nothing claims the
+        // ENTRY, so its fields are judged and both missing ones are named. If the guard is
+        // ever widened to skip any array-ish entry, this fails.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'logos', 'props' => ['items' => [[]]]],
+        ]);
+
+        $this->assertCount(2, $errors);
+        $this->assertStringContainsString('missing required field "image_url"', $errors[0]->get_error_message());
+        $this->assertStringContainsString('missing required field "image_alt"', $errors[1]->get_error_message());
+    }
+
+    // ── The write path's finding budget (#621) ─────────────────────────────
+    //
+    // pp_validate_composition() reads errors[0] and discards the rest, so it validates
+    // with a budget of 1. Exhaustiveness made the unbudgeted list grow with the SIZE of
+    // the input rather than with the number of bands, and a write path that allocates
+    // hundreds of megabytes of findings nobody reads is a denial-of-service handed to any
+    // caller who can post a composition. These pin that the budget changes nothing an
+    // outside caller can observe.
+
+    /** 400 malformed logos entries: 800 findings unbudgeted, 1 budgeted. */
+    private function manyFindingsComposition(): array
+    {
+        return [['component' => 'logos', 'props' => ['items' => array_fill(0, 400, [])]]];
+    }
+
+    public function testTheBudgetedEngineReturnsExactlyTheErrorTheUnbudgetedOneReturnsFirst(): void
+    {
+        $composition = $this->manyFindingsComposition();
+
+        $all       = pp_validate_composition_errors($composition);
+        $budgeted  = pp_validate_composition_errors($composition, 1);
+
+        $this->assertCount(800, $all, 'the reporting path stays exhaustive');
+        $this->assertCount(1, $budgeted, 'the write path builds one finding, not 800');
+        $this->assertSame($all[0]->get_error_code(), $budgeted[0]->get_error_code());
+        $this->assertSame($all[0]->get_error_message(), $budgeted[0]->get_error_message());
+        $this->assertSame(
+            pp_composition_error_index($all[0]),
+            pp_composition_error_index($budgeted[0]),
+            'the locator survives the budget'
+        );
+    }
+
+    public function testTheWritePathReturnsTheSameErrorItWouldHaveWithoutABudget(): void
+    {
+        $composition = $this->manyFindingsComposition();
+        $result      = pp_validate_composition($composition);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame(
+            pp_validate_composition_errors($composition)[0]->get_error_message(),
+            $result->get_error_message()
+        );
+    }
+
+    public function testABudgetNeverHidesACrossItemCollisionThatIsTheOnlyError(): void
+    {
+        // The duplicate-id pass appends after the per-item loop and is skipped once the
+        // budget is spent. When it is the ONLY violation, nothing has been spent, so it
+        // must still be the error the write path rejects with.
+        $result = pp_validate_composition($this->duplicateIdComposition());
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('duplicate_component_id', $result->get_error_code());
+    }
+
+    public function testANonScalarLinkPropIsReportedByTheTypeRuleAndNothingElse(): void
+    {
+        // The link_url predicate returns true for every non-string (lib/admin.php), so the
+        // later link block cannot double-report or fatal on an array a type rule already
+        // rejected. Pinned because the two rules now BOTH run for the same prop.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'cta', 'props' => ['title' => 'A', 'button_text' => 'Go', 'button_url' => []]],
+        ]);
+
+        $this->assertCount(1, $errors);
+        $this->assertStringContainsString('prop "button_url" must be a string', $errors[0]->get_error_message());
+    }
+
+    public function testAClaimKeyCannotCollideAcrossDifferentAuthoredLocations(): void
+    {
+        // The claim set is keyed by authored names, which are arbitrary bytes. A naive
+        // `implode('.')` would make the prop literally named `items.0` share a key with
+        // entry 0 of `items`, and a collision SUPPRESSES a real finding. Length-prefixed
+        // segments make that impossible; this asserts the property directly.
+        $this->assertNotSame(
+            _pp_finding_location('prop', 'items.0'),
+            _pp_finding_location('prop', 'items', 0)
+        );
+        $this->assertNotSame(
+            _pp_finding_location('prop', 'a', 'b'),
+            _pp_finding_location('prop', 'ab')
+        );
+        $this->assertSame(
+            _pp_finding_location('prop', 'items', 0),
+            _pp_finding_location('prop', 'items', 0),
+            'the same location must always render the same key'
+        );
+        // Invalid UTF-8: json_encode() would return false here and collapse every such
+        // key onto one bucket. The length-prefixed encoding keeps them distinct.
+        $this->assertNotSame(
+            _pp_finding_location('prop', "bad\xC3("),
+            _pp_finding_location('prop', "bad\xC3)")
+        );
+    }
+
+    public function testACollidingPropNameStillGetsItsOwnFinding(): void
+    {
+        // The same property, end to end through the validator: a prop whose NAME looks
+        // like a nested locator does not swallow the real nested finding.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'grid', 'props' => [
+                'items.0' => 'x',
+                'items'   => [['title' => 'A', 'link_url' => 'javascript:alert(1)']],
+            ]],
+        ]);
+
+        $codes = array_map(static fn ($e) => $e->get_error_code(), $errors);
+        $this->assertSame(['unknown_prop', 'invalid_prop_value'], $codes);
+        $this->assertStringContainsString('items.0', $errors[0]->get_error_message());
+        $this->assertStringContainsString('item 0 field "link_url"', $errors[1]->get_error_message());
+    }
+
     // ── First-error contract vs the collect-all engine (#233) ──────────────
     //
     // pp_validate_composition() delegates to pp_validate_composition_errors() and returns
@@ -2281,10 +2734,13 @@ class SchemaValidationTest extends TestCase
         $this->assertSame('invalid_composition', pp_validate_composition($composition)->get_error_code());
     }
 
-    public function testValidateCompositionErrorsReportsAtMostOneErrorPerItem(): void
+    public function testAStructuralFailureStillStopsTheItemAtOneError(): void
     {
-        // A single item that trips several checks must not cascade. `ghost` is unknown, so
-        // the schema lookups below that check never run against it.
+        // The four structural checks are the only ones that still end an item (#621):
+        // `ghost` has no schema, so every rule below it would be judging the band against
+        // a contract that does not exist. A style-slot error on the same band is NOT
+        // reported, and that is honest rather than incomplete — there are no slots to
+        // validate against.
         $errors = pp_validate_composition_errors([
             ['component' => 'ghost', 'style' => ['nope' => 'red']],
         ]);
@@ -2293,37 +2749,69 @@ class SchemaValidationTest extends TestCase
         $this->assertSame('invalid_composition', $errors[0]->get_error_code());
     }
 
-    public function testMultipleMissingRequiredPropsOnOneItemReportOneError(): void
+    /** @dataProvider structuralShortCircuitProvider */
+    public function testEveryStructuralShortCircuitReportsExactlyOneErrorForItsItem(array $item): void
     {
-        // Exercises the `continue 2` in the REQUIRED-PROP loop. `cta` requires
-        // button_text and button_url (title is optional since issue 294); both are
-        // absent. Without `continue 2` this item would emit two errors, shifting every
-        // later index and breaking the invariant that errors[0] is the only error
-        // pp_validate_composition() would have returned.
+        $errors = pp_validate_composition_errors([$item]);
+
+        $this->assertCount(1, $errors, 'a band whose identity is unusable reports once, not once per rule');
+    }
+
+    public static function structuralShortCircuitProvider(): array
+    {
+        // All four carry a dead style slot as bait: if a structural check ever stops
+        // ending its item, the slot rule fires and the count moves.
+        return [
+            'no component key'     => [['props' => ['title' => 'x'], 'style' => ['--nope' => 'red']]],
+            'non-scalar component' => [['component' => ['hero'], 'style' => ['--nope' => 'red']]],
+            'unknown component'    => [['component' => 'ghost', 'style' => ['--nope' => 'red']]],
+            'template-owned chrome' => [['component' => 'nav', 'style' => ['--nope' => 'red']]],
+        ];
+    }
+
+    public function testMultipleMissingRequiredPropsOnOneItemReportOneErrorEach(): void
+    {
+        // `cta` requires button_text and button_url (title is optional since issue 294);
+        // both are absent. Before #621 the required-prop loop's `continue 2` ended the
+        // item at the first one, so repairing button_text only revealed button_url on the
+        // next run. Both are named now, and errors[0] is still the error the write path
+        // returns (pinned by testFirstCollectedErrorIsExactlyWhatValidateReturns).
         $errors = pp_validate_composition_errors([
             ['component' => 'cta', 'props' => []],
         ]);
 
-        $this->assertCount(1, $errors, 'an item stops at its first failing prop check');
-        $this->assertSame('invalid_composition', $errors[0]->get_error_code());
+        $this->assertCount(2, $errors, 'one finding per missing required prop');
+        foreach ($errors as $error) {
+            $this->assertSame('invalid_composition', $error->get_error_code());
+            $this->assertSame(0, pp_composition_error_index($error));
+        }
         $this->assertStringContainsString('button_text', $errors[0]->get_error_message());
+        $this->assertStringContainsString('button_url', $errors[1]->get_error_message());
     }
 
-    public function testMissingPropSkipsTheStyleChecksForThatItem(): void
+    public function testAMissingPropNoLongerHidesTheStyleChecksForThatItem(): void
     {
-        // `continue 2` in the prop loop must jump to the next ITEM, not fall through into
-        // the style-slot checks below it. A bad style slot on the same item stays unreported.
+        // THE #621 DEFECT, in its smallest form. The prop rules used to jump to the next
+        // ITEM, so the dead style slot on the same band was unreachable until the props
+        // were repaired — the fix-one-retry-discover-the-next loop the collect-all engine
+        // exists to prevent. Both kinds of problem are reported in one pass now.
         $errors = pp_validate_composition_errors([
             ['component' => 'cta', 'props' => [], 'style' => ['--not-a-slot' => 'red']],
         ]);
 
-        $this->assertCount(1, $errors);
-        $this->assertStringContainsString('button_text', $errors[0]->get_error_message());
+        $codes = array_map(static fn ($e) => $e->get_error_code(), $errors);
+        $this->assertSame(['invalid_composition', 'invalid_composition', 'invalid_style_slot'], $codes);
+        $this->assertStringContainsString('--not-a-slot', $errors[2]->get_error_message());
     }
 
     public function testMultipleInvalidStyleSlotsOnOneItemReportOneError(): void
     {
-        // Exercises the `continue 2` in the STYLE loop. Two unknown slots on one item.
+        // THE RECORDED LIMIT of #621, pinned so it stays a decision rather than an
+        // oversight. The single error no longer comes from a `continue` in this function
+        // — that is gone — but from _pp_validate_style_slot_map(), which returns the FIRST
+        // bad slot in a map. Widening that shared engine reaches the style_component write
+        // path, which wants one actionable message, so it stayed out of #621. If it is
+        // ever widened, rewrite this test to the new contract rather than deleting it.
         $errors = pp_validate_composition_errors([
             [
                 'component' => 'hero',
@@ -2332,24 +2820,33 @@ class SchemaValidationTest extends TestCase
             ],
         ]);
 
-        $this->assertCount(1, $errors, 'an item stops at its first failing style check');
+        $this->assertCount(1, $errors, 'the shared slot engine reports the first bad slot in a map');
         $this->assertSame('invalid_style_slot', $errors[0]->get_error_code());
     }
 
-    public function testEachItemContributesItsOwnErrorAcrossItems(): void
+    public function testEachItemContributesItsOwnErrorsInDocumentOrder(): void
     {
-        // The other half of the invariant: one error PER ITEM, so three bad items give
-        // three errors, in document order.
+        // The other half of the invariant, restated for #621: findings stay grouped by
+        // band and in document order, and a band's extra findings never leak onto its
+        // neighbours. The cta contributes two (both required props), the hero one, the
+        // unknown component one — and the unknown component still stops at one, because
+        // there is no schema to judge the rest of it against.
         $errors = pp_validate_composition_errors([
             ['component' => 'cta', 'props' => []],
             ['component' => 'hero', 'props' => ['title' => 'A'], 'style' => ['--nope' => 'red']],
             ['component' => 'ghost', 'props' => []],
         ]);
 
-        $this->assertCount(3, $errors);
-        $this->assertSame('invalid_composition', $errors[0]->get_error_code());
-        $this->assertSame('invalid_style_slot', $errors[1]->get_error_code());
-        $this->assertSame('invalid_composition', $errors[2]->get_error_code());
+        $this->assertCount(4, $errors);
+        $this->assertSame(
+            ['invalid_composition', 'invalid_composition', 'invalid_style_slot', 'invalid_composition'],
+            array_map(static fn ($e) => $e->get_error_code(), $errors)
+        );
+        $this->assertSame(
+            [0, 0, 1, 2],
+            array_map(static fn ($e) => pp_composition_error_index($e), $errors),
+            'document order, grouped by the band that owns each finding'
+        );
     }
 
     public function testEmptyCompositionIsValid(): void

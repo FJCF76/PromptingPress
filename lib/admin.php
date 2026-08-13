@@ -1106,6 +1106,114 @@ function _pp_composition_item_error($index, string $code, string $message): WP_E
 }
 
 /**
+ * Renders one authored LOCATION inside a composition item as a claim key (#621).
+ *
+ * The exhaustive per-item reporting pp_validate_composition_errors() does needs a way to
+ * say "this exact spot already has a finding" so two rules that judge the SAME authored
+ * value cannot both report it (a `columns: "abc"` fails the #379 bounds rule and the
+ * #507 `number` type rule; a nested field can fail both #614's scalar type and #600's
+ * enum membership). Without it, exhaustiveness would mean "one problem reported twice",
+ * which reads as two problems and sends the operator looking for a second repair.
+ *
+ * The segments are a rule-owned ROLE (`prop`, `content`, `style`, `item-style`) followed
+ * by the locator the message itself names — prop, then items[] entry key, then field —
+ * so the claim granularity and the message granularity cannot drift. The role keeps
+ * rule-owned locations in their own namespace: `style` is also a real declared items[]
+ * field name, and a card's style map must never be able to claim, or be claimed by, a
+ * nested field of that name.
+ *
+ * ENCODING, and why it is not a naive implode. The segments are AUTHOR-SUPPLIED array
+ * keys: a prop key may contain `.`, `[`, `]`, `:` or any byte at all, and an items[]
+ * entry key comes from a JSON object nobody validated. `implode('.', ...)` would make
+ * the prop literally named `items.0` collide with entry 0 of prop `items`, and a
+ * collision here SUPPRESSES a real finding — the exact failure this function exists to
+ * prevent, wearing the opposite hat. Each segment is therefore length-prefixed, which is
+ * injective for arbitrary bytes and, unlike json_encode(), cannot fail on invalid UTF-8
+ * (json_encode() returns false there, collapsing every such key onto one bucket).
+ *
+ * PHP folds a numeric-STRING array key to an integer on the way in, so a stored `"5"`
+ * and a list position 5 are the same key before this function ever sees them. Whether
+ * those two SHOULD read alike in a message is #652's question about the locator
+ * vocabulary; this key inherits whatever that decides and adds no new ambiguity.
+ *
+ * A non-scalar segment is unreachable from every call site (PHP array keys are int|string
+ * and the rule-name segments are literals), but it degrades to a `?`-prefixed type name
+ * rather than to a bare `gettype()` string — `?array` cannot be produced by the
+ * length-prefixed branch, so even the impossible input stays injective instead of
+ * colliding with a prop genuinely named `array`.
+ *
+ * @param  mixed ...$segments  Locator parts, outermost first (prop, entry key, field).
+ * @return string              Collision-free key. Internal only — never rendered.
+ */
+function _pp_finding_location(...$segments): string {
+    $key = '';
+    foreach ($segments as $segment) {
+        $key .= is_scalar($segment)
+            ? strlen((string) $segment) . ':' . $segment
+            : '?' . gettype($segment);
+    }
+
+    return $key;
+}
+
+/**
+ * Whether an authored location already carries a finding (#621).
+ *
+ * The read-only half of the claim set, for a rule that must SKIP work rather than report:
+ * the nested items[] walk asks this before judging an entry's fields, because an entry
+ * whose SHAPE was already rejected would otherwise have every required field reported as
+ * missing on a value whose real problem is that it is not an object at all.
+ *
+ * @param  array $sink         The finding sink (see _pp_claim_item_finding()).
+ * @param  mixed ...$segments  Locator parts for _pp_finding_location().
+ * @return bool
+ */
+function _pp_item_finding_claimed(array $sink, ...$segments): bool {
+    return isset($sink['claimed'][_pp_finding_location(...$segments)]);
+}
+
+/**
+ * Claims one authored location for the first rule that reports it (#621).
+ *
+ * True the first time a location is claimed, false every time after. Callers report only
+ * on true, so FIRST RULE IN TRAVERSAL ORDER WINS a contested location — which preserves
+ * the priority the file already documents (the #507 generic type pass deliberately runs
+ * AFTER the #379/#380/#475 bounded families so their more precise messages win for the
+ * props they cover). The claim set makes that ordering load-bearing rather than
+ * incidental: reordering the rule blocks now changes which message an operator sees, so
+ * a reorder is a behavior change and must be treated as one.
+ *
+ * THE SINK ALSO CARRIES THE BUDGET, which is what keeps the write path bounded. Because
+ * EVERY report site in pp_validate_composition_errors() passes through this gate, refusing
+ * a claim here is enough to stop a WP_Error and its formatted message from ever being
+ * built — no loop-control plumbing at twenty sites. pp_validate_composition() sets the
+ * budget to 1: it returns errors[0] and discards the rest, so without a budget a caller
+ * could hand a write path 200KB of malformed items and make it allocate hundreds of
+ * megabytes of findings that nothing reads. A null budget means unbounded, which is what
+ * the reporting callers (#233 restore, #236 rollback, the read-only CLI) use.
+ *
+ * @param  array $sink         ['claimed' => array, 'budget' => int|null], by reference.
+ *                             `claimed` is reset per item; `budget` spans the composition.
+ * @param  mixed ...$segments  Locator parts for _pp_finding_location().
+ * @return bool                True when the caller should report this finding.
+ */
+function _pp_claim_item_finding(array &$sink, ...$segments): bool {
+    if ($sink['budget'] !== null && $sink['budget'] < 1) {
+        return false;
+    }
+    $location = _pp_finding_location(...$segments);
+    if (isset($sink['claimed'][$location])) {
+        return false;
+    }
+    $sink['claimed'][$location] = true;
+    if ($sink['budget'] !== null) {
+        $sink['budget']--;
+    }
+
+    return true;
+}
+
+/**
  * Reads the composition offset stamped by _pp_composition_item_error() (#622).
  *
  * Returns null for a cross-item error (duplicate_component_id) and for any WP_Error
@@ -1209,23 +1317,74 @@ function _pp_render_undeclared_prop_keys(array $keys): string {
  * `findings` (#233) — need the complete set, or a caller fixes one violation, retries,
  * and discovers the next one only on the following run.
  *
- * At most ONE error per item: each item stops at its first failing check and moves on.
- * That keeps errors[0] identical to the single error pp_validate_composition() has
- * always returned (same code, same message, same document order), and it stops a
- * malformed item from cascading bogus follow-on errors from the checks below it.
+ * EXHAUSTIVE PER AUTHORED LOCATION (#621). Until #621 this function stopped each item at
+ * its FIRST failing check (`continue 2` and friends), so a band with a retired prop name
+ * AND a dead style slot reported the prop and surfaced the slot only on the next pass —
+ * precisely the fix-one-retry-discover-the-next loop a collect-all engine exists to
+ * prevent. Every SCHEMA rule now records its finding and keeps validating the rest of
+ * the item. The unit of exhaustiveness is the authored LOCATION the message names —
+ * a prop, an items[] entry, a nested field, plus two item-scoped locations (`content`
+ * for the #488 content requirement and `style` for the band's style map) — claimed
+ * through _pp_claim_item_finding() so two rules judging one value report it once, not
+ * twice. A rule whose message names only the prop (the #475 "items must be strings"
+ * family) therefore reports once per prop rather than once per offending entry: the
+ * report is as fine-grained as the locator it can offer, and no finer.
+ *
+ * A trailing `continue` after a claim means "this rule is done with this location". Some
+ * of them are the last statement of their loop body and therefore no-ops today; they are
+ * written anyway so appending a rule below one of them cannot silently make the rule run
+ * on a value that was already reported. The `continue N` that remain are the four
+ * structural checks below plus three inner-loop exits whose depth is stated inline.
+ *
+ * THE SECOND DELIBERATE LIMIT is the style map: _pp_validate_style_slot_map() returns the
+ * FIRST bad slot in a map, so a band declaring two dead slots reports one. Widening that
+ * shared engine reaches the style_component write path, which wants a single actionable
+ * message, so it stayed out of #621 — what #621 fixed there is the MASKING (the rule was
+ * unreachable for any item that tripped an earlier one).
+ *
+ * FOUR STRUCTURAL CHECKS STILL END THE ITEM, because nothing below them can be judged:
+ * a missing `component` key, a non-scalar `component`, an unknown component (there is no
+ * schema to validate against) and template-owned chrome (the band's identity is invalid,
+ * so its props would be judged against a contract the operator must not use). Those four
+ * are the only `continue`s to the next item left in this loop.
+ *
+ * NO CASCADE: a malformed parent is reported once by the rule that owns it and skipped by
+ * the rules underneath. Mostly the existing guards already did that — every rule reads its
+ * value through array_key_exists() or an is_array() gate, so `props: "oops"` belongs to
+ * the required-prop rule, a scalar `items` to the #507 type pass, and a scalar ENTRY to
+ * the item_type:"object" rule. One shape needed a real guard: a JSON LIST entry
+ * (`items: [["/a.png","Alt"]]`) passes is_array(), so the nested field walk asks
+ * _pp_item_finding_claimed() whether the entry's shape was already reported before
+ * judging its fields. Without that, one malformed entry produced its shape error plus one
+ * "missing required field" per declared field — misleading enough to send an authoring
+ * agent adding keys to a list that can never satisfy the shape rule.
+ *
+ * errors[0] IS UNCHANGED. Rule order is untouched, a claim can never suppress an item's
+ * FIRST finding, and everything exhaustiveness adds is APPENDED after the error that was
+ * already there — so pp_validate_composition(), which returns errors[0], rejects every
+ * write with exactly the code and message it always did.
  *
  * Every per-item error carries its composition offset as WP_Error data (#622); read it
  * with pp_composition_error_index(). Cross-item errors (duplicate_component_id) carry
  * none — they belong to no single band and name every colliding index in the message.
  *
- * @param  array      $items  Decoded composition array.
- * @return WP_Error[]         Empty when the composition is valid.
+ * @param  array    $items  Decoded composition array.
+ * @param  int|null $limit  Stop building findings after this many (null = every one).
+ *                          Only pp_validate_composition() passes a value; see below.
+ * @return WP_Error[]       Empty when the composition is valid.
  */
-function pp_validate_composition_errors(array $items): array {
+function pp_validate_composition_errors(array $items, ?int $limit = null): array {
     $registered = pp_get_registered_components();
     $errors     = [];
+    // One sink for the whole composition: per-item claims plus the shared budget.
+    $sink = ['claimed' => [], 'budget' => $limit];
 
     foreach ($items as $i => $item) {
+        // Authored locations inside THIS item that already carry a finding (#621).
+        // Reset per item: two bands may each report their own `prop / title`. The budget
+        // is NOT reset — it spans the composition (see _pp_claim_item_finding()).
+        $sink['claimed'] = [];
+
         if (!isset($item['component'])) {
             $errors[] = _pp_composition_item_error($i,
                 'invalid_composition',
@@ -1288,6 +1447,13 @@ function pp_validate_composition_errors(array $items): array {
         // the checks below exactly as stored or submitted.
         $schema = $registered[$name];
         if (!empty($schema['props'])) {
+            // Built at most once per item, on first use (#621). The hint below depends on
+            // the ITEM, not on which required prop is missing, and exhaustive reporting
+            // means the loop can now fire many times for one item — a corrupt `props`
+            // bag trips EVERY required prop at once. Rebuilding the same string (a full
+            // props scan plus up to ten preg_replace/mb_* calls) per missing prop would
+            // make the commonest malformed shape the most expensive one to report.
+            $undeclared_hint = null;
             foreach ($schema['props'] as $prop_name => $prop_def) {
                 // `is_array($item['props'])` is load-bearing, not defensive noise (#622).
                 // This engine runs over compositions that never passed write-time
@@ -1301,27 +1467,37 @@ function pp_validate_composition_errors(array $items): array {
                     (!isset($item['props']) || !is_array($item['props']) || !array_key_exists($prop_name, $item['props']))
                 ) {
                     // Name the undeclared keys this item DOES carry (#622). The
-                    // unknown-prop gate further down would have named them, but the
-                    // required-prop check fires first and `continue 2` ends the item,
-                    // so without this the operator is told a canonical name is missing
-                    // and never told that a value is sitting under an unrecognized key
-                    // right next to it. Derived from the schema — the current contract
+                    // unknown-prop gate further down names them one by one since #621,
+                    // but this clause stays load-bearing on the WRITE path, which is
+                    // still first-error-wins: pp_validate_composition() returns this
+                    // message alone, so without the hint the caller is told a canonical
+                    // name is missing and never told that a value is sitting under an
+                    // unrecognized key right next to it. Derived from the schema — the current contract
                     // is the only source consulted. There is no retired-name lookup
                     // here and there must never be one (#603/#604/#605/#606 removed
                     // every alias map; a "formerly known as" hint list would be that
                     // machinery again under a different name).
-                    $message    = sprintf('Component "%s" is missing required prop "%s".', $name, $prop_name);
-                    $undeclared = _pp_undeclared_prop_keys($item, $schema);
-                    if ($undeclared !== []) {
-                        $message .= sprintf(
-                            ' This item also carries prop key(s) "%s" does not declare: %s. Available props: %s.',
-                            $name,
-                            _pp_render_undeclared_prop_keys($undeclared),
-                            implode(', ', array_keys($schema['props']))
-                        );
+                    if ($undeclared_hint === null) {
+                        $undeclared      = _pp_undeclared_prop_keys($item, $schema);
+                        $undeclared_hint = $undeclared === []
+                            ? ''
+                            : sprintf(
+                                ' This item also carries prop key(s) "%s" does not declare: %s. Available props: %s.',
+                                $name,
+                                _pp_render_undeclared_prop_keys($undeclared),
+                                implode(', ', array_keys($schema['props']))
+                            );
                     }
-                    $errors[] = _pp_composition_item_error($i, 'invalid_composition', $message);
-                    continue 2;
+                    $message = sprintf('Component "%s" is missing required prop "%s".', $name, $prop_name)
+                        . $undeclared_hint;
+                    // Exhaustive since #621: an item missing BOTH button_text and
+                    // button_url names both, so one repair pass fixes the band. The
+                    // claim is on the prop that is absent, which no later rule can
+                    // report anyway (they all read the value through array_key_exists).
+                    if (_pp_claim_item_finding($sink, 'prop', $prop_name)) {
+                        $errors[] = _pp_composition_item_error($i, 'invalid_composition', $message);
+                    }
+                    continue;
                 }
             }
         }
@@ -1371,11 +1547,15 @@ function pp_validate_composition_errors(array $items): array {
                 $message = isset($schema['content_requirement']['message'])
                     ? (string) $schema['content_requirement']['message']
                     : 'has no renderable content';
-                $errors[] = _pp_composition_item_error($i,
-                    'invalid_composition',
-                    sprintf('Component "%s" %s.', $name, $message)
-                );
-                continue;
+                if (_pp_claim_item_finding($sink, 'content')) {
+                    $errors[] = _pp_composition_item_error($i,
+                        'invalid_composition',
+                        sprintf('Component "%s" %s.', $name, $message)
+                    );
+                }
+                // No `continue` since #621: "this band has no content" and "this band
+                // also declares a dead style slot" are independent repairs, and an
+                // empty band is exactly the case where the operator wants both at once.
             }
         }
 
@@ -1396,23 +1576,36 @@ function pp_validate_composition_errors(array $items): array {
         // first-error document order. restore_composition (issue 233) reports this
         // through _pp_composition_findings() but never blocks on it — same as every
         // other rule here.
+        //
+        // THE `continue 2` THAT STARTED #621 WAS HERE. It abandoned every later rule for
+        // the item, so a band carrying a retired prop name reported that name and hid its
+        // dead style slot, its out-of-range value and its broken link until the first was
+        // repaired. Post-#604 that mattered more, not less: 13 more names route through
+        // this gate, and a restore preview is where an operator sees them. Each unknown
+        // key is now its own finding, and the rules below still run.
         if (isset($item['props']) && is_array($item['props'])) {
             $declared = isset($schema['props']) && is_array($schema['props'])
                 ? $schema['props']
                 : [];
+            // Loop-invariant, and hoisted for the same reason as the required-prop hint
+            // above (#621): the gate no longer stops at the first unknown key, so leaving
+            // this inside the loop would rebuild one identical 200-character list per
+            // unknown key on an item that carries many.
+            $available = implode(', ', array_keys($declared)) ?: '(none)';
             foreach ($item['props'] as $prop_name => $prop_value) {
                 if (!array_key_exists($prop_name, $declared)) {
-                    $available = implode(', ', array_keys($declared));
-                    $errors[]  = _pp_composition_item_error($i,
-                        'unknown_prop',
-                        sprintf(
-                            'Component "%s" has no prop "%s". Available props: %s',
-                            $name,
-                            $prop_name,
-                            $available ?: '(none)'
-                        )
-                    );
-                    continue 2;
+                    if (_pp_claim_item_finding($sink, 'prop', $prop_name)) {
+                        $errors[] = _pp_composition_item_error($i,
+                            'unknown_prop',
+                            sprintf(
+                                'Component "%s" has no prop "%s". Available props: %s',
+                                $name,
+                                $prop_name,
+                                $available
+                            )
+                        );
+                    }
+                    continue;
                 }
             }
         }
@@ -1445,18 +1638,23 @@ function pp_validate_composition_errors(array $items): array {
                 $min = (int) $prop_def['min'];
                 $max = (int) $prop_def['max'];
                 if (!$is_integer || (int) $value < $min || (int) $value > $max) {
-                    $errors[] = _pp_composition_item_error($i,
-                        'invalid_prop_value',
-                        sprintf(
-                            'Component "%s" prop "%s" must be an integer between %d and %d; got "%s".',
-                            $name,
-                            $prop_name,
-                            $min,
-                            $max,
-                            is_scalar($value) ? (string) $value : gettype($value)
-                        )
-                    );
-                    continue 2;
+                    // Claims the prop (#621), which is what keeps the #507 generic type
+                    // pass from reporting the SAME value a second time as "must be a
+                    // number" — this message is the more precise of the two.
+                    if (_pp_claim_item_finding($sink, 'prop', $prop_name)) {
+                        $errors[] = _pp_composition_item_error($i,
+                            'invalid_prop_value',
+                            sprintf(
+                                'Component "%s" prop "%s" must be an integer between %d and %d; got "%s".',
+                                $name,
+                                $prop_name,
+                                $min,
+                                $max,
+                                is_scalar($value) ? (string) $value : gettype($value)
+                            )
+                        );
+                    }
+                    continue;
                 }
             }
         }
@@ -1527,17 +1725,19 @@ function pp_validate_composition_errors(array $items): array {
                 // error names is exactly what the catalog advertises and exactly what
                 // the gate accepts — one vocabulary, no unadvertised tier.
                 if (!_pp_schema_enum_value_is_valid($prop_def, $value)) {
-                    $errors[] = _pp_composition_item_error($i,
-                        'invalid_prop_value',
-                        sprintf(
-                            'Component "%s" prop "%s" must be one of: %s; got "%s".',
-                            $name,
-                            $prop_name,
-                            implode(', ', $prop_def['values']),
-                            is_scalar($value) ? (string) $value : gettype($value)
-                        )
-                    );
-                    continue 2;
+                    if (_pp_claim_item_finding($sink, 'prop', $prop_name)) {
+                        $errors[] = _pp_composition_item_error($i,
+                            'invalid_prop_value',
+                            sprintf(
+                                'Component "%s" prop "%s" must be one of: %s; got "%s".',
+                                $name,
+                                $prop_name,
+                                implode(', ', $prop_def['values']),
+                                is_scalar($value) ? (string) $value : gettype($value)
+                            )
+                        );
+                    }
+                    continue;
                 }
             }
         }
@@ -1570,57 +1770,70 @@ function pp_validate_composition_errors(array $items): array {
                 if ($value === null || $value === '' || $value === []) {
                     continue; // unset sentinel — keeps the prop's default (empty row)
                 }
+                // GRANULARITY, #621: every message in this family names the PROP and no
+                // entry index, so the whole prop is one authored location and reports
+                // once. Three bad bullets are one "items must be strings" finding, not
+                // three identical lines the operator cannot tell apart. When a rule here
+                // gains an entry locator, widen the claim segments with it.
                 if (!is_array($value)) {
-                    $errors[] = _pp_composition_item_error($i,
-                        'invalid_prop_value',
-                        sprintf(
-                            'Component "%s" prop "%s" must be an array of strings; got %s.',
-                            $name,
-                            $prop_name,
-                            gettype($value)
-                        )
-                    );
-                    continue 2;
+                    if (_pp_claim_item_finding($sink, 'prop', $prop_name)) {
+                        $errors[] = _pp_composition_item_error($i,
+                            'invalid_prop_value',
+                            sprintf(
+                                'Component "%s" prop "%s" must be an array of strings; got %s.',
+                                $name,
+                                $prop_name,
+                                gettype($value)
+                            )
+                        );
+                    }
+                    continue;
                 }
                 if (isset($prop_def['max_items']) && count($value) > (int) $prop_def['max_items']) {
-                    $errors[] = _pp_composition_item_error($i,
-                        'invalid_prop_value',
-                        sprintf(
-                            'Component "%s" prop "%s" accepts at most %d items; got %d.',
-                            $name,
-                            $prop_name,
-                            (int) $prop_def['max_items'],
-                            count($value)
-                        )
-                    );
-                    continue 2;
+                    if (_pp_claim_item_finding($sink, 'prop', $prop_name)) {
+                        $errors[] = _pp_composition_item_error($i,
+                            'invalid_prop_value',
+                            sprintf(
+                                'Component "%s" prop "%s" accepts at most %d items; got %d.',
+                                $name,
+                                $prop_name,
+                                (int) $prop_def['max_items'],
+                                count($value)
+                            )
+                        );
+                    }
+                    continue;
                 }
                 $item_max_length = isset($prop_def['item_max_length']) ? (int) $prop_def['item_max_length'] : null;
                 foreach ($value as $entry) {
                     if (!is_string($entry)) {
-                        $errors[] = _pp_composition_item_error($i,
-                            'invalid_prop_value',
-                            sprintf(
-                                'Component "%s" prop "%s" items must be strings; got %s.',
-                                $name,
-                                $prop_name,
-                                gettype($entry)
-                            )
-                        );
-                        continue 3;
+                        if (_pp_claim_item_finding($sink, 'prop', $prop_name)) {
+                            $errors[] = _pp_composition_item_error($i,
+                                'invalid_prop_value',
+                                sprintf(
+                                    'Component "%s" prop "%s" items must be strings; got %s.',
+                                    $name,
+                                    $prop_name,
+                                    gettype($entry)
+                                )
+                            );
+                        }
+                        continue 2;
                     }
                     if ($item_max_length !== null && mb_strlen($entry) > $item_max_length) {
-                        $errors[] = _pp_composition_item_error($i,
-                            'invalid_prop_value',
-                            sprintf(
-                                'Component "%s" prop "%s" items must be at most %d characters; got %d.',
-                                $name,
-                                $prop_name,
-                                $item_max_length,
-                                mb_strlen($entry)
-                            )
-                        );
-                        continue 3;
+                        if (_pp_claim_item_finding($sink, 'prop', $prop_name)) {
+                            $errors[] = _pp_composition_item_error($i,
+                                'invalid_prop_value',
+                                sprintf(
+                                    'Component "%s" prop "%s" items must be at most %d characters; got %d.',
+                                    $name,
+                                    $prop_name,
+                                    $item_max_length,
+                                    mb_strlen($entry)
+                                )
+                            );
+                        }
+                        continue 2;
                     }
                 }
             }
@@ -1659,16 +1872,18 @@ function pp_validate_composition_errors(array $items): array {
                     // The predicate is shared with the nested items[] pass (#614) so
                     // the two depths cannot drift on what "string" accepts.
                     if (!_pp_schema_scalar_value_is_valid('string', $value)) {
-                        $errors[] = _pp_composition_item_error($i,
-                            'invalid_prop_value',
-                            sprintf(
-                                'Component "%s" prop "%s" must be a string; got %s.',
-                                $name,
-                                $prop_name,
-                                gettype($value)
-                            )
-                        );
-                        continue 2;
+                        if (_pp_claim_item_finding($sink, 'prop', $prop_name)) {
+                            $errors[] = _pp_composition_item_error($i,
+                                'invalid_prop_value',
+                                sprintf(
+                                    'Component "%s" prop "%s" must be a string; got %s.',
+                                    $name,
+                                    $prop_name,
+                                    gettype($value)
+                                )
+                            );
+                        }
+                        continue;
                     }
                 } elseif ($declared_type === 'number') {
                     // Reject non-numerics. Numeric strings are accepted (a JSON/CLI
@@ -1677,32 +1892,38 @@ function pp_validate_composition_errors(array $items): array {
                     // unset sentinel (keeps the prop default, e.g. logo_id => 0).
                     // Shared with the nested items[] pass (#614), same as `string`.
                     if (!_pp_schema_scalar_value_is_valid('number', $value)) {
-                        $errors[] = _pp_composition_item_error($i,
-                            'invalid_prop_value',
-                            sprintf(
-                                'Component "%s" prop "%s" must be a number; got %s.',
-                                $name,
-                                $prop_name,
-                                _pp_schema_value_for_message($value)
-                            )
-                        );
-                        continue 2;
+                        if (_pp_claim_item_finding($sink, 'prop', $prop_name)) {
+                            $errors[] = _pp_composition_item_error($i,
+                                'invalid_prop_value',
+                                sprintf(
+                                    'Component "%s" prop "%s" must be a number; got %s.',
+                                    $name,
+                                    $prop_name,
+                                    _pp_schema_value_for_message($value)
+                                )
+                            );
+                        }
+                        continue;
                     }
                 } elseif ($declared_type === 'array') {
                     // Reject scalars where an array belongs. null/''/[] are the unset
                     // sentinel (an empty row renders nothing). A present scalar is the
                     // silent-wrong case the renderer's is_array() guards swallow.
                     if ($value !== null && $value !== '' && $value !== [] && !is_array($value)) {
-                        $errors[] = _pp_composition_item_error($i,
-                            'invalid_prop_value',
-                            sprintf(
-                                'Component "%s" prop "%s" must be an array; got %s.',
-                                $name,
-                                $prop_name,
-                                gettype($value)
-                            )
-                        );
-                        continue 2;
+                        if (_pp_claim_item_finding($sink, 'prop', $prop_name)) {
+                            $errors[] = _pp_composition_item_error($i,
+                                'invalid_prop_value',
+                                sprintf(
+                                    'Component "%s" prop "%s" must be an array; got %s.',
+                                    $name,
+                                    $prop_name,
+                                    gettype($value)
+                                )
+                            );
+                        }
+                        // The nested walks below all guard on is_array(), so the scalar
+                        // is reported once, here, and skipped everywhere underneath.
+                        continue;
                     }
                     // Object-item arrays opt in with `item_type: "object"` (mirrors
                     // the #475 `item_type: "string"` convention). Every entry must be
@@ -1717,17 +1938,21 @@ function pp_validate_composition_errors(array $items): array {
                             $is_object_shape = is_array($entry)
                                 && ($entry === [] || !pp_is_list($entry));
                             if (!$is_object_shape) {
-                                $errors[] = _pp_composition_item_error($i,
-                                    'invalid_prop_value',
-                                    sprintf(
-                                        'Component "%s" prop "%s" item %s must be an object; got %s.',
-                                        $name,
-                                        $prop_name,
-                                        _pp_item_index_label($entry_index),
-                                        gettype($entry)
-                                    )
-                                );
-                                continue 3;
+                                // Per ENTRY since #621 — the message names the entry, so
+                                // a grid whose cards 0 and 2 are both scalars names both.
+                                if (_pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index)) {
+                                    $errors[] = _pp_composition_item_error($i,
+                                        'invalid_prop_value',
+                                        sprintf(
+                                            'Component "%s" prop "%s" item %s must be an object; got %s.',
+                                            $name,
+                                            $prop_name,
+                                            _pp_item_index_label($entry_index),
+                                            gettype($entry)
+                                        )
+                                    );
+                                }
+                                continue;
                             }
                         }
                     }
@@ -1743,17 +1968,19 @@ function pp_validate_composition_errors(array $items): array {
                     if (($prop_def['item_type'] ?? null) === 'array' && is_array($value)) {
                         foreach ($value as $entry_index => $entry) {
                             if (!is_array($entry)) {
-                                $errors[] = _pp_composition_item_error($i,
-                                    'invalid_prop_value',
-                                    sprintf(
-                                        'Component "%s" prop "%s" item %s must be an array; got %s.',
-                                        $name,
-                                        $prop_name,
-                                        _pp_item_index_label($entry_index),
-                                        gettype($entry)
-                                    )
-                                );
-                                continue 3;
+                                if (_pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index)) {
+                                    $errors[] = _pp_composition_item_error($i,
+                                        'invalid_prop_value',
+                                        sprintf(
+                                            'Component "%s" prop "%s" item %s must be an array; got %s.',
+                                            $name,
+                                            $prop_name,
+                                            _pp_item_index_label($entry_index),
+                                            gettype($entry)
+                                        )
+                                    );
+                                }
+                                continue;
                             }
                         }
                     }
@@ -1829,6 +2056,18 @@ function pp_validate_composition_errors(array $items): array {
                     if (!is_array($entry)) {
                         continue; // non-object entry — item_type: "object" owns that error
                     }
+                    // A JSON LIST is an array, so is_array() alone lets `items: [["/a.png",
+                    // "Alt"]]` — one of the commonest shapes an authoring agent gets wrong —
+                    // through to the field rules, which then report every required field as
+                    // missing on a value whose real problem is that it is not an object.
+                    // Before #621 the item_type:"object" rule's `continue 3` ended the item
+                    // and hid that; exhaustive reporting exposed it as three findings for
+                    // one defect, two of them misleading enough to send an agent into a
+                    // repair loop (adding keys to a list still fails the shape rule). The
+                    // rule that OWNS the entry's shape has already claimed it, so ask.
+                    if (_pp_item_finding_claimed($sink, 'prop', $prop_name, $entry_index)) {
+                        continue;
+                    }
                     foreach ($prop_def['items'] as $field_name => $field_def) {
                         // The `items` key carries two shapes across the shipped
                         // schemas: a FIELD MAP (grid.items => {title: {...}, ...})
@@ -1842,17 +2081,22 @@ function pp_validate_composition_errors(array $items): array {
                         if (!empty($field_def['required'])
                             && !array_key_exists($field_name, $entry)
                         ) {
-                            $errors[] = _pp_composition_item_error($i,
-                                'invalid_composition',
-                                sprintf(
-                                    'Component "%s" prop "%s" item %s is missing required field "%s".',
-                                    $name,
-                                    $prop_name,
-                                    _pp_item_index_label($entry_index),
-                                    $field_name
-                                )
-                            );
-                            continue 4;
+                            // Per FIELD since #621: a logos entry missing both
+                            // image_url and image_alt names both, and the sibling
+                            // entries are still walked.
+                            if (_pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index, $field_name)) {
+                                $errors[] = _pp_composition_item_error($i,
+                                    'invalid_composition',
+                                    sprintf(
+                                        'Component "%s" prop "%s" item %s is missing required field "%s".',
+                                        $name,
+                                        $prop_name,
+                                        _pp_item_index_label($entry_index),
+                                        $field_name
+                                    )
+                                );
+                            }
+                            continue;
                         }
                         // RULE 3 — the field's own declared SCALAR type (#614).
                         // `required` and `item_type` above said WHETHER a field is
@@ -1884,26 +2128,31 @@ function pp_validate_composition_errors(array $items): array {
                             && array_key_exists($field_name, $entry)
                             && !_pp_schema_scalar_value_is_valid($field_type, $entry[$field_name])
                         ) {
-                            $errors[] = _pp_composition_item_error($i,
-                                'invalid_prop_value',
-                                sprintf(
-                                    'Component "%s" prop "%s" item %s field "%s" must be a %s; got %s.',
-                                    $name,
-                                    $prop_name,
-                                    _pp_item_index_label($entry_index),
-                                    $field_name,
-                                    $field_type,
-                                    _pp_schema_value_for_message($entry[$field_name])
-                                )
-                            );
+                            if (_pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index, $field_name)) {
+                                $errors[] = _pp_composition_item_error($i,
+                                    'invalid_prop_value',
+                                    sprintf(
+                                        'Component "%s" prop "%s" item %s field "%s" must be a %s; got %s.',
+                                        $name,
+                                        $prop_name,
+                                        _pp_item_index_label($entry_index),
+                                        $field_name,
+                                        $field_type,
+                                        _pp_schema_value_for_message($entry[$field_name])
+                                    )
+                                );
+                            }
                             // Depth accounting for every `continue` in this block:
                             //   1 foreach ($prop_def['items'] …)   fields of one entry
                             //   2 foreach ($entries …)             entries of one prop
                             //   3 foreach ($schema['props'] …)     props of one component
                             //   4 the per-component loop           => next component
-                            // One error per component item, matching every other rule
-                            // in this function. Recount these if the nesting changes.
-                            continue 4;
+                            // Since #621 the rules here advance to the NEXT FIELD (bare
+                            // `continue`, depth 1) instead of ending the component item:
+                            // one finding per authored field, every field walked. The
+                            // claim above is what keeps RULE 4 below from re-reporting
+                            // this same field. Recount these if the nesting changes.
+                            continue;
                         }
                         // RULE 4 — the field's own STRICT enum membership (#600).
                         // The last accept-at-write / coerce-at-render surface in the
@@ -1941,21 +2190,23 @@ function pp_validate_composition_errors(array $items): array {
                         if (array_key_exists($field_name, $entry)
                             && !_pp_schema_enum_value_is_valid($field_def, $entry[$field_name])
                         ) {
-                            $errors[] = _pp_composition_item_error($i,
-                                'invalid_prop_value',
-                                sprintf(
-                                    'Component "%s" prop "%s" item %s field "%s" must be one of: %s; got %s.',
-                                    $name,
-                                    $prop_name,
-                                    _pp_item_index_label($entry_index),
-                                    $field_name,
-                                    implode(', ', $field_def['values']),
-                                    _pp_schema_value_for_message($entry[$field_name])
-                                )
-                            );
-                            // Same depth accounting as RULE 3 above — this sits at the
-                            // same nesting level, so 4 is still "next component".
-                            continue 4;
+                            if (_pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index, $field_name)) {
+                                $errors[] = _pp_composition_item_error($i,
+                                    'invalid_prop_value',
+                                    sprintf(
+                                        'Component "%s" prop "%s" item %s field "%s" must be one of: %s; got %s.',
+                                        $name,
+                                        $prop_name,
+                                        _pp_item_index_label($entry_index),
+                                        $field_name,
+                                        implode(', ', $field_def['values']),
+                                        _pp_schema_value_for_message($entry[$field_name])
+                                    )
+                                );
+                            }
+                            // Same depth accounting as RULE 3 above — a bare `continue`
+                            // is the next FIELD of this entry (#621).
+                            continue;
                         }
                         if (($field_def['type'] ?? null) === 'array'
                             && ($field_def['item_type'] ?? null) === 'string'
@@ -1964,18 +2215,23 @@ function pp_validate_composition_errors(array $items): array {
                         ) {
                             foreach ($entry[$field_name] as $bullet) {
                                 if (!is_string($bullet)) {
-                                    $errors[] = _pp_composition_item_error($i,
-                                        'invalid_prop_value',
-                                        sprintf(
-                                            'Component "%s" prop "%s" item %s field "%s" items must be strings; got %s.',
-                                            $name,
-                                            $prop_name,
-                                            _pp_item_index_label($entry_index),
-                                            $field_name,
-                                            gettype($bullet)
-                                        )
-                                    );
-                                    continue 5;
+                                    // The message names the FIELD, not the bullet, so
+                                    // the field is the location: two bad bullets in one
+                                    // list are one finding (#621).
+                                    if (_pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index, $field_name)) {
+                                        $errors[] = _pp_composition_item_error($i,
+                                            'invalid_prop_value',
+                                            sprintf(
+                                                'Component "%s" prop "%s" item %s field "%s" items must be strings; got %s.',
+                                                $name,
+                                                $prop_name,
+                                                _pp_item_index_label($entry_index),
+                                                $field_name,
+                                                gettype($bullet)
+                                            )
+                                        );
+                                    }
+                                    continue 2; // next FIELD of this entry
                                 }
                             }
                         }
@@ -2008,11 +2264,13 @@ function pp_validate_composition_errors(array $items): array {
                     && array_key_exists($prop_name, $item['props'])
                     && !_pp_link_url_is_valid($item['props'][$prop_name])
                 ) {
-                    $errors[] = _pp_composition_item_error($i,
-                        'invalid_prop_value',
-                        _pp_link_url_error_message($name, $prop_name, null, null, $item['props'][$prop_name])
-                    );
-                    continue 2;
+                    if (_pp_claim_item_finding($sink, 'prop', $prop_name)) {
+                        $errors[] = _pp_composition_item_error($i,
+                            'invalid_prop_value',
+                            _pp_link_url_error_message($name, $prop_name, null, null, $item['props'][$prop_name])
+                        );
+                    }
+                    continue;
                 }
                 // Nested link_url on the items[] of an array prop (grid.items[].link_url).
                 if (($prop_def['type'] ?? null) === 'array'
@@ -2032,11 +2290,22 @@ function pp_validate_composition_errors(array $items): array {
                             }
                             foreach ($link_fields as $field) {
                                 if (array_key_exists($field, $entry) && !_pp_link_url_is_valid($entry[$field])) {
-                                    $errors[] = _pp_composition_item_error($i,
-                                        'invalid_prop_value',
-                                        _pp_link_url_error_message($name, $prop_name, $entry_index, $field, $entry[$field])
-                                    );
-                                    continue 3;
+                                    // The nested arm already advanced to the next PROP
+                                    // rather than ending the item (a `continue 3` from
+                                    // three loops in), while the top-level arm above it
+                                    // was a `continue 2` to the next item — so a dead card
+                                    // link did not stop a LATER array prop's link check.
+                                    // That was the one place the old "one error per item"
+                                    // docblock was already untrue. It now advances to the
+                                    // next FIELD, so two dead links on one card, and dead
+                                    // links on different cards, are all named (#621).
+                                    if (_pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index, $field)) {
+                                        $errors[] = _pp_composition_item_error($i,
+                                            'invalid_prop_value',
+                                            _pp_link_url_error_message($name, $prop_name, $entry_index, $field, $entry[$field])
+                                        );
+                                    }
+                                    continue;
                                 }
                             }
                         }
@@ -2053,8 +2322,17 @@ function pp_validate_composition_errors(array $items): array {
                 // Built by the shared slot engine, which has no view of the composition
                 // offset — restamp it here so this error carries the same locator as
                 // every sibling in this loop (#622).
-                $errors[] = _pp_composition_item_error($i, $style_error->get_error_code(), $style_error->get_error_message());
-                continue;
+                //
+                // ONE FINDING PER STYLE MAP, and that is the residual granularity limit
+                // of #621: _pp_validate_style_slot_map() returns the FIRST bad slot in the
+                // map, so a band declaring two dead slots reports one. Making that engine
+                // collect-all reaches the style_component write path, which wants one
+                // actionable message, so it is a separate change. What #621 fixes here is
+                // the masking: this rule used to be unreachable for any item that tripped
+                // an earlier one, which is the case the issue reports.
+                if (_pp_claim_item_finding($sink, 'style')) {
+                    $errors[] = _pp_composition_item_error($i, $style_error->get_error_code(), $style_error->get_error_message());
+                }
             }
         }
 
@@ -2094,8 +2372,21 @@ function pp_validate_composition_errors(array $items): array {
                     if (is_wp_error($style_error)) {
                         // Same restamp as the component-level style map above (#622):
                         // the shared slot engine names the card, this adds the band.
-                        $errors[] = _pp_composition_item_error($i, $style_error->get_error_code(), $style_error->get_error_message());
-                        continue 3;
+                        // Per CARD since #621 — the message names the card, so a grid
+                        // with dead slots on cards 0 and 2 reports both.
+                        //
+                        // The ROLE segment is `item-style`, not `prop`, because `style` is
+                        // a real declared items[] FIELD (grid.items, section.panel_items)
+                        // and the nested-field rules claim `prop / <prop> / <entry> /
+                        // <field>`. Sharing that namespace would let a future scalar-typed
+                        // `style` field claim this card's location and silently swallow the
+                        // slot finding — a suppressed diagnostic is the one failure mode
+                        // the claim set must never cause. Role segments are rule-owned
+                        // literals, so they cannot collide with an authored name.
+                        if (_pp_claim_item_finding($sink, 'item-style', $prop_name, $elem_index)) {
+                            $errors[] = _pp_composition_item_error($i, $style_error->get_error_code(), $style_error->get_error_message());
+                        }
+                        continue;
                     }
                 }
             }
@@ -2113,7 +2404,12 @@ function pp_validate_composition_errors(array $items): array {
     // wins). The shared detector also backs the advisory smell, so
     // _pp_composition_findings() (check page / validate site / restore) reports the
     // same collision.
-    foreach (pp_find_duplicate_component_ids($items) as $dupe) {
+    //
+    // Skipped once the budget is spent (#621): this pass appends LAST, so when any
+    // per-item error exists it can never be errors[0], and the only caller that sets a
+    // budget reads nothing else. When no per-item error was found it still runs, because
+    // then a collision IS errors[0].
+    foreach (($sink['budget'] !== null && $errors !== []) ? [] : pp_find_duplicate_component_ids($items) as $dupe) {
         $errors[] = new WP_Error(
             'duplicate_component_id',
             sprintf(
@@ -2135,11 +2431,19 @@ function pp_validate_composition_errors(array $items): array {
  * update_component, the editor save) depends on this shape. Use
  * pp_validate_composition_errors() when you need the complete set instead.
  *
+ * The budget of 1 is why this path stayed cheap when findings became exhaustive (#621).
+ * The engine walks the same rules either way — that traversal is what a VALID composition
+ * has always paid — but it stops BUILDING findings after the first, so a caller that
+ * posts 200KB of malformed items cannot make a write allocate hundreds of megabytes of
+ * error objects this function then discards. The returned error is byte-identical with
+ * or without the budget: rule order is untouched and a budget can only suppress findings
+ * AFTER the first one.
+ *
  * @param  array            $items  Decoded composition array.
  * @return true|WP_Error
  */
 function pp_validate_composition(array $items) {
-    $errors = pp_validate_composition_errors($items);
+    $errors = pp_validate_composition_errors($items, 1);
 
     return $errors === [] ? true : $errors[0];
 }

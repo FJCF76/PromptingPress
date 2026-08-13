@@ -502,6 +502,73 @@ class ActionsTest extends TestCase
         $this->assertSame([], $result['findings']);
     }
 
+    // ── The restore report is exhaustive per item (#621) ────────────────────
+    //
+    // Section 14.1: asserted through the REAL surface (pp_execute_action), because the
+    // report an operator reads is the action envelope, not the validator's return value.
+    // The snapshot below is one band with three independent problems. Before #621 it
+    // reported ONE of them and the operator learned about the next only by restoring
+    // again after a repair — on a page whose whole point is "undo, then see what is
+    // dead", that is the report failing at its job.
+
+    /** A snapshot band carrying a retired prop name, a dead slot and a dead card link. */
+    private function multiProblemSnapshot(): array
+    {
+        return [
+            ['component' => 'cta', 'props' => [
+                'title' => 'Ready?', 'button_text' => 'Go', 'button_url' => '/go', 'cta_text' => 'Go',
+            ], 'style' => ['--cta-not-a-slot' => 'red']],
+            ['component' => 'grid', 'props' => ['items' => [
+                ['title' => 'Card', 'link_url' => 'javascript:alert(1)'],
+            ]]],
+        ];
+    }
+
+    public function testRestoreExecuteReportsEveryProblemInABandNotJustTheFirst(): void
+    {
+        $post_id = pp_create_page('Multi-problem snapshot');
+        pp_update_composition($post_id, $this->multiProblemSnapshot());
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'Current']]]);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+
+        // Restore still never blocks (#233) — exhaustiveness changed WHAT is reported,
+        // never WHETHER the write happens.
+        $this->assertTrue($result['ok'], $result['error'] ?? 'restore failed');
+        $this->assertSame('cta', pp_get_composition($post_id)[0]['component']);
+
+        $errors = array_values(array_filter($result['findings'], static fn ($f) => $f['severity'] === 'error'));
+        $types  = array_column($errors, 'type');
+        $this->assertContains('unknown_prop', $types, 'the retired prop name');
+        $this->assertContains('invalid_style_slot', $types, 'the dead slot, which #621 unmasked');
+        $this->assertContains('invalid_prop_value', $types, 'the dead card link on the SECOND band');
+
+        // Each finding still names the band that owns it (#622) — a longer list is only
+        // useful if it stays attributable.
+        foreach ($errors as $finding) {
+            $this->assertContains($finding['index'], [0, 1]);
+        }
+        $bandZero = array_column(array_filter($errors, static fn ($f) => $f['index'] === 0), 'type');
+        $this->assertSame(['unknown_prop', 'invalid_style_slot'], $bandZero);
+    }
+
+    public function testRestorePreviewReportsTheSameExhaustiveFindingsAndWritesNothing(): void
+    {
+        // preview must describe exactly what execute would write — including the extra
+        // findings — or an agent that previews before restoring still learns one problem.
+        $post_id = pp_create_page('Multi-problem preview');
+        pp_update_composition($post_id, $this->multiProblemSnapshot());
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'Current']]]);
+
+        $preview = pp_preview_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+
+        $this->assertSame('hero', pp_get_composition($post_id)[0]['component'], 'preview writes nothing');
+        $types = array_column($preview['findings'], 'type');
+        $this->assertContains('unknown_prop', $types);
+        $this->assertContains('invalid_style_slot', $types);
+        $this->assertContains('invalid_prop_value', $types);
+    }
+
     public function testCleanRestoreReportsNoFindings(): void
     {
         $post_id = pp_create_page('Clean snapshot');

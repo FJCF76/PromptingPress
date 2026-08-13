@@ -113,10 +113,17 @@ class DiagnosticReachTest extends TestCase
 
     public function testEveryPerItemErrorCarriesItsCompositionOffset(): void
     {
+        // Since #621 the cta contributes FOUR findings (two required props it lost with
+        // the alias map, two unrecognized keys) and the hero one. Every one of them must
+        // carry the band that owns it: exhaustive reporting is only useful if a longer
+        // list stays attributable.
         $errors = pp_validate_composition_errors($this->staleComposition());
 
-        $this->assertSame(0, pp_composition_error_index($errors[0]), 'the cta is item 0');
-        $this->assertSame(1, pp_composition_error_index($errors[1]), 'the hero is item 1');
+        $this->assertSame(
+            [0, 0, 0, 0, 1],
+            array_map(static fn ($e) => pp_composition_error_index($e), $errors),
+            'the cta is item 0, the hero is item 1'
+        );
     }
 
     public function testErrorDerivedFindingsCarryTheBandIndex(): void
@@ -124,9 +131,12 @@ class DiagnosticReachTest extends TestCase
         $findings = _pp_composition_findings($this->staleComposition());
         $errors   = array_values(array_filter($findings, static fn ($f) => $f['severity'] === 'error'));
 
-        $this->assertCount(2, $errors);
-        $this->assertSame(0, $errors[0]['index'], "the pre-#622 value was null — 'which band?' was unanswerable");
-        $this->assertSame(1, $errors[1]['index']);
+        $this->assertCount(5, $errors);
+        $this->assertSame(
+            [0, 0, 0, 0, 1],
+            array_column($errors, 'index'),
+            "the pre-#622 value was null — 'which band?' was unanswerable"
+        );
     }
 
     /**
@@ -141,8 +151,11 @@ class DiagnosticReachTest extends TestCase
         ]);
         $errors = array_values(array_filter($findings, static fn ($f) => $f['severity'] === 'error'));
 
-        $this->assertCount(1, $errors);
-        $this->assertSame(1, $errors[0]['index'], 'the SECOND cta is the dead one');
+        // The exact list, not a de-duplicated set: the broken cta owes three findings
+        // (both required props it lost with the alias map, plus the retired key itself)
+        // and the healthy one owes none. Asserting the deduplicated set here would stop
+        // catching a regression that reports one finding twice.
+        $this->assertSame([1, 1, 1], array_column($errors, 'index'));
     }
 
     /**
@@ -309,6 +322,30 @@ class DiagnosticReachTest extends TestCase
         $this->assertStringContainsString('[unknown_prop] index 1', $joined);
     }
 
+    /**
+     * #621 through the read-only CLI, which is the other surface an operator queries
+     * before touching a stale page. One band, two independent problems: the retired prop
+     * name and a dead style slot. Before #621 `check page` printed the prop only, so an
+     * operator who fixed it and re-ran was told about the slot on the SECOND run — the
+     * command's whole promise is "here is what is wrong with this page", not "here is the
+     * first thing wrong with it".
+     */
+    public function testCheckPageReportsEveryProblemInOneBandNotJustTheFirst(): void
+    {
+        $this->seedPage(304, [
+            ['component' => 'cta', 'props' => [
+                'title' => 'Ready?', 'button_text' => 'Go', 'button_url' => '/go', 'cta_text' => 'Go',
+            ], 'style' => ['--cta-not-a-slot' => 'red']],
+        ]);
+
+        (new PP_Check_Command())->page([], ['post_id' => 304]);
+
+        $joined = implode("\n", array_merge(WP_CLI::$warnings, WP_CLI::$lines));
+        $this->assertStringContainsString('[unknown_prop] index 0', $joined);
+        $this->assertStringContainsString('[invalid_style_slot] index 0', $joined);
+        $this->assertStringContainsString('2 composition error(s)', $joined, 'the count matches the list');
+    }
+
     public function testCheckPageStillSucceedsOnACleanComposition(): void
     {
         $this->seedPage(302, [
@@ -380,9 +417,12 @@ class DiagnosticReachTest extends TestCase
             'second' => ['component' => 'ghost'],
         ]);
 
-        $this->assertCount(2, $errors);
-        $this->assertNull(pp_composition_error_index($errors[0]));
-        $this->assertNull(pp_composition_error_index($errors[1]));
+        // Three findings since #621 (the cta names both required props it is missing),
+        // and NONE of them may invent a locator just because the list got longer.
+        $this->assertCount(3, $errors);
+        foreach ($errors as $error) {
+            $this->assertNull(pp_composition_error_index($error));
+        }
     }
 
     // ── 4c. The reflected key list is bounded and printable (#633 posture) ─────
@@ -434,7 +474,7 @@ class DiagnosticReachTest extends TestCase
     {
         $diagnostics = _pp_cli_page_diagnostics($this->staleComposition());
 
-        $this->assertCount(2, $diagnostics['errors']);
+        $this->assertCount(5, $diagnostics['errors']);
         foreach ($diagnostics['errors'] as $error) {
             $this->assertSame('error', $error['severity']);
         }
