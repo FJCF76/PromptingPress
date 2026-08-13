@@ -17,7 +17,15 @@ $title_align    = $props['title_align']    ?? 'start';
 $body             = $props['body']             ?? '';
 $image_url        = $props['image_url']        ?? '';
 $image_alt        = $props['image_alt']        ?? '';
-$image_id         = (int) ($props['image_id']  ?? 0);
+// is_numeric() BEFORE the (int) cast (#614, extended to the top-level readers at
+// gate 7A). `(int) ['attachment_id' => 42]` and `(int) true` both evaluate to 1, so
+// a bare cast resolves attachment ID 1 — usually the site's first upload — and
+// discards the author's image_url. The write path rejects that shape now, but the
+// validator gates WRITES: restore_composition reports without blocking (#233), so a
+// composition authored before the rule still reaches this line. Same guard hero,
+// logos, grid and testimonials carry — 5/5.
+$raw_image_id     = $props['image_id'] ?? 0;
+$image_id         = is_numeric($raw_image_id) ? (int) $raw_image_id : 0;
 $layout           = $props['layout']           ?? 'text-only';
 $theme            = $props['theme']            ?? 'default';
 $background_image = $props['background_image'] ?? '';

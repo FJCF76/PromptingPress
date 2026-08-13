@@ -4,6 +4,31 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.13.4] — 2026-08-13 — validation: nested items[] scalar types (#614)
+
+**A nested `items[]` field's declared scalar type is enforced at the write path now, so a non-numeric `image_id` is rejected instead of quietly resolving the site's first upload.** The shared validator walked one level down for exactly two annotations — `required: true` and `item_type: "string"` — and a nested field's own `type` was enforced by nothing. A schema could declare `"image_id": {"type": "number"}` and the write path would accept any JSON value at all, on `update_component`, `update_composition`, `create_page` and `add_component` alike.
+
+That is mostly harmless until PHP's cast is asked to do a job it does not do. `(int) ['attachment_id' => 42]` is `1`, and so is `(int) true`, so a renderer reading `(int) ($item['image_id'] ?? 0)` resolved attachment ID 1 — typically the site's first uploaded image — and threw the author's `image_url` away. The page rendered a confidently wrong image and every action reported success. The shape is plausible rather than adversarial: the field's own description points authors at the `import_media` apply, which returns `{attachment_id, url, action}`, so passing the whole object through lands exactly on that cast. The rule reuses the top-level type contract through one shared predicate rather than restating it, so `"42"` is a number at both depths and the two cannot drift apart.
+
+### Fixed
+
+- **Nested `string` and `number` fields are type-checked at the write path (`lib/admin.php`).** The `#579` A-27 nested block gains a third rule beside `required` and `item_type`. A field declared `type: "string"` rejects a non-scalar; `type: "number"` rejects a non-numeric. Both route through the new `_pp_schema_scalar_value_is_valid()`, which the top-level `#507` pass now calls too — one definition of what `string` and `number` accept, at both depths. The unset sentinels match the top level exactly (`null` for both, plus `""` for `number`), so an omitted value still preserves the field's default. Rejections carry the standard `invalid_prop_value` envelope and name the component, prop, item index and field.
+- **A rejected value is rendered honestly and safely in the error (`lib/admin.php`).** The new `_pp_schema_value_for_message()` prints a boolean as `true`/`false` rather than PHP's `(string) true`, which is `"1"` — an agent told `must be a number; got "1"` would be told its rejected value looks like a number. The value is author-supplied and reaches a terminal, an action envelope and the editor save response, so it also gets the strip-and-cap the file's other reflection helpers apply: control and format characters removed, length bounded at 100 characters.
+- **All five image readers guard before casting (`components/hero/hero.php`, `section/section.php`, `logos/logos.php`, and the `grid`/`testimonials` guards from #584).** The validator gates writes, not storage: `restore_composition` reports without blocking (#233) and a composition authored before the rule still reaches the renderer. `hero.php` is the sharpest case, because it derives `$has_split_media` from `$image_id > 0`, so a coerced id flipped the band's whole layout to split with no image behind it. The issue's original scope-out of the two top-level readers rested on a false premise and was corrected at gate review; the amendment is recorded in the issue body.
+
+### Docs
+
+- `docs/reference-apply-cli.md` documents the nested scalar-type rule with its error shape, and names all three nested shapes that remain deliberately uncovered — `enum`, `object`, and a field declaring `type: "array"` handed a scalar.
+- `ai-instructions/add-component.md` tells schema authors that a nested scalar `type` now has teeth, so the neighbouring enum-gap note is not read as "nested annotations are decorative".
+- `lib/ai-context.php`, `ai-instructions/composition.md` and `AI_CONTEXT.md` tell an authoring agent to pass `import_media`'s `attachment_id`, never the whole result object, and that a non-numeric value is rejected at write.
+
+### Tests
+
+- `tests/WriteRenderGrammarTest.php` covers the reported `import_media` envelope through the real action surface with the stored composition asserted unchanged, all four write paths, the accept and reject sets per declared type, a schema-driven walk over every nested `number` field in the shipped schemas, the exact message text including the boolean and strip-and-cap branches, first-error order pinned in both directions, and `restore_composition` still restoring the bad shape while reporting it.
+- `tests/ComponentPropsTest.php` pins the render half on all five readers: the fallback to the authored `image_url`, the hero layout degrading to `left` rather than `split`, and numeric strings still reaching the responsive `srcset` branch.
+
+---
+
 ## [v1.13.3] — 2026-08-13 — editor: form-sync completeness
 
 **Pending edits now settle before the composition editor saves, publishes, or switches views, and array values whose stored shape the row controls cannot show round-trip safely.** Two properties of the accordion-to-JSON sync are involved, both on the path that reads edited values back out of the DOM. The sync is debounced, and v1.13.2 settled it before the six handlers that rebuild the composition — but not before save, publish, or the view toggle, which read the same buffer without re-rendering. And the guard that protects array fields could only answer for the field as a whole, which is the wrong grain when a read is right about one row and wrong about the row beside it.

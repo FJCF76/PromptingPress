@@ -75,14 +75,16 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                     $image_alt = $item['image_alt'] ?? '';
                     // Responsive avatar (issue 584): the attachment-ID companion the
                     // hero, section and logos images already carry.
-                    // is_numeric() BEFORE the (int) cast, deliberately: nothing validates a
-                    // nested item field's scalar TYPE (lib/admin.php's #579 pass enforces
-                    // `required` and string-array shape only), so a non-scalar reaches here.
-                    // `(int) ['attachment_id' => 42]` and `(int) true` both evaluate to 1 —
-                    // the plain cast would silently render attachment ID 1, usually the
-                    // site's first upload, and discard the author's image_url. Guarding at
-                    // the read makes a malformed value mean "no attachment", which is what
-                    // every other bad value already means. Filed for the validator-level fix.
+                    // is_numeric() BEFORE the (int) cast, deliberately. `(int)` is not a
+                    // rejection: `(int) ['attachment_id' => 42]` and `(int) true` both
+                    // evaluate to 1, so the plain cast would render attachment ID 1 —
+                    // usually the site's first upload — and discard the author's image_url.
+                    // #614 closed the WRITE path (a nested field's declared scalar type is
+                    // enforced now), but this guard is what covers STORED data: the
+                    // validator gates writes, and restore_composition reports without
+                    // blocking (#233), so a composition written before that rule still
+                    // reaches this line. Guarding at the read makes a malformed value mean
+                    // "no attachment", which is what every other bad value already means.
                     $raw_image_id = $item['image_id'] ?? 0;
                     $image_id     = is_numeric($raw_image_id) ? (int) $raw_image_id : 0;
                     if (!$quote) continue;

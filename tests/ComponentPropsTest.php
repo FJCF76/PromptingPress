@@ -2234,11 +2234,13 @@ class ComponentPropsTest extends TestCase
         $this->seedAttachment(1, 'https://example.com/uploads/FIRST-UPLOAD.jpg');
         // Three ways to land on the fallback, all of which must render identically:
         // absent id, id 0, and an id no attachment resolves (a deleted attachment).
-        // Every one of these is REACHABLE: #579's nested enforcement covers `required` and
-        // string-array shape, not scalar field types, so a non-numeric image_id survives the
-        // write path and reaches the renderer. The array and boolean cases are the sharp
-        // ones — `(int) ['attachment_id' => 42]` and `(int) true` both evaluate to 1, so a
-        // bare cast would render attachment ID 1 (usually the site's first upload) and throw
+        // Every one of these is REACHABLE. #614 closed the WRITE path — a non-numeric
+        // image_id is now rejected with invalid_prop_value — but the validator gates
+        // writes, not storage: a composition authored before that rule still carries the
+        // value, and restore_composition reports without blocking (#233), so all of these
+        // still reach the renderer. The array and boolean cases are the sharp ones —
+        // `(int) ['attachment_id' => 42]` and `(int) true` both evaluate to 1, so a bare
+        // cast would render attachment ID 1 (usually the site's first upload) and throw
         // away the author's image_url. The is_numeric() guard at the read is what makes them
         // all mean the same thing: no attachment, fall back to image_url.
         foreach ([
@@ -2319,11 +2321,13 @@ class ComponentPropsTest extends TestCase
         // non-scalar image_id to, so if the is_numeric() guard is ever removed these
         // cases render THIS url instead of falling back, and the assertions below fail.
         $this->seedAttachment(1, 'https://example.com/uploads/FIRST-UPLOAD.jpg');
-        // Every one of these is REACHABLE: #579's nested enforcement covers `required` and
-        // string-array shape, not scalar field types, so a non-numeric image_id survives the
-        // write path and reaches the renderer. The array and boolean cases are the sharp
-        // ones — `(int) ['attachment_id' => 42]` and `(int) true` both evaluate to 1, so a
-        // bare cast would render attachment ID 1 (usually the site's first upload) and throw
+        // Every one of these is REACHABLE. #614 closed the WRITE path — a non-numeric
+        // image_id is now rejected with invalid_prop_value — but the validator gates
+        // writes, not storage: a composition authored before that rule still carries the
+        // value, and restore_composition reports without blocking (#233), so all of these
+        // still reach the renderer. The array and boolean cases are the sharp ones —
+        // `(int) ['attachment_id' => 42]` and `(int) true` both evaluate to 1, so a bare
+        // cast would render attachment ID 1 (usually the site's first upload) and throw
         // away the author's image_url. The is_numeric() guard at the read is what makes them
         // all mean the same thing: no attachment, fall back to image_url.
         foreach ([
@@ -2664,6 +2668,103 @@ class ComponentPropsTest extends TestCase
         $this->assertStringNotContainsString('srcset', $html);
     }
 
+    // ── #614 (gate 7A): the top-level readers join the guarded family ────────
+    //
+    // #584 guarded grid and testimonials items; #614 guarded logos items. hero and
+    // section were scoped OUT of #614's body on the premise that "they read TOP-level
+    // props, which the type pass does cover, so they are not affected" — which is
+    // false in the same way the issue's own logos argument is true. The type pass
+    // covers WRITES. It does not sanitise stored data, and restore_composition
+    // reports without blocking (#233), so a composition written before the rule
+    // reaches these readers carrying anything at all. Ratified at gate 7A; the family
+    // is 5/5 now.
+
+    public function testHeroWithoutAResolvableImageIdKeepsTheSingleSourceImg(): void
+    {
+        // Attachment 1 is seeded on purpose: it is what a bare `(int)` cast resolves a
+        // non-scalar image_id to. Without the guard the array and boolean cases render
+        // THIS url and discard the author's image_url.
+        $GLOBALS['_pp_test_store']['attachment_urls'][1] = 'https://example.com/uploads/FIRST-UPLOAD.jpg';
+        foreach ([
+            ['image_id' => 0],
+            ['image_id' => 999],
+            ['image_id' => 'abc'],
+            ['image_id' => ['attachment_id' => 42]],
+            ['image_id' => true],
+        ] as $variant) {
+            $html = $this->render('hero', $this->heroProps(array_merge([
+                'layout'    => 'split',
+                'image_url' => 'https://example.com/authored.jpg',
+                'image_alt' => 'Authored',
+            ], $variant)));
+            $label = json_encode($variant);
+            $this->assertStringNotContainsString('srcset=', $html, "hero fallback {$label}");
+            $this->assertStringNotContainsString('FIRST-UPLOAD', $html, "hero fallback {$label}");
+            $this->assertStringContainsString('https://example.com/authored.jpg', $html, "hero fallback {$label}");
+        }
+    }
+
+    public function testHeroLayoutNeverFlipsToSplitOnACoercedImageId(): void
+    {
+        // The sharper half, and the reason hero is not just "logos again":
+        // hero.php derives $has_split_media from `$image_id > 0`, so a bare cast would
+        // let a stored non-scalar turn a single-column hero into a two-column split
+        // with no image behind it. No image_url here, so only the id could do it.
+        $GLOBALS['_pp_test_store']['attachment_urls'][1] = 'https://example.com/uploads/FIRST-UPLOAD.jpg';
+        foreach ([['attachment_id' => 42], true] as $bad) {
+            $html = $this->render('hero', $this->heroProps([
+                'layout'   => 'split',
+                'image_id' => $bad,
+            ]));
+            $label = json_encode($bad);
+            $this->assertStringNotContainsString('FIRST-UPLOAD', $html, "hero layout {$label}");
+            $this->assertStringNotContainsString('hero--split', $html, "hero layout {$label}: must degrade to left");
+            // Positive half, so the pin cannot pass by rendering nothing at all.
+            $this->assertStringContainsString('hero--left', $html, "hero layout {$label}: degrades to left");
+        }
+    }
+
+    public function testSectionWithoutAResolvableImageIdKeepsTheSingleSourceImg(): void
+    {
+        $GLOBALS['_pp_test_store']['attachment_urls'][1] = 'https://example.com/uploads/FIRST-UPLOAD.jpg';
+        foreach ([
+            ['image_id' => 0],
+            ['image_id' => 'abc'],
+            ['image_id' => ['attachment_id' => 42]],
+            ['image_id' => true],
+        ] as $variant) {
+            $html = $this->render('section', $this->sectionProps(array_merge([
+                'layout'    => 'image-left',
+                'image_url' => 'https://example.com/authored.jpg',
+                'image_alt' => 'Authored',
+            ], $variant)));
+            $label = json_encode($variant);
+            $this->assertStringNotContainsString('srcset=', $html, "section fallback {$label}");
+            $this->assertStringNotContainsString('FIRST-UPLOAD', $html, "section fallback {$label}");
+            $this->assertStringContainsString('https://example.com/authored.jpg', $html, "section fallback {$label}");
+        }
+    }
+
+    public function testHeroAndSectionNumericStringImageIdStillResolve(): void
+    {
+        // The accept side: a numeric STRING must still reach the responsive branch on
+        // both readers, or the guard would be an over-rejection rather than a fix.
+        $GLOBALS['_pp_test_store']['attachment_urls'][8] = 'https://example.com/wp-content/uploads/section.jpg';
+        $GLOBALS['_pp_test_store']['attachment_urls'][9] = 'https://example.com/wp-content/uploads/hero.jpg';
+
+        $hero = $this->render('hero', $this->heroProps([
+            'layout' => 'split', 'image_url' => 'https://example.com/fallback.jpg', 'image_id' => '9',
+        ]));
+        $this->assertStringContainsString('srcset=', $hero);
+        $this->assertStringContainsString('hero.jpg', $hero);
+
+        $section = $this->render('section', $this->sectionProps([
+            'layout' => 'image-left', 'image_url' => 'https://example.com/fallback.jpg', 'image_id' => '8',
+        ]));
+        $this->assertStringContainsString('srcset=', $section);
+        $this->assertStringContainsString('section.jpg', $section);
+    }
+
     public function testLogosItemRendersResponsivelyWithImageId(): void
     {
         $GLOBALS['_pp_test_store']['attachment_urls'][9] = 'https://example.com/wp-content/uploads/logo.png';
@@ -2681,6 +2782,56 @@ class ComponentPropsTest extends TestCase
         ]);
         $this->assertStringContainsString('<img src="https://example.com/logo.png"', $html);
         $this->assertStringNotContainsString('srcset', $html);
+    }
+
+    public function testLogosItemWithoutAResolvableImageIdKeepsTheSingleSourceImg(): void
+    {
+        // #614 takes logos to parity with grid and testimonials (#584). Attachment 1 is
+        // seeded on purpose: it is what a bare `(int)` cast resolves a non-scalar
+        // image_id to, so without the is_numeric() guard the array and boolean cases
+        // below render THIS url and silently discard the author's image_url.
+        //
+        // Reachability, stated precisely now that the write path rejects these shapes:
+        // the validator gates WRITES. It does not sanitise what is already stored, and
+        // restore_composition reports without blocking (#233), so a composition
+        // authored before the rule still reaches this renderer carrying any of them.
+        $GLOBALS['_pp_test_store']['attachment_urls'][1] = 'https://example.com/uploads/FIRST-UPLOAD.png';
+        foreach ([
+            [],
+            ['image_id' => 0],
+            ['image_id' => 999],
+            ['image_id' => 'abc'],
+            ['image_id' => -5],
+            ['image_id' => ['attachment_id' => 42]],
+            ['image_id' => true],
+        ] as $variant) {
+            $html = $this->render('logos', [
+                'items' => [array_merge([
+                    'image_url' => 'https://example.com/logo.png',
+                    'image_alt' => 'Logo',
+                ], $variant)],
+            ]);
+            $label = json_encode($variant);
+            $this->assertStringNotContainsString('srcset=', $html, "logos fallback {$label}");
+            $this->assertStringNotContainsString('FIRST-UPLOAD', $html, "logos fallback {$label}");
+            $this->assertStringContainsString(
+                '<img src="https://example.com/logo.png" alt="Logo" class="logos__image" loading="lazy">',
+                $html,
+                "logos fallback {$label}: must emit today's single-source <img>, unchanged."
+            );
+        }
+    }
+
+    public function testLogosNumericStringImageIdStillResolves(): void
+    {
+        // The other side of the coercion: a numeric STRING must reach the responsive
+        // branch, not the fallback — the guard rejects non-numerics, not non-ints.
+        $GLOBALS['_pp_test_store']['attachment_urls'][9] = 'https://example.com/wp-content/uploads/logo.png';
+        $html = $this->render('logos', [
+            'items' => [['image_url' => 'https://example.com/fallback.png', 'image_alt' => 'Logo', 'image_id' => '9']],
+        ]);
+        $this->assertStringContainsString('srcset=', $html);
+        $this->assertStringContainsString('logo.png', $html);
     }
 
     public function testHeroSchemaDeclaresImageId(): void

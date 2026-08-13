@@ -387,7 +387,7 @@ All seven heading-bearing components accept `title_accent`: an exact, case-sensi
 
 Every `image_url` field on hero, section, and the logos, grid and testimonials items has a companion `image_id` — a Media Library attachment ID, not a URL. When `image_id` resolves to a real attachment, the image renders responsively via `wp_get_attachment_image()` (real `srcset`/`sizes`, WordPress-generated). When `image_id` is unset or doesn't resolve, the plain `image_url` renders exactly as before — always set `image_url` too, even when you have an `image_id`, as the fallback.
 
-Get an attachment id (and its canonical local URL) via the `import_media` apply. Give it EITHER a remote `url` OR a server-local `file` (exactly one). Re-importing the same `url` reuses the existing attachment (result `action: "reused"`) instead of creating a duplicate, so retries and re-runs are safe:
+Get an attachment id (and its canonical local URL) via the `import_media` apply. It returns `{attachment_id, url, action}` — pass its **`attachment_id`** to `image_id` and its **`url`** to `image_url`, never the whole result object. Since #614 a non-numeric `image_id` is rejected at write with `invalid_prop_value`, on the nested `items[]` fields as well as the top-level ones. Give it EITHER a remote `url` OR a server-local `file` (exactly one). Re-importing the same `url` reuses the existing attachment (result `action: "reused"`) instead of creating a duplicate, so retries and re-runs are safe:
 
 ```bash
 # Like every mutating apply, needs a run token + site-scoped preflight first.

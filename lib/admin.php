@@ -797,6 +797,104 @@ function pp_link_url_allowed_protocols(): array {
 }
 
 /**
+ * True when $value satisfies a declared scalar schema `type` (issue 507, shared at
+ * both depths by issue #614).
+ *
+ * ONE definition of what `string` and `number` mean at the write path, called from
+ * the two places that need it — the #507 generic TOP-LEVEL prop pass and the #579
+ * A-27 NESTED items[] field pass. It was inline in the first when the second did not
+ * exist; #614 needed the same answer one level down, and a second copy is exactly how
+ * two depths start disagreeing about whether "42" is a number.
+ *
+ *     type      unset sentinel (always valid)   accepted            rejected
+ *     ────────  ──────────────────────────────  ──────────────────  ─────────────────
+ *     string    null                            any scalar          array / object
+ *     number    null, ''                        is_numeric()        everything else
+ *     (other)   —                               everything          —
+ *
+ * `string` accepts any SCALAR, not only a PHP string: an int, float or bool coerces
+ * to text and renders as authored, while an array/object renders as "Array" with a
+ * PHP warning. That is the line the rule draws — non-container, not is_string().
+ * `number` accepts a numeric STRING because a JSON/CLI write sends "3", and the #379
+ * bounds family already accepts that shape for grid.columns.
+ *
+ * The unset sentinels are what keep the rule from over-rejecting: an omitted value
+ * must preserve the prop's declared default, and every action validates the WHOLE
+ * composition, so a rule that rejected a blank would block edits to unrelated bands
+ * on the same page. Returns true for any other declared type (enum, array, object) —
+ * those are owned by their own families, so callers can hand it every field.
+ *
+ * @param string|null $declared_type The schema `type` value, or null when undeclared.
+ * @param mixed       $value         Raw authored value.
+ */
+function _pp_schema_scalar_value_is_valid($declared_type, $value): bool {
+    if ($declared_type === 'string') {
+        return $value === null || is_scalar($value);
+    }
+    if ($declared_type === 'number') {
+        return $value === null || $value === '' || is_numeric($value);
+    }
+    return true;
+}
+
+/**
+ * Cap for an author-supplied value echoed back inside a validation message. Matches
+ * the shown-length bound _pp_link_url_error_message() applies to a rejected URL, so
+ * one rejected value cannot bloat an error envelope or a log line.
+ */
+const PP_REFLECTED_VALUE_MAX_LENGTH = 100;
+
+/**
+ * Renders a raw authored value for an error message without casting a container to
+ * string (which warns). Scalars are quoted so a stray space or empty string is
+ * visible; anything else degrades to its type name.
+ *
+ * Booleans render as `true`/`false`, NOT as PHP's string cast. `(string) true` is
+ * `"1"` and `(string) false` is `""`, so an agent told `must be a number; got "1"`
+ * would be told its rejected value looks like a number — the one thing the message
+ * exists to deny. This is the only place the two disagree, and the message is the
+ * agent's whole repair signal.
+ *
+ * The value is AUTHOR-SUPPLIED and reaches a terminal (WP_CLI::error writes the
+ * validator message raw), an action envelope, and the editor's save response, so it
+ * gets the same treatment the file's other reflection helpers give reflected input:
+ * control and format characters stripped, length bounded. Same bound and the same
+ * invalid-UTF-8 retry as _pp_render_undeclared_prop_keys() — one definition of
+ * "safe to echo back", not a second, weaker one.
+ *
+ * @param mixed $value Raw authored value.
+ */
+function _pp_schema_value_for_message($value): string {
+    if (is_bool($value)) {
+        return $value ? 'true' : 'false';
+    }
+    if (!is_scalar($value)) {
+        return gettype($value);
+    }
+    $text = (string) $value;
+    // Bound the INPUT before scanning it: 4 bytes is the widest UTF-8 encoding of
+    // one character, so this always leaves at least the cap's worth of characters.
+    if (strlen($text) > PP_REFLECTED_VALUE_MAX_LENGTH * 4) {
+        $text = substr($text, 0, PP_REFLECTED_VALUE_MAX_LENGTH * 4);
+    }
+    $clean = preg_replace('/[\p{Cc}\p{Cf}]+/u', '', $text);
+    if ($clean === null) {
+        // The /u pattern returns null on invalid UTF-8 — which the byte-wise cut
+        // above can itself produce by landing mid-sequence. Repair and re-run the
+        // SAME pattern rather than falling back to a weaker one.
+        $repaired = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
+        $clean    = preg_replace('/[\p{Cc}\p{Cf}]+/u', '', $repaired);
+        if ($clean === null) {
+            return '(unprintable value)';
+        }
+    }
+    if (mb_strlen($clean) > PP_REFLECTED_VALUE_MAX_LENGTH) {
+        $clean = mb_substr($clean, 0, PP_REFLECTED_VALUE_MAX_LENGTH) . '...';
+    }
+    return '"' . $clean . '"';
+}
+
+/**
  * True when a `format: "link_url"` value would render as authored (issue 507).
  *
  * The accept bar is "what survives esc_url()": anything without a scheme (an
@@ -1464,7 +1562,9 @@ function pp_validate_composition_errors(array $items): array {
                     // bool) coerces to text and renders as authored; an array/object
                     // renders as "Array" with a PHP warning. null is the unset
                     // sentinel; the empty string is a valid string value (is_scalar).
-                    if ($value !== null && !is_scalar($value)) {
+                    // The predicate is shared with the nested items[] pass (#614) so
+                    // the two depths cannot drift on what "string" accepts.
+                    if (!_pp_schema_scalar_value_is_valid('string', $value)) {
                         $errors[] = _pp_composition_item_error($i,
                             'invalid_prop_value',
                             sprintf(
@@ -1481,14 +1581,15 @@ function pp_validate_composition_errors(array $items): array {
                     // write sends "3"; the #379 bounds family already accepts them
                     // for grid.columns, so this stays consistent). null/'' are the
                     // unset sentinel (keeps the prop default, e.g. logo_id => 0).
-                    if ($value !== null && $value !== '' && !is_numeric($value)) {
+                    // Shared with the nested items[] pass (#614), same as `string`.
+                    if (!_pp_schema_scalar_value_is_valid('number', $value)) {
                         $errors[] = _pp_composition_item_error($i,
                             'invalid_prop_value',
                             sprintf(
                                 'Component "%s" prop "%s" must be a number; got %s.',
                                 $name,
                                 $prop_name,
-                                is_scalar($value) ? '"' . (string) $value . '"' : gettype($value)
+                                _pp_schema_value_for_message($value)
                             )
                         );
                         continue 2;
@@ -1566,9 +1667,10 @@ function pp_validate_composition_errors(array $items): array {
             }
         }
 
-        // NESTED item-field contracts (issue #579, A-27). The families above walk
-        // TOP-LEVEL props only, so two schema annotations one level down were
-        // DECLARED and enforced by NOTHING:
+        // NESTED item-field contracts (issue #579 A-27, extended by #614). The
+        // families above walk TOP-LEVEL props only, so THREE schema annotations one
+        // level down were DECLARED and enforced by NOTHING. Rules 1 and 2 came with
+        // #579; RULE 3 is #614 and is marked inline where it sits, between them.
         //
         //   1. `required: true` on an items[] field — declared on SEVEN fields today:
         //      logos.items[].image_url / image_alt, stats.items[].number / label,
@@ -1588,6 +1690,12 @@ function pp_validate_composition_errors(array $items): array {
         //      The #475 bounded-string-array family is top-level-only, so a bullets
         //      array of objects/numbers reached the renderer, which escapes each entry
         //      and prints "Array".
+        //   3. the field's own scalar `type` — `string` or `number` (#614). See the
+        //      RULE 3 comment inline below for the defect it closes and for the two
+        //      nested types it deliberately leaves alone (`enum`, owned by #600, and
+        //      `object`, which nothing has specified). A nested `array` field handed a
+        //      SCALAR is also still accepted: rule 2 walks a bullets array's ENTRIES
+        //      and never the field itself, and rule 3's fence is scalar types only.
         //
         // Enforced HERE, in the shared validator — no second validator, no
         // per-component branch. Walked at the SAME one-items-level depth as the #154
@@ -1640,6 +1748,57 @@ function pp_validate_composition_errors(array $items): array {
                                     $field_name
                                 )
                             );
+                            continue 4;
+                        }
+                        // RULE 3 — the field's own declared SCALAR type (#614).
+                        // `required` and `item_type` above said WHETHER a field is
+                        // there and what a nested ARRAY holds; nothing said what a
+                        // `string` or `number` field may BE, so the write path took
+                        // any JSON value. That matters because PHP's cast is not a
+                        // rejection: `(int) ['attachment_id' => 42]` and `(int) true`
+                        // are both 1, so a renderer reading `(int) ($item['image_id']
+                        // ?? 0)` resolved attachment ID 1 — usually the site's first
+                        // upload — and discarded the author's image_url. The page
+                        // rendered a confidently wrong image behind an ok:true.
+                        //
+                        // The predicate is SHARED with the #507 top-level pass, so
+                        // "42" is a number at both depths and cannot drift apart.
+                        // Enum and object fields are deliberately NOT covered: nested
+                        // enums stay accept-and-coerce until #600 lands on this same
+                        // traversal, and no decision exists on what an item `style`
+                        // object may contain. _pp_schema_scalar_value_is_valid()
+                        // returns true for both, so they fall through untouched.
+                        //
+                        // Same accepted cost the required rule above carries: every
+                        // action validates the WHOLE composition, so a stored value
+                        // this rejects blocks edits to unrelated bands on that page.
+                        // That is the v1.13.0 no-compat posture working as intended,
+                        // not a regression — restore_composition still reports and
+                        // restores rather than blocking (#233).
+                        $field_type = $field_def['type'] ?? null;
+                        if (($field_type === 'string' || $field_type === 'number')
+                            && array_key_exists($field_name, $entry)
+                            && !_pp_schema_scalar_value_is_valid($field_type, $entry[$field_name])
+                        ) {
+                            $errors[] = _pp_composition_item_error($i,
+                                'invalid_prop_value',
+                                sprintf(
+                                    'Component "%s" prop "%s" item %s field "%s" must be a %s; got %s.',
+                                    $name,
+                                    $prop_name,
+                                    is_scalar($entry_index) ? (string) $entry_index : gettype($entry_index),
+                                    $field_name,
+                                    $field_type,
+                                    _pp_schema_value_for_message($entry[$field_name])
+                                )
+                            );
+                            // Depth accounting for every `continue` in this block:
+                            //   1 foreach ($prop_def['items'] …)   fields of one entry
+                            //   2 foreach ($entries …)             entries of one prop
+                            //   3 foreach ($schema['props'] …)     props of one component
+                            //   4 the per-component loop           => next component
+                            // One error per component item, matching every other rule
+                            // in this function. Recount these if the nesting changes.
                             continue 4;
                         }
                         if (($field_def['type'] ?? null) === 'array'
