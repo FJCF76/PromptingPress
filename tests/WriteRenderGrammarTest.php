@@ -23,6 +23,8 @@
  *   A-30  the `length-or-none` band-geometry grammar
  *   A-19  item scope enforced at RENDER, proved through a raw-meta seed
  *   A-27  nested item-field contracts (required + item_type)
+ *   #614  nested item-field scalar types (string + number), sharing the top-level
+ *         #507 predicate so the two depths cannot disagree about what "42" is
  *   A-34  the non-blocking transparent-fill advisory
  *
  * A-32 (universal strict enums; its `aliases` consumer was retired in #606) lives
