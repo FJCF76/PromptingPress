@@ -193,31 +193,34 @@ once could: `aliases` listed values accepted at write and never advertised in
 `values`. #605 retired the last such declaration (the `theme` prop's legacy `dark`),
 leaving the field with nothing to declare, and #606 retired the field itself — the
 end of a sweep that also took the slot-name map (#603) and the prop-key map (#604).
-So on a **top-level prop** what the schema advertises is exactly what the write
+So what the schema advertises is exactly what the write
 path accepts — one vocabulary, no legacy tier, nothing an agent must be warned not to
-write. (The nested `items[]` enum gap below is a separate thing: those values are
-accepted and coerced because the strict gate does not walk them, not because any alias
-mechanism survives.) A schema that still declares `aliases` — on a prop, on a slot, or
-on a nested `items[]` field — now fails CI as an unknown definition key.
+write, and since #600 that is true at nested depth too. A schema that still declares
+`aliases` — on a prop, on a slot, or on a nested `items[]` field — now fails CI as an
+unknown definition key.
 
-**Every TOP-LEVEL enum prop must declare `strict: true`.** Without it the write path
-accepts any string and the renderer coerces it to the default, so the action reports
-`ok:true` and the page shows something else. A schema that ships a top-level enum
-without `strict` fails CI.
+**Every enum must declare `strict: true` — top-level props AND nested `items[]`
+fields.** Without it the write path accepts any string and the renderer coerces it to
+the default, so the action reports `ok:true` and the page shows something else. A
+schema that ships an enum without `strict` at either depth fails CI
+(`SchemaValidationTest::testEveryEnumDeclarationDeclaresStrict`).
 
-Nested `items[]` enums are a **known remaining gap**, stated here rather than left to
-be discovered: the strict gate and its CI tripwire both walk top-level props only, so
-`grid.items[].text_role` is still accept-at-write / coerce-at-render. Declaring
-`strict` on a nested enum today has no effect. Closing that gap is its own change.
+The nested half of that rule is #600, and it closed the last accept-at-write /
+coerce-at-render surface in the grammar. Declaring `strict` on a nested enum used to
+be a silent no-op because the gate walked top-level props only; it is now enforced by
+the same predicate, over the same one-`items[]`-level traversal the required/scalar
+rules already walk. `grid.items[].text_role` is the only nested enum shipped today.
+Read the reach precisely: ONE `items[]` level, which is every depth the schemas
+declare. An enum nested deeper than that would not be reached, so do not declare one
+without extending the traversal in the same change.
 
-**A nested field's scalar `type` DOES have teeth (#614).** Do not read the enum gap
-above as "nested annotations are decorative". A field declared `type: "string"` or
+**A nested field's scalar `type` also has teeth (#614).** A field declared `type: "string"` or
 `type: "number"` inside an `items[]` map is enforced at the write path through the
 same predicate as the top-level pass, so `"42"` is a number at both depths and a
 non-numeric `image_id` is rejected with `invalid_prop_value`. The unset sentinels also
 match the top level (`null` for both, plus `""` for `number`), so an omitted value
 still preserves the field's default. What a nested annotation still does NOT buy you:
-`enum` (above), `object` (nothing constrains an item `style` map's contents), and a
+`object` (nothing constrains an item `style` map's contents), and a
 field declaring `type: "array"` handed a **scalar** — `item_type` checks a nested
 array's entries, never the field itself.
 
@@ -238,7 +241,7 @@ declare, nothing to populate, nothing to resolve.
 |---|---|---|
 | prop **key** names | nowhere | there is no prop-key alias surface (#604). A retired prop name is rejected at write with `unknown_prop` and unread at render — one answer on both paths. |
 | style **slot** names | nowhere | there is no slot alias surface (#603). An undeclared slot name is rejected at write with `invalid_style_slot` and dropped at render. |
-| prop **values** | nowhere | there is no value-alias surface (#605 took the last entry, #606 took the field). An unadvertised value on a TOP-LEVEL prop is rejected at write with `invalid_prop_value`; nested `items[]` enums remain accept-and-coerce (the known gap above). |
+| prop **values** | nowhere | there is no value-alias surface (#605 took the last entry, #606 took the field). An unadvertised value is rejected at write with `invalid_prop_value`, at both depths — top-level props (#579) and nested `items[]` enum fields (#600). |
 | the `variant` prop | nowhere | retired in #69. Rejected on every write path (#388) and, since #604, not decoded on any read path either. |
 
 **How a rename happens now (#606 amends #570 ruling 9).** Ruling 9 used to require the

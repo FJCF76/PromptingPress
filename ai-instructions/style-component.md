@@ -731,8 +731,9 @@ wp pp action execute update_component --run-id=<uuid> --params='{
   }
 }'
 ```
-`text_role` accepts `mono`, `meta`, `label`, `kicker`. An unknown role is ignored
-(the card renders default body text). `meta`/`kicker` set a preset text color; an
+`text_role` accepts `mono`, `meta`, `label`, `kicker` and nothing else — an unknown
+role is rejected at write with `invalid_prop_value` (#600), so omit the key when you
+want plain body text rather than inventing a role name. `meta`/`kicker` set a preset text color; an
 explicit `--grid-item-text-color` slot overrides it at all breakpoints (the role's
 size/weight/spacing still apply).
 

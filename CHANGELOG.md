@@ -4,6 +4,37 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.13.5] — 2026-08-13 — validation: nested items[] enums are strict at write (#600)
+
+**A nested `items[]` enum field is held to its declared values at the write path now, so `text_role: "terminal"` is rejected by name instead of persisting behind an `ok:true` and rendering as ordinary body text.** This was the last accept-at-write / coerce-at-render surface in the composition grammar. `strict` shipped in #380 and #579 made every top-level enum declare it, but the gate that reads the flag walked `$schema['props']` only — so one level down, declaring `"strict": true` was a silent no-op and an out-of-set value sailed through every write surface.
+
+The consequence was small and specific, which is why it survived four gates: a card the author asked to mark as code, caption, label or eyebrow simply was not marked. The write said it worked, the page said otherwise, and nothing in between said anything at all. `grid.items[].text_role` is the only nested enum in the twelve shipped schemas, so that one field is the whole blast radius today — but the rule is schema-driven, not a `text_role` branch, and a synthetic-component test proves it reaches a nested enum the theme has never seen.
+
+Enum membership now has ONE definition, shared by both depths through `_pp_schema_enum_value_is_valid()`, the same way #614 shared the scalar-type predicate. Two depths deciding separately what counts as a member is how they start disagreeing about a trailing space. The unset sentinel matches the top level exactly (key absent, `null`, `""` all keep the default), because over-rejecting here is not a local inconvenience: every action validates the whole composition.
+
+**Nothing rendered changes.** `grid.php` already coerced an unknown role to no class and still does — that allowlist is not redundant with the gate, it is what keeps an arbitrary string out of a class attribute on the paths that never validate (a raw database write, or a `restore_composition`, which by rule restores verbatim and never blocks). What changed is only that the write path names the problem instead of reporting success.
+
+**The cost, stated rather than discovered.** A page that already stores an out-of-set role blocks edits to its *other* bands until that item is repaired, because whole-composition validation is what makes any of these rules meaningful. That is the v1.13.0 no-compat posture working as intended — no alias, no migration, no coercion. The way out needs no database surgery and is pinned by tests: set the field to a declared value (or drop the key) through ordinary `update_component`, and the page unblocks. `add_component` and `style_component` keep working on a stale page throughout, and `restore_composition` reports the dead declaration in `findings` rather than refusing the undo.
+
+### Fixed
+
+- Nested `items[]` enum fields declaring `"strict": true` are enforced at the write path (#600). RULE 4 in the nested item-field walk of `pp_validate_composition_errors()` (`lib/admin.php`) rejects an out-of-set value with `invalid_prop_value`, naming the component, the prop, the item index and the field: `Component "grid" prop "items" item 0 field "text_role" must be one of: mono, meta, label, kicker; got "terminal".`
+- `components/grid/schema.json` declares `"strict": true` on `items[].text_role`, which is what arms the rule for that field.
+
+### Changed
+
+- `_pp_schema_enum_value_is_valid()` (`lib/admin.php`) is the single definition of strict-enum membership and its unset sentinel. The top-level #380/#579 block was rewired to call it; behavior there is unchanged (the guards moved into the predicate, the `array_key_exists` check stayed with the caller).
+
+### Docs
+
+- `docs/reference-apply-cli.md`, `AI_CONTEXT.md`, `ai-instructions/add-component.md`, `ai-instructions/composition.md`, `ai-instructions/style-component.md` and `components/grid/README.md` stated the nested-enum gap explicitly; every one of those claims is now the opposite and says so. The reach is stated precisely rather than rounded up: top-level props plus ONE `items[]` level, which is every depth the schemas declare.
+
+### Tests
+
+- `tests/SchemaValidationTest.php`: the CI tripwire now covers both depths (`testEveryEnumDeclarationDeclaresStrict`) and the pin that recorded the gap (`testNestedItemEnumsAreAKnownAcceptAndCoerceGap`) was deleted rather than weakened, as its own docblock instructed. New coverage for the rejection and its locator at a non-zero item index in a non-zero band, every declared role, the three unset sentinels, eight near-miss shapes, one-error-per-component depth accounting, the shared predicate arm by arm, and a synthetic component proving the rule is schema-driven.
+- `tests/ActionsTest.php`: Section 14.1 authoring-path proofs through `pp_execute_action` — `update_component` rejects and persists nothing, `create_page` accepts a declared role, a stored out-of-set role blocks an edit to a different band, repairing that band unblocks the page, `add_component` and `style_component` still work on the stale page, and `restore_composition` reports without blocking.
+- `tests/WriteRenderGrammarTest.php`: the #614 scope fence was inverted for the enum half and the write/render convergence is proved end to end, with the render side seeded through raw meta because that is the only way an out-of-set role can still reach the renderer.
+
 ## [v1.13.4] — 2026-08-13 — validation: nested items[] scalar types (#614)
 
 **A nested `items[]` field's declared scalar type is enforced at the write path now, so a non-numeric `image_id` is rejected instead of quietly resolving the site's first upload.** The shared validator walked one level down for exactly two annotations — `required: true` and `item_type: "string"` — and a nested field's own `type` was enforced by nothing. A schema could declare `"image_id": {"type": "number"}` and the write path would accept any JSON value at all, on `update_component`, `update_composition`, `create_page` and `add_component` alike.

@@ -25,6 +25,9 @@
  *   A-27  nested item-field contracts (required + item_type)
  *   #614  nested item-field scalar types (string + number), sharing the top-level
  *         #507 predicate so the two depths cannot disagree about what "42" is
+ *   #600  nested item-field strict enums, sharing the top-level #380/#579 membership
+ *         predicate for the same reason — the last accept-at-write / coerce-at-render
+ *         surface in the composition grammar
  *   A-34  the non-blocking transparent-fill advisory
  *
  * A-32 (universal strict enums; its `aliases` consumer was retired in #606) lives
@@ -893,25 +896,67 @@ class WriteRenderGrammarTest extends TestCase
     }
 
     /**
-     * The scope fence, asserted rather than described. #614 covers `string` and
-     * `number` ONLY: a nested enum stays accept-and-coerce (that is #600's issue, and
-     * it lands on this same traversal next), and a nested object field is untouched
-     * because nothing has decided what an item style object may contain.
+     * The scope fence, asserted rather than described — and #600 moved one of its two
+     * posts. The nested `enum` half USED to assert that an out-of-set text_role still
+     * validated (#614's fence: scalar types only, enums deferred); it now asserts the
+     * opposite, because RULE 4 landed on this same traversal. The nested `object` half
+     * is unchanged and is what is left of the fence: nothing has decided what an item
+     * style object may contain, and neither the scalar rule nor the enum rule may
+     * sweep it up on the way past.
      */
-    public function testNestedEnumAndObjectFieldsAreDeliberatelyUntouched(): void
+    public function testNestedEnumsAreEnforcedAndObjectFieldsAreNot(): void
     {
-        $this->assertTrue(
-            pp_validate_composition([['component' => 'grid', 'props' => ['items' => [
-                ['title' => 'Card', 'text_role' => 'not-a-declared-role'],
-            ]]]]),
-            'nested enums must stay accept-and-coerce here — #600 owns closing that gap'
+        $enum = pp_validate_composition([['component' => 'grid', 'props' => ['items' => [
+            ['title' => 'Card', 'text_role' => 'not-a-declared-role'],
+        ]]]]);
+        $this->assertInstanceOf(
+            \WP_Error::class,
+            $enum,
+            'a nested enum is strict since #600 — the accept-and-coerce gap is closed'
         );
+        $this->assertSame('invalid_prop_value', $enum->get_error_code());
+
         $this->assertTrue(
             pp_validate_composition([['component' => 'grid', 'props' => ['items' => [
                 ['title' => 'Card', 'style' => ['--grid-item-bg' => '#fff']],
             ]]]]),
-            'a nested object field must not be swept up by a scalar-type rule'
+            'a nested object field must not be swept up by a scalar-type or enum rule'
         );
+    }
+
+    /**
+     * WRITE/RENDER CONVERGENCE for the nested enum, which is the gate's whole claim
+     * and the reason #600 belongs in this file. Before it, the write path accepted
+     * `text_role: "terminal"` and the renderer acted on nothing — the two sets
+     * disagreed by exactly the set of unknown strings. Now the write path rejects
+     * precisely what the renderer would have ignored.
+     *
+     * The RENDER side is proved through a RAW META SEED, deliberately: that is the
+     * only way an out-of-set role can still reach the renderer once the write path
+     * refuses it (a raw database write, or a restore_composition of an old snapshot,
+     * which by rule never blocks). It proves the grid.php allowlist is still load-
+     * bearing rather than redundant with the new gate — an arbitrary authored string
+     * never becomes a CSS class.
+     */
+    public function testTheNestedEnumWriteRejectionMatchesWhatTheRendererIgnores(): void
+    {
+        $this->assertInstanceOf(\WP_Error::class, pp_validate_composition([
+            ['component' => 'grid', 'props' => ['items' => [
+                ['title' => 'Card', 'text' => 'Body', 'text_role' => 'terminal'],
+            ]]],
+        ]), 'the write path rejects the role the renderer would ignore');
+
+        $post_id = pp_create_page('Nested enum render convergence', 'draft');
+        $this->seedRaw($post_id, [
+            ['component' => 'grid', 'props' => ['items' => [
+                ['title' => 'Card', 'text' => 'Body', 'text_role' => 'terminal'],
+            ]]],
+        ]);
+        $html = $this->renderStored($post_id);
+
+        $this->assertStringContainsString('class="grid__item-text"', $html, 'the unknown role renders as plain body text');
+        $this->assertStringNotContainsString('text-terminal', $html, 'an unadvertised role never reaches a class attribute');
+        $this->assertStringContainsString('Body', $html, 'the card itself still renders');
     }
 
     /**
