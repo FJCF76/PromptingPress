@@ -12,7 +12,7 @@ The population this hits is exactly the one the read-only diagnostics exist for.
 
 All eight locator sites now render the key through one helper, `_pp_item_index_label()`. That is the anti-drift half of the fix: #614 and #600 each added a nested rule and each left the idiom copied inline, and #621/#643/#644 will add more. One renderer means a new rule inherits the honest locator by calling it, and a source tripwire fails the suite if a ninth site casts on the way in — proven against that exact evasion rather than assumed.
 
-**Nothing about what is accepted or rejected changes.** A string-keyed `items` map is exactly as valid as it was; only the text of the message moves. No coercion, no alias, no validator weakened — the v1.13.0 posture is untouched. An ordinary list still reports its integer position, which is what every shipped example shows.
+**What is accepted and what is rejected are unchanged.** An object-shaped `items` value is neither newly accepted nor newly refused; only the text of the message moves. No coercion, no alias, no validator weakened — the v1.13.0 posture is untouched. An ordinary list still reports its integer position, which is what every shipped example shows.
 
 ### Fixed
 

@@ -660,9 +660,10 @@ function pp_normalize_composition(array $items): array {
  *
  * Typed `int|string` because a PHP array key is exactly that — the callers all read a
  * `foreach` key, so the `gettype()` arm the inline copies carried was unreachable. The
- * signature states the assumption instead of branching on it. The key is reflected
- * VERBATIM, the same way the six sibling rules always did; sanitizing values reflected
- * into messages is #647's business and stays uniform across the family until then.
+ * signature states the assumption instead of branching on it. The key is rendered WHOLE:
+ * no truncation, no control-character strip, exactly what the six sibling rules always
+ * did. Bounding what a message reflects is #647/#649's business and stays uniform across
+ * the family until then.
  *
  * @param  int|string $index  An `items[]` array key (list position or object key).
  * @return string             The locator fragment, never a fabricated position.
