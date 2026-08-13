@@ -210,6 +210,17 @@ be discovered: the strict gate and its CI tripwire both walk top-level props onl
 `grid.items[].text_role` is still accept-at-write / coerce-at-render. Declaring
 `strict` on a nested enum today has no effect. Closing that gap is its own change.
 
+**A nested field's scalar `type` DOES have teeth (#614).** Do not read the enum gap
+above as "nested annotations are decorative". A field declared `type: "string"` or
+`type: "number"` inside an `items[]` map is enforced at the write path through the
+same predicate as the top-level pass, so `"42"` is a number at both depths and a
+non-numeric `image_id` is rejected with `invalid_prop_value`. The unset sentinels also
+match the top level (`null` for both, plus `""` for `number`), so an omitted value
+still preserves the field's default. What a nested annotation still does NOT buy you:
+`enum` (above), `object` (nothing constrains an item `style` map's contents), and a
+field declaring `type: "array"` handed a **scalar** — `item_type` checks a nested
+array's entries, never the field itself.
+
 **Enforcement reach:** the closed key set is a **repo-CI invariant**, not a runtime
 gate. `SchemaValidationTest` runs `pp_schema_definition_errors()` over every shipped
 schema (including nested `items` sub-definitions). Nothing checks a schema on a live
