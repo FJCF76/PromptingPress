@@ -4,6 +4,36 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.13.8] — 2026-08-13 — diagnostics: the chat explains a rejected style slot from the rejection, not a second look (#626)
+
+**The chat could tell you the available settings of a component that had refused nothing.** `style_component`'s validator resolves the target component, reads the slots it declares, expands any recipe, and rejects the first slot the component does not declare — all from one composition read. `_pp_build_friendly_error()` then threw that context away and read the composition again to build the response. Between the two reads the page can move: a second tab, another admin, or another leg of the same preview batch, which the chat fires in parallel. When it moved, the response named a different component and listed that component's settings, with no hedge.
+
+The rejection now carries its own context. The validator stamps it with the component it resolved, the slots that component declares, and the candidate keys it drew from, and the error builder answers from those. There is no second read on that path, so the answer describes the page that was validated rather than the page as it reads a moment later. A rejection that carries no context — one built by hand, or by a producer that stamps none — still gets the old best-effort read, which is what every caller got before.
+
+The second half is what the candidate set contains. The builder used to rebuild it from `style` alone, so a slot contributed by a recipe was invisible to it: a recipe that drifts out of its component's declared slots produced a rejection naming a slot the author never wrote, and the builder had nothing to say about it. It now uses the set the validator drew from — recipe-expanded, with the `__recipe` tracking key and null removals dropped, exactly the keys the validator itself skips — so a recipe-contributed name is a candidate for a cross-component hint like any other, and the tracking key is no longer scanned as a phantom slot.
+
+**Nothing about what is accepted or rejected changed.** The validator's message is byte-identical, the loop still returns at the first undeclared slot, and no coercion or repair was added — a misspelled slot is still `invalid_style_slot`, the same verdict every other surface gives (#607). Only the explanation the author reads is different, and only when the two views of the page disagree or a recipe is involved.
+
+### Fixed
+
+- The `invalid_style_slot` branch of `_pp_build_friendly_error()` (`lib/ai-chat.php`) answers from the context the rejection carries instead of a second `pp_get_composition()` read (#626), so `alternatives`, the "Available settings" sentence, and the cross-component hints always describe the component that actually rejected the slot. The "I couldn't find that component" answer now belongs to the contextless path only: when the validator supplied context it resolved the component itself, so that message would contradict the rejection rather than explain it.
+- The candidate set scanned for cross-component hints is the validator's own — recipe slots ∪ explicit style, minus the `__recipe` tracking key and minus null removals — so a slot only a recipe contributed can be explained, and the tracking key is no longer treated as an unknown slot.
+
+### Changed
+
+- `_pp_invalid_style_slot_error()` and `pp_rejected_slot_context()` (`lib/actions.php`) are the stamper and reader for that context, kept together like `_pp_composition_item_error()` / `pp_composition_error_index()` so the three key names are written once. The reader falls back rather than half-answering: it refuses a payload that is absent, carries an empty component name or an empty declared slot map, or holds a candidate that is not an array key.
+- `style_component`'s validate callable filters the `__recipe` key and null removals once, before its loop, instead of skipping them inside it. Same order, same skips, same first-error-wins result — the filtered set is now nameable, which is what the rejection reports.
+
+### Docs
+
+- `AI_CONTEXT.md` records where the friendly error's answer comes from and what the stamper/reader pair guarantees. `docs/AI_IMPLEMENTATION_RECIPES.md` adds the rule that a slot rejection is built with the stamper, never a bare `new WP_Error`, next to the existing rule for composition item errors.
+
+### Tests
+
+- `tests/FriendlyErrorSlotContextTest.php` pins the contract through the real surfaces: pages authored with `pp_create_page` + the `update_composition` action, rejections produced by `pp_preview_action('style_component')`, and the response built exactly as the AJAX preview handler builds it. It covers the races (the target retyped to a component that DOES declare the rejected slot, the target removed, an id-targeted proposal whose id is gone), a fixture theme whose recipe drifts out of its component's slot set (with no `style` param at all, so the hint can only come from expansion), the scan bound firing and counting on the authoritative path, and one malformed-payload case per guard in the reader.
+
+---
+
 ## [v1.13.7] — 2026-08-13 — diagnostics: a restore report names a band's problems, not just the first one (#621)
 
 **Restoring a page told you one thing that was wrong with it, then made you restore again to learn the next.** `pp_validate_composition_errors()` is the collect-all engine behind `restore_composition`'s `findings` (#233), the run-scoped rollback report (#236), `wp pp check page` and `wp pp validate site` — and every rule inside its per-item loop ended with `continue 2`, abandoning the rest of that band. A band carrying a retired prop name AND a dead style slot reported the prop; the slot surfaced on the next pass, once the first was fixed. That is exactly the fix-one-retry-discover-the-next loop a collect-all engine exists to prevent, and #604 sharpened it by routing thirteen more prop names into the gate that short-circuits.
