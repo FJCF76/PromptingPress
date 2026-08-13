@@ -4,6 +4,36 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.13.9] — 2026-08-14 — diagnostics: a mistyped slot name is a mistake to fix, not a capability the component lacks (#625)
+
+**The chat told authors a change wasn't possible while the setting they wanted sat in the same response.** A failed preview step is painted with one of three classes, and `pp-ai-step-impossible` is a claim about capability — "there is nothing to change here". It was painted on any `invalid_style_slot` whose `cross_component_hints` came back empty, and the status bar said "This change isn't possible with the current component settings." A near miss like `--hero-bgs` for `--hero-bg` normalizes to a suffix no other component declares, so it produced no hint and landed there — with `--hero-bg` listed in `alternatives` in the very same payload.
+
+The classification now reads what the payload says about the author's next move rather than which field carries it. An `invalid_style_slot` that names a cross-component hint, or names any settings the component does declare, is fixable. Impossible is reserved for `no_style_slots` — the component supports no style customization at all — and for an `invalid_style_slot` that names neither. The status sentence follows, and blames the name rather than the component: telling an author the setting isn't available would deny a capability that is sitting in the response.
+
+This became reachable in v1.13.7. Before #607 a near-miss name was silently substituted by a Levenshtein repair and never reached the classifier; now every near miss does. Nothing was repaired or coerced to fix it — the no-alias posture holds, the rejection is unchanged, and only the label the author reads is different.
+
+### Fixed
+
+- `ppChatGetErrorStepClass()` (`assets/js/pp-ai-chat.js`) classifies `invalid_style_slot` as fixable when the payload names a cross-component hint OR a non-empty `alternatives` list, instead of consulting the hint alone (#625). A mistyped slot name is no longer reported as a missing capability.
+- `ppChatGetStatusMessage()` says the same thing the step's colour says. `invalid_style_slot` with alternatives now reads "I used a setting name this component doesn't have. The settings it does have are listed above." — the settings are LISTED above because the card prints their descriptions in `user_message`; their names are behind the technical-details disclosure, so the sentence does not promise names on screen. The sentence is gated on the error code: `invalid_recipe` also ships a non-empty `alternatives`, and those are recipes, not setting names.
+- The retarget sentence carries the same `invalid_style_slot` gate the class puts on it, so no payload can make the bar and the step contradict each other. Behaviour is unchanged for everything the server can emit — only that branch of `_pp_build_friendly_error()` produces a non-empty hint map.
+
+### Changed
+
+- Two shared readers, `ppChatHasCrossComponentHint()` and `ppChatHasSlotAlternatives()`, so the class and the sentence cannot drift apart on what "names something" means. Both decide against malformed payloads: an array is not a hint map (`typeof []` is `object` and its keys count), and a list of nulls, objects, or empty strings has a length but names no setting.
+
+### Tests
+
+- `tests/PreviewErrorActionabilityTest.php` pins the server half through the real authoring path — page written with `pp_create_page` plus the `update_composition` action, rejection produced by `pp_preview_action('style_component')`, response built by `_pp_build_friendly_error()`, paired as the AJAX handler pairs them. A near miss carries no hint and a non-empty `alternatives` (the shape the chat must call fixable); the list is a JSON array, checked with the `pp_is_list()` shim because the plugin floor is PHP 8.0; and the visible message really does list the settings the status bar points at.
+- The same file pins why "names nothing" is not where a real rejection lands: a component declaring no slots is rejected as `no_style_slots` before any slot comparison, and a stale `component_id` is rejected as `component_not_found` — carried through the reporting layer, since that is where the class is decided.
+- `tests/js/pp-ai-chat-proposal.test.js` replaces the case that pinned the old classification, and covers both sides of every branch plus the malformed shapes.
+
+### Docs
+
+- `AI_CONTEXT.md` states the rule the step classes follow, not just their colours.
+
+---
+
 ## [v1.13.8] — 2026-08-13 — diagnostics: the chat explains a rejected style slot from the rejection, not a second look (#626)
 
 **The chat could tell you the available settings of a component that had refused nothing.** `style_component`'s validator resolves the target component, reads the slots it declares, expands any recipe, and rejects the first slot the component does not declare — all from one composition read. `_pp_build_friendly_error()` then threw that context away and read the composition again to build the response. Between the two reads the page can move: a second tab, another admin, or another leg of the same preview batch, which the chat fires in parallel. When it moved, the response named a different component and listed that component's settings, with no hedge.
