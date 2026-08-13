@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [v1.13.7] — 2026-08-13 — diagnostics: a restore report names every problem in a band, not the first one (#621)
+## [v1.13.7] — 2026-08-13 — diagnostics: a restore report names a band's problems, not just the first one (#621)
 
 **Restoring a page told you one thing that was wrong with it, then made you restore again to learn the next.** `pp_validate_composition_errors()` is the collect-all engine behind `restore_composition`'s `findings` (#233), the run-scoped rollback report (#236), `wp pp check page` and `wp pp validate site` — and every rule inside its per-item loop ended with `continue 2`, abandoning the rest of that band. A band carrying a retired prop name AND a dead style slot reported the prop; the slot surfaced on the next pass, once the first was fixed. That is exactly the fix-one-retry-discover-the-next loop a collect-all engine exists to prevent, and #604 sharpened it by routing thirteen more prop names into the gate that short-circuits.
 
@@ -28,7 +28,7 @@ The line that matters most is the third: repairing card 0 and rediscovering card
 
 ### What this means for an authoring agent
 
-A restore preview, a rollback report and `wp pp validate site` now describe a band completely enough to repair it in one pass. Expect more than one line per band, each carrying the composition `index` of the band that owns it (#622). Two limits stay, and both are stated in the docs rather than discovered: a band whose identity is unusable reports that alone, and a `style` map reports its first dead slot only.
+A restore preview, a rollback report and `wp pp validate site` now describe a band well enough to repair it in one pass in the ordinary case. Expect more than one line per band, each carrying the composition `index` of the band that owns it (#622). Two limits stay, both stated in the docs rather than discovered, and both are reasons to re-run rather than assume the list was complete: a band whose identity is unusable (unknown component, site chrome) reports that alone, because nothing else about it can be judged; and a `style` map reports its first dead slot only.
 
 ### Itemized changes
 
