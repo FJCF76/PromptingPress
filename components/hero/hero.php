@@ -21,7 +21,17 @@ $button2_variant = $props['button2_variant'] ?? 'outline';
 $layout    = $props['layout']    ?? 'centered';
 $image_url = $props['image_url'] ?? '';
 $image_alt = $props['image_alt'] ?? '';
-$image_id  = (int) ($props['image_id'] ?? 0);
+// is_numeric() BEFORE the (int) cast (#614, extended to the top-level readers at
+// gate 7A). `(int)` is not a rejection: `(int) ['attachment_id' => 42]` and
+// `(int) true` both evaluate to 1, so a bare cast resolves attachment ID 1 —
+// usually the site's first upload — and discards the author's image_url. The write
+// path rejects that shape (image_id declares `type: number`, gated by the #507
+// pass), but the validator gates WRITES: restore_composition reports without
+// blocking (#233) and a composition authored before the rule still reaches this
+// line. Sharper here than anywhere else, because $has_split_media below reads
+// `$image_id > 0`, so the coercion would also flip the band's LAYOUT to split.
+$raw_image_id = $props['image_id'] ?? 0;
+$image_id     = is_numeric($raw_image_id) ? (int) $raw_image_id : 0;
 $spacing         = $props['spacing']         ?? 'default';
 $width           = $props['width']           ?? 'default';
 $split_ratio     = $props['split_ratio']     ?? '50-50';

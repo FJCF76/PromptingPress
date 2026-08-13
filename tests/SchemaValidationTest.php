@@ -1697,11 +1697,13 @@ class SchemaValidationTest extends TestCase
                     $props[$prop_name] = ['x'];
                 } elseif ($prop_type === 'array' && ($prop_def['item_type'] ?? null) === 'object') {
                     // Object-array prop (issue 507, e.g. grid.items): one object entry
-                    // keyed by the declared item fields. Item sub-props are not
-                    // value-checked by the shared validator, so 'x' placeholders suffice.
+                    // keyed by the declared item fields. Since #614 a NESTED field's
+                    // declared scalar type is enforced too, so the placeholder has to
+                    // match it one level down exactly as it does at the top — a blanket
+                    // 'x' would false-fail every component declaring items[].image_id.
                     $entry = [];
                     foreach (($prop_def['items'] ?? []) as $item_prop => $item_def) {
-                        $entry[$item_prop] = 'x';
+                        $entry[$item_prop] = $this->schemaPlaceholderValue($item_def);
                     }
                     $props[$prop_name] = [$entry === [] ? ['x' => 'x'] : $entry];
                 } elseif ($prop_type === 'array' && ($prop_def['item_type'] ?? null) === 'array') {
@@ -1728,6 +1730,33 @@ class SchemaValidationTest extends TestCase
                 )
             );
         }
+    }
+
+    /**
+     * A schema-type-valid placeholder for one NESTED items[] field definition (#614).
+     *
+     * Mirrors the top-level placeholder logic for the types that reach this depth. The
+     * default stays 'x' so a plain string field, and any type no rule enforces yet
+     * (`object`), behave exactly as before.
+     *
+     * @param mixed $def The field definition, or the JSON-Schema-ish scalar form.
+     */
+    private function schemaPlaceholderValue($def): mixed
+    {
+        if (!is_array($def)) {
+            return 'x';
+        }
+        $type = $def['type'] ?? null;
+        if ($type === 'number') {
+            return 1;
+        }
+        if ($type === 'enum' && !empty($def['values'])) {
+            return $def['values'][0];
+        }
+        if ($type === 'array') {
+            return ['x'];
+        }
+        return 'x';
     }
 
     /**

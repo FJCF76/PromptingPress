@@ -663,6 +663,384 @@ class WriteRenderGrammarTest extends TestCase
         ]]));
     }
 
+    // ── #614 — declared SCALAR types on a nested item field ──────────────────
+    //
+    // A-27 shipped two nested rules — `required` and `item_type: "string"` — and a
+    // nested field's own `type` was still enforced by nothing. The write path
+    // therefore accepted ANY value for a `number`-typed field, which matters because
+    // PHP's cast is not a rejection:
+    //
+    //     (int) ['attachment_id' => 42]  => 1        <- the sharp one
+    //     (int) true                     => 1        <- and its twin
+    //     (int) 'abc'                    => 0
+    //
+    // so a renderer doing `(int) ($item['image_id'] ?? 0)` resolved attachment ID 1 —
+    // typically the site's FIRST upload — and discarded the author's image_url. The
+    // page rendered a confidently wrong image behind an ok:true. The shape is
+    // plausible rather than adversarial: the field description says "get an attachment
+    // id via the import_media apply", and import_media returns
+    // {attachment_id, url, action}, so passing the whole object through lands exactly
+    // on `(int) [...] === 1`.
+    //
+    // The rule mirrors the #507 top-level pass through ONE shared predicate
+    // (_pp_schema_scalar_value_is_valid), so "what string and number mean at the write
+    // path" has one definition and cannot drift between the two depths.
+
+    /**
+     * The reported shape, through the real action surface (14.1): the import_media
+     * envelope passed whole into image_id. Rejected with the standard envelope, and —
+     * the half that makes the rejection worth having — NOTHING is written.
+     */
+    public function testNestedNumberFieldRejectsTheImportMediaEnvelope(): void
+    {
+        $id = pp_create_page('Logos import_media envelope', 'draft');
+        pp_update_composition($id, [['component' => 'logos', 'props' => ['items' => [
+            ['image_url' => '/a.png', 'image_alt' => 'A'],
+        ]]]]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['items' => [[
+                'image_url' => '/a.png',
+                'image_alt' => 'A',
+                'image_id'  => ['attachment_id' => 42, 'url' => '/a.png', 'action' => 'imported'],
+            ]]],
+        ]);
+
+        $this->assertFalse($result['ok'], 'a non-numeric image_id must not be accepted');
+        $this->assertStringContainsString('image_id', $result['error']);
+        $this->assertStringContainsString('must be a number', $result['error']);
+        $this->assertStringContainsString('item 0', $result['error']);
+        $this->assertArrayNotHasKey(
+            'image_id',
+            pp_get_composition($id)[0]['props']['items'][0],
+            'a rejected write must leave the stored composition untouched'
+        );
+    }
+
+    /**
+     * Every write path validates through the same engine, so the rejection must not
+     * depend on which action the agent reached for. create_page and add_component are
+     * separate entry points (lib/actions.php), not aliases of update_composition.
+     *
+     * @dataProvider nestedTypeWritePaths
+     */
+    public function testEveryWritePathRejectsANonScalarNestedField(callable $write): void
+    {
+        $result = $write($this);
+        $this->assertFalse($result['ok'], 'every write path must reject the same shape');
+        $this->assertStringContainsString('image_id', $result['error']);
+    }
+
+    public static function nestedTypeWritePaths(): array
+    {
+        $bad = ['image_url' => '/a.png', 'image_alt' => 'A', 'image_id' => ['attachment_id' => 42]];
+        $band = ['component' => 'logos', 'props' => ['items' => [$bad]]];
+
+        return [
+            'create_page' => [static fn () => pp_execute_action('create_page', [
+                'title'       => 'Bad id at creation',
+                'composition' => [$band],
+            ])],
+            'update_composition' => [static function () use ($band) {
+                $id = pp_create_page('Bad id via update_composition', 'draft');
+                return pp_execute_action('update_composition', [
+                    'post_id' => $id, 'composition' => [$band],
+                ]);
+            }],
+            'add_component' => [static function () use ($band) {
+                $id = pp_create_page('Bad id via add_component', 'draft');
+                pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'T']]]);
+                return pp_execute_action('add_component', [
+                    'post_id' => $id, 'component' => 'logos', 'props' => $band['props'],
+                ]);
+            }],
+        ];
+    }
+
+    /**
+     * The accept side, which is the half that decides whether the rule is shippable:
+     * the sentinels and the ordinary values an agent really writes must all survive.
+     * A numeric STRING is the one worth naming — a JSON/CLI write sends "42", and the
+     * top-level #507 number rule already accepts it, so rejecting it here would make
+     * the two depths disagree.
+     *
+     * @dataProvider acceptedNestedScalarValues
+     */
+    public function testNestedScalarFieldsAcceptTheirLegitimateValues(string $field, $value): void
+    {
+        $entry = ['image_url' => '/a.png', 'image_alt' => 'A'];
+        $entry[$field] = $value;
+
+        $this->assertTrue(
+            pp_validate_composition([['component' => 'logos', 'props' => ['items' => [$entry]]]]),
+            sprintf('logos.items[].%s must accept %s', $field, var_export($value, true))
+        );
+    }
+
+    public static function acceptedNestedScalarValues(): array
+    {
+        return [
+            'number: int'            => ['image_id', 42],
+            'number: numeric string' => ['image_id', '42'],
+            'number: float'          => ['image_id', 42.5],
+            'number: zero'           => ['image_id', 0],
+            'number: negative'       => ['image_id', -5],
+            'number: null sentinel'  => ['image_id', null],
+            'number: empty sentinel' => ['image_id', ''],
+            'string: empty string'   => ['label', ''],
+            'string: null sentinel'  => ['label', null],
+            'string: an int'         => ['label', 7],
+            'string: a bool'         => ['label', true],
+        ];
+    }
+
+    /**
+     * The reject side, per declared type. `true` and `'abc'` are in the number list
+     * deliberately: `is_numeric()` is false for both, exactly as the #507 top-level
+     * number rule already has it — the point is one definition at both depths, not a
+     * softer one down here.
+     *
+     * @dataProvider rejectedNestedScalarValues
+     */
+    public function testNestedScalarFieldsRejectTheirIllegitimateValues(
+        string $field,
+        $value,
+        string $expected
+    ): void {
+        $entry = ['image_url' => '/a.png', 'image_alt' => 'A'];
+        $entry[$field] = $value;
+
+        $result = pp_validate_composition([['component' => 'logos', 'props' => ['items' => [$entry]]]]);
+
+        $this->assertInstanceOf(
+            WP_Error::class,
+            $result,
+            sprintf('logos.items[].%s must reject %s', $field, var_export($value, true))
+        );
+        $this->assertSame('invalid_prop_value', $result->get_error_code());
+        $this->assertStringContainsString($expected, $result->get_error_message());
+        $this->assertStringContainsString($field, $result->get_error_message());
+    }
+
+    public static function rejectedNestedScalarValues(): array
+    {
+        return [
+            'number: import_media object' => ['image_id', ['attachment_id' => 42], 'must be a number'],
+            'number: list'                => ['image_id', ['a', 'b'], 'must be a number'],
+            'number: empty array'         => ['image_id', [], 'must be a number'],
+            'number: true'                => ['image_id', true, 'must be a number'],
+            'number: non-numeric string'  => ['image_id', 'abc', 'must be a number'],
+            'string: object'              => ['label', ['text' => 'Acme'], 'must be a string'],
+            'string: list'                => ['label', ['Acme'], 'must be a string'],
+            'string: empty array'         => ['label', [], 'must be a string'],
+        ];
+    }
+
+    /**
+     * The rule is schema-driven, not logos-driven: every component that declares a
+     * nested `number` field is covered the day it lands. Walked from the schemas so a
+     * future declaration cannot quietly opt out of the gate.
+     */
+    public function testEveryNestedNumberFieldIsEnforcedAcrossTheShippedSchemas(): void
+    {
+        $checked = 0;
+        foreach (pp_get_registered_components() as $component => $schema) {
+            foreach (($schema['props'] ?? []) as $prop_name => $prop_def) {
+                if (($prop_def['type'] ?? null) !== 'array' || !is_array($prop_def['items'] ?? null)) {
+                    continue;
+                }
+                foreach ($prop_def['items'] as $field => $field_def) {
+                    if (!is_array($field_def) || ($field_def['type'] ?? null) !== 'number') {
+                        continue;
+                    }
+                    // Carry every required sibling so the required rule cannot be what fails.
+                    $entry = [];
+                    foreach ($prop_def['items'] as $sibling => $sibling_def) {
+                        if (is_array($sibling_def) && !empty($sibling_def['required'])) {
+                            $entry[$sibling] = 'x';
+                        }
+                    }
+                    $entry[$field] = ['attachment_id' => 42];
+
+                    $result = pp_validate_composition([[
+                        'component' => $component,
+                        'props'     => $this->minimalProps($component, [$prop_name => [$entry]]),
+                    ]]);
+                    $this->assertInstanceOf(
+                        WP_Error::class,
+                        $result,
+                        "{$component}.{$prop_name}[].{$field} declares type:number and must be enforced"
+                    );
+                    // Name the field, not just "something was rejected". The sibling-fill
+                    // loop above assigns 'x' to every required sibling regardless of the
+                    // sibling's own declared type, so a future component declaring a
+                    // required nested `number` field would be rejected on the SIBLING and
+                    // this walk would pass without ever exercising the field under test.
+                    $this->assertStringContainsString($field, $result->get_error_message());
+                    $this->assertStringContainsString('must be a number', $result->get_error_message());
+                    $checked++;
+                }
+            }
+        }
+        // grid, logos and testimonials each declare items[].image_id (#584 took the
+        // field to 3/3). A fourth declaration is covered the day it lands; this count
+        // is here so ADDING one is a deliberate act rather than a silent widening.
+        $this->assertSame(3, $checked, 'every nested number field in the shipped schemas must be exercised');
+    }
+
+    /**
+     * The scope fence, asserted rather than described. #614 covers `string` and
+     * `number` ONLY: a nested enum stays accept-and-coerce (that is #600's issue, and
+     * it lands on this same traversal next), and a nested object field is untouched
+     * because nothing has decided what an item style object may contain.
+     */
+    public function testNestedEnumAndObjectFieldsAreDeliberatelyUntouched(): void
+    {
+        $this->assertTrue(
+            pp_validate_composition([['component' => 'grid', 'props' => ['items' => [
+                ['title' => 'Card', 'text_role' => 'not-a-declared-role'],
+            ]]]]),
+            'nested enums must stay accept-and-coerce here — #600 owns closing that gap'
+        );
+        $this->assertTrue(
+            pp_validate_composition([['component' => 'grid', 'props' => ['items' => [
+                ['title' => 'Card', 'style' => ['--grid-item-bg' => '#fff']],
+            ]]]]),
+            'a nested object field must not be swept up by a scalar-type rule'
+        );
+    }
+
+    /**
+     * section.panel_items accepts MIXED string and object entries, so the traversal
+     * skips non-object entries entirely. A plain-string panel item must keep
+     * validating, or this rule would break the shape it never intended to touch.
+     */
+    public function testMixedStringAndObjectPanelItemsStillValidate(): void
+    {
+        $this->assertTrue(pp_validate_composition([['component' => 'section', 'props' => [
+            'body'        => 'x',
+            'panel_items' => ['a plain string row', ['label' => 'Seats', 'value' => '12']],
+        ]]]));
+    }
+
+    /**
+     * First-error order within an entry follows SCHEMA DECLARATION ORDER, not rule
+     * precedence. Both the required rule and the type rule `continue 4`, so whichever
+     * field is declared first in the component's `items` map reports and ends the
+     * item. Pinned in BOTH directions deliberately, because the tempting summary —
+     * "a missing required field always wins over a type error" — is false, and a test
+     * that asserted only the first case would read as proving a rule that does not
+     * exist. logos declares image_url, image_alt, image_id in that order.
+     */
+    public function testFirstErrorInAnEntryFollowsSchemaDeclarationOrder(): void
+    {
+        // image_alt (required, declared 2nd) is missing; image_id (declared 3rd) is
+        // the wrong type. The earlier declaration reports.
+        $required_first = pp_validate_composition([['component' => 'logos', 'props' => ['items' => [
+            ['image_url' => '/a.png', 'image_id' => ['attachment_id' => 42]],
+        ]]]]);
+        $this->assertInstanceOf(WP_Error::class, $required_first);
+        $this->assertSame('invalid_composition', $required_first->get_error_code());
+        $this->assertStringContainsString('image_alt', $required_first->get_error_message());
+
+        // Reverse it: image_url (declared 1st) is the wrong type while image_alt
+        // (declared 2nd, required) is missing. Now the TYPE error reports first.
+        $type_first = pp_validate_composition([['component' => 'logos', 'props' => ['items' => [
+            ['image_url' => ['/a.png']],
+        ]]]]);
+        $this->assertInstanceOf(WP_Error::class, $type_first);
+        $this->assertSame('invalid_prop_value', $type_first->get_error_code());
+        $this->assertStringContainsString('image_url', $type_first->get_error_message());
+        $this->assertStringNotContainsString('image_alt', $type_first->get_error_message());
+    }
+
+    /**
+     * The exact message text, pinned once per branch of the shared renderer. Without
+     * this the helper is invisible to the suite — its whole job is the "; got X" half,
+     * and docs/reference-apply-cli.md quotes this string verbatim.
+     *
+     * The boolean case is the one worth the assertion: PHP's `(string) true` is "1",
+     * so the obvious implementation tells an agent its rejected value "1" is not a
+     * number. The helper prints `true` instead.
+     *
+     * @dataProvider rejectionMessageShapes
+     */
+    public function testRejectionMessagesRenderTheOffendingValueHonestly(
+        $value,
+        string $expected
+    ): void {
+        $result = pp_validate_composition([['component' => 'logos', 'props' => ['items' => [
+            ['image_url' => '/a.png', 'image_alt' => 'A', 'image_id' => $value],
+        ]]]]);
+
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame($expected, $result->get_error_message());
+    }
+
+    public static function rejectionMessageShapes(): array
+    {
+        $prefix = 'Component "logos" prop "items" item 0 field "image_id" must be a number; got ';
+        return [
+            'container degrades to its type' => [['attachment_id' => 42], $prefix . 'array.'],
+            'scalar is quoted'               => ['abc', $prefix . '"abc".'],
+            'true is not rendered as 1'      => [true, $prefix . 'true.'],
+            'false is not rendered as blank' => [false, $prefix . 'false.'],
+        ];
+    }
+
+    /**
+     * An author-supplied value is echoed into the message, and that message reaches a
+     * terminal (WP_CLI::error writes it raw), an action envelope and the editor save
+     * response. So it gets the same strip-and-cap the file's other reflection helpers
+     * apply: no control characters, bounded length.
+     */
+    public function testARejectedValueIsStrippedAndBoundedBeforeItIsEchoedBack(): void
+    {
+        $hostile = "ESC\x1b[31m and a newline\nand a zero-width\u{200b}mark " . str_repeat('A', 400);
+        $result  = pp_validate_composition([['component' => 'logos', 'props' => ['items' => [
+            ['image_url' => '/a.png', 'image_alt' => 'A', 'image_id' => $hostile],
+        ]]]]);
+
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $message = $result->get_error_message();
+        $this->assertStringNotContainsString("\x1b", $message, 'no escape sequences reach a terminal');
+        $this->assertStringNotContainsString("\n", $message, 'no newlines break a log line');
+        $this->assertStringNotContainsString("\u{200b}", $message, 'no zero-width marks');
+        $this->assertStringContainsString('...', $message, 'an over-long value is truncated');
+        $this->assertLessThan(250, mb_strlen($message), 'one bad value cannot bloat the envelope');
+    }
+
+    /**
+     * Ruling 2, for the new rejection: restore_composition REPORTS and restores. A
+     * page that already stores the bad shape must still be recoverable — the gate is
+     * on writes, never on undo (#233).
+     */
+    public function testRestoreNeverBlocksOnANonScalarNestedField(): void
+    {
+        $id = pp_create_page('Logos bad id snapshot');
+        pp_update_composition($id, [['component' => 'logos', 'props' => ['items' => [
+            ['image_url' => '/a.png', 'image_alt' => 'A'],
+        ]]]]);
+        $this->seedRaw($id, [['component' => 'logos', 'props' => ['items' => [
+            ['image_url' => '/a.png', 'image_alt' => 'A', 'image_id' => ['attachment_id' => 42]],
+        ]]]]);
+        pp_update_composition($id, [['component' => 'logos', 'props' => ['items' => [
+            ['image_url' => '/b.png', 'image_alt' => 'B'],
+        ]]]]);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $id, 'steps_back' => 1]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? 'restore must never block');
+        $this->assertSame(
+            ['attachment_id' => 42],
+            pp_get_composition($id)[0]['props']['items'][0]['image_id'],
+            'restore puts the snapshot back verbatim'
+        );
+        $this->assertContains('invalid_prop_value', array_column($result['findings'], 'type'));
+    }
+
     // ── A-34 — the warn channel ──────────────────────────────────────────────
 
     /**
