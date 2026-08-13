@@ -370,9 +370,13 @@ function _pp_component_target_not_found(array $params, int $resolved_index): boo
 //
 //   most style slots any one component declares                     49  ┐
 //   widest style map in the shipped starter composition             20  ├→   64
-//   (so a style map applied wholesale to the wrong component —         ┘
+//   most slots any one shipped recipe contributes                    6  ┘
+//   (so a style map applied wholesale to the wrong component —
 //    the mistake cross-component hints exist to explain — is
-//    reported complete, never truncated)
+//    reported complete, never truncated. Since #626 the keys counted
+//    here are the validator's candidate set, so a recipe's slots are
+//    among them: the widest legitimate case is one component's full
+//    slot set plus one recipe, 55, still inside the bound)
 
 /** Longest caller-supplied name echoed back in a response. */
 const PP_REFLECTED_NAME_MAX = 256;
@@ -409,7 +413,8 @@ const PP_CROSS_COMPONENT_HINT_MAX = 64;
  */
 function _pp_clean_reflected_text(string $text, int $max_length): string {
     // Bound the INPUT before scanning it, not just the output. The rejected name is
-    // interpolated into the validator's message verbatim (lib/actions.php:2622), so
+    // interpolated into the validator's message verbatim
+    // (_pp_invalid_style_slot_error(), lib/actions.php), so
     // a multi-megabyte name means preg_replace allocates a multi-megabyte copy to
     // produce a result that is thrown away down to $max_length. A byte-length test
     // is O(1), and 4 bytes is the widest UTF-8 encoding of one character, so
@@ -463,34 +468,57 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
 
     switch ($code) {
         case 'invalid_style_slot':
-            $component_name = '';
-            $available      = [];
+            $component_name  = '';
             $available_slots = [];
-            $composition    = pp_get_composition($params['post_id'] ?? 0);
-            $idx            = _pp_resolve_component_index_for_error($params);
-            if (_pp_component_target_not_found($params, $idx)) {
-                return [
-                    'error_code'            => $code,
-                    'user_message'          => 'I couldn\'t find that component on the page — it may have been removed or the id is wrong.',
-                    'alternatives'          => [],
-                    'cross_component_hints' => (object) [],
-                    'raw_error'             => $raw_msg,
-                ];
+
+            // Which keys could carry a cross-component hint? The ones the VALIDATOR
+            // drew from — recipe-expanded, `__recipe` and removals already dropped —
+            // never a set re-derived here. Deriving it twice is what let the two
+            // disagree (#626): `array_keys($params['style'])` misses every slot a
+            // recipe contributed, so a recipe drifting out of its component's
+            // declared set produced a rejection this branch could not explain, and
+            // it counted the `__recipe` tracking key as a phantom unknown slot.
+            $context = pp_rejected_slot_context($error);
+            if ($context !== null) {
+                $component_name  = $context['component_name'];
+                $available_slots = $context['available_slots'];
+                $invalid_slots   = array_diff($context['candidate_slots'], array_keys($available_slots));
+            } else {
+                // No authoritative context, so no rejection to answer from: this is a
+                // hand-built error, or one from a producer that stamps none. Best
+                // effort from the composition as it reads NOW, which is what this
+                // branch always did before #626 — and what the bare-WP_Error cases in
+                // tests/ActionsTest.php pin. The component-not-found answer belongs to
+                // this path only: when the validator did supply context it resolved
+                // the component itself, so "I couldn't find that component" would
+                // contradict the rejection in hand rather than explain it.
+                $composition = pp_get_composition($params['post_id'] ?? 0);
+                $idx         = _pp_resolve_component_index_for_error($params);
+                if (_pp_component_target_not_found($params, $idx)) {
+                    return [
+                        'error_code'            => $code,
+                        'user_message'          => 'I couldn\'t find that component on the page — it may have been removed or the id is wrong.',
+                        'alternatives'          => [],
+                        'cross_component_hints' => (object) [],
+                        'raw_error'             => $raw_msg,
+                    ];
+                }
+                if (isset($composition[$idx])) {
+                    $component_name  = $composition[$idx]['component'] ?? '';
+                    $available_slots = pp_get_style_slots($component_name);
+                }
+                $invalid_slots = array_diff(array_keys($params['style'] ?? []), array_keys($available_slots));
             }
-            if (isset($composition[$idx])) {
-                $component_name  = $composition[$idx]['component'] ?? '';
-                $available_slots = pp_get_style_slots($component_name);
-                $available       = array_keys($available_slots);
-            }
+
+            $available = array_keys($available_slots);
 
             // Cross-component hint: does this slot exist on a different component?
             //
             // Each unknown key costs a pass over every registered component and every
             // slot it declares, so the size of this list sets both the work done and
             // the size of the object emitted. Bound it here, once, before the scan.
-            $cross_hints  = (object) [];
-            $style        = $params['style'] ?? [];
-            $invalid_slots = array_diff(array_keys($style), $available);
+            $cross_hints   = (object) [];
+            $invalid_slots = array_values($invalid_slots);
 
             // The cap applies to the keys BEFORE any matching, because bounding the
             // scan is the point — deciding which keys are worth reporting would mean
