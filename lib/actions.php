@@ -2616,19 +2616,40 @@ pp_register_action('style_component', [
 
         // Build merged style (recipe + explicit overrides) and validate all slots.
         $merged = _pp_expand_recipe_and_merge($params, $component_name);
+
+        // The candidate set this pass draws from, filtered ONCE rather than inside the
+        // loop: recipe slots ∪ explicit style, minus the `__recipe` tracking key (not
+        // a CSS property) and minus null values (a removal, not a value to check).
+        // Same skips as before, same order, same first-error-wins result — the loop
+        // still returns at the FIRST undeclared slot, so keys after it are candidates
+        // that were never reached, not keys this pass approved.
+        //
+        // Hoisting it out of the loop is what lets the rejection below report the set
+        // it drew from (#626). The chat's friendly-error builder used to re-derive
+        // that set from $params['style'] alone — pre-expansion, `__recipe` included —
+        // so a recipe that drifted out of its component's declared slots produced a
+        // rejection naming a slot the builder had never heard of, and the builder
+        // answered by describing a different set than the one that failed.
+        $candidates = [];
         foreach ($merged as $slot_name => $slot_value) {
-            if ($slot_name === '__recipe') {
+            if ($slot_name === '__recipe' || $slot_value === null) {
                 continue;
             }
-            if ($slot_value === null) {
-                continue;
-            }
+            $candidates[$slot_name] = $slot_value;
+        }
+
+        foreach ($candidates as $slot_name => $slot_value) {
             if (!isset($available_slots[$slot_name])) {
-                $available = implode(', ', array_keys($available_slots));
-                return new WP_Error('invalid_style_slot', sprintf(
-                    'Component "%s" has no style slot "%s". Available: %s',
-                    $component_name, $slot_name, $available
-                ));
+                // Stamped with the context above, so the chat error builder can answer
+                // from THIS pass instead of reading the composition a second time — a
+                // write landing in between could otherwise make the response describe a
+                // component that never rejected anything (#626).
+                return _pp_invalid_style_slot_error(
+                    $component_name,
+                    (string) $slot_name,
+                    $available_slots,
+                    array_keys($candidates)
+                );
             }
             $slot_type = $available_slots[$slot_name]['type'] ?? null;
             $slot_allowed = $available_slots[$slot_name]['values'] ?? null;
@@ -3239,6 +3260,97 @@ function _pp_expand_recipe_and_merge(array $params, string $component_name): arr
     }
 
     return $result;
+}
+
+/**
+ * Stamps an `invalid_style_slot` rejection with the context it was judged in (#626).
+ *
+ * The rejection's message says which slot was refused; the data says what it was
+ * refused AGAINST — the component this validation pass resolved, the slots that
+ * component declares, and the candidate keys the pass drew from (recipe-expanded,
+ * `__recipe` and null removals already dropped). All four come from the ONE
+ * composition read the validator already did.
+ *
+ * Read back with pp_rejected_slot_context() below. The two live together, as
+ * _pp_composition_item_error() and pp_composition_error_index() do (lib/admin.php),
+ * so the key names are written once: a consumer that re-derived this context from
+ * its own second read is exactly the defect #626 fixed, and a consumer that
+ * re-spelled the keys would be the same defect one layer down.
+ *
+ * @param  string $component_name   The component the pass resolved.
+ * @param  string $slot_name        The slot it refused.
+ * @param  array  $available_slots  That component's declared style_slots.
+ * @param  array  $candidate_slots  Slot names the pass drew from, in order.
+ * @return WP_Error
+ */
+function _pp_invalid_style_slot_error(
+    string $component_name,
+    string $slot_name,
+    array $available_slots,
+    array $candidate_slots
+): WP_Error {
+    return new WP_Error(
+        'invalid_style_slot',
+        sprintf(
+            'Component "%s" has no style slot "%s". Available: %s',
+            $component_name,
+            $slot_name,
+            implode(', ', array_keys($available_slots))
+        ),
+        [
+            'component_name'  => $component_name,
+            'available_slots' => $available_slots,
+            'candidate_slots' => $candidate_slots,
+        ]
+    );
+}
+
+/**
+ * Reads the context stamped by _pp_invalid_style_slot_error(), or null (#626).
+ *
+ * Null means "no authoritative answer in hand" — a rejection built by hand, or by a
+ * producer of this error code that stamps nothing (the shared engine
+ * _pp_validate_style_slot_map() in lib/admin.php, whose rejections travel through
+ * composition validation rather than through the chat's style_component branch).
+ * Consumers fall back to whatever they can derive themselves, which is best-effort
+ * by definition: it describes the world as it reads NOW, not the world the rejection
+ * was made in.
+ *
+ * Every field is checked for presence AND usable type, and the two that can render
+ * as a claim about the component are also checked for emptiness. A payload that is
+ * present but hollow is worse than an absent one: an empty `available_slots` would
+ * render as "Available settings: (none)" on a component declaring dozens, and a
+ * candidate list carrying a non-key value would fatal in the consumer's array
+ * lookups rather than degrade. Both route to the fallback instead.
+ *
+ * @param  WP_Error   $error
+ * @return array|null  ['component_name' => string, 'available_slots' => array,
+ *                     'candidate_slots' => array], or null.
+ */
+function pp_rejected_slot_context(WP_Error $error): ?array {
+    $data = $error->get_error_data();
+
+    if (!is_array($data)
+        || !isset($data['component_name']) || !is_string($data['component_name']) || $data['component_name'] === ''
+        || !isset($data['available_slots']) || !is_array($data['available_slots']) || $data['available_slots'] === []
+        || !isset($data['candidate_slots']) || !is_array($data['candidate_slots'])
+    ) {
+        return null;
+    }
+
+    // Array keys are int|string and nothing else, so a candidate list that holds
+    // anything else did not come from array_keys() and is not a slot list.
+    foreach ($data['candidate_slots'] as $candidate) {
+        if (!is_string($candidate) && !is_int($candidate)) {
+            return null;
+        }
+    }
+
+    return [
+        'component_name'  => $data['component_name'],
+        'available_slots' => $data['available_slots'],
+        'candidate_slots' => $data['candidate_slots'],
+    ];
 }
 
 /**

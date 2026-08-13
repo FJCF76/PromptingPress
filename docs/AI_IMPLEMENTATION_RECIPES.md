@@ -112,6 +112,8 @@ Used by: #51, #87.
 5. **Test:** `tests/GuardrailsTest.php` — smelly composition → warning with the right `type`/`index`; clean composition → none.
 6. **Verify:** `composer test`.
 
+**Rejecting a style slot from `style_component`.** Build the `WP_Error` with `_pp_invalid_style_slot_error($component, $slot, $available_slots, $candidate_slots)` (`lib/actions.php`), never a bare `new WP_Error('invalid_style_slot', ...)`. A bare one still reads correctly to a human, but it carries no context, so `pp_rejected_slot_context()` returns null and the chat's error builder falls back to reading the composition a second time — the drift #626 removed, where the response could describe a component that had rejected nothing and a slot set that excluded everything a recipe contributed.
+
 **Adding an ERROR rule instead of a smell.** Build the `WP_Error` with `_pp_composition_item_error($i, $code, $message)` (`lib/admin.php`), never a bare `new WP_Error(...)`. A bare one compiles, passes, and silently reports `index: null`, which breaks the documented contract that only the cross-item `duplicate_component_id` lacks a locator (#622) — and a finding with no band is one the operator cannot act on. A genuinely cross-item rule skips the helper on purpose and names every colliding index in its message instead.
 
 ---
