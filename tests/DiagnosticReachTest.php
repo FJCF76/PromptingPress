@@ -637,4 +637,275 @@ class DiagnosticReachTest extends TestCase
             _pp_cli_page_diagnostics([])
         );
     }
+
+    // ── 7. Nested ITEM locators name a real position, never a cast (#634) ──────
+    //
+    // The band-level half of this theme is section 2 above: an error-derived finding
+    // carries the composition offset, and a cross-item rule reports none rather than a
+    // fabricated 0. #634 is the same rule one level down, inside the message TEXT.
+    //
+    //   items value          key seen by the rule    locator, before -> after
+    //   ["a", "b"]           int 1                   "1"    -> "1"    (unchanged)
+    //   {"aa": {...}}        string "aa"             "0"    -> "aa"
+    //   {"zz": {...}} style  string "zz"             "0"    -> "zz"
+    //
+    // Two of the eight nested-locator sites hard-cast the key ((int) "aa" === 0) while
+    // six rendered it honestly, so ONE function answered "which item?" two ways. There
+    // is no item 0 in a string-keyed map: the message sent the operator to repair an
+    // element that does not exist, which is worse than carrying no locator at all.
+
+    /** An `items` map that is a JSON object rather than a list, keyed 'aa'. */
+    private function stringKeyedGrid(array $itemFields): array
+    {
+        return [['component' => 'grid', 'props' => ['items' => ['aa' => $itemFields]]]];
+    }
+
+    public function testTheNestedLinkUrlLocatorNamesTheStoredKeyRatherThanFabricatingItemZero(): void
+    {
+        $errors = pp_validate_composition_errors(
+            $this->stringKeyedGrid(['title' => 'X', 'link_url' => 'javascript:alert(1)'])
+        );
+
+        $this->assertCount(1, $errors);
+        $message = $errors[0]->get_error_message();
+        $this->assertStringContainsString('item aa field "link_url"', $message);
+        $this->assertStringNotContainsString('item 0', $message, '(int) "aa" is 0, and there is no item 0');
+    }
+
+    public function testThePerItemStyleLocatorNamesTheStoredKeyRatherThanFabricatingItemZero(): void
+    {
+        $errors = pp_validate_composition_errors(
+            $this->stringKeyedGrid(['title' => 'X', 'style' => ['--nope' => '1']])
+        );
+
+        $this->assertCount(1, $errors);
+        $message = $errors[0]->get_error_message();
+        $this->assertStringContainsString('Component "grid" item aa has no style slot', $message);
+        $this->assertStringNotContainsString('item 0', $message);
+    }
+
+    /**
+     * The per-item style path reaches the shared slot engine through a widened parameter,
+     * and that engine decides per-item SCOPE (#323) on `$item_index !== null`. A string
+     * key must still be "an item" for that gate — otherwise widening the type would have
+     * quietly turned a container-scoped slot on one card into an unknown-slot error, or
+     * into acceptance.
+     */
+    public function testAStringKeyedItemStillEnforcesThePerItemSlotScope(): void
+    {
+        $errors = pp_validate_composition_errors(
+            $this->stringKeyedGrid(['title' => 'X', 'style' => ['--grid-gap' => '2rem']])
+        );
+
+        $this->assertCount(1, $errors);
+        $this->assertSame('invalid_style_slot', $errors[0]->get_error_code());
+        $this->assertStringContainsString(
+            'Component "grid" item aa style slot "--grid-gap" is container-scoped',
+            $errors[0]->get_error_message()
+        );
+    }
+
+    /**
+     * NON-VACUITY, and the case every shipped example is: an ordinary LIST still reports
+     * its integer position at both fixed sites. Written at index 1, not 0, so a rule that
+     * lost the index entirely (or reported the band) fails here. `docs/reference-apply-cli.md`
+     * shows this shape; #634 must not disturb it.
+     */
+    public function testAListShapedItemsArrayStillReportsItsIntegerPositionAtBothSites(): void
+    {
+        $link = pp_validate_composition_errors([
+            ['component' => 'grid', 'props' => ['items' => [
+                ['title' => 'Fine', 'link_url' => '/ok'],
+                ['title' => 'Dead', 'link_url' => 'javascript:alert(1)'],
+            ]]],
+        ]);
+        $this->assertStringContainsString('item 1 field "link_url"', $link[0]->get_error_message());
+
+        $style = pp_validate_composition_errors([
+            ['component' => 'grid', 'props' => ['items' => [
+                ['title' => 'Fine'],
+                ['title' => 'Bad', 'style' => ['--nope' => '1']],
+            ]]],
+        ]);
+        $this->assertStringContainsString('Component "grid" item 1 has no style slot', $style[0]->get_error_message());
+    }
+
+    /**
+     * ONE CONVENTION, proved on ONE key. The two repaired rules and one of the six that
+     * were always honest are asked about the same key in the same composition: before
+     * #634 the first two said `item 0` and the third said `item aa` — the divergence the
+     * issue reports, inside a single validation pass.
+     */
+    public function testEveryNestedRuleRendersTheSameKeyTheSameWay(): void
+    {
+        $errors = pp_validate_composition_errors([
+            ['component' => 'logos', 'props' => ['items' => ['aa' => ['image_alt' => 'X']]]],
+            ['component' => 'grid',  'props' => ['items' => ['aa' => ['title' => 'X', 'link_url' => 'javascript:alert(1)']]]],
+            ['component' => 'grid',  'props' => ['items' => ['aa' => ['title' => 'X', 'style' => ['--nope' => '1']]]]],
+        ]);
+
+        $this->assertCount(3, $errors, 'one error per band');
+        foreach ($errors as $i => $error) {
+            $this->assertStringContainsString('item aa', $error->get_error_message(), "band {$i} names the stored key");
+            $this->assertStringNotContainsString('item 0', $error->get_error_message());
+        }
+    }
+
+    /**
+     * Section 14.1 — the AUTHORING path, which is where this defect is most reachable and
+     * where the issue's own repro understates it. A JSON object where a list belongs
+     * survives `pp_execute_action`'s params intact, so `create_page` / `update_composition`
+     * produced the fabricated locator themselves; no raw `update_post_meta()` write or
+     * history-ring snapshot was required. The rejection must also leave the stored
+     * composition untouched — a validation failure never half-writes.
+     */
+    public function testTheAuthoringPathReportsTheHonestItemLocatorAndStoresNothing(): void
+    {
+        $before = [['component' => 'hero', 'props' => ['title' => 'Hi']]];
+        $this->seedPage(320, $before);
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => 320,
+            'composition' => $this->stringKeyedGrid(['title' => 'X', 'link_url' => 'javascript:alert(1)']),
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('invalid_prop_value', $result['error_code']);
+        $this->assertStringContainsString('item aa field "link_url"', $result['error']);
+        $this->assertStringNotContainsString('item 0', $result['error']);
+        $this->assertSame(
+            wp_json_encode($before),
+            $GLOBALS['_pp_test_store']['post_meta'][320]['_pp_composition'],
+            'a rejected write stores nothing'
+        );
+    }
+
+    public function testTheCreatePagePathReportsTheHonestItemLocatorForAPerItemStyle(): void
+    {
+        $result = pp_execute_action('create_page', [
+            'title'       => 'New',
+            'composition' => $this->stringKeyedGrid(['title' => 'X', 'style' => ['--nope' => '1']]),
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('Component "grid" item aa has no style slot', $result['error']);
+        $this->assertStringNotContainsString('item 0', $result['error']);
+    }
+
+    /**
+     * The read-only reach #622 opened. `wp pp check page` is pointed at stored data that
+     * never passed write validation — exactly the population where a non-list `items` map
+     * lives — so the honest locator has to survive the CLI's own sanitizer, not just the
+     * validator.
+     */
+    public function testCheckPageReportsTheHonestItemLocator(): void
+    {
+        $this->seedPage(321, $this->stringKeyedGrid(['title' => 'X', 'link_url' => 'javascript:alert(1)']));
+
+        (new PP_Check_Command())->page([], ['post_id' => 321]);
+
+        $this->assertSame([], WP_CLI::$successes);
+        $joined = implode("\n", array_merge(WP_CLI::$warnings, WP_CLI::$lines));
+        $this->assertStringContainsString('item aa field "link_url"', $joined);
+        $this->assertStringNotContainsString('item 0', $joined);
+    }
+
+    /**
+     * The renderer itself, both arms of its union type. PHP folds a numeric-STRING array
+     * key ("5") to the integer 5 on the way in, so the string arm is only observable
+     * through a genuinely non-numeric key — which is why the behavioral tests above are
+     * keyed 'aa' and this one asserts the two arms directly.
+     *
+     * @dataProvider itemIndexLabelProvider
+     */
+    public function testTheItemIndexLabelRendersBothArrayKeyTypes($index, string $expected): void
+    {
+        $this->assertSame($expected, _pp_item_index_label($index));
+    }
+
+    public static function itemIndexLabelProvider(): array
+    {
+        return [
+            'first list position'  => [0, '0'],
+            'later list position'  => [7, '7'],
+            'object key'           => ['aa', 'aa'],
+            'numeric-string key'   => ['5', '5'],
+            // The degenerate key `{"": {...}}`. The locator renders EMPTY rather than
+            // inventing a position for it — "no locator at all" is one of the two answers
+            // the issue names as acceptable, and it is what the six sibling rules already
+            // produce for the same key. Pinned so the empty render is a recorded choice
+            // rather than something nobody looked at.
+            'empty object key'     => ['', ''],
+        ];
+    }
+
+    /**
+     * THE DRIFT-CATCHER. Eight sites render this fragment and #614/#600 each added one;
+     * #621/#643/#644 will add more. The behavioral pins above prove the eight that exist
+     * today, but only a source check stops a NINTH rule from re-introducing the cast that
+     * started this, or from open-coding the old inline copy beside the shared renderer.
+     *
+     * The load-bearing assertion is the PAIRING, not the name blocklist. A guard that only
+     * greps for `(int) $entry_index` / `(int) $elem_index` is evadable by a new rule whose
+     * key variable has a different name — `foreach ($rows as $row_index => $row)` with
+     * `_pp_item_index_label((int) $row_index)` defeats every name-based check while
+     * reintroducing exactly this defect. So: every `item %s` locator in the file must be
+     * matched by one call to the shared renderer, and no call may be handed a cast.
+     *
+     * SCOPE, stated so the guard is not read as covering more than it does: the lowercase
+     * `item %s` family is the nested items[] locator #634 owns. The capital-I `Item %d`
+     * messages ~500 lines above name the COMPOSITION offset (which band), a different
+     * locator with its own open defect and its own issue. This test deliberately does not
+     * assert on them.
+     */
+    public function testEveryItemIndexLocatorRoutesThroughTheSharedLabel(): void
+    {
+        // Asserted on booleans and counts, not on the 140 KB haystack: a string assertion
+        // that fails here dumps the whole file into the report and buries its own message.
+        $source = file_get_contents(dirname(__DIR__) . '/lib/admin.php');
+
+        $this->assertSame(
+            substr_count($source, 'item %s'),
+            substr_count($source, '_pp_item_index_label($'),
+            'every nested item locator must be fed by the shared renderer — one call per locator'
+        );
+        $this->assertSame(
+            0,
+            preg_match_all('/_pp_item_index_label\(\s*\((?:int|string|float|bool)\)/', $source),
+            'the renderer takes the raw array key; casting on the way in is the #634 defect wearing a hat'
+        );
+        $this->assertFalse(str_contains($source, '(int) $entry_index'), 'a cast fabricates item 0 for a string key');
+        $this->assertFalse(str_contains($source, '(int) $elem_index'), 'same cast on the per-item style path');
+        $this->assertFalse(
+            str_contains($source, 'is_scalar($entry_index) ?'),
+            'the inline copies are the shared renderer now — a new copy is how the two conventions came back'
+        );
+        $this->assertFalse(str_contains($source, 'item %d'), 'no nested locator formats the key as an integer');
+        $this->assertGreaterThanOrEqual(8, substr_count($source, 'item %s'), 'the eight known locators are still there');
+    }
+
+    /**
+     * THE DEFERRAL, recorded in the suite rather than only in a docblock. The key is
+     * reflected VERBATIM — unbounded and unstripped — which is what the six sibling rules
+     * have always done and what #634 was fenced to keep uniform rather than fix at two
+     * sites out of eight. Bounding it for the whole family is #649.
+     *
+     * Two surfaces, deliberately asserted apart: the CLI finding line IS sanitized
+     * (_pp_cli_printable), the action envelope is NOT. When #649 lands, this test should
+     * be rewritten to the new contract, not deleted — that is the signal that the gap was
+     * closed on purpose.
+     */
+    public function testAHostileItemKeyIsStillReflectedVerbatimIntoTheEnvelopeUntil649(): void
+    {
+        $key    = "aa\x1b[31m\nWARNING: fake";
+        $errors = pp_validate_composition_errors([
+            ['component' => 'grid', 'props' => ['items' => [$key => ['title' => 'X', 'link_url' => 'javascript:a']]]],
+        ]);
+
+        $this->assertStringContainsString("\x1b", $errors[0]->get_error_message(), 'documented gap, not a claim that this is right (#649)');
+
+        $line = _pp_cli_finding_line(['type' => 'invalid_prop_value', 'index' => 0, 'message' => $errors[0]->get_error_message()]);
+        $this->assertStringNotContainsString("\x1b", $line, 'the CLI surface strips it today');
+        $this->assertStringNotContainsString("\n", $line);
+    }
 }

@@ -226,6 +226,12 @@ Two nested shapes are deliberately still uncovered, named here rather than left 
 
 Like every rule here, both checks run in the shared `pp_validate_composition()` and are reported (never blocked) by `restore_composition` (#233).
 
+**Reading the `item N` locator (#634).** Every message in this nested family names the offending entry by its **stored `items` key**, not by a counted position. For the ordinary case they are the same thing: an `items` array authored as a JSON list gives `item 0`, `item 1`, `item 2`, exactly as the examples above show. They differ when `items` was stored as a JSON *object* rather than a list — a shape a raw `update_post_meta()` write, a history-ring snapshot, or an author sending `{"aa": {...}}` can produce, and one these read-only diagnostics exist to be pointed at:
+
+> `Component "grid" prop "items" item aa field "link_url" is not a usable link URL: ... [invalid_prop_value]`
+
+Two of these locators used to cast the key to an integer, so a `"aa"`-keyed entry reported `item 0` and sent the operator to repair an element that does not exist. All eight now render the key through one shared helper, so every nested rule answers "which item?" the same way. Repair the entry under the named key; if the whole `items` value is an object where a list belongs, rewrite it as a list.
+
 **Output** — the preflight result:
 
 ```json

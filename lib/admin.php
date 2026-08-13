@@ -639,6 +639,40 @@ function pp_normalize_composition(array $items): array {
 }
 
 /**
+ * Renders an `items[]` array KEY as the item locator inside a validation message (#634).
+ *
+ * The single renderer for the "item N" fragment every nested rule in
+ * pp_validate_composition_errors() emits, and for the two message builders those rules
+ * delegate to (_pp_link_url_error_message, _pp_validate_style_slot_map). Before #634 the
+ * SAME function reported the position two ways: six rules rendered the key honestly while
+ * the link-URL and per-item-style paths hard-cast it, so a composition whose `items`
+ * decoded to a JSON OBJECT rather than a list — `{"aa": {...}}`, reachable from
+ * create_page/update_composition, a raw update_post_meta() write, or a history-ring
+ * snapshot — reported `item 0`. `(int) "aa"` is 0, and there is no item 0: the message
+ * sent the operator to repair an element that does not exist, which is worse than
+ * carrying no locator at all.
+ *
+ *   items array           key passed here      rendered locator
+ *   ["a", "b"]            int 1                "1"      (list position)
+ *   {"aa": {...}}         string "aa"          "aa"     (was "0" before #634)
+ *   {"5": {...}}          int 5 (PHP folds     "5"
+ *                         numeric-string keys)
+ *
+ * Typed `int|string` because a PHP array key is exactly that — the callers all read a
+ * `foreach` key, so the `gettype()` arm the inline copies carried was unreachable. The
+ * signature states the assumption instead of branching on it. The key is rendered WHOLE:
+ * no truncation, no control-character strip, exactly what the six sibling rules always
+ * did. Bounding what a message reflects is #647/#649's business and stays uniform across
+ * the family until then.
+ *
+ * @param  int|string $index  An `items[]` array key (list position or object key).
+ * @return string             The locator fragment, never a fabricated position.
+ */
+function _pp_item_index_label(int|string $index): string {
+    return (string) $index;
+}
+
+/**
  * Validates a style-slot override map against a component's declared style slots.
  *
  * The single shared gate for BOTH grid-level component style (`item['style']`) and
@@ -660,17 +694,22 @@ function pp_normalize_composition(array $items): array {
  * keeps the pre-323 behavior (any declared slot accepted), so this shared engine
  * never over-rejects an un-annotated component.
  *
- * @param  array    $style           Slot => value overrides to validate.
- * @param  array    $available_slots  The component's declared style_slots.
- * @param  string   $component_name   Component name, for the error message.
- * @param  int|null $item_index       Card index when validating a per-item override,
- *                                     or null for grid-level component style.
- * @return WP_Error|null              A WP_Error on the first bad slot/value, else null.
+ * @param  array           $style            Slot => value overrides to validate.
+ * @param  array           $available_slots  The component's declared style_slots.
+ * @param  string          $component_name   Component name, for the error message.
+ * @param  int|string|null $item_index       The items[] KEY when validating a per-item
+ *                                            override (a list position or an object key,
+ *                                            #634), or null for grid-level component style.
+ * @return WP_Error|null                     A WP_Error on the first bad slot/value, else null.
  */
-function _pp_validate_style_slot_map(array $style, array $available_slots, string $component_name, ?int $item_index = null): ?WP_Error {
+function _pp_validate_style_slot_map(array $style, array $available_slots, string $component_name, int|string|null $item_index = null): ?WP_Error {
+    // The key is rendered, never cast (#634): a string-keyed entry names itself rather
+    // than collapsing to the non-existent item 0. Everything below still keys off
+    // `!== null`, so a string key is an item exactly like an integer one and the #323
+    // per-item scope gate applies to it unchanged.
     $where = $item_index === null
         ? sprintf('Component "%s"', $component_name)
-        : sprintf('Component "%s" item %d', $component_name, $item_index);
+        : sprintf('Component "%s" item %s', $component_name, _pp_item_index_label($item_index));
 
     // Card-scoped subset for per-item validation (issue 323). A slot opts into
     // per-item use via item_eligible in its style_slots definition. Enforce the
@@ -1003,16 +1042,18 @@ function _pp_link_url_is_valid($value): bool {
 /**
  * Builds the rejection message for an invalid `format: "link_url"` value (#507).
  *
- * @param string      $component  Component name.
- * @param string      $prop_name  Top-level prop (e.g. "button_url" or the array prop "items").
- * @param int|null    $item_index Item index when the prop is a nested items[] link, else null.
- * @param string|null $field      Item field name (e.g. "link_url") when nested, else null.
- * @param mixed       $value      The rejected value.
+ * @param string          $component  Component name.
+ * @param string          $prop_name  Top-level prop (e.g. "button_url" or the array prop "items").
+ * @param int|string|null $item_index The items[] KEY when the prop is a nested items[] link
+ *                                     (a list position or an object key, #634), else null.
+ * @param string|null     $field      Item field name (e.g. "link_url") when nested, else null.
+ * @param mixed           $value      The rejected value.
  */
-function _pp_link_url_error_message(string $component, string $prop_name, ?int $item_index, ?string $field, $value): string {
+function _pp_link_url_error_message(string $component, string $prop_name, int|string|null $item_index, ?string $field, $value): string {
+    // Rendered, never cast (#634) — see _pp_item_index_label().
     $where = ($item_index === null)
         ? sprintf('prop "%s"', $prop_name)
-        : sprintf('prop "%s" item %d field "%s"', $prop_name, $item_index, (string) $field);
+        : sprintf('prop "%s" item %s field "%s"', $prop_name, _pp_item_index_label($item_index), (string) $field);
     // The value is always a string here (_pp_link_url_is_valid returns false only
     // for strings), but cast defensively. Strip control characters and cap the
     // length so a pathological URL cannot bloat the error envelope or corrupt logs.
@@ -1682,7 +1723,7 @@ function pp_validate_composition_errors(array $items): array {
                                         'Component "%s" prop "%s" item %s must be an object; got %s.',
                                         $name,
                                         $prop_name,
-                                        is_scalar($entry_index) ? (string) $entry_index : gettype($entry_index),
+                                        _pp_item_index_label($entry_index),
                                         gettype($entry)
                                     )
                                 );
@@ -1708,7 +1749,7 @@ function pp_validate_composition_errors(array $items): array {
                                         'Component "%s" prop "%s" item %s must be an array; got %s.',
                                         $name,
                                         $prop_name,
-                                        is_scalar($entry_index) ? (string) $entry_index : gettype($entry_index),
+                                        _pp_item_index_label($entry_index),
                                         gettype($entry)
                                     )
                                 );
@@ -1807,7 +1848,7 @@ function pp_validate_composition_errors(array $items): array {
                                     'Component "%s" prop "%s" item %s is missing required field "%s".',
                                     $name,
                                     $prop_name,
-                                    is_scalar($entry_index) ? (string) $entry_index : gettype($entry_index),
+                                    _pp_item_index_label($entry_index),
                                     $field_name
                                 )
                             );
@@ -1849,7 +1890,7 @@ function pp_validate_composition_errors(array $items): array {
                                     'Component "%s" prop "%s" item %s field "%s" must be a %s; got %s.',
                                     $name,
                                     $prop_name,
-                                    is_scalar($entry_index) ? (string) $entry_index : gettype($entry_index),
+                                    _pp_item_index_label($entry_index),
                                     $field_name,
                                     $field_type,
                                     _pp_schema_value_for_message($entry[$field_name])
@@ -1906,7 +1947,7 @@ function pp_validate_composition_errors(array $items): array {
                                     'Component "%s" prop "%s" item %s field "%s" must be one of: %s; got %s.',
                                     $name,
                                     $prop_name,
-                                    is_scalar($entry_index) ? (string) $entry_index : gettype($entry_index),
+                                    _pp_item_index_label($entry_index),
                                     $field_name,
                                     implode(', ', $field_def['values']),
                                     _pp_schema_value_for_message($entry[$field_name])
@@ -1929,7 +1970,7 @@ function pp_validate_composition_errors(array $items): array {
                                             'Component "%s" prop "%s" item %s field "%s" items must be strings; got %s.',
                                             $name,
                                             $prop_name,
-                                            is_scalar($entry_index) ? (string) $entry_index : gettype($entry_index),
+                                            _pp_item_index_label($entry_index),
                                             $field_name,
                                             gettype($bullet)
                                         )
@@ -1993,7 +2034,7 @@ function pp_validate_composition_errors(array $items): array {
                                 if (array_key_exists($field, $entry) && !_pp_link_url_is_valid($entry[$field])) {
                                     $errors[] = _pp_composition_item_error($i,
                                         'invalid_prop_value',
-                                        _pp_link_url_error_message($name, $prop_name, (int) $entry_index, $field, $entry[$field])
+                                        _pp_link_url_error_message($name, $prop_name, $entry_index, $field, $entry[$field])
                                     );
                                     continue 3;
                                 }
@@ -2048,7 +2089,7 @@ function pp_validate_composition_errors(array $items): array {
                         $element['style'],
                         $available_slots,
                         $name,
-                        (int) $elem_index
+                        $elem_index
                     );
                     if (is_wp_error($style_error)) {
                         // Same restamp as the component-level style map above (#622):
