@@ -351,15 +351,90 @@ describe('getErrorStepClass', function () {
         })).toBe('pp-ai-step-fixable');
     });
 
-    test('returns pp-ai-step-impossible for invalid_style_slot without hints', function () {
+    // #625: the near-miss. `--hero-bgs` normalizes to a suffix no other component
+    // declares, so the cross-component scan finds nothing — but the slot the author
+    // meant is right there in `alternatives`. This is the exact payload the real
+    // validator produces (pinned server-side in tests/PreviewErrorActionabilityTest.php),
+    // and it used to be painted grey under "this change isn't possible".
+    test('returns pp-ai-step-fixable for invalid_style_slot whose alternatives name the settings', function () {
+        expect(getErrorStepClass({
+            error_code: 'invalid_style_slot',
+            alternatives: ['--hero-bg', '--hero-heading-color'],
+            cross_component_hints: {}
+        })).toBe('pp-ai-step-fixable');
+    });
+
+    test('returns pp-ai-step-impossible for invalid_style_slot naming neither a hint nor an alternative', function () {
+        expect(getErrorStepClass({
+            error_code: 'invalid_style_slot',
+            alternatives: [],
+            cross_component_hints: {}
+        })).toBe('pp-ai-step-impossible');
+    });
+
+    test('an absent alternatives key is not an alternative', function () {
         expect(getErrorStepClass({
             error_code: 'invalid_style_slot',
             cross_component_hints: {}
         })).toBe('pp-ai-step-impossible');
     });
 
+    // A malformed payload names nothing, so it must not be promoted to fixable on the
+    // strength of a truthy field: a string has a length and an object has keys, and
+    // both would sail through a laxer test than Array.isArray / typeof.
+    test('a non-array alternatives value names nothing', function () {
+        expect(getErrorStepClass({
+            error_code: 'invalid_style_slot',
+            alternatives: '--hero-bg',
+            cross_component_hints: {}
+        })).toBe('pp-ai-step-impossible');
+    });
+
+    test('a non-object cross_component_hints value names nothing', function () {
+        expect(getErrorStepClass({
+            error_code: 'invalid_style_slot',
+            alternatives: [],
+            cross_component_hints: 'grid'
+        })).toBe('pp-ai-step-impossible');
+    });
+
+    // typeof [] is 'object' and Object.keys(['x']).length is 1, so an array sails
+    // through the loose shape test the map check replaced.
+    test('an array cross_component_hints value is not a hint map', function () {
+        expect(getErrorStepClass({
+            error_code: 'invalid_style_slot',
+            alternatives: [],
+            cross_component_hints: ['--grid-gap']
+        })).toBe('pp-ai-step-impossible');
+    });
+
+    // Length is not the question — "does it name a setting" is. These have length.
+    test('alternatives holding no usable name names nothing', function () {
+        expect(getErrorStepClass({
+            error_code: 'invalid_style_slot',
+            alternatives: [null, '', {}],
+            cross_component_hints: {}
+        })).toBe('pp-ai-step-impossible');
+    });
+
+    test('alternatives naming one real slot among unusable entries is enough', function () {
+        expect(getErrorStepClass({
+            error_code: 'invalid_style_slot',
+            alternatives: [null, '--hero-bg'],
+            cross_component_hints: {}
+        })).toBe('pp-ai-step-fixable');
+    });
+
     test('returns pp-ai-step-fixable for invalid_style_value', function () {
         expect(getErrorStepClass({ error_code: 'invalid_style_value' })).toBe('pp-ai-step-fixable');
+    });
+
+    test('returns pp-ai-step-failed for a non-object payload', function () {
+        expect(getErrorStepClass('Preview failed')).toBe('pp-ai-step-failed');
+    });
+
+    test('returns pp-ai-step-failed for an unrecognized error code', function () {
+        expect(getErrorStepClass({ error_code: 'component_not_found' })).toBe('pp-ai-step-failed');
     });
 });
 
@@ -377,6 +452,69 @@ describe('getStatusMessage', function () {
     test('impossible message for no_style_slots', function () {
         var msg = getStatusMessage({ error_code: 'no_style_slots', cross_component_hints: {} });
         expect(msg).toContain('isn\'t possible');
+    });
+
+    // #625: the bar must say what the step's colour says. A rejection that lists the
+    // settings the component does have is not "impossible" — the settings are printed
+    // in user_message on the card above this bar.
+    test('invalid_style_slot with alternatives points at the available settings', function () {
+        var msg = getStatusMessage({
+            error_code: 'invalid_style_slot',
+            alternatives: ['--hero-bg'],
+            cross_component_hints: {}
+        });
+        expect(msg).not.toContain('isn\'t possible');
+        // Blames the name, not the component: the capability the author asked for is
+        // in `alternatives` right there, so denying it would be the #625 bug in words.
+        expect(msg).toContain('setting name this component doesn\'t have');
+        // And points at a list that exists. The card prints slot DESCRIPTIONS in
+        // user_message; the names themselves are behind a collapsed disclosure, so the
+        // sentence must not promise names on screen.
+        expect(msg).toContain('listed above');
+        expect(msg).not.toContain('names');
+    });
+
+    test('invalid_style_slot naming nothing still reports the change as impossible', function () {
+        var msg = getStatusMessage({
+            error_code: 'invalid_style_slot',
+            alternatives: [],
+            cross_component_hints: {}
+        });
+        expect(msg).toContain('isn\'t possible');
+    });
+
+    // The settings sentence is gated on the error code, not on alternatives alone.
+    // `invalid_recipe` also ships a non-empty `alternatives` list — the component's
+    // recipe names — and calling those "setting names" would misdescribe them.
+    test('invalid_recipe keeps the generic message despite carrying alternatives', function () {
+        var msg = getStatusMessage({
+            error_code: 'invalid_recipe',
+            alternatives: ['dark', 'tight'],
+            cross_component_hints: {}
+        });
+        expect(msg).toContain('couldn\'t be previewed');
+        expect(msg).not.toContain('setting name');
+    });
+
+    // The bar must not narrate a hint the step's colour ignores. getErrorStepClass reads
+    // hints only inside the invalid_style_slot arm, so the bar carries the same gate;
+    // no shipped payload puts hints under another code, and neither reader assumes it.
+    test('hints under another error code do not produce the retarget sentence', function () {
+        var msg = getStatusMessage({
+            error_code: 'component_not_found',
+            cross_component_hints: { '--grid-gap': { component: 'grid' } }
+        });
+        expect(msg).not.toContain('different component');
+        expect(msg).toContain('couldn\'t be previewed');
+    });
+
+    test('a cross-component hint outranks alternatives in the status bar', function () {
+        var msg = getStatusMessage({
+            error_code: 'invalid_style_slot',
+            alternatives: ['--hero-bg'],
+            cross_component_hints: { '--grid-gap': { component: 'grid' } }
+        });
+        expect(msg).toContain('different component');
     });
 
     test('fixable message for invalid_style_value', function () {
