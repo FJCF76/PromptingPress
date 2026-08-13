@@ -16,7 +16,7 @@ The second half is what the candidate set contains. The builder used to rebuild 
 
 ### Fixed
 
-- The `invalid_style_slot` branch of `_pp_build_friendly_error()` (`lib/ai-chat.php`) answers from the context the rejection carries instead of a second `pp_get_composition()` read (#626), so `alternatives`, the "Available settings" sentence, and the cross-component hints always describe the component that actually rejected the slot. The "I couldn't find that component" answer now belongs to the contextless path only: when the validator supplied context it resolved the component itself, so that message would contradict the rejection rather than explain it.
+- The `invalid_style_slot` branch of `_pp_build_friendly_error()` (`lib/ai-chat.php`) answers from the context the rejection carries instead of a second `pp_get_composition()` read (#626), so `alternatives`, the "Available settings" sentence, and the cross-component hints describe the component that actually rejected the slot whenever the rejection carries context — which every rejection from that validator now does. The "I couldn't find that component" answer now belongs to the contextless path only: when the validator supplied context it resolved the component itself, so that message would contradict the rejection rather than explain it.
 - The candidate set scanned for cross-component hints is the validator's own — recipe slots ∪ explicit style, minus the `__recipe` tracking key and minus null removals — so a slot only a recipe contributed can be explained, and the tracking key is no longer treated as an unknown slot.
 
 ### Changed
