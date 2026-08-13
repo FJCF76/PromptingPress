@@ -343,7 +343,9 @@ Renders a checklist below the card's `text`, each line prefixed with a check mar
 
 ### grid items[].text_role
 
-Optional typography role for a card's `text`: `mono` (code), `meta` (captions), `label`, or `kicker` (eyebrow styling). Adds a `.text-<role>` class; invalid or absent values fall back to default body text. Set via `update_component` like any other item field.
+Optional typography role for a card's `text`: `mono` (code), `meta` (captions), `label`, or `kicker` (eyebrow styling). Adds a `.text-<role>` class; an absent value falls back to default body text. Set via `update_component` like any other item field.
+
+The four roles are the whole accepted set: a value outside it is **rejected at write** with `invalid_prop_value` naming the item index and the field, not accepted and coerced away at render (#600). Pick one of the four, or leave the field unset — key absent, `null`, or `""` all keep default body text. There is no free-form role, and a near miss (`"Mono"`, `"mono "`, `"terminal"`) is a rejection, not a fallback.
 
 `meta` and `kicker` also carry a preset text **color** (muted / accent), but the grid's own responsive text-color rules can take precedence when the slot is unset (for example, at the desktop breakpoint card text renders in the standard secondary color). To control card text color reliably, set `--grid-item-text-color` (grid-level or per-card `style`): it always wins over a role preset at **all breakpoints**. The role's other typography (size, weight, letter-spacing, transform) always applies regardless.
 

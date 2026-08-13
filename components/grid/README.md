@@ -27,7 +27,7 @@ Each item in `items`:
 | `title`     | string | No       | `''`           | Card heading (h3) |
 | `text`      | string | No       | `''`           | Card body text. Inline HTML allowed: a, strong, em, br. |
 | `bullets`   | array  | No       | —              | Checklist lines rendered below `text`, each prefixed with a check mark. Plain text only. |
-| `text_role` | enum   | No       | —              | Typography role for the card text: `mono` / `meta` / `label` / `kicker`. `meta`/`kicker` set a preset text color; an explicit `--grid-item-text-color` slot overrides it at all breakpoints. |
+| `text_role` | enum   | No       | —              | Typography role for the card text: `mono` / `meta` / `label` / `kicker`. Unset (key absent, `null`, or empty) keeps default body text; values outside the set are rejected at write, not coerced. `meta`/`kicker` set a preset text color; an explicit `--grid-item-text-color` slot overrides it at all breakpoints. |
 | `image_url` | string | No       | `''`           | Card image URL |
 | `image_alt` | string | No       | `''`           | Alt text for the card image |
 | `image_id`  | int    | No       | `0`            | Media Library attachment ID for the card image. When set and it resolves, renders responsively (`srcset`/`sizes`) via `wp_get_attachment_image()`; falls back to `image_url` otherwise. A companion to `image_url`, not a replacement — an item with only an id renders no image. |
