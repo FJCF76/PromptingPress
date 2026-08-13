@@ -816,6 +816,191 @@ class ActionsTest extends TestCase
         $this->assertSame('Edited', $composition[1]['props']['title']);
     }
 
+    // ── Nested items[] enums, through the REAL write surface (issue #600) ──
+    //
+    // Section 14.1 authoring-path proofs. pp_update_composition() and raw meta writes
+    // both bypass the action layer, so the authoring CONTRACT for the newly-strict
+    // nested enum is exercised here through pp_execute_action: an out-of-set role is
+    // rejected and persists nothing, a declared role is accepted and persists, and
+    // the whole-composition blast radius (and the way out of it) is pinned rather
+    // than described.
+
+    public function testUpdateComponentRejectsAnOutOfSetNestedTextRole(): void
+    {
+        // THE REPORTED DEFECT, inverted. Before #600 this returned ok:true, stored
+        // `terminal`, and rendered ordinary body text — the author was told the card
+        // was marked as code and it was not. The gate that already covered every
+        // TOP-LEVEL enum walked $schema['props'] only, so one level down the same
+        // `strict` declaration was a no-op.
+        $id = pp_create_page('Grid with a bogus card role', 'draft');
+        pp_update_composition($id, [['component' => 'grid', 'props' => [
+            'items' => [['title' => 'Deploy', 'text' => '$ deploy --now']],
+        ]]]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['items' => [
+                ['title' => 'Deploy', 'text' => '$ deploy --now', 'text_role' => 'terminal'],
+            ]],
+        ]);
+
+        $this->assertFalse($result['ok'], 'a nested enum is strict since #600');
+        $this->assertSame('invalid_prop_value', $result['error_code']);
+        $this->assertStringContainsString('item 0 field "text_role"', $result['error']);
+        $this->assertStringContainsString('mono, meta, label, kicker', $result['error']);
+
+        // Nothing persisted: the whole action is refused, not partially applied.
+        $items = pp_get_composition($id)[0]['props']['items'];
+        $this->assertArrayNotHasKey('text_role', $items[0], 'the rejected role must not reach storage');
+        $this->assertSame('$ deploy --now', $items[0]['text'], 'the stored item is untouched');
+    }
+
+    public function testCreatePageAcceptsAndPersistsADeclaredNestedTextRole(): void
+    {
+        // The other half: the advertised vocabulary still authors cleanly through the
+        // action layer, on the surface the docs point an agent at.
+        $result = pp_execute_action('create_page', [
+            'title'       => 'Terminal card',
+            'composition' => [['component' => 'grid', 'props' => [
+                'items' => [
+                    ['title' => 'Ship it', 'text' => '$ deploy --now', 'text_role' => 'mono'],
+                    ['title' => 'Plain',   'text' => 'No role here'],
+                ],
+            ]]],
+        ]);
+
+        $this->assertTrue($result['ok'], 'a declared role must be accepted: ' . ($result['error'] ?? ''));
+        $items = pp_get_composition((int) $result['target']['post_id'])[0]['props']['items'];
+        $this->assertSame('mono', $items[0]['text_role']);
+        $this->assertArrayNotHasKey('text_role', $items[1], 'an omitted role stays omitted — the unset sentinel');
+    }
+
+    public function testAStoredOutOfSetNestedTextRoleBlocksAnEditToADifferentBand(): void
+    {
+        // THE ACCEPTED STALE-DATA COST, stated as a test rather than as a footnote.
+        // Every read-modify-write action validates the WHOLE composition, so a page
+        // that already stores an out-of-set role in band 0 cannot be edited at band 1
+        // until band 0 is repaired. That is the v1.13.0 no-compat posture working as
+        // intended — the alternative is an alias or a coercion, and both are barred.
+        $id = pp_create_page('Legacy card role', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'grid',    'props' => ['items' => [['title' => 'Legacy', 'text_role' => 'terminal']]]],
+            ['component' => 'section', 'props' => ['title' => 'Other band', 'body' => 'C']],
+        ]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 1,
+            'props'           => ['title' => 'Edited'],
+        ]);
+
+        $this->assertFalse($result['ok'], 'the stale nested role must block the whole-composition validation');
+        $this->assertStringContainsString('text_role', $result['error']);
+
+        // Nothing was written: the stale band is untouched and the edit did not land.
+        $composition = pp_get_composition($id);
+        $this->assertSame('Other band', $composition[1]['props']['title']);
+        $this->assertSame('terminal', $composition[0]['props']['items'][0]['text_role'], 'storage is never rewritten behind the author');
+    }
+
+    public function testRepairingTheStoredNestedTextRoleUnblocksTheWholeComposition(): void
+    {
+        // THE WAY OUT, which is what keeps the cost above a ruling rather than a bug:
+        // the intended breakage must be escapable through the ordinary authoring
+        // surface, with no migration and no tool the docs do not already describe.
+        $id = pp_create_page('Repairable card role', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'grid',    'props' => ['items' => [['title' => 'Legacy', 'text_role' => 'terminal']]]],
+            ['component' => 'section', 'props' => ['title' => 'Other band', 'body' => 'C']],
+        ]);
+
+        $blocked = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 1, 'props' => ['title' => 'Edited'],
+        ]);
+        $this->assertFalse($blocked['ok'], 'precondition: the stale band blocks the sibling edit');
+
+        // Repair the band that actually holds the out-of-set role. A prop shallow-merge
+        // replaces the items array wholesale, exactly as the docs tell an agent.
+        $repair = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['items' => [['title' => 'Legacy', 'text_role' => 'mono']]],
+        ]);
+        $this->assertTrue($repair['ok'], $repair['error'] ?? 'the offending band must be repairable in place');
+
+        $retry = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 1, 'props' => ['title' => 'Edited'],
+        ]);
+        $this->assertTrue($retry['ok'], $retry['error'] ?? 'repairing the band unblocks the page');
+        $composition = pp_get_composition($id);
+        $this->assertSame('mono', $composition[0]['props']['items'][0]['text_role']);
+        $this->assertSame('Edited', $composition[1]['props']['title']);
+    }
+
+    public function testTheStoredNestedTextRoleDoesNotBlockTheItemScopedActions(): void
+    {
+        // The blast radius is UNEVEN, and the unevenness is the same one AI_CONTEXT.md
+        // already describes for retired prop NAMES: add_component validates only the
+        // item it adds and style_component validates no props at all, so both still
+        // succeed on the stale page and write the stale band back verbatim.
+        $id = pp_create_page('Legacy card role, item-scoped actions', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'grid', 'props' => ['items' => [['title' => 'Legacy', 'text_role' => 'terminal']]]],
+        ]);
+
+        $added = pp_execute_action('add_component', [
+            'post_id'   => $id,
+            'component' => 'grid',
+            'props'     => ['items' => [['title' => 'Fresh', 'text_role' => 'kicker']]],
+        ]);
+        $this->assertTrue($added['ok'], $added['error'] ?? 'add_component validates only the item it adds');
+
+        // …but "only the item it adds" is still VALIDATED. The narrow blast radius is
+        // about which bands are checked, never about the rule being optional on the
+        // surface that writes them.
+        $rejected = pp_execute_action('add_component', [
+            'post_id'   => $id,
+            'component' => 'grid',
+            'props'     => ['items' => [['title' => 'Also bogus', 'text_role' => 'terminal']]],
+        ]);
+        $this->assertFalse($rejected['ok'], 'add_component still enforces RULE 4 on the item it adds');
+        $this->assertSame('invalid_prop_value', $rejected['error_code']);
+        $this->assertCount(2, pp_get_composition($id), 'the rejected band must not be appended');
+
+        $styled = pp_execute_action('style_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'style'           => ['--grid-bg' => '#101014'],
+        ]);
+        $this->assertTrue($styled['ok'], $styled['error'] ?? 'style_component validates no props at all');
+
+        $this->assertSame('terminal', pp_get_composition($id)[0]['props']['items'][0]['text_role']);
+    }
+
+    public function testRestoreCompositionReportsTheNestedTextRoleButNeverBlocks(): void
+    {
+        // The #233 rider, which every new rejection in the shared validator inherits:
+        // restore_composition restores the snapshot VERBATIM and REPORTS the violation
+        // in findings rather than blocking. Undo never fails, and the author is told
+        // which declaration is dead instead of being locked out of their own history.
+        $id = pp_create_page('Restorable card role', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'grid', 'props' => ['items' => [['title' => 'Legacy', 'text_role' => 'terminal']]]],
+        ]);
+        pp_update_composition($id, [
+            ['component' => 'grid', 'props' => ['items' => [['title' => 'Current', 'text_role' => 'mono']]]],
+        ]);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $id, 'steps_back' => 1]);
+
+        $this->assertTrue($result['ok'], 'restore must never block on a validation rule (#233)');
+        $restored = pp_get_composition($id);
+        $this->assertSame('terminal', $restored[0]['props']['items'][0]['text_role'], 'the snapshot is restored verbatim');
+        $findings = json_encode($result['findings'] ?? []);
+        $this->assertStringContainsString('text_role', $findings, 'the dead declaration is reported, not silently restored');
+    }
+
     public function testUpdateComponentRejectsTheRemovedThemeValueWrittenDirectly(): void
     {
         // The removed value is rejected at WRITE, on the surface an agent actually uses.

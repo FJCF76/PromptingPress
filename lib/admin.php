@@ -838,6 +838,65 @@ function _pp_schema_scalar_value_is_valid($declared_type, $value): bool {
 }
 
 /**
+ * True when $value satisfies a declared STRICT enum definition (issues 380/#579 at
+ * the top level, extended to nested items[] fields by #600).
+ *
+ * ONE definition of enum membership at the write path, called from the two places
+ * that need it — the top-level strict-enum pass and the #579 A-27 nested items[]
+ * field pass. Same reason _pp_schema_scalar_value_is_valid() exists one rule over:
+ * the membership test was inline in the first when the second did not exist, and a
+ * second copy is exactly how two depths start disagreeing about whether a trailing
+ * space is part of a value.
+ *
+ *     definition                          verdict
+ *     ──────────────────────────────────  ─────────────────────────────────────────
+ *     not an enum / no `strict` /         always valid — not this rule's business
+ *     no usable `values` list
+ *     strict enum, value null or ''       always valid — the unset sentinel
+ *     strict enum, any other value        valid iff it is in `values`, compared ===
+ *
+ * NOT-APPLICABLE RETURNS TRUE, deliberately, so a caller can hand it every prop or
+ * field definition it walks without pre-classifying — the same contract the scalar
+ * predicate carries for enum/array/object types. `strict` is what arms the rule: an
+ * enum that does not declare it is unenforced, and the CI tripwire
+ * (SchemaValidationTest::testEveryEnumDeclarationDeclaresStrict) is what keeps that
+ * from being a place a new enum can hide, at BOTH depths since #600.
+ *
+ * The unset sentinel matches the top-level rule it was extracted from, and matters
+ * for the same reason it does there: every action validates the WHOLE composition,
+ * so a rule that rejected a blank would block edits to unrelated bands on the page.
+ *
+ * The membership test is `values` and nothing else (#606) — there is no accepted-
+ * but-unadvertised tier at either depth, so the error names exactly what the gate
+ * accepts. Callers keep their own array_key_exists() check: an ABSENT key is not
+ * this predicate's business, and isset() would wrongly swallow the null sentinel.
+ *
+ * POST-CONDITION BOTH CALLERS DEPEND ON: a `false` return guarantees `values` is a
+ * non-empty array, so the error paths implode() it without re-checking. That guard
+ * used to sit three lines above the implode() it protects; the extraction moved it
+ * here, so a future relaxation (returning false for a malformed `values` so the
+ * caller can report it) would turn both rejection paths — the paths least exercised
+ * before release — into a TypeError. Widen the callers first if that ever changes.
+ *
+ * @param mixed $definition The schema prop/field definition, or anything at all.
+ * @param mixed $value      Raw authored value.
+ */
+function _pp_schema_enum_value_is_valid($definition, $value): bool {
+    if (!is_array($definition)
+        || ($definition['type'] ?? null) !== 'enum'
+        || empty($definition['strict'])
+        || empty($definition['values'])
+        || !is_array($definition['values'])
+    ) {
+        return true;
+    }
+    if ($value === null || $value === '') {
+        return true; // unset sentinel — keeps the declared default behavior
+    }
+    return in_array($value, $definition['values'], true);
+}
+
+/**
  * Cap for an author-supplied value echoed back inside a validation message. Matches
  * the shown-length bound _pp_link_url_error_message() applies to a rejected URL, so
  * one rejected value cannot bloat an error envelope or a log line.
@@ -1400,39 +1459,33 @@ function pp_validate_composition_errors(array $items): array {
         // `dark` now reaches this gate as an ordinary unadvertised value and is
         // rejected. Nothing here is waiting on a further decision.
         //
-        // SCOPE, stated so nobody reads more into it than is true: this walks
+        // SCOPE, stated so nobody reads more into it than is true: this block walks
         // $schema['props'], i.e. TOP-LEVEL props only, exactly as the #379/#475
-        // families beside it do. NESTED item-field enums (today only
-        // grid.items[].text_role) are NOT covered and remain accept-and-coerce; they
-        // are outside #579's recorded scope, which enumerated the 28 top-level enums.
-        // The CI tripwire (SchemaValidationTest::testEveryTopLevelEnumPropDeclaresStrict)
-        // is scoped to match, so the invariant it asserts is the one that holds.
+        // families beside it do. NESTED item-field enums are no longer a hole in the
+        // rule, but they are not closed HERE — #600 enforces them in the nested
+        // items[] walk further down, over the same traversal #579 A-27 built, and
+        // both depths share the membership predicate below so they cannot drift
+        // apart. The CI tripwire (testEveryEnumDeclarationDeclaresStrict) covers
+        // both depths for the same reason.
         //
         // Generic + schema-driven: no per-component branch, no second validator.
         // "Unset" is the key being absent, null, or the empty string — that
-        // preserves the prop's default behavior (image_treatment unset => banner).
-        // Runs in the shared validator; restore_composition (#233) reports it via
-        // _pp_composition_findings() but never blocks on it.
+        // preserves the prop's default behavior (image_treatment unset => banner);
+        // the sentinel and the membership test both live in
+        // _pp_schema_enum_value_is_valid(), so an ABSENT key is the only part of
+        // "unset" this loop still decides for itself. Runs in the shared validator;
+        // restore_composition (#233) reports it via _pp_composition_findings() but
+        // never blocks on it.
         if (isset($item['props']) && is_array($item['props']) && !empty($schema['props'])) {
             foreach ($schema['props'] as $prop_name => $prop_def) {
-                if (($prop_def['type'] ?? null) !== 'enum'
-                    || empty($prop_def['strict'])
-                    || empty($prop_def['values'])
-                    || !is_array($prop_def['values'])
-                ) {
-                    continue;
-                }
                 if (!array_key_exists($prop_name, $item['props'])) {
                     continue;
                 }
                 $value = $item['props'][$prop_name];
-                if ($value === null || $value === '') {
-                    continue; // unset sentinel — keeps the prop's default behavior
-                }
                 // Accepted set = advertised values, and nothing else (#606). What the
                 // error names is exactly what the catalog advertises and exactly what
                 // the gate accepts — one vocabulary, no unadvertised tier.
-                if (!in_array($value, $prop_def['values'], true)) {
+                if (!_pp_schema_enum_value_is_valid($prop_def, $value)) {
                     $errors[] = _pp_composition_item_error($i,
                         'invalid_prop_value',
                         sprintf(
@@ -1667,10 +1720,11 @@ function pp_validate_composition_errors(array $items): array {
             }
         }
 
-        // NESTED item-field contracts (issue #579 A-27, extended by #614). The
-        // families above walk TOP-LEVEL props only, so THREE schema annotations one
-        // level down were DECLARED and enforced by NOTHING. Rules 1 and 2 came with
-        // #579; RULE 3 is #614 and is marked inline where it sits, between them.
+        // NESTED item-field contracts (issue #579 A-27, extended by #614 and #600).
+        // The families above walk TOP-LEVEL props only, so FOUR schema annotations
+        // one level down were DECLARED and enforced by NOTHING. Rules 1 and 2 came
+        // with #579; RULE 3 is #614 and RULE 4 is #600, and both are marked inline
+        // where they sit, between them.
         //
         //   1. `required: true` on an items[] field — declared on SEVEN fields today:
         //      logos.items[].image_url / image_alt, stats.items[].number / label,
@@ -1691,15 +1745,24 @@ function pp_validate_composition_errors(array $items): array {
         //      array of objects/numbers reached the renderer, which escapes each entry
         //      and prints "Array".
         //   3. the field's own scalar `type` — `string` or `number` (#614). See the
-        //      RULE 3 comment inline below for the defect it closes and for the two
-        //      nested types it deliberately leaves alone (`enum`, owned by #600, and
-        //      `object`, which nothing has specified). A nested `array` field handed a
-        //      SCALAR is also still accepted: rule 2 walks a bullets array's ENTRIES
-        //      and never the field itself, and rule 3's fence is scalar types only.
+        //      RULE 3 comment inline below for the defect it closes and for the one
+        //      nested type it still leaves alone (`object`, which nothing has
+        //      specified). A nested `array` field handed a SCALAR is also still
+        //      accepted: rule 2 walks a bullets array's ENTRIES and never the field
+        //      itself, and rule 3's fence is scalar types only.
+        //   4. a nested `enum` field's STRICT membership (#600) — declared on
+        //      grid.items[].text_role, the only nested enum in the shipped schemas
+        //      today. Same rule the top-level block above applies, sharing the same
+        //      predicate; see the RULE 4 comment inline below.
         //
         // Enforced HERE, in the shared validator — no second validator, no
         // per-component branch. Walked at the SAME one-items-level depth as the #154
         // media-URL and #507 link_url families.
+        //
+        // ALL FOUR RULES READ A FIELD MAP, never the JSON-Schema-ish scalar `items`
+        // form (`bullets.items => {"type": "string"}`) — the is_array($field_def)
+        // guard below is what separates them, so an `items` declaration that is a
+        // value grammar rather than a map of fields is untouched by every rule here.
         //
         // `required` semantics MIRROR the top-level rule exactly: the key being ABSENT
         // is the violation. A present-but-empty string is not treated as missing,
@@ -1763,11 +1826,11 @@ function pp_validate_composition_errors(array $items): array {
                         //
                         // The predicate is SHARED with the #507 top-level pass, so
                         // "42" is a number at both depths and cannot drift apart.
-                        // Enum and object fields are deliberately NOT covered: nested
-                        // enums stay accept-and-coerce until #600 lands on this same
-                        // traversal, and no decision exists on what an item `style`
-                        // object may contain. _pp_schema_scalar_value_is_valid()
-                        // returns true for both, so they fall through untouched.
+                        // Enum fields are RULE 4's business (#600, below) and object
+                        // fields are nobody's — no decision exists on what an item
+                        // `style` object may contain. _pp_schema_scalar_value_is_valid()
+                        // returns true for both, so they fall through this rule
+                        // untouched.
                         //
                         // Same accepted cost the required rule above carries: every
                         // action validates the WHOLE composition, so a stored value
@@ -1799,6 +1862,58 @@ function pp_validate_composition_errors(array $items): array {
                             //   4 the per-component loop           => next component
                             // One error per component item, matching every other rule
                             // in this function. Recount these if the nesting changes.
+                            continue 4;
+                        }
+                        // RULE 4 — the field's own STRICT enum membership (#600).
+                        // The last accept-at-write / coerce-at-render surface in the
+                        // composition grammar. `strict` shipped in #380 and #579 made
+                        // every TOP-LEVEL enum declare it, but the gate that reads the
+                        // flag walked $schema['props'] only, so declaring `strict` on
+                        // a nested enum was a silent no-op and an out-of-set
+                        // grid.items[].text_role returned ok:true, persisted, and
+                        // rendered as ordinary body text — the card the author asked
+                        // to mark as code/caption/eyebrow simply was not marked.
+                        //
+                        // The predicate is SHARED with the top-level block above, so
+                        // there is ONE definition of enum membership and one unset
+                        // sentinel at both depths. Its declaration guard is what makes
+                        // the rule schema-driven rather than a text_role branch: any
+                        // future nested enum is enforced the moment its schema says
+                        // `strict`, and testEveryEnumDeclarationDeclaresStrict fails a
+                        // nested enum that ships without it.
+                        //
+                        // RENDER OUTPUT IS UNCHANGED BY CONSTRUCTION, exactly as in
+                        // #579: grid.php already coerced an unknown role to no class,
+                        // and it still does. That allowlist is not redundant with this
+                        // gate — a raw database write or a restore_composition (#233,
+                        // which restores verbatim and never blocks) can still put an
+                        // arbitrary string in front of it, and it is what keeps that
+                        // string out of a class attribute. What changes is only that
+                        // the WRITE path now says so instead of reporting success.
+                        //
+                        // Same accepted cost as the rules above: whole-composition
+                        // validation means a stored out-of-set role blocks edits to
+                        // unrelated bands on that page until the item is repaired
+                        // through the ordinary authoring surface. That is the v1.13.0
+                        // no-compat posture, not a regression — no alias, no coercion,
+                        // no migration.
+                        if (array_key_exists($field_name, $entry)
+                            && !_pp_schema_enum_value_is_valid($field_def, $entry[$field_name])
+                        ) {
+                            $errors[] = _pp_composition_item_error($i,
+                                'invalid_prop_value',
+                                sprintf(
+                                    'Component "%s" prop "%s" item %s field "%s" must be one of: %s; got %s.',
+                                    $name,
+                                    $prop_name,
+                                    is_scalar($entry_index) ? (string) $entry_index : gettype($entry_index),
+                                    $field_name,
+                                    implode(', ', $field_def['values']),
+                                    _pp_schema_value_for_message($entry[$field_name])
+                                )
+                            );
+                            // Same depth accounting as RULE 3 above — this sits at the
+                            // same nesting level, so 4 is still "next component".
                             continue 4;
                         }
                         if (($field_def['type'] ?? null) === 'array'

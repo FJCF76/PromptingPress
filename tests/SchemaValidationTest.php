@@ -652,16 +652,18 @@ class SchemaValidationTest extends TestCase
     }
 
     /**
-     * The declaration side of the same change: no TOP-LEVEL enum prop may be left
-     * accept-and-coerce. This is the tripwire that keeps a NEW enum from shipping
-     * without `strict`, which is exactly how #380's mechanism sat unused for 199
-     * issues.
+     * The declaration side of the same change: NO enum declaration, at either depth,
+     * may be left accept-and-coerce. This is the tripwire that keeps a NEW enum from
+     * shipping without `strict`, which is exactly how #380's mechanism sat unused for
+     * 199 issues.
      *
-     * Scoped to top-level props DELIBERATELY, matching the runtime gate
-     * (pp_validate_composition_errors walks $schema['props']). Nested item-field
-     * enums are a known gap pinned by the sibling test below, not an oversight here.
+     * #600 WIDENED THIS FROM TOP-LEVEL ONLY. #579 scoped it to $schema['props'] to
+     * match the runtime gate, and named the nested item-field enums a known gap in
+     * the docblock. The gate now walks one items[] level too, so the scope that made
+     * the old name honest is gone: a nested enum without `strict` is a real hole
+     * again, not a no-op declaration. Both depths, one tripwire.
      */
-    public function testEveryTopLevelEnumPropDeclaresStrict(): void
+    public function testEveryEnumDeclarationDeclaresStrict(): void
     {
         $missing = [];
         foreach (glob($this->themeRoot . '/components/*/schema.json') as $file) {
@@ -671,24 +673,40 @@ class SchemaValidationTest extends TestCase
                 if (($propDef['type'] ?? null) === 'enum' && empty($propDef['strict'])) {
                     $missing[] = "{$component}.{$propName}";
                 }
+                // One items[] level down — the same depth pp_validate_composition_errors()
+                // walks. A field map's values are definition arrays; the JSON-Schema-ish
+                // scalar form (bullets.items => {"type": "string"}) is not, and the
+                // is_array() guard is what the runtime rule uses to tell them apart.
+                foreach (($propDef['items'] ?? []) as $field => $fieldDef) {
+                    if (is_array($fieldDef)
+                        && ($fieldDef['type'] ?? null) === 'enum'
+                        && empty($fieldDef['strict'])
+                    ) {
+                        $missing[] = "{$component}.{$propName}[].{$field}";
+                    }
+                }
             }
         }
-        $this->assertSame([], $missing, 'every top-level enum prop must declare "strict": true (#579, A-32)');
+        $this->assertSame(
+            [],
+            $missing,
+            'every enum declaration must declare "strict": true — top-level (#579, A-32) and nested items[] fields (#600)'
+        );
     }
 
     /**
-     * THE KNOWN GAP, pinned so it is a recorded state rather than a surprise.
+     * The nested-enum INVENTORY, kept explicit so widening the rule's reach is a
+     * deliberate act rather than a silent consequence of adding a schema field.
      *
-     * #579's A-32 enumerated the 28 TOP-LEVEL enum props and made those strict. A
-     * nested item-field enum is not reached by the gate, so declaring `strict` on
-     * one would do nothing — and the reported-success-without-effect class the gate
-     * closes is still open there. `grid.items[].text_role` is the only one today.
-     *
-     * This test fails the moment someone adds `strict` to a nested enum (which would
-     * be a silent no-op) OR the moment the gate is extended to cover them (at which
-     * point this pin should be deleted, not weakened).
+     * This replaces testNestedItemEnumsAreAKnownAcceptAndCoerceGap, which pinned the
+     * same inventory to prove the gap was recorded rather than forgotten. #600 closed
+     * the gap, so the assertion it carried (that the value still validates, and that
+     * `strict` on a nested enum is a no-op worth asserting against) is now false by
+     * design and was deleted rather than weakened. What survives is the count: if a
+     * second nested enum appears, this fails and whoever added it confirms the
+     * runtime rule and the authoring-path proofs reach it.
      */
-    public function testNestedItemEnumsAreAKnownAcceptAndCoerceGap(): void
+    public function testTheNestedEnumInventoryIsExactlyTextRole(): void
     {
         $nested = [];
         foreach (glob($this->themeRoot . '/components/*/schema.json') as $file) {
@@ -698,24 +716,210 @@ class SchemaValidationTest extends TestCase
                 foreach (($propDef['items'] ?? []) as $field => $fieldDef) {
                     if (is_array($fieldDef) && ($fieldDef['type'] ?? null) === 'enum') {
                         $nested[] = "{$component}.{$propName}[].{$field}";
-                        $this->assertArrayNotHasKey(
-                            'strict',
-                            $fieldDef,
-                            "{$component}.{$propName}[].{$field}: `strict` on a nested enum is a no-op — "
-                            . 'extend pp_validate_composition_errors() to walk nested enums first'
-                        );
                     }
                 }
             }
         }
         $this->assertSame(['grid.items[].text_role'], $nested, 'the nested-enum inventory changed');
+    }
 
-        // And the behaviour that inventory implies: the write path still accepts it.
-        $this->assertTrue(pp_validate_composition([
+    /**
+     * The runtime half of #600 at the schema-declaration boundary: `strict` on a
+     * nested enum is REACHED now. This is the assertion the deleted gap-pin inverted
+     * — same component, same field, same value, opposite verdict.
+     */
+    public function testANestedEnumValueOutsideTheDeclaredSetIsRejected(): void
+    {
+        $result = pp_validate_composition([
             ['component' => 'grid', 'props' => ['items' => [
                 ['title' => 'Card', 'text' => 'x', 'text_role' => 'bogus-not-a-role'],
             ]]],
-        ]), 'a nested enum is still accept-and-coerce — render-side coercion is pinned in TypographyRoleTest');
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_prop_value', $result->get_error_code());
+        $message = $result->get_error_message();
+        $this->assertStringContainsString('item 0 field "text_role"', $message, 'the locator must name the item and the field');
+        $this->assertStringContainsString('mono, meta, label, kicker', $message, 'the error names the advertised set');
+        $this->assertStringContainsString('bogus-not-a-role', $message, 'the rejected value is reflected back');
+    }
+
+    /**
+     * THE LOCATOR, pinned at a non-zero index in a non-zero band — which is the only
+     * shape that can tell the item index apart from the COMPONENT index. Every other
+     * case in this family puts the offending role at items[0] of component[0], where
+     * `item 0` is true for either reading, so the message would survive reporting the
+     * wrong number entirely. The locator is what tells an author which card to
+     * repair, and #600's accepted cost (a stale role blocks the whole page) rests on
+     * being able to find it.
+     */
+    public function testTheRejectionNamesTheOffendingItemAndBandRatherThanTheFirst(): void
+    {
+        $result = pp_validate_composition([
+            ['component' => 'section', 'props' => ['title' => 'First band', 'body' => 'B']],
+            ['component' => 'grid', 'props' => ['items' => [
+                ['title' => 'Fine',      'text_role' => 'mono'],
+                ['title' => 'Fine too',  'text_role' => 'meta'],
+                ['title' => 'Offending', 'text_role' => 'terminal'],
+            ]]],
+        ]);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertStringContainsString(
+            'item 2 field "text_role"',
+            $result->get_error_message(),
+            'the message must name the offending ITEM index, not the first item or the band index'
+        );
+        $this->assertSame(1, $result->get_error_data()['index'] ?? null, 'the finding carries the offending BAND index');
+    }
+
+    /**
+     * ONE ERROR PER COMPONENT, which is the depth accounting the RULE 4 comment
+     * spells out (`continue 4` = next component, not `continue 3` = next prop of the
+     * same component). Three shapes are needed to pin all of it, and the third is
+     * the one that catches an off-by-one in the continue level: the first band also
+     * carries a DEAD link_url, whose rule lives in a LATER block of the same
+     * per-component loop. With `continue 4` the band reports the enum and stops;
+     * with `continue 3` execution falls through to that later block and the band
+     * reports twice. Two violating items in one band still collapse to one error,
+     * and the second band is still reached.
+     */
+    public function testTheNestedEnumReportsOneErrorPerComponentAcrossBands(): void
+    {
+        $errors = pp_validate_composition_errors([
+            ['component' => 'grid', 'props' => ['items' => [
+                ['title' => 'Bad one', 'text_role' => 'terminal', 'link_url' => 'javascript:alert(1)'],
+                ['title' => 'Bad two', 'text_role' => 'console'],
+            ]]],
+            ['component' => 'grid', 'props' => ['items' => [
+                ['title' => 'Bad three', 'text_role' => 'shell'],
+            ]]],
+        ]);
+
+        $this->assertCount(2, $errors, 'one error per component item, not one per offending field');
+        $this->assertStringContainsString('terminal', $errors[0]->get_error_message(), 'the first band reports its FIRST offending item');
+        $this->assertStringNotContainsString('console', $errors[0]->get_error_message());
+        $this->assertStringContainsString('shell', $errors[1]->get_error_message(), 'the second band is still reached');
+        $this->assertSame(
+            [0, 1],
+            [pp_composition_error_index($errors[0]), pp_composition_error_index($errors[1])],
+            'each error carries its own band index'
+        );
+    }
+
+    /**
+     * THE PREDICATE ITSELF, arm by arm. Three of its guards are unreachable from the
+     * shipped schemas — the CI tripwire above guarantees no shipped enum lacks
+     * `strict`, and nothing ships a malformed `values` — so without a direct test
+     * they can be deleted with the whole suite still green. The `values` guards in
+     * particular are load-bearing beyond validation: both callers implode() that
+     * array into the rejection message without re-checking it.
+     *
+     * @dataProvider enumPredicateProvider
+     */
+    public function testTheSharedEnumPredicateGuardsEachArm(bool $expected, $definition, $value, string $why): void
+    {
+        $this->assertSame($expected, \_pp_schema_enum_value_is_valid($definition, $value), $why);
+    }
+
+    public static function enumPredicateProvider(): array
+    {
+        $strict = ['type' => 'enum', 'strict' => true, 'values' => ['mono', 'meta']];
+        return [
+            'not an array'          => [true, 'mono', 'anything', 'a non-array definition is not this rule\'s business'],
+            'not an enum'           => [true, ['type' => 'string'], 'anything', 'a string field falls through untouched'],
+            'enum without strict'   => [true, ['type' => 'enum', 'values' => ['mono']], 'bogus', '`strict` is what arms the rule'],
+            'strict false'          => [true, ['type' => 'enum', 'strict' => false, 'values' => ['mono']], 'bogus', 'an explicit false disarms it too'],
+            'values missing'        => [true, ['type' => 'enum', 'strict' => true], 'bogus', 'no advertised set means nothing to enforce — and nothing to implode'],
+            'values empty'          => [true, ['type' => 'enum', 'strict' => true, 'values' => []], 'bogus', 'an empty set cannot reject'],
+            'values not an array'   => [true, ['type' => 'enum', 'strict' => true, 'values' => 'mono'], 'bogus', 'a malformed set is not a membership test'],
+            'null sentinel'         => [true, $strict, null, 'the unset sentinel preserves the default'],
+            'empty-string sentinel' => [true, $strict, '', 'the unset sentinel preserves the default'],
+            'member'                => [true, $strict, 'mono', 'an advertised value is accepted'],
+            'non-member'            => [false, $strict, 'bogus', 'an unadvertised value is rejected'],
+            'loose-equality trap'   => [false, $strict, 0, '0 == "mono" in PHP loose comparison — the test must be strict'],
+            'array value'           => [false, $strict, ['mono'], 'a container is not a member'],
+        ];
+    }
+
+    /**
+     * Every declared role is accepted, one case per value — the rule must not reject
+     * the vocabulary it advertises.
+     *
+     * @dataProvider declaredTextRoleProvider
+     */
+    public function testEveryDeclaredNestedEnumValueIsAccepted(string $role): void
+    {
+        $this->assertTrue(pp_validate_composition([
+            ['component' => 'grid', 'props' => ['items' => [
+                ['title' => 'Card', 'text' => 'x', 'text_role' => $role],
+            ]]],
+        ]), "the declared role \"{$role}\" must be accepted");
+    }
+
+    public static function declaredTextRoleProvider(): array
+    {
+        return [
+            'mono'   => ['mono'],
+            'meta'   => ['meta'],
+            'label'  => ['label'],
+            'kicker' => ['kicker'],
+        ];
+    }
+
+    /**
+     * The unset sentinel at the NESTED depth, matching the top-level rule exactly
+     * (testStrictEnumUnsetSentinelStillValidates below is its sibling). Over-rejecting
+     * here is not a local inconvenience: every action validates the WHOLE composition,
+     * so a rule that rejected a blank would block edits to unrelated bands.
+     *
+     * @dataProvider nestedEnumUnsetSentinelProvider
+     */
+    public function testTheNestedEnumUnsetSentinelStillValidates(array $item): void
+    {
+        $this->assertTrue(pp_validate_composition([
+            ['component' => 'grid', 'props' => ['items' => [$item]]],
+        ]), 'the unset sentinel must preserve the field default');
+    }
+
+    public static function nestedEnumUnsetSentinelProvider(): array
+    {
+        return [
+            'key absent'   => [['title' => 'Card', 'text' => 'x']],
+            'null'         => [['title' => 'Card', 'text' => 'x', 'text_role' => null]],
+            'empty string' => [['title' => 'Card', 'text' => 'x', 'text_role' => '']],
+        ];
+    }
+
+    /**
+     * The near-miss family, one case per shape — the reason a membership test is
+     * `===` against the advertised list and not a fuzzy match. Each of these used to
+     * be accepted at write and coerced away at render.
+     *
+     * @dataProvider nearMissTextRoleProvider
+     */
+    public function testNearMissNestedEnumValuesAreRejected($role): void
+    {
+        $result = pp_validate_composition([
+            ['component' => 'grid', 'props' => ['items' => [
+                ['title' => 'Card', 'text_role' => $role],
+            ]]],
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $result, 'a near-miss role must not slip through');
+        $this->assertSame('invalid_prop_value', $result->get_error_code());
+    }
+
+    public static function nearMissTextRoleProvider(): array
+    {
+        return [
+            'trailing space'  => ['mono '],
+            'leading space'   => [' mono'],
+            'case mismatch'   => ['Mono'],
+            'uppercase'       => ['KICKER'],
+            'plural'          => ['labels'],
+            'numeric'         => [1],
+            'boolean'         => [true],
+            'array'           => [['mono']],
+        ];
     }
 
     /**
@@ -839,6 +1043,103 @@ class SchemaValidationTest extends TestCase
             @unlink($root . '/components/aliasband/schema.json');
             @unlink($root . '/components/aliasband/aliasband.php');
             @rmdir($root . '/components/aliasband');
+            @rmdir($root . '/components');
+            @rmdir($root);
+        }
+    }
+
+    /**
+     * RULE 4 IS GENERIC, proved against a component that does not exist in the
+     * shipped theme.
+     *
+     * Every other #600 case authors `grid.items[].text_role`, because it is the only
+     * nested enum shipped today — which means all of them would still pass if the
+     * rule were a text_role branch rather than a schema-driven pass. This one
+     * declares a synthetic component with a differently-named nested enum on a
+     * differently-named array prop, so it fails if the rule ever learns a field name.
+     * Same fixture technique as the retired-alias test above (temp theme root +
+     * registry invalidation), for the same reason: the contract under test is about
+     * ANY schema, and asserting it against the twelve shipped ones is a weaker claim.
+     *
+     * It also covers the arm the shipped schemas cannot reach: a SECOND nested enum
+     * on the same component that declares no `strict` stays unenforced, which is what
+     * makes the declaration (not the type) the thing that arms the rule.
+     */
+    public function testTheNestedEnumRuleIsSchemaDrivenNotATextRoleBranch(): void
+    {
+        $root = sys_get_temp_dir() . '/pp-nested-enum-fixture-' . uniqid('', true);
+        mkdir($root . '/components/rowband', 0777, true);
+        file_put_contents($root . '/components/rowband/rowband.php', '<?php // fixture');
+        file_put_contents($root . '/components/rowband/schema.json', json_encode([
+            'component' => 'rowband',
+            'props'     => [
+                'rows' => [
+                    'type' => 'array', 'required' => false, 'item_type' => 'object',
+                    'description' => 'Synthetic object-item array carrying two nested enums.',
+                    'items' => [
+                        'label' => ['type' => 'string', 'required' => false, 'description' => 'Row label.'],
+                        'tone'  => [
+                            'type' => 'enum', 'required' => false, 'strict' => true,
+                            'values' => ['calm', 'loud'], 'description' => 'Synthetic STRICT nested enum.',
+                        ],
+                        'mood'  => [
+                            'type' => 'enum', 'required' => false,
+                            'values' => ['dry', 'wet'], 'description' => 'Synthetic nested enum with NO strict.',
+                        ],
+                    ],
+                ],
+            ],
+        ]));
+
+        $previousRoot = $GLOBALS['_pp_test_template_dir'] ?? null;
+        $GLOBALS['_pp_test_template_dir'] = $root;
+        $GLOBALS['_pp_registered_components_invalidate'] = true;
+
+        try {
+            $rejected = \pp_validate_composition([
+                ['component' => 'rowband', 'props' => ['rows' => [
+                    ['label' => 'First', 'tone' => 'calm'],
+                    ['label' => 'Second', 'tone' => 'screaming'],
+                ]]],
+            ]);
+            $this->assertInstanceOf(\WP_Error::class, $rejected, 'the rule must reach a nested enum it has never heard of');
+            $this->assertSame('invalid_prop_value', $rejected->get_error_code());
+            $message = $rejected->get_error_message();
+            $this->assertStringContainsString('prop "rows" item 1 field "tone"', $message, 'the locator follows the schema, not a hardcoded prop name');
+            $this->assertStringContainsString('must be one of: calm, loud', $message);
+
+            // The advertised values still author cleanly.
+            $this->assertTrue(\pp_validate_composition([
+                ['component' => 'rowband', 'props' => ['rows' => [['tone' => 'loud']]]],
+            ]));
+
+            // The sibling enum declares no `strict`, so it is unenforced — the
+            // DECLARATION arms the rule, and the CI tripwire is what keeps a shipped
+            // schema from sitting in this state.
+            $this->assertTrue(\pp_validate_composition([
+                ['component' => 'rowband', 'props' => ['rows' => [['mood' => 'lukewarm']]]],
+            ]), 'a nested enum without `strict` stays unenforced at runtime');
+
+            // AUTHORING-PATH proof (Section 14.1) on the synthetic component too.
+            $GLOBALS['_pp_test_store'] = [
+                'post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100, 'custom_css' => '',
+            ];
+            $authored = \pp_validate_action('create_page', [
+                'title'       => 'Synthetic nested enum page',
+                'composition' => [['component' => 'rowband', 'props' => ['rows' => [['tone' => 'screaming']]]]],
+            ]);
+            $this->assertInstanceOf(\WP_Error::class, $authored, 'the real write surface enforces it too');
+            $this->assertSame('invalid_prop_value', $authored->get_error_code());
+        } finally {
+            if ($previousRoot === null) {
+                unset($GLOBALS['_pp_test_template_dir']);
+            } else {
+                $GLOBALS['_pp_test_template_dir'] = $previousRoot;
+            }
+            $GLOBALS['_pp_registered_components_invalidate'] = true;
+            @unlink($root . '/components/rowband/schema.json');
+            @unlink($root . '/components/rowband/rowband.php');
+            @rmdir($root . '/components/rowband');
             @rmdir($root . '/components');
             @rmdir($root);
         }

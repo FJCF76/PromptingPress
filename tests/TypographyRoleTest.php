@@ -104,6 +104,15 @@ class TypographyRoleTest extends TestCase
         $this->assertStringContainsString('class="grid__item-text text-kicker"', $html);
     }
 
+    /**
+     * The RENDER-side coercion, which #600 narrowed the reach of without removing.
+     * The write path now rejects an out-of-set role (the strict gate walks nested
+     * enum fields since #600, pinned in SchemaValidationTest and ActionsTest), so
+     * this value can only arrive through a NON-validating path: a raw database
+     * write, or a restore_composition of an old snapshot, which by rule restores
+     * verbatim and never blocks (#233). The allowlist is what keeps an arbitrary
+     * stored string out of a class attribute on those paths, so it stays.
+     */
     public function testGridItemInvalidTextRoleIgnored(): void
     {
         $html = $this->render('grid', [
@@ -128,5 +137,8 @@ class TypographyRoleTest extends TestCase
         $this->assertNotNull($itemDef, 'grid item contract must declare text_role.');
         $this->assertSame('enum', $itemDef['type']);
         $this->assertSame(['mono', 'meta', 'label', 'kicker'], $itemDef['values']);
+        // #600: the declaration is what arms the write-path rule. Without `strict`
+        // the nested gate skips the field and the roles below become advisory again.
+        $this->assertTrue($itemDef['strict'] ?? false, 'text_role must declare strict (#600)');
     }
 }
