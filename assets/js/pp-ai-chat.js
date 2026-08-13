@@ -362,17 +362,84 @@ function ppChatRenderPreviewError(diffArea, data) {
 }
 
 /**
- * Determines the CSS class for a failed step based on error type and cross-component hints.
+ * True when a friendly error points at another component that does have the setting.
+ *
+ * `cross_component_hints` is a JSON object keyed by rejected slot name. A missing key, a
+ * null, or anything that isn't such a map means "no hint" — including an ARRAY, which
+ * `typeof` calls an object and `Object.keys` happily counts, so it would otherwise be
+ * read as a hint that names nothing.
+ *
+ * Shared by the two readers below so the class painted on the step and the sentence
+ * written in the status bar cannot disagree about whether a hint exists.
+ */
+function ppChatHasCrossComponentHint(data) {
+    var hints = data && data.cross_component_hints;
+    if (!hints || typeof hints !== 'object' || Array.isArray(hints)) return false;
+    return Object.keys(hints).length > 0;
+}
+
+/**
+ * True when a friendly error names settings the author could use instead (#625).
+ *
+ * `alternatives` is always a JSON array of slot names on the wire — every producer
+ * builds it with array_keys() (_pp_build_friendly_error(), lib/ai-chat.php), which
+ * returns a list of non-empty strings. This is the boundary where a malformed payload
+ * is decided against, so it asks for what it actually needs: at least one entry that is
+ * a name. A list of nulls, objects, or empty strings has a length but names nothing,
+ * and "there are settings you could use instead" would be a false claim about it.
+ */
+function ppChatHasSlotAlternatives(data) {
+    var alternatives = data && data.alternatives;
+    if (!Array.isArray(alternatives)) return false;
+    for (var i = 0; i < alternatives.length; i++) {
+        if (typeof alternatives[i] === 'string' && alternatives[i] !== '') return true;
+    }
+    return false;
+}
+
+/**
+ * Determines the CSS class for a failed step: does the error leave the author a move?
+ *
+ * `pp-ai-step-impossible` is a claim about CAPABILITY — "there is nothing to change
+ * here" — and it is the end of the conversation for the author who reads it. It is
+ * reserved for errors whose payload names no next action at all:
+ *
+ *   no_style_slots                          the component supports no style
+ *                                           customization whatsoever
+ *   invalid_style_slot, nothing named       neither a slot on this component nor one
+ *                                           on another; nothing to point at
+ *
+ * An `invalid_style_slot` that names something is `pp-ai-step-fixable`, because the
+ * answer is in the author's hands: `cross_component_hints` says the setting lives on
+ * another component (retarget), and `alternatives` lists the settings this component
+ * does declare (pick one). Before #625 only the hint counted, so a near-miss slot
+ * name — `--hero-bgs` for `--hero-bg` — went grey and the status bar said the change
+ * wasn't possible, with the correct slot sitting in `alternatives` in the very same
+ * payload. Typing a name wrong is not a missing capability.
+ *
+ * Note what this reads and what it doesn't: the payload's own account of what the
+ * author can do next, not the presence of any one field. A hint alone is not proof of
+ * author-fixability — a recipe that drifts out of its component's declared slots also
+ * produces one, and the author never typed that slot — but such a rejection carries
+ * `alternatives` too, so it lands on the same fixable class by the same reasoning.
+ *
+ * Reachability of the impossible arm, so it isn't misread as live: with the SHIPPED
+ * components neither route can fire. `no_style_slots` needs a placeable component that
+ * declares no style slots, and the only two that declare none (nav, footer) are site
+ * chrome the composition validator refuses to place — which is why the server-side pin
+ * for it has to synthesize a fixture theme. And `invalid_style_slot` naming nothing
+ * cannot occur, because the validator returns `no_style_slots` before comparing any slot
+ * name, so `alternatives` is non-empty on every rejection it produces. The arm survives
+ * for a component this theme doesn't ship — a child or third-party one that is placeable
+ * and declares no slots — and for producers that build the error by hand.
  */
 function ppChatGetErrorStepClass(data) {
     if (!data || typeof data !== 'object') return 'pp-ai-step-failed';
     var code = data.error_code || '';
     if (code === 'no_style_slots') return 'pp-ai-step-impossible';
     if (code === 'invalid_style_slot') {
-        var hints = data.cross_component_hints;
-        if (hints && typeof hints === 'object' && Object.keys(hints).length > 0) {
-            return 'pp-ai-step-fixable';
-        }
+        if (ppChatHasCrossComponentHint(data)) return 'pp-ai-step-fixable';
+        if (ppChatHasSlotAlternatives(data)) return 'pp-ai-step-fixable';
         return 'pp-ai-step-impossible';
     }
     if (code === 'invalid_style_value' || code === 'invalid_recipe') return 'pp-ai-step-fixable';
@@ -381,13 +448,43 @@ function ppChatGetErrorStepClass(data) {
 
 /**
  * Derives a contextual status bar message from the first failed step's error data.
+ *
+ * Says the same thing the step's class says (ppChatGetErrorStepClass above), in words:
+ * a rejection painted fixable must not be narrated as impossible. The two read the same
+ * two helpers, and the hint branch carries the same `invalid_style_slot` gate the class
+ * puts on it, so there is no payload for which one speaks and the other disagrees. That
+ * gate changes nothing that ships — `_pp_build_friendly_error()` (lib/ai-chat.php) can
+ * only produce a non-empty hint map from its invalid_style_slot case; every other branch
+ * returns a hardcoded empty object — it just removes the one place the two could drift.
+ *
+ * The `invalid_style_slot` gate on the settings sentence is load-bearing, not defensive:
+ * `invalid_recipe` also ships a non-empty `alternatives` (the component's recipe names),
+ * and "setting name" is the wrong word for a recipe.
+ *
+ * Two things the sentence is careful about.
+ *
+ * It blames the NAME, not the component. For the case #625 is about, the author asked for
+ * something the component can do and the slot name came back wrong; saying the setting
+ * isn't available would deny a capability sitting in `alternatives` in the same payload.
+ * Naming the name is true of the near miss and of a setting the component really doesn't
+ * declare, which is the other thing that lands here.
+ *
+ * And it says the settings are LISTED above, not that their names are. What renders
+ * unconditionally above this bar is `user_message`, and the non-hint branch of
+ * _pp_build_friendly_error() builds its "Available settings: ..." list from each slot's
+ * DESCRIPTION, not its name (lib/ai-chat.php). The names live in `alternatives`, which
+ * the card prints inside a collapsed <details>. Promising names on screen would be a
+ * promise the card doesn't keep.
  */
 function ppChatGetStatusMessage(data) {
     if (!data || typeof data !== 'object') return 'Some changes couldn\'t be previewed. See details above.';
     var code = data.error_code || '';
-    var hints = data.cross_component_hints;
-    var hasHints = hints && typeof hints === 'object' && Object.keys(hints).length > 0;
-    if (hasHints) return 'That setting lives on a different component. See details above.';
+    if (code === 'invalid_style_slot' && ppChatHasCrossComponentHint(data)) {
+        return 'That setting lives on a different component. See details above.';
+    }
+    if (code === 'invalid_style_slot' && ppChatHasSlotAlternatives(data)) {
+        return 'I used a setting name this component doesn\'t have. The settings it does have are listed above.';
+    }
     if (code === 'no_style_slots' || code === 'invalid_style_slot') return 'This change isn\'t possible with the current component settings.';
     if (code === 'invalid_style_value') return 'The value format needs adjustment. See suggestions above.';
     return 'Some changes couldn\'t be previewed. See details above.';
