@@ -4,6 +4,56 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.13.7] — 2026-08-13 — diagnostics: a restore report names a band's problems, not just the first one (#621)
+
+**Restoring a page told you one thing that was wrong with it, then made you restore again to learn the next.** `pp_validate_composition_errors()` is the collect-all engine behind `restore_composition`'s `findings` (#233), the run-scoped rollback report (#236), `wp pp check page` and `wp pp validate site` — and every rule inside its per-item loop ended with `continue 2`, abandoning the rest of that band. A band carrying a retired prop name AND a dead style slot reported the prop; the slot surfaced on the next pass, once the first was fixed. That is exactly the fix-one-retry-discover-the-next loop a collect-all engine exists to prevent, and #604 sharpened it by routing thirteen more prop names into the gate that short-circuits.
+
+Every schema rule now records its finding and keeps validating. The unit is the authored LOCATION a message can name — a prop, an `items[]` entry, a nested field — so two rules that judge the same value report it once, not twice, and a rule whose message names only the prop reports once for that prop rather than once per bad entry. Four structural checks still stop a band cold: no `component` key, a non-scalar `component`, an unknown component, and site chrome. Those four are honest, not incomplete — there is no schema to judge the rest of the band against.
+
+Writes are untouched. `pp_validate_composition()` still returns the first error, with the same code and the same message bytes, so `create_page` / `update_composition` / `update_component` and the editor save reject exactly what they always did with exactly the message they always used. It also now stops BUILDING findings after that first one, which keeps a write path that discards the rest from allocating a report nobody reads.
+
+### The numbers that matter
+
+Measured on the shipped engine (`pp_validate_composition_errors()` over the repo's own fixtures, plus a 60,000-entry malformed band):
+
+| Case | Before | After |
+|---|---|---|
+| A band with a retired prop name + a dead style slot | 1 finding (slot invisible) | 2 findings |
+| A `cta` missing both required props | 1 finding | 2 findings |
+| A grid with dead slots on cards 0 and 2 | 1 finding (card 2 invisible) | 2 findings, each naming its card |
+| An `items` entry that is a JSON list | 1 finding | 1 finding (2 misleading ones suppressed) |
+| Write path, 176 KB of malformed items | 6.0 MB peak | 0.6 MB peak, identical error |
+
+The line that matters most is the third: repairing card 0 and rediscovering card 2 on the next restore was the whole defect, and it is gone.
+
+### What this means for an authoring agent
+
+A restore preview, a rollback report and `wp pp validate site` now describe a band well enough to repair it in one pass in the ordinary case. Expect more than one line per band, each carrying the composition `index` of the band that owns it (#622). Two limits stay, both stated in the docs rather than discovered, and both are reasons to re-run rather than assume the list was complete: a band whose identity is unusable (unknown component, site chrome) reports that alone, because nothing else about it can be judged; and a `style` map reports its first dead slot only.
+
+### Itemized changes
+
+#### Fixed
+
+- `pp_validate_composition_errors()` (`lib/admin.php`) reports every problem in a composition item instead of the first (#621). The `continue 2` at the #147 unknown-prop gate — the one the issue names — plus the equivalents in the required-prop, `content_requirement` (#488), numeric-bounds (#379), strict-enum (#380/#579), bounded-string-array (#475), schema-typed (#507), nested `items[]` (#579 A-27 / #614 / #600), link-URL and per-item-style rules now advance to the next prop, entry or field.
+- An `items[]` entry that is a JSON list (`items: [["/a.png","Alt"]]`) reports its shape once instead of also reporting every declared field as missing (#621). A list passes `is_array()`, so the nested field walk judged it against a contract it could never satisfy — three findings for one defect, two of them pointing an authoring agent at a repair that cannot work.
+
+#### Changed
+
+- `_pp_finding_location()` and `_pp_claim_item_finding()` (`lib/admin.php`) are the new claim set: the first rule to report an authored location owns it, so a `columns: "abc"` that fails both the numeric-bounds rule and the schema-type rule is reported once, by the more precise of the two. Segments are role-prefixed and length-prefixed, so a prop literally named `items.0` cannot collide with entry 0 of `items` and suppress a real finding.
+- `pp_validate_composition()` validates with a finding budget of 1 (`lib/admin.php`). The returned error is byte-identical; what changes is that a write path which reads `errors[0]` and discards the rest no longer builds the rest.
+
+#### Docs
+
+- `AI_CONTEXT.md`, `docs/reference-apply-cli.md` and `ai-instructions/validate-site.md` state the new granularity and both deliberate limits, replacing the "findings are per-item first-blocking-problem" paragraph #604 had to write.
+- `docs/AI_IMPLEMENTATION_RECIPES.md` invariant 2c carries the convention a new validation rule must follow: claim the location your message names, continue to the next one, never end the item; rule ORDER decides which message a rejected write shows.
+
+#### Tests
+
+- `tests/SchemaValidationTest.php`: a row per de-short-circuited rule (18 of them) proving each one still lets a later rule speak; the claim set proving one value is never reported twice; claim-key collision safety including invalid UTF-8; malformed-parent rows proving no cascade; and the write-path budget proving the returned error matches the unbudgeted engine's `errors[0]`.
+- Authoring-path coverage through the real surfaces (Section 14.1): `restore_composition` preview and execute (`tests/ActionsTest.php`), the #236 run rollback (`tests/OperateTest.php`), and `wp pp check page` (`tests/DiagnosticReachTest.php`).
+
+---
+
 ## [v1.13.6] — 2026-08-13 — diagnostics: nested item locators name the stored key instead of fabricating item 0 (#634)
 
 **`pp_validate_composition_errors()` answered "which item?" two ways inside one function, and one of them lied.** Six nested rules rendered the `items[]` array key honestly; the link-URL and per-item-style paths hard-cast it, so a composition whose `items` decoded to a JSON object rather than a list reported `item 0` — `(int) "aa"` is 0, and there is no item 0. The message sent the operator to repair an element that does not exist, which is worse than carrying no locator at all.
