@@ -4,6 +4,37 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.13.15] — 2026-08-14 — A renamed style slot can no longer ship without a documented breaking change, and the prop register stops accepting notes that document nothing (#598)
+
+**Renaming a style slot was invisible to CI.** Every slot pin the theme had was rename-invariant: `testStyleSlotsExistForV1Components` and `css-lint.test.js` both COUNT slots, and a rename removes one name and adds another, so no total ever moves. Everything else that touches slots re-globs the live schemas, so it re-derives its expectations from the file the rename just edited. That mattered because `pp_render_style_vars()` drops an undeclared slot name with a bare `continue` — no finding, no warning, no log — so a renamed slot means every stored page that set the old name silently renders unstyled while every action still returns `ok:true`. Under the ratified no-alias posture (#570 Addendum #5, #603/#604) that breakage is ALLOWED, but only as a documented, deliberate one. Nothing made "documented" mandatory. Measured on the surface as it stood: 254 of 261 slot names appeared incidentally somewhere under `tests/`, so many renames would have tripped some unrelated test with a misleading message, and 7 (`--cta-inner-gap`, `--embed-padding-bottom`, `--faq-padding-bottom`, `--hero-content-gap`, `--logos-padding-bottom`, `--stats-padding-bottom`, `--table-padding-bottom`) appeared nowhere at all and would have renamed in total silence.
+
+**The slot surface now has the prop surface's drift-catcher, and both surfaces got stricter about what a migration note has to be.** `PINNED_SLOT_BASELINE` freezes 261 slots across the 10 slot-bearing components; a name that disappears from a schema fails the build unless the same change records it in `SLOT_RENAME_MIGRATION_NOTES`, and a newly added slot must be appended to the baseline in the same commit. Implementing it exposed three holes in the prop-side catcher this was copied from, all of which let an undocumented rename ship green, and all of which are closed here on BOTH surfaces so the two cannot enforce different contracts: the pinned baselines were not append-only, so deleting (or quietly editing) a baseline line was the cheapest path to a green build and the failure messages steered authors there; note content was never validated, so `''`, `null` and `0` cleared drift exactly as well as real prose; and a note naming a still-live name was accepted silently, which allowed a two-commit disarm where one commit pre-notes names that still exist and a later commit deletes them unremarked.
+
+**This is enforcement mechanics, not a contract change.** No schema key was added or removed, no slot or prop renamed, no accepted value, type, or grammar altered, and no runtime code touched. The ratified contract (#604, #570 Addendum #5, #606) is unchanged: renames are documented breaking changes, never aliased migrations. Nothing here makes a renamed slot keep working, and no alias machinery returns — `StoredCompositionAliasRenderTest` still guards that negative space. What changed is that the documentation trail is now mandatory rather than remembered.
+
+### Fixed
+
+- A style-slot rename, removal, or unpinned addition now fails CI. Previously all three passed: the rename and the addition silently, the removal loudly only where some unrelated test happened to name the slot.
+- A migration note must say something and cite the ruling issue (a non-empty string matching `#<number>`). An empty, whitespace, or non-string value no longer clears drift on either surface.
+- A migration note may only describe a name the schemas no longer declare. Pre-authorising a future removal in an earlier commit is rejected, which collapses the two-commit disarm back into one honest commit.
+- The pinned baselines are append-only, enforced by a count floor and a content fingerprint. The floor catches a net removal; the fingerprint catches the count-preserving swap the floor cannot see, which is the edit that actually shipped an undocumented rename.
+- Both add-path guards iterate the LIVE schema set and so could pass vacuously with nothing discovered. They now pin the component set in both directions first, making a broken glob or a moved schema a hard failure instead of a silently unguarded surface.
+- Schema discovery for both surfaces runs through one helper that fails loudly on unparseable JSON. `liveProps()` previously degraded to an empty prop list, which reads downstream as a mass removal and misdiagnoses the cause.
+
+### Docs
+
+- `ai-instructions/add-component.md` no longer tells agents that a renamed style slot "has no such tripwire today" and that the surfaces are asymmetric. Both statements were made false by this change. It now states the symmetric contract, the three things the register enforces, and that adding a prop or slot means updating the baseline, floor, and fingerprint in the same change.
+- `docs/AI_IMPLEMENTATION_RECIPES.md` Recipe A gains the baseline step. Following the recipe without it produced a red build with no explanation of why.
+
+### Tests
+
+- `tests/SchemaValidationTest.php` — `PINNED_SLOT_BASELINE` (261 slots: cta 40, embed 8, faq 21, grid 38, hero 49, logos 8, section 47, stats 17, table 6, testimonials 27), `SLOT_RENAME_MIGRATION_NOTES` (empty by design), plus `SLOT_BASELINE_FLOOR` / `SLOT_BASELINE_FINGERPRINT` and their prop-side twins. footer and nav are absent because they declare `chrome_custom_properties` rather than `style_slots`; the add-path guard fails if either ever gains real slots, so their absence is enforced rather than assumed.
+- Both surfaces run one shared algorithm — `detectSchemaRenameDrift()`, `detectUnpinnedAdditions()`, `detectMigrationNoteDefects()`, `detectBaselineShrink()`, `baselineFingerprint()` — so neither can drift into a weaker notion of what "documented" means. The `$kind` parameter is a message label with no default, so a third surface cannot inherit the wrong one silently.
+- Self-tests prove each guard fires rather than standing as a permanently-green tripwire: a count-preserving rename, a plain removal, a note naming some other slot, an unpinned addition, an unknown component, an empty or uncited note, a note for a still-live name, and a baseline below its floor. One test pins the premise directly — the same simulated rename that the count pins cannot see is caught by the baseline.
+- Failure messages instruct the remedy (write the note citing the ruling issue) and state that deleting the baseline entry is not a fix. Asserted, not just written, so the guidance cannot rot.
+
+---
+
 ## [v1.13.14] — 2026-08-14 — `styling.tokens` is documented as the curated subset it is, and nine schemas stop promising a write that fails (#616)
 
 **Nine band schemas told an authoring agent that one `update_design_token` write on `--pp-band-heading-size` retunes every band heading at once. That write returns `unknown_token`.** `pp_design_tokens()` parses the FIRST `:root` block of `base.css` and stops there; the shared band rhythm and heading scale are declared in a later block, deliberately, so they are not design tokens and no action in the write path reaches them. An agent following those descriptions got an error and no site-wide retune. The nine now state what is true: the shared scale is not a token, nothing can retune it site-wide, and setting the slot changes that one band.
