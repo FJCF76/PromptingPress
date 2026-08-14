@@ -4,6 +4,25 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.13.10] — 2026-08-14 — tests: the preview-error card's alternatives test now fails when alternatives break (#627)
+
+**One of the two tests guarding the rejected-slot card could not fail.** It asked whether the rendered card contained an element with the class `pp-ai-preview-error-alternatives` and asserted that it did not. No code path has emitted that class since the alternatives moved into the technical-details disclosure, so the assertion was true by construction: alternatives rendering could break completely and the test would stay green. The stylesheet still carried a rule for that class, styling nothing.
+
+Both are gone. In their place the disclosure's actual contract is pinned, line by line: an empty `alternatives` list adds no "Available slots" line but the disclosure still opens for a raw error; with neither a list nor a raw error there is no disclosure at all; a list alone opens it and is its only line; and a cross-component hint contributes its own line between the two, in that order. Assertions are line-exact against the direct child the stylesheet contracts on, so a reordering or a dropped contribution fails rather than passes.
+
+Nothing an author sees changes. The deleted rule matched no element in any state the renderer can produce, which is why it could be deleted rather than repaired.
+
+### Fixed
+
+- `assets/css/pp-ai-chat.css` drops the `.pp-ai-preview-error-alternatives` rule (#627). The class was orphaned when the alternatives list became the body of the `.pp-ai-preview-error-detail` disclosure; the surviving rule already carries the typeface, size and colour it declared.
+
+### Tests
+
+- `tests/js/pp-ai-chat-proposal.test.js` replaces the vacuous absence assertion with three pins on what `ppChatRenderPreviewError()` actually emits, covering both sides of the disclosure's two-part guard and the slot line inside it.
+- The cross-component-hint test now also pins the hint's line inside the disclosure, so the order the renderer joins raw error, hint lines, and slot list in is a contract rather than an accident.
+
+---
+
 ## [v1.13.9] — 2026-08-14 — diagnostics: a mistyped slot name is a mistake to fix, not a capability the component lacks (#625)
 
 **The chat told authors a change wasn't possible while the setting they wanted sat in the same response.** A failed preview step is painted with one of three classes, and `pp-ai-step-impossible` is a claim about capability — "there is nothing to change here". It was painted on any `invalid_style_slot` whose `cross_component_hints` came back empty, and the status bar said "This change isn't possible with the current component settings." A near miss like `--hero-bgs` for `--hero-bg` normalizes to a suffix no other component declares, so it produced no hint and landed there — with `--hero-bg` listed in `alternatives` in the very same payload.
