@@ -263,15 +263,37 @@ name ships, the old name is simply absent, documents that still store it lose th
 declaration with the consequences spelled out below, and the change says so out loud in
 the CHANGELOG.
 
-**Know what CI actually catches here, because it is not symmetric.** A renamed or removed
-**prop** trips the drift-catcher in `tests/SchemaValidationTest.php`, which fails the build
-unless the same change records the rename in `SCHEMA_RENAME_MIGRATION_NOTES` — the note is
-the discipline, forcing the author to state what happens to already-stored documents
-instead of making the problem disappear. A renamed **style slot** has **no such tripwire
-today**: there is no pinned slot baseline, so the rename ships green and every stored
-declaration of the old name silently stops painting. On the slot surface the CHANGELOG
-entry and the maintainer's ratification at review are the only gates, so say it out loud
-there.
+**Know what CI actually catches here — since #598 the two surfaces are symmetric.** A
+renamed or removed **prop** OR **style slot** trips the drift-catcher in
+`tests/SchemaValidationTest.php`, which fails the build unless the same change records the
+change in the matching migration-notes register (`SCHEMA_RENAME_MIGRATION_NOTES` for props,
+`SLOT_RENAME_MIGRATION_NOTES` for slots). The note is the discipline: it forces the author
+to state what happens to already-stored documents instead of making the problem disappear.
+Both surfaces run one shared algorithm, so neither can drift into a weaker notion of what
+"documented" means.
+
+The register is enforced, not merely offered:
+
+- **The note must say something and cite the ruling.** A non-empty string carrying an issue
+  reference (`#598`) — an empty, whitespace, or non-string value is rejected, and so is
+  prose with no issue number. "Documented" means a human wrote down what happened and which
+  issue authorised it.
+- **A note may only describe a name that is actually gone.** Writing a note for a name the
+  schemas still declare fails. Pre-authorising a future removal in an earlier commit is not
+  documentation, and it would let the removal itself ship unremarked later.
+- **The pinned baselines are append-only.** Retiring a name MOVES it into the notes
+  register; deleting (or quietly editing) its baseline line is not a fix, and both the count
+  floor and the baseline fingerprint fail if you try. That closes the count-preserving
+  rename — swapping one name for another in the schema and in the baseline — which leaves
+  every total identical and used to ship green.
+
+**Adding** a prop or slot touches the same pins: append it to `PINNED_PROP_BASELINE` /
+`PINNED_SLOT_BASELINE` and update the matching `*_BASELINE_FLOOR` and
+`*_BASELINE_FINGERPRINT` in the SAME change. The failure messages tell you which. This is
+what keeps a name added today from being renamed unremarked next month.
+
+The CHANGELOG entry and the maintainer's ratification at review still apply on both
+surfaces — CI now makes the trail mandatory rather than remembered.
 
 **Renaming a slot or a prop is a breaking change, and that is the accepted cost.** A composition
 stored under the old name loses that declaration at render, and the three actions that validate

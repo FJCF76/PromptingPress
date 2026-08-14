@@ -77,8 +77,18 @@ Used by: #99, #100, #108, #111, #61 (and the #99 scaffold issue defines the reus
    `getComputedStyle(...).borderColor`, and read it AGAIN with the site-wide knob
    (`--btn-border-color`) also set — that second read is what separates "declared" from "wins".
 
-8. **Test:** `tests/ComponentPropsTest.php` — assert the schema declares the slot with `type`+`default`; a render test asserts setting the slot emits the inline `--{name}-{slot}: <value>`; a negative test asserts an injection value (`}<script>`) is dropped.
-9. **Verify:** `composer test`.
+8. **Pin the new slot in the baseline, in the SAME change (#598).** Append it to
+   `PINNED_SLOT_BASELINE` in `tests/SchemaValidationTest.php`, then update
+   `SLOT_BASELINE_FLOOR` (the count) and `SLOT_BASELINE_FINGERPRINT` (run the suite; the
+   failure prints what it should be). Skipping this fails the build, by design: an
+   unpinned slot is one a later rename could retire with no documentation trail, because
+   it was never in the baseline to go missing from. The same applies to a new **prop** and
+   `PINNED_PROP_BASELINE` / `PROP_BASELINE_FLOOR` / `PROP_BASELINE_FINGERPRINT`.
+   Retiring or renaming a slot is a different path — see "How a rename happens now" in
+   `ai-instructions/add-component.md`: the name MOVES into `SLOT_RENAME_MIGRATION_NOTES`
+   with a note citing the ruling issue. Deleting its baseline line is never the fix.
+9. **Test:** `tests/ComponentPropsTest.php` — assert the schema declares the slot with `type`+`default`; a render test asserts setting the slot emits the inline `--{name}-{slot}: <value>`; a negative test asserts an injection value (`}<script>`) is dropped.
+10. **Verify:** `composer test`.
 
 ---
 
