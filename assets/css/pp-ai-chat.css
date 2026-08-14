@@ -410,13 +410,6 @@ body.pp-ai-chat-page #wpfooter {
     margin-bottom: 4px;
 }
 
-.pp-ai-preview-error-alternatives {
-    font-size: 12px;
-    font-family: monospace;
-    color: #646970;
-    word-break: break-all;
-}
-
 .pp-ai-step-impossible {
     background: #f0f0f1;
 }
