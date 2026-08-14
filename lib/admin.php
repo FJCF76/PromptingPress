@@ -536,6 +536,15 @@ function pp_applies_when_unmet_clauses(array $clauses, string $component, array 
  * the closed key set above — on props, on slots, and on nested `items.<sub>` fields,
  * which run through this same engine.
  *
+ * `patchable` is unknown here for a different reason: it was never ADDED to the key set.
+ * #509 shipped a `"patchable": false` opt-out in pp_component_scalar_type() and documented
+ * it in AI_IMPLEMENTATION_RECIPES (v1.8.2), before this engine existed; when #575 closed
+ * the key set in v1.12.4 it left `patchable` off, so from that release a schema following
+ * those docs failed CI right here while the docs went on instructing it. No schema in this
+ * repo ever declared it, in either window.
+ * #629 resolved the contradiction by deleting the readers and the instruction rather than
+ * widening this list, so `patchable` stays unknown by omission, not by removal.
+ *
  * @param  array  $definition  The decoded definition object.
  * @param  string $kind        'slot' or 'prop'.
  * @param  string $label       Context for error messages, e.g. 'hero --hero-bg'.

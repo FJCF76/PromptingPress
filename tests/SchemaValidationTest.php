@@ -3238,9 +3238,10 @@ class SchemaValidationTest extends TestCase
      *
      *   1. every derived field name resolves to a real schema prop (top-level,
      *      or `items[].X` against props.items.items) with a scalar type; and
-     *   2. every scalar-typed schema prop (string/number/enum, not opted out)
-     *      IS derived — no silent coverage drop, the exact rot the old
-     *      hand-list suffered; and
+     *   2. every scalar-typed schema prop (string/number/enum) IS derived,
+     *      unconditionally since #629 retired the `patchable: false` opt-out
+     *      that once exempted one — no silent coverage drop, the exact rot the
+     *      old hand-list suffered; and
      *   3. no structural (array/object) top-level prop leaks into the field set.
      *
      * Walks the real registered components (not a hand-list), so a schema that
@@ -3283,15 +3284,16 @@ class SchemaValidationTest extends TestCase
                 }
             }
 
-            // Directions 2 & 3: every non-opted-out scalar top-level prop is
-            // derived; every array/object top-level prop is NOT.
+            // Directions 2 & 3: every scalar top-level prop is derived; every
+            // array/object top-level prop is NOT. There is no exemption arm —
+            // the `patchable: false` opt-out that once carved one out is retired
+            // (#629), so a scalar prop is derived unconditionally.
             foreach ($props as $propName => $propDef) {
                 if (!is_array($propDef)) {
                     continue;
                 }
-                $optedOut = array_key_exists('patchable', $propDef) && $propDef['patchable'] === false;
                 $type = $propDef['type'] ?? null;
-                if (in_array($type, $scalarTypes, true) && !$optedOut) {
+                if (in_array($type, $scalarTypes, true)) {
                     $this->assertArrayHasKey($propName, $derived, "'{$componentType}.{$propName}' is a scalar schema prop but was NOT derived (silent coverage drop).");
                 } elseif (in_array($type, ['array', 'object'], true)) {
                     $this->assertArrayNotHasKey($propName, $derived, "'{$componentType}.{$propName}' is a structural prop but leaked into the derived field set.");
@@ -3876,6 +3878,60 @@ class SchemaValidationTest extends TestCase
                 'test.x'
             )[0]
         );
+    }
+
+    /**
+     * THE SCHEMA SURFACE of the `patchable` retirement (#629). Unlike `aliases`,
+     * which WAS on the key set until #606 removed it, `patchable` was never ADDED
+     * to it: #575 closed the key set without it (v1.12.4), well after #509 shipped
+     * and documented the opt-out (v1.8.2). So AI_IMPLEMENTATION_RECIPES went on telling
+     * authors to declare it (Recipe B step 4, Recipe D step 4) while an author who
+     * followed the docs got `unknown prop definition key patchable` from this
+     * engine via testEveryShippedDefinitionObjectConformsToTheClosedContract.
+     * #629 resolved that by deleting the readers and the instruction, so the
+     * rejection below is now the WHOLE truth about the key rather than half of a
+     * contradiction.
+     *
+     * Two surfaces, not three. A slot assertion is deliberately omitted: `patchable`
+     * was never a candidate slot key, so rejecting it there pins pre-existing
+     * behaviour, not this retirement. The two surfaces asserted are exactly the two
+     * lib/operate.php used to read (a top-level prop, and an `items` array whose
+     * nested `items.<sub>` fields run through this same engine as kind 'prop').
+     */
+    public function testTheRetiredPatchableKeyIsNowAnUnknownDefinitionKey(): void
+    {
+        // The key list itself, stated once so the contract is readable and not
+        // only inferable from behaviour.
+        $this->assertNotContains('patchable', \pp_prop_definition_keys(), '`patchable` is retired (#629)');
+
+        // Top-level prop: the exact shape Recipe B step 4 documented.
+        $prop = [
+            'type' => 'string', 'required' => false, 'default' => '',
+            'description' => 'x', 'patchable' => false,
+        ];
+        $propErrors = \pp_schema_definition_errors($prop, 'prop', 'test.x');
+        $this->assertNotEmpty($propErrors, 'a documented-shape `patchable` declaration must fail the closed key set');
+        $this->assertStringContainsString('unknown prop definition key `patchable`', $propErrors[0]);
+
+        // Nested item field: same engine, same answer, so the retirement cannot be
+        // smuggled back in one level down.
+        $nestedErrors = \pp_schema_definition_errors(
+            ['type' => 'string', 'description' => 'x', 'patchable' => false],
+            'prop',
+            'test.items.sub'
+        );
+        $this->assertNotEmpty($nestedErrors, 'a nested `items.<sub>` declaration must fail too');
+        $this->assertStringContainsString('unknown prop definition key `patchable`', $nestedErrors[0]);
+
+        // `true` is rejected on the same grounds as `false`. The key is unknown —
+        // it is not a boolean field with one legal value.
+        $trueErrors = \pp_schema_definition_errors(
+            ['type' => 'string', 'description' => 'x', 'patchable' => true],
+            'prop',
+            'test.x'
+        );
+        $this->assertNotEmpty($trueErrors, '`patchable: true` is an unknown key, not a legal boolean');
+        $this->assertStringContainsString('unknown prop definition key `patchable`', $trueErrors[0]);
     }
 
     /**
