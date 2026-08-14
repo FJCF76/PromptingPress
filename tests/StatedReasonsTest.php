@@ -92,7 +92,16 @@ class StatedReasonsTest extends TestCase
             'grid four-card cap'        => ['components/grid/README.md', 'max-width: 58rem', 'grid'],
             'grid steps four-card cap'  => ['components/grid/README.md', '56rem', 'grid'],
             'grid step-title cap'       => ['components/grid/README.md', 'max-width: 17rem', 'grid'],
-            'grid steps connector'      => ['components/grid/README.md', '`::after` between badges', 'grid'],
+            // #601: the row survives, its REASON was inverted. It used to disclose the
+            // connector as reachable through two slots; the connector is clipped by the
+            // card's own `overflow: hidden` and paints nowhere, so the row now records the
+            // dead rule instead. The old needle (`::after` between badges) is still present
+            // verbatim in the rewritten row, so this move was a CHOICE, not a necessity: the
+            // row joins the documented exception class above (the faq chevron, the cta
+            // inner-gap) whose reason has no literal of its own, and accepts that class's
+            // cost — a rewording breaks this pin. That is the point here. The reason is now
+            // a claim about rendering, and a claim is exactly what must not drift silently.
+            'grid steps connector'      => ['components/grid/README.md', 'renders nowhere, and no slot reaches it', 'grid'],
             'grid texture period slot'  => ['components/grid/schema.json', 'repeat PERIOD', 'grid'],
 
             // ── testimonials (rows 21-26) ───────────────────────────────────
