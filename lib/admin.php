@@ -527,6 +527,7 @@ function pp_applies_when_unmet_clauses(array $clauses, string $component, array 
  *                                                   ├─ closed key set (rejects unknown keys)
  *                                                   ├─ applies_when → pp_applies_when_clause_errors()
  *                                                   ├─ conditionality_note → bounded string
+ *                                                   ├─ values → bounded catalog strings (#630)
  *                                                   └─ role → pp_slot_roles()      (slots only)
  *
  * The `aliases` leg that hung off the prop surface is GONE (#606). It declared legacy
@@ -580,6 +581,64 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
             // The AI catalog is line-oriented; an embedded newline forges catalog
             // lines. Bound the shape at authoring time, not at the emitter.
             $errors[] = "{$label}: `conditionality_note` must be a single line (no newlines or tabs).";
+        }
+    }
+
+    // Every `values` member is rendered into the AI catalog INSIDE double quotes:
+    // `"cards"|"steps"` in the prop catalog (pp_ai_condense_schema) and in the slot
+    // line beside it, both in lib/ai-context.php. A member carrying a double quote
+    // forges the value set an agent parses; one carrying a newline forges a whole
+    // catalog line. Bound the SHAPE here, at authoring time, never in the emitter.
+    //
+    // The quote half is the rule the sibling quoted strings already follow —
+    // `applies_when`'s `prop`/`slot`/`equals` subjects and its `in` members, above.
+    // The single-line half comes from `conditionality_note`, just above; the
+    // `applies_when` strings do NOT carry it yet, so this is not a claim of parity
+    // across the whole definition surface. Nor does `values` follow `in` on member
+    // TYPE: `in` accepts a string OR an integer, `values` accepts strings only,
+    // which is what all 31 shipped declarations are.
+    //
+    // Triggered by PRESENCE, not by `type === 'enum'`: this bounds the FIELD wherever
+    // it is declared, the same way `applies_when`, `conditionality_note` and `role` are
+    // validated. No shipped schema declares `values` on a non-enum, so it rejects
+    // nothing that exists and leaves no unguarded corner if one ever appears.
+    //
+    // Each violation KIND is reported once. A malformed container reports that and
+    // skips the member loop, so a `values: "cards"` never iterates a string.
+    //
+    // "Non-empty" is literal — `''` is rejected, `' '` is not. A whitespace-only
+    // member is a nonsense declaration, but rejecting it is a rule this guard was
+    // not asked to add, and `conditionality_note`'s trim() is a bound on PROSE, not
+    // the precedent for an identifier-ish value set.
+    if (array_key_exists('values', $definition)) {
+        $values = $definition['values'];
+        if (!is_array($values) || $values === [] || !pp_is_list($values)) {
+            $errors[] = "{$label}: `values` must be a non-empty LIST of strings.";
+        } else {
+            $bad_member = false;
+            $has_quote  = false;
+            $multiline  = false;
+            foreach ($values as $value) {
+                if (!is_string($value) || $value === '') {
+                    $bad_member = true;
+                    continue;
+                }
+                if (strpos($value, '"') !== false) {
+                    $has_quote = true;
+                }
+                if (preg_match('/[\r\n\t]/', $value)) {
+                    $multiline = true;
+                }
+            }
+            if ($bad_member) {
+                $errors[] = "{$label}: every `values` member must be a non-empty string.";
+            }
+            if ($has_quote) {
+                $errors[] = "{$label}: a `values` member must not contain a double quote.";
+            }
+            if ($multiline) {
+                $errors[] = "{$label}: a `values` member must be a single line (no newlines or tabs).";
+            }
         }
     }
 

@@ -3999,6 +3999,191 @@ class SchemaValidationTest extends TestCase
     // quote, no collision with `values` — and every one of them presumed the field
     // exists. It does not. What replaced them is stricter and shorter: the key itself
     // is unknown, pinned by testTheRetiredAliasesKeyIsNowAnUnknownDefinitionKey().
+    //
+    // The guard that policy described did NOT cover `values`, which is the string the
+    // catalog actually renders. #630 closes that, below.
+
+    /**
+     * `values` is BOUNDED, because it is the schema string the AI catalog renders
+     * INSIDE double quotes (#630). Same policy as its siblings, one field later:
+     * `applies_when`'s subjects and `in` members are quote-free by rule, and
+     * `conditionality_note` is single-line by rule, precisely so no declaration can
+     * forge the syntax an agent parses. `values` was the last quoted, catalog-emitted
+     * schema string with no guard at all.
+     *
+     *   declaration                     rendered catalog fragment
+     *   ["cards", "steps"]              layout?: "cards"|"steps"        ← honest
+     *   ["cards\", \"forged"]           layout?: "cards"|"forged"       ← a value set
+     *                                                                     nothing accepts
+     *   ["cards\nStyle slots: --x"]     layout?: "cards                 ← a forged LINE
+     *                                   Style slots: --x"
+     *
+     * Each case pins WHICH rule it breaks, not merely that something was reported:
+     * a guard that collapsed every member violation into the container message would
+     * otherwise keep the whole provider green.
+     *
+     * @dataProvider rejectedValuesDeclarations
+     */
+    public function testValuesIsABoundedListOfSingleLineStrings(string $why, $values, string $expect): void
+    {
+        $propErrors = \pp_schema_definition_errors(
+            ['type' => 'enum', 'required' => false, 'description' => 'x', 'strict' => true, 'values' => $values],
+            'prop',
+            'test.x'
+        );
+        $this->assertNotEmpty($propErrors, "a `values` declaration that {$why} must be rejected");
+        $this->assertStringContainsString($expect, implode("\n", $propErrors), "the rejection must name the rule broken");
+
+        // The slot surface runs the SAME engine — one guard, both surfaces, as with
+        // every other definition key.
+        $slotErrors = \pp_schema_definition_errors(
+            ['type' => 'enum', 'default' => 'a', 'description' => 'x', 'values' => $values],
+            'slot',
+            'test --x'
+        );
+        $this->assertNotEmpty($slotErrors, "a slot `values` declaration that {$why} must be rejected");
+        $this->assertStringContainsString($expect, implode("\n", $slotErrors));
+    }
+
+    public static function rejectedValuesDeclarations(): array
+    {
+        $list   = 'must be a non-empty LIST of strings';
+        $member = 'every `values` member must be a non-empty string';
+        $quote  = 'must not contain a double quote';
+        $line   = 'must be a single line';
+
+        return [
+            'is not an array'       => ['is not an array',       'cards',                        $list],
+            'is an empty list'      => ['is an empty list',      [],                             $list],
+            'is a JSON object'      => ['is a JSON object',      ['a' => 'cards', 'b' => 'st'],  $list],
+            'is out of order'       => ['is out of order',       [1 => 'cards', 0 => 'steps'],   $list],
+            'holds a non-string'    => ['holds a non-string',    ['cards', 3],                   $member],
+            'holds a nested list'   => ['holds a nested list',   ['cards', ['steps']],           $member],
+            'holds null'            => ['holds null',            ['cards', null],                $member],
+            'holds an empty string' => ['holds an empty string', ['cards', ''],                  $member],
+            'holds a double quote'  => ['holds a double quote',  ['cards', 'for"ged'],           $quote],
+            'forges the value set'  => ['forges the value set',  ['cards", "forged'],            $quote],
+            'holds a newline'       => ['holds a newline',       ["cards\nStyle slots: --x"],    $line],
+            'holds a carriage ret'  => ['holds a carriage ret',  ["cards\rforged"],              $line],
+            'holds a tab'           => ['holds a tab',           ["cards\tforged"],              $line],
+        ];
+    }
+
+    /**
+     * The guard is triggered by the KEY'S PRESENCE, not by `type === 'enum'`.
+     *
+     * Without this test the distinction is unenforced prose: narrowing the condition
+     * to `array_key_exists('values', ...) && ($definition['type'] ?? null) === 'enum'`
+     * leaves the whole suite green, because every other fixture here — and every
+     * shipped declaration — is an enum. The field is bounded wherever it is declared,
+     * so a `values` that appears on a non-enum tomorrow is not an unguarded corner.
+     */
+    public function testTheValuesGuardIsTriggeredByPresenceNotByEnumType(): void
+    {
+        $this->assertNotEmpty(
+            \pp_schema_definition_errors(
+                ['type' => 'string', 'required' => false, 'description' => 'x', 'values' => ['for"ged']],
+                'prop',
+                'test.x'
+            ),
+            '`values` on a non-enum prop is still shape-checked'
+        );
+        $this->assertNotEmpty(
+            \pp_schema_definition_errors(
+                ['type' => 'color', 'default' => '#fff', 'description' => 'x', 'values' => ["a\nb"]],
+                'slot',
+                'test --x'
+            ),
+            '`values` on a non-enum slot is still shape-checked'
+        );
+    }
+
+    /**
+     * The accept side, and the report itself. A well-shaped declaration passes clean;
+     * a container that is not a list stops BEFORE any member is read (so `values:
+     * "cards"` never iterates a string); and a declaration breaking two rules at once
+     * names both, so one CI run tells the author everything wrong with the field.
+     */
+    public function testValuesGuardAcceptsTheShippedShapeAndNamesEveryViolation(): void
+    {
+        $this->assertSame([], \pp_schema_definition_errors(
+            ['type' => 'enum', 'required' => false, 'description' => 'x', 'strict' => true,
+             'values' => ['default', 'muted', 'inverted']],
+            'prop',
+            'test.theme'
+        ), 'the shape every shipped enum declares must stay valid');
+
+        $container = \pp_schema_definition_errors(
+            ['type' => 'enum', 'required' => false, 'description' => 'x', 'strict' => true, 'values' => 'cards'],
+            'prop',
+            'test.x'
+        );
+        $this->assertSame(
+            ['test.x: `values` must be a non-empty LIST of strings.'],
+            $container,
+            'a malformed container is ONE error, not a cascade of per-member complaints'
+        );
+
+        $both = \pp_schema_definition_errors(
+            ['type' => 'enum', 'required' => false, 'description' => 'x', 'strict' => true,
+             'values' => ['for"ged', "line\nbreak"]],
+            'prop',
+            'test.x'
+        );
+        $this->assertCount(2, $both, 'both violations are named in one pass');
+        $this->assertStringContainsString('double quote', $both[0]);
+        $this->assertStringContainsString('single line', $both[1]);
+    }
+
+    /**
+     * NON-VACUITY. The guard reaches the definitions the theme actually ships, through
+     * the same sweep that runs the closed key set — not only synthetic fixtures. Take
+     * every REAL shipped declaration that carries `values`, forge one member, and
+     * assert the engine testEveryShippedDefinitionObjectConformsToTheClosedContract
+     * calls rejects it.
+     *
+     * All THREE surfaces that sweep walks, because `values` ships on all three and a
+     * props-only proof would quietly exempt the other two: style slots (today
+     * `section --section-inline-items-align`) and nested `items.<sub>` fields (today
+     * `grid.items[].text_role`) declare enums exactly as top-level props do.
+     *
+     * Discovered, not hard-coded: the guarantee is about whatever enums are shipped
+     * today, so renaming or retiring one must not turn this proof into a no-op. The
+     * floor is the current inventory, not a round number below it — losing a
+     * declaration should fail here and be re-confirmed, not pass unnoticed.
+     */
+    public function testTheValuesGuardReachesEveryShippedEnumDeclaration(): void
+    {
+        $checked = 0;
+        $forge = function (array $def, string $kind, string $label) use (&$checked): void {
+            if (!isset($def['values']) || !is_array($def['values']) || $def['values'] === []) {
+                return;
+            }
+            $forged = $def;
+            $forged['values'][0] = $def['values'][0] . '", "forged';
+            $this->assertNotEmpty(
+                \pp_schema_definition_errors($forged, $kind, $label),
+                "a forged member on the shipped declaration {$label} must fail the sweep"
+            );
+            $checked++;
+        };
+
+        foreach ($this->allSchemas() as $component => $schema) {
+            foreach (($schema['styling']['style_slots'] ?? []) as $name => $def) {
+                $forge($def, 'slot', "{$component} {$name}");
+            }
+            foreach (($schema['props'] ?? []) as $name => $def) {
+                $forge($def, 'prop', "{$component}.{$name}");
+                foreach (($def['items'] ?? []) as $sub => $subDef) {
+                    if ($sub === 'style' || !is_array($subDef)) {
+                        continue;
+                    }
+                    $forge($subDef, 'prop', "{$component}.{$name}.items.{$sub}");
+                }
+            }
+        }
+        $this->assertSame(31, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
+    }
 
     /**
      * The three condition classes that stay PROSE must be named explicitly by the
