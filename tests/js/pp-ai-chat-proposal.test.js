@@ -255,7 +255,35 @@ describe('renderPreviewError', function () {
         expect(summary.textContent).toBe('Show technical details');
     });
 
-    test('structured error without alternatives omits alternatives element', function () {
+    // The three tests below pin what `alternatives` controls in THIS renderer (#627):
+    // whether the technical-details disclosure opens at all, and the one line it
+    // contributes inside. The same field also decides the step's fixable-vs-impossible
+    // class and the status sentence, through ppChatHasSlotAlternatives() ->
+    // ppChatGetErrorStepClass() / ppChatGetStatusMessage() (#625); those are pinned in
+    // their own describe blocks below. An empty list is not an element that fails to
+    // render — there is no per-alternatives element at any size of the list. It is a
+    // LINE that is not added to the disclosure's text, and when nothing else would fill
+    // the disclosure, the disclosure itself is skipped.
+    //
+    //   alternatives non-empty ──┐
+    //                            ├── OR ──► <details class="pp-ai-preview-error-detail">
+    //   raw_error truthy ────────┘                 raw_error line
+    //                                              hint lines
+    //                                              "Available slots: …" (alternatives only)
+    //   neither ─────────────────────────► no <details> at all
+    //
+    // Asserting on absent ELEMENTS here is what made the predecessor of these tests
+    // vacuous: it looked for a class the renderer never writes, so it would have kept
+    // passing through any breakage of alternatives rendering.
+    //
+    // One line per contribution is a cross-layer promise, not a JS-only one. The split
+    // below separates them because the sole producer of this payload,
+    // _pp_build_friendly_error() (lib/ai-chat.php), routes every caller-supplied string
+    // it reflects through _pp_clean_reflected_text(), which strips \p{Cc} — so no
+    // reflected text arrives carrying a newline of its own. The renderer does not
+    // enforce that itself; a future producer that skips the cleaner could forge a line.
+
+    test('empty alternatives add no slot line, and the disclosure still opens for raw_error', function () {
         var diffArea = document.createElement('div');
         renderPreviewError(diffArea, {
             error_code: 'no_style_slots',
@@ -264,9 +292,41 @@ describe('renderPreviewError', function () {
             raw_error: 'raw'
         });
 
-        var altEl = diffArea.querySelector('.pp-ai-preview-error-alternatives');
-        expect(altEl).toBeNull();
+        var detailEl = diffArea.querySelector('.pp-ai-preview-error-detail');
+        expect(detailEl).not.toBeNull();
+
+        // Line-exact, not a substring scan: the claim is that no slot line was added,
+        // and a line is what the renderer joins.
+        var lines = detailEl.querySelector(':scope > div').textContent.split('\n');
+        expect(lines).toEqual(['raw']);
+
         expect(diffArea.querySelector('.pp-ai-preview-error-message').textContent).toContain('doesn\'t support');
+    });
+
+    test('no disclosure at all when there is neither an alternatives list nor a raw error', function () {
+        var diffArea = document.createElement('div');
+        renderPreviewError(diffArea, {
+            error_code: 'no_style_slots',
+            user_message: 'This component doesn\'t support style customization.',
+            alternatives: []
+        });
+
+        expect(diffArea.querySelector('.pp-ai-preview-error-detail')).toBeNull();
+        expect(diffArea.querySelector('.pp-ai-preview-error-message').textContent).toContain('doesn\'t support');
+    });
+
+    test('alternatives alone open the disclosure and are its only line', function () {
+        var diffArea = document.createElement('div');
+        renderPreviewError(diffArea, {
+            error_code: 'invalid_style_slot',
+            user_message: 'Not available.',
+            alternatives: ['--hero-bg', '--hero-heading-color']
+        });
+
+        var detailEl = diffArea.querySelector('.pp-ai-preview-error-detail');
+        expect(detailEl).not.toBeNull();
+        var lines = detailEl.querySelector(':scope > div').textContent.split('\n');
+        expect(lines).toEqual(['Available slots: --hero-bg, --hero-heading-color']);
     });
 
     test('plain string error renders as text content', function () {
@@ -304,6 +364,16 @@ describe('renderPreviewError', function () {
         var hintEl = diffArea.querySelector('.pp-ai-preview-error-hint');
         expect(hintEl).not.toBeNull();
         expect(hintEl.textContent).toContain('grid');
+
+        // The hint also contributes a line INSIDE the disclosure, between the raw error
+        // and the slot list. Line-exact, so the order the renderer joins them in is
+        // pinned too, not just their presence.
+        var detailEl = diffArea.querySelector('.pp-ai-preview-error-detail');
+        expect(detailEl.querySelector(':scope > div').textContent.split('\n')).toEqual([
+            'raw',
+            'Available on grid: --grid-gap',
+            'Available slots: --section-bg'
+        ]);
     });
 
     test('cross-component hint element absent when no hints', function () {
